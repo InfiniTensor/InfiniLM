@@ -1,0 +1,15 @@
+[package]
+name = "lib-operators"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+bindgen = "0.69"
+
+[dependencies]
+digit-layout="0.0"
+libc = "0.2"
+tensor = { path = "../tensor" }
+common = { path = "../common" }
