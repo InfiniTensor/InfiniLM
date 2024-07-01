@@ -21,6 +21,8 @@ members = [
     "models/llama/cambricon-mlu",
     "models/mixtral/common",
     "models/mixtral/cpu",
+    
+    "lib-operators",
 ]
 resolver = "2"
 
