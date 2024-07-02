@@ -4,7 +4,7 @@ mod resource;
 
 use causal_lm::{CausalLM, DecodingMeta, Model, QueryContext, SampleMeta};
 use common::{upos, utok, FileLoadError};
-use common_cn::Tensor;
+use common_cn::rustTensor as Tensor;
 use std::path::Path;
 
 pub use common_cn::{cndrv, synchronize};
