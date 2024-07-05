@@ -1,0 +1,7 @@
+#include "/home/duanchenjie/workspace/operators/src/ops/swiglu/swiglu.h"
+#include "/home/duanchenjie/workspace/operators/src/ops/rotary_embedding/rotary_embedding.h"
+#include "/home/duanchenjie/workspace/operators/src/ops/rms_norm/rms_norm.h"
+#include "/home/duanchenjie/workspace/operators/src/ops/reform/reform.h"
+#include "/home/duanchenjie/workspace/operators/src/ops/matmul/matmul.h"
+#include "/home/duanchenjie/workspace/operators/src/ops/causal_softmax/causal_softmax.h"
+#include "/home/duanchenjie/workspace/operators/src/tensor/tensor_descriptor.h"

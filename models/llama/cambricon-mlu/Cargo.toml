@@ -9,6 +9,7 @@ common = { path = "../../../common" }
 common-cn = { path = "../../../devices/cambricon-mlu" }
 causal-lm = { path = "../../../causal-lm" }
 llama = { path = "../common" }
+digit-layout.workspace = true
 
 [build-dependencies]
 build-script-cfg.workspace = true

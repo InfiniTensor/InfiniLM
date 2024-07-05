@@ -1,17 +1,9 @@
-﻿use std::env;
+use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    use build_script_cfg::Cfg;
-    use search_neuware_tools::find_neuware_home;
-
-    let neuware = Cfg::new("detected_neuware");
-    if find_neuware_home().is_some() {
-        neuware.define();
-    }
-
     // Tell cargo to tell rustc to link the shared library.
-    println!("cargo:rustc-link-search=native=/home/duanchenjie/workspace/operators/build/linux/x86_64/release");
+    println!("cargo:rustc-link-search=native=/home/duanchenjie/workspace/operators/build/linux/x86_64/release/");
     // 链接动态库，不要包含前缀 lib 和后缀 .so
     println!("cargo:rustc-link-lib=dylib=operators"); // 动态库名为 liboperators.so
     // Link the OpenMP library
@@ -24,7 +16,7 @@ fn main() {
         // Generate rust style enums.
         .default_enum_style(bindgen::EnumVariation::Rust {
             non_exhaustive: true,
-        })     
+        })       
         // Tell cargo to invalidate the built crate whenever the wrapper changes
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         // Disable layout tests because bitfields might cause issues
@@ -38,5 +30,5 @@ fn main() {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .write_to_file(out_path.join("bindings.rs"))
-        .expect("Couldn't write bindings!");      
+        .expect("Couldn't write bindings!");
 }
