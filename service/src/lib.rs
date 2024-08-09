@@ -144,11 +144,28 @@ fn template(model_dir: impl AsRef<Path>) -> ChatTemplate {
         .to_ascii_lowercase()
         .contains("tinyllama")
     {
-        const TEMPLATE: &str = "{% for message in messages %}\n{% if message['role'] == 'user' %}\n{{ '<|user|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'system' %}\n{{ '<|system|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'assistant' %}\n{{ '<|assistant|>\n'  + message['content'] + eos_token }}\n{% endif %}\n{% if loop.last and add_generation_prompt %}\n{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}";
-        TEMPLATE
+        "\
+{%- for message in messages -%}
+    {%- if message['role'] == 'user' -%}
+        {{ '<|user|>\n' + message['content'] + eos_token }}
+    {%- elif message['role'] == 'system' -%}
+        {{ '<|system|>\n' + message['content'] + eos_token }}
+    {%- elif message['role'] == 'assistant' -%}
+        {{ '<|assistant|>\n' + message['content'] + eos_token }}
+    {%- endif -%}
+    {%- if loop.last and add_generation_prompt -%}
+        {{ '<|assistant|>\n' }}
+    {%- endif -%}
+{%- endfor -%}"
     } else {
-        const TEMPLATE: &str = "{% for message in messages %}{% if message['role'] == 'user' %}{{ bos_token + '<用户>' + message['content'].strip() + '<AI>'}}{% else %}{{message['content'].strip()}}{% endif %}{% endfor %}";
-        TEMPLATE
+        "\
+{%- for message in messages -%}
+    {%- if message['role'] == 'user' -%}
+        {{ bos_token + '<用户>' + message['content'].strip() + '<AI>'}}
+    {%- else -%}
+        {{ message['content'].strip() }}
+    {%- endif -%}
+{%- endfor -%}"
     };
     ChatTemplate::new(template.into())
 }

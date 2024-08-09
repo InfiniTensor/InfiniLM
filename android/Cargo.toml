@@ -1,0 +1,17 @@
+[package]
+name = "android"
+version = "0.0.0"
+edition = "2021"
+authors = ["YdrMaster <ydrml@hotmail.com>"]
+
+[dependencies]
+service = { path = "../service" }
+llama-cpu = { path = "../models/llama/common-cpu" }
+tokio.workspace = true
+log.workspace = true
+android_logger = "0.14"
+jni = "0.21"
+
+[lib]
+name = "infinilm_chat"
+crate-type = ["cdylib"]

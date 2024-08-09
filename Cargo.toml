@@ -6,6 +6,7 @@ members = [
     "chat-template",
     "service",
     "web-api",
+    "android",
     "xtask",
 
     "devices/common",

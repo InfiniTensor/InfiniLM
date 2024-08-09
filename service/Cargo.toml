@@ -14,7 +14,7 @@ chat-template = { path = "../chat-template" }
 log.workspace = true
 tokio.workspace = true
 memmap2.workspace = true
-tokeneer = "0.0"
+tokeneer = { git = "https://github.com/YdrMaster/tokeneer", rev = "751f2f8" }
 lru = "0.12"
 rangemap = "1.5"
 
