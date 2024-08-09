@@ -1,0 +1,27 @@
+[package]
+name = "android-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+causal-lm = { path = "../causal-lm" }
+service = { path = "../service" }
+jni = "0.20" 
+memmap2.workspace = true
+android_logger = "0.11.0"
+once_cell = "1.15"
+log = "0.4"
+lazy_static="1.5.0"
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = "0.1"
+clap = { version = "4.5", features = ["derive"] }
+# models
+llama = { path = "../models/llama/common" }
+llama-cpu = { path = "../models/llama/common-cpu" }
+mixtral = { path = "../models/mixtral/common" }
+mixtral-cpu = { path = "../models/mixtral/cpu" }
+
+[lib]
+name ="android"
+crate_type = ["cdylib"]
+

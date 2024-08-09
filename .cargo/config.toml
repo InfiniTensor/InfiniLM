@@ -7,3 +7,22 @@ generate = "xtask generate"
 chat = "xtask chat"
 cast = "xtask cast"
 service = "xtask service"
+
+
+[target.aarch64-linux-android]
+ar = "/home/mayuhang/app/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+linker = "/home/mayuhang/app/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang"
+
+
+[target.armv7-linux-androideabi]
+ar = "/home/mayuhang/app/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/arm-linux-androideabi-ar"
+linker = "/home/mayuhang/app/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi33-clang"
+
+[target.i686-linux-android]
+ar = "/home/mayuhang/app/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android-ar"
+linker = "/home/mayuhang/app/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android33-clang"
+
+
+[target.x86_64-linux-android]
+ar = "/home/mayuhang/app/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+linker = "/home/mayuhang/app/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android33-clang"

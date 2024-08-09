@@ -5,6 +5,7 @@ members = [
     "causal-lm",
     "chat-template",
     "service",
+    "android-api",
     "web-api",
     "xtask",
 
