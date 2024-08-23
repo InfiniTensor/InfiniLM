@@ -10,9 +10,9 @@ authors = ["YdrMaster <ydrml@hotmail.com>"]
 common = { path = "../../common" }
 common-devices = { path = "../common" }
 tensor = { path = "../../tensor" }
-rand = "0.8"
 operators = { workspace = true, features = ["nvidia-gpu"] }
 digit-layout.workspace = true
+half.workspace = true
 
 [build-dependencies]
 build-script-cfg.workspace = true

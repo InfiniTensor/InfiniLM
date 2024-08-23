@@ -11,3 +11,7 @@ common = { path = "../common" }
 tensor = { path = "../tensor" }
 digit-layout.workspace = true
 operators.workspace = true
+ggus.workspace = true
+serde = { workspace = true, features = ["derive"] }
+minijinja = { version = "2.1", default-features = false, features = ["loader"] }
+tokeneer = "0.0"

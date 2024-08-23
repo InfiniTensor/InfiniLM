@@ -1,29 +1,64 @@
-use causal_lm::{CausalLM, DecodingMeta, Model, QueryContext, SampleMeta};
-use common::{f16, upos, utok, Blob, FileLoadError};
+use causal_lm::{
+    CausalLM, ChatTemplate, DecodingMeta, FromGGuf, Model, QueryContext, SampleMeta, Tokenizer,
+};
+use common::{map_files, upos, utok, Blob, GGufModel};
 use common_cpu::{
     tensor::{reslice, slice, udim, Tensor},
     CpuKernels, Kernels, KernelsA, KernelsB, ThisThread,
 };
+use half::f16;
 use llama::{
-    ComputeConst, ComputeStream, Handle, InferenceConfig, LayerStorage, QueueOf, SliceOn, Storage,
-    Weight,
+    duplicate_cache, ComputeStream, Handle, LlamaBlk, LlamaMeta, LlamaModel, QueueOf, SliceOn,
 };
+use memmap2::Mmap;
 use std::{iter::repeat, ops::Deref, path::Path, slice::from_raw_parts};
 
 pub struct Transformer {
-    s: Storage,
+    _files: Box<[Mmap]>,
+    meta: LlamaMeta,
+    token_embed: &'static [u8],
+    output_norm: &'static [u8],
+    output: &'static [u8],
+    blocks: Box<[LlamaBlk<&'static [u8]>]>,
     kernels: CpuKernels,
 }
 
 impl Model for Transformer {
-    type Meta = ();
-    type Error = FileLoadError;
+    type Config = ();
+    type Error = ();
 
     #[inline]
-    fn load(model_dir: impl AsRef<Path>, _meta: Self::Meta) -> Result<Self, Self::Error> {
-        Ok(Self {
-            s: llama::Storage::load_safetensors(model_dir)?,
+    fn load(gguf: impl AsRef<Path>, _meta: Self::Config) -> Result<FromGGuf<Self>, Self::Error> {
+        let _files = map_files(gguf);
+        let gguf = GGufModel::read(_files.iter().map(|f| &**f));
+
+        let tokenizer = Tokenizer::from_gguf(&gguf);
+        let chat_template = ChatTemplate::from_gguf(&gguf, &tokenizer);
+        let llama = LlamaModel::from_gguf(&gguf);
+
+        #[inline(always)]
+        const fn keep_lifetime(data: &[u8]) -> &'static [u8] {
+            unsafe { std::mem::transmute(data) }
+        }
+
+        let model = Self {
+            meta: llama.meta.clone(),
+            token_embed: keep_lifetime(llama.token_embed),
+            output_norm: keep_lifetime(llama.output_norm),
+            output: keep_lifetime(llama.output),
+            blocks: llama
+                .blocks
+                .iter()
+                .map(|blk| blk.as_ref().map(|s| keep_lifetime(s)))
+                .collect(),
             kernels: Default::default(),
+            _files,
+        };
+
+        Ok(FromGGuf {
+            model,
+            tokenizer,
+            chat_template,
         })
     }
 }
@@ -50,22 +85,16 @@ impl ComputeStream for Transformer {
         storage
     }
     #[inline]
+    fn meta(&self) -> &LlamaMeta {
+        &self.meta
+    }
+    #[inline]
     fn kernels(&self) -> &impl Kernels<Self::Handle> {
         &self.kernels
     }
     #[inline]
     fn queue(&self) -> &QueueOf<Self::Handle> {
         &ThisThread
-    }
-    #[inline]
-    fn constant(&self) -> ComputeConst {
-        ComputeConst {
-            nh: self.s.config.nh,
-            nkvh: self.s.config.nkvh,
-            di: self.s.config.di,
-            epsilon: self.s.config.epsilon,
-            theta: self.s.config.theta,
-        }
     }
 
     fn debug<T>(tensor: &Tensor<T>)
@@ -79,39 +108,69 @@ impl ComputeStream for Transformer {
     fn layers(
         &self,
     ) -> impl Iterator<Item = impl llama::LLamaLayer<Byte = <Self::Handle as Handle>::Byte>> {
-        self.s.layers.iter().map(LlamaLayer)
+        (0..self.meta.nblk).map(|i| LlamaLayer(&self.meta, &self.blocks[i]))
     }
 }
 
-struct LlamaLayer<'a>(&'a LayerStorage<Weight>);
+struct LlamaLayer<'a>(&'a LlamaMeta, &'a LlamaBlk<&'static [u8]>);
 
 impl<'a> llama::LLamaLayer for LlamaLayer<'a> {
     type Byte = u8;
-    type Storage<'m> = Weight where Self: 'm;
+    type Storage<'m> = &'m [u8] where Self: 'm;
 
     #[inline]
     fn att_layernorm(&self) -> Tensor<Self::Storage<'_>> {
-        self.0.att_layernorm.clone()
+        let &LlamaMeta {
+            dt_norm, nh, dh, ..
+        } = self.0;
+        Tensor::new(dt_norm, &[(nh * dh) as _], self.1.attn_norm)
     }
     #[inline]
     fn att_qkv(&self) -> Tensor<Self::Storage<'_>> {
-        self.0.att_qkv.clone()
+        let &LlamaMeta {
+            dt_mat,
+            nh,
+            nkvh,
+            dh,
+            ..
+        } = self.0;
+        Tensor::new(
+            dt_mat,
+            &[((nh + nkvh + nkvh) * dh) as _, (nh * dh) as _],
+            self.1.attn_qkv,
+        )
+        .transpose(&[1, 0])
     }
     #[inline]
     fn att_o(&self) -> Tensor<Self::Storage<'_>> {
-        self.0.att_o.clone()
+        let &LlamaMeta { dt_mat, nh, dh, .. } = self.0;
+        Tensor::new(dt_mat, &[(nh * dh) as _, (nh * dh) as _], self.1.attn_o).transpose(&[1, 0])
     }
     #[inline]
     fn mlp_layernorm(&self) -> Tensor<Self::Storage<'_>> {
-        self.0.mlp_layernorm.clone()
+        let &LlamaMeta {
+            dt_norm, nh, dh, ..
+        } = self.0;
+        Tensor::new(dt_norm, &[(nh * dh) as _], self.1.ffn_norm)
     }
     #[inline]
     fn mlp_gate_up(&self) -> Tensor<Self::Storage<'_>> {
-        self.0.mlp_gate_up.clone()
+        let &LlamaMeta {
+            dt_mat, nh, dh, di, ..
+        } = self.0;
+        Tensor::new(
+            dt_mat,
+            &[(di + di) as _, (nh * dh) as _],
+            self.1.ffn_gate_up,
+        )
+        .transpose(&[1, 0])
     }
     #[inline]
     fn mlp_down(&self) -> Tensor<Self::Storage<'_>> {
-        self.0.mlp_down.clone()
+        let &LlamaMeta {
+            dt_mat, nh, dh, di, ..
+        } = self.0;
+        Tensor::new(dt_mat, &[(nh * dh) as _, di as _], self.1.ffn_down).transpose(&[1, 0])
     }
 }
 
@@ -120,38 +179,45 @@ impl CausalLM for Transformer {
 
     #[inline]
     fn max_seq_len(&self) -> upos {
-        self.s.config.max_seq_len
+        self.meta.dctx as _
     }
     #[inline]
     fn bos_token(&self) -> utok {
-        self.s.config.bos_token
+        1
     }
     #[inline]
     fn eos_token(&self) -> utok {
-        self.s.config.eos_token
+        2
     }
     #[inline]
     fn new_cache(&self) -> Tensor<Self::Storage> {
-        self.s.config.new_cache(Blob::new)
+        self.meta.new_cache(Blob::new)
     }
     #[inline]
     fn duplicate_cache(&self, cache: &Tensor<Self::Storage>, pos: upos) -> Tensor<Self::Storage> {
-        InferenceConfig::duplicate_cache(cache, pos, Blob::new, |dst, src| {
+        duplicate_cache(cache, pos, Blob::new, |dst, src| {
             src.map_physical(|u| &**u)
                 .reform_to(&mut dst.map_physical(|u| &mut **u))
         })
     }
 
     fn token_embed(&self, queries: impl IntoIterator<Item = utok>) -> Tensor<Self::Storage> {
-        let dt = self.s.config.dt;
-        let d = self.s.config.d;
+        let LlamaMeta {
+            dt_mat,
+            nh,
+            dh,
+            dvoc,
+            ..
+        } = self.meta;
+        let d = (nh * dh) as udim;
 
         let tokens = queries.into_iter().collect::<Vec<_>>();
         let nt = tokens.len() as udim;
 
-        let mut x = Tensor::alloc(dt, &[nt, d], Blob::new);
+        let mut x = Tensor::alloc(dt_mat, &[nt, d], Blob::new);
+        let token_embed = Tensor::new(dt_mat, &[dvoc as _, d], self.token_embed);
         self.kernels
-            .gather(&mut x, &self.s.embed_tokens, tokens, &ThisThread);
+            .gather(&mut x, &token_embed, tokens, &ThisThread);
         x
     }
 
@@ -168,30 +234,37 @@ impl CausalLM for Transformer {
         decoding: impl IntoIterator<Item = DecodingMeta>,
         hidden_state: Tensor<Self::Storage>,
     ) -> Tensor<Self::Storage> {
-        let dt = self.s.config.dt;
-        let d = self.s.config.d;
-        let epsilon = self.s.config.epsilon;
+        let LlamaMeta {
+            dt_norm,
+            dt_mat,
+            nh,
+            dh,
+            dvoc,
+            epsilon,
+            ..
+        } = self.meta;
+        let d = (nh * dh) as udim;
 
         let mut x = hidden_state;
         let range = DecodingMeta::select(&mut x, decoding, |dst, src| dst.copy_from_slice(src));
 
         if range.is_empty() {
-            return Tensor::alloc(dt, &[0, d as _], Blob::new);
+            return Tensor::alloc(dt_mat, &[0, d as _], Blob::new);
         }
 
-        let lm_layernorm = &self.s.lm_layernorm;
-        let lm_head = &self.s.lm_head;
+        let lm_layernorm = Tensor::new(dt_norm, &[d], self.output_norm);
+        let lm_head = Tensor::new(dt_mat, &[dvoc as _, d], self.output).transpose(&[1, 0]);
         let mut x = x.slice(&[slice![range.start => range.end], slice![=>]]);
-        let mut logits = Tensor::alloc(dt, &[x.shape()[0], lm_head.shape()[1]], Blob::new);
+        let mut logits = Tensor::alloc(dt_mat, &[x.shape()[0], lm_head.shape()[1]], Blob::new);
 
         // 复制一个 x 以实现原地归一化
         let x_ = x
             .as_ref()
             .map_physical(|u| unsafe { from_raw_parts(u.as_ptr(), u.len()) });
         self.kernels()
-            .rms_norm(&mut x, &x_, lm_layernorm, epsilon, self.queue());
+            .rms_norm(&mut x, &x_, &lm_layernorm, epsilon, self.queue());
         self.kernels()
-            .mat_mul(&mut logits, 0., &x, lm_head, 1., self.queue());
+            .mat_mul(&mut logits, 0., &x, &lm_head, 1., self.queue());
 
         logits
     }
@@ -220,11 +293,5 @@ impl CausalLM for Transformer {
 
 #[test]
 fn test_infer() {
-    causal_lm::test_impl::<Transformer>(
-        (),
-        &[
-            29966, 29989, 1792, 29989, 29958, 13, 29903, 388, 376, 18567, 29908, 304, 592, 21106,
-            29879, 5299, 29989, 465, 22137, 29989, 29958, 13,
-        ],
-    );
+    causal_lm::test_impl::<Transformer>((), 100, "Once upon a time,");
 }

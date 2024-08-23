@@ -1,26 +1,40 @@
 #![doc = include_str!("../README.md")]
-#![deny(warnings, missing_docs)]
+// #![deny(warnings, missing_docs)]
 
+mod chat_template;
 mod decoding;
 mod query_context;
+mod tokenizer;
 
 use common::{upos, utok};
 use digit_layout::types::U32;
-use std::path::Path;
+use std::{io::Write, path::Path};
 use tensor::{udim, Tensor};
 
+pub use chat_template::ChatTemplate;
 pub use decoding::DecodingMeta;
 pub use operators::random_sample::SampleArgs;
 pub use query_context::QueryContext;
+pub use tokenizer::Tokenizer;
 
 /// 从文件系统加载的模型。
 pub trait Model: Sized {
     /// 用于模型加载的元数据。
-    type Meta;
+    type Config;
     /// 模型加载中可能的错误。
     type Error;
     /// 从文件系统加载模型。
-    fn load(model_dir: impl AsRef<Path>, meta: Self::Meta) -> Result<Self, Self::Error>;
+    fn load(gguf: impl AsRef<Path>, config: Self::Config) -> Result<FromGGuf<Self>, Self::Error>;
+}
+
+/// 从 GGuf 文件加载模型、分词器和渲染模板。
+pub struct FromGGuf<M: Model> {
+    /// 模型。
+    pub model: M,
+    /// 分词器。
+    pub tokenizer: Tokenizer,
+    /// 渲染模板。
+    pub chat_template: Option<ChatTemplate>,
 }
 
 /// 因果语言模型。
@@ -105,29 +119,40 @@ pub fn pos<'a, S: 'a>(
 }
 
 /// 测试模型实现。
-pub fn test_impl<M>(meta: M::Meta, prompt: &[utok])
+pub fn test_impl<M>(meta: M::Config, max_steps: usize, prompt: &str)
 where
     M: CausalLM,
     M::Error: std::fmt::Debug,
 {
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
-    let Some(model_dir) = common::test_model::find() else {
+    let Some(gguf) = common::test_model::find() else {
         return;
     };
-    println!("model_dir: {}", model_dir.display());
+    println!("model: {}", gguf.display());
 
-    let t0 = Instant::now();
-    let model = M::load(model_dir, meta).unwrap();
-    let t1 = Instant::now();
-    println!("load {:?}", t1 - t0);
+    let time = Instant::now();
+    let FromGGuf {
+        model, tokenizer, ..
+    } = M::load(gguf, meta).unwrap();
+    println!("load {:?}", time.elapsed());
 
-    let mut cache = model.new_cache();
+    let mut prompt = tokenizer.encode(prompt);
+    print!("prompt:");
+    for t in &prompt {
+        print!(" {t}");
+    }
 
-    let mut prompt = prompt.to_vec();
+    let mut tokens = prompt.clone();
     let mut pos = 0;
 
-    while prompt != [model.eos_token()] {
+    let mut time = Duration::ZERO;
+    let mut steps = 0;
+
+    let mut cache = model.new_cache();
+    while prompt != [model.eos_token()] && steps <= max_steps {
+        let start = Instant::now();
+
         let token_embedded = CausalLM::token_embed(&model, prompt.iter().copied());
 
         let queries = [QueryContext {
@@ -146,10 +171,33 @@ where
             num_decode: 1,
             args: SampleArgs::ARG_MAX,
         }];
-        let tokens = CausalLM::sample(&model, args, logits);
+        let token = CausalLM::sample(&model, args, logits)[0];
 
-        println!("{:?}", tokens);
+        if steps > 0 {
+            time += start.elapsed();
+        }
+        steps += 1;
+
+        print!(" {token}");
+        std::io::stdout().flush().unwrap();
+
         pos += prompt.len() as upos;
-        prompt = tokens;
+        prompt.clear();
+        prompt.push(token);
+        tokens.push(token);
     }
+
+    steps -= 1;
+    println!();
+    println!(
+        "steps = {steps}, average decoding time = {:?}",
+        time.div_f32(steps as _)
+    );
+    println!();
+    println!("---");
+    for t in tokens {
+        print!("{}", tokenizer.decode(t));
+    }
+    println!();
+    println!("---");
 }

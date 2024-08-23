@@ -1,9 +1,0 @@
-[package]
-name = "chat-template"
-version = "0.0.0"
-edition = "2021"
-authors = ["YdrMaster <ydrml@hotmail.com>"]
-
-[dependencies]
-serde = { workspace = true, features = ["derive"] }
-minijinja = { version = "2.1", default-features = false, features = ["loader"] }

@@ -64,7 +64,7 @@ impl<M: CausalLM> ServiceComponent<M> {
 
 pub(crate) struct Dispatcher<M: CausalLM> {
     pub model: M,
-    pub(super) batcher: Batcher<Task<M::Storage>>,
+    pub(super) batcher: Arc<Batcher<Task<M::Storage>>>,
 }
 
 impl<M: CausalLM> From<M> for Dispatcher<M> {
@@ -72,7 +72,7 @@ impl<M: CausalLM> From<M> for Dispatcher<M> {
     fn from(model: M) -> Self {
         Self {
             model,
-            batcher: Batcher::new(),
+            batcher: Arc::new(Batcher::new()),
         }
     }
 }
@@ -87,10 +87,10 @@ impl<M: CausalLM> Dispatcher<M> {
 
 impl<M> Dispatcher<M>
 where
-    M: CausalLM + Send + Sync + 'static,
+    M: CausalLM + 'static,
     M::Storage: Send,
 {
-    pub fn run(self: Arc<Self>) {
+    pub fn run(&self) {
         while let Some(tasks) = Some(self.batcher.deq()).filter(|t| !t.is_empty()) {
             // 锁定所有请求的缓存
             let mut caches = tasks.iter().map(Task::lock_cache).collect::<Vec<_>>();
@@ -133,10 +133,10 @@ where
             });
             let tokens = self.model.sample(args, logits);
             // 为每次推理启动一个任务执行发射
-            let self_ = self.clone();
+            let eos = self.model.eos_token();
+            let max = self.model.max_seq_len() as usize;
+            let batcher = self.batcher.clone();
             tokio::task::spawn_blocking(move || {
-                let eos = self_.model.eos_token();
-                let max = self_.model.max_seq_len() as usize;
                 let end_size = max / 4;
                 let start_size = max / 4;
                 zip(tasks, num_decode)
@@ -146,7 +146,7 @@ where
                     .filter(|(_, token)| *token != eos)
                     .for_each(|(mut task, token)| {
                         if task.push(token, start_size, end_size, max) {
-                            self_.batcher.enq(task);
+                            batcher.enq(task);
                         }
                     });
             });

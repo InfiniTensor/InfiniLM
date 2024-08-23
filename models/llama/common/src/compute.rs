@@ -1,9 +1,10 @@
-﻿use causal_lm::QueryContext;
+﻿use crate::LlamaMeta;
+use causal_lm::QueryContext;
 use common_devices::{Kernels, KernelsA, SliceOn};
 use itertools::izip;
 use operators::{Handle, QueueOf};
 use std::ops::{Deref, DerefMut};
-use tensor::{slice, split, udim, LocalSplitable, Tensor};
+use tensor::{slice, split, LocalSplitable, Tensor};
 
 pub trait ComputeStream {
     type Handle: Handle;
@@ -19,9 +20,9 @@ pub trait ComputeStream {
     fn free_pos(&self, _mem: Self::Pos<'_>) {}
     fn map_storage<'a>(&'a self, storage: &'a mut Self::Storage) -> &'a mut SliceOn<Self::Handle>;
 
+    fn meta(&self) -> &LlamaMeta;
     fn kernels(&self) -> &impl Kernels<Self::Handle>;
     fn queue(&self) -> &QueueOf<Self::Handle>;
-    fn constant(&self) -> ComputeConst;
 
     fn debug<T>(tensor: &Tensor<T>)
     where
@@ -55,16 +56,17 @@ pub trait ComputeStream {
             })
             .collect::<Vec<_>>();
 
-        let ComputeConst {
+        let &LlamaMeta {
             nh,
             nkvh,
+            dh,
             di,
             epsilon,
             theta,
-        } = self.constant();
+            ..
+        } = self.meta();
         let dt = token_embedded.data_layout();
-        let d = token_embedded.shape()[1];
-        let dh = d / nh;
+        let d = nh * dh;
         let dkv = nkvh * dh;
         let head_group = nh / nkvh;
         let head_div = (dh as f32).sqrt().recip();
@@ -74,10 +76,11 @@ pub trait ComputeStream {
             .as_mut()
             .map_physical(|u| self.map_storage(u));
         let reusing = (d + dkv + dkv).max(di + di);
-        let mut state_buf = Tensor::alloc(dt, &[nt, d + reusing], |len| self.malloc(len));
+        let mut state_buf = Tensor::alloc(dt, &[nt, (d + reusing) as _], |len| self.malloc(len));
 
-        let mut q_buf = self.malloc((nh * max_seq_len * dh) as usize * dt.nbytes());
-        let mut att_buf = self.malloc((nh * max_seq_len * max_att_len) as usize * dt.nbytes());
+        let mut q_buf = self.malloc(nh * max_seq_len as usize * dh * dt.nbytes());
+        let mut att_buf =
+            self.malloc(nh * max_seq_len as usize * max_att_len as usize * dt.nbytes());
         let pos = causal_lm::pos(&queries, nt);
         let pos = pos.as_ref().map_physical(|u| self.map_pos(u));
 
@@ -91,10 +94,10 @@ pub trait ComputeStream {
                 .mat_mul(&mut qkv, 0., &x1, &params.att_qkv(), 1., queue);
 
             let (q, k, v) = split!(qkv; [1]: d, dkv, dkv);
-            let mut q = q.reshape(&[nt, nh, dh]);
-            let mut k = k.reshape(&[nt, nkvh, dh]);
-            let v = v.reshape(&[nt, nkvh, dh]);
-            let o = x1.reshape(&[nt, nh, dh]);
+            let mut q = q.reshape(&[nt, nh as _, dh as _]);
+            let mut k = k.reshape(&[nt, nkvh as _, dh as _]);
+            let v = v.reshape(&[nt, nkvh as _, dh as _]);
+            let o = x1.reshape(&[nt, nh as _, dh as _]);
 
             self.kernels().rope(&mut q, &pos, theta, queue);
             self.kernels().rope(&mut k, &pos, theta, queue);
@@ -122,10 +125,10 @@ pub trait ComputeStream {
 
                 let slice_cat = &[slice![=>], slice![pos =>=> seq_len], slice![=>]];
                 let slice_att = &[slice![=>], slice![      => att_len], slice![=>]];
-                let shape_q0 = &[nkvh * head_group, seq_len, dh];
-                let shape_q1 = &[nkvh, head_group * seq_len, dh];
-                let shape_att0 = &[nkvh, head_group * seq_len, att_len];
-                let shape_att1 = &[nkvh * head_group, seq_len, att_len];
+                let shape_q0 = &[(nkvh * head_group) as u32, seq_len, dh as u32];
+                let shape_q1 = &[nkvh as u32, head_group as u32 * seq_len, dh as u32];
+                let shape_att0 = &[nkvh as u32, head_group as u32 * seq_len, att_len];
+                let shape_att1 = &[(nkvh * head_group) as u32, seq_len, att_len];
 
                 let mut q_att = Tensor::new(dt, shape_q0, &mut q_buf[..]);
                 let mut k_cat = k_cache.as_mut().slice(slice_cat).map_physical(|u| &mut **u);
@@ -175,14 +178,6 @@ pub trait ComputeStream {
         drop(x);
         token_embedded
     }
-}
-
-pub struct ComputeConst {
-    pub nh: udim,
-    pub nkvh: udim,
-    pub di: udim,
-    pub epsilon: f32,
-    pub theta: f32,
 }
 
 pub trait LLamaLayer {

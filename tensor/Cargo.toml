@@ -12,4 +12,3 @@ nalgebra = "0.32"
 digit-layout.workspace = true
 operators = { workspace = true, features = ["common-cpu"] }
 half.workspace = true
-serde.workspace = true

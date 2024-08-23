@@ -10,7 +10,6 @@ authors = ["YdrMaster <ydrml@hotmail.com>"]
 common = { path = "../common" }
 tensor = { path = "../tensor" }
 causal-lm = { path = "../causal-lm" }
-chat-template = { path = "../chat-template" }
 log.workspace = true
 tokio.workspace = true
 memmap2.workspace = true

@@ -12,3 +12,4 @@ common-devices = { path = "../common" }
 tensor = { path = "../../tensor" }
 operators = { workspace = true, features = ["common-cpu"] }
 digit-layout.workspace = true
+half.workspace = true

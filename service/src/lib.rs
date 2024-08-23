@@ -2,7 +2,6 @@
 
 mod session;
 mod session_manager;
-mod tokenizer;
 
 use causal_lm::{CausalLM, SampleArgs};
 use chat_template::ChatTemplate;
@@ -13,8 +12,6 @@ use std::{
     path::Path,
     sync::Arc,
 };
-use tokeneer::{Bpe, Lpe, Tokeneer};
-use tokenizer::{BPECommonNormalizer, Normalizer, Tokenize};
 use tokio::task::JoinHandle;
 
 pub use chat_template::Message;
@@ -161,9 +158,14 @@ fn template(model_dir: impl AsRef<Path>) -> ChatTemplate {
         "\
 {%- for message in messages -%}
     {%- if message['role'] == 'user' -%}
-        {{ bos_token + '<用户>' + message['content'].strip() + '<AI>'}}
+        {{ bos_token + '<用户>' + message['content'].strip() + eos_token }}
+    {%- elif message['role'] == 'assistant' -%}
+        {{ bos_token + '<AI>' + message['content'].strip() + eos_token }}
     {%- else -%}
-        {{ message['content'].strip() }}
+        {{ bos_token + message['content'].strip() + eos_token }}
+    {%- endif -%}
+    {%- if loop.last and add_generation_prompt -%}
+        {{ bos_token + '<AI>' }}
     {%- endif -%}
 {%- endfor -%}"
     };

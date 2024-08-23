@@ -7,8 +7,6 @@ authors = ["YdrMaster <ydrml@hotmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-half.workspace = true
 memmap2.workspace = true
-safetensors = "0.4"
+digit-layout.workspace = true
+ggus.workspace = true

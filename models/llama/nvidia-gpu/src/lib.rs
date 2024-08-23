@@ -5,23 +5,24 @@ mod resource;
 #[macro_use]
 extern crate log;
 
-use causal_lm::{CausalLM, DecodingMeta, Model, QueryContext, SampleMeta};
-use common::{upos, utok, Blob, FileLoadError};
+use causal_lm::{
+    CausalLM, ChatTemplate, DecodingMeta, FromGGuf, Model, QueryContext, SampleMeta, Tokenizer,
+};
+use common::{map_files, upos, utok, Blob, GGufModel};
 use common_nv::{
-    cuda::{memcpy_d2h, AsRaw},
-    slice, udim, Gpu, Kernels, KernelsA, KernelsB, NvidiaKernels, Tensor,
+    cuda::{memcpy_d2h, AsRaw, DevByte, DevMem, Stream},
+    slice, udim, Gpu, Kernels, KernelsA as _, KernelsB as _, NvidiaKernels, Tensor,
 };
 use cuda::{
-    ContextResource, ContextSpore, DevByte, DevMem, DevMemSpore, Device, EventSpore, HostMemSpore,
-    Stream, StreamSpore,
+    ContextResource, ContextSpore, DevMemSpore, Device, EventSpore, HostMemSpore, StreamSpore,
 };
-use llama::{ComputeConst, InferenceConfig, LayerStorage, SliceOn, Weight};
+use llama::{duplicate_cache, LlamaBlk, LlamaMeta, LlamaModel, QueueOf, SliceOn};
 use resource::Resource;
 use std::{
     cell::RefCell,
     collections::VecDeque,
     iter::repeat,
-    mem::{take, ManuallyDrop},
+    mem::ManuallyDrop,
     ops::Deref,
     path::Path,
     rc::Rc,
@@ -36,19 +37,17 @@ pub use resource::Cache;
 pub struct Transformer(ManuallyDrop<Internal>);
 
 struct Internal {
-    config: InferenceConfig,
-
     resource: Arc<Resource>,
     transfer: StreamSpore,
     kernels: NvidiaKernels,
     sample_workspace: DevMemSpore,
 
-    embed_tokens: Tensor<HostMemSpore>,
-    layers: Vec<LayerStorage<HostMemSpore>>,
-    lm_layernorm: Tensor<DevMemSpore>,
-    lm_head: Tensor<DevMemSpore>,
-
-    pool: Mutex<VecDeque<(LayerStorage<DevMemSpore>, EventSpore)>>,
+    meta: LlamaMeta,
+    token_embed: HostMemSpore,
+    output_norm: DevMemSpore,
+    output: DevMemSpore,
+    blocks: Box<[LlamaBlk<HostMemSpore>]>,
+    pool: Mutex<VecDeque<(LlamaBlk<DevMemSpore>, EventSpore)>>,
 }
 
 pub struct ModelLoadMeta {
@@ -67,78 +66,141 @@ impl ModelLoadMeta {
 }
 
 impl Model for Transformer {
-    type Meta = ModelLoadMeta;
-    type Error = FileLoadError;
+    type Config = ModelLoadMeta;
+    type Error = ();
 
     #[inline]
     fn load(
-        model_dir: impl AsRef<Path>,
-        Self::Meta {
+        gguf: impl AsRef<Path>,
+        Self::Config {
             device,
             load_layers,
-        }: Self::Meta,
-    ) -> Result<Self, Self::Error> {
+        }: Self::Config,
+    ) -> Result<FromGGuf<Self>, Self::Error> {
         let time = Instant::now();
-        let host = llama::Storage::load_safetensors(model_dir)?;
+
+        let _files = map_files(gguf);
+        let gguf = GGufModel::read(_files.iter().map(|f| &**f));
+
+        let tokenizer = Tokenizer::from_gguf(&gguf);
+        let chat_template = ChatTemplate::from_gguf(&gguf, &tokenizer);
+        let llama = LlamaModel::from_gguf(&gguf);
+        let LlamaMeta {
+            dt_norm,
+            dt_mat,
+            nblk,
+            nh,
+            dh,
+            dvoc,
+            ..
+        } = llama.meta;
+
         info!("load host: {:?}", time.elapsed());
-        let load_layers = (load_layers as udim).min(host.config.nlayers);
 
         let resource = Arc::new(Resource::new(&device));
         device.set_mempool_threshold(u64::MAX);
 
         // 异步编译 CUDA
         let kernels = std::thread::spawn(move || {
-            info!("compile CUDA kernels");
-            NvidiaKernels::new(&[device], host.config.d as _, host.config.voc as _)
+            info!("CUDA kernels compiling");
+            let ans = NvidiaKernels::new(&[device], dt_norm, dt_mat, nh * dh, dvoc);
+            info!("CUDA kernels compiled");
+            ans
         });
 
-        resource.apply(|compute| {
+        let model = resource.clone().apply(|compute| {
             let ctx = compute.ctx();
             let transfer = ctx.stream();
 
-            let page_lock = |u: &Weight| {
-                let mut host = ctx.malloc_host::<u8>(u.len());
-                host.copy_from_slice(u);
+            let page_lock = |s: &[u8]| {
+                let mut host = ctx.malloc_host::<u8>(s.len());
+                host.copy_from_slice(s);
                 host.sporulate()
             };
-            let from_host = |u: &HostMemSpore| transfer.from_host(u).sporulate();
+            let from_host = |u: &[u8]| transfer.from_host(u).sporulate();
 
-            let layers = host
-                .layers
+            let token_embed = page_lock(llama.token_embed);
+            let output_norm = from_host(llama.output_norm);
+            let output = from_host(llama.output);
+            let blocks = llama
+                .blocks
                 .iter()
-                .map(|l| l.map(page_lock))
-                .collect::<Vec<_>>();
-            let pool = layers
+                .map(|l| l.as_ref().map(|s| page_lock(s)))
+                .collect::<Box<_>>();
+            let pool = blocks
                 .iter()
-                .take(load_layers as usize)
-                .map(|l| (l.map(from_host), transfer.record().sporulate()))
+                .take(load_layers.min(nblk))
+                .map(|l| {
+                    (
+                        l.as_ref().map(|s| from_host(s)),
+                        transfer.record().sporulate(),
+                    )
+                })
                 .collect();
-            let embed_tokens = host.embed_tokens.as_ref().map_physical(page_lock);
-            let lm_layernorm = host
-                .lm_layernorm
-                .map_physical(|u| transfer.from_host(&u).sporulate());
-            let lm_head = host
-                .lm_head
-                .map_physical(|u| transfer.from_host(&u).sporulate());
-
             let kernels = kernels.join().unwrap();
             let sample_workspace = kernels.sample_workspace(compute).sporulate();
 
-            Ok(Self(ManuallyDrop::new(Internal {
-                embed_tokens,
-                layers,
-                lm_layernorm,
-                lm_head,
-                pool: Mutex::new(pool),
-
-                config: host.config,
-                resource: resource.clone(),
+            Self(ManuallyDrop::new(Internal {
+                resource,
                 transfer: transfer.sporulate(),
-
                 kernels,
                 sample_workspace,
-            })))
+
+                meta: llama.meta,
+                token_embed,
+                output_norm,
+                output,
+                blocks,
+                pool: Mutex::new(pool),
+            }))
+        });
+
+        Ok(FromGGuf {
+            model,
+            tokenizer,
+            chat_template,
         })
+    }
+}
+
+impl Drop for Transformer {
+    fn drop(&mut self) {
+        let Internal {
+            resource,
+            transfer,
+            sample_workspace,
+            token_embed,
+            output_norm,
+            output,
+            blocks,
+            pool,
+            ..
+        } = unsafe { ManuallyDrop::take(&mut self.0) };
+        resource.apply(|compute| {
+            let ctx = compute.ctx();
+            transfer.sprout(ctx);
+            sample_workspace.sprout(ctx);
+            token_embed.sprout(ctx);
+            output_norm.sprout(ctx).drop_on(compute);
+            output.sprout(ctx).drop_on(compute);
+            for blk in blocks {
+                blk.attn_norm.sprout(ctx);
+                blk.attn_qkv.sprout(ctx);
+                blk.attn_o.sprout(ctx);
+                blk.ffn_norm.sprout(ctx);
+                blk.ffn_gate_up.sprout(ctx);
+                blk.ffn_down.sprout(ctx);
+            }
+            for (blk, event) in std::mem::take(&mut *pool.lock().unwrap()) {
+                blk.attn_norm.sprout(ctx).drop_on(compute);
+                blk.attn_qkv.sprout(ctx).drop_on(compute);
+                blk.attn_o.sprout(ctx).drop_on(compute);
+                blk.ffn_norm.sprout(ctx).drop_on(compute);
+                blk.ffn_gate_up.sprout(ctx).drop_on(compute);
+                blk.ffn_down.sprout(ctx).drop_on(compute);
+                event.sprout(ctx);
+            }
+        });
     }
 }
 
@@ -150,7 +212,7 @@ impl Transformer {
 
     #[inline]
     fn tensor(&self, shape: &[udim]) -> Tensor<Cache> {
-        Tensor::alloc(self.0.config.dt, shape, |len| self.cache(len))
+        Tensor::alloc(self.0.meta.dt_mat, shape, |len| self.cache(len))
     }
 }
 
@@ -159,23 +221,23 @@ impl CausalLM for Transformer {
 
     #[inline]
     fn max_seq_len(&self) -> upos {
-        self.0.config.max_seq_len
+        self.0.meta.dctx as _
     }
     #[inline]
     fn bos_token(&self) -> utok {
-        self.0.config.bos_token
+        1
     }
     #[inline]
     fn eos_token(&self) -> utok {
-        self.0.config.eos_token
+        2
     }
 
     fn new_cache(&self) -> Tensor<Self::Storage> {
-        self.0.config.new_cache(|len| self.cache(len))
+        self.0.meta.new_cache(|len| self.cache(len))
     }
 
     fn duplicate_cache(&self, cache: &Tensor<Self::Storage>, pos: upos) -> Tensor<Self::Storage> {
-        InferenceConfig::duplicate_cache(
+        duplicate_cache(
             cache,
             pos,
             |len| self.cache(len),
@@ -193,17 +255,25 @@ impl CausalLM for Transformer {
     }
 
     fn token_embed(&self, queries: impl IntoIterator<Item = utok>) -> Tensor<Self::Storage> {
+        let LlamaMeta {
+            dt_mat,
+            nh,
+            dh,
+            dvoc,
+            ..
+        } = self.0.meta;
+        let d = (nh * dh) as udim;
         let tokens = queries.into_iter().collect::<Vec<_>>();
         let nt = tokens.len() as udim;
-        let d = self.0.config.d;
 
         let mut x = self.tensor(&[nt, d]);
+        let token_embed = Tensor::new(dt_mat, &[dvoc as _, d], &*self.0.token_embed);
         self.0.resource.apply(|compute| {
             self.0.kernels.gather(
                 &mut x
                     .as_mut()
                     .map_physical(|u| &mut **u.mem.sprout_mut(compute.ctx())),
-                &self.0.embed_tokens.as_ref().map_physical(|u| &**u),
+                &token_embed,
                 tokens,
                 compute,
             )
@@ -223,15 +293,11 @@ impl CausalLM for Transformer {
             let ctx = compute.ctx();
             let transfer = self.0.transfer.sprout_ref(ctx);
             let stream = ComputeStream {
-                nh: self.0.config.nh,
-                nkvh: self.0.config.nkvh,
-                di: self.0.config.di,
-                epsilon: self.0.config.epsilon,
-                theta: self.0.config.theta,
+                meta: &self.0.meta,
                 kernels: &self.0.kernels,
                 compute,
                 transfer,
-                host: &self.0.layers,
+                host: &self.0.blocks,
                 dev: Rc::new(RefCell::new(self.0.pool.lock().unwrap())),
             };
             <ComputeStream as llama::ComputeStream>::forward(&stream, queries, token_embedded)
@@ -243,6 +309,17 @@ impl CausalLM for Transformer {
         decoding: impl IntoIterator<Item = DecodingMeta>,
         mut hidden_state: Tensor<Self::Storage>,
     ) -> Tensor<Self::Storage> {
+        let LlamaMeta {
+            dt_norm,
+            dt_mat,
+            nh,
+            dh,
+            dvoc,
+            epsilon,
+            ..
+        } = self.0.meta;
+        let d = (nh * dh) as udim;
+
         self.0.resource.apply(|compute| {
             let ctx = compute.ctx();
             let mut x = hidden_state
@@ -251,19 +328,12 @@ impl CausalLM for Transformer {
             let range =
                 DecodingMeta::select(&mut x, decoding, |dst, src| compute.memcpy_d2d(dst, src));
             if range.is_empty() {
-                return self.tensor(&[0, self.0.config.d]);
+                return self.tensor(&[0, d]);
             }
 
-            let lm_layernorm = self
-                .0
-                .lm_layernorm
-                .as_ref()
-                .map_physical(|u| &**u.sprout_ref(ctx));
-            let lm_head = self
-                .0
-                .lm_head
-                .as_ref()
-                .map_physical(|u| &**u.sprout_ref(ctx));
+            let lm_layernorm = Tensor::new(dt_norm, &[d], &**self.0.output_norm.sprout_ref(ctx));
+            let lm_head = Tensor::new(dt_mat, &[dvoc as _, d], &**self.0.output.sprout_ref(ctx))
+                .transpose(&[1, 0]);
 
             let mut x = x.slice(&[slice![range.start => range.end], slice![=>]]);
             let mut logits = self.tensor(&[x.shape()[0], lm_head.shape()[1]]);
@@ -274,7 +344,7 @@ impl CausalLM for Transformer {
                 .map_physical(|u| unsafe { from_raw_parts(u.as_ptr(), u.len()) });
             self.0
                 .kernels
-                .rms_norm(&mut x, &x_, &lm_layernorm, self.0.config.epsilon, compute);
+                .rms_norm(&mut x, &x_, &lm_layernorm, epsilon, compute);
             self.0.kernels.mat_mul(
                 &mut logits
                     .as_mut()
@@ -301,7 +371,7 @@ impl CausalLM for Transformer {
             let workspace =
                 unsafe { from_raw_parts_mut(workspace_ptr as *mut DevByte, workspace_len) };
             self.0.kernels.sample(
-                self.0.config.voc as _,
+                self.0.meta.dvoc as _,
                 args.into_iter()
                     .flat_map(|meta| repeat(meta.args).take(meta.num_decode)),
                 logits.take_physical().mem.sprout_ref(compute.ctx()),
@@ -312,64 +382,16 @@ impl CausalLM for Transformer {
     }
 }
 
-impl Drop for Transformer {
-    #[inline]
-    fn drop(&mut self) {
-        let Internal {
-            config: _,
-            resource,
-            transfer,
-            kernels: _,
-            sample_workspace,
-            embed_tokens,
-            layers,
-            lm_layernorm,
-            lm_head,
-            pool,
-        } = unsafe { ManuallyDrop::take(&mut self.0) };
-        resource.apply(|compute| {
-            let ctx = compute.ctx();
-            transfer.sprout(ctx);
-            sample_workspace.sprout(ctx);
-            embed_tokens.take_physical().sprout(ctx);
-            lm_layernorm.take_physical().sprout(ctx);
-            lm_head.take_physical().sprout(ctx);
-            for layer in layers {
-                layer.att_layernorm.take_physical().sprout(ctx);
-                layer.att_qkv.take_physical().sprout(ctx);
-                layer.att_o.take_physical().sprout(ctx);
-                layer.mlp_layernorm.take_physical().sprout(ctx);
-                layer.mlp_gate_up.take_physical().sprout(ctx);
-                layer.mlp_down.take_physical().sprout(ctx);
-            }
-            for (layer, event) in take(&mut *pool.lock().unwrap()) {
-                layer.att_layernorm.take_physical().sprout(ctx);
-                layer.att_qkv.take_physical().sprout(ctx);
-                layer.att_o.take_physical().sprout(ctx);
-                layer.mlp_layernorm.take_physical().sprout(ctx);
-                layer.mlp_gate_up.take_physical().sprout(ctx);
-                layer.mlp_down.take_physical().sprout(ctx);
-                event.sprout(ctx);
-            }
-        });
-    }
-}
-
 struct ComputeStream<'a> {
-    nh: udim,
-    nkvh: udim,
-    di: udim,
-    epsilon: f32,
-    theta: f32,
+    meta: &'a LlamaMeta,
     kernels: &'a NvidiaKernels,
     compute: &'a Stream<'a>,
     transfer: &'a Stream<'a>,
-    host: &'a [LayerStorage<HostMemSpore>],
+    host: &'a [LlamaBlk<HostMemSpore>],
     dev: DevMemPool<'a>,
 }
 
-type DevMemPool<'a> =
-    Rc<RefCell<MutexGuard<'a, VecDeque<(LayerStorage<DevMemSpore>, EventSpore)>>>>;
+type DevMemPool<'a> = Rc<RefCell<MutexGuard<'a, VecDeque<(LlamaBlk<DevMemSpore>, EventSpore)>>>>;
 
 impl<'a> llama::ComputeStream for ComputeStream<'a> {
     type Handle = Gpu;
@@ -401,22 +423,16 @@ impl<'a> llama::ComputeStream for ComputeStream<'a> {
         storage.mem.sprout_mut(self.compute.ctx())
     }
     #[inline]
+    fn meta(&self) -> &LlamaMeta {
+        self.meta
+    }
+    #[inline]
     fn kernels(&self) -> &impl Kernels<Self::Handle> {
         self.kernels
     }
     #[inline]
-    fn queue(&self) -> &llama::QueueOf<Self::Handle> {
+    fn queue(&self) -> &QueueOf<Self::Handle> {
         self.compute
-    }
-    #[inline]
-    fn constant(&self) -> ComputeConst {
-        ComputeConst {
-            nh: self.nh,
-            nkvh: self.nkvh,
-            di: self.di,
-            epsilon: self.epsilon,
-            theta: self.theta,
-        }
     }
 
     fn debug<T>(tensor: &Tensor<T>)
@@ -437,33 +453,24 @@ impl<'a> llama::ComputeStream for ComputeStream<'a> {
         &self,
     ) -> impl Iterator<Item = impl llama::LLamaLayer<Byte = <Self::Handle as llama::Handle>::Byte>>
     {
-        Iter::new(self.host, self.dev.clone(), self.compute, self.transfer)
+        Iter {
+            meta: self.meta,
+            host: self.host,
+            pool: self.dev.clone(),
+            compute: self.compute,
+            transfer: self.transfer,
+            layer: 0,
+        }
     }
 }
 
 struct Iter<'a> {
-    host: &'a [LayerStorage<HostMemSpore>],
+    meta: &'a LlamaMeta,
+    host: &'a [LlamaBlk<HostMemSpore>],
     pool: DevMemPool<'a>,
     compute: &'a Stream<'a>,
     transfer: &'a Stream<'a>,
     layer: usize,
-}
-
-impl<'a> Iter<'a> {
-    pub fn new(
-        host: &'a [LayerStorage<HostMemSpore>],
-        pool: DevMemPool<'a>,
-        compute: &'a Stream,
-        transfer: &'a Stream,
-    ) -> Self {
-        Self {
-            host,
-            pool,
-            compute,
-            transfer,
-            layer: 0,
-        }
-    }
 }
 
 impl<'a> Iterator for Iter<'a> {
@@ -487,6 +494,7 @@ impl<'a> Iterator for Iter<'a> {
         self.compute.wait_for(&event.sprout(ctx));
 
         Some(Self::Item {
+            meta: self.meta,
             host: self.host,
             pool: self.pool.clone(),
             load,
@@ -497,45 +505,86 @@ impl<'a> Iterator for Iter<'a> {
 }
 
 struct LayerLoader<'a> {
-    host: &'a [LayerStorage<HostMemSpore>],
+    meta: &'a LlamaMeta,
+    host: &'a [LlamaBlk<HostMemSpore>],
     pool: DevMemPool<'a>,
     load: Option<usize>,
     transfer: &'a Stream<'a>,
-    storage: Option<LayerStorage<DevMemSpore>>,
+    storage: Option<LlamaBlk<DevMemSpore>>,
 }
 
 macro_rules! access {
     ($self:expr, $name:ident) => {
-        $self
+        &**$self
             .storage
             .as_ref()
             .unwrap()
             .$name
-            .as_ref()
-            .map_physical(|u| &**u.sprout_ref($self.transfer.ctx()))
+            .sprout_ref($self.transfer.ctx())
     };
 }
 impl<'a> llama::LLamaLayer for LayerLoader<'a> {
     type Byte = DevByte;
     type Storage<'m> = &'m[DevByte] where Self: 'm;
 
+    #[inline]
     fn att_layernorm(&self) -> Tensor<Self::Storage<'_>> {
-        access!(self, att_layernorm)
+        let &LlamaMeta {
+            dt_norm, nh, dh, ..
+        } = self.meta;
+        Tensor::new(dt_norm, &[(nh * dh) as _], access!(self, attn_norm))
     }
+    #[inline]
     fn att_qkv(&self) -> Tensor<Self::Storage<'_>> {
-        access!(self, att_qkv)
+        let &LlamaMeta {
+            dt_mat,
+            nh,
+            nkvh,
+            dh,
+            ..
+        } = self.meta;
+        Tensor::new(
+            dt_mat,
+            &[((nh + nkvh + nkvh) * dh) as _, (nh * dh) as _],
+            access!(self, attn_qkv),
+        )
+        .transpose(&[1, 0])
     }
+    #[inline]
     fn att_o(&self) -> Tensor<Self::Storage<'_>> {
-        access!(self, att_o)
+        let &LlamaMeta { dt_mat, nh, dh, .. } = self.meta;
+        Tensor::new(
+            dt_mat,
+            &[(nh * dh) as _, (nh * dh) as _],
+            access!(self, attn_o),
+        )
+        .transpose(&[1, 0])
     }
+    #[inline]
     fn mlp_layernorm(&self) -> Tensor<Self::Storage<'_>> {
-        access!(self, mlp_layernorm)
+        let &LlamaMeta {
+            dt_norm, nh, dh, ..
+        } = self.meta;
+        Tensor::new(dt_norm, &[(nh * dh) as _], access!(self, ffn_norm))
     }
+    #[inline]
     fn mlp_gate_up(&self) -> Tensor<Self::Storage<'_>> {
-        access!(self, mlp_gate_up)
+        let &LlamaMeta {
+            dt_mat, nh, dh, di, ..
+        } = self.meta;
+        Tensor::new(
+            dt_mat,
+            &[(di + di) as _, (nh * dh) as _],
+            access!(self, ffn_gate_up),
+        )
+        .transpose(&[1, 0])
     }
+    #[inline]
     fn mlp_down(&self) -> Tensor<Self::Storage<'_>> {
-        access!(self, mlp_down)
+        let &LlamaMeta {
+            dt_mat, nh, dh, di, ..
+        } = self.meta;
+        Tensor::new(dt_mat, &[(nh * dh) as _, di as _], access!(self, ffn_down)).transpose(&[1, 0])
     }
 }
 
@@ -546,19 +595,19 @@ impl Drop for LayerLoader<'_> {
             macro_rules! exchange {
                 ($($name:ident)+) => {
                     $(
-                        let host = self.host[load].$name.physical();
-                        let mut dev = lll.$name.physical_mut().sprout_mut(self.transfer.ctx());
+                        let host = &self.host[load].$name;
+                        let mut dev = lll.$name.sprout_mut(self.transfer.ctx());
                         self.transfer.memcpy_h2d(&mut dev, host);
                     )+
                 };
             }
             exchange! {
-                att_layernorm
-                att_qkv
-                att_o
-                mlp_layernorm
-                mlp_gate_up
-                mlp_down
+                attn_norm
+                attn_qkv
+                attn_o
+                ffn_norm
+                ffn_gate_up
+                ffn_down
             }
         }
         self.pool
@@ -578,9 +627,7 @@ fn test_infer() {
             device,
             load_layers: 20,
         },
-        &[
-            29966, 29989, 1792, 29989, 29958, 13, 29903, 388, 376, 18567, 29908, 304, 592, 21106,
-            29879, 5299, 29989, 465, 22137, 29989, 29958, 13,
-        ],
+        100,
+        "Once upon a time,",
     );
 }

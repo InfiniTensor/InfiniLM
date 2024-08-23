@@ -7,9 +7,10 @@ macro_rules! slice {
 
 mod gather;
 
-use common::{f16, utok};
+use common::utok;
 use common_devices::{Operators, SliceOn};
 use digit_layout::types::F16;
+use half::f16;
 use operators::{
     fuesd_softmax::common_cpu as softmax,
     mat_mul::common_cpu as mat_mul,

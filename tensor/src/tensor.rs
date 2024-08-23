@@ -1,7 +1,7 @@
 ﻿use crate::{idim, pattern::Pattern, udim, Shape};
 use digit_layout::DigitLayout;
 use nalgebra::DVector;
-use operators::{Argument, Operator, TensorLayout};
+use operators::{Operator, TensorLayout};
 use std::{
     mem::{align_of, size_of},
     ops::{Deref, DerefMut},
@@ -163,17 +163,18 @@ impl<Physical> Tensor<Physical> {
 
     pub fn layout(&self) -> TensorLayout {
         let dt = self.data_layout();
-        let shape: Vec<Argument<usize>> = self
-            .shape
-            .iter()
-            .map(|&x| Argument::new(x as usize))
-            .collect::<Vec<_>>();
-        let strides = self
-            .strides()
-            .iter()
-            .map(|&x| Argument::new(x as isize * dt.nbytes() as isize))
-            .collect::<Vec<_>>();
-        TensorLayout::new(dt, shape, strides)
+        let shape = &self.shape;
+        let strides = self.strides();
+
+        let d = dt.nbytes() as i64;
+
+        let mut ans = TensorLayout::new(dt, shape.len());
+        let (shape_, strides_) = ans.as_mut();
+        for i in 0..self.shape.len() {
+            shape_[i] = (shape[i] as u64).into();
+            strides_[i] = (strides[i] as i64 * d).into();
+        }
+        ans
     }
 }
 
@@ -225,23 +226,19 @@ impl<Physical: Deref<Target = [u8]>> Tensor<Physical> {
             .launch(
                 &Args {
                     dst_layout: {
-                        let shape = self
-                            .shape
-                            .iter()
-                            .map(|&d| Argument::new(d as usize))
-                            .collect::<Vec<_>>();
-                        let mut strides = self
-                            .shape
-                            .iter()
-                            .rev()
-                            .scan(self.layout.nbytes() as isize, |mul, &d| {
-                                let s = *mul;
-                                *mul *= d as isize;
-                                Some(Argument::new(s))
-                            })
-                            .collect::<Vec<_>>();
-                        strides.reverse();
-                        TensorLayout::new(self.layout, shape, strides)
+                        let dt = self.data_layout();
+                        let shape = &self.shape;
+
+                        let mut mul = dt.nbytes() as i64;
+
+                        let mut ans = TensorLayout::new(dt, shape.len());
+                        let (shape_, strides_) = ans.as_mut();
+                        for i in (0..self.shape.len()).rev() {
+                            shape_[i] = (shape[i] as u64).into();
+                            strides_[i] = mul.into();
+                            mul *= shape[i] as i64;
+                        }
+                        ans
                     },
                     dst_base: dst.as_mut_ptr(),
                     src_layout: self.layout(),

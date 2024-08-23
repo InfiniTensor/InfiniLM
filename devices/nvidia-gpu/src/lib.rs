@@ -2,10 +2,14 @@
 
 mod gather;
 
-use common::{f16, utok};
+use common::utok;
 use common_devices::{Operators, SliceOn};
 use cuda::{AsRaw, Device};
-use digit_layout::types::{F16, U32};
+use digit_layout::{
+    types::{F16, U32},
+    DigitLayout,
+};
+use half::f16;
 use operators::{
     cuda::{memcpy_d2h, DevByte, DevMem, Stream},
     dyn_,
@@ -44,8 +48,15 @@ struct Internal {
 }
 
 impl Internal {
-    pub fn new(handle: &Gpu, d: usize, voc: usize) -> Self {
-        let hidden_layout = TensorLayout::new(F16, [dyn_(), d.into()], [dyn_(); 2]);
+    pub fn new(
+        handle: &Gpu,
+        dt_norm: DigitLayout,
+        dt_mat: DigitLayout,
+        d: usize,
+        voc: usize,
+    ) -> Self {
+        let d = d as u64;
+        let hidden_layout = TensorLayout::init(dt_mat, [dyn_(), d.into()], [dyn_(); 2]);
         let mat_mul = mat_mul::Operator::new(handle);
 
         let mut rms_norm = rms_norm::Operator::new(handle);
@@ -55,7 +66,7 @@ impl Internal {
                 y_base: null_mut(),
                 x_layout: hidden_layout.clone(),
                 x_base: null(),
-                w_layout: TensorLayout::new(F16, [d.into()], [dyn_()]),
+                w_layout: TensorLayout::init(dt_norm, [d.into()], [dyn_()]),
                 w_base: null(),
                 epsilon: 0.,
             })
@@ -63,9 +74,9 @@ impl Internal {
 
         let mut rope = rope::Operator::new(handle);
         rope.scheme(&operators::rope::Args {
-            t_layout: TensorLayout::new(F16, [dyn_(); 3], [dyn_(); 3]),
+            t_layout: TensorLayout::dyn_(dt_mat, 3),
             t_base: null_mut(),
-            p_layout: TensorLayout::new(U32, [dyn_()], [dyn_()]),
+            p_layout: TensorLayout::dyn_(U32, 1),
             p_base: null(),
             theta: 0.,
         })
@@ -74,9 +85,9 @@ impl Internal {
         let mut reform = reform::Operator::new(handle);
         reform
             .scheme(&operators::reform::Args {
-                dst_layout: TensorLayout::new(F16, [dyn_(); 2], [dyn_(); 2]),
+                dst_layout: TensorLayout::dyn_(dt_mat, 2),
                 dst_base: null_mut(),
-                src_layout: TensorLayout::new(F16, [dyn_(); 2], [dyn_(); 2]),
+                src_layout: TensorLayout::dyn_(dt_mat, 2),
                 src_base: null(),
             })
             .unwrap();
@@ -84,7 +95,7 @@ impl Internal {
         let mut softmax = softmax::Operator::new(handle);
         softmax
             .scheme(&operators::fuesd_softmax::Args {
-                att_layout: TensorLayout::new(F16, [dyn_(); 3], [dyn_(); 3]),
+                att_layout: TensorLayout::dyn_(dt_mat, 3),
                 att_base: null_mut(),
             })
             .unwrap();
@@ -95,11 +106,11 @@ impl Internal {
             y_base: null_mut(),
             x_layout: hidden_layout.clone(),
             x_base: null(),
-            gate_up_layout: TensorLayout::new(F16, [dyn_(); 2], [dyn_(); 2]),
+            gate_up_layout: TensorLayout::dyn_(dt_mat, 2),
             gate_up_base: null_mut(),
-            w_gate_up_layout: TensorLayout::new(F16, [dyn_(); 2], [dyn_(); 2]),
+            w_gate_up_layout: TensorLayout::dyn_(dt_mat, 2),
             w_gate_up_base: null(),
-            w_down_layout: TensorLayout::new(F16, [dyn_(); 2], [dyn_(); 2]),
+            w_down_layout: TensorLayout::dyn_(dt_mat, 2),
             w_down_base: null(),
             down_alpha: 1.,
             down_bias: true,
@@ -108,7 +119,7 @@ impl Internal {
 
         let mut random_sample = random_sample::Operator::new(handle);
         random_sample
-            .scheme(&operators::random_sample::Args::new(F16, voc))
+            .scheme(&operators::random_sample::Args::new(dt_mat, voc))
             .unwrap();
 
         Self {
@@ -124,14 +135,26 @@ impl Internal {
 }
 
 impl NvidiaKernels {
-    pub fn new(devices: &[Device], rms_norm_size: usize, voc_size: usize) -> Self {
+    pub fn new(
+        devices: &[Device],
+        dt_norm: DigitLayout,
+        dt_mat: DigitLayout,
+        rms_norm_size: usize,
+        voc_size: usize,
+    ) -> Self {
         Self(
             devices
                 .iter()
                 .map(|d| {
                     (
                         unsafe { d.as_raw() },
-                        Internal::new(&Gpu::new(d.retain_primary()), rms_norm_size, voc_size),
+                        Internal::new(
+                            &Gpu::new(d.retain_primary()),
+                            dt_norm,
+                            dt_mat,
+                            rms_norm_size,
+                            voc_size,
+                        ),
                     )
                 })
                 .collect(),

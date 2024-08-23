@@ -13,7 +13,5 @@ tensor = { path = "../../../tensor" }
 causal-lm = { path = "../../../causal-lm" }
 itertools.workspace = true
 digit-layout.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
 operators.workspace = true
-rayon = "1.10"
+ggus.workspace = true

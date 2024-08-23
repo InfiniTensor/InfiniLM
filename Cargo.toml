@@ -3,11 +3,10 @@ members = [
     "common",
     "tensor",
     "causal-lm",
-    "chat-template",
-    "service",
-    "web-api",
-    "android",
-    "xtask",
+    # "service",
+    # "web-api",
+    # "android",
+    # "xtask",
 
     "devices/common",
     "devices/common-cpu",
@@ -18,10 +17,10 @@ members = [
     "models/llama/common",
     "models/llama/common-cpu",
     "models/llama/nvidia-gpu",
-    "models/llama/nvidia-gpu-distributed",
-    "models/llama/cambricon-mlu",
-    "models/mixtral/common",
-    "models/mixtral/cpu",
+    # "models/llama/nvidia-gpu-distributed",
+    # "models/llama/cambricon-mlu",
+    # "models/mixtral/common",
+    # "models/mixtral/cpu",
 ]
 resolver = "2"
 
@@ -36,7 +35,8 @@ tokio = { version = "1.38", features = ["rt-multi-thread", "sync"] }
 digit-layout = "0.0"
 build-script-cfg = "0.0"
 
-operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "4db3c62", default-features = false }
+ggus = { git = "https://github.com/YdrMaster/gguf", rev = "1f4a7ba" }
+operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "29b950c", default-features = false }
 search-cuda-tools = { git = "https://github.com/YdrMaster/cuda-driver", rev = "d089ada" }
 search-neuware-tools = "0.0"
 search-ascend-tools = { git = "https://github.com/InfiniTensor/ascendcl", rev = "1e7a696" }
