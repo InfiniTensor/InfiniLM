@@ -4,6 +4,7 @@ members = [
     "tensor",
     "models/llama/common",
     "models/llama/common-cpu",
+    "models/llama/nvidia-gpu",
     "test-utils",
 ]
 resolver = "2"
@@ -14,6 +15,6 @@ tensor.path = "tensor"
 causal-lm.path = "causal-lm"
 test-utils.path = "test-utils"
 
-ggus = { git = "https://github.com/YdrMaster/gguf", rev = "e64d758" }
+ggus = { git = "https://github.com/YdrMaster/gguf", rev = "c676bcc" }
 ndarray-layout = { git = "https://github.com/YdrMaster/ndarray-layout", rev = "5c6b969" }
 operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "64419f0", default-features = false }

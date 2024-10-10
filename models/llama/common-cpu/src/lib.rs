@@ -142,7 +142,7 @@ struct Weights {
 
 impl WeightLoader for Weights {
     type Hardware = Cpu;
-    type Memory = &'static [u8];
+    type Memory<'s> = &'s [u8];
 
     #[inline]
     fn load_blk(
@@ -150,7 +150,7 @@ impl WeightLoader for Weights {
         which: BlkWeight,
         iblk: usize,
         _queue: &QueueOf<Self::Hardware>,
-    ) -> Self::Memory {
+    ) -> Self::Memory<'_> {
         let blk = &self.blks[iblk];
         match which {
             BlkWeight::AttnNorm => blk.attn_norm,
@@ -163,12 +163,12 @@ impl WeightLoader for Weights {
     }
 
     #[inline]
-    fn output_norm(&self, _queue: &QueueOf<Self::Hardware>) -> Self::Memory {
+    fn output_norm(&self, _queue: &QueueOf<Self::Hardware>) -> Self::Memory<'_> {
         self.output_norm
     }
 
     #[inline]
-    fn output(&self, _queue: &QueueOf<Self::Hardware>) -> Self::Memory {
+    fn output(&self, _queue: &QueueOf<Self::Hardware>) -> Self::Memory<'_> {
         self.output
     }
 }

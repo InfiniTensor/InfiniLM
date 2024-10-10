@@ -54,17 +54,19 @@ pub enum BlkWeight {
 
 pub trait WeightLoader {
     type Hardware: Hardware;
-    type Memory: Deref<Target = [ByteOf<Self::Hardware>]>;
+    type Memory<'s>: Deref<Target = [ByteOf<Self::Hardware>]> + 's
+    where
+        Self: 's;
 
     fn load_blk(
         &self,
         which: BlkWeight,
         iblk: usize,
         queue: &QueueOf<Self::Hardware>,
-    ) -> Self::Memory;
+    ) -> Self::Memory<'_>;
 
-    fn output_norm(&self, queue: &QueueOf<Self::Hardware>) -> Self::Memory;
-    fn output(&self, queue: &QueueOf<Self::Hardware>) -> Self::Memory;
+    fn output_norm(&self, queue: &QueueOf<Self::Hardware>) -> Self::Memory<'_>;
+    fn output(&self, queue: &QueueOf<Self::Hardware>) -> Self::Memory<'_>;
 }
 
 pub struct LlamaWorker<Ops: Operators, W> {
@@ -544,7 +546,7 @@ impl LlamaMeta {
 
 impl<W: WeightLoader> WeightDecorator<W> {
     #[inline]
-    pub fn attn_norm(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory> {
+    pub fn attn_norm(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory<'_>> {
         combine(
             &self.attn_norm,
             self.weights.load_blk(BlkWeight::AttnNorm, iblk, queue),
@@ -552,7 +554,7 @@ impl<W: WeightLoader> WeightDecorator<W> {
     }
 
     #[inline]
-    pub fn attn_qkv(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory> {
+    pub fn attn_qkv(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory<'_>> {
         combine(
             &self.attn_qkv,
             self.weights.load_blk(BlkWeight::AttnQKV, iblk, queue),
@@ -560,7 +562,7 @@ impl<W: WeightLoader> WeightDecorator<W> {
     }
 
     #[inline]
-    pub fn attn_o(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory> {
+    pub fn attn_o(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory<'_>> {
         combine(
             &self.attn_o,
             self.weights.load_blk(BlkWeight::AttnO, iblk, queue),
@@ -568,7 +570,7 @@ impl<W: WeightLoader> WeightDecorator<W> {
     }
 
     #[inline]
-    pub fn ffn_norm(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory> {
+    pub fn ffn_norm(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory<'_>> {
         combine(
             &self.ffn_norm,
             self.weights.load_blk(BlkWeight::FfnNorm, iblk, queue),
@@ -576,7 +578,7 @@ impl<W: WeightLoader> WeightDecorator<W> {
     }
 
     #[inline]
-    pub fn ffn_gate_up(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory> {
+    pub fn ffn_gate_up(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory<'_>> {
         combine(
             &self.ffn_gate_up,
             self.weights.load_blk(BlkWeight::FfnGateUp, iblk, queue),
@@ -584,7 +586,7 @@ impl<W: WeightLoader> WeightDecorator<W> {
     }
 
     #[inline]
-    pub fn ffn_down(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory> {
+    pub fn ffn_down(&self, iblk: usize, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory<'_>> {
         combine(
             &self.ffn_down,
             self.weights.load_blk(BlkWeight::FfnDown, iblk, queue),
@@ -592,12 +594,12 @@ impl<W: WeightLoader> WeightDecorator<W> {
     }
 
     #[inline]
-    pub fn output_norm(&self, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory> {
+    pub fn output_norm(&self, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory<'_>> {
         combine(&self.output_norm, self.weights.output_norm(queue))
     }
 
     #[inline]
-    pub fn output(&self, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory> {
+    pub fn output(&self, queue: &QueueOf<W::Hardware>) -> Tensor<W::Memory<'_>> {
         combine(&self.output, self.weights.output(queue))
     }
 }

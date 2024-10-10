@@ -1,0 +1,15 @@
+[package]
+name = "llama-nv"
+version = "0.0.0"
+edition = "2021"
+authors = ["YdrMaster <ydrml@hotmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+llama.path = "../common"
+operators = { workspace = true, features = ["nvidia-gpu"] }
+
+[dev-dependencies]
+test-utils.workspace = true
+gguf.workspace = true
