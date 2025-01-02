@@ -1,12 +1,12 @@
-﻿use crate::{Operators, RandomSample, Weights};
+use crate::{Operators, RandomSample, Weights};
 use gguf::GGufModel;
 use llama::{
     ext::ggml_quants::f16, LlamaArgs, LlamaMeta, LlamaRequest, LlamaStorage, LlamaWorker, Tensor,
 };
 use operators::{
-    cuda::{self, memcpy_d2h, Device, NoDevice},
-    nvidia_gpu::{Config, Gpu},
+    cuda::{self, memcpy_d2h, Config, Device, Gpu, MemPoolBlob, NoDevice, StreamMemPool},
     random_sample::{KVPair, SampleArgs},
+    Alloc, QueueAlloc,
 };
 use std::{slice::from_raw_parts_mut, time::Instant, usize};
 use test_utils::{load_roll_cache_size, Inference, TokenizerAndPrompt};
@@ -69,23 +69,30 @@ fn test_infer() {
         let stream = ctx.stream();
 
         let time = Instant::now();
-        let token_embd = stream.from_host(model.token_embd);
+        let token_embd = stream.ctx().from_host(model.token_embd);
         let weights = Weights::new(&model, .., 1, roll_cache_size, ctx);
         println!("load weights: {:?}", time.elapsed());
 
+        let (free, _) = ctx.mem_info();
+        let queue_alloc = StreamMemPool::new(stream);
+        queue_alloc.put((free.0 >> 30) << 30);
+
+        let alloc = |size| -> MemPoolBlob { queue_alloc.alloc(size) };
+
         let mut worker = Worker::new(0, &gpu, meta.clone(), weights);
-        let mut cache = meta.kv_cache(nctx).map(|size| stream.malloc::<u8>(size));
-        let sin_cos = <Operators as llama::Operators>::build_sin_cos(dt_embd, nctx, dh, &stream);
-        let indices = RandomSample::build_indices(nvoc, &stream);
+        let mut cache = meta.kv_cache(nctx).map(alloc);
+        let sin_cos =
+            <Operators as llama::Operators>::build_sin_cos(dt_embd, nctx, dh, &queue_alloc);
+        let indices = RandomSample::build_indices(nvoc, &queue_alloc);
         let sample = RandomSample::new(gpu);
 
         test_utils::test_infer(eos, tokenizer, &prompt, max_steps, |input, pos| {
-            let mut embd = meta.embd(input.len()).map(|len| stream.malloc::<u8>(len));
-            let mut logits = meta.logits(1).map(|len| stream.malloc::<u8>(len));
+            let mut embd = meta.embd(input.len()).map(alloc);
+            let mut logits = meta.logits(1).map(alloc);
 
             let d = embd.get().len() / input.len();
             for (i, &tok) in input.iter().enumerate() {
-                stream.memcpy_d2d(
+                queue_alloc.queue().memcpy_d2d(
                     &mut embd.get_mut()[i * d..][..d],
                     &token_embd[tok as usize * d..][..d],
                 )
@@ -108,14 +115,21 @@ fn test_infer() {
                         max_att_len: pos + input.len(),
                     },
                     &mut [],
-                    &stream,
+                    &queue_alloc,
                 )
                 .unwrap();
 
-            let mut pairs = Tensor::kv_pair_vec(1, |size| stream.malloc::<u8>(size));
+            let mut pairs = Tensor::kv_pair_vec(1, alloc);
 
             sample
-                .launch(&mut pairs, &logits, &indices, sample_args, &mut [], &stream)
+                .launch(
+                    &mut pairs,
+                    &logits,
+                    &indices,
+                    sample_args,
+                    &mut [],
+                    &queue_alloc,
+                )
                 .unwrap();
 
             let mut pair = KVPair::new(0, f16::ZERO);

@@ -1,12 +1,11 @@
-﻿use crate::{Operators, RandomSample, Weights};
+use crate::{Operators, RandomSample, Weights};
 use gguf::GGufModel;
 use llama::{ext::ggml_quants::f16, LlamaRequest, LlamaStorage, LlamaWorker, Tensor};
 use log::info;
 use operators::{
     all_reduce::nccl::Operator as AllReduce,
-    cuda::{self, memcpy_d2h, NoDevice},
+    cuda::{self, memcpy_d2h, NcclNode, NoDevice},
     nccl::CommunicatorGroup,
-    nvidia_gpu::NcclNode,
     random_sample::{KVPair, SampleArgs},
     TopoNode,
 };

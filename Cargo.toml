@@ -38,4 +38,5 @@ operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "df027a4"
 
 search-cl-tools = { git = "https://github.com/InfiniTensor/clrt", rev = "9b6289d" }
 search-infini-tools = { git = "https://github.com/InfiniTensor/infini-rt", rev = "f40bcb5" }
-search-cuda-tools = { git = "https://github.com/YdrMaster/cuda-driver", rev = "5aec761" }
+search-cuda-tools = { git = "https://github.com/YdrMaster/cuda-driver", rev = "b064bfb" }
+search-corex-tools = { git = "https://github.com/YdrMaster/cuda-driver", rev = "b064bfb" }

@@ -124,34 +124,6 @@ impl<Ops: Operators, W> LlamaWorker<Ops, W> {
     pub const fn meta(&self) -> &LlamaMeta {
         &self.meta
     }
-
-    pub fn workspace_size(&self, nt: usize, max_seq_len: usize, max_att_len: usize) -> usize {
-        let LlamaMeta {
-            nh,
-            nkvh,
-            nexp,
-            dh,
-            di,
-            ..
-        } = self.meta;
-
-        let embd = self.meta.embd(nt);
-        let dt = embd.dt();
-        let embd = embd.take();
-
-        let qkv = Tensor::new(dt, &[nt * (nh + nkvh + nkvh), dh]).take();
-        let q = Tensor::new(dt, &[max_seq_len, nh, dh]).take();
-        let att = Tensor::new(dt, &[nh, max_seq_len, max_att_len]).take();
-
-        if self.meta.is_moe() {
-            let routes = Tensor::new(dt, &[nt, nexp]).take();
-            let gate_up = Tensor::new(dt, &[1, di * 2]).take();
-            embd + (qkv + q + att).max(routes).max(gate_up)
-        } else {
-            let gate_up = Tensor::new(dt, &[nt, di * 2]).take();
-            embd + (qkv + q + att).max(gate_up)
-        }
-    }
 }
 
 impl<Ops, W> LlamaWorker<Ops, W>
@@ -170,7 +142,7 @@ where
         QA: QueueAlloc<Hardware = Ops::Hardware>,
     {
         let Args {
-            embd,
+            embd: mut x,
             sin_cos,
             mut logits,
             mut requests,
@@ -188,17 +160,22 @@ where
             ..
         } = self.meta;
 
-        let workspace_size = self.workspace_size(nt, max_seq_len, max_att_len);
-        let mut workspace = Workspace::new(queue_alloc, workspace, workspace_size);
+        let tensor = |shape: &[usize]| Tensor::new(x.dt(), shape);
+        let x1 = tensor(x.shape());
+        let qkv = tensor(&[nt, (nh + nkvh + nkvh) * dh]);
+        let q = tensor(&[max_seq_len, nh, dh]).take();
+        let att = tensor(&[nh, max_seq_len, max_att_len]).take();
+        let gate_up = tensor(&[if self.meta.is_moe() { 1 } else { nt }, di * 2]);
+        let routes = tensor(&[nt, nexp]);
 
-        let mut x = embd;
-        let x1 = Tensor::new(x.dt(), x.shape());
+        let workspace_size = *x1.get()
+            + (*qkv.get() + q + att)
+                .max(*routes.get())
+                .max(*gate_up.get());
+
+        let mut workspace = Workspace::new(queue_alloc, workspace, workspace_size);
         let (buf, workspace) = workspace.split_at_mut(*x1.get());
         let mut x1 = x1.map(|_| buf);
-
-        let qkv = Tensor::new(x.dt(), &[nt, (nh + nkvh + nkvh) * dh]);
-        let gate_up = Tensor::new(x.dt(), &[if self.meta.is_moe() { 1 } else { nt }, di * 2]);
-        let routes = Tensor::new(x.dt(), &[nt, nexp]);
 
         let sin = sin_cos.clone().index(0, 0);
         let cos = sin_cos.index(0, 1);

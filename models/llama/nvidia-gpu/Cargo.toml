@@ -10,11 +10,12 @@ authors = ["YdrMaster <ydrml@hotmail.com>"]
 llama.path = "../common"
 common.workspace = true
 log.workspace = true
-operators = { workspace = true, features = ["nvidia-gpu"] }
+operators = { workspace = true, features = ["nvidia-gpu", "iluvatar-gpu"] }
 
 [build-dependencies]
 build-script-cfg.workspace = true
 search-cuda-tools.workspace = true
+search-corex-tools.workspace = true
 
 [dev-dependencies]
 test-utils = { workspace = true, features = ["llama"] }
