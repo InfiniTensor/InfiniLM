@@ -64,7 +64,7 @@ fn test_infer() {
     else {
         return;
     };
-    let cl_dev = ClDevice::new(context.clone());
+    let cl_dev = ClDevice::new(context.clone(), Default::default());
     let queue = context.queue();
 
     let weights = Weights::new(&model, Distribution::MONO, &context);

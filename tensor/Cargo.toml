@@ -8,4 +8,4 @@ authors = ["YdrMaster <ydrml@hotmail.com>"]
 ggus.workspace = true
 operators = { workspace = true, features = ["common-cpu"] }
 ndarray-layout.workspace = true
-rand = "0.8"
+rand = "0.9"

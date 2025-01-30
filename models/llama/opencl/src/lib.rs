@@ -4,7 +4,7 @@ use common::{Distribution, WeightMemCalculator};
 use llama::{LlamaBlkStorage, LlamaBlkWeight, LlamaStorage, Tensor, WeightLoader};
 use operators::{
     all_reduce::{AllReduce, NonAllReduce},
-    clrt::{Context, Invalid, SvmBlob, SvmByte},
+    clrt::{Context, SvmBlob, SvmByte},
     opencl::ClDevice,
     random_sample::opencl::Operator as RandomSampleCl,
     rearrange::opencl::Operator as Rearrange,
@@ -109,16 +109,16 @@ impl Weights {
                     continue;
                 }
                 let data = meta.distribute_data(which, data, dist, Blob::new);
-                let mut map = queue.map_mut(&mut mem[off], Invalid);
-                unsafe { map.write_only_slice() }.copy_from_slice(&data);
+                let mut map = queue.map_mut(&mut mem[off], false);
+                map.copy_from_slice(&data);
                 queue.unmap(map)
             }
         }
-        let mut map = queue.map_mut(&mut mem[off_output_norm.clone()], Invalid);
-        unsafe { map.write_only_slice() }.copy_from_slice(output_norm);
+        let mut map = queue.map_mut(&mut mem[off_output_norm.clone()], false);
+        map.copy_from_slice(output_norm);
         queue.unmap(map);
-        let mut map = queue.map_mut(&mut mem[off_output.clone()], Invalid);
-        unsafe { map.write_only_slice() }.copy_from_slice(output);
+        let mut map = queue.map_mut(&mut mem[off_output.clone()], false);
+        map.copy_from_slice(output);
         queue.unmap(map);
 
         Self {

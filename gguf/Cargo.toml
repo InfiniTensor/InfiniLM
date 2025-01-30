@@ -6,7 +6,7 @@ authors = ["YdrMaster <ydrml@hotmail.com>"]
 
 [dependencies]
 ggus.workspace = true
-minijinja = { version = "2.6", default-features = false, features = ["loader"] }
+minijinja = { version = "2.7", default-features = false, features = ["loader"] }
 serde = { version = "1.0", features = ["derive"] }
 tokeneer = "0.0"
 memmap2 = "0.9"
