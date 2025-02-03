@@ -16,6 +16,7 @@ members = [
 
     "models/gpt2/common",
     "models/gpt2/common-cpu",
+    "models/gpt2/cuda",
 ]
 resolver = "2"
 

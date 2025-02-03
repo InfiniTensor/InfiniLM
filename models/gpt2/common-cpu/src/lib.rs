@@ -2,6 +2,7 @@ use gpt2::{
     storage::{BlkStorage, Storage},
     BlkWeight, Tensor, WeightLoader,
 };
+pub use gpt2::{GPT2BlkStorage, GPT2Storage};
 use operators::{
     all_reduce::{AllReduce, NonAllReduce},
     common_cpu::Cpu,
@@ -9,8 +10,8 @@ use operators::{
     rearrange::common_cpu::Operator as Rearrange,
     ByteOf, QueueOf, TopoNode,
 };
-use std::marker::PhantomData;
 use std::ops::Deref;
+use std::{marker::PhantomData, ptr::copy_nonoverlapping};
 
 pub struct Operators<N = Cpu, R = NonAllReduce<Cpu, Rearrange>>(PhantomData<(N, R)>);
 
@@ -51,6 +52,16 @@ where
         T: Deref<Target = [ByteOf<Self::Hardware>]>,
     {
         println!("{tensor}");
+    }
+
+    fn memcpy_d2h<T: Copy>(
+        dst: &mut [T],
+        src: &[ByteOf<Self::Hardware>],
+        _queue: &QueueOf<Self::Hardware>,
+    ) {
+        let count = size_of_val(dst);
+        assert_eq!(size_of_val(src), count);
+        unsafe { copy_nonoverlapping(src.as_ptr(), dst.as_mut_ptr().cast::<u8>(), count) }
     }
 }
 
@@ -103,7 +114,6 @@ impl WeightLoader for Weights<'_> {
             ffn_down_w,
             ffn_down_b,
         } = &self.blks[iblk];
-
         match which {
             BlkWeight::AttnNorm => [attn_norm_w, attn_norm_b],
             BlkWeight::AttnQKV => [attn_qkv_w, attn_qkv_b],
@@ -113,6 +123,7 @@ impl WeightLoader for Weights<'_> {
             BlkWeight::FfnDown => [ffn_down_w, ffn_down_b],
         }
     }
+
     #[inline]
     fn output_norm(&self, _queue: &QueueOf<Self::Hardware>) -> [Self::Memory<'_>; 2] {
         [self.output_norm_w, self.output_norm_b]

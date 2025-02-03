@@ -29,6 +29,11 @@ pub trait Operators {
     fn debug<T>(tensor: &Tensor<T>)
     where
         T: Deref<Target = [ByteOf<Self::Hardware>]>;
+    fn memcpy_d2h<T: Copy>(
+        dst: &mut [T],
+        src: &[ByteOf<Self::Hardware>],
+        queue: &QueueOf<Self::Hardware>,
+    );
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,6 +65,8 @@ pub trait WeightLoader {
 }
 
 pub struct Gpt2Worker<Ops: Operators, W> {
+    #[allow(dead_code)]
+    id: usize,
     meta: Gpt2Meta,
     weights: WeightDecorator<W>,
     add_rows: Ops::AddRows,
@@ -74,9 +81,10 @@ pub struct Gpt2Worker<Ops: Operators, W> {
 }
 
 impl<Ops: Operators, W> Gpt2Worker<Ops, W> {
-    pub fn new(node: &Ops::TopoNode, meta: Gpt2Meta, weights: W) -> Self {
+    pub fn new(id: usize, node: &Ops::TopoNode, meta: Gpt2Meta, weights: W) -> Self {
         let processor = node.processor();
         Self {
+            id,
             weights: meta.decorator(weights), // meta.decorator
             meta,
             add_rows: Ops::AddRows::new(processor),

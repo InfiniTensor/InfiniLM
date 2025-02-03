@@ -2,13 +2,12 @@ pub mod args;
 pub mod compute;
 pub mod storage;
 
-use gguf::ggml_quants::digit_layout::DigitLayout;
-use std::ops::{Range, RangeBounds};
-
-pub use args::{Args as LlamaArgs, Request as LlamaRequest};
+pub use args::{Args as GPT2Args, Request as GPT2Request};
 pub use common::Contiguous;
+use common::Distribution;
 pub use compute::{BlkWeight, Gpt2Worker, Operators, WeightLoader};
-pub use storage::{BlkStorage, Storage};
+use gguf::ggml_quants::digit_layout::DigitLayout;
+pub use storage::{BlkStorage as GPT2BlkStorage, Storage as GPT2Storage};
 pub use tensor::{RandomSample, Tensor};
 pub mod ext {
     pub use gguf::{
@@ -16,7 +15,21 @@ pub mod ext {
         ggml_quants,
     };
 }
-
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum GPT2BlkWeight {
+    AttnQkvB,
+    AttnQkvW,
+    AttnOB,
+    AttnOW,
+    AttnNormB,
+    AttnNormW,
+    FfnUpB,
+    FfnUpW,
+    FfnDownB,
+    FfnDownW,
+    FfnNormB,
+    FfnNormW,
+}
 #[derive(Clone, Debug)]
 pub struct Gpt2Meta {
     pub dt_embd: DigitLayout,
@@ -45,15 +58,35 @@ pub enum TensorUsage {
 }
 
 impl Gpt2Meta {
-    pub fn distribute(&mut self, range: impl RangeBounds<usize>, count: usize) {
-        let len = normalize(range, count).len();
-        assert!(0 < len && len <= count);
-        assert_eq!(self.nkvh % count, 0);
-        assert_eq!(self.di % count, 0);
+    /// TODO 分布式未测试
+    pub fn distribute(&self, dist: Distribution) -> Self {
+        let [_, len, total] = dist.info();
+        assert_eq!(self.nkvh % total, 0);
+        assert_eq!(self.di % total, 0);
 
-        self.nh = self.nh / count * len;
-        self.nkvh = self.nkvh / count * len;
-        self.di = self.di / count * len;
+        Self {
+            nh: self.nh / total * len,
+            nkvh: self.nkvh / total * len,
+            di: self.di / total * len,
+            ..self.clone()
+        }
+    }
+    pub fn blk(&self) -> GPT2BlkStorage<usize> {
+        use TensorUsage::Storage as TensorMem;
+        GPT2BlkStorage {
+            attn_qkv_b: self.attn_qkv_b(TensorMem).take(),
+            attn_qkv_w: self.attn_qkv_w(TensorMem).take(),
+            attn_o_b: self.attn_o_b(TensorMem).take(),
+            attn_o_w: self.attn_o_w(TensorMem).take(),
+            attn_norm_b: self.norm().take(),
+            attn_norm_w: self.norm().take(),
+            ffn_up_b: self.ffn_up_b(TensorMem).take(),
+            ffn_up_w: self.ffn_up_w(TensorMem).take(),
+            ffn_down_b: self.ffn_down_b(TensorMem).take(),
+            ffn_down_w: self.ffn_down_w(TensorMem).take(),
+            ffn_norm_b: self.norm().take(),
+            ffn_norm_w: self.norm().take(),
+        }
     }
 
     pub fn kv_cache(&self, buf: usize) -> Tensor<usize> {
@@ -144,20 +177,4 @@ impl Gpt2Meta {
             }
         }
     }
-}
-
-fn normalize(range: impl RangeBounds<usize>, count: usize) -> Range<usize> {
-    use std::ops::Bound::{Excluded, Included, Unbounded};
-    let start = match range.start_bound() {
-        Included(&i) => i,
-        Excluded(&i) => i + 1,
-        Unbounded => 0,
-    };
-    let end = match range.end_bound() {
-        Included(&i) => i + 1,
-        Excluded(&i) => i,
-        Unbounded => count,
-    };
-    assert!(start < end && end <= count);
-    start..end
 }
