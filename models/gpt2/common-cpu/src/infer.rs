@@ -1,6 +1,6 @@
 use crate::{Operators, RandomSample, Weights};
 use gguf::GGufModel;
-use gpt2::{ext::ggml_quants::f16, Gpt2Meta, Gpt2Worker, Storage, Tensor};
+use gpt2::{ext::ggml_quants::f16, GPT2Storage, Gpt2Meta, Gpt2Worker, Tensor};
 use operators::{
     common_cpu::{Cpu, ThisThread},
     random_sample::{KVPair, SampleArgs},
@@ -34,7 +34,7 @@ fn test_infer() {
         prompt,
     } = TokenizerAndPrompt::new(&gguf, prompt, as_user);
 
-    let model = Storage::from_gguf(&gguf);
+    let model = GPT2Storage::from_gguf(&gguf);
     println!("{:?}", model.meta);
 
     let sample_args = SampleArgs::new(temperature, top_p, top_k).expect("invalid sample args");
@@ -48,7 +48,7 @@ fn test_infer() {
         ..
     } = &model.meta;
     let weights = Weights::new(&model);
-    let mut worker = Worker::new(&Cpu, model.meta.clone(), weights);
+    let mut worker = Worker::new(0, &Cpu, model.meta.clone(), weights);
     let mut cache = model.meta.kv_cache(nctx).map(Blob::new);
     let indices = RandomSample::build_indices(nvoc, &ThisThread);
     let sample = RandomSample::new(&Cpu);

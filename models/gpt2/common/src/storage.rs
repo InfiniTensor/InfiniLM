@@ -1,6 +1,9 @@
-use crate::Gpt2Meta;
-use gguf::{ext::Mmap, map_files, meta, tensor, GGufMetaMapExt, GGufModel};
-use std::path::Path;
+use std::ops::DerefMut;
+
+use crate::{GPT2BlkWeight, Gpt2Meta};
+use common::{borrow, own, Contiguous, Distribution};
+use gguf::{meta, tensor, GGufMetaMapExt, GGufModel};
+use tensor::{rearrange, split, Tensor};
 
 #[derive(Clone)]
 pub struct Storage<T> {
@@ -128,27 +131,247 @@ impl<T> BlkStorage<T> {
             ffn_norm_w: &self.ffn_norm_w,
         }
     }
+
+        #[rustfmt::skip]
+    pub fn into_vec(self) -> Vec<(GPT2BlkWeight, T)> {
+            use GPT2BlkWeight as W;
+            vec![
+                (W::AttnQkvB    , self.attn_qkv_b   ),
+                (W::AttnQkvW    , self.attn_qkv_w   ),
+                (W::AttnOB      , self.attn_o_b     ),
+                (W::AttnOW      , self.attn_o_w     ),
+                (W::AttnNormB   , self.attn_norm_b  ),
+                (W::AttnNormW   , self.attn_norm_w  ),
+                (W::FfnUpB      , self.ffn_up_b     ),
+                (W::FfnUpW      , self.ffn_up_w     ),
+                (W::FfnDownB    , self.ffn_down_b   ),
+                (W::FfnDownW    , self.ffn_down_w   ),
+                (W::FfnNormB    , self.ffn_norm_b   ),
+                (W::FfnNormW    , self.ffn_norm_w   ),
+            ]
+        }
 }
 
-pub fn map_gguf_files() -> Option<Box<[Mmap]>> {
-    let Some(path) = std::env::var_os("TEST_MODEL") else {
-        println!("TEST_MODEL not set");
-        return None;
-    };
-    let path = Path::new(&path);
-    if !path.is_file() {
-        println!("{path:?} not found");
-        return None;
+impl<T> FromIterator<(GPT2BlkWeight, T)> for BlkStorage<T> {
+    #[rustfmt::skip]
+    fn from_iter<U>(iter: U) -> Self
+    where
+        U: IntoIterator<Item = (GPT2BlkWeight, T)>,
+    {
+        let mut collector: BlkStorage<Option<T>> = BlkStorage {
+            attn_qkv_b: None,
+            attn_qkv_w: None,
+            attn_o_b: None,
+            attn_o_w: None,
+            attn_norm_b: None,
+            attn_norm_w: None,
+            ffn_up_b: None,
+            ffn_up_w: None,
+            ffn_down_b: None,
+            ffn_down_w: None,
+            ffn_norm_b: None,
+            ffn_norm_w: None,
+        };
+        for (which, data) in iter {
+            use GPT2BlkWeight as W;
+            match which {
+                W::AttnQkvB =>  collector.attn_qkv_b=Some(data),
+                W::AttnQkvW => collector.attn_qkv_w =Some(data),
+                W::AttnOB => collector.attn_o_b =Some(data),
+                W::AttnOW => collector.attn_o_w=Some(data),
+                W::AttnNormB => collector.attn_norm_b=Some(data),
+                W::AttnNormW => collector.attn_norm_w=Some(data),
+                W::FfnUpB => collector.ffn_up_b=Some(data),
+                W::FfnUpW => collector.ffn_up_w=Some(data),
+                W::FfnDownB => collector.ffn_down_b=Some(data),
+                W::FfnDownW => collector.ffn_down_w=Some(data),
+                W::FfnNormB => collector.ffn_norm_b=Some(data),
+                W::FfnNormW => collector.ffn_norm_w=Some(data),
+            };
+        }
+
+        BlkStorage  {
+           attn_qkv_b:collector.attn_qkv_b.unwrap(),
+           attn_qkv_w:collector.attn_qkv_w.unwrap(),
+           attn_o_b:collector.attn_o_b.unwrap(),
+           attn_o_w:collector.attn_o_w.unwrap(),
+           attn_norm_b:collector.attn_norm_b.unwrap(),
+           attn_norm_w:collector.attn_norm_w.unwrap(),
+           ffn_up_b:collector.ffn_up_b.unwrap(),
+           ffn_up_w:collector.ffn_up_w.unwrap(),
+           ffn_down_b:collector.ffn_down_b.unwrap(),
+           ffn_down_w:collector.ffn_down_w.unwrap(),
+           ffn_norm_b:collector.ffn_norm_b.unwrap(),
+           ffn_norm_w:collector.ffn_norm_w.unwrap(),
+        }
     }
-    Some(map_files(path))
 }
 
-#[test]
-fn test_load() {
-    let Some(shards) = map_gguf_files() else {
-        return;
-    };
-    let gguf = GGufModel::read(shards.iter().map(|s| &**s));
-    let gpt2 = Storage::from_gguf(&gguf);
-    println!("{:?}", gpt2.meta)
+impl Gpt2Meta {
+    /// TODO 分布式未测试
+    pub fn distribute_data<'w, U>(
+        &self,
+        which: GPT2BlkWeight,
+        data: &'w [u8],
+        dist: Distribution,
+        mut f: impl FnMut(usize) -> U,
+    ) -> Contiguous<'w, U>
+    where
+        U: DerefMut<Target = [u8]>,
+    {
+        use crate::TensorUsage::Storage as TensorMem;
+        use GPT2BlkWeight as W;
+        match which {
+            W::AttnNormB | W::AttnNormW | W::FfnNormB | W::FfnNormW => borrow(data),
+            _ if dist.is_mono() || data.is_empty() => borrow(data),
+            W::AttnQkvB => {
+                let meta = self.distribute(dist);
+                self.distribute_qkv(
+                    dist,
+                    meta.attn_qkv_b(TensorMem).map(&mut f),
+                    self.attn_qkv_b(TensorMem).map(|_| data),
+                )
+            }
+            W::AttnQkvW => {
+                let meta = self.distribute(dist);
+                self.distribute_qkv(
+                    dist,
+                    meta.attn_qkv_w(TensorMem).map(&mut f),
+                    self.attn_qkv_w(TensorMem).map(|_| data),
+                )
+            }
+            W::AttnOB => {
+                let [start, len, total] = dist.info();
+                let o = self.attn_o_b(TensorMem).map(|_| data);
+
+                let d = o.shape()[1] / total;
+                let o = o.slice(1, d * start, 1, d * len);
+
+                let mut o_ = Tensor::new(o.dt(), o.shape()).map(&mut f);
+                rearrange(&mut o_, &o);
+                own(o_.take())
+            }
+            W::AttnOW => {
+                let [start, len, total] = dist.info();
+                let o = self.attn_o_w(TensorMem).map(|_| data);
+
+                let d = o.shape()[1] / total;
+                let o = o.slice(1, d * start, 1, d * len);
+
+                let mut o_ = Tensor::new(o.dt(), o.shape()).map(&mut f);
+                rearrange(&mut o_, &o);
+                own(o_.take())
+            }
+            W::FfnUpB => {
+                let &Gpt2Meta { di, .. } = self;
+                let [start, len, total] = dist.info();
+                let dist = self.distribute(dist);
+
+                let gu = self.ffn_up_b(TensorMem).map(|_| data);
+                split!(gu => g, u; [di, di] @ 1);
+
+                let di = di / total;
+
+                let g = g.slice(1, di * start, 1, di * len);
+                let u = u.slice(1, di * start, 1, di * len);
+
+                let mut ans = dist.ffn_up_b(TensorMem).map(&mut f);
+                {
+                    let ans = ans.map_slice_mut();
+                    split!(ans => g_, u_; [di * len , di * len] @ 1);
+                    let mut g_ = g_;
+                    let mut u_ = u_;
+                    rearrange(&mut g_, &g);
+                    rearrange(&mut u_, &u);
+                }
+                own(ans.take())
+            }
+            W::FfnUpW => {
+                let &Gpt2Meta { di, .. } = self;
+                let [start, len, total] = dist.info();
+                let dist = self.distribute(dist);
+
+                let gu = self.ffn_up_w(TensorMem).map(|_| data);
+                split!(gu => g, u; [di, di] @ 1);
+
+                let di = di / total;
+
+                let g = g.slice(1, di * start, 1, di * len);
+                let u = u.slice(1, di * start, 1, di * len);
+
+                let mut ans = dist.ffn_up_w(TensorMem).map(&mut f);
+                {
+                    let ans = ans.map_slice_mut();
+                    split!(ans => g_, u_; [di * len , di * len] @ 1);
+                    let mut g_ = g_;
+                    let mut u_ = u_;
+                    rearrange(&mut g_, &g);
+                    rearrange(&mut u_, &u);
+                }
+                own(ans.take())
+            }
+            W::FfnDownB => {
+                let [start, len, total] = dist.info();
+                let down = self.ffn_down_b(TensorMem).map(|_| data);
+
+                let d = down.shape()[2] / total;
+                let down = down.slice(2, d * start, 1, d * len);
+
+                let mut down_ = Tensor::new(down.dt(), down.shape()).map(&mut f);
+                rearrange(&mut down_, &down);
+                own(down_.take())
+            }
+            W::FfnDownW => {
+                let [start, len, total] = dist.info();
+                let down = self.ffn_down_w(TensorMem).map(|_| data);
+
+                let d = down.shape()[2] / total;
+                let down = down.slice(2, d * start, 1, d * len);
+
+                let mut down_ = Tensor::new(down.dt(), down.shape()).map(&mut f);
+                rearrange(&mut down_, &down);
+                own(down_.take())
+            }
+        }
+    }
+
+    pub fn distribute_qkv<'w, U>(
+        &self,
+        dist: Distribution,
+        dst: Tensor<U>,
+        src: Tensor<&'w [u8]>,
+    ) -> Contiguous<'w, U>
+    where
+        U: DerefMut<Target = [u8]>,
+    {
+        let &Gpt2Meta { nh, nkvh, dh, .. } = self;
+        let [start, len, total] = dist.info();
+
+        let dq = nh * dh;
+        let dkv = nkvh * dh;
+
+        let qkv = src;
+        split!(qkv => q, k, v; [dq, dkv, dkv] @ 0);
+
+        let dq = dq / total;
+        let dkv = dkv / total;
+
+        let q = q.slice(0, dq * start, 1, dq * len);
+        let k = k.slice(0, dkv * start, 1, dkv * len);
+        let v = v.slice(0, dkv * start, 1, dkv * len);
+        debug_assert!(q.is_contiguous() && k.is_contiguous() && v.is_contiguous());
+
+        let mut ans = dst;
+        {
+            let ans = ans.map_slice_mut();
+            split!(ans => q_, k_, v_; [dq * len , dkv * len, dkv * len] @ 0);
+            let mut q_ = q_;
+            let mut k_ = k_;
+            let mut v_ = v_;
+            rearrange(&mut q_, &q);
+            rearrange(&mut k_, &k);
+            rearrange(&mut v_, &v);
+        }
+        own(ans.take())
+    }
 }
