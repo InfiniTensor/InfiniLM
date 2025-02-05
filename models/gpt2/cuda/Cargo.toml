@@ -1,0 +1,23 @@
+[package]
+name = "gpt2-cuda"
+version = "0.0.0"
+edition = "2021"
+authors = ["onenewcode <lovestudy@qq.com>", "YdrMaster <ydrml@hotmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+gpt2.path = "../common"
+common.workspace = true
+log.workspace = true
+operators = { workspace = true, features = ["nvidia-gpu", "iluvatar-gpu"] }
+
+[build-dependencies]
+build-script-cfg.workspace = true
+search-cuda-tools.workspace = true
+search-corex-tools.workspace = true
+
+[dev-dependencies]
+test-utils.workspace = true
+gguf.workspace = true
+regex.workspace = true

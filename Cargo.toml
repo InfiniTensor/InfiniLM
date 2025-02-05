@@ -16,6 +16,7 @@ members = [
 
     "models/gpt2/common",
     "models/gpt2/common-cpu",
+    "models/gpt2/cuda",
 ]
 resolver = "2"
 
@@ -34,7 +35,7 @@ itertools = "0.13"
 env_logger = "0.11"
 build-script-cfg = "0.0"
 
-operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "01b1667", default-features = false }
+operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "9b69b7a", default-features = false }
 
 search-cl-tools = { git = "https://github.com/InfiniTensor/clrt", rev = "f69b160" }
 search-infini-tools = { git = "https://github.com/InfiniTensor/infini-rt", rev = "e8362c3" }
