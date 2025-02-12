@@ -50,6 +50,7 @@ option_end()
 
 if has_config("cambricon-mlu") then
     add_defines("ENABLE_CAMBRICON_API")
+    includes("xmake/bang.lua")
 end
 
 -- 华为昇腾
@@ -124,7 +125,7 @@ target("infiniop")
     end
 
     if has_config("cambricon-mlu") then
-        add_deps("cambricon-mlu")
+        add_deps("infiniop-cambricon")
     end
     if has_config("ascend-npu") then
         add_deps("infiniop-ascend")
@@ -143,5 +144,4 @@ target("infiniop")
     add_installfiles("include/infiniop/*.h", {prefixdir = "include/infiniop"})
     add_installfiles("include/infiniop.h", {prefixdir = "include"})
     add_installfiles("include/infinicore.h", {prefixdir = "include"})
-
 target_end()

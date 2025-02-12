@@ -5,7 +5,7 @@
 #ifdef ENABLE_CUDA_API
 #include "./cuda/cuda_handle.h"
 #endif
-#ifdef ENABLE_CAMBRICON_MLU
+#ifdef ENABLE_CAMBRICON_API
 #include "./bang/bang_handle.h"
 #endif
 #ifdef ENABLE_ASCEND_API
@@ -32,7 +32,7 @@ __C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr, infiniDe
         }
 #endif
 #ifdef ENABLE_CAMBRICON_API
-        case DevCambriconMlu: {
+        case INFINI_DEVICE_CAMBRICON: {
             return createBangHandle((infiniopBangHandle_t *) handle_ptr, device_id);
         }
 #endif
@@ -58,10 +58,9 @@ __C infiniopStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
             return deleteCudaHandle((infiniopCudaHandle_t) handle);
         }
 #endif
-#ifdef ENABLE_CAMBRICON_MLU
-        case DevCambriconMlu: {
-            delete (infiniopBangHandle_t) handle;
-            return STATUS_SUCCESS;
+#ifdef ENABLE_CAMBRICON_API
+        case INFINI_DEVICE_CAMBRICON: {
+            return deleteBangHandle((infiniopBangHandle_t) handle);
         }
 #endif
 #ifdef ENABLE_ASCEND_API

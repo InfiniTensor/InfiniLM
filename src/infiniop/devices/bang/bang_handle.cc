@@ -1,4 +1,6 @@
-#include "bang_handle.h"
+#include "common_bang.h"
+#include <memory>
+#include "../pool.h"
 
 infiniopStatus_t createBangHandle(infiniopBangHandle_t *handle_ptr, int device_id) {
     unsigned int device_count;
@@ -17,5 +19,10 @@ infiniopStatus_t createBangHandle(infiniopBangHandle_t *handle_ptr, int device_i
 
     *handle_ptr = new InfiniopBangHandle{INFINI_DEVICE_CAMBRICON, device_id, std::move(pool)};
 
+    return INFINIOP_STATUS_SUCCESS;
+}
+
+infiniopStatus_t deleteBangHandle(infiniopBangHandle_t handle){
+    delete handle;
     return INFINIOP_STATUS_SUCCESS;
 }

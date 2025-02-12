@@ -3,11 +3,10 @@
 #include "../../utils.h"
 #include <cmath>
 
-infiniopStatus_t cpuCreateMatmulDescriptor(infiniopCpuHandle_t handle,
-                                           MatmulCpuDescriptor_t *desc_ptr,
-                                           infiniopTensorDescriptor_t c_desc,
-                                           infiniopTensorDescriptor_t a_desc,
-                                           infiniopTensorDescriptor_t b_desc) {
+infiniopStatus_t cpuCreateMatmulDescriptor(
+    infiniopCpuHandle_t handle, infiniopMatmulCpuDescriptor_t *desc_ptr,
+    infiniopTensorDescriptor_t c_desc, infiniopTensorDescriptor_t a_desc,
+    infiniopTensorDescriptor_t b_desc) {
     infiniDtype_t dtype = c_desc->dtype;
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
@@ -20,26 +19,27 @@ infiniopStatus_t cpuCreateMatmulDescriptor(infiniopCpuHandle_t handle,
         return status;
     }
 
-    *desc_ptr = new MatmulCpuDescriptor{
-        INFINI_DEVICE_CPU,
-        dtype,
-        info};
+    *desc_ptr = new MatmulCpuDescriptor{INFINI_DEVICE_CPU, dtype, info};
 
     return INFINIOP_STATUS_SUCCESS;
 }
 
-infiniopStatus_t cpuGetMatmulWorkspaceSize(MatmulCpuDescriptor_t desc, uint64_t *size) {
+infiniopStatus_t cpuGetMatmulWorkspaceSize(infiniopMatmulCpuDescriptor_t desc,
+                                           uint64_t *size) {
     *size = 0;
     return INFINIOP_STATUS_SUCCESS;
 }
 
-infiniopStatus_t cpuDestroyMatmulDescriptor(MatmulCpuDescriptor_t desc) {
+infiniopStatus_t
+cpuDestroyMatmulDescriptor(infiniopMatmulCpuDescriptor_t desc) {
     delete desc;
     return INFINIOP_STATUS_SUCCESS;
 }
 
-template<typename Tdata>
-infiniopStatus_t matmul_cpu(MatmulCpuDescriptor_t desc, void *c, float beta, void const *a, void const *b, float alpha) {
+template <typename Tdata>
+infiniopStatus_t matmul_cpu(infiniopMatmulCpuDescriptor_t desc, void *c,
+                            float beta, void const *a, void const *b,
+                            float alpha) {
     auto info = desc->info;
 
     if (info.is_transed) {
@@ -49,11 +49,20 @@ infiniopStatus_t matmul_cpu(MatmulCpuDescriptor_t desc, void *c, float beta, voi
     for (int i = 0; i < info.batch; ++i) {
         for (int m_ = 0; m_ < info.m; ++m_) {
             for (int n_ = 0; n_ < info.n; ++n_) {
-                auto c_ = reinterpret_cast<Tdata *>(c) + i * info.c_matrix.stride + m_ * info.c_matrix.row_stride + n_ * info.c_matrix.col_stride;
+                auto c_ = reinterpret_cast<Tdata *>(c) +
+                          i * info.c_matrix.stride +
+                          m_ * info.c_matrix.row_stride +
+                          n_ * info.c_matrix.col_stride;
                 float sum = 0;
                 for (int k_ = 0; k_ < info.k; ++k_) {
-                    auto a_ = reinterpret_cast<Tdata const *>(a) + i * info.a_matrix.stride + m_ * info.a_matrix.row_stride + k_ * info.a_matrix.col_stride;
-                    auto b_ = reinterpret_cast<Tdata const *>(b) + i * info.b_matrix.stride + n_ * info.b_matrix.col_stride + k_ * info.b_matrix.row_stride;
+                    auto a_ = reinterpret_cast<Tdata const *>(a) +
+                              i * info.a_matrix.stride +
+                              m_ * info.a_matrix.row_stride +
+                              k_ * info.a_matrix.col_stride;
+                    auto b_ = reinterpret_cast<Tdata const *>(b) +
+                              i * info.b_matrix.stride +
+                              n_ * info.b_matrix.col_stride +
+                              k_ * info.b_matrix.row_stride;
                     if constexpr (std::is_same<Tdata, uint16_t>::value) {
                         sum += f16_to_f32(*a_) * f16_to_f32(*b_);
                     } else {
@@ -75,14 +84,9 @@ infiniopStatus_t matmul_cpu(MatmulCpuDescriptor_t desc, void *c, float beta, voi
     return INFINIOP_STATUS_SUCCESS;
 }
 
-infiniopStatus_t cpuMatmul(MatmulCpuDescriptor_t desc,
-                           void *workspace,
-                           uint64_t workspace_size,
-                           void *c,
-                           void const *a,
-                           void const *b,
-                           float alpha,
-                           float beta) {
+infiniopStatus_t cpuMatmul(infiniopMatmulCpuDescriptor_t desc, void *workspace,
+                           uint64_t workspace_size, void *c, void const *a,
+                           void const *b, float alpha, float beta) {
     if (desc->dtype == INFINI_DTYPE_F16) {
         return matmul_cpu<uint16_t>(desc, c, beta, a, b, alpha);
     }
