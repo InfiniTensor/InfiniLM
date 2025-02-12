@@ -4,7 +4,7 @@
 
 infiniopStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides) {
     if (shape.size() != strides.size()) {
-        return STATUS_BAD_PARAM;
+        return INFINIOP_STATUS_BAD_TENSOR_STRIDES;
     }
     this->ndim = shape.size();
     this->shape = std::vector<int64_t>(shape);
@@ -16,9 +16,9 @@ infiniopStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const s
     aclFormat format = aclFormat::ACL_FORMAT_ND;
     this->format = format;
 
-    CHECK_STATUS(this->inferStorageShape(), STATUS_SUCCESS);
+    CHECK_STATUS(this->inferStorageShape(), INFINIOP_STATUS_SUCCESS);
 
-    return STATUS_SUCCESS;
+    return INFINIOP_STATUS_SUCCESS;
 }
 
 
@@ -30,7 +30,7 @@ infiniopStatus_t aclnnTensorDescriptor::inferStorageShape() {
     this->storageNdim = 1;
     this->storageShape = std::vector<int64_t>({this->shape[max_stride_index] * this->strides[max_stride_index]});
 
-    return STATUS_SUCCESS;
+    return INFINIOP_STATUS_SUCCESS;
 }
 
 /// @brief Set aclnnTensorDescriptor from infiniopTensorDescriptor
@@ -45,7 +45,7 @@ infiniopStatus_t aclnnTensorDescriptor::fromInfiniOpTensorDescriptor(infiniopTen
         shape[i] = static_cast<int64_t>(y->shape[i]);
         strides[i] = y->strides[i];
     }
-    return setDescriptor(toAclDataType(y->dt), shape, strides);
+    return setDescriptor(toAclDataType(y->dtype), shape, strides);
 }
 
 /// @brief Wrapper of aclCreateTensor. Create aclTensor.
@@ -56,7 +56,7 @@ infiniopStatus_t aclnnTensorDescriptor::fromInfiniOpTensorDescriptor(infiniopTen
 /// @return
 infiniopStatus_t aclnnTensorDescriptor::createTensor(void *data) {
     if (this->t) {
-        return STATUS_SUCCESS;
+        return INFINIOP_STATUS_SUCCESS;
     }
     this->t = aclCreateTensor(this->shape.data(),
                               this->ndim,
@@ -67,17 +67,17 @@ infiniopStatus_t aclnnTensorDescriptor::createTensor(void *data) {
                               this->storageShape.data(),
                               this->storageNdim,
                               data);
-    return STATUS_SUCCESS;
+    return INFINIOP_STATUS_SUCCESS;
 }
 
 infiniopStatus_t aclnnTensorDescriptor::destroyTensor() {
     auto ret = aclDestroyTensor(this->t);
     CHECK_RET(ret == ACL_SUCCESS,
               LOG_PRINT("aclDesctroyTensor failed, ERROR: %d\n", ret);
-              return STATUS_EXECUTION_FAILED);
+              return INFINIOP_STATUS_INTERNAL_ERROR);
     t = nullptr;
 
-    return STATUS_SUCCESS;
+    return INFINIOP_STATUS_SUCCESS;
 }
 
 aclnnTensorDescriptor::~aclnnTensorDescriptor() {

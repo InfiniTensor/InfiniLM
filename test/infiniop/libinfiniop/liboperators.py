@@ -63,7 +63,6 @@ def open_lib():
     assert (
         library_path is not None
     ), f"Cannot find infiniop.dll or libinfiniop.so. Check if INFINI_ROOT is set correctly."
-    ctypes.CDLL(r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.2\bin\cudnn64_9.dll")
     lib = ctypes.CDLL(library_path)
     lib.infiniopCreateTensorDescriptor.argtypes = [
         POINTER(infiniopTensorDescriptor_t),

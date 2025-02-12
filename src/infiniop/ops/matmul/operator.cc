@@ -10,8 +10,8 @@
 #ifdef ENABLE_CAMBRICON_MLU
 #include "bang/matmul_cnnl.h"
 #endif
-#ifdef ENABLE_ASCEND_NPU
-#include "ascend/matmul_aclnn.h"
+#ifdef ENABLE_ASCEND_API
+#include "ascend/matmul_aclnn_api.h"
 #endif
 
 __C infiniopStatus_t infiniopCreateMatmulDescriptor(infiniopHandle_t handle,
@@ -34,21 +34,19 @@ __C infiniopStatus_t infiniopCreateMatmulDescriptor(infiniopHandle_t handle,
             return bangCreateMatmulDescriptor((BangHandle_t) handle, (MatmulBangDescriptor_t *) desc_ptr, c_desc, a_desc, b_desc);
         }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-        case DevAscendNpu: {
-            return aclnnCreateMatmulDescriptor((AscendHandle_t) handle,
-                                               (MatmulAclnnDescriptor_t *) desc_ptr,
-                                               c_desc,
-                                               a_desc,
-                                               b_desc,
-                                               1);
+#ifdef ENABLE_ASCEND_API
+        case INFINI_DEVICE_ASCEND: {
+            return aclnnCreateMatmulDescriptor(
+                (infiniopAscendHandle_t)handle,
+                (MatmulAclnnDescriptor_t *)desc_ptr, c_desc, a_desc, b_desc, 1);
         }
 #endif
     }
     return INFINIOP_STATUS_BAD_DEVICE;
 }
 
-__C infiniopStatus_t infiniopGetMatmulWorkspaceSize(infiniopMatmulDescriptor_t desc, uint64_t *size) {
+__C infiniopStatus_t
+infiniopGetMatmulWorkspaceSize(infiniopMatmulDescriptor_t desc, size_t *size) {
     switch (desc->device) {
 #ifdef ENABLE_CPU_API
         case INFINI_DEVICE_CPU:
@@ -65,8 +63,8 @@ __C infiniopStatus_t infiniopGetMatmulWorkspaceSize(infiniopMatmulDescriptor_t d
             return bangGetMatmulWorkspaceSize((MatmulBangDescriptor_t) desc, size);
         }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-        case DevAscendNpu: {
+#ifdef ENABLE_ASCEND_API
+        case INFINI_DEVICE_ASCEND: {
             return aclnnGetMatmulWorkspaceSize((MatmulAclnnDescriptor_t) desc,
                                                size);
         }
@@ -75,7 +73,10 @@ __C infiniopStatus_t infiniopGetMatmulWorkspaceSize(infiniopMatmulDescriptor_t d
     return INFINIOP_STATUS_BAD_DEVICE;
 }
 
-__C infiniopStatus_t infiniopMatmul(infiniopMatmulDescriptor_t desc, void *workspace, uint64_t workspace_size, void *c, void const *a, void const *b, float alpha, float beta, void *stream) {
+__C infiniopStatus_t infiniopMatmul(infiniopMatmulDescriptor_t desc,
+                                    void *workspace, size_t workspace_size,
+                                    void *c, void const *a, void const *b,
+                                    float alpha, float beta, void *stream) {
     switch (desc->device) {
 #ifdef ENABLE_CPU_API
         case INFINI_DEVICE_CPU:
@@ -87,20 +88,14 @@ __C infiniopStatus_t infiniopMatmul(infiniopMatmulDescriptor_t desc, void *works
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
         case DevCambriconMlu: {
-            return bangMatmul((MatmulBangDescriptor_t) desc, workspace, workspace_size, c, alpha, a, b, beta, stream);
+            return bangMatmul((MatmulBangDescriptor_t)desc, workspace,
+                              workspace_size, c, a, b, alpha, beta, stream);
         }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-        case DevAscendNpu:
-            return aclnnMatmul((MatmulAclnnDescriptor_t) desc,
-                               workspace,
-                               workspace_size,
-                               c,
-                               alpha,
-                               a,
-                               b,
-                               beta,
-                               stream);
+#ifdef ENABLE_ASCEND_API
+        case INFINI_DEVICE_ASCEND:
+            return aclnnMatmul((MatmulAclnnDescriptor_t)desc, workspace,
+                               workspace_size, c, a, b, alpha, beta, stream);
 #endif
     }
     return INFINIOP_STATUS_BAD_DEVICE;
@@ -123,8 +118,8 @@ __C infiniopStatus_t infiniopDestroyMatmulDescriptor(infiniopMatmulDescriptor_t 
             return bangDestroyMatmulDescriptor((MatmulBangDescriptor_t) desc);
         }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-        case DevAscendNpu: {
+#ifdef ENABLE_ASCEND_API
+        case INFINI_DEVICE_ASCEND: {
             return aclnnDestroyMatmulDescriptor((MatmulAclnnDescriptor_t) desc);
         }
 #endif

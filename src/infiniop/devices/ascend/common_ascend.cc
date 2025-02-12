@@ -8,16 +8,16 @@ int64_t numElements(const int64_t *shape, int64_t num) {
     return numEle;
 }
 
-infiniopStatus_t mallocWorkspace(void **workspaceAddr, uint64_t workspaceSize) {
+infiniopStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize) {
     *workspaceAddr = nullptr;
     if (workspaceSize > 0) {
         auto ret = aclrtMalloc(workspaceAddr, workspaceSize,
                                ACL_MEM_MALLOC_HUGE_FIRST);
         CHECK_RET(ret == ACL_SUCCESS,
                   LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", ret);
-                  return STATUS_EXECUTION_FAILED);
+                  return INFINIOP_STATUS_INTERNAL_ERROR);
     }
-    return STATUS_SUCCESS;
+    return INFINIOP_STATUS_SUCCESS;
 }
 
 infiniopStatus_t freeWorkspace(void *workspaceAddr) {
@@ -25,35 +25,35 @@ infiniopStatus_t freeWorkspace(void *workspaceAddr) {
         auto ret = aclrtFree(workspaceAddr);
         CHECK_RET(ret == ACL_SUCCESS,
                   LOG_PRINT("aclrtFree failed, ERROR: %d\n", ret);
-                  return STATUS_EXECUTION_FAILED);
+                  return INFINIOP_STATUS_INTERNAL_ERROR);
     }
-    return STATUS_SUCCESS;
+    return INFINIOP_STATUS_SUCCESS;
 }
 
-aclDataType toAclDataType(DT dt) {
-    if (dt == I8)
+aclDataType toAclDataType(infiniDtype_t dt) {
+    if (dt == INFINI_DTYPE_I8)
         return aclDataType::ACL_INT8;
-    else if (dt == I16)
+    else if (dt == INFINI_DTYPE_I16)
         return aclDataType::ACL_INT16;
-    else if (dt == I32)
+    else if (dt == INFINI_DTYPE_I32)
         return aclDataType::ACL_INT32;
-    else if (dt == I64)
+    else if (dt == INFINI_DTYPE_I64)
         return aclDataType::ACL_INT64;
-    else if (dt == U8)
+    else if (dt == INFINI_DTYPE_U8)
         return aclDataType::ACL_UINT8;
-    else if (dt == U16)
+    else if (dt == INFINI_DTYPE_U16)
         return aclDataType::ACL_UINT16;
-    else if (dt == U32)
+    else if (dt == INFINI_DTYPE_U32)
         return aclDataType::ACL_UINT32;
-    else if (dt == U64)
+    else if (dt == INFINI_DTYPE_U64)
         return aclDataType::ACL_UINT64;
-    else if (dt == F16)
+    else if (dt == INFINI_DTYPE_F16)
         return aclDataType::ACL_FLOAT16;
-    else if (dt == BF16)
+    else if (dt == INFINI_DTYPE_BF16)
         return aclDataType::ACL_BF16;
-    else if (dt == F32)
+    else if (dt == INFINI_DTYPE_F32)
         return aclDataType::ACL_FLOAT;
-    else if (dt == F64)
+    else if (dt == INFINI_DTYPE_F64)
         return aclDataType::ACL_DOUBLE;
     else
         return aclDataType::ACL_DT_UNDEFINED;

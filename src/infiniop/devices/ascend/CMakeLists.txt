@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16.0)
 # project information
 project(Ascend_C)
 set(SOC_VERSION "Ascend910B3" CACHE STRING "system on chip type")
-set(ASCEND_CANN_PACKAGE_PATH "/usr/local/Ascend/ascend-toolkit/latest" CACHE PATH "ASCEND CANN package installation directory")
+set(ASCEND_CANN_PACKAGE_PATH $ENV{ASCEND_HOME} CACHE PATH "ASCEND CANN package installation directory")
 set(RUN_MODE "npu" CACHE STRING "run mode: npu")
 set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type Release/Debug (default Debug)" FORCE)
 set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/out" CACHE STRING "path for install()" FORCE)

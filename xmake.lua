@@ -61,6 +61,7 @@ option_end()
 
 if has_config("ascend-npu") then
     add_defines("ENABLE_ASCEND_API")
+    includes("xmake/ascend.lua")
 end
 
 -- 沐曦
@@ -126,7 +127,7 @@ target("infiniop")
         add_deps("cambricon-mlu")
     end
     if has_config("ascend-npu") then
-        add_deps("ascend-npu")
+        add_deps("infiniop-ascend")
     end
     if has_config("metax-gpu") then
         add_deps("metax-gpu")

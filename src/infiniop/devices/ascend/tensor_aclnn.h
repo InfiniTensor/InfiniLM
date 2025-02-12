@@ -2,9 +2,7 @@
 #define __ACLNN_TENSOR__
 
 #include "./common_ascend.h"
-#include "operators.h"
-#include "tensor.h"
-#include "tensor/tensor_descriptor.h"
+#include "infiniop/operator.h"
 #include <acl/acl.h>
 #include <acl/acl_base.h>
 #include <aclnn/acl_meta.h>

@@ -47,7 +47,7 @@ typedef struct BlasMatrix {
         *status = INFINIOP_STATUS_SUCCESS;
     }
 
-    bool match_batch(int batch) const {
+    bool match_batch(size_t batch) const {
         return this->batch == batch || this->batch == 1;
     }
 

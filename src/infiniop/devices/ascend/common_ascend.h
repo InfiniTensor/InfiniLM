@@ -1,10 +1,11 @@
-#ifndef __COMMON_ASCEND_H__
-#define __COMMON_ASCEND_H__
+#ifndef __INFINIOP_COMMON_ASCEND_H__
+#define __INFINIOP_COMMON_ASCEND_H__
 
-#include "operators.h"
+#include "ascend_handle.h"
 #include <acl/acl.h>
 #include <acl/acl_base.h>
 #include <acl/acl_rt.h>
+#include <aclnn/acl_meta.h>
 #include <cstdio>
 #include <functional>
 #include <inttypes.h>
@@ -31,11 +32,16 @@ extern "C" {
 };
 #endif
 
+struct InfiniopAscendHandle {
+    infiniDevice_t device;
+    int device_id;
+};
+
 int64_t numElements(const int64_t *shape, int64_t num);
 const char *dataTypeToString(aclDataType dtype);
 const char *formatToString(aclFormat format);
-infiniopStatus_t mallocWorkspace(void **workspaceAddr, uint64_t workspaceSize);
+infiniopStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize);
 infiniopStatus_t freeWorkspace(void *workspaceAddr);
-aclDataType toAclDataType(DT dt);
+aclDataType toAclDataType(infiniDtype_t dt);
 
 #endif

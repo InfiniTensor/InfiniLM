@@ -194,7 +194,7 @@ def test_cpu(lib, test_cases):
     destroy_handle(lib, handle)
 
 
-def test_cuda(lib, test_cases):
+def test_nvidia(lib, test_cases):
     device = InfiniDeviceEnum.NVIDIA
     handle = create_handle(lib, device)
 
@@ -227,7 +227,7 @@ def test_cuda(lib, test_cases):
     destroy_handle(lib, handle)
 
 
-def test_bang(lib, test_cases):
+def test_cambricon(lib, test_cases):
     import torch_mlu
     device = InfiniDeviceEnum.CAMBRICON
     handle = create_handle(lib, device)
@@ -348,12 +348,12 @@ if __name__ == "__main__":
         PROFILE = True
     if args.cpu:
         test_cpu(lib, test_cases)
-    if args.cuda:
-        test_cuda(lib, test_cases)
-    if args.bang:
-        test_bang(lib, test_cases)
+    if args.nvidia:
+        test_nvidia(lib, test_cases)
+    if args.cambricon:
+        test_cambricon(lib, test_cases)
     if args.ascend:
         test_ascend(lib, test_cases)
-    if not (args.cpu or args.cuda or args.bang or args.ascend):
+    if not (args.cpu or args.nvidia or args.cambricon or args.ascend):
         test_cpu(lib, test_cases)
     print("\033[92mTest passed!\033[0m")
