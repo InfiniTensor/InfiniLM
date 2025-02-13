@@ -46,15 +46,15 @@ infiniopStatus_t matmul_cpu(infiniopMatmulCpuDescriptor_t desc, void *c,
         std::swap(a, b);
     }
 
-    for (int i = 0; i < info.batch; ++i) {
-        for (int m_ = 0; m_ < info.m; ++m_) {
-            for (int n_ = 0; n_ < info.n; ++n_) {
+    for (size_t i = 0; i < info.batch; ++i) {
+        for (size_t m_ = 0; m_ < info.m; ++m_) {
+            for (size_t n_ = 0; n_ < info.n; ++n_) {
                 auto c_ = reinterpret_cast<Tdata *>(c) +
                           i * info.c_matrix.stride +
                           m_ * info.c_matrix.row_stride +
                           n_ * info.c_matrix.col_stride;
                 float sum = 0;
-                for (int k_ = 0; k_ < info.k; ++k_) {
+                for (size_t k_ = 0; k_ < info.k; ++k_) {
                     auto a_ = reinterpret_cast<Tdata const *>(a) +
                               i * info.a_matrix.stride +
                               m_ * info.a_matrix.row_stride +
