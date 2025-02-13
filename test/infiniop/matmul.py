@@ -1,4 +1,3 @@
-import sys
 import torch
 import ctypes
 from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
