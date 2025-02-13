@@ -47,8 +47,8 @@ typedef struct BlasMatrix {
         *status = INFINIOP_STATUS_SUCCESS;
     }
 
-    bool match_batch(size_t batch) const {
-        return this->batch == batch || this->batch == 1;
+    bool match_batch(size_t _batch) const {
+        return this->batch == _batch || this->batch == 1;
     }
 
     void transpose() {
@@ -56,7 +56,7 @@ typedef struct BlasMatrix {
         std::swap(row_stride, col_stride);
     }
 
-    int ld() const {
+    int64_t ld() const {
         if (this->row_stride == 1) {
             return this->col_stride;
         } else {

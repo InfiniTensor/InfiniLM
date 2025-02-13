@@ -1,4 +1,3 @@
-#include "../utils.h"
 #include "infiniop/ops/matmul.h"
 
 #ifdef ENABLE_CPU_API

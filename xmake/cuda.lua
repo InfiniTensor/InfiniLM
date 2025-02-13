@@ -20,10 +20,12 @@ target("infiniop-cuda")
 
     if is_plat("windows") then
         add_cuflags("-Xcompiler=/utf-8", "--expt-relaxed-constexpr", "--allow-unsupported-compiler")
+        add_cuflags("-Xcompiler=/W3", "-Xcompiler=/WX")
         if CUDNN_ROOT ~= nil then
             add_linkdirs(CUDNN_ROOT .. "\\lib\\x64")
         end
     else
+        add_cuflags("-Xcompiler=-Wall", "-Xcompiler=-Werror")
         add_cuflags("-Xcompiler=-fPIC")
         add_culdflags("-Xcompiler=-fPIC")
         add_cxxflags("-fPIC")

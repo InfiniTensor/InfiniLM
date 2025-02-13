@@ -52,14 +52,14 @@ uint16_t f32_to_f16(float val) {
         // Infinity
         return sign | 0x7C00;
     } else if (exponent >= -14) {// Normalized case
-        return sign | ((exponent + 15) << 10) | (mantissa >> 13);
+        return (uint16_t)(sign | ((exponent + 15) << 10) | (mantissa >> 13));
     } else if (exponent >= -24) {
         mantissa |= 0x800000;// Add implicit leading 1
         mantissa >>= (-14 - exponent);
-        return sign | (mantissa >> 13);
+        return (uint16_t)(sign | (mantissa >> 13));
     } else {
         // Too small for subnormal: return signed zero
-        return sign;
+        return (uint16_t)sign;
     }
 }
 
