@@ -8,5 +8,6 @@ typedef struct InfiniopBangHandle *infiniopBangHandle_t;
 
 infiniopStatus_t createBangHandle(infiniopBangHandle_t *handle_ptr,
                                   int device_id);
-infiniopStatus_t deleteBangHandle(infiniopBangHandle_t handle);
+infiniopStatus_t destroyBangHandle(infiniopBangHandle_t handle);
+
 #endif

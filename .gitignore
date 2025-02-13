@@ -16,3 +16,6 @@ __pycache__/
 
 # Cache
 cache/
+
+# JSON
+*.json

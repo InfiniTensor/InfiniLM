@@ -1,7 +1,7 @@
 #include "infiniop/ops/matmul.h"
 
 #ifdef ENABLE_CPU_API
-#include "cpu/matmul_cpu.h"
+#include "cpu/matmul_cpu_api.h"
 #endif
 #ifdef ENABLE_CUDA_API
 #include "cuda/matmul_cuda_api.h"

@@ -1,6 +1,7 @@
 #include "matmul_aclnn.h"
 
-MatmulAclnnDescriptor::MatmulAclnnDescriptor(infiniDevice_t _device) {
+InfiniopMatmulAclnnDescriptor::InfiniopMatmulAclnnDescriptor(
+    infiniDevice_t _device) {
     device = _device;
     device_id = 0;
     executor = nullptr;
@@ -23,7 +24,7 @@ infiniopStatus_t aclnnCreateMatmulDescriptor(infiniopAscendHandle_t handle,
         return INFINIOP_STATUS_BAD_TENSOR_DTYPE;
     }
 
-    *desc_ptr = new MatmulAclnnDescriptor(handle->device);
+    *desc_ptr = new InfiniopMatmulAclnnDescriptor(handle->device);
     (*desc_ptr)->device_id = handle->device_id;
     (*desc_ptr)->dtype = dtype;
     (*desc_ptr)->mt = mt;

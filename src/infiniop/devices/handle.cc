@@ -12,8 +12,9 @@
 #include "./ascend/ascend_handle.h"
 #endif
 
-
-__C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr, infiniDevice_t device, int device_id) {
+__C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,
+                                          infiniDevice_t device,
+                                          int device_id) {
     if (handle_ptr == nullptr) {
         return INFINIOP_STATUS_NULL_POINTER;
     }
@@ -23,50 +24,50 @@ __C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr, infiniDe
 
     switch (device) {
 #ifdef ENABLE_CPU_API
-        case INFINI_DEVICE_CPU:
-            return createCpuHandle((infiniopCpuHandle_t *) handle_ptr);
+    case INFINI_DEVICE_CPU:
+        return createCpuHandle((infiniopCpuHandle_t *)handle_ptr);
 #endif
 #ifdef ENABLE_CUDA_API
-        case INFINI_DEVICE_NVIDIA: {
-            return createCudaHandle((infiniopCudaHandle_t *) handle_ptr, device_id, device);
-        }
+    case INFINI_DEVICE_NVIDIA: {
+        return createCudaHandle((infiniopCudaHandle_t *)handle_ptr, device_id,
+                                device);
+    }
 #endif
 #ifdef ENABLE_CAMBRICON_API
-        case INFINI_DEVICE_CAMBRICON: {
-            return createBangHandle((infiniopBangHandle_t *) handle_ptr, device_id);
-        }
+    case INFINI_DEVICE_CAMBRICON: {
+        return createBangHandle((infiniopBangHandle_t *)handle_ptr, device_id);
+    }
 #endif
 #ifdef ENABLE_ASCEND_API
-        case INFINI_DEVICE_ASCEND: {
-            return createAscendHandle((infiniopAscendHandle_t *) handle_ptr, device_id);
-        }
+    case INFINI_DEVICE_ASCEND: {
+        return createAscendHandle((infiniopAscendHandle_t *)handle_ptr,
+                                  device_id);
+    }
 #endif
     }
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-
 __C infiniopStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
     switch (handle->device) {
 #ifdef ENABLE_CPU_API
-        case INFINI_DEVICE_CPU:
-            delete handle;
-            return INFINIOP_STATUS_SUCCESS;
+    case INFINI_DEVICE_CPU:
+        return destroyCpuHandle((infiniopCpuHandle_t)handle);
 #endif
 #ifdef ENABLE_CUDA_API
-        case INFINI_DEVICE_NVIDIA: {
-            return deleteCudaHandle((infiniopCudaHandle_t) handle);
-        }
+    case INFINI_DEVICE_NVIDIA: {
+        return deleteCudaHandle((infiniopCudaHandle_t)handle);
+    }
 #endif
 #ifdef ENABLE_CAMBRICON_API
-        case INFINI_DEVICE_CAMBRICON: {
-            return deleteBangHandle((infiniopBangHandle_t) handle);
-        }
+    case INFINI_DEVICE_CAMBRICON: {
+        return destroyBangHandle((infiniopBangHandle_t)handle);
+    }
 #endif
 #ifdef ENABLE_ASCEND_API
-        case INFINI_DEVICE_ASCEND: {
-            return deleteAscendHandle((infiniopAscendHandle_t) handle);
-        }
+    case INFINI_DEVICE_ASCEND: {
+        return destroyAscendHandle((infiniopAscendHandle_t)handle);
+    }
 #endif
     }
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;

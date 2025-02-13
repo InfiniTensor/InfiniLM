@@ -1,6 +1,7 @@
 #include "common_ascend.h"
 
-infiniopStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr, int device_id) {
+infiniopStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr,
+                                    int device_id) {
     uint32_t device_count;
     aclrtGetDeviceCount(&device_count);
     if (device_id >= static_cast<int>(device_count)) {
@@ -16,8 +17,7 @@ infiniopStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr, int devi
     return INFINIOP_STATUS_SUCCESS;
 }
 
-infiniopStatus_t deleteAscendHandle(infiniopAscendHandle_t handle_ptr) {
+infiniopStatus_t destroyAscendHandle(infiniopAscendHandle_t handle_ptr) {
     delete handle_ptr;
-
     return INFINIOP_STATUS_SUCCESS;
 }

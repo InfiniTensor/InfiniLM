@@ -1,8 +1,9 @@
+#include "../pool.h"
 #include "common_bang.h"
 #include <memory>
-#include "../pool.h"
 
-infiniopStatus_t createBangHandle(infiniopBangHandle_t *handle_ptr, int device_id) {
+infiniopStatus_t createBangHandle(infiniopBangHandle_t *handle_ptr,
+                                  int device_id) {
     unsigned int device_count;
     cnrtGetDeviceCount(&device_count);
     if (device_id >= static_cast<int>(device_count)) {
@@ -10,19 +11,20 @@ infiniopStatus_t createBangHandle(infiniopBangHandle_t *handle_ptr, int device_i
     }
 
     auto pool = std::make_shared<Pool<cnnlHandle_t>>();
-    if (cnrtSetDevice(device_id) != cnrtSuccess){
+    if (cnrtSetDevice(device_id) != cnrtSuccess) {
         return INFINIOP_STATUS_BAD_DEVICE;
     }
     cnnlHandle_t handle;
     cnnlCreate(&handle);
     pool->push(std::move(handle));
 
-    *handle_ptr = new InfiniopBangHandle{INFINI_DEVICE_CAMBRICON, device_id, std::move(pool)};
+    *handle_ptr = new InfiniopBangHandle{INFINI_DEVICE_CAMBRICON, device_id,
+                                         std::move(pool)};
 
     return INFINIOP_STATUS_SUCCESS;
 }
 
-infiniopStatus_t deleteBangHandle(infiniopBangHandle_t handle){
+infiniopStatus_t destroyBangHandle(infiniopBangHandle_t handle) {
     delete handle;
     return INFINIOP_STATUS_SUCCESS;
 }
