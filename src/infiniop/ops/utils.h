@@ -37,13 +37,20 @@
         }                                                                      \
     } while (0)
 
-inline std::vector<int64_t> get_byte_strides(infiniopTensorDescriptor_t desc) {
+inline std::vector<int64_t> getByteStrides(infiniopTensorDescriptor_t desc) {
     std::vector<int64_t> strides(desc->ndim);
     for (uint64_t i = 0; i < desc->ndim; i++) {
-        strides[i] = desc->strides[i] * infini_sizeof(desc->dtype);
+        strides[i] = desc->strides[i] * infiniSizeof(desc->dtype);
     }
-
     return strides;
+}
+
+inline size_t getByteSize(infiniopTensorDescriptor_t desc) {
+    size_t size = 1;
+    for (size_t i = 0; i < desc->ndim; i++) {
+        size *= desc->shape[i];
+    }
+    return size * infiniSizeof(desc->dtype);
 }
 
 // calculate the broadcasted shape for two tensors
@@ -119,13 +126,6 @@ inline bool isValidBroadcastShape(infiniopTensorDescriptor_t a,
     return isValidBroadcastShape(a, b, c, std::max(a->ndim, b->ndim));
 }
 
-inline size_t get_byte_size(infiniopTensorDescriptor_t desc) {
-    size_t size = 1;
-    for (size_t i = 0; i < desc->ndim; i++) {
-        size *= desc->shape[i];
-    }
-    return size * infini_sizeof(desc->dtype);
-}
 
 // permute the dimensions of a tensor descriptor
 inline infiniopTensorDescriptor_t permute(infiniopTensorDescriptor_t desc,
@@ -148,7 +148,7 @@ inline infiniopTensorDescriptor_t permute(infiniopTensorDescriptor_t desc,
 
 // check if the dimensions [dim_start, dim_end] of a tensor descriptor are
 // contiguous
-inline bool is_contiguous(const infiniopTensorDescriptor_t &desc,
+inline bool isContiguous(const infiniopTensorDescriptor_t &desc,
                           size_t dim_start, size_t dim_end) {
     for (size_t i = dim_start + 1; i <= dim_end; i++) {
         if (desc->strides[i - 1] !=
@@ -159,15 +159,15 @@ inline bool is_contiguous(const infiniopTensorDescriptor_t &desc,
     return true;
 }
 
-inline bool is_contiguous(const infiniopTensorDescriptor_t &desc) {
+inline bool isContiguous(const infiniopTensorDescriptor_t &desc) {
     if (desc->ndim == 0) {
         return true;
     }
-    return is_contiguous(desc, 0, desc->ndim - 1);
+    return isContiguous(desc, 0, desc->ndim - 1);
 }
 
 // merge the dimensions [dim_start, dim_end] of a tensor descriptor
-inline infiniopTensorDescriptor_t dim_merge(infiniopTensorDescriptor_t desc,
+inline infiniopTensorDescriptor_t dimMerge(infiniopTensorDescriptor_t desc,
                                             size_t dim_start, size_t dim_end) {
     size_t ndim = desc->ndim;
     if (dim_start > dim_end || dim_end >= ndim) {
@@ -183,7 +183,7 @@ inline infiniopTensorDescriptor_t dim_merge(infiniopTensorDescriptor_t desc,
         new_strides[index] = desc->strides[i];
         index++;
     }
-    if (!is_contiguous(desc, dim_start, dim_end)) {
+    if (!isContiguous(desc, dim_start, dim_end)) {
         return nullptr;
     }
     new_shape[index] = 1;
@@ -202,7 +202,7 @@ inline infiniopTensorDescriptor_t dim_merge(infiniopTensorDescriptor_t desc,
 }
 
 // split the dimension dim of a tensor descriptor into multiple dimensions
-inline infiniopTensorDescriptor_t dim_split(infiniopTensorDescriptor_t desc,
+inline infiniopTensorDescriptor_t dimSplit(infiniopTensorDescriptor_t desc,
                                             size_t dim,
                                             const std::vector<size_t> &dims) {
     size_t ndim = desc->ndim;

@@ -37,7 +37,7 @@ cpuDestroyMatmulDescriptor(infiniopMatmulCpuDescriptor_t desc) {
 }
 
 template <typename Tdata>
-infiniopStatus_t matmul_cpu(infiniopMatmulCpuDescriptor_t desc, void *c,
+infiniopStatus_t cpuCalculateMatmul(infiniopMatmulCpuDescriptor_t desc, void *c,
                             float beta, void const *a, void const *b,
                             float alpha) {
     auto info = desc->info;
@@ -88,10 +88,10 @@ infiniopStatus_t cpuMatmul(infiniopMatmulCpuDescriptor_t desc, void *workspace,
                            uint64_t workspace_size, void *c, void const *a,
                            void const *b, float alpha, float beta) {
     if (desc->dtype == INFINI_DTYPE_F16) {
-        return matmul_cpu<uint16_t>(desc, c, beta, a, b, alpha);
+        return cpuCalculateMatmul<uint16_t>(desc, c, beta, a, b, alpha);
     }
     if (desc->dtype == INFINI_DTYPE_F32) {
-        return matmul_cpu<float>(desc, c, beta, a, b, alpha);
+        return cpuCalculateMatmul<float>(desc, c, beta, a, b, alpha);
     }
     return INFINIOP_STATUS_BAD_TENSOR_DTYPE;
 }

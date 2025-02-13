@@ -72,7 +72,7 @@ bangDestroyMatmulDescriptor(infiniopMatmulBangDescriptor_t desc) {
     return INFINIOP_STATUS_SUCCESS;
 }
 
-void matmul_cnnl(infiniopMatmulBangDescriptor_t desc, void *workspace, void *c,
+void bangMatmulCnnl(infiniopMatmulBangDescriptor_t desc, void *workspace, void *c,
                  float beta, void const *a, void const *b, float alpha,
                  void *stream) {
     auto info = desc->info;
@@ -92,7 +92,7 @@ infiniopStatus_t bangMatmul(infiniopMatmulBangDescriptor_t desc,
                             void const *a, void const *b, float alpha,
                             float beta, void *stream) {
     if (desc->dtype == INFINI_DTYPE_F16 || desc->dtype == INFINI_DTYPE_F32) {
-        matmul_cnnl(desc, workspace, c, beta, a, b, alpha, stream);
+        bangMatmulCnnl(desc, workspace, c, beta, a, b, alpha, stream);
         cnrtQueueSync((cnrtQueue_t)stream);
         return INFINIOP_STATUS_SUCCESS;
     }

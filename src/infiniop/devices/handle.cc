@@ -56,7 +56,7 @@ __C infiniopStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
 #endif
 #ifdef ENABLE_CUDA_API
     case INFINI_DEVICE_NVIDIA: {
-        return deleteCudaHandle((infiniopCudaHandle_t)handle);
+        return destroyCudaHandle((infiniopCudaHandle_t)handle);
     }
 #endif
 #ifdef ENABLE_CAMBRICON_API

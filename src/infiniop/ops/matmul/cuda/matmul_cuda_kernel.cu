@@ -2,7 +2,7 @@
 #include "./matmul_cuda.cuh"
 
 template<typename Tdata>
-infiniopStatus_t matmul_cuda(infiniopMatmulCudaDescriptor_t desc, void *c, float beta, void const *a, void const *b, float alpha, void *stream) {
+infiniopStatus_t cudaMatmulCublas(infiniopMatmulCudaDescriptor_t desc, void *c, float beta, void const *a, void const *b, float alpha, void *stream) {
     auto info = desc->info;
 
     if (info.is_transed) {
@@ -64,10 +64,10 @@ infiniopStatus_t cudaMatmul(infiniopMatmulCudaDescriptor_t desc,
                             float beta,
                             void *stream) {
     if (desc->dtype == INFINI_DTYPE_F16) {
-        return matmul_cuda<half>(desc, c, beta, a, b, alpha, stream);
+        return cudaMatmulCublas<half>(desc, c, beta, a, b, alpha, stream);
     }
     if (desc->dtype == INFINI_DTYPE_F32) {
-        return matmul_cuda<float>(desc, c, beta, a, b, alpha, stream);
+        return cudaMatmulCublas<float>(desc, c, beta, a, b, alpha, stream);
     }
     return INFINIOP_STATUS_BAD_TENSOR_DTYPE;
 }

@@ -46,7 +46,7 @@ infiniopStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, int device_i
     return INFINIOP_STATUS_SUCCESS;
 }
 
-infiniopStatus_t deleteCudaHandle(infiniopCudaHandle_t handle_ptr) {
+infiniopStatus_t destroyCudaHandle(infiniopCudaHandle_t handle_ptr) {
     handle_ptr->cublas_handles_t = nullptr;
     handle_ptr->cudnn_handles_t = nullptr;
     delete handle_ptr;
