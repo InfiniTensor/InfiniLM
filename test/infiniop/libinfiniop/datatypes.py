@@ -7,7 +7,7 @@ class InfiniDtype:
     I32 = 5
     I64 = 6
     U8 = 7
-    U16 = 8 
+    U16 = 8
     U32 = 9
     U64 = 10
     F8 = 11

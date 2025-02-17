@@ -41,17 +41,11 @@ infiniopConvDescriptor_t = POINTER(ConvDescriptor)
 def conv(x, w, stride, padding, dilation):
     match len(x.shape) - 2:
         case 1:
-            return F.conv1d(
-                x, w, stride=stride, padding=padding, dilation=dilation
-            )
+            return F.conv1d(x, w, stride=stride, padding=padding, dilation=dilation)
         case 2:
-            return F.conv2d(
-                x, w, stride=stride, padding=padding, dilation=dilation
-            )
+            return F.conv2d(x, w, stride=stride, padding=padding, dilation=dilation)
         case 3:
-            return F.conv3d(
-                x, w, stride=stride, padding=padding, dilation=dilation
-            )
+            return F.conv3d(x, w, stride=stride, padding=padding, dilation=dilation)
         case _:
             print("Error: Pytorch -> Unsupported tensor dimension")
             return None
@@ -66,11 +60,15 @@ def inferShape(
     dilations: List[int],
 ) -> Tuple[int, ...]:
     assert (
-        len(x_shape) == len(w_shape) == len(pads) + 2 == len(dilations) + 2 == len(strides) + 2
+        len(x_shape)
+        == len(w_shape)
+        == len(pads) + 2
+        == len(dilations) + 2
+        == len(strides) + 2
     ), "x and w should have the same length; pads, strides, and dilatinos should have the same length; the length of pads should be that of x - 2"
     output_dims = [
         math.floor(
-            (x_shape[i+2] + 2 * pads[i] - dilations[i] * (w_shape[i+2] - 1) - 1)
+            (x_shape[i + 2] + 2 * pads[i] - dilations[i] * (w_shape[i + 2] - 1) - 1)
             / strides[i]
             + 1
         )
@@ -145,7 +143,9 @@ def test(
     check_error(
         lib.infiniopGetConvWorkspaceSize(descriptor, ctypes.byref(workspaceSize))
     )
-    workspace = torch.zeros(int(workspaceSize.value), dtype=torch.uint8).to(torch_device)
+    workspace = torch.zeros(int(workspaceSize.value), dtype=torch.uint8).to(
+        torch_device
+    )
     workspace_ptr = ctypes.cast(workspace.data_ptr(), ctypes.POINTER(ctypes.c_uint8))
 
     for i in range(NUM_PRERUN if PROFILE else 1):
@@ -177,7 +177,7 @@ def test(
         elapsed = (time.time() - start_time) / NUM_ITERATIONS
         print(f"    lib time: {elapsed :6f}")
 
-    if (tensor_dtype == torch.float16):
+    if tensor_dtype == torch.float16:
         assert torch.allclose(y, ans, atol=0, rtol=1e-2)
     else:
         assert torch.allclose(y, ans, atol=0, rtol=1e-3)
@@ -188,8 +188,10 @@ def test_cpu(lib, test_cases):
     device = DeviceEnum.DEVICE_CPU
     handle = create_handle(lib, device)
     for x_shape, w_shape, pads, strides, dilations, x_strides in test_cases:
+        # fmt: off
         test(lib, handle, "cpu", x_shape, w_shape, pads, strides, dilations, x_strides, tensor_dtype=torch.float16)
         test(lib, handle, "cpu", x_shape, w_shape, pads, strides, dilations, x_strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -197,8 +199,10 @@ def test_cuda(lib, test_cases):
     device = DeviceEnum.DEVICE_CUDA
     handle = create_handle(lib, device)
     for x_shape, w_shape, pads, strides, dilations, x_strides in test_cases:
+        # fmt: off
         test(lib, handle, "cuda", x_shape, w_shape, pads, strides, dilations, x_strides, tensor_dtype=torch.float16)
         test(lib, handle, "cuda", x_shape, w_shape, pads, strides, dilations, x_strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -208,8 +212,10 @@ def test_bang(lib, test_cases):
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
     for x_shape, w_shape, pads, strides, dilations, x_strides in test_cases:
+        # fmt: off
         test(lib, handle, "mlu", x_shape, w_shape, pads, strides, dilations, x_strides, tensor_dtype=torch.float16)
         test(lib, handle, "mlu", x_shape, w_shape, pads, strides, dilations, x_strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 

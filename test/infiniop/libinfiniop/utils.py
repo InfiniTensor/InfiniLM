@@ -54,6 +54,7 @@ def create_workspace(size, torch_device):
     if size == 0:
         return None
     import torch
+
     return torch.zeros(size=(size,), dtype=torch.uint8, device=torch_device)
 
 
@@ -172,6 +173,7 @@ def get_args():
 
 def synchronize_device(torch_device):
     import torch
+
     if torch_device == "cuda":
         torch.cuda.synchronize()
     elif torch_device == "npu":
@@ -197,13 +199,24 @@ def debug(actual, desired, atol=0, rtol=1e-2, equal_nan=False, verbose=True):
         If True, the function will print detailed information about any discrepancies between the tensors.
     """
     import numpy as np
+
     print_discrepancy(actual, desired, atol, rtol, verbose)
-    np.testing.assert_allclose(actual.cpu(), desired.cpu(), rtol, atol, equal_nan, verbose=True, strict=True)
+    np.testing.assert_allclose(
+        actual.cpu(), desired.cpu(), rtol, atol, equal_nan, verbose=True, strict=True
+    )
 
 
-def debug_all(actual_vals: Sequence, desired_vals: Sequence, condition: str, atol=0, rtol=1e-2, equal_nan=False, verbose=True):
+def debug_all(
+    actual_vals: Sequence,
+    desired_vals: Sequence,
+    condition: str,
+    atol=0,
+    rtol=1e-2,
+    equal_nan=False,
+    verbose=True,
+):
     """
-    Debugging function to compare two sequences of values (actual and desired) pair by pair, results 
+    Debugging function to compare two sequences of values (actual and desired) pair by pair, results
     are linked by the given logical condition, and prints discrepancies
     Arguments:
     ----------
@@ -223,7 +236,10 @@ def debug_all(actual_vals: Sequence, desired_vals: Sequence, condition: str, ato
     - AssertionError: If the specified `condition` is not 'or' or 'and'.
     """
     assert len(actual_vals) == len(desired_vals), "Invalid Length"
-    assert condition in {"or", "and"}, "Invalid condition: should be either 'or' or 'and'"
+    assert condition in {
+        "or",
+        "and",
+    }, "Invalid condition: should be either 'or' or 'and'"
     import numpy as np
 
     passed = False if condition == "or" else True
@@ -237,14 +253,22 @@ def debug_all(actual_vals: Sequence, desired_vals: Sequence, condition: str, ato
         elif condition == "and":
             if passed and len(indices) != 0:
                 passed = False
-                print(f"\033[31mThe condition has not been satisfied: Condition #{index + 1}\033[0m")
-            np.testing.assert_allclose(actual.cpu(), desired.cpu(), rtol, atol, equal_nan, verbose=True, strict=True)
+                print(
+                    f"\033[31mThe condition has not been satisfied: Condition #{index + 1}\033[0m"
+                )
+            np.testing.assert_allclose(
+                actual.cpu(),
+                desired.cpu(),
+                rtol,
+                atol,
+                equal_nan,
+                verbose=True,
+                strict=True,
+            )
     assert passed, "\033[31mThe condition has not been satisfied\033[0m"
 
 
-def print_discrepancy(
-    actual, expected, atol=0, rtol=1e-3, verbose=True
-):
+def print_discrepancy(actual, expected, atol=0, rtol=1e-3, verbose=True):
     if actual.shape != expected.shape:
         raise ValueError("Tensors must have the same shape to compare.")
 
@@ -273,7 +297,9 @@ def print_discrepancy(
         for idx in diff_indices:
             index_tuple = tuple(idx.tolist())
             actual_str = f"{actual[index_tuple]:<{col_width[1]}.{decimal_places[1]}f}"
-            expected_str = f"{expected[index_tuple]:<{col_width[2]}.{decimal_places[2]}f}"
+            expected_str = (
+                f"{expected[index_tuple]:<{col_width[2]}.{decimal_places[2]}f}"
+            )
             delta_str = f"{delta[index_tuple]:<{col_width[3]}.{decimal_places[3]}f}"
             print(
                 f" > Index: {str(index_tuple):<{col_width[0]}}"
@@ -287,10 +313,18 @@ def print_discrepancy(
         print(f"  - Desired dtype: {expected.dtype}")
         print(f"  - Atol: {atol}")
         print(f"  - Rtol: {rtol}")
-        print(f"  - Mismatched elements: {len(diff_indices)} / {actual.numel()} ({len(diff_indices) / actual.numel() * 100}%)")
-        print(f"  - Min(actual) : {torch.min(actual):<{col_width[1]}} | Max(actual) : {torch.max(actual):<{col_width[2]}}")
-        print(f"  - Min(desired): {torch.min(expected):<{col_width[1]}} | Max(desired): {torch.max(expected):<{col_width[2]}}")
-        print(f"  - Min(delta)  : {torch.min(delta):<{col_width[1]}} | Max(delta)  : {torch.max(delta):<{col_width[2]}}")
+        print(
+            f"  - Mismatched elements: {len(diff_indices)} / {actual.numel()} ({len(diff_indices) / actual.numel() * 100}%)"
+        )
+        print(
+            f"  - Min(actual) : {torch.min(actual):<{col_width[1]}} | Max(actual) : {torch.max(actual):<{col_width[2]}}"
+        )
+        print(
+            f"  - Min(desired): {torch.min(expected):<{col_width[1]}} | Max(desired): {torch.max(expected):<{col_width[2]}}"
+        )
+        print(
+            f"  - Min(delta)  : {torch.min(delta):<{col_width[1]}} | Max(delta)  : {torch.max(delta):<{col_width[2]}}"
+        )
         print("-" * total_width + "\n")
 
     return diff_indices
@@ -298,14 +332,17 @@ def print_discrepancy(
 
 def get_tolerance(tolerance_map, tensor_dtype, default_atol=0, default_rtol=1e-3):
     """
-    Returns the atol and rtol for a given tensor data type in the tolerance_map. 
+    Returns the atol and rtol for a given tensor data type in the tolerance_map.
     If the given data type is not found, it returns the provided default tolerance values.
     """
-    return tolerance_map.get(tensor_dtype, {'atol': default_atol, 'rtol': default_rtol}).values()
+    return tolerance_map.get(
+        tensor_dtype, {"atol": default_atol, "rtol": default_rtol}
+    ).values()
 
 
 def timed_op(func, num_iterations, device):
     import time
+
     """ Function for timing operations with synchronization. """
     synchronize_device(device)
     start = time.time()
@@ -318,7 +355,7 @@ def timed_op(func, num_iterations, device):
 def profile_operation(desc, func, torch_device, NUM_PRERUN, NUM_ITERATIONS):
     """
     Unified profiling workflow that is used to profile the execution time of a given function.
-    It first performs a number of warmup runs, then performs timed execution and 
+    It first performs a number of warmup runs, then performs timed execution and
     prints the average execution time.
 
     Arguments:
@@ -328,11 +365,11 @@ def profile_operation(desc, func, torch_device, NUM_PRERUN, NUM_ITERATIONS):
     - torch_device (str): The device on which the operation runs, provided for timed execution.
     - NUM_PRERUN (int): The number of warmup runs.
     - NUM_ITERATIONS (int): The number of timed execution iterations, used to calculate the average execution time.
-    """    
+    """
     # Warmup runs
     for _ in range(NUM_PRERUN):
         func()
-    
+
     # Timed execution
     elapsed = timed_op(lambda: func(), NUM_ITERATIONS, torch_device)
     print(f" {desc} time: {elapsed * 1000 :6f} ms")
@@ -347,7 +384,7 @@ def test_operator(lib, device, test_func, test_cases, tensor_dtypes):
     - lib (ctypes.CDLL): The library object containing the operator implementations.
     - device (InfiniDeviceEnum): The device on which the operator should be tested. See device.py.
     - test_func (function): The test function to be executed for each test case.
-    - test_cases (list of tuples): A list of test cases, where each test case is a tuple of parameters 
+    - test_cases (list of tuples): A list of test cases, where each test case is a tuple of parameters
         to be passed to `test_func`.
     - tensor_dtypes (list): A list of tensor data types (e.g., `torch.float32`) to test.
     """
@@ -355,7 +392,13 @@ def test_operator(lib, device, test_func, test_cases, tensor_dtypes):
     try:
         for test_case in test_cases:
             for tensor_dtype in tensor_dtypes:
-                test_func(lib, handle, infiniDeviceEnum_str_map[device], *test_case, tensor_dtype)
+                test_func(
+                    lib,
+                    handle,
+                    infiniDeviceEnum_str_map[device],
+                    *test_case,
+                    tensor_dtype,
+                )
     finally:
         destroy_handle(lib, handle)
 
@@ -365,22 +408,26 @@ def get_test_devices(args):
     Using the given parsed Namespace to determine the devices to be tested.
 
     Argument:
-    - args: the parsed Namespace object. 
+    - args: the parsed Namespace object.
 
     Return:
     - devices_to_test: the devices that will be tested. Default is CPU.
     """
     devices_to_test = []
 
-    if args.cpu: devices_to_test.append(InfiniDeviceEnum.CPU)
-    if args.nvidia: devices_to_test.append(InfiniDeviceEnum.NVIDIA)
-    if args.cambricon: 
+    if args.cpu:
+        devices_to_test.append(InfiniDeviceEnum.CPU)
+    if args.nvidia:
+        devices_to_test.append(InfiniDeviceEnum.NVIDIA)
+    if args.cambricon:
         import torch_mlu
+
         devices_to_test.append(InfiniDeviceEnum.CAMBRICON)
-    if args.ascend: 
+    if args.ascend:
         import torch
         import torch_npu
-        torch.npu.set_device(0) # Ascend NPU needs explicit device initialization
+
+        torch.npu.set_device(0)  # Ascend NPU needs explicit device initialization
         devices_to_test.append(InfiniDeviceEnum.ASCEND)
     if not devices_to_test:
         devices_to_test = [InfiniDeviceEnum.CPU]

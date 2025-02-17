@@ -20,11 +20,13 @@ from operatorspy import (
 from operatorspy.tests.test_utils import get_args
 import torch
 
+
 class RMSNormDescriptor(Structure):
     _fields_ = [("device", c_int32)]
 
 
 infiniopRMSNormDescriptor_t = POINTER(RMSNormDescriptor)
+
 
 def rms_norm(x, w, eps):
     input_dtype = x.dtype
@@ -34,9 +36,20 @@ def rms_norm(x, w, eps):
     return w * hidden_states.to(input_dtype)
 
 
-def test(lib, handle, torch_device, y_shape, x_shape, w_shape, dtype=torch.float16, w_dtype=torch.float16):
-    print(f"Testing RMS_Norm on {torch_device} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
-        f" dtype:{dtype} w_dtype:{w_dtype}")
+def test(
+    lib,
+    handle,
+    torch_device,
+    y_shape,
+    x_shape,
+    w_shape,
+    dtype=torch.float16,
+    w_dtype=torch.float16,
+):
+    print(
+        f"Testing RMS_Norm on {torch_device} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
+        f" dtype:{dtype} w_dtype:{w_dtype}"
+    )
 
     y = torch.zeros(y_shape, dtype=dtype).to(torch_device)
     x = torch.rand(x_shape, dtype=dtype).to(torch_device)
@@ -50,12 +63,16 @@ def test(lib, handle, torch_device, y_shape, x_shape, w_shape, dtype=torch.float
     w_tensor = to_tensor(w, lib)
 
     descriptor = infiniopRMSNormDescriptor_t()
-    w_dataType = 0 if w_dtype==torch.float16 else 1
+    w_dataType = 0 if w_dtype == torch.float16 else 1
 
     check_error(
         lib.infiniopCreateRMSNormDescriptor(
-            handle, ctypes.byref(descriptor), y_tensor.descriptor, x_tensor.descriptor,
-            w_tensor.descriptor, eps
+            handle,
+            ctypes.byref(descriptor),
+            y_tensor.descriptor,
+            x_tensor.descriptor,
+            w_tensor.descriptor,
+            eps,
         )
     )
 
@@ -66,9 +83,7 @@ def test(lib, handle, torch_device, y_shape, x_shape, w_shape, dtype=torch.float
 
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetRMSNormWorkspaceSize(
-            descriptor, ctypes.byref(workspace_size)
-        )
+        lib.infiniopGetRMSNormWorkspaceSize(descriptor, ctypes.byref(workspace_size))
     )
     workspace = create_workspace(workspace_size.value, y.device)
     check_error(
@@ -86,36 +101,43 @@ def test(lib, handle, torch_device, y_shape, x_shape, w_shape, dtype=torch.float
     assert torch.allclose(y.to(dtype), ans.to(dtype), atol=1e-3, rtol=1e-3)
     check_error(lib.infiniopDestroyRMSNormDescriptor(descriptor))
 
+
 def test_cpu(lib, test_cases):
     device = DeviceEnum.DEVICE_CPU
     handle = create_handle(lib, device)
-    for (y_shape, x_shape, w_shape, dtype, w_dtype) in test_cases:
+    for y_shape, x_shape, w_shape, dtype, w_dtype in test_cases:
         test(lib, handle, "cpu", y_shape, x_shape, w_shape, dtype, w_dtype)
     destroy_handle(lib, handle)
+
 
 def test_cuda(lib, test_cases):
     device = DeviceEnum.DEVICE_CUDA
     handle = create_handle(lib, device)
-    for (y_shape, x_shape, w_shape, dtype, w_dtype) in test_cases:
+    for y_shape, x_shape, w_shape, dtype, w_dtype in test_cases:
         test(lib, handle, "cuda", y_shape, x_shape, w_shape, dtype, w_dtype)
     destroy_handle(lib, handle)
 
+
 def test_bang(lib, test_cases):
     import torch_mlu
+
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
-    for (y_shape, x_shape, w_shape, dtype, w_dtype) in test_cases:
+    for y_shape, x_shape, w_shape, dtype, w_dtype in test_cases:
         test(lib, handle, "mlu", y_shape, x_shape, w_shape, dtype, w_dtype)
     destroy_handle(lib, handle)
 
+
 def test_ascend(lib, test_cases):
     import torch_npu
+
     device = DeviceEnum.DEVICE_ASCEND
     handle = create_handle(lib, device)
-    for (y_shape, x_shape, w_shape, dtype, w_dtype) in test_cases:
+    for y_shape, x_shape, w_shape, dtype, w_dtype in test_cases:
         test(lib, handle, "npu", y_shape, x_shape, w_shape, dtype, w_dtype)
 
     destroy_handle(lib, handle)
+
 
 if __name__ == "__main__":
     test_cases = [

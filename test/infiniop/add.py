@@ -41,8 +41,8 @@ def test(
     lib,
     handle,
     torch_device,
-    c_shape, 
-    a_shape, 
+    c_shape,
+    a_shape,
     b_shape,
     tensor_dtype=torch.float16,
     inplace=Inplace.OUT_OF_PLACE,
@@ -56,13 +56,21 @@ def test(
 
     a = torch.rand(a_shape, dtype=tensor_dtype).to(torch_device)
     b = torch.rand(b_shape, dtype=tensor_dtype).to(torch_device)
-    c = torch.rand(c_shape, dtype=tensor_dtype).to(torch_device) if inplace == Inplace.OUT_OF_PLACE else (a if inplace == Inplace.INPLACE_A else b)
+    c = (
+        torch.rand(c_shape, dtype=tensor_dtype).to(torch_device)
+        if inplace == Inplace.OUT_OF_PLACE
+        else (a if inplace == Inplace.INPLACE_A else b)
+    )
 
     ans = add(a, b)
 
     a_tensor = to_tensor(a, lib)
     b_tensor = to_tensor(b, lib)
-    c_tensor = to_tensor(c, lib) if inplace == Inplace.OUT_OF_PLACE else (a_tensor if inplace == Inplace.INPLACE_A else b_tensor)
+    c_tensor = (
+        to_tensor(c, lib)
+        if inplace == Inplace.OUT_OF_PLACE
+        else (a_tensor if inplace == Inplace.INPLACE_A else b_tensor)
+    )
     descriptor = infiniopAddDescriptor_t()
 
     check_error(
@@ -91,8 +99,10 @@ def test_cpu(lib, test_cases):
     device = DeviceEnum.DEVICE_CPU
     handle = create_handle(lib, device)
     for c_shape, a_shape, b_shape, inplace in test_cases:
+        # fmt: off
         test(lib, handle, "cpu", c_shape, a_shape, b_shape, tensor_dtype=torch.float16, inplace=inplace)
         test(lib, handle, "cpu", c_shape, a_shape, b_shape, tensor_dtype=torch.float32, inplace=inplace)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -100,8 +110,10 @@ def test_cuda(lib, test_cases):
     device = DeviceEnum.DEVICE_CUDA
     handle = create_handle(lib, device)
     for c_shape, a_shape, b_shape, inplace in test_cases:
+        # fmt: off
         test(lib, handle, "cuda", c_shape, a_shape, b_shape, tensor_dtype=torch.float16, inplace=inplace)
         test(lib, handle, "cuda", c_shape, a_shape, b_shape, tensor_dtype=torch.float32, inplace=inplace)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -111,13 +123,16 @@ def test_bang(lib, test_cases):
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
     for c_shape, a_shape, b_shape, inplace in test_cases:
+        # fmt: off
         test(lib, handle, "mlu", c_shape, a_shape, b_shape, tensor_dtype=torch.float16, inplace=inplace)
         test(lib, handle, "mlu", c_shape, a_shape, b_shape, tensor_dtype=torch.float32, inplace=inplace)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
 if __name__ == "__main__":
     test_cases = [
+        # fmt: off
         # c_shape, a_shape, b_shape, inplace
         # ((32, 150, 512000), (32, 150, 512000), (32, 150, 512000), Inplace.OUT_OF_PLACE),
         # ((32, 150, 51200), (32, 150, 51200), (32, 150, 1), Inplace.OUT_OF_PLACE),
@@ -133,6 +148,7 @@ if __name__ == "__main__":
         ((2, 4, 3), (2, 1, 3), (4, 3), Inplace.OUT_OF_PLACE),
         ((2, 3, 4, 5), (2, 3, 4, 5), (5,), Inplace.OUT_OF_PLACE),
         ((3, 2, 4, 5), (4, 5), (3, 2, 1, 1), Inplace.OUT_OF_PLACE),
+        # fmt: on
     ]
     args = get_args()
     lib = open_lib()

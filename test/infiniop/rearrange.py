@@ -61,9 +61,7 @@ def test(
     x_tensor.descriptor.contents.invalidate()
     y_tensor.descriptor.contents.invalidate()
 
-    check_error(
-        lib.infiniopRearrange(descriptor, y_tensor.data, x_tensor.data, None)
-    )
+    check_error(lib.infiniopRearrange(descriptor, y_tensor.data, x_tensor.data, None))
     assert torch.allclose(x, y, atol=0, rtol=1e-3)
     check_error(lib.infiniopDestroyRearrangeDescriptor(descriptor))
 
@@ -87,8 +85,10 @@ def test_cuda(lib, test_cases):
         test(lib, handle, "cuda", x_shape, x_stride, y_shape, y_stride)
     destroy_handle(lib, handle)
 
+
 def test_bang(lib, test_cases):
     import torch_mlu
+
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
     for test_case in test_cases:
@@ -96,6 +96,7 @@ def test_bang(lib, test_cases):
         y_shape, y_stride = test_case[1]
         test(lib, handle, "mlu", x_shape, x_stride, y_shape, y_stride)
     destroy_handle(lib, handle)
+
 
 def test_ascend(lib, test_cases):
     import torch_npu
@@ -106,7 +107,8 @@ def test_ascend(lib, test_cases):
         x_shape, x_stride = test_case[0]
         y_shape, y_stride = test_case[1]
         test(lib, handle, "npu", x_shape, x_stride, y_shape, y_stride)
-    destroy_handle(lib, handle) 
+    destroy_handle(lib, handle)
+
 
 if __name__ == "__main__":
     args = get_args()
@@ -119,7 +121,7 @@ if __name__ == "__main__":
         (((32, 1, 64), (64, 2560, 1)), ((32, 1, 64), (64, 64, 1))),
         (((4, 1, 64), (64, 2560, 1)), ((4, 1, 64), (64, 11264, 1))),
         (((64,), (1,)), ((64,), (1,))),
-        ]
+    ]
     lib = open_lib()
     lib.infiniopCreateRearrangeDescriptor.restype = c_int32
     lib.infiniopCreateRearrangeDescriptor.argtypes = [

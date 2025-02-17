@@ -45,11 +45,12 @@ def rotary_embedding(t, pos, theta, torch_device):
     )
     freqs = torch.outer(pos, freqs)
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
-    
+
     t_ = torch.view_as_complex(t.reshape(*t.shape[:-1], -1, 2))
     freqs_cis = reshape_for_broadcast(freqs_cis, t_)
     t_out = torch.view_as_real(t_ * freqs_cis).flatten(2).to(t.dtype)
     return t_out
+
 
 def sin_cos_table(max_seq_len, dim, torch_device, theta):
     pos = torch.arange(
@@ -73,12 +74,12 @@ def test(lib, handle, torch_device, shape, strides=None, dtype=torch.float16):
     if strides is not None:
         t = rearrange_tensor(t, strides)
     posTmp = torch.arange(0, t.shape[0])
-    pos = torch.zeros(2 * posTmp.shape[0], dtype = torch.int32)
+    pos = torch.zeros(2 * posTmp.shape[0], dtype=torch.int32)
     for i in range(posTmp.shape[0]):
         pos[2 * i] = posTmp[i]
         pos[2 * i + 1] = 0
     theta = 1e4
-    if torch_device == 'mlu' or torch_device == 'npu':
+    if torch_device == "mlu" or torch_device == "npu":
         ans = rotary_embedding(t, posTmp, theta, "cpu").to(torch_device)
         pos = pos.to(torch_device)
         t = t.to(torch_device)
@@ -97,7 +98,7 @@ def test(lib, handle, torch_device, shape, strides=None, dtype=torch.float16):
     cos_table_tensor = to_tensor(cos_table, lib)
 
     if torch_device == "npu":
-        torch.npu.synchronize() 
+        torch.npu.synchronize()
 
     check_error(
         lib.infiniopCreateRoPEDescriptor(
@@ -156,6 +157,7 @@ def test_cuda(lib, test_cases):
 
 def test_bang(lib, test_cases):
     import torch_mlu
+
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
     for shape, strides, dtype in test_cases:
@@ -163,7 +165,7 @@ def test_bang(lib, test_cases):
     destroy_handle(lib, handle)
 
 
-def test_ascend(lib, test_cases) :
+def test_ascend(lib, test_cases):
     import torch_npu
 
     device = DeviceEnum.DEVICE_ASCEND
@@ -171,6 +173,7 @@ def test_ascend(lib, test_cases) :
     for shape, strides, dtype in test_cases:
         test(lib, handle, "npu", shape, strides, dtype)
     destroy_handle(lib, handle)
+
 
 if __name__ == "__main__":
     test_cases = [
@@ -180,7 +183,6 @@ if __name__ == "__main__":
         # 接口 GatherMask 的内部实现相关，目前 48 64 128 都可以支持
         ((4, 1, 32), None, torch.float16),
         ((1, 32, 128), None, torch.float16),
-        
         ((3, 32, 128), (8000, 200, 1), torch.float16),
     ]
     args = get_args()

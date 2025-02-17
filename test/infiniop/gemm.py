@@ -27,6 +27,7 @@ PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
 
+
 class GEMMDescriptor(Structure):
     _fields_ = [("device", c_int32)]
 
@@ -34,10 +35,15 @@ class GEMMDescriptor(Structure):
 infiniopGEMMDescriptor_t = POINTER(GEMMDescriptor)
 
 
-def gemm(A, B, C=None, transA=False, transB=False, alpha=1.0, beta=0.0, dtype=torch.float32):
+def gemm(
+    A, B, C=None, transA=False, transB=False, alpha=1.0, beta=0.0, dtype=torch.float32
+):
     A = A.T if transA else A
     B = B.T if transB else B
-    result = alpha * torch.matmul(A if dtype != torch.float16 else A.to(torch.float32), B if dtype != torch.float16 else B.to(torch.float32)).to(dtype)
+    result = alpha * torch.matmul(
+        A if dtype != torch.float16 else A.to(torch.float32),
+        B if dtype != torch.float16 else B.to(torch.float32),
+    ).to(dtype)
     if C is not None:
         result += beta * C if dtype != torch.float16 else C.to(torch.float32)
     if PROFILE:
@@ -64,7 +70,7 @@ def test(
     dtype=torch.float16,
 ):
     print(
-        f"Testing GEMM on {torch_device} with transA: {transA} transB: {transB} " 
+        f"Testing GEMM on {torch_device} with transA: {transA} transB: {transB} "
         f"a_shape:{a_shape} b_shape:{b_shape} c_shape:{c_shape} y_shape:{y_shape} "
         f"a_stride:{a_stride} b_stride:{b_stride} c_stride:{c_stride} y_stride:{y_stride} dtype:{dtype}"
     )
@@ -121,9 +127,7 @@ def test(
 
     workspace_size = ctypes.c_uint64(0)
     check_error(
-        lib.infiniopGetGEMMWorkspaceSize(
-            descriptor, ctypes.byref(workspace_size)
-        )
+        lib.infiniopGetGEMMWorkspaceSize(descriptor, ctypes.byref(workspace_size))
     )
     workspace = torch.zeros(int(workspace_size.value), dtype=torch.uint8).to(
         torch_device
@@ -182,8 +186,10 @@ def test_cpu(lib, test_cases):
         c_stride,
         y_stride,
     ) in test_cases:
+        # fmt: off
         test(lib, handle, "cpu", alpha, beta, transA, transB, a_shape, b_shape, c_shape, y_shape, a_stride, b_stride, c_stride, y_stride, dtype=torch.float16)
         test(lib, handle, "cpu", alpha, beta, transA, transB, a_shape, b_shape, c_shape, y_shape, a_stride, b_stride, c_stride, y_stride, dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -204,8 +210,10 @@ def test_cuda(lib, test_cases):
         c_stride,
         y_stride,
     ) in test_cases:
+        # fmt: off
         test(lib, handle, "cuda", alpha, beta, transA, transB, a_shape, b_shape, c_shape, y_shape, a_stride, b_stride, c_stride, y_stride, dtype=torch.float16)
         test(lib, handle, "cuda", alpha, beta, transA, transB, a_shape, b_shape, c_shape, y_shape, a_stride, b_stride, c_stride, y_stride, dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -229,9 +237,10 @@ def test_bang(lib, test_cases):
         c_stride,
         y_stride,
     ) in test_cases:
+        # fmt: off
         test(lib, handle, "mlu", alpha, beta, transA, transB, a_shape, b_shape, c_shape, y_shape, a_stride, b_stride, c_stride, y_stride, dtype=torch.float16)
         test(lib, handle, "mlu", alpha, beta, transA, transB, a_shape, b_shape, c_shape, y_shape, a_stride, b_stride, c_stride, y_stride, dtype=torch.float32)
-
+        # fmt: on
     destroy_handle(lib, handle)
 
 

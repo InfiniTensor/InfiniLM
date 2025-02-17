@@ -35,7 +35,7 @@ class MaxPoolDescriptor(Structure):
 infiniopMaxPoolDescriptor_t = POINTER(MaxPoolDescriptor)
 
 
-def pool(x, k, padding, stride, dilation = 1):
+def pool(x, k, padding, stride, dilation=1):
     pooling_layers = {
         1: torch.nn.MaxPool1d,
         2: torch.nn.MaxPool2d,
@@ -66,18 +66,20 @@ def inferShape(x_shape, kernel_shape, padding, strides):
 
     return x_shape[:2] + tuple(output_shape)
 
+
 # convert a python tuple to a ctype void pointer
 def tuple_to_void_p(py_tuple: Tuple):
     array = ctypes.c_int64 * len(py_tuple)
     data_array = array(*py_tuple)
     return ctypes.cast(data_array, ctypes.c_void_p)
 
+
 def test(
     lib,
     handle,
     torch_device,
-    x_shape, 
-    k_shape, 
+    x_shape,
+    k_shape,
     padding,
     strides,
     tensor_dtype=torch.float16,
@@ -87,7 +89,9 @@ def test(
     )
 
     x = torch.rand(x_shape, dtype=tensor_dtype).to(torch_device)
-    y = torch.rand(inferShape(x_shape, k_shape, padding, strides), dtype=tensor_dtype).to(torch_device)
+    y = torch.rand(
+        inferShape(x_shape, k_shape, padding, strides), dtype=tensor_dtype
+    ).to(torch_device)
 
     for i in range(NUM_PRERUN if PROFILE else 1):
         ans = pool(x, k_shape, padding, strides)
@@ -123,7 +127,9 @@ def test(
     check_error(
         lib.infiniopGetMaxPoolWorkspaceSize(descriptor, ctypes.byref(workspaceSize))
     )
-    workspace = torch.zeros(int(workspaceSize.value), dtype=torch.uint8).to(torch_device)
+    workspace = torch.zeros(int(workspaceSize.value), dtype=torch.uint8).to(
+        torch_device
+    )
     workspace_ptr = ctypes.cast(workspace.data_ptr(), ctypes.POINTER(ctypes.c_uint8))
 
     for i in range(NUM_PRERUN if PROFILE else 1):
@@ -161,8 +167,10 @@ def test_cpu(lib, test_cases):
     device = DeviceEnum.DEVICE_CPU
     handle = create_handle(lib, device)
     for x_shape, kernel_shape, padding, strides in test_cases:
+        # fmt: off
         test(lib, handle, "cpu", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float16)
         test(lib, handle, "cpu", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -170,8 +178,10 @@ def test_cuda(lib, test_cases):
     device = DeviceEnum.DEVICE_CUDA
     handle = create_handle(lib, device)
     for x_shape, kernel_shape, padding, strides in test_cases:
+        # fmt: off
         test(lib, handle, "cuda", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float16)
         test(lib, handle, "cuda", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -181,8 +191,10 @@ def test_bang(lib, test_cases):
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
     for x_shape, kernel_shape, padding, strides in test_cases:
+        # fmt: off
         test(lib, handle, "mlu", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float16)
         test(lib, handle, "mlu", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 

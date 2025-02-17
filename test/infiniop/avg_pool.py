@@ -35,7 +35,7 @@ class AvgPoolDescriptor(Structure):
 infiniopAvgPoolDescriptor_t = POINTER(AvgPoolDescriptor)
 
 
-def pool(x, k, padding, stride, dilation = 1):
+def pool(x, k, padding, stride, dilation=1):
     pooling_layers = {
         1: torch.nn.AvgPool1d,
         2: torch.nn.AvgPool2d,
@@ -48,7 +48,9 @@ def pool(x, k, padding, stride, dilation = 1):
         return None
 
     if ndim == 3 and x.dtype == torch.float16:
-        ans = pooling_layers[ndim](k, stride=stride, padding=padding)(x.to(torch.float32)).to(torch.float16)
+        ans = pooling_layers[ndim](k, stride=stride, padding=padding)(
+            x.to(torch.float32)
+        ).to(torch.float16)
     else:
         ans = pooling_layers[ndim](k, stride=stride, padding=padding)(x)
     if PROFILE:
@@ -69,18 +71,20 @@ def inferShape(x_shape, kernel_shape, padding, strides):
 
     return x_shape[:2] + tuple(output_shape)
 
+
 # convert a python tuple to a ctype void pointer
 def tuple_to_void_p(py_tuple: Tuple):
     array = ctypes.c_int64 * len(py_tuple)
     data_array = array(*py_tuple)
     return ctypes.cast(data_array, ctypes.c_void_p)
 
+
 def test(
     lib,
     handle,
     torch_device,
-    x_shape, 
-    k_shape, 
+    x_shape,
+    k_shape,
     padding,
     strides,
     tensor_dtype=torch.float16,
@@ -90,7 +94,9 @@ def test(
     )
 
     x = torch.rand(x_shape, dtype=tensor_dtype).to(torch_device)
-    y = torch.rand(inferShape(x_shape, k_shape, padding, strides), dtype=tensor_dtype).to(torch_device)
+    y = torch.rand(
+        inferShape(x_shape, k_shape, padding, strides), dtype=tensor_dtype
+    ).to(torch_device)
 
     for i in range(NUM_PRERUN if PROFILE else 1):
         ans = pool(x, k_shape, padding, strides)
@@ -126,7 +132,9 @@ def test(
     check_error(
         lib.infiniopGetAvgPoolWorkspaceSize(descriptor, ctypes.byref(workspaceSize))
     )
-    workspace = torch.zeros(int(workspaceSize.value), dtype=torch.uint8).to(torch_device)
+    workspace = torch.zeros(int(workspaceSize.value), dtype=torch.uint8).to(
+        torch_device
+    )
     workspace_ptr = ctypes.cast(workspace.data_ptr(), ctypes.POINTER(ctypes.c_uint8))
 
     for i in range(NUM_PRERUN if PROFILE else 1):
@@ -164,8 +172,10 @@ def test_cpu(lib, test_cases):
     device = DeviceEnum.DEVICE_CPU
     handle = create_handle(lib, device)
     for x_shape, kernel_shape, padding, strides in test_cases:
+        # fmt: off
         test(lib, handle, "cpu", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float16)
         test(lib, handle, "cpu", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -173,8 +183,10 @@ def test_cuda(lib, test_cases):
     device = DeviceEnum.DEVICE_CUDA
     handle = create_handle(lib, device)
     for x_shape, kernel_shape, padding, strides in test_cases:
+        # fmt: off
         test(lib, handle, "cuda", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float16)
         test(lib, handle, "cuda", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -184,17 +196,21 @@ def test_bang(lib, test_cases):
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
     for x_shape, kernel_shape, padding, strides in test_cases:
+        # fmt: off
         test(lib, handle, "mlu", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float16)
         test(lib, handle, "mlu", x_shape, kernel_shape, padding, strides, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
 if __name__ == "__main__":
     test_cases = [
+        # fmt: off
         # x_shape, kernel_shape, padding, strides
         ((1, 1, 10), (3,), (1,), (1,)),
         ((32, 3, 224, 224), (3, 3), (1, 1), (2, 2)),
         ((1, 1, 16, 16, 16), (5, 5, 5), (2, 2, 2), (2, 2, 2)),
+        # fmt: on
     ]
     args = get_args()
     lib = open_lib()
