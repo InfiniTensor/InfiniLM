@@ -378,7 +378,9 @@ def get_test_devices(args):
         import torch_mlu
         devices_to_test.append(InfiniDeviceEnum.CAMBRICON)
     if args.ascend: 
+        import torch
         import torch_npu
+        torch.npu.set_device(0) # Ascend NPU needs explicit device initialization
         devices_to_test.append(InfiniDeviceEnum.ASCEND)
     if not devices_to_test:
         devices_to_test = [InfiniDeviceEnum.CPU]

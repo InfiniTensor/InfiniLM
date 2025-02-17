@@ -17,7 +17,7 @@
 struct InfiniopBangHandle {
     infiniDevice_t device;
     int device_id;
-    std::shared_ptr<Pool<cnnlHandle_t>> cnnl_handles;
+    std::shared_ptr<Pool<cnnlHandle_t>> cnnl_handle_pool;
 };
 
 inline cnnlDataType_t cnnlDataTypeConvert(infiniDtype_t dataType) {

@@ -7,8 +7,7 @@
 struct InfiniopAscendHandle;
 typedef struct InfiniopAscendHandle *infiniopAscendHandle_t;
 
-infiniopStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr,
-                                    int device_id);
+infiniopStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr);
 
 infiniopStatus_t destroyAscendHandle(infiniopAscendHandle_t handle_ptr);
 

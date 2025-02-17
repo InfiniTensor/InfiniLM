@@ -7,91 +7,89 @@
 
 #include <iostream>
 
-#define checkCudaErrorWithCode(call, errorCode)                                \
-    do {                                                                       \
-        if (auto status = call; status != cudaSuccess) {                       \
-            std::cerr << "CUDA error: " << cudaGetErrorString(status)          \
-                      << " in file " << __FILE__ << ", function " << __func__  \
-                      << ", line " << __LINE__ << std::endl;                   \
-            return errorCode;                                                  \
-        }                                                                      \
+#define CHECK_CUDA_OR_RETURN(call, errorCode)                                 \
+    do {                                                                      \
+        if (auto status = call; status != cudaSuccess) {                      \
+            std::cerr << "CUDA error: " << cudaGetErrorString(status)         \
+                      << " in file " << __FILE__ << ", function " << __func__ \
+                      << ", line " << __LINE__ << std::endl;                  \
+            return errorCode;                                                 \
+        }                                                                     \
     } while (0)
 
-#define checkCudaError(call) checkCudaErrorWithCode(call, INFINIOP_STATUS_BAD_DEVICE)
+#define CHECK_CUDA(call) CHECK_CUDA_OR_RETURN(call, INFINIOP_STATUS_INTERNAL_ERROR)
 
-#define checkCudnnError(call)                                                  \
-    do {                                                                       \
-        if (auto status = call; status != CUDNN_STATUS_SUCCESS) {              \
-            std::cerr << "CUDNN error: " << cudnnGetErrorString(status)        \
-                      << " in file " << __FILE__ << ", function " << __func__  \
-                      << ", line " << __LINE__ << std::endl;                   \
-            return INFINIOP_STATUS_INTERNAL_ERROR;                             \
-        }                                                                      \
+#define CHECK_CUDNN(call)                                                     \
+    do {                                                                      \
+        if (auto status = call; status != CUDNN_STATUS_SUCCESS) {             \
+            std::cerr << "CUDNN error: " << cudnnGetErrorString(status)       \
+                      << " in file " << __FILE__ << ", function " << __func__ \
+                      << ", line " << __LINE__ << std::endl;                  \
+            return INFINIOP_STATUS_INTERNAL_ERROR;                            \
+        }                                                                     \
     } while (0)
 
-#include "infinicore.h"
-#include <cudnn.h>
-#include <cublas_v2.h>
-#include <memory>
 #include "../pool.h"
 #include "cuda_handle.h"
+#include "infinicore.h"
+#include <cublas_v2.h>
 #include <cuda_fp16.h>
+#include <cudnn.h>
+#include <memory>
 
 struct InfiniopCudaHandle {
     infiniDevice_t device;
     int device_id;
-    std::shared_ptr<Pool<cublasHandle_t>> cublas_handles_t;
-    std::shared_ptr<Pool<cudnnHandle_t>> cudnn_handles_t;
+    std::shared_ptr<Pool<cublasHandle_t>> cublas_handle_pool;
+    std::shared_ptr<Pool<cudnnHandle_t>> cudnn_handle_pool;
     cudaDeviceProp prop;
     int compute_capability_major;
     int compute_capability_minor;
 };
 
 template<typename T>
-void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> cublas_handles_t, int device_id, cudaStream_t stream, T const &f) {
-    auto handle = cublas_handles_t->pop();
+void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> cublas_handle_pool, int device_id, cudaStream_t stream, T const &f) {
+    auto handle = cublas_handle_pool->pop();
     if (!handle) {
-        cudaSetDevice(device_id);
         cublasCreate(&(*handle));
     }
     cublasSetStream(*handle, (cudaStream_t) stream);
     f(*handle);
-    cublas_handles_t->push(std::move(*handle));
+    cublas_handle_pool->push(std::move(*handle));
 }
 
 template<typename T>
-cudnnStatus_t use_cudnn(std::shared_ptr<Pool<cudnnHandle_t>> cudnn_handles_t, int device_id, cudaStream_t stream, T const &f) {
-    auto handle = cudnn_handles_t->pop();
+cudnnStatus_t use_cudnn(std::shared_ptr<Pool<cudnnHandle_t>> cudnn_handle_pool, int device_id, cudaStream_t stream, T const &f) {
+    auto handle = cudnn_handle_pool->pop();
     if (!handle) {
-        cudaSetDevice(device_id);
         cudnnCreate(&(*handle));
     }
     cudnnSetStream(*handle, stream);
     cudnnStatus_t status = f(*handle);
-    cudnn_handles_t->push(std::move(*handle));
+    cudnn_handle_pool->push(std::move(*handle));
     return status;
 }
 
 inline cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
     switch (dt) {
-    case INFINI_DTYPE_F16:
-        return CUDNN_DATA_HALF;
-    case INFINI_DTYPE_F32:
-        return CUDNN_DATA_FLOAT;
-    case INFINI_DTYPE_F64:
-        return CUDNN_DATA_DOUBLE;
-    case INFINI_DTYPE_BF16:
-        return CUDNN_DATA_BFLOAT16;
-    case INFINI_DTYPE_I8:
-        return CUDNN_DATA_INT8;
-    case INFINI_DTYPE_I32:
-        return CUDNN_DATA_INT32;
-    case INFINI_DTYPE_I64:
-        return CUDNN_DATA_INT64;
-    case INFINI_DTYPE_U8:
-        return CUDNN_DATA_UINT8;
-    default:
-        return CUDNN_DATA_FLOAT;
+        case INFINI_DTYPE_F16:
+            return CUDNN_DATA_HALF;
+        case INFINI_DTYPE_F32:
+            return CUDNN_DATA_FLOAT;
+        case INFINI_DTYPE_F64:
+            return CUDNN_DATA_DOUBLE;
+        case INFINI_DTYPE_BF16:
+            return CUDNN_DATA_BFLOAT16;
+        case INFINI_DTYPE_I8:
+            return CUDNN_DATA_INT8;
+        case INFINI_DTYPE_I32:
+            return CUDNN_DATA_INT32;
+        case INFINI_DTYPE_I64:
+            return CUDNN_DATA_INT64;
+        case INFINI_DTYPE_U8:
+            return CUDNN_DATA_UINT8;
+        default:
+            return CUDNN_DATA_FLOAT;
     }
 }
 
@@ -120,4 +118,4 @@ inline __device__ __host__ size_t indexToOffset(size_t flat_index, size_t ndim,
     return res;
 }
 
-#endif // __INFINIOP_COMMON_CUDA_H__
+#endif// __INFINIOP_COMMON_CUDA_H__

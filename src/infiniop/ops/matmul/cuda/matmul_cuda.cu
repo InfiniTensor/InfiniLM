@@ -23,7 +23,7 @@ infiniopStatus_t cudaCreateMatmulDescriptor(infiniopCudaHandle_t handle,
         dtype,
         handle->device_id,
         info,
-        handle->cublas_handles_t};
+        handle->cublas_handle_pool};
     return INFINIOP_STATUS_SUCCESS;
 }
 
@@ -33,7 +33,7 @@ infiniopStatus_t cudaGetMatmulWorkspaceSize(infiniopMatmulCudaDescriptor_t desc,
 }
 
 infiniopStatus_t cudaDestroyMatmulDescriptor(infiniopMatmulCudaDescriptor_t desc) {
-    desc->cublas_handles_t = nullptr;
+    desc->cublas_handle_pool = nullptr;
     delete desc;
     return INFINIOP_STATUS_SUCCESS;
 }

@@ -13,13 +13,9 @@
 #endif
 
 __C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,
-                                          infiniDevice_t device,
-                                          int device_id) {
+                                          infiniDevice_t device) {
     if (handle_ptr == nullptr) {
         return INFINIOP_STATUS_NULL_POINTER;
-    }
-    if (device_id < 0) {
-        return INFINIOP_STATUS_BAD_DEVICE;
     }
 
     switch (device) {
@@ -29,19 +25,17 @@ __C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,
 #endif
 #ifdef ENABLE_CUDA_API
     case INFINI_DEVICE_NVIDIA: {
-        return createCudaHandle((infiniopCudaHandle_t *)handle_ptr, device_id,
-                                device);
+        return createCudaHandle((infiniopCudaHandle_t *)handle_ptr, device);
     }
 #endif
 #ifdef ENABLE_CAMBRICON_API
     case INFINI_DEVICE_CAMBRICON: {
-        return createBangHandle((infiniopBangHandle_t *)handle_ptr, device_id);
+        return createBangHandle((infiniopBangHandle_t *)handle_ptr);
     }
 #endif
 #ifdef ENABLE_ASCEND_API
     case INFINI_DEVICE_ASCEND: {
-        return createAscendHandle((infiniopAscendHandle_t *)handle_ptr,
-                                  device_id);
+        return createAscendHandle((infiniopAscendHandle_t *)handle_ptr);
     }
 #endif
     }
