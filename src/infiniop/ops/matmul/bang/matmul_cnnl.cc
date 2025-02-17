@@ -31,7 +31,7 @@ infiniopStatus_t bangCreateMatmulDescriptor(
     cnnlSetMatMulDescAttr(opDesc, CNNL_MATMUL_USE_STRIDE, &use_stride,
                           sizeof(int32_t));
     int count = 0;
-    use_cnnl(handle->cnnl_handles, [&](cnnlHandle_t _handle) {
+    use_cnnl(handle->cnnl_handle_pool, [&](cnnlHandle_t _handle) {
         cnnlGetBatchMatMulAlgoHeuristic(_handle, opDesc, aDesc, bDesc, cDesc,
                                         NULL, 1, &algoResult, &count);
     });
@@ -42,7 +42,7 @@ infiniopStatus_t bangCreateMatmulDescriptor(
                                                  handle->device_id,
                                                  info,
                                                  c_desc->dtype,
-                                                 handle->cnnl_handles,
+                                                 handle->cnnl_handle_pool,
                                                  aDesc,
                                                  bDesc,
                                                  cDesc,
@@ -61,7 +61,7 @@ infiniopStatus_t bangGetMatmulWorkspaceSize(infiniopMatmulBangDescriptor_t desc,
 
 infiniopStatus_t
 bangDestroyMatmulDescriptor(infiniopMatmulBangDescriptor_t desc) {
-    desc->cnnl_handles = nullptr;
+    desc->cnnl_handle_pool = nullptr;
     cnnlDestroyTensorDescriptor(desc->aDesc);
     cnnlDestroyTensorDescriptor(desc->bDesc);
     cnnlDestroyTensorDescriptor(desc->cDesc);
@@ -80,7 +80,7 @@ void bangMatmulCnnl(infiniopMatmulBangDescriptor_t desc, void *workspace, void *
         std::swap(a, b);
     }
 
-    use_cnnl(desc->cnnl_handles, (cnrtQueue_t)stream, [&](cnnlHandle_t handle) {
+    use_cnnl(desc->cnnl_handle_pool, (cnrtQueue_t)stream, [&](cnnlHandle_t handle) {
         cnnlBatchMatMulBCast_v2(handle, desc->opDesc, desc->algo, &alpha,
                                 desc->aDesc, a, desc->bDesc, b, &beta,
                                 desc->cDesc, c, workspace,

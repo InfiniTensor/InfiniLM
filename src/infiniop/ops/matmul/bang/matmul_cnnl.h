@@ -9,7 +9,7 @@ struct InfiniopMatmulBangDescriptor {
     int device_id;
     MatmulInfo info;
     infiniDtype_t dtype;
-    std::shared_ptr<Pool<cnnlHandle_t>> cnnl_handles;
+    std::shared_ptr<Pool<cnnlHandle_t>> cnnl_handle_pool;
     cnnlTensorDescriptor_t aDesc;
     cnnlTensorDescriptor_t bDesc;
     cnnlTensorDescriptor_t cDesc;

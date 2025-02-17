@@ -1,16 +1,10 @@
 #include "common_ascend.h"
 
-infiniopStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr,
-                                    int device_id) {
-    uint32_t device_count;
-    aclrtGetDeviceCount(&device_count);
-    if (device_id >= static_cast<int>(device_count)) {
-        return INFINIOP_STATUS_BAD_DEVICE;
-    }
-
-    auto ret = aclrtSetDevice(device_id);
+infiniopStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr) {
+    int device_id = 0;
+    auto ret = aclrtGetDevice(&device_id);
     CHECK_RET(ret == ACL_SUCCESS,
-              LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret));
+              LOG_ERROR("aclrtGetDevice failed. ERROR: %d\n", ret));
 
     *handle_ptr = new InfiniopAscendHandle{INFINI_DEVICE_ASCEND, device_id};
 

@@ -11,7 +11,7 @@ typedef struct InfiniopMatmulCudaDescriptor {
     infiniDtype_t dtype;
     int device_id;
     MatmulInfo info;
-    std::shared_ptr<Pool<cublasHandle_t>> cublas_handles_t;
+    std::shared_ptr<Pool<cublasHandle_t>> cublas_handle_pool;
 } InfiniopMatmulCudaDescriptor;
 
 #endif// __INFINIOP_MATMUL_CUDA_H__

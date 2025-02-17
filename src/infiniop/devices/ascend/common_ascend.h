@@ -28,6 +28,13 @@ extern "C" {
         printf(message, ##__VA_ARGS__); \
     } while (0)
 
+#define LOG_ERROR(message, ...)                \
+    do {                                       \
+        printf(message, ##__VA_ARGS__);        \
+        return INFINIOP_STATUS_INTERNAL_ERROR; \
+    } while (0)
+
+
 #ifdef __cplusplus
 };
 #endif
