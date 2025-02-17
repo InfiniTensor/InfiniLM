@@ -123,17 +123,13 @@ infiniopStatus_t aclnnMatmul(MatmulAclnnDescriptor_t desc, void *workspace,
 
     for (size_t i = 0; i < batch; i++) {
         AclSetTensorAddr(desc->executor, 0, ta,
-                         (char *)(a) + i * desc->info->a_matrix.stride *
-                                           infiniSizeof(desc->dtype));
+                         (char *)(a) + i * desc->info->a_matrix.stride * infiniSizeof(desc->dtype));
         AclSetTensorAddr(desc->executor, 1, tb,
-                         (char *)(b) + i * desc->info->b_matrix.stride *
-                                           infiniSizeof(desc->dtype));
+                         (char *)(b) + i * desc->info->b_matrix.stride * infiniSizeof(desc->dtype));
         AclSetTensorAddr(desc->executor, 2, tc,
-                         (char *)(c) + i * desc->info->c_matrix.stride *
-                                           infiniSizeof(desc->dtype));
+                         (char *)(c) + i * desc->info->c_matrix.stride * infiniSizeof(desc->dtype));
         AclSetTensorAddr(desc->executor, 3, tc,
-                         (char *)(c) + i * desc->info->c_matrix.stride *
-                                           infiniSizeof(desc->dtype));
+                         (char *)(c) + i * desc->info->c_matrix.stride * infiniSizeof(desc->dtype));
         ret = aclnnGemm(workspace, workspaceSize, desc->executor, stream);
         CHECK_RET(ret == ACL_SUCCESS,
                   LOG_PRINT("aclnnGemm failed. ERROR: %d\n", ret);

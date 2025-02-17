@@ -1,10 +1,10 @@
 #ifndef __INFINIOP_MATMUL_CUDA_H__
 #define __INFINIOP_MATMUL_CUDA_H__
 
-#include "matmul_cuda_api.h"
 #include "../../../devices/cuda/common_cuda.cuh"
-#include <memory>
 #include "../blas.h"
+#include "matmul_cuda_api.h"
+#include <memory>
 
 typedef struct InfiniopMatmulCudaDescriptor {
     infiniDevice_t device;
@@ -14,4 +14,4 @@ typedef struct InfiniopMatmulCudaDescriptor {
     std::shared_ptr<Pool<cublasHandle_t>> cublas_handle_pool;
 } InfiniopMatmulCudaDescriptor;
 
-#endif// __INFINIOP_MATMUL_CUDA_H__
+#endif // __INFINIOP_MATMUL_CUDA_H__

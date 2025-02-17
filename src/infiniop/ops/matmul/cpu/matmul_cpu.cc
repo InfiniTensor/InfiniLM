@@ -38,8 +38,8 @@ cpuDestroyMatmulDescriptor(infiniopMatmulCpuDescriptor_t desc) {
 
 template <typename Tdata>
 infiniopStatus_t cpuCalculateMatmul(infiniopMatmulCpuDescriptor_t desc, void *c,
-                            float beta, void const *a, void const *b,
-                            float alpha) {
+                                    float beta, void const *a, void const *b,
+                                    float alpha) {
     auto info = desc->info;
 
     if (info.is_transed) {
@@ -49,20 +49,11 @@ infiniopStatus_t cpuCalculateMatmul(infiniopMatmulCpuDescriptor_t desc, void *c,
     for (size_t i = 0; i < info.batch; ++i) {
         for (size_t m_ = 0; m_ < info.m; ++m_) {
             for (size_t n_ = 0; n_ < info.n; ++n_) {
-                auto c_ = reinterpret_cast<Tdata *>(c) +
-                          i * info.c_matrix.stride +
-                          m_ * info.c_matrix.row_stride +
-                          n_ * info.c_matrix.col_stride;
+                auto c_ = reinterpret_cast<Tdata *>(c) + i * info.c_matrix.stride + m_ * info.c_matrix.row_stride + n_ * info.c_matrix.col_stride;
                 float sum = 0;
                 for (size_t k_ = 0; k_ < info.k; ++k_) {
-                    auto a_ = reinterpret_cast<Tdata const *>(a) +
-                              i * info.a_matrix.stride +
-                              m_ * info.a_matrix.row_stride +
-                              k_ * info.a_matrix.col_stride;
-                    auto b_ = reinterpret_cast<Tdata const *>(b) +
-                              i * info.b_matrix.stride +
-                              n_ * info.b_matrix.col_stride +
-                              k_ * info.b_matrix.row_stride;
+                    auto a_ = reinterpret_cast<Tdata const *>(a) + i * info.a_matrix.stride + m_ * info.a_matrix.row_stride + k_ * info.a_matrix.col_stride;
+                    auto b_ = reinterpret_cast<Tdata const *>(b) + i * info.b_matrix.stride + n_ * info.b_matrix.col_stride + k_ * info.b_matrix.row_stride;
                     if constexpr (std::is_same<Tdata, uint16_t>::value) {
                         sum += f16_to_f32(*a_) * f16_to_f32(*b_);
                     } else {

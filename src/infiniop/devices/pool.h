@@ -5,7 +5,7 @@
 #include <mutex>
 #include <optional>
 
-template<class T>
+template <class T>
 class Pool {
 public:
     Pool() : _head(nullptr) {}
@@ -21,7 +21,7 @@ public:
     void push(T &&val) const {
         Node<T> *new_node = new Node<T>(std::move(val));
         new_node->next = _head.load();
-        while (!_head.compare_exchange_weak(new_node->next, new_node));
+        while (!_head.compare_exchange_weak(new_node->next, new_node)) {}
     }
 
     std::optional<T> pop() const {
@@ -37,7 +37,7 @@ public:
     }
 
 private:
-    template<class U>
+    template <class U>
     struct Node {
         U data;
         Node<U> *next;

@@ -1,7 +1,7 @@
 #include "../../utils.h"
 #include "./matmul_cuda.cuh"
 
-template<typename Tdata>
+template <typename Tdata>
 infiniopStatus_t cudaMatmulCublas(infiniopMatmulCudaDescriptor_t desc, void *c, float beta, void const *a, void const *b, float alpha, void *stream) {
     auto info = desc->info;
 
@@ -26,7 +26,7 @@ infiniopStatus_t cudaMatmulCublas(infiniopMatmulCudaDescriptor_t desc, void *c, 
     auto op_a = info.a_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
     auto op_b = info.b_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
 
-    use_cublas(desc->cublas_handle_pool, desc->device_id, (cudaStream_t) stream,
+    use_cublas(desc->cublas_handle_pool, desc->device_id, (cudaStream_t)stream,
                [&](cublasHandle_t handle) { cublasGemmStridedBatchedEx(
                                                 handle,
                                                 op_a,

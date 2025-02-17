@@ -21,5 +21,4 @@ __C __export infiniopStatus_t infiniopConv(infiniopConvDescriptor_t desc, void *
 
 __C __export infiniopStatus_t infiniopDestroyConvDescriptor(infiniopConvDescriptor_t desc);
 
-
 #endif

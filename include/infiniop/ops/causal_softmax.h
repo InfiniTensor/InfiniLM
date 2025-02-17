@@ -19,5 +19,4 @@ __C __export infiniopStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescrip
 
 __C __export infiniopStatus_t infiniopDestroyCausalSoftmaxDescriptor(infiniopCausalSoftmaxDescriptor_t desc);
 
-
 #endif

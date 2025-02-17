@@ -22,5 +22,4 @@ __C __export infiniopStatus_t infiniopRandomSample(infiniopRandomSampleDescripto
 
 __C __export infiniopStatus_t infiniopDestroyRandomSampleDescriptor(infiniopRandomSampleDescriptor_t desc);
 
-
 #endif

@@ -9,38 +9,38 @@ __C infiniopStatus_t infiniopCreateRMSNormDescriptor(
     float epsilon) {
     switch (handle->device) {
 #ifdef ENABLE_CPU
-        case DevCpu:
-            return cpuCreateRMSNormDescriptor(handle, (RMSNormCpuDescriptor_t *) desc_ptr, y_desc, x_desc, w_desc, epsilon);
+    case DevCpu:
+        return cpuCreateRMSNormDescriptor(handle, (RMSNormCpuDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
 #endif
 #ifdef ENABLE_NV_GPU
-        case DevNvGpu: {
-            return cudaCreateRMSNormDescriptor((CudaHandle_t) handle, (RMSNormCudaDescriptor_t *) desc_ptr, y_desc, x_desc, w_desc, epsilon);
-        }
+    case DevNvGpu: {
+        return cudaCreateRMSNormDescriptor((CudaHandle_t)handle, (RMSNormCudaDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
+    }
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
-        case DevCambriconMlu: {
-            return bangCreateRMSNormDescriptor((BangHandle_t) handle, (RMSNormBangDescriptor_t *) desc_ptr, y_desc, x_desc, w_desc, epsilon);
-        }
+    case DevCambriconMlu: {
+        return bangCreateRMSNormDescriptor((BangHandle_t)handle, (RMSNormBangDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
+    }
 #endif
 #ifdef ENABLE_ASCEND_NPU
-        case DevAscendNpu: {
-            return aclnnCreateRMSNormDescriptor((AscendHandle_t) handle,
-                                                (RMSNormAclnnDescriptor_t *) desc_ptr,
-                                                y_desc,
-                                                x_desc,
-                                                w_desc,
-                                                epsilon);
-        }
+    case DevAscendNpu: {
+        return aclnnCreateRMSNormDescriptor((AscendHandle_t)handle,
+                                            (RMSNormAclnnDescriptor_t *)desc_ptr,
+                                            y_desc,
+                                            x_desc,
+                                            w_desc,
+                                            epsilon);
+    }
 #endif
 #ifdef ENABLE_METAX_GPU
-        case DevMetaxGpu: {
-            return macaCreateRMSNormDescriptor((MacaHandle_t) handle, (RMSNormMacaDescriptor_t *) desc_ptr, y_desc, x_desc, w_desc, epsilon);
-        }
+    case DevMetaxGpu: {
+        return macaCreateRMSNormDescriptor((MacaHandle_t)handle, (RMSNormMacaDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
+    }
 #endif
 #ifdef ENABLE_MTHREADS_GPU
-        case DevMthreadsGpu: {
-            return musaCreateRMSNormDescriptor((MusaHandle_t) handle, (RMSNormMusaDescriptor_t *) desc_ptr, y_desc, x_desc, w_desc, epsilon);
-        }
+    case DevMthreadsGpu: {
+        return musaCreateRMSNormDescriptor((MusaHandle_t)handle, (RMSNormMusaDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
+    }
 #endif
     }
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -49,35 +49,35 @@ __C infiniopStatus_t infiniopCreateRMSNormDescriptor(
 __C infiniopStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t desc, uint64_t *size) {
     switch (desc->device) {
 #ifdef ENABLE_CPU
-        case DevCpu:
-            return cpuGetRMSNormWorkspaceSize((RMSNormCpuDescriptor_t) desc, size);
+    case DevCpu:
+        return cpuGetRMSNormWorkspaceSize((RMSNormCpuDescriptor_t)desc, size);
 #endif
 #ifdef ENABLE_NV_GPU
-        case DevNvGpu: {
-            return cudaGetRMSNormWorkspaceSize((RMSNormCudaDescriptor_t) desc, size);
-        }
+    case DevNvGpu: {
+        return cudaGetRMSNormWorkspaceSize((RMSNormCudaDescriptor_t)desc, size);
+    }
 
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
-        case DevCambriconMlu: {
-            return bangGetRMSNormWorkspaceSize((RMSNormBangDescriptor_t) desc, size);
-        }
+    case DevCambriconMlu: {
+        return bangGetRMSNormWorkspaceSize((RMSNormBangDescriptor_t)desc, size);
+    }
 #endif
 #ifdef ENABLE_ASCEND_NPU
-        case DevAscendNpu: {
-            return aclnnGetRMSNormWorkspaceSize((RMSNormAclnnDescriptor_t) desc,
-                                                size);
-        }
+    case DevAscendNpu: {
+        return aclnnGetRMSNormWorkspaceSize((RMSNormAclnnDescriptor_t)desc,
+                                            size);
+    }
 #endif
 #ifdef ENABLE_METAX_GPU
-        case DevMetaxGpu: {
-            return macaGetRMSNormWorkspaceSize((RMSNormMacaDescriptor_t) desc, size);
-        }
+    case DevMetaxGpu: {
+        return macaGetRMSNormWorkspaceSize((RMSNormMacaDescriptor_t)desc, size);
+    }
 #endif
 #ifdef ENABLE_MTHREADS_GPU
-        case DevMthreadsGpu: {
-            return musaGetRMSNormWorkspaceSize((RMSNormMusaDescriptor_t) desc, size);
-        }
+    case DevMthreadsGpu: {
+        return musaGetRMSNormWorkspaceSize((RMSNormMusaDescriptor_t)desc, size);
+    }
 #endif
     }
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -87,40 +87,40 @@ __C infiniopStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *wor
                                      void *y, void const *x, void const *w, void *stream) {
     switch (desc->device) {
 #ifdef ENABLE_CPU
-        case DevCpu:
-            return cpuRMSNorm((RMSNormCpuDescriptor_t) desc, workspace, workspace_size, y, x, w, stream);
+    case DevCpu:
+        return cpuRMSNorm((RMSNormCpuDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
 #endif
 #ifdef ENABLE_NV_GPU
-        case DevNvGpu: {
-            return cudaRMSNorm((RMSNormCudaDescriptor_t) desc, workspace, workspace_size, y, x, w, stream);
-        }
+    case DevNvGpu: {
+        return cudaRMSNorm((RMSNormCudaDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
+    }
 
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
-        case DevCambriconMlu: {
-            return bangRMSNorm((RMSNormBangDescriptor_t) desc, workspace, workspace_size, y, x, w, stream);
-        }
+    case DevCambriconMlu: {
+        return bangRMSNorm((RMSNormBangDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
+    }
 #endif
 #ifdef ENABLE_ASCEND_NPU
-        case DevAscendNpu: {
-            return aclnnRMSNorm((RMSNormAclnnDescriptor_t) desc,
-                                workspace,
-                                workspace_size,
-                                y,
-                                x,
-                                w,
-                                stream);
-        }
+    case DevAscendNpu: {
+        return aclnnRMSNorm((RMSNormAclnnDescriptor_t)desc,
+                            workspace,
+                            workspace_size,
+                            y,
+                            x,
+                            w,
+                            stream);
+    }
 #endif
 #ifdef ENABLE_METAX_GPU
-        case DevMetaxGpu: {
-            return macaRMSNorm((RMSNormMacaDescriptor_t) desc, workspace, workspace_size, y, x, w, stream);
-        }
+    case DevMetaxGpu: {
+        return macaRMSNorm((RMSNormMacaDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
+    }
 #endif
 #ifdef ENABLE_MTHREADS_GPU
-        case DevMthreadsGpu: {
-            return musaRMSNorm((RMSNormMusaDescriptor_t) desc, workspace, workspace_size, y, x, w, stream);
-        }
+    case DevMthreadsGpu: {
+        return musaRMSNorm((RMSNormMusaDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
+    }
 #endif
     }
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -129,34 +129,34 @@ __C infiniopStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *wor
 __C infiniopStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t desc) {
     switch (desc->device) {
 #ifdef ENABLE_CPU
-        case DevCpu:
-            return cpuDestroyRMSNormDescriptor((RMSNormCpuDescriptor_t) desc);
+    case DevCpu:
+        return cpuDestroyRMSNormDescriptor((RMSNormCpuDescriptor_t)desc);
 #endif
 #ifdef ENABLE_NV_GPU
-        case DevNvGpu: {
-            return cudaDestroyRMSNormDescriptor((RMSNormCudaDescriptor_t) desc);
-        }
+    case DevNvGpu: {
+        return cudaDestroyRMSNormDescriptor((RMSNormCudaDescriptor_t)desc);
+    }
 
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
-        case DevCambriconMlu: {
-            return bangDestroyRMSNormDescriptor((RMSNormBangDescriptor_t) desc);
-        }
+    case DevCambriconMlu: {
+        return bangDestroyRMSNormDescriptor((RMSNormBangDescriptor_t)desc);
+    }
 #endif
 #ifdef ENABLE_ASCEND_NPU
-        case DevAscendNpu: {
-            return aclnnDestroyRMSNormDescriptor((RMSNormAclnnDescriptor_t) desc);
-        }
+    case DevAscendNpu: {
+        return aclnnDestroyRMSNormDescriptor((RMSNormAclnnDescriptor_t)desc);
+    }
 #endif
 #ifdef ENABLE_METAX_GPU
-        case DevMetaxGpu: {
-            return macaDestroyRMSNormDescriptor((RMSNormMacaDescriptor_t) desc);
-        }
+    case DevMetaxGpu: {
+        return macaDestroyRMSNormDescriptor((RMSNormMacaDescriptor_t)desc);
+    }
 #endif
 #ifdef ENABLE_MTHREADS_GPU
-        case DevMthreadsGpu: {
-            return musaDestroyRMSNormDescriptor((RMSNormMusaDescriptor_t) desc);
-        }
+    case DevMthreadsGpu: {
+        return musaDestroyRMSNormDescriptor((RMSNormMusaDescriptor_t)desc);
+    }
 #endif
     }
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
