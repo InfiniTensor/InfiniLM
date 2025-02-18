@@ -5,6 +5,7 @@ local YELLOW = '\27[1;33m'
 local NC = '\27[0m'  -- No Color
 
 add_includedirs("include")
+set_encodings("utf-8")
 
 if is_mode("debug") then
     add_cxflags("-g -O0")
@@ -83,9 +84,9 @@ option("moore-gpu")
     set_description("Whether to complie implementations for Moore Threads GPU")
 option_end()
 
-if has_config("mthreads-gpu") then
-    add_defines("ENABLE_MUSA_API") 
-end 
+if has_config("moore-gpu") then
+    add_defines("ENABLE_MUSA_API")
+end
 
 -- 海光
 option("sugon-dcu")
