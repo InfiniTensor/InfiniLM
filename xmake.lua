@@ -84,7 +84,7 @@ option("moore-gpu")
     set_description("Whether to complie implementations for Moore Threads GPU")
 option_end()
 
-if has_config("mthreads-gpu") then
+if has_config("moore-gpu") then
     add_defines("ENABLE_MUSA_API")
 end
 
