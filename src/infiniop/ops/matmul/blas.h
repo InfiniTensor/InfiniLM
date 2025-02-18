@@ -88,7 +88,7 @@ struct MatmulInfo {
             return;
         }
 
-        if (c_matrix.rows != a_matrix.rows || c_matrix.cols != b_matrix.cols || a_matrix.cols != b_matrix.rows){
+        if (c_matrix.rows != a_matrix.rows || c_matrix.cols != b_matrix.cols || a_matrix.cols != b_matrix.rows) {
             *status = INFINIOP_STATUS_BAD_TENSOR_SHAPE;
             return;
         }
@@ -113,4 +113,4 @@ struct MatmulInfo {
     }
 };
 
-#endif// __BLAS_H__
+#endif // __BLAS_H__

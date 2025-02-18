@@ -34,7 +34,6 @@ extern "C" {
         return INFINIOP_STATUS_INTERNAL_ERROR; \
     } while (0)
 
-
 #ifdef __cplusplus
 };
 #endif

@@ -19,7 +19,7 @@ size_t indexToReducedOffset(size_t flat_index, size_t ndim, int64_t const *broad
 size_t indexToOffset(size_t flat_index, size_t ndim, size_t const *shape, int64_t const *strides);
 
 /**
- * get the total array size (element count) after applying padding for a 
+ * get the total array size (element count) after applying padding for a
  * ndim-ary tensor with the given shape
  */
 size_t getPaddedSize(size_t ndim, size_t *shape, size_t const *pads);
@@ -27,4 +27,4 @@ size_t getPaddedSize(size_t ndim, size_t *shape, size_t const *pads);
 // calculate the padded shape and store the result in padded_shape
 std::vector<size_t> getPaddedShape(size_t ndim, size_t const *shape, size_t const *pads);
 
-#endif// __INFINIOP__COMMON_CPU_H__
+#endif // __INFINIOP__COMMON_CPU_H__

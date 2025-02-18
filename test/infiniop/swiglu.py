@@ -29,8 +29,9 @@ infiniopSwiGLUDescriptor_t = POINTER(SwiGLUDescriptor)
 
 
 def swiglu(a, b):
-    
+
     return a * b / (1 + torch.exp(-b.float()).to(b.dtype))
+
 
 def test_out_of_place(
     lib,
@@ -223,6 +224,7 @@ def test_cuda(lib, test_cases):
 
 def test_bang(lib, test_cases):
     import torch_mlu
+
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
 
@@ -238,17 +240,30 @@ def test_bang(lib, test_cases):
 
 def test_ascend(lib, test_cases):
     import torch_npu
+
     device = DeviceEnum.DEVICE_ASCEND
     handle = create_handle(lib, device)
 
     for shape, a_stride, b_stride, c_stride, dtype in test_cases:
         test_out_of_place(
-            lib, handle, "npu", shape, a_stride, b_stride, c_stride, dtype, torch.npu.synchronize
+            lib,
+            handle,
+            "npu",
+            shape,
+            a_stride,
+            b_stride,
+            c_stride,
+            dtype,
+            torch.npu.synchronize,
         )
-        test_in_place1(lib, handle, "npu", shape, a_stride, b_stride, dtype, torch.npu.synchronize)
-        test_in_place2(lib, handle, "npu", shape, a_stride, b_stride, dtype, torch.npu.synchronize)
+        test_in_place1(
+            lib, handle, "npu", shape, a_stride, b_stride, dtype, torch.npu.synchronize
+        )
+        test_in_place2(
+            lib, handle, "npu", shape, a_stride, b_stride, dtype, torch.npu.synchronize
+        )
 
-    destroy_handle(lib, handle) 
+    destroy_handle(lib, handle)
 
 
 if __name__ == "__main__":

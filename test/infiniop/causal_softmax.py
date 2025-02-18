@@ -101,6 +101,7 @@ def test_bang(lib, test_cases):
         test(lib, handle, "mlu", x_shape, x_stride)
     destroy_handle(lib, handle)
 
+
 def test_ascend(lib, test_cases):
     import torch_npu
 
@@ -111,11 +112,12 @@ def test_ascend(lib, test_cases):
 
     destroy_handle(lib, handle)
 
+
 if __name__ == "__main__":
     test_cases = [
         # x_shape, x_stride
         ((32, 20, 512), None),
-        ((32, 20, 512), (20480, 512, 1)), # Ascend 暂不支持非连续
+        ((32, 20, 512), (20480, 512, 1)),  # Ascend 暂不支持非连续
     ]
     args = get_args()
     lib = open_lib()

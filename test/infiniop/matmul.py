@@ -2,9 +2,19 @@ import torch
 import ctypes
 from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
 from libinfiniop import (
-    infiniopHandle_t, infiniopTensorDescriptor_t, open_lib, to_tensor, get_test_devices, 
-    check_error, rearrange_if_needed, create_workspace, test_operator, get_args, 
-    debug, get_tolerance, profile_operation,
+    infiniopHandle_t,
+    infiniopTensorDescriptor_t,
+    open_lib,
+    to_tensor,
+    get_test_devices,
+    check_error,
+    rearrange_if_needed,
+    create_workspace,
+    test_operator,
+    get_args,
+    debug,
+    get_tolerance,
+    profile_operation,
 )
 
 # ==============================================================================
@@ -21,8 +31,8 @@ _TEST_CASES = [
     (1.0, 0.0, (1, 2048), (2048, 2048), (1, 2048), (4096, 1), (4096, 1), (4096, 1)),
     (1.0, 1.0, (6, 2048), (2048, 2560), (6, 2560), (2048, 1), (1, 2048), (2560, 1)),
     (1.0, 1.0, (6, 2048), (2048, 2560), (6, 2560), (2048, 1), (1, 2048), (2560, 1)),
-    (1.0/8.0, 0.0, (4, 8*6, 64), (4, 64, 6), (4, 8*6, 6), None, None, None),
-    (1.0/8.0, 0.0, (4, 8*6, 64), (4, 64, 6), (4, 8*6, 6), None, None, None),
+    (1.0 / 8.0, 0.0, (4, 8 * 6, 64), (4, 64, 6), (4, 8 * 6, 6), None, None, None),
+    (1.0 / 8.0, 0.0, (4, 8 * 6, 64), (4, 64, 6), (4, 8 * 6, 6), None, None, None),
 ]
 
 # Data types used for testing
@@ -30,14 +40,15 @@ _TENSOR_DTYPES = [torch.float16, torch.float32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {'atol': 0, 'rtol': 1e-2},
-    torch.float32: {'atol': 0, 'rtol': 1e-3},
+    torch.float16: {"atol": 0, "rtol": 1e-2},
+    torch.float32: {"atol": 0, "rtol": 1e-3},
 }
 
 DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
+
 
 # ==============================================================================
 #  Definitions
@@ -48,12 +59,14 @@ class MatmulDescriptor(Structure):
 
 infiniopMatmulDescriptor_t = POINTER(MatmulDescriptor)
 
+
 # PyTorch implementation for matrix multiplication
 def matmul(_c, beta, _a, _b, alpha):
     a, b, c = _a.clone(), _b.clone(), _c.clone()
     result_dtype = c.dtype
     fp32_result = torch.matmul(a.to(torch.float32), b.to(torch.float32))
     return alpha * fp32_result.to(result_dtype) + beta * c
+
 
 # The argument list should be (lib, handle, torch_device, <param list>, dtype)
 # The <param list> should keep the same order as the one specified in _TEST_CASES
@@ -85,7 +98,10 @@ def test(
     # Compute the PyTorch reference result
     ans = matmul(c, beta, a, b, alpha)
 
-    a, b, c = [rearrange_if_needed(tensor, stride) for tensor, stride in zip([a, b, c], [a_stride, b_stride, c_stride])]
+    a, b, c = [
+        rearrange_if_needed(tensor, stride)
+        for tensor, stride in zip([a, b, c], [a_stride, b_stride, c_stride])
+    ]
     a_tensor, b_tensor, c_tensor = [to_tensor(tensor, lib) for tensor in [a, b, c]]
 
     descriptor = infiniopMatmulDescriptor_t()
@@ -95,7 +111,7 @@ def test(
             ctypes.byref(descriptor),
             c_tensor.descriptor,
             a_tensor.descriptor,
-            b_tensor.descriptor
+            b_tensor.descriptor,
         )
     )
 
@@ -105,22 +121,27 @@ def test(
 
     # Get workspace size and create workspace
     workspace_size = c_uint64(0)
-    check_error(lib.infiniopGetMatmulWorkspaceSize(descriptor, ctypes.byref(workspace_size)))
+    check_error(
+        lib.infiniopGetMatmulWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+    )
     workspace = create_workspace(workspace_size.value, a.device)
 
     # Execute infiniop matmul operator
     def lib_matmul():
-        check_error(lib.infiniopMatmul(
-            descriptor, 
-            workspace.data_ptr() if workspace is not None else None,
-            workspace_size.value,
-            c_tensor.data,
-            a_tensor.data,
-            b_tensor.data,
-            alpha,
-            beta,
-            None,
-        ))
+        check_error(
+            lib.infiniopMatmul(
+                descriptor,
+                workspace.data_ptr() if workspace is not None else None,
+                workspace_size.value,
+                c_tensor.data,
+                a_tensor.data,
+                b_tensor.data,
+                alpha,
+                beta,
+                None,
+            )
+        )
+
     lib_matmul()
 
     # Validate results
@@ -131,9 +152,10 @@ def test(
 
     # Profiling workflow
     if PROFILE:
+        # fmt: off
         profile_operation("PyTorch", lambda: matmul(c, beta, a, b, alpha), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         profile_operation("    lib", lambda: lib_matmul(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
-
+        # fmt: on
     check_error(lib.infiniopDestroyMatmulDescriptor(descriptor))
 
 
@@ -150,7 +172,7 @@ if __name__ == "__main__":
         POINTER(infiniopMatmulDescriptor_t),
         infiniopTensorDescriptor_t,
         infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t
+        infiniopTensorDescriptor_t,
     ]
 
     lib.infiniopGetMatmulWorkspaceSize.restype = c_int32

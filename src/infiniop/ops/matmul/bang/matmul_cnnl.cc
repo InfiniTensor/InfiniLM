@@ -73,8 +73,8 @@ bangDestroyMatmulDescriptor(infiniopMatmulBangDescriptor_t desc) {
 }
 
 void bangMatmulCnnl(infiniopMatmulBangDescriptor_t desc, void *workspace, void *c,
-                 float beta, void const *a, void const *b, float alpha,
-                 void *stream) {
+                    float beta, void const *a, void const *b, float alpha,
+                    void *stream) {
     auto info = desc->info;
     if (info.is_transed) {
         std::swap(a, b);

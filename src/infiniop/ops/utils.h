@@ -13,28 +13,28 @@
 
 #define ROUND_UP_DIV(x, y) ((x + y - 1) / y)
 
-#define CHECK_ERROR(call, target, errCode)                                     \
-    do {                                                                       \
-        if (auto value = (call); value == (target)) {                          \
-            std::cerr << "Error: expected " << (target) << " but got "         \
-                      << value << " in file " << __FILE__ << ", function "     \
-                      << __func__ << ", line " << __LINE__ << std::endl;       \
-            return (errCode);                                                  \
-        }                                                                      \
+#define CHECK_ERROR(call, target, errCode)                                 \
+    do {                                                                   \
+        if (auto value = (call); value == (target)) {                      \
+            std::cerr << "Error: expected " << (target) << " but got "     \
+                      << value << " in file " << __FILE__ << ", function " \
+                      << __func__ << ", line " << __LINE__ << std::endl;   \
+            return (errCode);                                              \
+        }                                                                  \
     } while (0)
 
-#define CREATE_CHECK_ERROR(expr, value, target, errCode)                       \
-    expr;                                                                      \
+#define CREATE_CHECK_ERROR(expr, value, target, errCode) \
+    expr;                                                \
     CHECK_ERROR(value, target, errCode)
 
-#define CHECK_STATUS(call, target)                                             \
-    do {                                                                       \
-        if (auto value = (call); value != (target)) {                          \
-            std::cerr << "Error: expected " << (target) << " but got "         \
-                      << value << " in file " << __FILE__ << ", function "     \
-                      << __func__ << ", line " << __LINE__ << std::endl;       \
-            return value;                                                      \
-        }                                                                      \
+#define CHECK_STATUS(call, target)                                         \
+    do {                                                                   \
+        if (auto value = (call); value != (target)) {                      \
+            std::cerr << "Error: expected " << (target) << " but got "     \
+                      << value << " in file " << __FILE__ << ", function " \
+                      << __func__ << ", line " << __LINE__ << std::endl;   \
+            return value;                                                  \
+        }                                                                  \
     } while (0)
 
 inline std::vector<int64_t> getByteStrides(infiniopTensorDescriptor_t desc) {
@@ -67,8 +67,7 @@ inline bool getBroadcastShape(const uint64_t *shape1, uint64_t ndim1,
 
     // compute broadcasted shape
     for (size_t i = 0; i < max_rank; ++i) {
-        if (padded_shape1[i] == padded_shape2[i] || padded_shape1[i] == 1 ||
-            padded_shape2[i] == 1) {
+        if (padded_shape1[i] == padded_shape2[i] || padded_shape1[i] == 1 || padded_shape2[i] == 1) {
             broadcast_shape[i] = std::max(padded_shape1[i], padded_shape2[i]);
         } else {
             return false;
@@ -89,10 +88,7 @@ inline bool isValidBroadcastShape(infiniopTensorDescriptor_t a,
     auto broadcast_shape = broadcast_shape_.data(),
          padded_shape1 = padded_shape1_.data(),
          padded_shape2 = padded_shape2_.data();
-    if (broadcast_ndim != c->ndim ||
-        !getBroadcastShape(a->shape, a->ndim, b->shape, b->ndim,
-                           broadcast_shape, padded_shape1, padded_shape2,
-                           broadcast_ndim)) {
+    if (broadcast_ndim != c->ndim || !getBroadcastShape(a->shape, a->ndim, b->shape, b->ndim, broadcast_shape, padded_shape1, padded_shape2, broadcast_ndim)) {
         return false;
     }
     return std::equal(broadcast_shape, broadcast_shape + broadcast_ndim,
@@ -126,7 +122,6 @@ inline bool isValidBroadcastShape(infiniopTensorDescriptor_t a,
     return isValidBroadcastShape(a, b, c, std::max(a->ndim, b->ndim));
 }
 
-
 // permute the dimensions of a tensor descriptor
 inline infiniopTensorDescriptor_t permute(infiniopTensorDescriptor_t desc,
                                           const std::vector<size_t> &order) {
@@ -149,10 +144,9 @@ inline infiniopTensorDescriptor_t permute(infiniopTensorDescriptor_t desc,
 // check if the dimensions [dim_start, dim_end] of a tensor descriptor are
 // contiguous
 inline bool isContiguous(const infiniopTensorDescriptor_t &desc,
-                          size_t dim_start, size_t dim_end) {
+                         size_t dim_start, size_t dim_end) {
     for (size_t i = dim_start + 1; i <= dim_end; i++) {
-        if (desc->strides[i - 1] !=
-            static_cast<int64_t>(desc->shape[i]) * desc->strides[i]) {
+        if (desc->strides[i - 1] != static_cast<int64_t>(desc->shape[i]) * desc->strides[i]) {
             return false;
         }
     }
@@ -168,7 +162,7 @@ inline bool isContiguous(const infiniopTensorDescriptor_t &desc) {
 
 // merge the dimensions [dim_start, dim_end] of a tensor descriptor
 inline infiniopTensorDescriptor_t dimMerge(infiniopTensorDescriptor_t desc,
-                                            size_t dim_start, size_t dim_end) {
+                                           size_t dim_start, size_t dim_end) {
     size_t ndim = desc->ndim;
     if (dim_start > dim_end || dim_end >= ndim) {
         return nullptr;
@@ -203,11 +197,10 @@ inline infiniopTensorDescriptor_t dimMerge(infiniopTensorDescriptor_t desc,
 
 // split the dimension dim of a tensor descriptor into multiple dimensions
 inline infiniopTensorDescriptor_t dimSplit(infiniopTensorDescriptor_t desc,
-                                            size_t dim,
-                                            const std::vector<size_t> &dims) {
+                                           size_t dim,
+                                           const std::vector<size_t> &dims) {
     size_t ndim = desc->ndim;
-    if (desc->shape[dim] != std::accumulate(dims.begin(), dims.end(), (size_t)1,
-                                            std::multiplies{})) {
+    if (desc->shape[dim] != std::accumulate(dims.begin(), dims.end(), (size_t)1, std::multiplies{})) {
         return nullptr;
     }
     size_t new_ndim = ndim + dims.size() - 1;
@@ -221,10 +214,7 @@ inline infiniopTensorDescriptor_t dimSplit(infiniopTensorDescriptor_t desc,
     }
     for (size_t i = 0; i < dims.size(); i++) {
         new_shape[index] = dims[i];
-        new_strides[index] =
-            desc->strides[dim] * desc->shape[dim] /
-            std::accumulate(dims.begin(), dims.begin() + i + 1, (size_t)1,
-                            std::multiplies<size_t>());
+        new_strides[index] = desc->strides[dim] * desc->shape[dim] / std::accumulate(dims.begin(), dims.begin() + i + 1, (size_t)1, std::multiplies<size_t>());
         index++;
     }
     for (size_t i = dim + 1; i < ndim; i++) {

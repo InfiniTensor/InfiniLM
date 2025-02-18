@@ -21,4 +21,4 @@ __C __export infiniopStatus_t infiniopCreateTensorDescriptor(infiniopTensorDescr
 
 __C __export infiniopStatus_t infiniopDestroyTensorDescriptor(infiniopTensorDescriptor_t desc);
 
-#endif// __INFINIOP_TENSOR_DESCRIPTOR__
+#endif // __INFINIOP_TENSOR_DESCRIPTOR__

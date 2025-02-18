@@ -4,7 +4,6 @@
 #include "../../../devices/cuda/cuda_handle.h"
 #include "infiniop/operator.h"
 
-
 struct InfiniopMatmulCudaDescriptor;
 typedef struct InfiniopMatmulCudaDescriptor *infiniopMatmulCudaDescriptor_t;
 
@@ -27,6 +26,5 @@ infiniopStatus_t cudaMatmul(infiniopMatmulCudaDescriptor_t desc,
                             void *stream);
 
 infiniopStatus_t cudaDestroyMatmulDescriptor(infiniopMatmulCudaDescriptor_t desc);
-
 
 #endif // __INFINIOP_MATMUL_CUDA_API_H__

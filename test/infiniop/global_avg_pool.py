@@ -99,7 +99,12 @@ def test(
     for i in range(NUM_PRERUN if PROFILE else 1):
         check_error(
             lib.infiniopGlobalAvgPool(
-                descriptor, workspace_ptr, workspaceSize, y_tensor.data, x_tensor.data, None
+                descriptor,
+                workspace_ptr,
+                workspaceSize,
+                y_tensor.data,
+                x_tensor.data,
+                None,
             )
         )
     if PROFILE:

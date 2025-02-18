@@ -52,7 +52,7 @@ def test(
     lib,
     handle,
     torch_device,
-    tensor_shape, 
+    tensor_shape,
     tensor_dtype=torch.float16,
     inplace=Inplace.OUT_OF_PLACE,
 ):
@@ -61,7 +61,11 @@ def test(
     )
 
     x = torch.rand(tensor_shape, dtype=tensor_dtype).to(torch_device) * 2 - 1
-    y = torch.rand(tensor_shape, dtype=tensor_dtype).to(torch_device) if inplace == Inplace.OUT_OF_PLACE else x
+    y = (
+        torch.rand(tensor_shape, dtype=tensor_dtype).to(torch_device)
+        if inplace == Inplace.OUT_OF_PLACE
+        else x
+    )
 
     for i in range(NUM_PRERUN if PROFILE else 1):
         ans = relu(x)
@@ -108,17 +112,22 @@ def test_cpu(lib, test_cases):
     device = DeviceEnum.DEVICE_CPU
     handle = create_handle(lib, device)
     for tensor_shape, inplace in test_cases:
+        # fmt: off
         test(lib, handle, "cpu", tensor_shape, tensor_dtype=torch.float16, inplace=inplace)
         test(lib, handle, "cpu", tensor_shape, tensor_dtype=torch.float32, inplace=inplace)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
 def test_cuda(lib, test_cases):
+
     device = DeviceEnum.DEVICE_CUDA
     handle = create_handle(lib, device)
     for tensor_shape, inplace in test_cases:
+        # fmt: off
         test(lib, handle, "cuda", tensor_shape, tensor_dtype=torch.float16, inplace=inplace)
         test(lib, handle, "cuda", tensor_shape, tensor_dtype=torch.float32, inplace=inplace)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -128,8 +137,10 @@ def test_bang(lib, test_cases):
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
     for tensor_shape, inplace in test_cases:
+        # fmt: off
         test(lib, handle, "mlu", tensor_shape, tensor_dtype=torch.float16, inplace=inplace)
         test(lib, handle, "mlu", tensor_shape, tensor_dtype=torch.float32, inplace=inplace)
+        # fmt: on
     destroy_handle(lib, handle)
 
 

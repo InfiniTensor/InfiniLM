@@ -35,11 +35,10 @@ float f16_to_f32(uint16_t h) {
 
 uint16_t f32_to_f16(float val) {
     uint32_t f32;
-    memcpy(&f32, &val, sizeof(f32));      // Read the bits of the float32
-    uint16_t sign = (f32 >> 16) & 0x8000; // Extract the sign bit
-    int32_t exponent =
-        ((f32 >> 23) & 0xFF) - 127;     // Extract and de-bias the exponent
-    uint32_t mantissa = f32 & 0x7FFFFF; // Extract the mantissa (fraction part)
+    memcpy(&f32, &val, sizeof(f32));               // Read the bits of the float32
+    uint16_t sign = (f32 >> 16) & 0x8000;          // Extract the sign bit
+    int32_t exponent = ((f32 >> 23) & 0xFF) - 127; // Extract and de-bias the exponent
+    uint32_t mantissa = f32 & 0x7FFFFF;            // Extract the mantissa (fraction part)
 
     if (exponent >= 31) { // Special cases for Inf and NaN
         // NaN

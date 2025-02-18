@@ -47,10 +47,10 @@ def test(
     lib,
     handle,
     torch_device,
-    y_shape, 
+    y_shape,
     x_shape,
-    y_stride=None, 
-    x_stride=None, 
+    y_stride=None,
+    x_stride=None,
     tensor_dtype=torch.float16,
 ):
     print(
@@ -109,8 +109,10 @@ def test_cpu(lib, test_cases):
     device = DeviceEnum.DEVICE_CPU
     handle = create_handle(lib, device)
     for y_shape, x_shape, y_stride, x_stride in test_cases:
+        # fmt: off
         test(lib, handle, "cpu", y_shape, x_shape, y_stride, x_stride, tensor_dtype=torch.float16)
         test(lib, handle, "cpu", y_shape, x_shape, y_stride, x_stride, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -118,8 +120,10 @@ def test_cuda(lib, test_cases):
     device = DeviceEnum.DEVICE_CUDA
     handle = create_handle(lib, device)
     for y_shape, x_shape, y_stride, x_stride in test_cases:
+        # fmt: off
         test(lib, handle, "cuda", y_shape, x_shape, y_stride, x_stride, tensor_dtype=torch.float16)
         test(lib, handle, "cuda", y_shape, x_shape, y_stride, x_stride, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
@@ -129,13 +133,16 @@ def test_bang(lib, test_cases):
     device = DeviceEnum.DEVICE_BANG
     handle = create_handle(lib, device)
     for y_shape, x_shape, y_stride, x_stride in test_cases:
+        # fmt: off
         test(lib, handle, "mlu", y_shape, x_shape, y_stride, x_stride, tensor_dtype=torch.float16)
         test(lib, handle, "mlu", y_shape, x_shape, y_stride, x_stride, tensor_dtype=torch.float32)
+        # fmt: on
     destroy_handle(lib, handle)
 
 
 if __name__ == "__main__":
     test_cases = [
+        # fmt: off
         # y_shape, x_shape, y_stride, x_stride
         ((), (), None, None),
         ((3, 3), (1,), None, None),
@@ -146,6 +153,7 @@ if __name__ == "__main__":
         ((2, 3, 4, 5), (5,), None, None),
         ((3, 2, 4, 5), (3, 2, 1, 1), None, None),
         ((32, 256, 112, 112), (32, 256, 112, 1), None, None),
+        # fmt: on
     ]
     args = get_args()
     lib = open_lib()

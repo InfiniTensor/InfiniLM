@@ -47,18 +47,18 @@ struct InfiniopCudaHandle {
     int compute_capability_minor;
 };
 
-template<typename T>
+template <typename T>
 void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> cublas_handle_pool, int device_id, cudaStream_t stream, T const &f) {
     auto handle = cublas_handle_pool->pop();
     if (!handle) {
         cublasCreate(&(*handle));
     }
-    cublasSetStream(*handle, (cudaStream_t) stream);
+    cublasSetStream(*handle, (cudaStream_t)stream);
     f(*handle);
     cublas_handle_pool->push(std::move(*handle));
 }
 
-template<typename T>
+template <typename T>
 cudnnStatus_t use_cudnn(std::shared_ptr<Pool<cudnnHandle_t>> cudnn_handle_pool, int device_id, cudaStream_t stream, T const &f) {
     auto handle = cudnn_handle_pool->pop();
     if (!handle) {
@@ -72,24 +72,24 @@ cudnnStatus_t use_cudnn(std::shared_ptr<Pool<cudnnHandle_t>> cudnn_handle_pool, 
 
 inline cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
     switch (dt) {
-        case INFINI_DTYPE_F16:
-            return CUDNN_DATA_HALF;
-        case INFINI_DTYPE_F32:
-            return CUDNN_DATA_FLOAT;
-        case INFINI_DTYPE_F64:
-            return CUDNN_DATA_DOUBLE;
-        case INFINI_DTYPE_BF16:
-            return CUDNN_DATA_BFLOAT16;
-        case INFINI_DTYPE_I8:
-            return CUDNN_DATA_INT8;
-        case INFINI_DTYPE_I32:
-            return CUDNN_DATA_INT32;
-        case INFINI_DTYPE_I64:
-            return CUDNN_DATA_INT64;
-        case INFINI_DTYPE_U8:
-            return CUDNN_DATA_UINT8;
-        default:
-            return CUDNN_DATA_FLOAT;
+    case INFINI_DTYPE_F16:
+        return CUDNN_DATA_HALF;
+    case INFINI_DTYPE_F32:
+        return CUDNN_DATA_FLOAT;
+    case INFINI_DTYPE_F64:
+        return CUDNN_DATA_DOUBLE;
+    case INFINI_DTYPE_BF16:
+        return CUDNN_DATA_BFLOAT16;
+    case INFINI_DTYPE_I8:
+        return CUDNN_DATA_INT8;
+    case INFINI_DTYPE_I32:
+        return CUDNN_DATA_INT32;
+    case INFINI_DTYPE_I64:
+        return CUDNN_DATA_INT64;
+    case INFINI_DTYPE_U8:
+        return CUDNN_DATA_UINT8;
+    default:
+        return CUDNN_DATA_FLOAT;
     }
 }
 
@@ -118,4 +118,4 @@ inline __device__ __host__ size_t indexToOffset(size_t flat_index, size_t ndim,
     return res;
 }
 
-#endif// __INFINIOP_COMMON_CUDA_H__
+#endif // __INFINIOP_COMMON_CUDA_H__

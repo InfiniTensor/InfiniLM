@@ -1,5 +1,5 @@
-#include "./matmul_cuda.cuh"
 #include "../../utils.h"
+#include "./matmul_cuda.cuh"
 
 infiniopStatus_t cudaCreateMatmulDescriptor(infiniopCudaHandle_t handle,
                                             infiniopMatmulCudaDescriptor_t *desc_ptr,

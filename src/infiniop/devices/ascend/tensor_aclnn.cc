@@ -21,7 +21,6 @@ infiniopStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const s
     return INFINIOP_STATUS_SUCCESS;
 }
 
-
 /// @brief Infer storage shape. For now this ruturns a 1D shape of the total tensor storage size.
 /// We don't see why higher dimensional storage shape is ever needed. To change if necesary.
 infiniopStatus_t aclnnTensorDescriptor::inferStorageShape() {
@@ -93,8 +92,10 @@ char *aclnnTensorDescriptor::toString() {
 
     // Assume bufferSize
     size_t bufferSize = 1024 + this->ndim * 40 + this->storageNdim * 40;
-    char *buffer = (char *) malloc(bufferSize);
-    if (!buffer) return NULL;
+    char *buffer = (char *)malloc(bufferSize);
+    if (!buffer) {
+        return NULL;
+    }
 
     // Write info into buffer
     char *ptr = buffer;
