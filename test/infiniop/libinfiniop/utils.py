@@ -19,7 +19,6 @@ def to_tensor(tensor, lib):
     ndim = tensor.ndimension()
     shape = (ctypes.c_size_t * ndim)(*tensor.shape)
     strides = (ctypes.c_int64 * ndim)(*(tensor.stride()))
-    data_ptr = tensor.data_ptr()
     # fmt: off
     dt = (
         InfiniDtype.I8 if tensor.dtype == torch.int8 else
@@ -46,7 +45,7 @@ def to_tensor(tensor, lib):
         ctypes.byref(tensor_desc), ndim, shape, strides, dt
     )
     # Create Tensor
-    return CTensor(tensor_desc, data_ptr)
+    return CTensor(tensor_desc, tensor)
 
 
 def create_workspace(size, torch_device):

@@ -5,11 +5,12 @@ import ctypes
 from ctypes import c_int, c_int64, c_uint64, Structure, POINTER, c_size_t
 from .datatypes import *
 from .devices import *
+from pathlib import Path
 
 Device = c_int
 Optype = c_int
 
-INFINI_ROOT = os.environ.get("INFINI_ROOT")
+INFINI_ROOT = os.getenv("INFINI_ROOT") or str(Path.home() / ".infini")
 
 
 class TensorDescriptor(Structure):
@@ -30,9 +31,10 @@ infiniopTensorDescriptor_t = ctypes.POINTER(TensorDescriptor)
 
 
 class CTensor:
-    def __init__(self, desc, data):
+    def __init__(self, desc, torch_tensor):
         self.descriptor = desc
-        self.data = data
+        self.torch_tensor_ = torch_tensor
+        self.data = torch_tensor.data_ptr()
 
 
 class Handle(Structure):
