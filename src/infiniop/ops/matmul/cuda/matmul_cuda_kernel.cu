@@ -56,7 +56,7 @@ infiniopStatus_t cudaMatmulCublas(infiniopMatmulCudaDescriptor_t desc, void *c, 
 
 infiniopStatus_t cudaMatmul(infiniopMatmulCudaDescriptor_t desc,
                             void *workspace,
-                            uint64_t workspace_size,
+                            size_t workspace_size,
                             void *c,
                             void const *a,
                             void const *b,

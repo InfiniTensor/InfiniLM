@@ -14,10 +14,10 @@ infiniopStatus_t cpuCreateMatmulDescriptor(
     infiniopTensorDescriptor_t b_desc);
 
 infiniopStatus_t cpuGetMatmulWorkspaceSize(infiniopMatmulCpuDescriptor_t desc,
-                                           uint64_t *size);
+                                           size_t *size);
 
 infiniopStatus_t cpuMatmul(infiniopMatmulCpuDescriptor_t desc, void *workspace,
-                           uint64_t workspace_size, void *c, void const *a,
+                           size_t workspace_size, void *c, void const *a,
                            void const *b, float alpha, float beta);
 
 infiniopStatus_t cpuDestroyMatmulDescriptor(infiniopMatmulCpuDescriptor_t desc);

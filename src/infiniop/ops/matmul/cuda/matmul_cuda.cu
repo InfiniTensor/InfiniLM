@@ -27,7 +27,7 @@ infiniopStatus_t cudaCreateMatmulDescriptor(infiniopCudaHandle_t handle,
     return INFINIOP_STATUS_SUCCESS;
 }
 
-infiniopStatus_t cudaGetMatmulWorkspaceSize(infiniopMatmulCudaDescriptor_t desc, uint64_t *size) {
+infiniopStatus_t cudaGetMatmulWorkspaceSize(infiniopMatmulCudaDescriptor_t desc, size_t *size) {
     *size = 0;
     return INFINIOP_STATUS_SUCCESS;
 }

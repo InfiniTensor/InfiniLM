@@ -15,7 +15,7 @@ __C __export infiniopStatus_t infiniopCreateAttentionDescriptor(infiniopHandle_t
                                                                 infiniopTensorDescriptor_t v_desc,
                                                                 infiniopTensorDescriptor_t k_cache_desc,
                                                                 infiniopTensorDescriptor_t v_cache_desc,
-                                                                uint64_t pos);
+                                                                size_t pos);
 
 __C __export infiniopStatus_t infiniopGetAttentionWorkspaceSize(infiniopAttentionDescriptor_t desc, size_t *size);
 

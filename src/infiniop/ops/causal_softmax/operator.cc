@@ -40,7 +40,7 @@ __C infiniopStatus_t infiniopCreateCausalSoftmaxDescriptor(
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDescriptor_t desc, uint64_t *size) {
+__C infiniopStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDescriptor_t desc, size_t *size) {
     switch (desc->device) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -78,7 +78,7 @@ __C infiniopStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmax
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescriptor_t desc, void *workspace, uint64_t workspace_size, void *data, void *stream) {
+__C infiniopStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescriptor_t desc, void *workspace, size_t workspace_size, void *data, void *stream) {
     switch (desc->device) {
 #ifdef ENABLE_CPU
     case DevCpu:
