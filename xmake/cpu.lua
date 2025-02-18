@@ -2,7 +2,7 @@ target("infiniop-cpu")
     on_install(function (target) end)
     set_kind("static")
 
-    add_cxflags("-Wall", "-Werror")
+    set_warnings("all", "error")
 
     if not is_plat("windows") then
         add_cxflags("-fPIC")
