@@ -43,7 +43,6 @@ _TOLERANCE_MAP = {
     torch.float16: {"atol": 0, "rtol": 0},
 }
 
-
 DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
@@ -72,6 +71,15 @@ def random_sample(data, random_val, topp, topk, voc, temperature):
         return sorted_indices[idx]
     
     return torch.argmax(data)
+
+
+def random_sample(data, random_val, topp, topk, voc, temperature):
+    if topp > 0 and topk > 1:
+        ans = random_sample_1(data.to("cpu"), random_val, topp, topk, voc, temperature)
+    else:
+        ans = random_sample_0(data) 
+    
+    return ans
 
 
 def test(
@@ -128,7 +136,6 @@ def test(
         )
     )
     workspace = create_workspace(workspace_size.value, torch_device)
-
     def lib_random_sample():
         check_error(
             lib.infiniopRandomSample(
@@ -216,5 +223,4 @@ if __name__ == "__main__":
     # Execute tests
     for device in get_test_devices(args):
         test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
-
     print("\033[92mTest passed!\033[0m")
