@@ -1,5 +1,5 @@
 add_defines("ENABLE_ASCEND_API")
-local ASCEND_HOME = os.getenv("ASCEND_HOME")
+local ASCEND_HOME = os.getenv("ASCEND_HOME") or os.getenv("ASCEND_TOOLKIT_HOME")
 local SOC_VERSION = os.getenv("SOC_VERSION")
 
 -- Add include dirs
