@@ -53,7 +53,7 @@ __C infiniopStatus_t infiniopCreateRoPEDescriptor(
 }
 
 __C infiniopStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
-                                                  uint64_t *size) {
+                                                  size_t *size) {
     switch (desc->device) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -90,7 +90,7 @@ __C infiniopStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
 }
 
 __C infiniopStatus_t infiniopRoPE(infiniopRoPEDescriptor_t desc,
-                                  void *workspace, uint64_t workspace_size,
+                                  void *workspace, size_t workspace_size,
                                   void *t, void const *pos_ids,
                                   void const *sin_table, void const *cos_table,
                                   void *stream) {

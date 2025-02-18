@@ -25,7 +25,7 @@ infiniopStatus_t cpuCreateMatmulDescriptor(
 }
 
 infiniopStatus_t cpuGetMatmulWorkspaceSize(infiniopMatmulCpuDescriptor_t desc,
-                                           uint64_t *size) {
+                                           size_t *size) {
     *size = 0;
     return INFINIOP_STATUS_SUCCESS;
 }
@@ -76,7 +76,7 @@ infiniopStatus_t cpuCalculateMatmul(infiniopMatmulCpuDescriptor_t desc, void *c,
 }
 
 infiniopStatus_t cpuMatmul(infiniopMatmulCpuDescriptor_t desc, void *workspace,
-                           uint64_t workspace_size, void *c, void const *a,
+                           size_t workspace_size, void *c, void const *a,
                            void const *b, float alpha, float beta) {
     if (desc->dtype == INFINI_DTYPE_F16) {
         return cpuCalculateMatmul<uint16_t>(desc, c, beta, a, b, alpha);

@@ -9,10 +9,10 @@ __C __export infiniopStatus_t infiniopCreateMaxPoolDescriptor(infiniopHandle_t h
                                                               infiniopMaxPoolDescriptor_t *desc_ptr,
                                                               infiniopTensorDescriptor_t y,
                                                               infiniopTensorDescriptor_t x,
-                                                              uint64_t const *kernel_shape,
-                                                              uint64_t const *pads,
-                                                              int64_t const *strides,
-                                                              uint64_t n);
+                                                              size_t const *kernel_shape,
+                                                              size_t const *pads,
+                                                              ptrdiff_t const *strides,
+                                                              size_t n);
 
 __C __export infiniopStatus_t infiniopGetMaxPoolWorkspaceSize(infiniopMaxPoolDescriptor_t desc, size_t *size);
 

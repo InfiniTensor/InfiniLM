@@ -13,10 +13,10 @@ float f16_to_f32(uint16_t code);
 uint16_t f32_to_f16(float val);
 
 // return the memory offset of original tensor, given the flattened index of broadcasted tensor
-size_t indexToReducedOffset(size_t flat_index, size_t ndim, int64_t const *broadcasted_strides, int64_t const *target_strides);
+size_t indexToReducedOffset(size_t flat_index, size_t ndim, ptrdiff_t const *broadcasted_strides, ptrdiff_t const *target_strides);
 
 // return the memory offset a tensor given flattened index
-size_t indexToOffset(size_t flat_index, size_t ndim, size_t const *shape, int64_t const *strides);
+size_t indexToOffset(size_t flat_index, size_t ndim, size_t const *shape, ptrdiff_t const *strides);
 
 /**
  * get the total array size (element count) after applying padding for a

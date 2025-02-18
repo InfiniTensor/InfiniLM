@@ -37,9 +37,9 @@
         }                                                                  \
     } while (0)
 
-inline std::vector<int64_t> getByteStrides(infiniopTensorDescriptor_t desc) {
-    std::vector<int64_t> strides(desc->ndim);
-    for (uint64_t i = 0; i < desc->ndim; i++) {
+inline std::vector<ptrdiff_t> getByteStrides(infiniopTensorDescriptor_t desc) {
+    std::vector<ptrdiff_t> strides(desc->ndim);
+    for (size_t i = 0; i < desc->ndim; i++) {
         strides[i] = desc->strides[i] * infiniSizeof(desc->dtype);
     }
     return strides;
@@ -54,11 +54,11 @@ inline size_t getByteSize(infiniopTensorDescriptor_t desc) {
 }
 
 // calculate the broadcasted shape for two tensors
-inline bool getBroadcastShape(const uint64_t *shape1, uint64_t ndim1,
-                              const uint64_t *shape2, uint64_t ndim2,
-                              uint64_t *broadcast_shape,
-                              uint64_t *padded_shape1, uint64_t *padded_shape2,
-                              uint64_t max_rank) {
+inline bool getBroadcastShape(const size_t *shape1, size_t ndim1,
+                              const size_t *shape2, size_t ndim2,
+                              size_t *broadcast_shape,
+                              size_t *padded_shape1, size_t *padded_shape2,
+                              size_t max_rank) {
     // prepending and initializing
     std::fill(padded_shape1, padded_shape1 + max_rank, 1);
     std::fill(padded_shape2, padded_shape2 + max_rank, 1);
@@ -82,8 +82,8 @@ inline bool getBroadcastShape(const uint64_t *shape1, uint64_t ndim1,
 inline bool isValidBroadcastShape(infiniopTensorDescriptor_t a,
                                   infiniopTensorDescriptor_t b,
                                   infiniopTensorDescriptor_t c,
-                                  uint64_t broadcast_ndim) {
-    std::vector<uint64_t> broadcast_shape_(broadcast_ndim),
+                                  size_t broadcast_ndim) {
+    std::vector<size_t> broadcast_shape_(broadcast_ndim),
         padded_shape1_(broadcast_ndim), padded_shape2_(broadcast_ndim);
     auto broadcast_shape = broadcast_shape_.data(),
          padded_shape1 = padded_shape1_.data(),
@@ -130,7 +130,7 @@ inline infiniopTensorDescriptor_t permute(infiniopTensorDescriptor_t desc,
         return nullptr;
     }
     size_t *shape = new size_t[ndim];
-    int64_t *strides = new int64_t[ndim];
+    ptrdiff_t *strides = new ptrdiff_t[ndim];
     for (size_t i = 0; i < ndim; i++) {
         if (std::find(order.begin(), order.end(), i) == order.end()) {
             return nullptr;
@@ -146,7 +146,7 @@ inline infiniopTensorDescriptor_t permute(infiniopTensorDescriptor_t desc,
 inline bool isContiguous(const infiniopTensorDescriptor_t &desc,
                          size_t dim_start, size_t dim_end) {
     for (size_t i = dim_start + 1; i <= dim_end; i++) {
-        if (desc->strides[i - 1] != static_cast<int64_t>(desc->shape[i]) * desc->strides[i]) {
+        if (desc->strides[i - 1] != static_cast<ptrdiff_t>(desc->shape[i]) * desc->strides[i]) {
             return false;
         }
     }
@@ -170,7 +170,7 @@ inline infiniopTensorDescriptor_t dimMerge(infiniopTensorDescriptor_t desc,
 
     size_t new_ndim = ndim - (dim_end - dim_start);
     size_t *new_shape = new size_t[new_ndim];
-    int64_t *new_strides = new int64_t[new_ndim];
+    ptrdiff_t *new_strides = new ptrdiff_t[new_ndim];
     size_t index = 0;
     for (size_t i = 0; i < dim_start; i++) {
         new_shape[index] = desc->shape[i];
@@ -205,7 +205,7 @@ inline infiniopTensorDescriptor_t dimSplit(infiniopTensorDescriptor_t desc,
     }
     size_t new_ndim = ndim + dims.size() - 1;
     size_t *new_shape = new size_t[new_ndim];
-    int64_t *new_strides = new int64_t[new_ndim];
+    ptrdiff_t *new_strides = new ptrdiff_t[new_ndim];
     size_t index = 0;
     for (size_t i = 0; i < dim; i++) {
         new_shape[index] = desc->shape[i];

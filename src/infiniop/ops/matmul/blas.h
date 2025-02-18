@@ -9,11 +9,11 @@
 typedef struct BlasMatrix {
     size_t ndim;
     size_t batch;
-    int64_t stride;
+    ptrdiff_t stride;
     size_t rows;
     size_t cols;
-    int64_t row_stride;
-    int64_t col_stride;
+    ptrdiff_t row_stride;
+    ptrdiff_t col_stride;
 
     BlasMatrix() {}
 
@@ -56,7 +56,7 @@ typedef struct BlasMatrix {
         std::swap(row_stride, col_stride);
     }
 
-    int64_t ld() const {
+    ptrdiff_t ld() const {
         if (this->row_stride == 1) {
             return this->col_stride;
         } else {

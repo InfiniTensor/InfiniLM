@@ -12,12 +12,12 @@ struct InfiniopTensorDescriptor {
     // Shape of the tensor, ndim elements
     size_t *shape;
     // Stride of each dimension in elements, ndim elements
-    int64_t *strides;
+    ptrdiff_t *strides;
 };
 
 typedef struct InfiniopTensorDescriptor *infiniopTensorDescriptor_t;
 
-__C __export infiniopStatus_t infiniopCreateTensorDescriptor(infiniopTensorDescriptor_t *desc_ptr, size_t ndim, size_t const *shape, int64_t const *strides, infiniDtype_t dtype);
+__C __export infiniopStatus_t infiniopCreateTensorDescriptor(infiniopTensorDescriptor_t *desc_ptr, size_t ndim, size_t const *shape, ptrdiff_t const *strides, infiniDtype_t dtype);
 
 __C __export infiniopStatus_t infiniopDestroyTensorDescriptor(infiniopTensorDescriptor_t desc);
 

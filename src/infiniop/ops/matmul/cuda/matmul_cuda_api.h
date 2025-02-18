@@ -13,11 +13,11 @@ infiniopStatus_t cudaCreateMatmulDescriptor(infiniopCudaHandle_t handle,
                                             infiniopTensorDescriptor_t a_desc,
                                             infiniopTensorDescriptor_t b_desc);
 
-infiniopStatus_t cudaGetMatmulWorkspaceSize(infiniopMatmulCudaDescriptor_t desc, uint64_t *size);
+infiniopStatus_t cudaGetMatmulWorkspaceSize(infiniopMatmulCudaDescriptor_t desc, size_t *size);
 
 infiniopStatus_t cudaMatmul(infiniopMatmulCudaDescriptor_t desc,
                             void *workspace,
-                            uint64_t workspace_size,
+                            size_t workspace_size,
                             void *c,
                             void const *a,
                             void const *b,

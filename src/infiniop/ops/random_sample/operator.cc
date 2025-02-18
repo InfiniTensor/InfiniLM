@@ -38,7 +38,7 @@ __C infiniopStatus_t infiniopCreateRandomSampleDescriptor(infiniopHandle_t handl
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 };
 
-__C infiniopStatus_t infiniopGetRandomSampleWorkspaceSize(infiniopRandomSampleDescriptor_t desc, uint64_t *size) {
+__C infiniopStatus_t infiniopGetRandomSampleWorkspaceSize(infiniopRandomSampleDescriptor_t desc, size_t *size) {
     switch (desc->device) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -77,7 +77,7 @@ __C infiniopStatus_t infiniopGetRandomSampleWorkspaceSize(infiniopRandomSampleDe
 
 __C infiniopStatus_t infiniopRandomSample(infiniopRandomSampleDescriptor_t desc,
                                           void *workspace,
-                                          uint64_t workspace_size,
+                                          size_t workspace_size,
                                           void *result,
                                           void const *probs,
                                           float random_val,
