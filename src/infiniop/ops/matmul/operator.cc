@@ -12,6 +12,9 @@
 #ifdef ENABLE_ASCEND_API
 #include "ascend/matmul_ascend.h"
 #endif
+#ifdef ENABLE_KUNLUN_API
+#include "kunlun/matmul_xdnn_api.h"
+#endif
 
 __C infiniStatus_t infiniopCreateMatmulDescriptor(
     infiniopHandle_t handle,

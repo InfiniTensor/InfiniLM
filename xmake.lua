@@ -100,6 +100,17 @@ if has_config("sugon-dcu") then
     add_defines("ENABLE_SUGON_CUDA_API")
 end
 
+-- 昆仑芯
+option("kunlun-xpu")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Enable or disable Kunlun XPU kernel")
+option_end()
+
+if has_config("kunlun-xpu") then
+    add_defines("ENABLE_KUNLUN_API")
+    includes("xmake/kunlun.lua")
+end
 
 target("infiniop")
     set_kind("shared")
@@ -133,6 +144,9 @@ target("infiniop")
     end
     if has_config("metax-gpu") then
         add_deps("metax-gpu")
+    end
+    if has_config("kunlun-xpu") then
+        add_deps("infiniop-kunlun")
     end
     set_languages("cxx17")
     add_files("src/infiniop/devices/handle.cc")
