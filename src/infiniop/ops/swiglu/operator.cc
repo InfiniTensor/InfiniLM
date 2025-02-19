@@ -48,7 +48,7 @@ __C infiniopStatus_t infiniopCreateSwiGLUDescriptor(
 __C infiniopStatus_t infiniopSwiGLU(infiniopSwiGLUDescriptor_t desc, void *c,
                                     void const *a, void const *b,
                                     void *stream) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuSwiGLU((SwiGLUCpuDescriptor_t)desc, c, a, b, stream);
@@ -80,7 +80,7 @@ __C infiniopStatus_t infiniopSwiGLU(infiniopSwiGLUDescriptor_t desc, void *c,
 
 __C infiniopStatus_t
 infiniopDestroySwiGLUDescriptor(infiniopSwiGLUDescriptor_t desc) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuDestroySwiGLUDescriptor((SwiGLUCpuDescriptor_t)desc);

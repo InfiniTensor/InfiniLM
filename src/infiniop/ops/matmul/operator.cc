@@ -51,7 +51,7 @@ __C infiniopStatus_t infiniopCreateMatmulDescriptor(
 
 __C infiniopStatus_t
 infiniopGetMatmulWorkspaceSize(infiniopMatmulDescriptor_t desc, size_t *size) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU_API
     case INFINI_DEVICE_CPU:
         return cpuGetMatmulWorkspaceSize((infiniopMatmulCpuDescriptor_t)desc,
@@ -83,7 +83,7 @@ __C infiniopStatus_t infiniopMatmul(infiniopMatmulDescriptor_t desc,
                                     void *workspace, size_t workspace_size,
                                     void *c, void const *a, void const *b,
                                     float alpha, float beta, void *stream) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU_API
     case INFINI_DEVICE_CPU:
         return cpuMatmul((infiniopMatmulCpuDescriptor_t)desc, workspace,
@@ -111,7 +111,7 @@ __C infiniopStatus_t infiniopMatmul(infiniopMatmulDescriptor_t desc,
 
 __C infiniopStatus_t
 infiniopDestroyMatmulDescriptor(infiniopMatmulDescriptor_t desc) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU_API
     case INFINI_DEVICE_CPU:
         return cpuDestroyMatmulDescriptor((infiniopMatmulCpuDescriptor_t)desc);

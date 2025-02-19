@@ -47,7 +47,7 @@ __C infiniopStatus_t infiniopCreateRMSNormDescriptor(
 }
 
 __C infiniopStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t desc, size_t *size) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuGetRMSNormWorkspaceSize((RMSNormCpuDescriptor_t)desc, size);
@@ -85,7 +85,7 @@ __C infiniopStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t
 
 __C infiniopStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *workspace, size_t workspace_size,
                                      void *y, void const *x, void const *w, void *stream) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuRMSNorm((RMSNormCpuDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
@@ -127,7 +127,7 @@ __C infiniopStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *wor
 }
 
 __C infiniopStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t desc) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuDestroyRMSNormDescriptor((RMSNormCpuDescriptor_t)desc);

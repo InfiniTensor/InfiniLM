@@ -44,7 +44,7 @@ __C infiniopStatus_t infiniopCreateRearrangeDescriptor(
 }
 
 __C infiniopStatus_t infiniopRearrange(infiniopRearrangeDescriptor_t desc, void *dst, void const *src, void *stream) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuRearrange((RearrangeCpuDescriptor_t)desc, dst, src, stream);
@@ -83,7 +83,7 @@ __C infiniopStatus_t infiniopRearrange(infiniopRearrangeDescriptor_t desc, void 
 }
 
 __C infiniopStatus_t infiniopDestroyRearrangeDescriptor(infiniopRearrangeDescriptor_t desc) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuDestroyRearrangeDescriptor((RearrangeCpuDescriptor_t)desc);

@@ -54,7 +54,7 @@ __C infiniopStatus_t infiniopCreateRoPEDescriptor(
 
 __C infiniopStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
                                                   size_t *size) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuGetRoPEWorkspaceSize((RoPECpuDescriptor_t)desc, size);
@@ -94,7 +94,7 @@ __C infiniopStatus_t infiniopRoPE(infiniopRoPEDescriptor_t desc,
                                   void *t, void const *pos_ids,
                                   void const *sin_table, void const *cos_table,
                                   void *stream) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuRoPE((RoPECpuDescriptor_t)desc, workspace, workspace_size, t,
@@ -138,7 +138,7 @@ __C infiniopStatus_t infiniopRoPE(infiniopRoPEDescriptor_t desc,
 
 __C infiniopStatus_t
 infiniopDestroyRoPEDescriptor(infiniopRoPEDescriptor_t desc) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuDestroyRoPEDescriptor((RoPECpuDescriptor_t)desc);
