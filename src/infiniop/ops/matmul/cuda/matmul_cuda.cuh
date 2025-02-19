@@ -1,17 +1,9 @@
-#ifndef __INFINIOP_MATMUL_CUDA_H__
-#define __INFINIOP_MATMUL_CUDA_H__
+#ifndef __MATMUL_CUDA_CUH__
+#define __MATMUL_CUDA_CUH__
 
-#include "../../../devices/cuda/common_cuda.cuh"
-#include "../blas.h"
-#include "matmul_cuda_api.h"
-#include <memory>
+#include "../../../devices/cuda/cuda_handle.h"
+#include "../matmul.h"
 
-typedef struct InfiniopMatmulCudaDescriptor {
-    infiniDevice_t device;
-    infiniDtype_t dtype;
-    int device_id;
-    MatmulInfo info;
-    std::shared_ptr<Pool<cublasHandle_t>> cublas_handle_pool;
-} InfiniopMatmulCudaDescriptor;
+DESCRIPTOR(cuda, infiniopCudaHandle_t)
 
-#endif // __INFINIOP_MATMUL_CUDA_H__
+#endif // __MATMUL_CUDA_CUH__

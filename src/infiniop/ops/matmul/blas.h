@@ -1,12 +1,11 @@
 #ifndef __BLAS_H__
 #define __BLAS_H__
 
-#include "../utils.h"
 #include "infiniop/operator.h"
 #include <algorithm>
-#include <stdint.h>
 
-typedef struct BlasMatrix {
+namespace matmul {
+struct BlasMatrix {
     size_t ndim;
     size_t batch;
     ptrdiff_t stride;
@@ -15,31 +14,31 @@ typedef struct BlasMatrix {
     ptrdiff_t row_stride;
     ptrdiff_t col_stride;
 
-    BlasMatrix() {}
+    BlasMatrix() = default;
 
     BlasMatrix(infiniopTensorDescriptor_t layout, infiniopStatus_t *status) {
         if (layout->ndim == 2) {
-            this->ndim = 2;
-            this->batch = 1;
-            this->stride = 0;
-            this->rows = layout->shape[0];
-            this->cols = layout->shape[1];
-            this->row_stride = layout->strides[0];
-            this->col_stride = layout->strides[1];
+            ndim = 2;
+            batch = 1;
+            stride = 0;
+            rows = layout->shape[0];
+            cols = layout->shape[1];
+            row_stride = layout->strides[0];
+            col_stride = layout->strides[1];
         } else if (layout->ndim == 3) {
-            this->ndim = 3;
-            this->batch = layout->shape[0];
-            this->stride = this->batch == 1 ? 0 : layout->strides[0];
-            this->rows = layout->shape[1];
-            this->cols = layout->shape[2];
-            this->row_stride = layout->strides[1];
-            this->col_stride = layout->strides[2];
+            ndim = 3;
+            batch = layout->shape[0];
+            stride = batch == 1 ? 0 : layout->strides[0];
+            rows = layout->shape[1];
+            cols = layout->shape[2];
+            row_stride = layout->strides[1];
+            col_stride = layout->strides[2];
         } else {
             *status = INFINIOP_STATUS_BAD_TENSOR_SHAPE;
             return;
         }
 
-        if (this->row_stride != 1 && this->col_stride != 1) {
+        if (row_stride != 1 && col_stride != 1) {
             *status = INFINIOP_STATUS_BAD_TENSOR_STRIDES;
             return;
         }
@@ -48,7 +47,7 @@ typedef struct BlasMatrix {
     }
 
     bool match_batch(size_t _batch) const {
-        return this->batch == _batch || this->batch == 1;
+        return batch == _batch || batch == 1;
     }
 
     void transpose() {
@@ -57,13 +56,14 @@ typedef struct BlasMatrix {
     }
 
     ptrdiff_t ld() const {
-        if (this->row_stride == 1) {
-            return this->col_stride;
-        } else {
-            return this->row_stride;
-        }
+        return row_stride == 1 ? col_stride : row_stride;
     }
-} BlasMatrix;
+};
+
+enum class MatrixLayout : uint8_t {
+    COL_MAJOR,
+    ROW_MAJOR,
+};
 
 struct MatmulInfo {
     BlasMatrix a_matrix;
@@ -74,7 +74,11 @@ struct MatmulInfo {
 
     bool is_transed = false;
 
-    MatmulInfo(infiniopTensorDescriptor_t c_desc, infiniopTensorDescriptor_t a_desc, infiniopTensorDescriptor_t b_desc, infiniopStatus_t *status, bool col_major = true) {
+    MatmulInfo(infiniopTensorDescriptor_t c_desc,
+               infiniopTensorDescriptor_t a_desc,
+               infiniopTensorDescriptor_t b_desc,
+               infiniopStatus_t *status,
+               MatrixLayout layout) {
         a_matrix = BlasMatrix(a_desc, status);
         if (*status != INFINIOP_STATUS_SUCCESS) {
             return;
@@ -99,7 +103,8 @@ struct MatmulInfo {
             return;
         }
 
-        if ((col_major && c_matrix.col_stride == 1) || (!col_major && c_matrix.row_stride == 1)) {
+        if ((layout == MatrixLayout::COL_MAJOR && c_matrix.col_stride == 1)
+            || (layout == MatrixLayout::ROW_MAJOR && c_matrix.row_stride == 1)) {
             c_matrix.transpose();
             b_matrix.transpose();
             a_matrix.transpose();
@@ -112,5 +117,6 @@ struct MatmulInfo {
         k = a_matrix.cols;
     }
 };
+} // namespace matmul
 
 #endif // __BLAS_H__

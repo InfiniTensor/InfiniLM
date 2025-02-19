@@ -48,7 +48,7 @@ struct InfiniopCudaHandle {
 };
 
 template <typename T>
-void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> cublas_handle_pool, int device_id, cudaStream_t stream, T const &f) {
+void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> &cublas_handle_pool, cudaStream_t stream, T const &f) {
     auto handle = cublas_handle_pool->pop();
     if (!handle) {
         cublasCreate(&(*handle));

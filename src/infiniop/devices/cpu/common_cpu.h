@@ -2,6 +2,7 @@
 #define __INFINIOP__COMMON_CPU_H__
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <vector>
