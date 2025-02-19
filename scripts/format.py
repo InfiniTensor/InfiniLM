@@ -91,7 +91,7 @@ def git_added_files():
     try:
         # 使用 git diff --cached --name-only 获取所有已添加到暂存区的文件
         result = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"],
+            ["git", "diff", "--cached", "--diff-filter=AMR", "--name-only"],
             capture_output=True,
             text=True,
             check=True,
@@ -162,7 +162,7 @@ def main():
 
     if args.ref is None and args.path is None:
         # Last commit.
-        print("{Fore.GREEN}Formating git added files.{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}Formating git added files.{Style.RESET_ALL}")
         files = git_added_files()
 
     else:
