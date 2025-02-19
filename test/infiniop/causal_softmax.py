@@ -29,7 +29,7 @@ _TEST_CASES_ = [
     ((32, 512), (1024, 1), (1024, 1)),
     ((32, 5, 5), None, None),
     ((32, 20, 512), None, None),
-    ((32, 20, 512), (20480, 512, 1), None),  # Ascend 暂不支持非连续
+    ((32, 20, 512), (20480, 512, 1), None),
 ]
 
 # Data types used for testing
@@ -47,8 +47,8 @@ class Inplace(Enum):
 
 
 _INPLACE = [
-    Inplace.OUT_OF_PLACE,
     Inplace.INPLACE_X,
+    Inplace.OUT_OF_PLACE,
 ]
 
 _TEST_CASES = [

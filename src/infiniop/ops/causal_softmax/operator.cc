@@ -8,6 +8,9 @@
 #ifdef ENABLE_CUDA_API
 #include "cuda/causal_softmax_cuda.cuh"
 #endif
+#ifdef ENABLE_ASCEND_API
+#include "ascend/causal_softmax_aclnn.h"
+#endif
 
 __C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(
     infiniopHandle_t handle,
@@ -36,10 +39,8 @@ __C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(
         // return cnnlCreateCausalSoftmaxDescriptor((BangHandle_t) handle, (CausalSoftmaxCnnlDescriptor_t *) desc_ptr, y_desc);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnCreateCausalSoftmaxDescriptor((AscendHandle_t)handle, (CausalSoftmaxAclnnDescriptor_t *)desc_ptr, y_desc);
-    }
+#ifdef ENABLE_ASCEND_API
+        CREATE(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -76,10 +77,8 @@ __C infiniStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDe
     }
 
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnGetCausalSoftmaxWorkspaceSize((CausalSoftmaxAclnnDescriptor_t)desc, size);
-    }
+#ifdef ENABLE_ASCEND_API
+        GET(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -120,10 +119,8 @@ __C infiniStatus_t infiniopCausalSoftmax(
         // return cnnlCausalSoftmax((CausalSoftmaxCnnlDescriptor_t) desc, workspace, workspace_size, data, stream);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnCausalSoftmax((CausalSoftmaxAclnnDescriptor_t)desc, workspace, workspace_size, data, stream);
-    }
+#ifdef ENABLE_ASCEND_API
+        CALCULATE(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -159,10 +156,8 @@ __C infiniStatus_t infiniopDestroyCausalSoftmaxDescriptor(infiniopCausalSoftmaxD
         // return cnnlDestroyCausalSoftmaxDescriptor((CausalSoftmaxCnnlDescriptor_t) desc);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnDestroyCausalSoftmaxDescriptor((CausalSoftmaxAclnnDescriptor_t)desc);
-    }
+#ifdef ENABLE_ASCEND_API
+        DESTROY(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
