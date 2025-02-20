@@ -20,10 +20,10 @@ __C infiniopStatus_t infiniopCreateMatmulDescriptor(
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
 
-#define CREATE(CASE, HANDLE, NAMESPACE)                                   \
+#define CREATE(CASE, NAMESPACE)                                           \
     case CASE:                                                            \
         return matmul::NAMESPACE::Descriptor::create(                     \
-            reinterpret_cast<HANDLE>(handle),                             \
+            handle,                                                       \
             reinterpret_cast<matmul::NAMESPACE::Descriptor **>(desc_ptr), \
             c_desc,                                                       \
             a_desc,                                                       \
@@ -32,16 +32,16 @@ __C infiniopStatus_t infiniopCreateMatmulDescriptor(
     switch (handle->device) {
 
 #ifdef ENABLE_CPU_API
-        CREATE(INFINI_DEVICE_CPU, infiniopCpuHandle_t, cpu);
+        CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_CUDA_API
-        CREATE(INFINI_DEVICE_NVIDIA, infiniopCudaHandle_t, cuda);
+        CREATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_CAMBRICON_API
-        CREATE(INFINI_DEVICE_CAMBRICON, infiniopBangHandle_t, bang);
+        CREATE(INFINI_DEVICE_CAMBRICON, bang);
 #endif
 #ifdef ENABLE_ASCEND_API
-        CREATE(INFINI_DEVICE_ASCEND, infiniopAscendHandle_t, ascend);
+        CREATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 
     default:

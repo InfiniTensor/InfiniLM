@@ -1,5 +1,6 @@
 #include "./matmul_cpu.h"
 #include "../../../devices/cpu/common_cpu.h"
+#include "../../../devices/cpu/cpu_handle.h"
 #include <iostream>
 
 namespace matmul::cpu {
@@ -7,25 +8,26 @@ namespace matmul::cpu {
 Descriptor::~Descriptor() = default;
 
 infiniopStatus_t Descriptor::create(
-    infiniopCpuHandle_t handle,
+    infiniopHandle_t handle_,
     Descriptor **desc_ptr,
     infiniopTensorDescriptor_t c_desc,
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
-    infiniDtype_t dtype = c_desc->dtype;
+    auto handle = reinterpret_cast<infiniopCpuHandle_t>(handle_);
+    auto dtype = c_desc->dtype;
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
         return INFINIOP_STATUS_BAD_TENSOR_DTYPE;
     }
 
     infiniopStatus_t status;
-    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
+    auto _info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
     if (status != INFINIOP_STATUS_SUCCESS) {
         return status;
     }
 
     *desc_ptr = new Descriptor(
-        dtype, info, 0,
+        dtype, _info, 0,
         nullptr,
         handle->device, handle->device_id);
     return INFINIOP_STATUS_SUCCESS;
@@ -33,26 +35,24 @@ infiniopStatus_t Descriptor::create(
 
 template <typename Tdata>
 void calculate(
-    Descriptor const *desc,
+    MatmulInfo const &_info,
     void *c,
     float beta,
     void const *a,
     void const *b,
     float alpha) {
-    auto info = desc->info;
-
-    if (info.is_transed) {
+    if (_info.is_transed) {
         std::swap(a, b);
     }
 
-    for (size_t i = 0; i < info.batch; ++i) {
-        for (size_t m_ = 0; m_ < info.m; ++m_) {
-            for (size_t n_ = 0; n_ < info.n; ++n_) {
-                auto c_ = reinterpret_cast<Tdata *>(c) + i * info.c_matrix.stride + m_ * info.c_matrix.row_stride + n_ * info.c_matrix.col_stride;
+    for (size_t i = 0; i < _info.batch; ++i) {
+        for (size_t m_ = 0; m_ < _info.m; ++m_) {
+            for (size_t n_ = 0; n_ < _info.n; ++n_) {
+                auto c_ = reinterpret_cast<Tdata *>(c) + i * _info.c_matrix.stride + m_ * _info.c_matrix.row_stride + n_ * _info.c_matrix.col_stride;
                 float sum = 0;
-                for (size_t k_ = 0; k_ < info.k; ++k_) {
-                    auto a_ = reinterpret_cast<Tdata const *>(a) + i * info.a_matrix.stride + m_ * info.a_matrix.row_stride + k_ * info.a_matrix.col_stride;
-                    auto b_ = reinterpret_cast<Tdata const *>(b) + i * info.b_matrix.stride + n_ * info.b_matrix.col_stride + k_ * info.b_matrix.row_stride;
+                for (size_t k_ = 0; k_ < _info.k; ++k_) {
+                    auto a_ = reinterpret_cast<Tdata const *>(a) + i * _info.a_matrix.stride + m_ * _info.a_matrix.row_stride + k_ * _info.a_matrix.col_stride;
+                    auto b_ = reinterpret_cast<Tdata const *>(b) + i * _info.b_matrix.stride + n_ * _info.b_matrix.col_stride + k_ * _info.b_matrix.row_stride;
                     if constexpr (std::is_same<Tdata, uint16_t>::value) {
                         sum += f16_to_f32(*a_) * f16_to_f32(*b_);
                     } else {
@@ -83,13 +83,13 @@ infiniopStatus_t Descriptor::calculate(
     float alpha,
     void *stream) const {
 
-    switch (dtype) {
+    switch (_dtype) {
     case INFINI_DTYPE_F16:
-        cpu::calculate<uint16_t>(this, c, beta, a, b, alpha);
+        cpu::calculate<uint16_t>(_info, c, beta, a, b, alpha);
         return INFINIOP_STATUS_SUCCESS;
 
     case INFINI_DTYPE_F32:
-        cpu::calculate<float>(this, c, beta, a, b, alpha);
+        cpu::calculate<float>(_info, c, beta, a, b, alpha);
         return INFINIOP_STATUS_SUCCESS;
 
     default:

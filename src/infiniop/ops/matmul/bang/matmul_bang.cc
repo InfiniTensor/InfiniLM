@@ -1,4 +1,5 @@
 ﻿#include "matmul_bang.h"
+#include "../../../devices/bang/bang_handle.h"
 #include "../../../devices/bang/common_bang.h"
 #include "../../utils.h"
 #include <cnnl_extra.h>
@@ -6,17 +7,17 @@
 namespace matmul::bang {
 
 struct Descriptor::Opaque {
-    cnnlMatMulDescriptor_t opDesc;
+    cnnlMatMulDescriptor_t op;
     cnnlMatMulAlgo_t algo;
     cnnlMatMulHeuristicResult_t algoResult;
-    cnnlTensorDescriptor_t aDesc, bDesc, cDesc;
+    cnnlTensorDescriptor_t a, b, c;
     std::shared_ptr<Pool<cnnlHandle_t>> cnnl_handle_pool;
 
     ~Opaque() {
-        cnnlDestroyTensorDescriptor(aDesc);
-        cnnlDestroyTensorDescriptor(bDesc);
-        cnnlDestroyTensorDescriptor(cDesc);
-        cnnlMatMulDescDestroy(opDesc);
+        cnnlDestroyTensorDescriptor(a);
+        cnnlDestroyTensorDescriptor(b);
+        cnnlDestroyTensorDescriptor(c);
+        cnnlMatMulDescDestroy(op);
         cnnlMatMulAlgoDestroy(algo);
         cnnlDestroyMatMulHeuristicResult(algoResult);
     }
@@ -59,41 +60,42 @@ Descriptor::~Descriptor() {
 }
 
 infiniopStatus_t Descriptor::create(
-    infiniopBangHandle_t handle,
+    infiniopHandle_t handle_,
     Descriptor **desc_ptr,
     infiniopTensorDescriptor_t c_desc,
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
-    infiniDtype_t dtype = c_desc->dtype;
+    auto handle = reinterpret_cast<infiniopBangHandle_t>(handle_);
+    auto dtype = c_desc->dtype;
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
         return INFINIOP_STATUS_BAD_TENSOR_DTYPE;
     }
 
     infiniopStatus_t status;
-    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::ROW_MAJOR);
+    auto _info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::ROW_MAJOR);
     if (status != INFINIOP_STATUS_SUCCESS) {
         return status;
     }
 
-    cnnlTensorDescriptor_t aDesc, bDesc, cDesc;
-    cnnlCreateTensorDescriptor(&aDesc);
-    cnnlCreateTensorDescriptor(&bDesc);
-    cnnlCreateTensorDescriptor(&cDesc);
+    cnnlTensorDescriptor_t a, b, c;
+    cnnlCreateTensorDescriptor(&a);
+    cnnlCreateTensorDescriptor(&b);
+    cnnlCreateTensorDescriptor(&c);
 
-    setMatrixTensorEx(aDesc, info.a_matrix, a_desc->dtype);
-    setMatrixTensorEx(bDesc, info.b_matrix, b_desc->dtype);
-    setMatrixTensorEx(cDesc, info.c_matrix, c_desc->dtype);
+    setMatrixTensorEx(a, _info.a_matrix, a_desc->dtype);
+    setMatrixTensorEx(b, _info.b_matrix, b_desc->dtype);
+    setMatrixTensorEx(c, _info.c_matrix, c_desc->dtype);
 
-    cnnlMatMulDescriptor_t opDesc;
+    cnnlMatMulDescriptor_t op;
     cnnlMatMulAlgo_t algo;
     cnnlMatMulHeuristicResult_t algoResult;
-    cnnlMatMulDescCreate(&opDesc);
+    cnnlMatMulDescCreate(&op);
     cnnlMatMulAlgoCreate(&algo);
     cnnlCreateMatMulHeuristicResult(&algoResult);
     int32_t use_stride = true;
     cnnlSetMatMulDescAttr(
-        opDesc,
+        op,
         CNNL_MATMUL_USE_STRIDE,
         &use_stride,
         sizeof(int32_t));
@@ -102,7 +104,7 @@ infiniopStatus_t Descriptor::create(
              [&](cnnlHandle_t _handle) {
                  cnnlGetBatchMatMulAlgoHeuristic(
                      _handle,
-                     opDesc, aDesc, bDesc, cDesc,
+                     op, a, b, c,
                      NULL, 1, &algoResult, &count);
              });
 
@@ -110,14 +112,14 @@ infiniopStatus_t Descriptor::create(
     cnnlGetBatchMatMulHeuristicResult(algoResult, algo, &workspace_size);
 
     *desc_ptr = new Descriptor(
-        dtype, info, workspace_size,
+        dtype, _info, workspace_size,
         new Opaque{
-            opDesc,
+            op,
             algo,
             algoResult,
-            aDesc,
-            bDesc,
-            cDesc,
+            a,
+            b,
+            c,
             handle->cnnl_handle_pool},
         handle->device, handle->device_id);
     return INFINIOP_STATUS_SUCCESS;
@@ -133,7 +135,7 @@ infiniopStatus_t Descriptor::calculate(
     float alpha,
     void *stream) const {
 
-    if (info.is_transed) {
+    if (_info.is_transed) {
         std::swap(a, b);
     }
     use_cnnl(_opaque->cnnl_handle_pool,
@@ -141,13 +143,13 @@ infiniopStatus_t Descriptor::calculate(
              [&](cnnlHandle_t handle) {
                  cnnlBatchMatMulBCast_v2(
                      handle,
-                     _opaque->opDesc,
+                     _opaque->op,
                      _opaque->algo,
                      &alpha,
-                     _opaque->aDesc, a,
-                     _opaque->bDesc, b,
+                     _opaque->a, a,
+                     _opaque->b, b,
                      &beta,
-                     _opaque->cDesc, c,
+                     _opaque->c, c,
                      workspace,
                      workspace_size);
              });
