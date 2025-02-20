@@ -1,8 +1,8 @@
 #ifndef __INFINIOP_OPERATOR___
 #define __INFINIOP_OPERATOR___
 
-#include "./handle.h"
-#include "./tensor_descriptor.h"
+#include "handle.h"
+#include "tensor_descriptor.h"
 
 // Base descriptor for all operators
 typedef struct InfiniopDescriptor {
