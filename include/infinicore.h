@@ -2,8 +2,8 @@
 #define __INFINICORE_H__
 #include <stdint.h>
 
-#ifndef __INFINICORE_EXPORT_C__
-#define __INFINICORE_EXPORT_C__
+#ifndef __INFINI_EXPORT_C__
+#define __INFINI_EXPORT_C__
 #if defined(_WIN32)
 #define __export __declspec(dllexport)
 #elif defined(__GNUC__) && ((__GNUC__ >= 4) || (__GNUC__ == 3 && __GNUC_MINOR__ >= 3))
@@ -19,7 +19,27 @@
 #define __C
 #include <stddef>
 #endif
-#endif // __INFINICORE_EXPORT_C__
+#endif // __INFINI_EXPORT_C__
+
+#ifndef __INFINI_STATUS__
+#define __INFINI_STATUS__
+typedef enum {
+    // Success
+    INFINI_STATUS_SUCCESS = 0,
+    // General Errors
+    INFINI_STATUS_INTERNAL_ERROR = 1,
+    INFINI_STATUS_NOT_IMPLEMENTED = 2,
+    INFINI_STATUS_BAD_PARAM = 3,
+    INFINI_STATUS_NULL_POINTER = 4,
+    INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED = 5,
+    INFINI_STATUS_DEVICE_NOT_FOUND = 6,
+    // Op Errors
+    INFINI_STATUS_BAD_TENSOR_DTYPE = 10,
+    INFINI_STATUS_BAD_TENSOR_SHAPE = 11,
+    INFINI_STATUS_BAD_TENSOR_STRIDES = 12,
+    INFINI_STATUS_INSUFFICIENT_WORKSPACE = 13,
+} infiniStatus_t;
+#endif // __INFINI_STATUS__
 
 #ifndef __INFINI_DEVICE__
 #define __INFINI_DEVICE__
