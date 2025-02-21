@@ -1,5 +1,7 @@
 #ifndef __INFINIOP_H__
 #define __INFINIOP_H__
+#include "infiniop/tensor_descriptor.h"
+#include "infiniop/handle.h"
 #include "infiniop/ops/add.h"
 #include "infiniop/ops/attention.h"
 #include "infiniop/ops/avg_pool.h"
