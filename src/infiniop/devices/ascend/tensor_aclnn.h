@@ -1,7 +1,7 @@
 #ifndef __ACLNN_TENSOR__
 #define __ACLNN_TENSOR__
 
-#include "./common_ascend.h"
+#include "common_ascend.h"
 #include "infiniop/operator.h"
 #include <acl/acl.h>
 #include <acl/acl_base.h>

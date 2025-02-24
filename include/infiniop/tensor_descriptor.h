@@ -2,7 +2,7 @@
 #define __INFINIOP_TENSOR_DESCRIPTOR__
 
 #include "../infinicore.h"
-#include "./status.h"
+#include "status.h"
 
 struct InfiniopTensorDescriptor {
     // Datatype

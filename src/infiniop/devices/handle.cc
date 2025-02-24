@@ -1,15 +1,15 @@
 #include "infiniop/handle.h"
 #ifdef ENABLE_CPU_API
-#include "./cpu/cpu_handle.h"
+#include "cpu/cpu_handle.h"
 #endif
 #ifdef ENABLE_CUDA_API
-#include "./cuda/cuda_handle.h"
+#include "cuda/cuda_handle.h"
 #endif
 #ifdef ENABLE_CAMBRICON_API
-#include "./bang/bang_handle.h"
+#include "bang/bang_handle.h"
 #endif
 #ifdef ENABLE_ASCEND_API
-#include "./ascend/ascend_handle.h"
+#include "ascend/ascend_handle.h"
 #endif
 
 __C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,

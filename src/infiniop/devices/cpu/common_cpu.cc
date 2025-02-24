@@ -1,4 +1,4 @@
-#include "./common_cpu.h"
+#include "common_cpu.h"
 
 float f16_to_f32(uint16_t h) {
     uint32_t sign = (h & 0x8000) << 16;

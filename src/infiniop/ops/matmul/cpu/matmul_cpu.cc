@@ -1,4 +1,4 @@
-#include "./matmul_cpu.h"
+#include "matmul_cpu.h"
 #include "../../../devices/cpu/common_cpu.h"
 #include "../../../devices/cpu/cpu_handle.h"
 

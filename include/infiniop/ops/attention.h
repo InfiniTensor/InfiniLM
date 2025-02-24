@@ -2,8 +2,8 @@
 #define __INFINIOP_ATTENTION_H__
 
 #include "../operator.h"
-#include "./matmul.h"
-#include "./swiglu.h"
+#include "matmul.h"
+#include "swiglu.h"
 
 typedef InfiniopDescriptor *infiniopAttentionDescriptor_t;
 
