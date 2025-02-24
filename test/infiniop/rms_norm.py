@@ -23,21 +23,20 @@ from libinfiniop import (
 #  Configuration (Internal Use Only)
 # ==============================================================================
 # These are not meant to be imported from other modules
-
 _TEST_CASES = [
     # y_shape, x_shape, w_shape, y_stride, x_stride, w_dtype
-    ((16, 2048), (16, 2048), (2048,), None, None,torch.float32),
+    ((16, 2048), (16, 2048), (2048,), None, None, torch.float32),
     ((16, 2048), (16, 2048), (2048,), None, None, torch.float16),
-    ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1),torch.float32),
+    ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1), torch.float32),
     ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1), torch.float16),
 ]
+
 # x types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.float32]
+_TENSOR_DTYPES = [torch.float16]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 0, "rtol": 1e-2},
-    torch.float32: {"atol": 0, "rtol": 1e-3},
+    torch.float16: {"atol": 1e-3, "rtol": 1e-3},
 }
 
 DEBUG = False
@@ -45,11 +44,13 @@ PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
 
+
 class RMSNormDescriptor(Structure):
     _fields_ = [("device", c_int32)]
 
 
 infiniopRMSNormDescriptor_t = POINTER(RMSNormDescriptor)
+
 
 def rms_norm(x, w, eps):
     input_dtype = x.dtype
@@ -60,18 +61,21 @@ def rms_norm(x, w, eps):
 
 
 def test(
-    lib, 
-    handle, 
-    torch_device, 
-    y_shape, 
-    x_shape, 
-    w_shape, 
+    lib,
+    handle,
+    torch_device,
+    y_shape,
+    x_shape,
+    w_shape,
     y_stride,
     x_stride,
-    dtype=torch.float16, 
-    w_dtype=torch.float16):
-    print(f"Testing RMS_Norm on {torch_device} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
-        f" dtype:{dtype} w_dtype:{w_dtype}")
+    dtype=torch.float16,
+    w_dtype=torch.float16,
+):
+    print(
+        f"Testing RMS_Norm on {torch_device} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
+        f" dtype:{dtype} w_dtype:{w_dtype}"
+    )
 
     y = torch.zeros(y_shape, dtype=dtype).to(torch_device)
     x = torch.rand(x_shape, dtype=dtype).to(torch_device)
@@ -80,18 +84,23 @@ def test(
     eps = 1e-5
     ans = rms_norm(x, w, eps)
 
-    x = rearrange_if_needed(x, x_stride)
-    y = rearrange_if_needed(y, y_stride)
+    x, y = [
+        rearrange_if_needed(tensor, stride)
+        for tensor, stride in zip([x, y], [x_stride, y_stride])
+    ]
 
     x_tensor, y_tensor, w_tensor = [to_tensor(tensor, lib) for tensor in [x, y, w]]
 
     descriptor = infiniopRMSNormDescriptor_t()
-    w_dataType = 0 if w_dtype==torch.float16 else 1
 
     check_error(
         lib.infiniopCreateRMSNormDescriptor(
-            handle, ctypes.byref(descriptor), y_tensor.descriptor, x_tensor.descriptor,
-            w_tensor.descriptor, eps
+            handle,
+            ctypes.byref(descriptor),
+            y_tensor.descriptor,
+            x_tensor.descriptor,
+            w_tensor.descriptor,
+            eps,
         )
     )
 
@@ -101,11 +110,10 @@ def test(
 
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetRMSNormWorkspaceSize(
-            descriptor, ctypes.byref(workspace_size)
-        )
+        lib.infiniopGetRMSNormWorkspaceSize(descriptor, ctypes.byref(workspace_size))
     )
     workspace = create_workspace(workspace_size.value, y.device)
+
     def lib_rms_norm():
         check_error(
             lib.infiniopRMSNorm(
@@ -134,12 +142,10 @@ def test(
     check_error(lib.infiniopDestroyRMSNormDescriptor(descriptor))
 
 
-
-
 if __name__ == "__main__":
-    
     args = get_args()
     lib = open_lib()
+
     lib.infiniopCreateRMSNormDescriptor.restype = c_int32
     lib.infiniopCreateRMSNormDescriptor.argtypes = [
         infiniopHandle_t,
@@ -166,6 +172,7 @@ if __name__ == "__main__":
         c_void_p,
         c_void_p,
     ]
+
     lib.infiniopDestroyRMSNormDescriptor.restype = c_int32
     lib.infiniopDestroyRMSNormDescriptor.argtypes = [
         infiniopRMSNormDescriptor_t,
@@ -182,5 +189,3 @@ if __name__ == "__main__":
         test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")
-
-

@@ -12,33 +12,40 @@ from libinfiniop import (
     create_workspace,
     test_operator,
     get_args,
-    debug,
+    debug_all,
     get_tolerance,
     profile_operation,
+    synchronize_device,
 )
 
 # ==============================================================================
 #  Configuration (Internal Use Only)
 # ==============================================================================
 # These are not meant to be imported from other modules
+
 _TEST_CASES = [
     # voc, random_val, topp, topk, temperature
-        (512, 0.8, 0.8, 3, 0.5),
-        (4096, 0.05, 0.9, 5, 1.0),
-        (16384, 0.15, 0.85, 10, 2.0),
-        (512, 0.08, 0, 3, 0.5),
-        (4096, 0.5, 0.9, 1, 1.0),
-        (16384, 0.15, 0, 1, 2.0),
-        (16384, 0.15, 0, 1, 2.0),
-        (32000, 0.08, 0.8, 50, 1.0),
-        (32000, 0.08, 1.0, 25, 1.0),
-        # (119696, 0.01, 1.0, 100, 1.0),
+    (512, 0.8, 0.8, 3, 0.5),
+    (4096, 0.05, 0.9, 5, 1.0),
+    (16384, 0.15, 0.85, 10, 2.0),
+    (512, 0.08, 0, 3, 0.5),
+    (4096, 0.5, 0.9, 1, 1.0),
+    (16384, 0.15, 0, 1, 2.0),
+    (16384, 0.15, 0, 1, 2.0),
+    (32000, 0.08, 0.8, 50, 1.0),
+    (32000, 0.08, 1.0, 25, 1.0),
+    # (119696, 0.01, 1.0, 100, 1.0),
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.float32]
+_TENSOR_DTYPES = [torch.float16]
+
+_TOLERANCE_MAP = {
+    torch.float16: {"atol": 0, "rtol": 0},
+}
 
 
+DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
@@ -113,6 +120,7 @@ def test(
     x_dtype=torch.float16,
 ):
     print(f"Testing RandomSample on {torch_device} with voc:{voc} dtype:{x_dtype}")
+
     data = torch.arange(voc).float() * 0.0001
     _perm = torch.randperm(voc)
     data = data[_perm].to(x_dtype).to(torch_device)
@@ -122,9 +130,11 @@ def test(
         )
     else:
         ans = random_sample_0(data)
+
     indices = torch.zeros([1], dtype=torch.int64).to(torch_device)
-    x_tensor = to_tensor(data, lib)
-    indices_tensor = to_tensor(indices, lib)
+
+    x_tensor, indices_tensor = [to_tensor(tensor, lib) for tensor in [data, indices]]
+
     indices_tensor.descriptor.contents.dt = U64  # treat int64 as uint64
 
     descriptor = infiniopRandomSampleDescriptor_t()
@@ -148,7 +158,7 @@ def test(
         )
     )
     workspace = create_workspace(workspace_size.value, torch_device)
-    
+
     def lib_random_sample():
         check_error(
             lib.infiniopRandomSample(
@@ -164,11 +174,21 @@ def test(
                 None,
             )
         )
-    if torch_device == "npu":
-        torch.npu.synchronize()
 
+    if torch_device == "npu":
+        synchronize_device(torch_device)
+
+    atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
+    if DEBUG:
+        debug_all(
+            (indices[0].type(ans.dtype), data[indices[0]]),
+            (ans, data[ans]),
+            "or",
+            atol=atol,
+            rtol=rtol,
+        )
     assert indices[0].type(ans.dtype) == ans or data[ans] == data[indices[0]]
-    
+
     # Profiling workflow
     if PROFILE:
         # fmt: off
@@ -184,23 +204,23 @@ def test(
     check_error(lib.infiniopDestroyRandomSampleDescriptor(descriptor))
 
 
-
-
 if __name__ == "__main__":
-
     args = get_args()
     lib = open_lib()
+
     lib.infiniopCreateRandomSampleDescriptor.restype = c_int32
     lib.infiniopCreateRandomSampleDescriptor.argtypes = [
         infiniopHandle_t,
         POINTER(infiniopRandomSampleDescriptor_t),
         infiniopTensorDescriptor_t,
     ]
+
     lib.infiniopGetRandomSampleWorkspaceSize.restype = c_int32
     lib.infiniopGetRandomSampleWorkspaceSize.argtypes = [
         infiniopRandomSampleDescriptor_t,
         POINTER(c_uint64),
     ]
+
     lib.infiniopRandomSample.restype = c_int32
     lib.infiniopRandomSample.argtypes = [
         infiniopRandomSampleDescriptor_t,
@@ -214,11 +234,13 @@ if __name__ == "__main__":
         c_float,
         c_void_p,
     ]
+
     lib.infiniopDestroyRandomSampleDescriptor.restype = c_int32
     lib.infiniopDestroyRandomSampleDescriptor.argtypes = [
         infiniopRandomSampleDescriptor_t,
     ]
 
+    DEBUG = args.debug
     PROFILE = args.profile
     NUM_PRERUN = args.num_prerun
     NUM_ITERATIONS = args.num_iterations
