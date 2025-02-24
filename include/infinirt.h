@@ -21,9 +21,14 @@ __C __export infiniStatus_t infinirtStreamSynchronize(infinirtStream_t stream);
 __C __export infiniStatus_t infinirtStreamWaitEvent(infinirtStream_t stream, infinirtEvent_t event);
 
 // Event
+typedef enum {
+    INFINIRT_EVENT_COMPLETE = 0,
+    INFINIRT_EVENT_NOT_READY = 1,
+} infinirtEventStatus;
+
 __C __export infiniStatus_t infinirtEventCreate(infinirtEvent_t *event_ptr);
 __C __export infiniStatus_t infinirtEventRecord(infinirtEvent_t event, infinirtStream_t stream);
-__C __export infiniStatus_t infinirtEventQuery(infinirtEvent_t event);
+__C __export infiniStatus_t infinirtEventQuery(infinirtEvent_t event, infinirtEventStatus *status_ptr);
 __C __export infiniStatus_t infinirtEventSynchronize(infinirtEvent_t event);
 __C __export infiniStatus_t infinirtEventDestroy(infinirtEvent_t event);
 
