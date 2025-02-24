@@ -21,7 +21,6 @@ from libinfiniop import (
 #  Configuration (Internal Use Only)
 # ==============================================================================
 # These are not meant to be imported from other modules
-
 _TEST_CASES = [
     # x_shape, x_stride
     ((32, 512), None),
