@@ -47,27 +47,26 @@ struct InfiniopCudaHandle {
     int compute_capability_minor;
 };
 
-template <typename T>
-void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> &cublas_handle_pool, cudaStream_t stream, T const &f) {
-    auto handle = cublas_handle_pool->pop();
+template <class T>
+void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> &pool, cudaStream_t stream, T const &f) {
+    auto handle = pool->pop();
     if (!handle) {
         cublasCreate(&(*handle));
     }
-    cublasSetStream(*handle, (cudaStream_t)stream);
+    cublasSetStream(*handle, stream);
     f(*handle);
-    cublas_handle_pool->push(std::move(*handle));
+    pool->push(std::move(*handle));
 }
 
-template <typename T>
-cudnnStatus_t use_cudnn(std::shared_ptr<Pool<cudnnHandle_t>> cudnn_handle_pool, int device_id, cudaStream_t stream, T const &f) {
-    auto handle = cudnn_handle_pool->pop();
+template <class T>
+void use_cudnn(std::shared_ptr<Pool<cudnnHandle_t>> &pool, cudaStream_t stream, T const &f) {
+    auto handle = pool->pop();
     if (!handle) {
         cudnnCreate(&(*handle));
     }
     cudnnSetStream(*handle, stream);
-    cudnnStatus_t status = f(*handle);
-    cudnn_handle_pool->push(std::move(*handle));
-    return status;
+    f(*handle);
+    pool->push(std::move(*handle));
 }
 
 inline cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {

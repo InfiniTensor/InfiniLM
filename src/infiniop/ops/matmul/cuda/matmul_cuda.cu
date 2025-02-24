@@ -39,7 +39,7 @@ infiniopStatus_t Descriptor::create(
 }
 
 template <typename Tdata>
-infiniopStatus_t calculate(
+void calculate(
     MatmulInfo const &_info,
     std::shared_ptr<Pool<cublasHandle_t>> &cublas_handle_pool,
     void *c,
@@ -98,7 +98,6 @@ infiniopStatus_t calculate(
                        compute_type,
                        CUBLAS_GEMM_DEFAULT_TENSOR_OP);
                });
-    return INFINIOP_STATUS_SUCCESS;
 }
 
 infiniopStatus_t Descriptor::calculate(
