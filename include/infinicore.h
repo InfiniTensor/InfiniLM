@@ -1,9 +1,6 @@
 #ifndef __INFINICORE_H__
 #define __INFINICORE_H__
-#include <stdint.h>
 
-#ifndef __INFINICORE_EXPORT_C__
-#define __INFINICORE_EXPORT_C__
 #if defined(_WIN32)
 #define __export __declspec(dllexport)
 #elif defined(__GNUC__) && ((__GNUC__ >= 4) || (__GNUC__ == 3 && __GNUC_MINOR__ >= 3))
@@ -17,12 +14,26 @@
 #include <cstddef>
 #else
 #define __C
-#include <stddef>
+#include <stddef.h>
 #endif
-#endif // __INFINICORE_EXPORT_C__
 
-#ifndef __INFINI_DEVICE__
-#define __INFINI_DEVICE__
+typedef enum {
+    // Success
+    INFINI_STATUS_SUCCESS = 0,
+    // General Errors
+    INFINI_STATUS_INTERNAL_ERROR = 1,
+    INFINI_STATUS_NOT_IMPLEMENTED = 2,
+    INFINI_STATUS_BAD_PARAM = 3,
+    INFINI_STATUS_NULL_POINTER = 4,
+    INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED = 5,
+    INFINI_STATUS_DEVICE_NOT_FOUND = 6,
+    // Op Errors
+    INFINI_STATUS_BAD_TENSOR_DTYPE = 10,
+    INFINI_STATUS_BAD_TENSOR_SHAPE = 11,
+    INFINI_STATUS_BAD_TENSOR_STRIDES = 12,
+    INFINI_STATUS_INSUFFICIENT_WORKSPACE = 13,
+} infiniStatus_t;
+
 typedef enum {
     INFINI_DEVICE_CPU = 0,
     INFINI_DEVICE_NVIDIA = 1,
@@ -33,11 +44,9 @@ typedef enum {
     INFINI_DEVICE_ILUVATAR = 6,
     INFINI_DEVICE_KUNLUN = 7,
     INFINI_DEVICE_SUGON = 8,
+    INFINI_DEVICE_TYPE_COUNT
 } infiniDevice_t;
-#endif // __INFINI_DEVICE__
 
-#ifndef __INFINI_DTYPE__
-#define __INFINI_DTYPE__
 typedef enum {
     INFINI_DTYPE_INVALID = 0,
     INFINI_DTYPE_BYTE = 1,
@@ -107,6 +116,5 @@ inline size_t infiniSizeof(infiniDtype_t dtype) {
         return 0;
     }
 }
-#endif // __INFINI_DTYPE__
 
 #endif // __INFINICORE_H__
