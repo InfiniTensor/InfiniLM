@@ -171,6 +171,8 @@ def test(
             )
         )
 
+    lib_random_sample()
+
     if torch_device == "npu":
         synchronize_device(torch_device)
 
