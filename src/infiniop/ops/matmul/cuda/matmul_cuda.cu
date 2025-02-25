@@ -12,7 +12,7 @@ Descriptor::~Descriptor() {
     delete _opaque;
 }
 
-infiniopStatus_t Descriptor::create(
+infiniStatus_t Descriptor::create(
     infiniopHandle_t handle_,
     Descriptor **desc_ptr,
     infiniopTensorDescriptor_t c_desc,
@@ -22,12 +22,12 @@ infiniopStatus_t Descriptor::create(
     auto dtype = c_desc->dtype;
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
-        return INFINIOP_STATUS_BAD_TENSOR_DTYPE;
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
-    infiniopStatus_t status;
+    infiniStatus_t status;
     auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
-    if (status != INFINIOP_STATUS_SUCCESS) {
+    if (status != INFINI_STATUS_SUCCESS) {
         return status;
     }
 
@@ -35,7 +35,7 @@ infiniopStatus_t Descriptor::create(
         dtype, info, 0,
         new Opaque{handle->cublas_handle_pool},
         handle->device, handle->device_id);
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }
 
 template <typename Tdata>
@@ -100,7 +100,7 @@ void calculate(
                });
 }
 
-infiniopStatus_t Descriptor::calculate(
+infiniStatus_t Descriptor::calculate(
     void *workspace,
     size_t workspace_size,
     void *c,
@@ -113,14 +113,14 @@ infiniopStatus_t Descriptor::calculate(
     switch (_dtype) {
     case INFINI_DTYPE_F16:
         cuda::calculate<uint16_t>(_info, _opaque->cublas_handle_pool, c, beta, a, b, alpha, (cudaStream_t)stream);
-        return INFINIOP_STATUS_SUCCESS;
+        return INFINI_STATUS_SUCCESS;
 
     case INFINI_DTYPE_F32:
         cuda::calculate<float>(_info, _opaque->cublas_handle_pool, c, beta, a, b, alpha, (cudaStream_t)stream);
-        return INFINIOP_STATUS_SUCCESS;
+        return INFINI_STATUS_SUCCESS;
 
     default:
-        return INFINIOP_STATUS_BAD_TENSOR_DTYPE;
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 }
 

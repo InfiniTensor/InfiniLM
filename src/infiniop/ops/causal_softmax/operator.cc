@@ -1,6 +1,6 @@
 #include "infiniop/ops/causal_softmax.h"
 
-__C infiniopStatus_t infiniopCreateCausalSoftmaxDescriptor(
+__C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(
     infiniopHandle_t handle,
     infiniopCausalSoftmaxDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t y_desc) {
@@ -37,10 +37,10 @@ __C infiniopStatus_t infiniopCreateCausalSoftmaxDescriptor(
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDescriptor_t desc, size_t *size) {
+__C infiniStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDescriptor_t desc, size_t *size) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -75,10 +75,10 @@ __C infiniopStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmax
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescriptor_t desc, void *workspace, size_t workspace_size, void *data, void *stream) {
+__C infiniStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescriptor_t desc, void *workspace, size_t workspace_size, void *data, void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -112,10 +112,10 @@ __C infiniopStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescriptor_t des
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopDestroyCausalSoftmaxDescriptor(infiniopCausalSoftmaxDescriptor_t desc) {
+__C infiniStatus_t infiniopDestroyCausalSoftmaxDescriptor(infiniopCausalSoftmaxDescriptor_t desc) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -148,5 +148,5 @@ __C infiniopStatus_t infiniopDestroyCausalSoftmaxDescriptor(infiniopCausalSoftma
         return musaDestroyCausalSoftmaxDescriptor((CausalSoftmaxMusaDescriptor_t)desc);
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }

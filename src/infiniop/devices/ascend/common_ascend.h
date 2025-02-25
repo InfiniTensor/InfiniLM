@@ -28,10 +28,10 @@ extern "C" {
         printf(message, ##__VA_ARGS__); \
     } while (0)
 
-#define LOG_ERROR(message, ...)                \
-    do {                                       \
-        printf(message, ##__VA_ARGS__);        \
-        return INFINIOP_STATUS_INTERNAL_ERROR; \
+#define LOG_ERROR(message, ...)              \
+    do {                                     \
+        printf(message, ##__VA_ARGS__);      \
+        return INFINI_STATUS_INTERNAL_ERROR; \
     } while (0)
 
 #ifdef __cplusplus
@@ -46,8 +46,8 @@ struct InfiniopAscendHandle {
 int64_t numElements(const int64_t *shape, int64_t num);
 const char *dataTypeToString(aclDataType dtype);
 const char *formatToString(aclFormat format);
-infiniopStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize);
-infiniopStatus_t freeWorkspace(void *workspaceAddr);
+infiniStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize);
+infiniStatus_t freeWorkspace(void *workspaceAddr);
 aclDataType toAclDataType(infiniDtype_t dt);
 
 #endif

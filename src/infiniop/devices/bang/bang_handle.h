@@ -6,7 +6,7 @@
 struct InfiniopBangHandle;
 typedef struct InfiniopBangHandle *infiniopBangHandle_t;
 
-infiniopStatus_t createBangHandle(infiniopBangHandle_t *handle_ptr);
-infiniopStatus_t destroyBangHandle(infiniopBangHandle_t handle);
+infiniStatus_t createBangHandle(infiniopBangHandle_t *handle_ptr);
+infiniStatus_t destroyBangHandle(infiniopBangHandle_t handle);
 
 #endif

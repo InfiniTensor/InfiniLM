@@ -17,7 +17,7 @@
         }                                                                     \
     } while (0)
 
-#define CHECK_CUDA(call) CHECK_CUDA_OR_RETURN(call, INFINIOP_STATUS_INTERNAL_ERROR)
+#define CHECK_CUDA(call) CHECK_CUDA_OR_RETURN(call, INFINI_STATUS_INTERNAL_ERROR)
 
 #define CHECK_CUDNN(call)                                                     \
     do {                                                                      \
@@ -25,7 +25,7 @@
             std::cerr << "CUDNN error: " << cudnnGetErrorString(status)       \
                       << " in file " << __FILE__ << ", function " << __func__ \
                       << ", line " << __LINE__ << std::endl;                  \
-            return INFINIOP_STATUS_INTERNAL_ERROR;                            \
+            return INFINI_STATUS_INTERNAL_ERROR;                              \
         }                                                                     \
     } while (0)
 

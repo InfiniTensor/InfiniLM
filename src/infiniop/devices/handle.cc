@@ -12,10 +12,10 @@
 #include "ascend/ascend_handle.h"
 #endif
 
-__C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,
-                                          infiniDevice_t device) {
+__C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,
+                                        infiniDevice_t device) {
     if (handle_ptr == nullptr) {
-        return INFINIOP_STATUS_NULL_POINTER;
+        return INFINI_STATUS_NULL_POINTER;
     }
 
     switch (device) {
@@ -39,10 +39,10 @@ __C infiniopStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
+__C infiniStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
     switch (handle->device) {
 #ifdef ENABLE_CPU_API
     case INFINI_DEVICE_CPU:
@@ -64,5 +64,5 @@ __C infiniopStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }

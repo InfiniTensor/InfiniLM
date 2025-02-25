@@ -2,9 +2,9 @@
 #include "../../ops/utils.h"
 #include <algorithm>
 
-infiniopStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides) {
+infiniStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides) {
     if (shape.size() != strides.size()) {
-        return INFINIOP_STATUS_BAD_TENSOR_STRIDES;
+        return INFINI_STATUS_BAD_TENSOR_STRIDES;
     }
     this->ndim = shape.size();
     this->shape = std::vector<int64_t>(shape);
@@ -16,26 +16,26 @@ infiniopStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const s
     aclFormat format = aclFormat::ACL_FORMAT_ND;
     this->format = format;
 
-    CHECK_STATUS(this->inferStorageShape(), INFINIOP_STATUS_SUCCESS);
+    CHECK_STATUS(this->inferStorageShape(), INFINI_STATUS_SUCCESS);
 
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }
 
 /// @brief Infer storage shape. For now this ruturns a 1D shape of the total tensor storage size.
 /// We don't see why higher dimensional storage shape is ever needed. To change if necesary.
-infiniopStatus_t aclnnTensorDescriptor::inferStorageShape() {
+infiniStatus_t aclnnTensorDescriptor::inferStorageShape() {
     auto index = std::max_element(this->strides.begin(), this->strides.end());
     uint64_t max_stride_index = std::distance(this->strides.begin(), index);
     this->storageNdim = 1;
     this->storageShape = std::vector<int64_t>({this->shape[max_stride_index] * this->strides[max_stride_index]});
 
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }
 
 /// @brief Set aclnnTensorDescriptor from infiniopTensorDescriptor
 /// @param y infiniopTensorDescriptor
 /// @return infiniopStatus_t
-infiniopStatus_t aclnnTensorDescriptor::fromInfiniOpTensorDescriptor(infiniopTensorDescriptor_t y) {
+infiniStatus_t aclnnTensorDescriptor::fromInfiniOpTensorDescriptor(infiniopTensorDescriptor_t y) {
     uint64_t ndim = y->ndim;
     // Cast shape type
     auto shape = std::vector<int64_t>(ndim);
@@ -53,9 +53,9 @@ infiniopStatus_t aclnnTensorDescriptor::fromInfiniOpTensorDescriptor(infiniopTen
 /// @param data Data ptr on device global mem.
 /// @param tensor Pointer of pointer of aclTensor.
 /// @return
-infiniopStatus_t aclnnTensorDescriptor::createTensor(void *data) {
+infiniStatus_t aclnnTensorDescriptor::createTensor(void *data) {
     if (this->t) {
-        return INFINIOP_STATUS_SUCCESS;
+        return INFINI_STATUS_SUCCESS;
     }
     this->t = aclCreateTensor(this->shape.data(),
                               this->ndim,
@@ -66,17 +66,17 @@ infiniopStatus_t aclnnTensorDescriptor::createTensor(void *data) {
                               this->storageShape.data(),
                               this->storageNdim,
                               data);
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }
 
-infiniopStatus_t aclnnTensorDescriptor::destroyTensor() {
+infiniStatus_t aclnnTensorDescriptor::destroyTensor() {
     auto ret = aclDestroyTensor(this->t);
     CHECK_RET(ret == ACL_SUCCESS,
               LOG_PRINT("aclDesctroyTensor failed, ERROR: %d\n", ret);
-              return INFINIOP_STATUS_INTERNAL_ERROR);
+              return INFINI_STATUS_INTERNAL_ERROR);
     t = nullptr;
 
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }
 
 aclnnTensorDescriptor::~aclnnTensorDescriptor() {

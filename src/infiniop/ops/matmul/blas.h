@@ -16,7 +16,7 @@ struct BlasMatrix {
 
     BlasMatrix() = default;
 
-    BlasMatrix(infiniopTensorDescriptor_t layout, infiniopStatus_t *status) {
+    BlasMatrix(infiniopTensorDescriptor_t layout, infiniStatus_t *status) {
         if (layout->ndim == 2) {
             ndim = 2;
             batch = 1;
@@ -34,16 +34,16 @@ struct BlasMatrix {
             row_stride = layout->strides[1];
             col_stride = layout->strides[2];
         } else {
-            *status = INFINIOP_STATUS_BAD_TENSOR_SHAPE;
+            *status = INFINI_STATUS_BAD_TENSOR_SHAPE;
             return;
         }
 
         if (row_stride != 1 && col_stride != 1) {
-            *status = INFINIOP_STATUS_BAD_TENSOR_STRIDES;
+            *status = INFINI_STATUS_BAD_TENSOR_STRIDES;
             return;
         }
 
-        *status = INFINIOP_STATUS_SUCCESS;
+        *status = INFINI_STATUS_SUCCESS;
     }
 
     bool match_batch(size_t _batch) const {
@@ -77,29 +77,29 @@ struct MatmulInfo {
     MatmulInfo(infiniopTensorDescriptor_t c_desc,
                infiniopTensorDescriptor_t a_desc,
                infiniopTensorDescriptor_t b_desc,
-               infiniopStatus_t *status,
+               infiniStatus_t *status,
                MatrixLayout layout) {
         a_matrix = BlasMatrix(a_desc, status);
-        if (*status != INFINIOP_STATUS_SUCCESS) {
+        if (*status != INFINI_STATUS_SUCCESS) {
             return;
         }
         b_matrix = BlasMatrix(b_desc, status);
-        if (*status != INFINIOP_STATUS_SUCCESS) {
+        if (*status != INFINI_STATUS_SUCCESS) {
             return;
         }
         c_matrix = BlasMatrix(c_desc, status);
-        if (*status != INFINIOP_STATUS_SUCCESS) {
+        if (*status != INFINI_STATUS_SUCCESS) {
             return;
         }
 
         if (c_matrix.rows != a_matrix.rows || c_matrix.cols != b_matrix.cols || a_matrix.cols != b_matrix.rows) {
-            *status = INFINIOP_STATUS_BAD_TENSOR_SHAPE;
+            *status = INFINI_STATUS_BAD_TENSOR_SHAPE;
             return;
         }
 
         batch = c_matrix.batch;
         if (!a_matrix.match_batch(batch) || !b_matrix.match_batch(batch)) {
-            *status = INFINIOP_STATUS_BAD_TENSOR_SHAPE;
+            *status = INFINI_STATUS_BAD_TENSOR_SHAPE;
             return;
         }
 

@@ -5,8 +5,8 @@
 
 typedef infiniopHandle_t infiniopCpuHandle_t;
 
-infiniopStatus_t createCpuHandle(infiniopCpuHandle_t *handle_ptr);
+infiniStatus_t createCpuHandle(infiniopCpuHandle_t *handle_ptr);
 
-infiniopStatus_t destroyCpuHandle(infiniopCpuHandle_t handle);
+infiniStatus_t destroyCpuHandle(infiniopCpuHandle_t handle);
 
 #endif
