@@ -9,9 +9,10 @@ typedef void *infinirtEvent_t;
 __C __export infiniStatus_t infinirtInit(infiniDevice_t device);
 
 // Device
+__C __export infiniStatus_t infinirtGetAllDeviceCount(int *count_array);
+__C __export infiniStatus_t infinirtGetDeviceCount(infiniDevice_t device, int *count);
 __C __export infiniStatus_t infinirtSetDevice(infiniDevice_t device, int device_id);
 __C __export infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_ptr);
-__C __export infiniStatus_t infinirtGetDeviceCount(infiniDevice_t device, int *count);
 __C __export infiniStatus_t infinirtDeviceSynchronize();
 
 // Stream
@@ -24,11 +25,11 @@ __C __export infiniStatus_t infinirtStreamWaitEvent(infinirtStream_t stream, inf
 typedef enum {
     INFINIRT_EVENT_COMPLETE = 0,
     INFINIRT_EVENT_NOT_READY = 1,
-} infinirtEventStatus;
+} infinirtEventStatus_t;
 
 __C __export infiniStatus_t infinirtEventCreate(infinirtEvent_t *event_ptr);
 __C __export infiniStatus_t infinirtEventRecord(infinirtEvent_t event, infinirtStream_t stream);
-__C __export infiniStatus_t infinirtEventQuery(infinirtEvent_t event, infinirtEventStatus *status_ptr);
+__C __export infiniStatus_t infinirtEventQuery(infinirtEvent_t event, infinirtEventStatus_t *status_ptr);
 __C __export infiniStatus_t infinirtEventSynchronize(infinirtEvent_t event);
 __C __export infiniStatus_t infinirtEventDestroy(infinirtEvent_t event);
 

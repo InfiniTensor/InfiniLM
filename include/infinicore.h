@@ -1,6 +1,5 @@
 #ifndef __INFINICORE_H__
 #define __INFINICORE_H__
-#include <stdint.h>
 
 #if defined(_WIN32)
 #define __export __declspec(dllexport)
@@ -15,7 +14,7 @@
 #include <cstddef>
 #else
 #define __C
-#include <stddef>
+#include <stddef.h>
 #endif
 
 typedef enum {
@@ -45,6 +44,7 @@ typedef enum {
     INFINI_DEVICE_ILUVATAR = 6,
     INFINI_DEVICE_KUNLUN = 7,
     INFINI_DEVICE_SUGON = 8,
+    INFINI_DEVICE_TYPE_COUNT
 } infiniDevice_t;
 
 typedef enum {
