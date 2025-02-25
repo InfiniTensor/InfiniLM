@@ -22,50 +22,29 @@ from enum import Enum, auto
 #  Configuration (Internal Use Only)
 # ==============================================================================
 # These are not meant to be imported from other modules
+_TEST_CASES_ = [
+    ((13, 4), None, None, None),
+    ((13, 4), (10, 1), (10, 1), (10, 1)),
+    ((13, 4, 4), None, None, None),
+    ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1)),
+    ((16, 5632), None, None, None),
+    ((16, 5632), (13312, 1), (13312, 1), (13312, 1)),
+    ((4, 4, 5632), None, None, None),
+    ((4, 4, 5632), (45056, 5632, 1), (45056, 5632, 1), (45056, 5632, 1)),
+]
+
+# Inplace options applied for each test case in _TEST_CASES_
+_INPLACE = [
+    "Inplace.OUT_OF_PLACE",
+    "Inplace.INPLACE_A",
+    "Inplace.INPLACE_B",
+]
+
+# Form the test cases by appending each element of _INPLACE to each tuple in _TEST_CASES_
 _TEST_CASES = [
-    # shape, a_stride, b_stride, c_stride, inplace
-    ((13, 4), None, None, None, Inplace.OUT_OF_PLACE),
-    ((13, 4), None, None, None, Inplace.INPLACE_A),
-    ((13, 4), None, None, None, Inplace.INPLACE_B),
-    ((13, 4), (10, 1), (10, 1), (10, 1), Inplace.OUT_OF_PLACE),
-    ((13, 4), (10, 1), (10, 1), (10, 1), Inplace.INPLACE_A),
-    ((13, 4), (10, 1), (10, 1), (10, 1), Inplace.INPLACE_B),
-    ((13, 4, 4), None, None, None, Inplace.OUT_OF_PLACE),
-    ((13, 4, 4), None, None, None, Inplace.INPLACE_A),
-    ((13, 4, 4), None, None, None, Inplace.INPLACE_B),
-    ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1), Inplace.OUT_OF_PLACE),
-    ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1), Inplace.INPLACE_A),
-    ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1), Inplace.INPLACE_B),
-    ((16, 5632), None, None, None, Inplace.OUT_OF_PLACE),
-    ((16, 5632), None, None, None, Inplace.INPLACE_A),
-    ((16, 5632), None, None, None, Inplace.INPLACE_B),
-    ((16, 5632), (13312, 1), (13312, 1), (13312, 1), Inplace.OUT_OF_PLACE),
-    ((16, 5632), (13312, 1), (13312, 1), (13312, 1), Inplace.INPLACE_A),
-    ((16, 5632), (13312, 1), (13312, 1), (13312, 1), Inplace.INPLACE_B),
-    ((4, 4, 5632), None, None, None, Inplace.OUT_OF_PLACE),
-    ((4, 4, 5632), None, None, None, Inplace.INPLACE_A),
-    ((4, 4, 5632), None, None, None, Inplace.INPLACE_B),
-    (
-        (4, 4, 5632),
-        (45056, 5632, 1),
-        (45056, 5632, 1),
-        (45056, 5632, 1),
-        Inplace.OUT_OF_PLACE,
-    ),
-    (
-        (4, 4, 5632),
-        (45056, 5632, 1),
-        (45056, 5632, 1),
-        (45056, 5632, 1),
-        Inplace.INPLACE_A,
-    ),
-    (
-        (4, 4, 5632),
-        (45056, 5632, 1),
-        (45056, 5632, 1),
-        (45056, 5632, 1),
-        Inplace.INPLACE_B,
-    ),
+    test_case + (inplace_item,)
+    for test_case in _TEST_CASES_
+    for inplace_item in _INPLACE
 ]
 
 # Data types used for testing
@@ -166,7 +145,6 @@ def test(
     if DEBUG:
         debug(c, ans, atol=atol, rtol=rtol)
     assert torch.allclose(c, ans, atol=atol, rtol=rtol)
-    print("out-of-place Test passed!")
 
     # Profiling workflow
     if PROFILE:

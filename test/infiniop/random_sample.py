@@ -188,13 +188,9 @@ def test(
     # Profiling workflow
     if PROFILE:
         # fmt: off
-        if topp > 0 and topk > 1:
-            profile_operation("PyTorch", lambda: random_sample(
-                data.to("cpu"), random_val, topp, topk, voc, temperature, "cpu"
+        profile_operation("PyTorch", lambda: random_sample(
+                data, random_val, topp, topk, voc, temperature, torch_device
             ), torch_device, NUM_PRERUN, NUM_ITERATIONS)
-        else:
-            profile_operation("PyTorch", lambda: random_sample_0(data), torch_device, NUM_PRERUN, NUM_ITERATIONS)
-        
         profile_operation("    lib", lambda: lib_random_sample(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
     check_error(lib.infiniopDestroyRandomSampleDescriptor(descriptor))
