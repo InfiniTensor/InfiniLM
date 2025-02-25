@@ -39,7 +39,7 @@ __C infiniopStatus_t infiniopCreateRandomSampleDescriptor(infiniopHandle_t handl
 };
 
 __C infiniopStatus_t infiniopGetRandomSampleWorkspaceSize(infiniopRandomSampleDescriptor_t desc, size_t *size) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuGetRandomSampleWorkspaceSize((RandomSampleCpuDescriptor_t)desc, size);
@@ -79,13 +79,13 @@ __C infiniopStatus_t infiniopRandomSample(infiniopRandomSampleDescriptor_t desc,
                                           void *workspace,
                                           size_t workspace_size,
                                           void *result,
-                                          void const *probs,
+                                          const void *probs,
                                           float random_val,
                                           float topp,
                                           int topk,
                                           float temperature,
                                           void *stream) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuRandomSample((RandomSampleCpuDescriptor_t)desc, workspace, workspace_size, result, probs, random_val, topp, topk, temperature, stream);
@@ -118,7 +118,7 @@ __C infiniopStatus_t infiniopRandomSample(infiniopRandomSampleDescriptor_t desc,
 }
 
 __C infiniopStatus_t infiniopDestroyRandomSampleDescriptor(infiniopRandomSampleDescriptor_t desc) {
-    switch (desc->device) {
+    switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
         return cpuDestroyRandomSampleDescriptor((RandomSampleCpuDescriptor_t)desc);

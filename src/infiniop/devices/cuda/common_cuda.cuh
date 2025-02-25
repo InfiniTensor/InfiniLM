@@ -48,26 +48,25 @@ struct InfiniopCudaHandle {
 };
 
 template <typename T>
-void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> cublas_handle_pool, int device_id, cudaStream_t stream, T const &f) {
-    auto handle = cublas_handle_pool->pop();
+void use_cublas(std::shared_ptr<Pool<cublasHandle_t>> &pool, cudaStream_t stream, const T &f) {
+    auto handle = pool->pop();
     if (!handle) {
         cublasCreate(&(*handle));
     }
-    cublasSetStream(*handle, (cudaStream_t)stream);
+    cublasSetStream(*handle, stream);
     f(*handle);
-    cublas_handle_pool->push(std::move(*handle));
+    pool->push(std::move(*handle));
 }
 
 template <typename T>
-cudnnStatus_t use_cudnn(std::shared_ptr<Pool<cudnnHandle_t>> cudnn_handle_pool, int device_id, cudaStream_t stream, T const &f) {
-    auto handle = cudnn_handle_pool->pop();
+void use_cudnn(std::shared_ptr<Pool<cudnnHandle_t>> &pool, cudaStream_t stream, const T &f) {
+    auto handle = pool->pop();
     if (!handle) {
         cudnnCreate(&(*handle));
     }
     cudnnSetStream(*handle, stream);
-    cudnnStatus_t status = f(*handle);
-    cudnn_handle_pool->push(std::move(*handle));
-    return status;
+    f(*handle);
+    pool->push(std::move(*handle));
 }
 
 inline cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
@@ -96,8 +95,10 @@ inline cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
 // return the memory offset of original tensor, given the flattened index of
 // broadcasted tensor
 inline __device__ __host__ size_t indexToReducedOffset(
-    size_t flat_index, size_t ndim, ptrdiff_t const *broadcasted_strides,
-    ptrdiff_t const *target_strides) {
+    size_t flat_index,
+    size_t ndim,
+    const ptrdiff_t *broadcasted_strides,
+    const ptrdiff_t *target_strides) {
     size_t res = 0;
     for (size_t i = 0; i < ndim; ++i) {
         res += flat_index / broadcasted_strides[i] * target_strides[i];
@@ -107,9 +108,11 @@ inline __device__ __host__ size_t indexToReducedOffset(
 }
 
 // get the memory offset of the given element in a tensor given its flat index
-inline __device__ __host__ size_t indexToOffset(size_t flat_index, size_t ndim,
-                                                size_t const *shape,
-                                                ptrdiff_t const *strides) {
+inline __device__ __host__ size_t indexToOffset(
+    size_t flat_index,
+    size_t ndim,
+    const size_t *shape,
+    const ptrdiff_t *strides) {
     size_t res = 0;
     for (size_t i = ndim; i-- > 0;) {
         res += (flat_index % shape[i]) * strides[i];

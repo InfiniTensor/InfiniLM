@@ -2,7 +2,7 @@
 #define __INFINIOP_HANDLE__
 
 #include "../infinicore.h"
-#include "./status.h"
+#include "status.h"
 
 typedef struct InfiniopHandle {
     infiniDevice_t device;

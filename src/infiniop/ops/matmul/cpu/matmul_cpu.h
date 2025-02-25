@@ -1,13 +1,8 @@
-#ifndef __INFINIOP_MATMUL_CPU_H__
-#define __INFINIOP_MATMUL_CPU_H__
+#ifndef __MATMUL_CPU_H__
+#define __MATMUL_CPU_H__
 
-#include "../blas.h"
-#include "./matmul_cpu_api.h"
+#include "../matmul.h"
 
-typedef struct MatmulCpuDescriptor {
-    infiniDevice_t device;
-    infiniDtype_t dtype;
-    MatmulInfo info;
-} MatmulCpuDescriptor;
+DESCRIPTOR(cpu)
 
-#endif // __INFINIOP_MATMUL_CPU_H__
+#endif // __MATMUL_CPU_H__

@@ -2,8 +2,8 @@
 #define __INFINIOP_ATTENTION_H__
 
 #include "../operator.h"
-#include "./matmul.h"
-#include "./swiglu.h"
+#include "matmul.h"
+#include "swiglu.h"
 
 typedef InfiniopDescriptor *infiniopAttentionDescriptor_t;
 
@@ -23,9 +23,9 @@ __C __export infiniopStatus_t infiniopAttention(infiniopAttentionDescriptor_t de
                                                 void *workspace,
                                                 size_t workspace_size,
                                                 void *out,
-                                                void const *q,
-                                                void const *k,
-                                                void const *v,
+                                                const void *q,
+                                                const void *k,
+                                                const void *v,
                                                 void *k_cache,
                                                 void *v_cache,
                                                 void *stream);

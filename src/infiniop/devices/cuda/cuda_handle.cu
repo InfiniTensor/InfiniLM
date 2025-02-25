@@ -1,4 +1,4 @@
-#include "./common_cuda.cuh"
+#include "common_cuda.cuh"
 
 infiniopStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, infiniDevice_t cuda_device_type) {
     // Create a new cublas handle pool
