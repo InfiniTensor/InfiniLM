@@ -8,26 +8,26 @@ int64_t numElements(const int64_t *shape, int64_t num) {
     return numEle;
 }
 
-infiniopStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize) {
+infiniStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize) {
     *workspaceAddr = nullptr;
     if (workspaceSize > 0) {
         auto ret = aclrtMalloc(workspaceAddr, workspaceSize,
                                ACL_MEM_MALLOC_HUGE_FIRST);
         CHECK_RET(ret == ACL_SUCCESS,
                   LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", ret);
-                  return INFINIOP_STATUS_INTERNAL_ERROR);
+                  return INFINI_STATUS_INTERNAL_ERROR);
     }
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }
 
-infiniopStatus_t freeWorkspace(void *workspaceAddr) {
+infiniStatus_t freeWorkspace(void *workspaceAddr) {
     if (workspaceAddr != nullptr) {
         auto ret = aclrtFree(workspaceAddr);
         CHECK_RET(ret == ACL_SUCCESS,
                   LOG_PRINT("aclrtFree failed, ERROR: %d\n", ret);
-                  return INFINIOP_STATUS_INTERNAL_ERROR);
+                  return INFINI_STATUS_INTERNAL_ERROR);
     }
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }
 
 aclDataType toAclDataType(infiniDtype_t dt) {

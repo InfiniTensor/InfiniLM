@@ -23,12 +23,12 @@ struct aclnnTensorDescriptor {
     aclTensor *t;
 
     // Transfer from infiniOp DT to aclDataType
-    infiniopStatus_t setDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides);
-    infiniopStatus_t inferStorageShape();
+    infiniStatus_t setDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides);
+    infiniStatus_t inferStorageShape();
     // Convert form InfiniOpTensorDescriptor
-    infiniopStatus_t fromInfiniOpTensorDescriptor(infiniopTensorDescriptor_t y_desc);
-    infiniopStatus_t createTensor(void *data = nullptr);
-    infiniopStatus_t destroyTensor();
+    infiniStatus_t fromInfiniOpTensorDescriptor(infiniopTensorDescriptor_t y_desc);
+    infiniStatus_t createTensor(void *data = nullptr);
+    infiniStatus_t destroyTensor();
     ~aclnnTensorDescriptor();
 
     char *toString();

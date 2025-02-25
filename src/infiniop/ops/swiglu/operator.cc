@@ -1,6 +1,6 @@
 #include "infiniop/ops/swiglu.h"
 
-__C infiniopStatus_t infiniopCreateSwiGLUDescriptor(
+__C infiniStatus_t infiniopCreateSwiGLUDescriptor(
     infiniopHandle_t handle, infiniopSwiGLUDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t c_desc, infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
@@ -42,12 +42,12 @@ __C infiniopStatus_t infiniopCreateSwiGLUDescriptor(
             handle, (SwiGLUMusaDescriptor_t *)desc_ptr, c_desc, a_desc, b_desc);
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 };
 
-__C infiniopStatus_t infiniopSwiGLU(infiniopSwiGLUDescriptor_t desc, void *c,
-                                    const void *a, const void *b,
-                                    void *stream) {
+__C infiniStatus_t infiniopSwiGLU(infiniopSwiGLUDescriptor_t desc, void *c,
+                                  const void *a, const void *b,
+                                  void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -75,10 +75,10 @@ __C infiniopStatus_t infiniopSwiGLU(infiniopSwiGLUDescriptor_t desc, void *c,
         return musaSwiGLU((SwiGLUMusaDescriptor_t)desc, c, a, b, stream);
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t
+__C infiniStatus_t
 infiniopDestroySwiGLUDescriptor(infiniopSwiGLUDescriptor_t desc) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
@@ -107,5 +107,5 @@ infiniopDestroySwiGLUDescriptor(infiniopSwiGLUDescriptor_t desc) {
         return musaDestroySwiGLUDescriptor((SwiGLUMusaDescriptor_t)desc);
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }

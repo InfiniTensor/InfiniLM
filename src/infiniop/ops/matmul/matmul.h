@@ -71,14 +71,14 @@
                                                           \
         ~Descriptor();                                    \
                                                           \
-        static infiniopStatus_t create(                   \
+        static infiniStatus_t create(                     \
             infiniopHandle_t handle,                      \
             Descriptor **desc_ptr,                        \
             infiniopTensorDescriptor_t c_desc,            \
             infiniopTensorDescriptor_t a_desc,            \
             infiniopTensorDescriptor_t b_desc);           \
                                                           \
-        infiniopStatus_t calculate(                       \
+        infiniStatus_t calculate(                         \
             void *workspace,                              \
             size_t workspace_size,                        \
             void *c,                                      \

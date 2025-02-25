@@ -1,6 +1,6 @@
 #include "infiniop/ops/rotary_embedding.h"
 
-__C infiniopStatus_t infiniopCreateRoPEDescriptor(
+__C infiniStatus_t infiniopCreateRoPEDescriptor(
     infiniopHandle_t handle, infiniopRoPEDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t t, infiniopTensorDescriptor_t pos_ids,
     infiniopTensorDescriptor_t sin_table,
@@ -49,11 +49,11 @@ __C infiniopStatus_t infiniopCreateRoPEDescriptor(
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
-                                                  size_t *size) {
+__C infiniStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
+                                                size_t *size) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -86,14 +86,14 @@ __C infiniopStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopRoPE(infiniopRoPEDescriptor_t desc,
-                                  void *workspace, size_t workspace_size,
-                                  void *t, const void *pos_ids,
-                                  const void *sin_table, const void *cos_table,
-                                  void *stream) {
+__C infiniStatus_t infiniopRoPE(infiniopRoPEDescriptor_t desc,
+                                void *workspace, size_t workspace_size,
+                                void *t, const void *pos_ids,
+                                const void *sin_table, const void *cos_table,
+                                void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -133,10 +133,10 @@ __C infiniopStatus_t infiniopRoPE(infiniopRoPEDescriptor_t desc,
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t
+__C infiniStatus_t
 infiniopDestroyRoPEDescriptor(infiniopRoPEDescriptor_t desc) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
@@ -170,5 +170,5 @@ infiniopDestroyRoPEDescriptor(infiniopRoPEDescriptor_t desc) {
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }

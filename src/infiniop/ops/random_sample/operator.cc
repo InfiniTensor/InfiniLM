@@ -1,6 +1,6 @@
 #include "infiniop/ops/random_sample.h"
 
-__C infiniopStatus_t infiniopCreateRandomSampleDescriptor(infiniopHandle_t handle, infiniopRandomSampleDescriptor_t *desc_ptr, infiniopTensorDescriptor_t result, infiniopTensorDescriptor_t probs) {
+__C infiniStatus_t infiniopCreateRandomSampleDescriptor(infiniopHandle_t handle, infiniopRandomSampleDescriptor_t *desc_ptr, infiniopTensorDescriptor_t result, infiniopTensorDescriptor_t probs) {
     switch (handle->device) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -35,10 +35,10 @@ __C infiniopStatus_t infiniopCreateRandomSampleDescriptor(infiniopHandle_t handl
         return musaCreateRandomSampleDescriptor((MusaHandle_t)handle, (RandomSampleMusaDescriptor_t *)desc_ptr, result, probs);
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 };
 
-__C infiniopStatus_t infiniopGetRandomSampleWorkspaceSize(infiniopRandomSampleDescriptor_t desc, size_t *size) {
+__C infiniStatus_t infiniopGetRandomSampleWorkspaceSize(infiniopRandomSampleDescriptor_t desc, size_t *size) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -72,19 +72,19 @@ __C infiniopStatus_t infiniopGetRandomSampleWorkspaceSize(infiniopRandomSampleDe
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopRandomSample(infiniopRandomSampleDescriptor_t desc,
-                                          void *workspace,
-                                          size_t workspace_size,
-                                          void *result,
-                                          const void *probs,
-                                          float random_val,
-                                          float topp,
-                                          int topk,
-                                          float temperature,
-                                          void *stream) {
+__C infiniStatus_t infiniopRandomSample(infiniopRandomSampleDescriptor_t desc,
+                                        void *workspace,
+                                        size_t workspace_size,
+                                        void *result,
+                                        const void *probs,
+                                        float random_val,
+                                        float topp,
+                                        int topk,
+                                        float temperature,
+                                        void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -114,10 +114,10 @@ __C infiniopStatus_t infiniopRandomSample(infiniopRandomSampleDescriptor_t desc,
         return musaRandomSample((RandomSampleMusaDescriptor_t)desc, workspace, workspace_size, result, probs, random_val, topp, topk, temperature, stream);
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopDestroyRandomSampleDescriptor(infiniopRandomSampleDescriptor_t desc) {
+__C infiniStatus_t infiniopDestroyRandomSampleDescriptor(infiniopRandomSampleDescriptor_t desc) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -147,5 +147,5 @@ __C infiniopStatus_t infiniopDestroyRandomSampleDescriptor(infiniopRandomSampleD
         return musaDestroyRandomSampleDescriptor((RandomSampleMusaDescriptor_t)desc);
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }

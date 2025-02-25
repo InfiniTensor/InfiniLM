@@ -1,9 +1,9 @@
 #include "common_cuda.cuh"
 
-infiniopStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, infiniDevice_t cuda_device_type) {
+infiniStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, infiniDevice_t cuda_device_type) {
     // Create a new cublas handle pool
     int device_id = 0;
-    CHECK_CUDA(cudaGetDevice(&device_id));
+    CHECK_CUDA_OR_RETURN(cudaGetDevice(&device_id), INFINI_STATUS_DEVICE_NOT_INITIALIZED);
     auto pool = std::make_shared<Pool<cublasHandle_t>>();
     cublasHandle_t handle;
     cublasCreate(&handle);
@@ -35,13 +35,13 @@ infiniopStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, infiniDevice
         capability_minor,
     };
 
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }
 
-infiniopStatus_t destroyCudaHandle(infiniopCudaHandle_t handle_ptr) {
+infiniStatus_t destroyCudaHandle(infiniopCudaHandle_t handle_ptr) {
     handle_ptr->cublas_handle_pool = nullptr;
     handle_ptr->cudnn_handle_pool = nullptr;
     delete handle_ptr;
 
-    return INFINIOP_STATUS_SUCCESS;
+    return INFINI_STATUS_SUCCESS;
 }

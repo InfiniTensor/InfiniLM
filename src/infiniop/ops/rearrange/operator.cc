@@ -1,6 +1,6 @@
 #include "infiniop/ops/rearrange.h"
 
-__C infiniopStatus_t infiniopCreateRearrangeDescriptor(
+__C infiniStatus_t infiniopCreateRearrangeDescriptor(
     infiniopHandle_t handle,
     infiniopRearrangeDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t dst,
@@ -40,10 +40,10 @@ __C infiniopStatus_t infiniopCreateRearrangeDescriptor(
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopRearrange(infiniopRearrangeDescriptor_t desc, void *dst, const void *src, void *stream) {
+__C infiniStatus_t infiniopRearrange(infiniopRearrangeDescriptor_t desc, void *dst, const void *src, void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -79,10 +79,10 @@ __C infiniopStatus_t infiniopRearrange(infiniopRearrangeDescriptor_t desc, void 
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopDestroyRearrangeDescriptor(infiniopRearrangeDescriptor_t desc) {
+__C infiniStatus_t infiniopDestroyRearrangeDescriptor(infiniopRearrangeDescriptor_t desc) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
@@ -115,5 +115,5 @@ __C infiniopStatus_t infiniopDestroyRearrangeDescriptor(infiniopRearrangeDescrip
     }
 #endif
     }
-    return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }

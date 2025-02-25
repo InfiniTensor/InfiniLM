@@ -13,7 +13,7 @@
 #include "ascend/matmul_ascend.h"
 #endif
 
-__C infiniopStatus_t infiniopCreateMatmulDescriptor(
+__C infiniStatus_t infiniopCreateMatmulDescriptor(
     infiniopHandle_t handle,
     infiniopMatmulDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t c_desc,
@@ -45,13 +45,13 @@ __C infiniopStatus_t infiniopCreateMatmulDescriptor(
 #endif
 
     default:
-        return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
 #undef CREATE
 }
 
-__C infiniopStatus_t
+__C infiniStatus_t
 infiniopGetMatmulWorkspaceSize(
     infiniopMatmulDescriptor_t desc,
     size_t *size) {
@@ -59,7 +59,7 @@ infiniopGetMatmulWorkspaceSize(
 #define GET(CASE, NAMESPACE)                                                                   \
     case CASE:                                                                                 \
         *size = reinterpret_cast<const matmul::NAMESPACE::Descriptor *>(desc)->workspace_size; \
-        return INFINIOP_STATUS_SUCCESS
+        return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {
 
@@ -77,13 +77,13 @@ infiniopGetMatmulWorkspaceSize(
 #endif
 
     default:
-        return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
 #undef GET
 }
 
-__C infiniopStatus_t infiniopMatmul(
+__C infiniStatus_t infiniopMatmul(
     infiniopMatmulDescriptor_t desc,
     void *workspace, size_t workspace_size,
     void *c,
@@ -117,19 +117,19 @@ __C infiniopStatus_t infiniopMatmul(
 #endif
 
     default:
-        return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
 #undef CALCULATE
 }
 
-__C infiniopStatus_t
+__C infiniStatus_t
 infiniopDestroyMatmulDescriptor(infiniopMatmulDescriptor_t desc) {
 
 #define DELETE(CASE, NAMESPACE)                                               \
     case CASE:                                                                \
         delete reinterpret_cast<const matmul::NAMESPACE::Descriptor *>(desc); \
-        return INFINIOP_STATUS_SUCCESS;
+        return INFINI_STATUS_SUCCESS;
 
     switch (desc->device_type) {
 
@@ -147,7 +147,7 @@ infiniopDestroyMatmulDescriptor(infiniopMatmulDescriptor_t desc) {
 #endif
 
     default:
-        return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
 #undef DELETE

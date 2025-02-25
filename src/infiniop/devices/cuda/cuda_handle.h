@@ -6,8 +6,8 @@
 struct InfiniopCudaHandle;
 typedef struct InfiniopCudaHandle *infiniopCudaHandle_t;
 
-infiniopStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, infiniDevice_t cuda_device_type);
+infiniStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, infiniDevice_t cuda_device_type);
 
-infiniopStatus_t destroyCudaHandle(infiniopCudaHandle_t handle_ptr);
+infiniStatus_t destroyCudaHandle(infiniopCudaHandle_t handle_ptr);
 
 #endif
