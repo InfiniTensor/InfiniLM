@@ -26,13 +26,13 @@ infiniopStatus_t Descriptor::create(
     }
 
     infiniopStatus_t status;
-    auto _info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
+    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
     if (status != INFINIOP_STATUS_SUCCESS) {
         return status;
     }
 
     *desc_ptr = new Descriptor(
-        dtype, _info, 0,
+        dtype, info, 0,
         new Opaque{handle->cublas_handle_pool},
         handle->device, handle->device_id);
     return INFINIOP_STATUS_SUCCESS;
@@ -40,16 +40,16 @@ infiniopStatus_t Descriptor::create(
 
 template <typename Tdata>
 void calculate(
-    MatmulInfo const &_info,
+    const MatmulInfo &info,
     std::shared_ptr<Pool<cublasHandle_t>> &cublas_handle_pool,
     void *c,
     float beta,
-    void const *a,
-    void const *b,
+    const void *a,
+    const void *b,
     float alpha,
     cudaStream_t stream) {
 
-    if (_info.is_transed) {
+    if (info.is_transed) {
         std::swap(a, b);
     }
 
@@ -67,8 +67,8 @@ void calculate(
 #endif
     }
 
-    auto op_a = _info.a_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
-    auto op_b = _info.b_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
+    auto op_a = info.a_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
+    auto op_b = info.b_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
 
     use_cublas(cublas_handle_pool,
                stream,
@@ -77,24 +77,24 @@ void calculate(
                        handle,
                        op_a,
                        op_b,
-                       static_cast<int>(_info.m),
-                       static_cast<int>(_info.n),
-                       static_cast<int>(_info.k),
+                       static_cast<int>(info.m),
+                       static_cast<int>(info.n),
+                       static_cast<int>(info.k),
                        &alpha,
                        a,
                        a_type,
-                       static_cast<int>(_info.a_matrix.ld()),
-                       _info.a_matrix.stride,
+                       static_cast<int>(info.a_matrix.ld()),
+                       info.a_matrix.stride,
                        b,
                        b_type,
-                       static_cast<int>(_info.b_matrix.ld()),
-                       _info.b_matrix.stride,
+                       static_cast<int>(info.b_matrix.ld()),
+                       info.b_matrix.stride,
                        &beta,
                        c,
                        c_type,
-                       static_cast<int>(_info.c_matrix.ld()),
-                       _info.c_matrix.stride,
-                       static_cast<int>(_info.batch),
+                       static_cast<int>(info.c_matrix.ld()),
+                       info.c_matrix.stride,
+                       static_cast<int>(info.batch),
                        compute_type,
                        CUBLAS_GEMM_DEFAULT_TENSOR_OP);
                });
@@ -105,8 +105,8 @@ infiniopStatus_t Descriptor::calculate(
     size_t workspace_size,
     void *c,
     float beta,
-    void const *a,
-    void const *b,
+    const void *a,
+    const void *b,
     float alpha,
     void *stream) const {
 

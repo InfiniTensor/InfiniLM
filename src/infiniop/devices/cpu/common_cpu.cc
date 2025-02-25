@@ -59,9 +59,11 @@ uint16_t f32_to_f16(float val) {
     }
 }
 
-size_t indexToReducedOffset(size_t flat_index, size_t ndim,
-                            ptrdiff_t const *broadcasted_strides,
-                            ptrdiff_t const *target_strides) {
+size_t indexToReducedOffset(
+    size_t flat_index,
+    size_t ndim,
+    const ptrdiff_t *broadcasted_strides,
+    const ptrdiff_t *target_strides) {
     size_t res = 0;
     for (size_t i = 0; i < ndim; ++i) {
         res += flat_index / broadcasted_strides[i] * target_strides[i];
@@ -70,8 +72,11 @@ size_t indexToReducedOffset(size_t flat_index, size_t ndim,
     return res;
 }
 
-size_t indexToOffset(size_t flat_index, size_t ndim, size_t const *shape,
-                     ptrdiff_t const *strides) {
+size_t indexToOffset(
+    size_t flat_index,
+    size_t ndim,
+    const size_t *shape,
+    const ptrdiff_t *strides) {
     size_t res = 0;
     for (size_t i = ndim; i-- >= 0;) {
         res += (flat_index % shape[i]) * strides[i];
@@ -80,7 +85,10 @@ size_t indexToOffset(size_t flat_index, size_t ndim, size_t const *shape,
     return res;
 }
 
-size_t getPaddedSize(size_t ndim, size_t *shape, size_t const *pads) {
+size_t getPaddedSize(
+    size_t ndim,
+    size_t *shape,
+    const size_t *pads) {
     size_t total_size = 1;
     for (size_t i = 0; i < ndim; ++i) {
         total_size *= shape[i] + (i < 2 ? 0 : 2 * pads[i - 2]);
@@ -88,8 +96,10 @@ size_t getPaddedSize(size_t ndim, size_t *shape, size_t const *pads) {
     return total_size;
 }
 
-std::vector<size_t> getPaddedShape(size_t ndim, size_t const *shape,
-                                   size_t const *pads) {
+std::vector<size_t> getPaddedShape(
+    size_t ndim,
+    const size_t *shape,
+    const size_t *pads) {
     std::vector<size_t> padded_shape(ndim);
     memcpy(padded_shape.data(), shape, ndim * sizeof(size_t));
     for (size_t i = 2; i < ndim; ++i) {

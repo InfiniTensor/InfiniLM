@@ -84,7 +84,7 @@ __C infiniopStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t
 }
 
 __C infiniopStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *workspace, size_t workspace_size,
-                                     void *y, void const *x, void const *w, void *stream) {
+                                     void *y, const void *x, const void *w, void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:

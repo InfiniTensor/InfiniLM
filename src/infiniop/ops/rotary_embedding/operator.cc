@@ -91,8 +91,8 @@ __C infiniopStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
 
 __C infiniopStatus_t infiniopRoPE(infiniopRoPEDescriptor_t desc,
                                   void *workspace, size_t workspace_size,
-                                  void *t, void const *pos_ids,
-                                  void const *sin_table, void const *cos_table,
+                                  void *t, const void *pos_ids,
+                                  const void *sin_table, const void *cos_table,
                                   void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU

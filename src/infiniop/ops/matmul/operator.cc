@@ -58,7 +58,7 @@ infiniopGetMatmulWorkspaceSize(
 
 #define GET(CASE, NAMESPACE)                                                                   \
     case CASE:                                                                                 \
-        *size = reinterpret_cast<matmul::NAMESPACE::Descriptor const *>(desc)->workspace_size; \
+        *size = reinterpret_cast<const matmul::NAMESPACE::Descriptor *>(desc)->workspace_size; \
         return INFINIOP_STATUS_SUCCESS
 
     switch (desc->device_type) {
@@ -87,15 +87,15 @@ __C infiniopStatus_t infiniopMatmul(
     infiniopMatmulDescriptor_t desc,
     void *workspace, size_t workspace_size,
     void *c,
-    void const *a,
-    void const *b,
+    const void *a,
+    const void *b,
     float alpha,
     float beta,
     void *stream) {
 
 #define CALCULATE(CASE, NAMESPACE)                                           \
     case CASE:                                                               \
-        return reinterpret_cast<matmul::NAMESPACE::Descriptor const *>(desc) \
+        return reinterpret_cast<const matmul::NAMESPACE::Descriptor *>(desc) \
             ->calculate(workspace, workspace_size,                           \
                         c, beta,                                             \
                         a, b, alpha,                                         \
@@ -128,7 +128,7 @@ infiniopDestroyMatmulDescriptor(infiniopMatmulDescriptor_t desc) {
 
 #define DELETE(CASE, NAMESPACE)                                               \
     case CASE:                                                                \
-        delete reinterpret_cast<matmul::NAMESPACE::Descriptor const *>(desc); \
+        delete reinterpret_cast<const matmul::NAMESPACE::Descriptor *>(desc); \
         return INFINIOP_STATUS_SUCCESS;
 
     switch (desc->device_type) {

@@ -43,7 +43,7 @@ infiniopStatus_t Descriptor::create(
     }
 
     infiniopStatus_t status;
-    auto _info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::ROW_MAJOR);
+    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::ROW_MAJOR);
     if (status != INFINIOP_STATUS_SUCCESS) {
         return status;
     }
@@ -56,21 +56,21 @@ infiniopStatus_t Descriptor::create(
     // operation
     CHECK_STATUS(c->setDescriptor(
                      toAclDataType(c_desc->dtype),
-                     {static_cast<int64_t>(_info.c_matrix.rows),
-                      static_cast<int64_t>(_info.c_matrix.cols)},
-                     {_info.c_matrix.row_stride, _info.c_matrix.col_stride}),
+                     {static_cast<int64_t>(info.c_matrix.rows),
+                      static_cast<int64_t>(info.c_matrix.cols)},
+                     {info.c_matrix.row_stride, info.c_matrix.col_stride}),
                  INFINIOP_STATUS_SUCCESS);
     CHECK_STATUS(a->setDescriptor(
                      toAclDataType(a_desc->dtype),
-                     {static_cast<int64_t>(_info.a_matrix.rows),
-                      static_cast<int64_t>(_info.a_matrix.cols)},
-                     {_info.a_matrix.row_stride, _info.a_matrix.col_stride}),
+                     {static_cast<int64_t>(info.a_matrix.rows),
+                      static_cast<int64_t>(info.a_matrix.cols)},
+                     {info.a_matrix.row_stride, info.a_matrix.col_stride}),
                  INFINIOP_STATUS_SUCCESS);
     CHECK_STATUS(b->setDescriptor(
                      toAclDataType(b_desc->dtype),
-                     {static_cast<int64_t>(_info.b_matrix.rows),
-                      static_cast<int64_t>(_info.b_matrix.cols)},
-                     {_info.b_matrix.row_stride, _info.b_matrix.col_stride}),
+                     {static_cast<int64_t>(info.b_matrix.rows),
+                      static_cast<int64_t>(info.b_matrix.cols)},
+                     {info.b_matrix.row_stride, info.b_matrix.col_stride}),
                  INFINIOP_STATUS_SUCCESS);
 
     CHECK_STATUS(c->createTensor(), INFINIOP_STATUS_SUCCESS);
@@ -95,7 +95,7 @@ infiniopStatus_t Descriptor::create(
     aclSetAclOpExecutorRepeatable(executor);
 
     *desc_ptr = new Descriptor(
-        dtype, _info, workspace_size,
+        dtype, info, workspace_size,
         new Opaque{
             executor,
             c,
@@ -112,8 +112,8 @@ infiniopStatus_t Descriptor::calculate(
     size_t workspaceSize_,
     void *c,
     float beta,
-    void const *a,
-    void const *b,
+    const void *a,
+    const void *b,
     float alpha,
     void *stream) const {
 

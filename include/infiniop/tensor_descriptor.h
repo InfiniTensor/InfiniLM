@@ -17,7 +17,7 @@ struct InfiniopTensorDescriptor {
 
 typedef struct InfiniopTensorDescriptor *infiniopTensorDescriptor_t;
 
-__C __export infiniopStatus_t infiniopCreateTensorDescriptor(infiniopTensorDescriptor_t *desc_ptr, size_t ndim, size_t const *shape, ptrdiff_t const *strides, infiniDtype_t dtype);
+__C __export infiniopStatus_t infiniopCreateTensorDescriptor(infiniopTensorDescriptor_t *desc_ptr, size_t ndim, const size_t *shape, const ptrdiff_t *strides, infiniDtype_t dtype);
 
 __C __export infiniopStatus_t infiniopDestroyTensorDescriptor(infiniopTensorDescriptor_t desc);
 

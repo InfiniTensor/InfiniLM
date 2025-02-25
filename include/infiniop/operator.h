@@ -10,7 +10,7 @@ typedef struct InfiniopDescriptor {
     int device_id;
 } InfiniopDescriptor;
 
-__C __export infiniopStatus_t infiniopGetDescriptorDeviceType(InfiniopDescriptor const *desc_ptr, infiniDevice_t *device_type);
-__C __export infiniopStatus_t infiniopGetDescriptorDeviceId(InfiniopDescriptor const *desc_ptr, int *device_id);
+__C __export infiniopStatus_t infiniopGetDescriptorDeviceType(const InfiniopDescriptor *desc_ptr, infiniDevice_t *device_type);
+__C __export infiniopStatus_t infiniopGetDescriptorDeviceId(const InfiniopDescriptor *desc_ptr, int *device_id);
 
 #endif //__INFINIOP_OPERATOR___

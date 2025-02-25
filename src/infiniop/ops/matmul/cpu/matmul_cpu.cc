@@ -20,13 +20,13 @@ infiniopStatus_t Descriptor::create(
     }
 
     infiniopStatus_t status;
-    auto _info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
+    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
     if (status != INFINIOP_STATUS_SUCCESS) {
         return status;
     }
 
     *desc_ptr = new Descriptor(
-        dtype, _info, 0,
+        dtype, info, 0,
         nullptr,
         handle->device, handle->device_id);
     return INFINIOP_STATUS_SUCCESS;
@@ -34,24 +34,24 @@ infiniopStatus_t Descriptor::create(
 
 template <typename Tdata>
 void calculate(
-    MatmulInfo const &_info,
+    const MatmulInfo &info,
     void *c,
     float beta,
-    void const *a,
-    void const *b,
+    const void *a,
+    const void *b,
     float alpha) {
-    if (_info.is_transed) {
+    if (info.is_transed) {
         std::swap(a, b);
     }
 
-    for (size_t i = 0; i < _info.batch; ++i) {
-        for (size_t m_ = 0; m_ < _info.m; ++m_) {
-            for (size_t n_ = 0; n_ < _info.n; ++n_) {
-                auto c_ = reinterpret_cast<Tdata *>(c) + i * _info.c_matrix.stride + m_ * _info.c_matrix.row_stride + n_ * _info.c_matrix.col_stride;
+    for (size_t i = 0; i < info.batch; ++i) {
+        for (size_t m_ = 0; m_ < info.m; ++m_) {
+            for (size_t n_ = 0; n_ < info.n; ++n_) {
+                auto c_ = reinterpret_cast<Tdata *>(c) + i * info.c_matrix.stride + m_ * info.c_matrix.row_stride + n_ * info.c_matrix.col_stride;
                 float sum = 0;
-                for (size_t k_ = 0; k_ < _info.k; ++k_) {
-                    auto a_ = reinterpret_cast<Tdata const *>(a) + i * _info.a_matrix.stride + m_ * _info.a_matrix.row_stride + k_ * _info.a_matrix.col_stride;
-                    auto b_ = reinterpret_cast<Tdata const *>(b) + i * _info.b_matrix.stride + n_ * _info.b_matrix.col_stride + k_ * _info.b_matrix.row_stride;
+                for (size_t k_ = 0; k_ < info.k; ++k_) {
+                    auto a_ = reinterpret_cast<const Tdata *>(a) + i * info.a_matrix.stride + m_ * info.a_matrix.row_stride + k_ * info.a_matrix.col_stride;
+                    auto b_ = reinterpret_cast<const Tdata *>(b) + i * info.b_matrix.stride + n_ * info.b_matrix.col_stride + k_ * info.b_matrix.row_stride;
                     if constexpr (std::is_same<Tdata, uint16_t>::value) {
                         sum += f16_to_f32(*a_) * f16_to_f32(*b_);
                     } else {
@@ -77,8 +77,8 @@ infiniopStatus_t Descriptor::calculate(
     size_t workspace_size,
     void *c,
     float beta,
-    void const *a,
-    void const *b,
+    const void *a,
+    const void *b,
     float alpha,
     void *stream) const {
 

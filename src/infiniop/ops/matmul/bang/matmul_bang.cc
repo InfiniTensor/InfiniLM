@@ -73,7 +73,7 @@ infiniopStatus_t Descriptor::create(
     }
 
     infiniopStatus_t status;
-    auto _info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::ROW_MAJOR);
+    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::ROW_MAJOR);
     if (status != INFINIOP_STATUS_SUCCESS) {
         return status;
     }
@@ -83,9 +83,9 @@ infiniopStatus_t Descriptor::create(
     cnnlCreateTensorDescriptor(&b);
     cnnlCreateTensorDescriptor(&c);
 
-    setMatrixTensorEx(a, _info.a_matrix, a_desc->dtype);
-    setMatrixTensorEx(b, _info.b_matrix, b_desc->dtype);
-    setMatrixTensorEx(c, _info.c_matrix, c_desc->dtype);
+    setMatrixTensorEx(a, info.a_matrix, a_desc->dtype);
+    setMatrixTensorEx(b, info.b_matrix, b_desc->dtype);
+    setMatrixTensorEx(c, info.c_matrix, c_desc->dtype);
 
     cnnlMatMulDescriptor_t op;
     cnnlMatMulAlgo_t algo;
@@ -112,7 +112,7 @@ infiniopStatus_t Descriptor::create(
     cnnlGetBatchMatMulHeuristicResult(algoResult, algo, &workspace_size);
 
     *desc_ptr = new Descriptor(
-        dtype, _info, workspace_size,
+        dtype, info, workspace_size,
         new Opaque{
             op,
             algo,
@@ -130,8 +130,8 @@ infiniopStatus_t Descriptor::calculate(
     size_t workspace_size,
     void *c,
     float beta,
-    void const *a,
-    void const *b,
+    const void *a,
+    const void *b,
     float alpha,
     void *stream) const {
 

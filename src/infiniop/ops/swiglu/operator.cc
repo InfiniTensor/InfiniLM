@@ -46,7 +46,7 @@ __C infiniopStatus_t infiniopCreateSwiGLUDescriptor(
 };
 
 __C infiniopStatus_t infiniopSwiGLU(infiniopSwiGLUDescriptor_t desc, void *c,
-                                    void const *a, void const *b,
+                                    const void *a, const void *b,
                                     void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU

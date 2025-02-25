@@ -60,7 +60,7 @@ struct BlasMatrix {
     }
 };
 
-enum class MatrixLayout : uint8_t {
+enum class MatrixLayout : char {
     COL_MAJOR,
     ROW_MAJOR,
 };

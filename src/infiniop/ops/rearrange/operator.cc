@@ -43,7 +43,7 @@ __C infiniopStatus_t infiniopCreateRearrangeDescriptor(
     return INFINIOP_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniopStatus_t infiniopRearrange(infiniopRearrangeDescriptor_t desc, void *dst, void const *src, void *stream) {
+__C infiniopStatus_t infiniopRearrange(infiniopRearrangeDescriptor_t desc, void *dst, const void *src, void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:
