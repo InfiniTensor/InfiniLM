@@ -12,7 +12,7 @@
 #include "ascend/ascend_handle.h"
 #endif
 #ifdef ENABLE_KUNLUN_API
-#include "./kunlun/kunlun_handle.h"
+#include "kunlun/kunlun_handle.h"
 #endif
 
 __C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,

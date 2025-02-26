@@ -11,6 +11,7 @@
 
 namespace xdnn = baidu::xpu::api;
 typedef xdnn::Context *xdnnHandle_t;
+typedef XPUStream KunlunStream_t;
 
 #define CHECK_KUNLUN(call)                                             \
     {                                                                  \
@@ -18,7 +19,7 @@ typedef xdnn::Context *xdnnHandle_t;
         if (XPU_SUCCESS != err) {                                      \
             fprintf(stderr, "KUNLUN error in %s:%i : %s.\n", __FILE__, \
                     __LINE__, xpu_strerror(err));                      \
-            return INFINIOP_STATUS_INTERNAL_ERROR;                     \
+            return INFINI_STATUS_INTERNAL_ERROR;                       \
         }                                                              \
     }
 
@@ -29,17 +30,14 @@ struct InfiniopKunlunHandle {
 };
 
 template <typename T>
-infiniopStatus_t use_xdnn(std::shared_ptr<Pool<xdnnHandle_t>> xdnn_handle_pool,
-                          XPUStream stream,
-                          T const &f) {
-    auto handle = xdnn_handle_pool->pop();
+void use_xdnn(std::shared_ptr<Pool<xdnnHandle_t>> &pool, KunlunStream_t stream, T const &f) {
+    auto handle = pool->pop();
     if (!handle) {
         *handle = xdnn::create_context();
     }
     (*handle)->set_stream(stream);
-    auto ret = f(*handle);
-    xdnn_handle_pool->push(std::move(*handle));
-    return ret;
+    f(*handle);
+    pool->push(std::move(*handle));
 }
 
-#endif
+#endif //__INFINIOP_COMMON_KUNLUN_H__

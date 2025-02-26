@@ -7,7 +7,7 @@ struct InfiniopKunlunHandle;
 
 typedef struct InfiniopKunlunHandle *infiniopKunlunHandle_t;
 
-infiniopStatus_t createKunlunHandle(infiniopKunlunHandle_t *handle_ptr);
-infiniopStatus_t destroyKunlunHandle(infiniopKunlunHandle_t handle);
+infiniStatus_t createKunlunHandle(infiniopKunlunHandle_t *handle_ptr);
+infiniStatus_t destroyKunlunHandle(infiniopKunlunHandle_t handle);
 
-#endif
+#endif // __INFINIOP_KUNLUN_HANDLE_H__
