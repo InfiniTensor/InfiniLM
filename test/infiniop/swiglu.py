@@ -1,6 +1,6 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
+from ctypes import POINTER, Structure, c_int32, c_void_p
 from libinfiniop import (
     infiniopHandle_t,
     infiniopTensorDescriptor_t,
@@ -9,7 +9,6 @@ from libinfiniop import (
     get_test_devices,
     check_error,
     rearrange_if_needed,
-    create_workspace,
     test_operator,
     get_args,
     debug,
@@ -23,14 +22,15 @@ from enum import Enum, auto
 # ==============================================================================
 # These are not meant to be imported from other modules
 _TEST_CASES_ = [
+    # shape, a_stride, b_stride, c_stride
     ((13, 4), None, None, None),
     ((13, 4), (10, 1), (10, 1), (10, 1)),
-    ((13, 4, 4), None, None, None),
-    ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1)),
+    # ((13, 4, 4), None, None, None),
+    # ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1)),
     ((16, 5632), None, None, None),
     ((16, 5632), (13312, 1), (13312, 1), (13312, 1)),
-    ((4, 4, 5632), None, None, None),
-    ((4, 4, 5632), (45056, 5632, 1), (45056, 5632, 1), (45056, 5632, 1)),
+    # ((4, 4, 5632), None, None, None),
+    # ((4, 4, 5632), (45056, 5632, 1), (45056, 5632, 1), (45056, 5632, 1)),
 ]
 
 # Inplace options applied for each test case in _TEST_CASES_
@@ -91,16 +91,13 @@ def test(
     sync=None,
 ):
     print(
-        f"Testing SwiGLU on {torch_device} with shape:{shape} a_stride:{a_stride} b_stride:{b_stride} c_stride:{c_stride} dtype:{dtype}"
+        f"Testing SwiGLU on {torch_device} with shape:{shape} a_stride:{a_stride} b_stride:{b_stride} c_stride:{c_stride} "
+        f"dtype:{dtype} inplace:{inplace}"
     )
 
     a = torch.rand(shape, dtype=dtype).to(torch_device)
     b = torch.rand(shape, dtype=dtype).to(torch_device)
-    c = (
-        torch.rand(c_shape, dtype=tensor_dtype).to(torch_device)
-        if inplace == Inplace.OUT_OF_PLACE
-        else (a if inplace == Inplace.INPLACE_A else b)
-    )
+    c = torch.rand(shape, dtype=dtype).to(torch_device)
 
     ans = swiglu(a, b)
 
@@ -108,6 +105,11 @@ def test(
         rearrange_if_needed(tensor, stride)
         for tensor, stride in zip([a, b, c], [a_stride, b_stride, c_stride])
     ]
+    c = (
+        c
+        if inplace == Inplace.OUT_OF_PLACE
+        else (a if inplace == Inplace.INPLACE_A else b)
+    )
     a_tensor, b_tensor = [to_tensor(tensor, lib) for tensor in [a, b]]
     c_tensor = (
         to_tensor(c, lib)

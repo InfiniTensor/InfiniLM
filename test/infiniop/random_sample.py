@@ -1,14 +1,14 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
+from ctypes import POINTER, Structure, c_int32, c_uint64, c_void_p, c_float
 from libinfiniop import (
+    InfiniDtype,
     infiniopHandle_t,
     infiniopTensorDescriptor_t,
     open_lib,
     to_tensor,
     get_test_devices,
     check_error,
-    rearrange_if_needed,
     create_workspace,
     test_operator,
     get_args,
@@ -57,7 +57,7 @@ class RandomSampleDescriptor(Structure):
 infiniopRandomSampleDescriptor_t = POINTER(RandomSampleDescriptor)
 
 
-def random_sample(data, random_val, topp, topk, voc, temperature, torch_device):
+def random_sample(data, random_val, topp, topk, voc, temperature):
     if topp > 0 and topk > 1:
         indices = torch.zeros([topk], dtype=torch.int64)
         dataNp = data.clone().detach()
@@ -115,23 +115,25 @@ def test(
     topp,
     topk,
     temperature,
-    x_dtype=torch.float16,
+    dtype=torch.float16,
 ):
-    print(f"Testing RandomSample on {torch_device} with voc:{voc} dtype:{x_dtype}")
+    print(
+        f"Testing RandomSample on {torch_device} with voc:{voc} random_val:{random_val} topp:{topp} topk:{topk} temperature:{temperature} dtype:{dtype}"
+    )
 
     data = torch.arange(voc).float() * 0.0001
     _perm = torch.randperm(voc)
-    data = data[_perm].to(x_dtype).to(torch_device)
+    data = data[_perm].to(dtype).to(torch_device)
 
     ans = random_sample(
-        data, random_val, topp, topk, voc, temperature, torch_device
+        data, random_val, topp, topk, voc, temperature
     )  # 这个函数在device速度可能会很慢，可以通过data.to("cpu")方式加快计算过程
 
     indices = torch.zeros([1], dtype=torch.int64).to(torch_device)
 
     x_tensor, indices_tensor = [to_tensor(tensor, lib) for tensor in [data, indices]]
 
-    indices_tensor.descriptor.contents.dt = U64  # treat int64 as uint64
+    indices_tensor.descriptor.contents.dt = InfiniDtype.U64  # treat int64 as uint64
 
     descriptor = infiniopRandomSampleDescriptor_t()
     check_error(
@@ -191,7 +193,7 @@ def test(
     if PROFILE:
         # fmt: off
         profile_operation("PyTorch", lambda: random_sample(
-                data, random_val, topp, topk, voc, temperature, torch_device
+                data, random_val, topp, topk, voc, temperature
             ), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         profile_operation("    lib", lambda: lib_random_sample(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on

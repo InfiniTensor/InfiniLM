@@ -2,7 +2,7 @@ from ctypes import POINTER, Structure, c_int32, c_uint64, c_void_p, c_float
 import ctypes
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
+from ctypes import POINTER, Structure, c_int32, c_uint64, c_void_p, c_float
 from libinfiniop import (
     infiniopHandle_t,
     infiniopTensorDescriptor_t,
@@ -69,12 +69,12 @@ def test(
     w_shape,
     y_stride,
     x_stride,
-    dtype=torch.float16,
     w_dtype=torch.float16,
+    dtype=torch.float16,
 ):
     print(
         f"Testing RMS_Norm on {torch_device} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
-        f" dtype:{dtype} w_dtype:{w_dtype}"
+        f" y_stride:{y_stride} x_stride:{x_stride} w_dtype:{w_dtype} dtype:{dtype}"
     )
 
     y = torch.zeros(y_shape, dtype=dtype).to(torch_device)

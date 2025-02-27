@@ -2,6 +2,7 @@ import torch
 import ctypes
 from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
 from libinfiniop import (
+    InfiniDtype,
     infiniopHandle_t,
     infiniopTensorDescriptor_t,
     open_lib,
@@ -131,7 +132,7 @@ def test(lib, handle, torch_device, shape, strides=None, dtype=torch.float16):
     check_error(
         lib.infiniopCreateRoPEDescriptor(
             handle,
-            byref(descriptor),
+            ctypes.byref(descriptor),
             t_tensor.descriptor,
             pos_tensor.descriptor,
             sin_table_tensor.descriptor,
@@ -231,4 +232,5 @@ if __name__ == "__main__":
     # Execute tests
     for device in get_test_devices(args):
         test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
+        
     print("\033[92mTest passed!\033[0m")

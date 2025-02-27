@@ -1,6 +1,6 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
+from ctypes import POINTER, Structure, c_int32, c_void_p
 from libinfiniop import (
     infiniopHandle_t,
     infiniopTensorDescriptor_t,
@@ -9,7 +9,7 @@ from libinfiniop import (
     get_test_devices,
     check_error,
     rearrange_if_needed,
-    create_workspace,
+    rearrange_tensor,
     test_operator,
     get_args,
     debug,
@@ -62,14 +62,14 @@ def test(
     x_stride,
     y_shape,
     y_stride,
-    x_dtype=torch.float16,
+    dtype=torch.float16,
 ):
     print(
-        f"Testing Rerrange on {torch_device} with x_shape:{x_shape} x_stride:{x_stride} y_shape:{y_shape} y_stride:{y_stride} x_dtype:{x_dtype}"
+        f"Testing Rerrange on {torch_device} with x_shape:{x_shape} x_stride:{x_stride} y_shape:{y_shape} y_stride:{y_stride} dtype:{dtype}"
     )
 
-    x = torch.rand(x_shape, dtype=x_dtype).to(torch_device)
-    y = torch.zeros(y_shape, dtype=x_dtype).to(torch_device)
+    x = torch.rand(x_shape, dtype=dtype).to(torch_device)
+    y = torch.zeros(y_shape, dtype=dtype).to(torch_device)
 
     x, y = [
         rearrange_if_needed(tensor, stride)
