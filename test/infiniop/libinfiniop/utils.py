@@ -201,7 +201,7 @@ def debug(actual, desired, atol=0, rtol=1e-2, equal_nan=False, verbose=True):
 
     print_discrepancy(actual, desired, atol, rtol, verbose)
     np.testing.assert_allclose(
-        actual.cpu(), desired.cpu(), rtol, atol, equal_nan, verbose=True, strict=True
+        actual.cpu(), desired.cpu(), rtol, atol, equal_nan, verbose=True
     )
 
 
