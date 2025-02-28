@@ -152,11 +152,30 @@ target("infiniop")
     add_files("src/infiniop/devices/handle.cc")
     add_files("src/infiniop/ops/*/operator.cc")
     add_files("src/infiniop/*.cc")
-    after_build(function (target) print(YELLOW .. "You can install the libraries with \"xmake install\"" .. NC) end)
 
     set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
     add_installfiles("include/infiniop/(**/*.h)", {prefixdir = "include/infiniop"})
     add_installfiles("include/infiniop/*.h", {prefixdir = "include/infiniop"})
     add_installfiles("include/infiniop.h", {prefixdir = "include"})
     add_installfiles("include/infinicore.h", {prefixdir = "include"})
+target_end()
+
+target("infinirt")
+    set_kind("shared")
+    if has_config("cpu") then
+        add_deps("infinirt-cpu")
+    end
+    if has_config("nv-gpu") then
+        add_deps("infinirt-cuda")
+    end
+    set_languages("cxx17")
+    set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
+    add_files("src/infinirt/*.cc")
+    add_installfiles("include/infinirt.h")
+target_end()
+
+target("all")
+    set_kind("phony")
+    add_deps("infiniop", "infinirt")
+    after_build(function (target) print(YELLOW .. "[Congratulations!] Now you can install the libraries with \"xmake install\"" .. NC) end)
 target_end()
