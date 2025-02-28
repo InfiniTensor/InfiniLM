@@ -166,6 +166,11 @@ def get_args():
         action="store_true",
         help="Run ASCEND NPU test",
     )
+    parser.add_argument(
+        "--kunlun",
+        action="store_true",
+        help="Run KUNLUN XPU test",
+    )
 
     return parser.parse_args()
 
@@ -428,6 +433,9 @@ def get_test_devices(args):
 
         torch.npu.set_device(0)  # Ascend NPU needs explicit device initialization
         devices_to_test.append(InfiniDeviceEnum.ASCEND)
+    if args.kunlun:
+        import torch_xmlir
+        devices_to_test.append(InfiniDeviceEnum.KUNLUN)
     if not devices_to_test:
         devices_to_test = [InfiniDeviceEnum.CPU]
 

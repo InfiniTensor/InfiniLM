@@ -12,6 +12,9 @@
 #ifdef ENABLE_ASCEND_API
 #include "ascend/matmul_ascend.h"
 #endif
+#ifdef ENABLE_KUNLUN_API
+#include "kunlun/matmul_kunlun.h"
+#endif
 
 __C infiniStatus_t infiniopCreateMatmulDescriptor(
     infiniopHandle_t handle,
@@ -42,6 +45,9 @@ __C infiniStatus_t infiniopCreateMatmulDescriptor(
 #endif
 #ifdef ENABLE_ASCEND_API
         CREATE(INFINI_DEVICE_ASCEND, ascend);
+#endif
+#ifdef ENABLE_KUNLUN_API
+        CREATE(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
 
     default:
@@ -74,6 +80,9 @@ infiniopGetMatmulWorkspaceSize(
 #endif
 #ifdef ENABLE_ASCEND_API
         GET(INFINI_DEVICE_ASCEND, ascend);
+#endif
+#ifdef ENABLE_KUNLUN_API
+        GET(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
 
     default:
@@ -115,6 +124,9 @@ __C infiniStatus_t infiniopMatmul(
 #ifdef ENABLE_ASCEND_API
         CALCULATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
+#ifdef ENABLE_KUNLUN_API
+        CALCULATE(INFINI_DEVICE_KUNLUN, kunlun);
+#endif
 
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -144,6 +156,9 @@ infiniopDestroyMatmulDescriptor(infiniopMatmulDescriptor_t desc) {
 #endif
 #ifdef ENABLE_ASCEND_API
         DELETE(INFINI_DEVICE_ASCEND, ascend);
+#endif
+#ifdef ENABLE_KUNLUN_API
+        DELETE(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
 
     default:
