@@ -6,7 +6,7 @@
 typedef void *infinirtStream_t;
 typedef void *infinirtEvent_t;
 
-__C __export infiniStatus_t infinirtInit(infiniDevice_t device);
+__C __export infiniStatus_t infinirtInit();
 
 // Device
 __C __export infiniStatus_t infinirtGetAllDeviceCount(int *count_array);
@@ -47,7 +47,7 @@ __C __export infiniStatus_t infinirtFree(void *ptr);
 __C __export infiniStatus_t infinirtFreeHost(void *ptr);
 
 __C __export infiniStatus_t infinirtMemcpy(void *dst, const void *src, size_t size, infinirtMemcpyKind_t kind);
-__C __export infiniStatus_t infinirtMemcpyAsync(void *dst, const void *src, infinirtMemcpyKind_t kind, infinirtStream_t stream);
+__C __export infiniStatus_t infinirtMemcpyAsync(void *dst, const void *src, size_t size, infinirtMemcpyKind_t kind, infinirtStream_t stream);
 
 // Stream-ordered memory
 __C __export infiniStatus_t infinirtMallocAsync(void **p_ptr, size_t size, infinirtStream_t stream);

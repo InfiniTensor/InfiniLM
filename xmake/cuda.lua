@@ -34,3 +34,23 @@ target("infiniop-cuda")
     set_languages("cxx17")
     add_files("../src/infiniop/devices/cuda/*.cu", "../src/infiniop/ops/*/cuda/*.cu")
 target_end()
+
+target("infinirt-cuda")
+    set_kind("static")
+    on_install(function (target) end)
+    set_policy("build.cuda.devlink", true)
+
+    if is_plat("windows") then
+        add_cuflags("-Xcompiler=/utf-8", "--expt-relaxed-constexpr", "--allow-unsupported-compiler")
+    else
+        add_cuflags("-Xcompiler=-fPIC")
+        add_culdflags("-Xcompiler=-fPIC")
+        add_cxflags("-fPIC")
+    end
+    
+    set_toolchains("cuda")
+    add_links("cudart")
+
+    set_languages("cxx17")
+    add_files("../src/infinirt/cuda/*.cu")
+target_end()

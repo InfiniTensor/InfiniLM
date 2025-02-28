@@ -15,3 +15,17 @@ target("infiniop-cpu")
         add_ldflags("-fopenmp")
     end
 target_end()
+
+target("infinirt-cpu")
+on_install(function (target) end)
+    set_kind("static")
+
+    set_warnings("all", "error")
+
+    if not is_plat("windows") then
+        add_cxflags("-fPIC")
+    end
+
+    set_languages("cxx17")
+    add_files("../src/infinirt/cpu/*.cc")
+target_end()
