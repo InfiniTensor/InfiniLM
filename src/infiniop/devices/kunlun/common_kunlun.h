@@ -30,7 +30,7 @@ struct InfiniopKunlunHandle {
 };
 
 template <typename T>
-void use_xdnn(std::shared_ptr<Pool<xdnnHandle_t>> &pool, KunlunStream_t stream, T const &f) {
+void use_xdnn(std::shared_ptr<Pool<xdnnHandle_t>> &pool, KunlunStream_t stream, const T &f) {
     auto handle = pool->pop();
     if (!handle) {
         *handle = xdnn::create_context();
