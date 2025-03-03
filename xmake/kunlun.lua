@@ -8,8 +8,8 @@ add_links("xpurt")
 add_links("xpuapi")
 
 target("infiniop-kunlun")
-    -- Other configs
     set_kind("static")
+    add_deps("infini-utils")
     set_languages("cxx17")
     on_install(function (target) end)
     -- Add files

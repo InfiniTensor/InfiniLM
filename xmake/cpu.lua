@@ -1,6 +1,7 @@
 target("infiniop-cpu")
-    on_install(function (target) end)
     set_kind("static")
+    add_deps("infini-utils")
+    on_install(function (target) end)
 
     set_warnings("all", "error")
 
@@ -17,8 +18,9 @@ target("infiniop-cpu")
 target_end()
 
 target("infinirt-cpu")
-on_install(function (target) end)
     set_kind("static")
+    add_deps("infini-utils")
+    on_install(function (target) end)
 
     set_warnings("all", "error")
 
