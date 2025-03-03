@@ -112,9 +112,15 @@ if has_config("kunlun-xpu") then
     includes("xmake/kunlun.lua")
 end
 
+target("infini-utils")
+    set_kind("static")
+    set_languages("cxx17")
+    add_files("src/utils/*.cc")
+target_end()
+
 target("infiniop")
     set_kind("shared")
-
+    add_deps("infini-utils")
     if has_config("cpu") then
         add_deps("infiniop-cpu")
     end
@@ -162,6 +168,7 @@ target_end()
 
 target("infinirt")
     set_kind("shared")
+    add_deps("infini-utils")
     if has_config("cpu") then
         add_deps("infinirt-cpu")
     end

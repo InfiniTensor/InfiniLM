@@ -1,5 +1,5 @@
-#ifndef INFINI_CHECK_H
-#define INFINI_CHECK_H
+#ifndef INFINIUTILS_CHECK_H
+#define INFINIUTILS_CHECK_H
 #include <iostream>
 
 #define CHECK_API_OR(API, EXPECT, ACTION)                                       \
@@ -15,4 +15,4 @@
 
 #define CHECK_INTERNAL(API, EXPECT) CHECK_API_OR(API, EXPECT, return INFINI_STATUS_INTERNAL_ERROR)
 
-#endif // INFINI_CHECK_H
+#endif // INFINIUTILS_CHECK_H
