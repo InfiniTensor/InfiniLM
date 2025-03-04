@@ -5,7 +5,7 @@
 #define MAX_WARP_PER_BLOCK 32
 #define WARP_SIZE 32
 
-#include "../../utils.h"
+#include "../../../utils.h"
 #include <iostream>
 
 #define CHECK_CUDA_OR_RETURN(API, ERROR) CHECK_API_OR(API, cudaSuccess, return ERROR)

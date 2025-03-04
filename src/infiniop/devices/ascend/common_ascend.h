@@ -1,7 +1,7 @@
 #ifndef __INFINIOP_COMMON_ASCEND_H__
 #define __INFINIOP_COMMON_ASCEND_H__
 
-#include "../../utils.h"
+#include "../../../utils.h"
 #include "ascend_handle.h"
 #include <acl/acl.h>
 #include <acl/acl_base.h>
