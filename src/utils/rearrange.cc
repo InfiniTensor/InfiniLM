@@ -15,6 +15,9 @@ std::optional<RearrangeMeta> RearrangeMeta::create(
     const ptrdiff_t *src_strides_,
     size_t ndim,
     size_t element_size) {
+
+    ptrdiff_t unit = element_size;
+
     struct Dim {
         size_t len;
         ptrdiff_t dst, src;
@@ -24,7 +27,7 @@ std::optional<RearrangeMeta> RearrangeMeta::create(
     for (size_t i = 0; i < ndim; ++i) {
         // 剔除初始的 1 长维度
         if (shape[i] != 1) {
-            auto sd = dst_strides_[i], ss = src_strides_[i];
+            auto sd = dst_strides_[i] * unit, ss = src_strides_[i] * unit;
             // assert (sd != 0)
             dims.push_back(Dim{shape[i], sd, ss});
         }
@@ -40,7 +43,6 @@ std::optional<RearrangeMeta> RearrangeMeta::create(
         return std::abs(a.dst) > std::abs(b.dst);
     });
     // # 合并连续维度
-    ptrdiff_t unit = element_size;
     // ## 合并末尾连续维度到 unit
     for (auto it = dims.rbegin(); it != dims.rend(); ++it) {
         if (it->dst == unit && it->src == unit) {
@@ -51,7 +53,7 @@ std::optional<RearrangeMeta> RearrangeMeta::create(
         }
     }
     // ## 合并任意连续维度
-    for (size_t i = ndim - 1; i > 0; --i) {
+    for (ptrdiff_t i = ndim - 1; i > 0; --i) {
         auto &f = dims[i - 1];
         auto &b = dims[i];
         ptrdiff_t len = b.len;
