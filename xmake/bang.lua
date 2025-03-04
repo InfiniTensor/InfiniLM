@@ -38,6 +38,7 @@ local src_dir = path.join(os.projectdir(), "src", "infiniop")
 
 target("infiniop-cambricon")
     set_kind("static")
+    add_deps("infini-utils")
     on_install(function (target) end)
     set_languages("cxx17")
     add_files(src_dir.."/devices/bang/*.cc", src_dir.."/ops/*/bang/*.cc")

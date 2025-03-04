@@ -10,6 +10,7 @@ end
 
 target("infiniop-cuda")
     set_kind("static")
+    add_deps("infini-utils")
     on_install(function (target) end)
     set_policy("build.cuda.devlink", true)
 
@@ -37,6 +38,7 @@ target_end()
 
 target("infinirt-cuda")
     set_kind("static")
+    add_deps("infini-utils")
     on_install(function (target) end)
     set_policy("build.cuda.devlink", true)
 

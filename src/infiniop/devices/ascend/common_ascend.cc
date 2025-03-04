@@ -11,21 +11,15 @@ int64_t numElements(const int64_t *shape, int64_t num) {
 infiniStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize) {
     *workspaceAddr = nullptr;
     if (workspaceSize > 0) {
-        auto ret = aclrtMalloc(workspaceAddr, workspaceSize,
-                               ACL_MEM_MALLOC_HUGE_FIRST);
-        CHECK_RET(ret == ACL_SUCCESS,
-                  LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", ret);
-                  return INFINI_STATUS_INTERNAL_ERROR);
+        CHECK_ACL(aclrtMalloc(workspaceAddr, workspaceSize,
+                              ACL_MEM_MALLOC_HUGE_FIRST));
     }
     return INFINI_STATUS_SUCCESS;
 }
 
 infiniStatus_t freeWorkspace(void *workspaceAddr) {
     if (workspaceAddr != nullptr) {
-        auto ret = aclrtFree(workspaceAddr);
-        CHECK_RET(ret == ACL_SUCCESS,
-                  LOG_PRINT("aclrtFree failed, ERROR: %d\n", ret);
-                  return INFINI_STATUS_INTERNAL_ERROR);
+        CHECK_ACL(aclrtFree(workspaceAddr));
     }
     return INFINI_STATUS_SUCCESS;
 }

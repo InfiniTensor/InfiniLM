@@ -1,6 +1,7 @@
 #ifndef __INFINIOP_COMMON_ASCEND_H__
 #define __INFINIOP_COMMON_ASCEND_H__
 
+#include "../../utils.h"
 #include "ascend_handle.h"
 #include <acl/acl.h>
 #include <acl/acl_base.h>
@@ -15,25 +16,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
-
-#define LOG_ERROR(message, ...)              \
-    do {                                     \
-        printf(message, ##__VA_ARGS__);      \
-        return INFINI_STATUS_INTERNAL_ERROR; \
-    } while (0)
-
+#define CHECK_ACL(API) CHECK_INTERNAL(API, ACL_SUCCESS)
 #ifdef __cplusplus
 };
 #endif

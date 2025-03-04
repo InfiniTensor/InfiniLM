@@ -1,4 +1,4 @@
-#include "../../check.h"
+#include "../../utils.h"
 #include "infinirt_cuda.cuh"
 #include <cuda_runtime.h>
 

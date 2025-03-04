@@ -39,8 +39,8 @@ rule("ascend-kernels")
 rule_end()
 
 target("infiniop-ascend")
-    -- Other configs
     set_kind("static")
+    add_deps("infini-utils")
     set_languages("cxx17")
     on_install(function (target) end)
     -- Add files
