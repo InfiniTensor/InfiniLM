@@ -2,9 +2,7 @@
 
 infiniStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr) {
     int device_id = 0;
-    auto ret = aclrtGetDevice(&device_id);
-    CHECK_RET(ret == ACL_SUCCESS,
-              return INFINI_STATUS_DEVICE_NOT_INITIALIZED);
+    CHECK_ACL(aclrtGetDevice(&device_id));
 
     *handle_ptr = new InfiniopAscendHandle{INFINI_DEVICE_ASCEND, device_id};
 

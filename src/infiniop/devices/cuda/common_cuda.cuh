@@ -5,29 +5,14 @@
 #define MAX_WARP_PER_BLOCK 32
 #define WARP_SIZE 32
 
+#include "../../utils.h"
 #include <iostream>
 
-#define CHECK_CUDA_OR_RETURN(call, errorCode)                                 \
-    do {                                                                      \
-        if (auto status = call; status != cudaSuccess) {                      \
-            std::cerr << "CUDA error: " << cudaGetErrorString(status)         \
-                      << " in file " << __FILE__ << ", function " << __func__ \
-                      << ", line " << __LINE__ << std::endl;                  \
-            return errorCode;                                                 \
-        }                                                                     \
-    } while (0)
+#define CHECK_CUDA_OR_RETURN(API, ERROR) CHECK_API_OR(API, cudaSuccess, return ERROR)
 
-#define CHECK_CUDA(call) CHECK_CUDA_OR_RETURN(call, INFINI_STATUS_INTERNAL_ERROR)
+#define CHECK_CUDA(API) CHECK_INTERNAL(API, cudaSuccess)
 
-#define CHECK_CUDNN(call)                                                     \
-    do {                                                                      \
-        if (auto status = call; status != CUDNN_STATUS_SUCCESS) {             \
-            std::cerr << "CUDNN error: " << cudnnGetErrorString(status)       \
-                      << " in file " << __FILE__ << ", function " << __func__ \
-                      << ", line " << __LINE__ << std::endl;                  \
-            return INFINI_STATUS_INTERNAL_ERROR;                              \
-        }                                                                     \
-    } while (0)
+#define CHECK_CUDNN(API) CHECK_INTERNAL(API, CUDNN_STATUS_SUCCESS)
 
 #include "../pool.h"
 #include "cuda_handle.h"

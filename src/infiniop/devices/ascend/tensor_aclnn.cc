@@ -70,10 +70,7 @@ infiniStatus_t aclnnTensorDescriptor::createTensor(void *data) {
 }
 
 infiniStatus_t aclnnTensorDescriptor::destroyTensor() {
-    auto ret = aclDestroyTensor(this->t);
-    CHECK_RET(ret == ACL_SUCCESS,
-              LOG_PRINT("aclDesctroyTensor failed, ERROR: %d\n", ret);
-              return INFINI_STATUS_INTERNAL_ERROR);
+    CHECK_ACL(aclDestroyTensor(this->t));
     t = nullptr;
 
     return INFINI_STATUS_SUCCESS;

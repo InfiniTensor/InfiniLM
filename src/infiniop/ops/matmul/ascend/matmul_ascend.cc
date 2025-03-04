@@ -88,10 +88,7 @@ infiniStatus_t Descriptor::create(
     // use alpha = 0.5, beta = 0.5 temporarily
 
     int8_t mt = 1;
-    auto ret = aclnnGemmGetWorkspaceSize(ta, tb, tc, .5, .5, 0, 0, tc, mt, &workspace_size, &executor);
-    CHECK_RET(ret == ACL_SUCCESS,
-              LOG_PRINT("aclnnGemmGetWorkspaceSize failed. ERROR: %d\n", ret);
-              return INFINI_STATUS_INTERNAL_ERROR);
+    CHECK_ACL(aclnnGemmGetWorkspaceSize(ta, tb, tc, .5, .5, 0, 0, tc, mt, &workspace_size, &executor));
     aclSetAclOpExecutorRepeatable(executor);
 
     *desc_ptr = new Descriptor(
@@ -122,12 +119,9 @@ infiniStatus_t Descriptor::calculate(
          tb = _opaque->b->t;
 
     size_t workspace_size;
-    auto ret = aclnnGemmGetWorkspaceSize(
+    CHECK_ACL(aclnnGemmGetWorkspaceSize(
         ta, tb, tc, alpha, beta, 0, 0, tc, _opaque->mt,
-        &workspace_size, &(_opaque->executor));
-    CHECK_RET(ret == ACL_SUCCESS,
-              LOG_PRINT("aclnnGemmGetWorkspaceSize failed. ERROR: %d\n", ret);
-              return INFINI_STATUS_INTERNAL_ERROR);
+        &workspace_size, &(_opaque->executor)));
     if (workspaceSize_ < workspace_size) {
         return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
     }
@@ -139,10 +133,7 @@ infiniStatus_t Descriptor::calculate(
         AclSetTensorAddr(_opaque->executor, 1, tb, ((char *)b) + i * _info.b_matrix.stride * unit);
         AclSetTensorAddr(_opaque->executor, 2, tc, ((char *)c) + i * _info.c_matrix.stride * unit);
         AclSetTensorAddr(_opaque->executor, 3, tc, ((char *)c) + i * _info.c_matrix.stride * unit);
-        ret = aclnnGemm(workspace, workspace_size, _opaque->executor, stream);
-        CHECK_RET(ret == ACL_SUCCESS,
-                  LOG_PRINT("aclnnGemm failed. ERROR: %d\n", ret);
-                  return INFINI_STATUS_INTERNAL_ERROR);
+        CHECK_ACL(aclnnGemm(workspace, workspace_size, _opaque->executor, stream));
     }
 
     return INFINI_STATUS_SUCCESS;
