@@ -1,5 +1,5 @@
-#ifndef __INFINIOP_TENSOR_DESCRIPTOR__
-#define __INFINIOP_TENSOR_DESCRIPTOR__
+#ifndef __INFINIOP_TENSOR_DESCRIPTOR_API_H__
+#define __INFINIOP_TENSOR_DESCRIPTOR_API_H__
 
 #include "../infinicore.h"
 

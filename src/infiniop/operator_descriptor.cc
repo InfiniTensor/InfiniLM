@@ -1,4 +1,4 @@
-#include "infiniop/operator.h"
+#include "operator.h"
 
 infiniStatus_t infiniopGetDescriptorDeviceType(
     const InfiniopDescriptor *desc_ptr,

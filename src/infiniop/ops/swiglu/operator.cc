@@ -1,3 +1,5 @@
+#include "../../operator.h"
+#include "../../handle.h"
 #include "infiniop/ops/swiglu.h"
 
 __C infiniStatus_t infiniopCreateSwiGLUDescriptor(

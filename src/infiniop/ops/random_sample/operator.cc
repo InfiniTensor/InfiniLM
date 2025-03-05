@@ -1,3 +1,5 @@
+#include "../../operator.h"
+#include "../../handle.h"
 #include "infiniop/ops/random_sample.h"
 
 __C infiniStatus_t infiniopCreateRandomSampleDescriptor(infiniopHandle_t handle, infiniopRandomSampleDescriptor_t *desc_ptr, infiniopTensorDescriptor_t result, infiniopTensorDescriptor_t probs) {

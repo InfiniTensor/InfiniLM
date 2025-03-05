@@ -1,8 +1,8 @@
 #ifndef __MATMUL_H__
 #define __MATMUL_H__
 
+#include "../../operator.h"
 #include "blas.h"
-#include "infiniop/operator.h"
 
 /**
  * # 关于 `DESCRIPTOR(NAMESPACE)` 和 `struct Opaque;` 的说明

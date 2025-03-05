@@ -1,12 +1,9 @@
-#ifndef __INFINIOP_HANDLE__
-#define __INFINIOP_HANDLE__
+#ifndef __INFINIOP_HANDLE_API_H__
+#define __INFINIOP_HANDLE_API_H__
 
 #include "../infinicore.h"
 
-typedef struct InfiniopHandle {
-    infiniDevice_t device;
-    int device_id;
-} InfiniopHandle;
+struct InfiniopHandle;
 
 typedef InfiniopHandle *infiniopHandle_t;
 

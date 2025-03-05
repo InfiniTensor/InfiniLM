@@ -1,5 +1,5 @@
-#ifndef __INFINIRT_API_H__
-#define __INFINIRT_API_H__
+#ifndef __INFINIRT_IMPL_H__
+#define __INFINIRT_IMPL_H__
 #include "infinirt.h"
 
 #define INFINIRT_DEVICE_API(IMPL, COUNT)                                                                                          \
@@ -33,4 +33,4 @@
 #define INFINIRT_DEVICE_API_NOOP INFINIRT_DEVICE_API({ return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED; }, \
                                                      {*count = 0; return INFINI_STATUS_SUCCESS; })
 
-#endif // __INFINIRT_API_H__
+#endif // __INFINIRT_IMPL_H__

@@ -1,8 +1,8 @@
 #ifndef __BLAS_H__
 #define __BLAS_H__
 
+#include "../../operator.h"
 #include "../../tensor.h"
-#include "infiniop/operator.h"
 #include <algorithm>
 
 namespace matmul {

@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_GEMM_H__
-#define __INFINIOP_GEMM_H__
+#ifndef __INFINIOP_GEMM_API_H__
+#define __INFINIOP_GEMM_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopGEMMDescriptor_t;
 

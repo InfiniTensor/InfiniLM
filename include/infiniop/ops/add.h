@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_ADD_H__
-#define __INFINIOP_ADD_H__
+#ifndef __INFINIOP_ADD_API_H__
+#define __INFINIOP_ADD_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopAddDescriptor_t;
 

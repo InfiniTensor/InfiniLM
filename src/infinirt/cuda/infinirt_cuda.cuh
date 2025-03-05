@@ -1,6 +1,6 @@
 #ifndef __INFINIRT_CUDA_H__
 #define __INFINIRT_CUDA_H__
-#include "../infinirt_api.h"
+#include "../infinirt_impl.h"
 
 namespace infinirt::cuda {
 #ifdef ENABLE_CUDA_API

@@ -1,7 +1,7 @@
 #ifndef __INFINIOP_KUNLUN_HANDLE_H__
 #define __INFINIOP_KUNLUN_HANDLE_H__
 
-#include "infiniop/handle.h"
+#include "../../handle.h"
 
 struct InfiniopKunlunHandle;
 
