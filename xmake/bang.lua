@@ -31,7 +31,6 @@ rule("mlu")
         os.execv(cc, args)
         table.insert(target:objectfiles(), objectfile)
     end)
-
 rule_end()
 
 local src_dir = path.join(os.projectdir(), "src", "infiniop")
@@ -40,11 +39,14 @@ target("infiniop-cambricon")
     set_kind("static")
     add_deps("infini-utils")
     on_install(function (target) end)
+
+    add_cxflags("-lstdc++ -fPIC")
+    set_warnings("all", "error")
+
     set_languages("cxx17")
     add_files(src_dir.."/devices/bang/*.cc", src_dir.."/ops/*/bang/*.cc")
     local mlu_files = os.files(src_dir .. "/ops/*/bang/*.mlu")
     if #mlu_files > 0 then
         add_files(mlu_files, {rule = "mlu"})
     end
-    add_cxflags("-lstdc++ -Wall -Werror -fPIC")
 target_end()
