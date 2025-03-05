@@ -25,13 +25,13 @@ __C infiniStatus_t infiniopCreateMatmulDescriptor(
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
 
-#define CREATE(CASE, NAMESPACE)                                           \
-    case CASE:                                                            \
-        return matmul::NAMESPACE::Descriptor::create(                     \
-            handle,                                                       \
-            reinterpret_cast<matmul::NAMESPACE::Descriptor **>(desc_ptr), \
-            c_desc,                                                       \
-            a_desc,                                                       \
+#define CREATE(CASE, NAMESPACE)                                               \
+    case CASE:                                                                \
+        return op::matmul::NAMESPACE::Descriptor::create(                     \
+            handle,                                                           \
+            reinterpret_cast<op::matmul::NAMESPACE::Descriptor **>(desc_ptr), \
+            c_desc,                                                           \
+            a_desc,                                                           \
             b_desc)
 
     switch (handle->device) {
@@ -64,9 +64,9 @@ infiniopGetMatmulWorkspaceSize(
     infiniopMatmulDescriptor_t desc,
     size_t *size) {
 
-#define GET(CASE, NAMESPACE)                                                                   \
-    case CASE:                                                                                 \
-        *size = reinterpret_cast<const matmul::NAMESPACE::Descriptor *>(desc)->workspace_size; \
+#define GET(CASE, NAMESPACE)                                                                       \
+    case CASE:                                                                                     \
+        *size = reinterpret_cast<const op::matmul::NAMESPACE::Descriptor *>(desc)->workspace_size; \
         return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {
@@ -104,12 +104,12 @@ __C infiniStatus_t infiniopMatmul(
     float beta,
     void *stream) {
 
-#define CALCULATE(CASE, NAMESPACE)                                           \
-    case CASE:                                                               \
-        return reinterpret_cast<const matmul::NAMESPACE::Descriptor *>(desc) \
-            ->calculate(workspace, workspace_size,                           \
-                        c, beta,                                             \
-                        a, b, alpha,                                         \
+#define CALCULATE(CASE, NAMESPACE)                                               \
+    case CASE:                                                                   \
+        return reinterpret_cast<const op::matmul::NAMESPACE::Descriptor *>(desc) \
+            ->calculate(workspace, workspace_size,                               \
+                        c, beta,                                                 \
+                        a, b, alpha,                                             \
                         stream)
 
     switch (desc->device_type) {
@@ -140,9 +140,9 @@ __C infiniStatus_t infiniopMatmul(
 __C infiniStatus_t
 infiniopDestroyMatmulDescriptor(infiniopMatmulDescriptor_t desc) {
 
-#define DELETE(CASE, NAMESPACE)                                               \
-    case CASE:                                                                \
-        delete reinterpret_cast<const matmul::NAMESPACE::Descriptor *>(desc); \
+#define DELETE(CASE, NAMESPACE)                                                   \
+    case CASE:                                                                    \
+        delete reinterpret_cast<const op::matmul::NAMESPACE::Descriptor *>(desc); \
         return INFINI_STATUS_SUCCESS;
 
     switch (desc->device_type) {

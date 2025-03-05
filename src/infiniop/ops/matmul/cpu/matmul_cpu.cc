@@ -2,7 +2,7 @@
 #include "../../../devices/cpu/common_cpu.h"
 #include "../../../devices/cpu/cpu_handle.h"
 
-namespace matmul::cpu {
+namespace op::matmul::cpu {
 
 Descriptor::~Descriptor() = default;
 
@@ -12,7 +12,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t c_desc,
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
-    auto handle = reinterpret_cast<infiniop::cpu::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::cpu::Handle *>(handle_);
     auto dtype = c_desc->dtype();
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
@@ -96,4 +96,4 @@ infiniStatus_t Descriptor::calculate(
     }
 }
 
-} // namespace matmul::cpu
+} // namespace op::matmul::cpu

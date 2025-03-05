@@ -3,7 +3,7 @@
 #include "../../../devices/bang/common_bang.h"
 #include <cnnl_extra.h>
 
-namespace matmul::bang {
+namespace op::matmul::bang {
 
 struct Descriptor::Opaque {
     cnnlMatMulDescriptor_t op;
@@ -157,4 +157,4 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace matmul::bang
+} // namespace op::matmul::bang

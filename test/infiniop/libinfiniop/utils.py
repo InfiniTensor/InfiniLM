@@ -30,7 +30,7 @@ def to_tensor(tensor, lib):
         InfiniDtype.BF16 if tensor.dtype == torch.bfloat16 else
         InfiniDtype.F32 if tensor.dtype == torch.float32 else
         InfiniDtype.F64 if tensor.dtype == torch.float64 else
-        # TODO: These following types may not be supported by older 
+        # TODO: These following types may not be supported by older
         # versions of PyTorch.
         InfiniDtype.U16 if tensor.dtype == torch.uint16 else
         InfiniDtype.U32 if tensor.dtype == torch.uint32 else
@@ -57,9 +57,9 @@ def create_workspace(size, torch_device):
     return torch.zeros(size=(size,), dtype=torch.uint8, device=torch_device)
 
 
-def create_handle(lib, device, id=0):
+def create_handle(lib):
     handle = infiniopHandle_t()
-    check_error(lib.infiniopCreateHandle(ctypes.byref(handle), device, id))
+    check_error(lib.infiniopCreateHandle(ctypes.byref(handle)))
     return handle
 
 
@@ -392,7 +392,8 @@ def test_operator(lib, device, test_func, test_cases, tensor_dtypes):
         to be passed to `test_func`.
     - tensor_dtypes (list): A list of tensor data types (e.g., `torch.float32`) to test.
     """
-    handle = create_handle(lib, device)
+    lib.infinirtSetDevice(device, ctypes.c_int(0))
+    handle = create_handle(lib)
     try:
         for test_case in test_cases:
             for tensor_dtype in tensor_dtypes:
@@ -435,6 +436,7 @@ def get_test_devices(args):
         devices_to_test.append(InfiniDeviceEnum.ASCEND)
     if args.kunlun:
         import torch_xmlir
+
         devices_to_test.append(InfiniDeviceEnum.KUNLUN)
     if not devices_to_test:
         devices_to_test = [InfiniDeviceEnum.CPU]

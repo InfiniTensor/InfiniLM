@@ -5,7 +5,8 @@
 #include "../../tensor.h"
 #include <algorithm>
 
-namespace matmul {
+namespace op::matmul {
+
 struct BlasMatrix {
     size_t ndim;
     size_t batch;
@@ -118,6 +119,7 @@ struct MatmulInfo {
         k = a_matrix.cols;
     }
 };
-} // namespace matmul
+
+} // namespace op::matmul
 
 #endif // __BLAS_H__
