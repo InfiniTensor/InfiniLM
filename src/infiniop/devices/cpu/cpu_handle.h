@@ -3,10 +3,13 @@
 
 #include "../../handle.h"
 
-typedef infiniopHandle_t infiniopCpuHandle_t;
+namespace infiniop::cpu {
+class Handle : public InfiniopHandle {
+    Handle();
 
-infiniStatus_t createCpuHandle(infiniopCpuHandle_t *handle_ptr);
-
-infiniStatus_t destroyCpuHandle(infiniopCpuHandle_t handle);
+public:
+    static infiniStatus_t create(InfiniopHandle **handle_ptr);
+};
+} // namespace infiniop::cpu
 
 #endif

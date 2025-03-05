@@ -1,11 +1,11 @@
 #include "cpu_handle.h"
 
-infiniStatus_t createCpuHandle(infiniopCpuHandle_t *handle_ptr) {
-    *handle_ptr = new InfiniopHandle{INFINI_DEVICE_CPU, 0};
+namespace infiniop::cpu {
+Handle::Handle() : InfiniopHandle{INFINI_DEVICE_CPU, 0} {}
+
+infiniStatus_t Handle::create(InfiniopHandle **handle_ptr) {
+    *handle_ptr = new Handle{};
     return INFINI_STATUS_SUCCESS;
 }
 
-infiniStatus_t destroyCpuHandle(infiniopCpuHandle_t handle) {
-    delete handle;
-    return INFINI_STATUS_SUCCESS;
-}
+} // namespace infiniop::cpu

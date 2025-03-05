@@ -24,7 +24,7 @@ __C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,
     switch (device) {
 #ifdef ENABLE_CPU_API
     case INFINI_DEVICE_CPU:
-        return createCpuHandle((infiniopCpuHandle_t *)handle_ptr);
+        return infiniop::cpu::Handle::create(handle_ptr);
 #endif
 #ifdef ENABLE_CUDA_API
     case INFINI_DEVICE_NVIDIA: {
@@ -51,10 +51,15 @@ __C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr,
 }
 
 __C infiniStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
+
+#define DELETE(CASE, NAMESPACE)                                         \
+    case CASE:                                                          \
+        delete reinterpret_cast<infiniop::NAMESPACE::Handle *>(handle); \
+        return INFINI_STATUS_SUCCESS;
+
     switch (handle->device) {
 #ifdef ENABLE_CPU_API
-    case INFINI_DEVICE_CPU:
-        return destroyCpuHandle((infiniopCpuHandle_t)handle);
+        DELETE(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_CUDA_API
     case INFINI_DEVICE_NVIDIA: {
@@ -76,6 +81,8 @@ __C infiniStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
         return destroyKunlunHandle((infiniopKunlunHandle_t)handle);
     }
 #endif
+    default:
+        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
-    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+#undef DELETE
 }
