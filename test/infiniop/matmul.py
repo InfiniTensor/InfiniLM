@@ -117,7 +117,7 @@ def test(
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
     for tensor in [a_tensor, b_tensor, c_tensor]:
-        tensor.descriptor.contents.invalidate()
+        tensor.destroyDesc(lib)
 
     # Get workspace size and create workspace
     workspace_size = c_uint64(0)

@@ -3,16 +3,7 @@
 
 #include "../infinicore.h"
 
-struct InfiniopTensorDescriptor {
-    // Datatype
-    infiniDtype_t dtype;
-    // Number of dimensions
-    size_t ndim;
-    // Shape of the tensor, ndim elements
-    size_t *shape;
-    // Stride of each dimension in elements, ndim elements
-    ptrdiff_t *strides;
-};
+struct InfiniopTensorDescriptor;
 
 typedef struct InfiniopTensorDescriptor *infiniopTensorDescriptor_t;
 

@@ -1,7 +1,6 @@
 ﻿#include "matmul_bang.h"
 #include "../../../devices/bang/bang_handle.h"
 #include "../../../devices/bang/common_bang.h"
-#include "../../utils.h"
 #include <cnnl_extra.h>
 
 namespace matmul::bang {

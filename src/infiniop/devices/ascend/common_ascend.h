@@ -26,7 +26,6 @@ struct InfiniopAscendHandle {
     int device_id;
 };
 
-int64_t numElements(const int64_t *shape, int64_t num);
 const char *dataTypeToString(aclDataType dtype);
 const char *formatToString(aclFormat format);
 infiniStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize);

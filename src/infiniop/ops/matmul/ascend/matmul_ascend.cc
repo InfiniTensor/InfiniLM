@@ -1,7 +1,6 @@
 #include "matmul_ascend.h"
 #include "../../../devices/ascend/ascend_handle.h"
 #include "../../../devices/ascend/tensor_aclnn.h"
-#include "../../utils.h"
 #include <acl/acl_base.h>
 #include <aclnn/acl_meta.h>
 #include <aclnnop/aclnn_matmul.h>
@@ -55,27 +54,24 @@ infiniStatus_t Descriptor::create(
     // Treat A, B, C as 2D matrix, reuse aclnnTensorDescriptor for batched
     // operation
     CHECK_STATUS(c->setDescriptor(
-                     toAclDataType(c_desc->dtype),
-                     {static_cast<int64_t>(info.c_matrix.rows),
-                      static_cast<int64_t>(info.c_matrix.cols)},
-                     {info.c_matrix.row_stride, info.c_matrix.col_stride}),
-                 INFINI_STATUS_SUCCESS);
+        toAclDataType(c_desc->dtype),
+        {static_cast<int64_t>(info.c_matrix.rows),
+         static_cast<int64_t>(info.c_matrix.cols)},
+        {info.c_matrix.row_stride, info.c_matrix.col_stride}));
     CHECK_STATUS(a->setDescriptor(
-                     toAclDataType(a_desc->dtype),
-                     {static_cast<int64_t>(info.a_matrix.rows),
-                      static_cast<int64_t>(info.a_matrix.cols)},
-                     {info.a_matrix.row_stride, info.a_matrix.col_stride}),
-                 INFINI_STATUS_SUCCESS);
+        toAclDataType(a_desc->dtype),
+        {static_cast<int64_t>(info.a_matrix.rows),
+         static_cast<int64_t>(info.a_matrix.cols)},
+        {info.a_matrix.row_stride, info.a_matrix.col_stride}));
     CHECK_STATUS(b->setDescriptor(
-                     toAclDataType(b_desc->dtype),
-                     {static_cast<int64_t>(info.b_matrix.rows),
-                      static_cast<int64_t>(info.b_matrix.cols)},
-                     {info.b_matrix.row_stride, info.b_matrix.col_stride}),
-                 INFINI_STATUS_SUCCESS);
+        toAclDataType(b_desc->dtype),
+        {static_cast<int64_t>(info.b_matrix.rows),
+         static_cast<int64_t>(info.b_matrix.cols)},
+        {info.b_matrix.row_stride, info.b_matrix.col_stride}));
 
-    CHECK_STATUS(c->createTensor(), INFINI_STATUS_SUCCESS);
-    CHECK_STATUS(a->createTensor(), INFINI_STATUS_SUCCESS);
-    CHECK_STATUS(b->createTensor(), INFINI_STATUS_SUCCESS);
+    CHECK_STATUS(c->createTensor());
+    CHECK_STATUS(a->createTensor());
+    CHECK_STATUS(b->createTensor());
 
     auto tc = c->t,
          ta = a->t,
@@ -127,7 +123,7 @@ infiniStatus_t Descriptor::calculate(
     }
     aclSetAclOpExecutorRepeatable(_opaque->executor);
 
-    auto unit = infiniSizeof(_dtype);
+    auto unit = infiniSizeOf(_dtype);
     for (size_t i = 0; i < _info.batch; ++i) {
         AclSetTensorAddr(_opaque->executor, 0, ta, ((char *)a) + i * _info.a_matrix.stride * unit);
         AclSetTensorAddr(_opaque->executor, 1, tb, ((char *)b) + i * _info.b_matrix.stride * unit);
