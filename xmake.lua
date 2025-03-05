@@ -119,8 +119,25 @@ target("infini-utils")
     add_files("src/utils/*.cc")
 target_end()
 
+target("infinirt")
+    set_kind("shared")
+
+    if has_config("cpu") then
+        add_deps("infinirt-cpu")
+    end
+    if has_config("nv-gpu") then
+        add_deps("infinirt-cuda")
+    end
+    set_languages("cxx17")
+    set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
+    add_files("src/infinirt/*.cc")
+    add_installfiles("include/infinirt.h")
+target_end()
+
 target("infiniop")
     set_kind("shared")
+    add_deps("infinirt")
+
     if has_config("cpu") then
         add_deps("infiniop-cpu")
     end
@@ -164,20 +181,6 @@ target("infiniop")
     add_installfiles("include/infiniop/*.h", {prefixdir = "include/infiniop"})
     add_installfiles("include/infiniop.h", {prefixdir = "include"})
     add_installfiles("include/infinicore.h", {prefixdir = "include"})
-target_end()
-
-target("infinirt")
-    set_kind("shared")
-    if has_config("cpu") then
-        add_deps("infinirt-cpu")
-    end
-    if has_config("nv-gpu") then
-        add_deps("infinirt-cuda")
-    end
-    set_languages("cxx17")
-    set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
-    add_files("src/infinirt/*.cc")
-    add_installfiles("include/infinirt.h")
 target_end()
 
 target("all")
