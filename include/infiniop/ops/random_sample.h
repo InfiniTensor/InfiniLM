@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_RANDOM_SAMPLE_H__
-#define __INFINIOP_RANDOM_SAMPLE_H__
+#ifndef __INFINIOP_RANDOM_SAMPLE_API_H__
+#define __INFINIOP_RANDOM_SAMPLE_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopRandomSampleDescriptor_t;
 

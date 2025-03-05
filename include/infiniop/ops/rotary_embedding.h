@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_ROTARY_EMBEDDING_H__
-#define __INFINIOP_ROTARY_EMBEDDING_H__
+#ifndef __INFINIOP_ROTARY_EMBEDDING_API_H__
+#define __INFINIOP_ROTARY_EMBEDDING_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopRoPEDescriptor_t;
 

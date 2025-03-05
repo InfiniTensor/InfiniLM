@@ -1,3 +1,5 @@
+#include "../../operator.h"
+#include "../../handle.h"
 #include "infiniop/ops/rotary_embedding.h"
 
 __C infiniStatus_t infiniopCreateRoPEDescriptor(

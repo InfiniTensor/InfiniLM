@@ -1,5 +1,5 @@
-#ifndef __INFINIRT_H__
-#define __INFINIRT_H__
+#ifndef __INFINIRT_API_H__
+#define __INFINIRT_API_H__
 
 #include "infinicore.h"
 
@@ -53,4 +53,4 @@ __C __export infiniStatus_t infinirtMemcpyAsync(void *dst, const void *src, size
 __C __export infiniStatus_t infinirtMallocAsync(void **p_ptr, size_t size, infinirtStream_t stream);
 __C __export infiniStatus_t infinirtFreeAsync(void *ptr, infinirtStream_t stream);
 
-#endif // __INFINIRT_H__
+#endif // __INFINIRT_API_H__

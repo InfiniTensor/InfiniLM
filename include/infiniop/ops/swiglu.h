@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_SWIGLU_H__
-#define __INFINIOP_SWIGLU_H__
+#ifndef __INFINIOP_SWIGLU_API_H__
+#define __INFINIOP_SWIGLU_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopSwiGLUDescriptor_t;
 

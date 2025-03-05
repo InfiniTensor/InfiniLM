@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_AVG_POOL_H__
-#define __INFINIOP_AVG_POOL_H__
+#ifndef __INFINIOP_AVG_POOL_API_H__
+#define __INFINIOP_AVG_POOL_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopAvgPoolDescriptor_t;
 

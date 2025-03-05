@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_MATMUL_H__
-#define __INFINIOP_MATMUL_H__
+#ifndef __INFINIOP_MATMUL_API_H__
+#define __INFINIOP_MATMUL_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopMatmulDescriptor_t;
 

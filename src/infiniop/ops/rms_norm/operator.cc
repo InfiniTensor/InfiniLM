@@ -1,3 +1,5 @@
+#include "../../operator.h"
+#include "../../handle.h"
 #include "infiniop/ops/rms_norm.h"
 
 __C infiniStatus_t infiniopCreateRMSNormDescriptor(

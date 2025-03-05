@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_CAUSAL_SOFTMAX_H__
-#define __INFINIOP_CAUSAL_SOFTMAX_H__
+#ifndef __INFINIOP_CAUSAL_SOFTMAX_API_H__
+#define __INFINIOP_CAUSAL_SOFTMAX_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopCausalSoftmaxDescriptor_t;
 

@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_MLP_H__
-#define __INFINIOP_MLP_H__
+#ifndef __INFINIOP_MLP_API_H__
+#define __INFINIOP_MLP_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 #include "matmul.h"
 #include "swiglu.h"
 

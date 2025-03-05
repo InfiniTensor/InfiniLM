@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_REARRANGE_H__
-#define __INFINIOP_REARRANGE_H__
+#ifndef __INFINIOP_REARRANGE_API_H__
+#define __INFINIOP_REARRANGE_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopRearrangeDescriptor_t;
 

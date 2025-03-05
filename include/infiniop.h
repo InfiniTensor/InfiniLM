@@ -1,5 +1,5 @@
-#ifndef __INFINIOP_H__
-#define __INFINIOP_H__
+#ifndef __INFINIOP_API_H__
+#define __INFINIOP_API_H__
 #include "infiniop/tensor_descriptor.h"
 #include "infiniop/handle.h"
 #include "infiniop/ops/add.h"
@@ -20,4 +20,4 @@
 #include "infiniop/ops/rotary_embedding.h"
 #include "infiniop/ops/swiglu.h"
 
-#endif // __INFINIOP_H__
+#endif // __INFINIOP_API_H__

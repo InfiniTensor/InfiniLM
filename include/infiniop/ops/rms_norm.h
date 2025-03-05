@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_RMS_NORM_H__
-#define __INFINIOP_RMS_NORM_H__
+#ifndef __INFINIOP_RMS_NORM_API_H__
+#define __INFINIOP_RMS_NORM_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopRMSNormDescriptor_t;
 

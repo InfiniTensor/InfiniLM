@@ -1,6 +1,6 @@
 #ifndef __INFINIRT_CPU_H__
 #define __INFINIRT_CPU_H__
-#include "../infinirt_api.h"
+#include "../infinirt_impl.h"
 
 namespace infinirt::cpu {
 #ifdef ENABLE_CPU_API

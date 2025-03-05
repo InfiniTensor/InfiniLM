@@ -1,7 +1,7 @@
-#ifndef __INFINIOP_CONV_H__
-#define __INFINIOP_CONV_H__
+#ifndef __INFINIOP_CONV_API_H__
+#define __INFINIOP_CONV_API_H__
 
-#include "../operator.h"
+#include "../operator_descriptor.h"
 
 typedef InfiniopDescriptor *infiniopConvDescriptor_t;
 

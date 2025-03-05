@@ -1,3 +1,5 @@
+#include "../../operator.h"
+#include "../../handle.h"
 #include "infiniop/ops/rearrange.h"
 
 __C infiniStatus_t infiniopCreateRearrangeDescriptor(

@@ -1,7 +1,7 @@
 #ifndef BANG_HANDLE_H
 #define BANG_HANDLE_H
 
-#include "infiniop/handle.h"
+#include "../../handle.h"
 
 struct InfiniopBangHandle;
 typedef struct InfiniopBangHandle *infiniopBangHandle_t;

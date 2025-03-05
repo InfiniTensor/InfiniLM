@@ -1,7 +1,7 @@
 #ifndef __INFINIOP_CPU_HANDLE_H__
 #define __INFINIOP_CPU_HANDLE_H__
 
-#include "infiniop/handle.h"
+#include "../../handle.h"
 
 typedef infiniopHandle_t infiniopCpuHandle_t;
 

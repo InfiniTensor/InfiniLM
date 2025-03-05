@@ -1,7 +1,7 @@
 #ifndef __INFINIOP_CUDA_HANDLE_H__
 #define __INFINIOP_CUDA_HANDLE_H__
 
-#include "infiniop/handle.h"
+#include "../../handle.h"
 
 struct InfiniopCudaHandle;
 typedef struct InfiniopCudaHandle *infiniopCudaHandle_t;

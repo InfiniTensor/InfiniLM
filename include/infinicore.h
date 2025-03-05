@@ -1,5 +1,5 @@
-#ifndef __INFINICORE_H__
-#define __INFINICORE_H__
+#ifndef __INFINICORE_API_H__
+#define __INFINICORE_API_H__
 
 #if defined(_WIN32)
 #define __export __declspec(dllexport)
@@ -71,5 +71,4 @@ typedef enum {
     INFINI_DTYPE_BF16 = 19,
 } infiniDtype_t;
 
-
-#endif // __INFINICORE_H__
+#endif // __INFINICORE_API_H__
