@@ -1,5 +1,5 @@
 #include "tensor_aclnn.h"
-#include "../../ops/utils.h"
+#include "../../../utils.h"
 #include <algorithm>
 
 infiniStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides) {
@@ -16,7 +16,7 @@ infiniStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const std
     aclFormat format = aclFormat::ACL_FORMAT_ND;
     this->format = format;
 
-    CHECK_STATUS(this->inferStorageShape(), INFINI_STATUS_SUCCESS);
+    CHECK_STATUS(this->inferStorageShape());
 
     return INFINI_STATUS_SUCCESS;
 }

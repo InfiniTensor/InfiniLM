@@ -13,7 +13,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
     auto handle = reinterpret_cast<infiniopCpuHandle_t>(handle_);
-    auto dtype = c_desc->dtype;
+    auto dtype = c_desc->dtype();
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
         return INFINI_STATUS_BAD_TENSOR_DTYPE;

@@ -56,7 +56,7 @@ void calculate(
     auto transA = info.a_matrix.col_stride == 1 ? false : true;
     auto transB = info.b_matrix.col_stride == 1 ? false : true;
 
-    auto unit = infiniSizeof(dtype);
+    auto unit = infiniSizeOf(dtype);
 
     use_xdnn(xdnn_handle_pool,
              (KunlunStream_t)stream,

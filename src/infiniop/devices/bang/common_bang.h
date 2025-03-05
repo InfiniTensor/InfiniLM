@@ -1,6 +1,7 @@
 #ifndef __COMMON_BANG_H__
 #define __COMMON_BANG_H__
 
+#include "../../../utils.h"
 #include "../pool.h"
 #include "bang_handle.h"
 #include "cnnl.h"

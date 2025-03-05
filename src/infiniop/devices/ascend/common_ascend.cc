@@ -1,13 +1,5 @@
 #include "common_ascend.h"
 
-int64_t numElements(const int64_t *shape, int64_t num) {
-    int64_t numEle = 1;
-    for (int i = 0; i < num; i++) {
-        numEle *= shape[i];
-    }
-    return numEle;
-}
-
 infiniStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize) {
     *workspaceAddr = nullptr;
     if (workspaceSize > 0) {

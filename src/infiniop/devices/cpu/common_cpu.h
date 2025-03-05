@@ -1,6 +1,7 @@
 #ifndef __INFINIOP_COMMON_CPU_H__
 #define __INFINIOP_COMMON_CPU_H__
 
+#include "../../../utils.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>

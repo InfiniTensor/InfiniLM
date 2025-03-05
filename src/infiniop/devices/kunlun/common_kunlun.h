@@ -1,6 +1,7 @@
 #ifndef __INFINIOP_COMMON_KUNLUN_H__
 #define __INFINIOP_COMMON_KUNLUN_H__
 
+#include "../../../utils.h"
 #include "../pool.h"
 #include "infinicore.h"
 #include "kunlun_handle.h"
@@ -13,15 +14,7 @@ namespace xdnn = baidu::xpu::api;
 typedef xdnn::Context *xdnnHandle_t;
 typedef XPUStream KunlunStream_t;
 
-#define CHECK_KUNLUN(call)                                             \
-    {                                                                  \
-        auto err = call;                                               \
-        if (XPU_SUCCESS != err) {                                      \
-            fprintf(stderr, "KUNLUN error in %s:%i : %s.\n", __FILE__, \
-                    __LINE__, xpu_strerror(err));                      \
-            return INFINI_STATUS_INTERNAL_ERROR;                       \
-        }                                                              \
-    }
+#define CHECK_KUNLUN(call) CHECK_INTERNAL(call, XPU_SUCCESS)
 
 struct InfiniopKunlunHandle {
     infiniDevice_t device;

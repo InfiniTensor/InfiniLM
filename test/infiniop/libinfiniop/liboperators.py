@@ -1,8 +1,7 @@
-from calendar import c
 import os
 import platform
 import ctypes
-from ctypes import c_int, c_int64, c_uint64, Structure, POINTER, c_size_t
+from ctypes import c_int, c_int64, c_uint64, Structure, POINTER
 from .datatypes import *
 from .devices import *
 from pathlib import Path
@@ -14,17 +13,7 @@ INFINI_ROOT = os.getenv("INFINI_ROOT") or str(Path.home() / ".infini")
 
 
 class TensorDescriptor(Structure):
-    _fields_ = [
-        ("dtype", c_int),
-        ("ndim", c_size_t),
-        ("shape", POINTER(c_size_t)),
-        ("strides", POINTER(c_int64)),
-    ]
-
-    def invalidate(self):
-        for i in range(self.ndim):
-            self.shape[i] = 0
-            self.strides[i] = 0
+    _fields_ = []
 
 
 infiniopTensorDescriptor_t = ctypes.POINTER(TensorDescriptor)
@@ -35,6 +24,10 @@ class CTensor:
         self.descriptor = desc
         self.torch_tensor_ = torch_tensor
         self.data = torch_tensor.data_ptr()
+    
+    def destroyDesc(self, lib_):
+        lib_.infiniopDestroyTensorDescriptor(self.descriptor)
+        self.descriptor = None
 
 
 class Handle(Structure):
@@ -73,6 +66,9 @@ def open_lib():
         POINTER(c_int64),
         c_int,
     ]
+    lib.infiniopCreateTensorDescriptor.restype = c_int
+    lib.infiniopDestroyTensorDescriptor.argtypes = [infiniopTensorDescriptor_t]
+    lib.infiniopDestroyTensorDescriptor.restype = c_int
     lib.infiniopCreateHandle.argtypes = [POINTER(infiniopHandle_t), c_int, c_int]
     lib.infiniopCreateHandle.restype = c_int
     lib.infiniopDestroyHandle.argtypes = [infiniopHandle_t]

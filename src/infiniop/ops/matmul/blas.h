@@ -1,6 +1,7 @@
 #ifndef __BLAS_H__
 #define __BLAS_H__
 
+#include "../../tensor.h"
 #include "infiniop/operator.h"
 #include <algorithm>
 
@@ -17,22 +18,22 @@ struct BlasMatrix {
     BlasMatrix() = default;
 
     BlasMatrix(infiniopTensorDescriptor_t layout, infiniStatus_t *status) {
-        if (layout->ndim == 2) {
+        if (layout->ndim() == 2) {
             ndim = 2;
             batch = 1;
             stride = 0;
-            rows = layout->shape[0];
-            cols = layout->shape[1];
-            row_stride = layout->strides[0];
-            col_stride = layout->strides[1];
-        } else if (layout->ndim == 3) {
+            rows = layout->dim(0);
+            cols = layout->dim(1);
+            row_stride = layout->stride(0);
+            col_stride = layout->stride(1);
+        } else if (layout->ndim() == 3) {
             ndim = 3;
-            batch = layout->shape[0];
-            stride = batch == 1 ? 0 : layout->strides[0];
-            rows = layout->shape[1];
-            cols = layout->shape[2];
-            row_stride = layout->strides[1];
-            col_stride = layout->strides[2];
+            batch = layout->dim(0);
+            stride = batch == 1 ? 0 : layout->stride(0);
+            rows = layout->dim(1);
+            cols = layout->dim(2);
+            row_stride = layout->stride(1);
+            col_stride = layout->stride(2);
         } else {
             *status = INFINI_STATUS_BAD_TENSOR_SHAPE;
             return;
