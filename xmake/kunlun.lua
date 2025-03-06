@@ -10,10 +10,11 @@ add_links("xpuapi")
 target("infiniop-kunlun")
     set_kind("static")
     add_deps("infini-utils")
-    set_languages("cxx17")
     on_install(function (target) end)
-    -- Add files
-    add_files("$(projectdir)/src/infiniop/devices/kunlun/*.cc", "$(projectdir)/src/infiniop/ops/*/kunlun/*.cc")
-    add_cxflags("-lstdc++ -Wall -Werror -fPIC")
 
+    add_cxflags("-lstdc++ -fPIC")
+    set_warnings("all", "error")
+
+    set_languages("cxx17")
+    add_files("$(projectdir)/src/infiniop/devices/kunlun/*.cc", "$(projectdir)/src/infiniop/ops/*/kunlun/*.cc")
 target_end()

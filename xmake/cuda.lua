@@ -12,11 +12,10 @@ target("infiniop-cuda")
     set_kind("static")
     add_deps("infini-utils")
     on_install(function (target) end)
-    set_policy("build.cuda.devlink", true)
 
+    set_policy("build.cuda.devlink", true)
     set_toolchains("cuda")
-    add_links("cublas")
-    add_links("cudnn")
+    add_links("cublas", "cudnn")
     add_cugencodes("native")
 
     if is_plat("windows") then
@@ -40,7 +39,10 @@ target("infinirt-cuda")
     set_kind("static")
     add_deps("infini-utils")
     on_install(function (target) end)
+
     set_policy("build.cuda.devlink", true)
+    set_toolchains("cuda")
+    add_links("cudart")
 
     if is_plat("windows") then
         add_cuflags("-Xcompiler=/utf-8", "--expt-relaxed-constexpr", "--allow-unsupported-compiler")
@@ -49,9 +51,6 @@ target("infinirt-cuda")
         add_culdflags("-Xcompiler=-fPIC")
         add_cxflags("-fPIC")
     end
-    
-    set_toolchains("cuda")
-    add_links("cudart")
 
     set_languages("cxx17")
     add_files("../src/infinirt/cuda/*.cu")

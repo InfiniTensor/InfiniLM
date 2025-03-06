@@ -46,7 +46,7 @@
 
 #define DESCRIPTOR(NAMESPACE)                             \
                                                           \
-    namespace matmul::NAMESPACE {                         \
+    namespace op::matmul::NAMESPACE {                     \
     class Descriptor final : public InfiniopDescriptor {  \
         struct Opaque;                                    \
         Opaque *_opaque;                                  \

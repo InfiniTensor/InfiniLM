@@ -2,12 +2,32 @@
 #define __INFINIOP_CUDA_HANDLE_H__
 
 #include "../../handle.h"
+#include <memory>
 
-struct InfiniopCudaHandle;
-typedef struct InfiniopCudaHandle *infiniopCudaHandle_t;
+namespace device::cuda {
 
-infiniStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, infiniDevice_t cuda_device_type);
+struct Handle : public InfiniopHandle {
+    class Internal;
+    auto internal() const -> const std::shared_ptr<Internal> &;
 
-infiniStatus_t destroyCudaHandle(infiniopCudaHandle_t handle_ptr);
+protected:
+    Handle(infiniDevice_t device, int device_id);
 
-#endif
+private:
+    std::shared_ptr<Internal> _internal;
+};
+
+namespace nvidia {
+
+class Handle : public cuda::Handle {
+    Handle(int device_id);
+
+public:
+    static infiniStatus_t create(InfiniopHandle **handle_ptr, int device_id);
+};
+
+} // namespace nvidia
+
+} // namespace device::cuda
+
+#endif // __INFINIOP_CUDA_HANDLE_H__

@@ -1,47 +1,71 @@
-#include "common_cuda.cuh"
+#include "cuda_handle.cuh"
 
-infiniStatus_t createCudaHandle(infiniopCudaHandle_t *handle_ptr, infiniDevice_t cuda_device_type) {
-    // Create a new cublas handle pool
-    int device_id = 0;
-    CHECK_CUDA_OR_RETURN(cudaGetDevice(&device_id), INFINI_STATUS_DEVICE_NOT_INITIALIZED);
-    auto pool = std::make_shared<Pool<cublasHandle_t>>();
-    cublasHandle_t handle;
-    cublasCreate(&handle);
-    pool->push(std::move(handle));
+namespace device::cuda {
 
-    // create a cudnn handle pool
-    auto cudnn_pool = std::make_shared<Pool<cudnnHandle_t>>();
-    cudnnHandle_t cudnn_handle;
-    CHECK_CUDNN(cudnnCreate(&cudnn_handle));
-    cudnn_pool->push(std::move(cudnn_handle));
+Handle::Handle(infiniDevice_t device, int device_id)
+    : InfiniopHandle{device, device_id},
+      _internal(std::make_shared<Handle::Internal>()) {}
 
-    // set CUDA device property
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, device_id);
+auto Handle::internal() const -> const std::shared_ptr<Internal> & {
+    return _internal;
+}
 
-    // set device compute capability numbers
-    int capability_major;
-    int capability_minor;
-    cudaDeviceGetAttribute(&capability_major, cudaDevAttrComputeCapabilityMajor, device_id);
-    cudaDeviceGetAttribute(&capability_minor, cudaDevAttrComputeCapabilityMinor, device_id);
+template <typename T>
+using Fn = std::function<void(T)>;
 
-    *handle_ptr = new InfiniopCudaHandle{
-        cuda_device_type,
-        device_id,
-        std::move(pool),
-        std::move(cudnn_pool),
-        std::move(prop),
-        capability_major,
-        capability_minor,
-    };
+void Handle::Internal::use_cublas(cudaStream_t stream, const Fn<cublasHandle_t> &f) const {
+    auto handle = blas_handles.pop();
+    if (!handle) {
+        cublasCreate(&(*handle));
+    }
+    cublasSetStream(*handle, stream);
+    f(*handle);
+    blas_handles.push(std::move(*handle));
+}
 
+void Handle::Internal::use_cudnn(cudaStream_t stream, const Fn<cudnnHandle_t> &f) const {
+    auto handle = dnn_handles.pop();
+    if (!handle) {
+        cudnnCreate(&(*handle));
+    }
+    cudnnSetStream(*handle, stream);
+    f(*handle);
+    dnn_handles.push(std::move(*handle));
+}
+
+cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
+    switch (dt) {
+    case INFINI_DTYPE_F16:
+        return CUDNN_DATA_HALF;
+    case INFINI_DTYPE_F32:
+        return CUDNN_DATA_FLOAT;
+    case INFINI_DTYPE_F64:
+        return CUDNN_DATA_DOUBLE;
+    case INFINI_DTYPE_BF16:
+        return CUDNN_DATA_BFLOAT16;
+    case INFINI_DTYPE_I8:
+        return CUDNN_DATA_INT8;
+    case INFINI_DTYPE_I32:
+        return CUDNN_DATA_INT32;
+    case INFINI_DTYPE_I64:
+        return CUDNN_DATA_INT64;
+    case INFINI_DTYPE_U8:
+        return CUDNN_DATA_UINT8;
+    default:
+        return CUDNN_DATA_FLOAT;
+    }
+}
+
+namespace nvidia {
+
+Handle::Handle(int device_id)
+    : cuda::Handle(INFINI_DEVICE_NVIDIA, device_id) {}
+
+infiniStatus_t Handle::create(InfiniopHandle **handle_ptr, int device_id) {
+    *handle_ptr = new Handle(device_id);
     return INFINI_STATUS_SUCCESS;
 }
 
-infiniStatus_t destroyCudaHandle(infiniopCudaHandle_t handle_ptr) {
-    handle_ptr->cublas_handle_pool = nullptr;
-    handle_ptr->cudnn_handle_pool = nullptr;
-    delete handle_ptr;
+} // namespace nvidia
 
-    return INFINI_STATUS_SUCCESS;
-}
+} // namespace device::cuda

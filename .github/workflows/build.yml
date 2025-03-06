@@ -35,4 +35,14 @@ jobs:
       run: xmake f -cv
 
     - name: build with xmake
-      run: xmake build && xmake install
+      run: xmake build
+
+    - name: install to INFINI_ROOT
+      if: matrix.os != 'windows-latest'
+      run: xmake install
+
+    - name: python test
+      if: matrix.os != 'windows-latest'
+      run: |
+        pip install torch
+        LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/matmul.py --cpu

@@ -2,7 +2,7 @@
 #include "../../../devices/kunlun/common_kunlun.h"
 #include "../../utils.h"
 
-namespace matmul::kunlun {
+namespace op::matmul::kunlun {
 
 struct Descriptor::Opaque {
     std::shared_ptr<Pool<xdnnHandle_t>> xdnn_handle_pool;
@@ -110,4 +110,4 @@ infiniStatus_t Descriptor::calculate(
     }
 }
 
-} // namespace matmul::kunlun
+} // namespace op::matmul::kunlun

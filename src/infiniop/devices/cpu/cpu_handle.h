@@ -3,13 +3,15 @@
 
 #include "../../handle.h"
 
-namespace infiniop::cpu {
+namespace device::cpu {
+
 class Handle : public InfiniopHandle {
     Handle();
 
 public:
-    static infiniStatus_t create(InfiniopHandle **handle_ptr);
+    static infiniStatus_t create(InfiniopHandle **handle_ptr, int);
 };
-} // namespace infiniop::cpu
+
+} // namespace device::cpu
 
 #endif
