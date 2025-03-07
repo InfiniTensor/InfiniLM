@@ -1,5 +1,6 @@
 #include "tensor_aclnn.h"
 #include "../../../utils.h"
+#include "../../tensor.h"
 #include <algorithm>
 
 infiniStatus_t aclnnTensorDescriptor::setDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides) {
@@ -36,15 +37,15 @@ infiniStatus_t aclnnTensorDescriptor::inferStorageShape() {
 /// @param y infiniopTensorDescriptor
 /// @return infiniopStatus_t
 infiniStatus_t aclnnTensorDescriptor::fromInfiniOpTensorDescriptor(infiniopTensorDescriptor_t y) {
-    uint64_t ndim = y->ndim;
+    uint64_t ndim = y->ndim();
     // Cast shape type
     auto shape = std::vector<int64_t>(ndim);
     auto strides = std::vector<int64_t>(ndim);
     for (uint64_t i = 0; i < ndim; ++i) {
-        shape[i] = static_cast<int64_t>(y->shape[i]);
-        strides[i] = y->strides[i];
+        shape[i] = static_cast<int64_t>(y->dim(i));
+        strides[i] = y->stride(i);
     }
-    return setDescriptor(toAclDataType(y->dtype), shape, strides);
+    return setDescriptor(toAclDataType(y->dtype()), shape, strides);
 }
 
 /// @brief Wrapper of aclCreateTensor. Create aclTensor.

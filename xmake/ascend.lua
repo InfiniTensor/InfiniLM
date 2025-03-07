@@ -54,3 +54,13 @@ target("infiniop-ascend")
     -- add_rules("ascend-kernels")
     -- add_links(builddir.."/libascend_kernels.a")
 target_end()
+
+target("infinirt-ascend")
+    set_kind("static")
+    set_languages("cxx17")
+    on_install(function (target) end)
+    add_deps("infini-utils")
+    -- Add files
+    add_files("$(projectdir)/src/infinirt/ascend/*.cc")
+    add_cxflags("-lstdc++ -Wall -Werror -fPIC")
+target_end()

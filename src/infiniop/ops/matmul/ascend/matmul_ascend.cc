@@ -35,7 +35,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
     auto handle = reinterpret_cast<infiniopAscendHandle_t>(handle_);
-    auto dtype = c_desc->dtype;
+    auto dtype = c_desc->dtype();
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
@@ -54,17 +54,17 @@ infiniStatus_t Descriptor::create(
     // Treat A, B, C as 2D matrix, reuse aclnnTensorDescriptor for batched
     // operation
     CHECK_STATUS(c->setDescriptor(
-        toAclDataType(c_desc->dtype),
+        toAclDataType(c_desc->dtype()),
         {static_cast<int64_t>(info.c_matrix.rows),
          static_cast<int64_t>(info.c_matrix.cols)},
         {info.c_matrix.row_stride, info.c_matrix.col_stride}));
     CHECK_STATUS(a->setDescriptor(
-        toAclDataType(a_desc->dtype),
+        toAclDataType(a_desc->dtype()),
         {static_cast<int64_t>(info.a_matrix.rows),
          static_cast<int64_t>(info.a_matrix.cols)},
         {info.a_matrix.row_stride, info.a_matrix.col_stride}));
     CHECK_STATUS(b->setDescriptor(
-        toAclDataType(b_desc->dtype),
+        toAclDataType(b_desc->dtype()),
         {static_cast<int64_t>(info.b_matrix.rows),
          static_cast<int64_t>(info.b_matrix.cols)},
         {info.b_matrix.row_stride, info.b_matrix.col_stride}));

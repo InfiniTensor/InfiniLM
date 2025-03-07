@@ -1,4 +1,6 @@
 #include "infinirt.h"
+#include "../utils.h"
+#include "ascend/infinirt_ascend.h"
 #include "cpu/infinirt_cpu.h"
 #include "cuda/infinirt_cuda.cuh"
 
@@ -6,6 +8,9 @@ thread_local infiniDevice_t CURRENT_DEVICE_TYPE = INFINI_DEVICE_CPU;
 thread_local int CURRENT_DEVICE_ID = 0;
 
 __C infiniStatus_t infinirtInit() {
+#ifdef ENABLE_ASCEND_API
+    CHECK_STATUS(infinirt::ascend::init());
+#endif
     return INFINI_STATUS_SUCCESS;
 }
 
@@ -45,6 +50,9 @@ __C infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_
             break;                                          \
         case INFINI_DEVICE_NVIDIA:                          \
             _status = infinirt::cuda::API PARAMS;           \
+            break;                                          \
+        case INFINI_DEVICE_ASCEND:                          \
+            _status = infinirt::ascend::API PARAMS;         \
             break;                                          \
         default:                                            \
             return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED; \
