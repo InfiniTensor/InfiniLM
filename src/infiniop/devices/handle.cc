@@ -39,9 +39,7 @@ __C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr) {
         CREATE(INFINI_DEVICE_NVIDIA, cuda::nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API
-    case INFINI_DEVICE_CAMBRICON: {
-        return createBangHandle((infiniopBangHandle_t *)handle_ptr);
-    }
+        CREATE(INFINI_DEVICE_CAMBRICON, bang::cambricon);
 #endif
 #ifdef ENABLE_ASCEND_API
     case INFINI_DEVICE_ASCEND: {
@@ -76,9 +74,7 @@ __C infiniStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
         DELETE(INFINI_DEVICE_NVIDIA, cuda::nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API
-    case INFINI_DEVICE_CAMBRICON: {
-        return destroyBangHandle((infiniopBangHandle_t)handle);
-    }
+        DELETE(INFINI_DEVICE_CAMBRICON, bang::cambricon);
 #endif
 #ifdef ENABLE_ASCEND_API
     case INFINI_DEVICE_ASCEND: {
