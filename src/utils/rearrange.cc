@@ -98,15 +98,15 @@ void RearrangeMeta::launch(void *dst_, const void *src_) const {
     if (count_ == 1) {
         std::memcpy(dst_, src_, unit_);
     } else {
-        for (size_t i = 0; i < idx_strides_[0]; ++i) {
+        for (size_t i = 0; i < count_; ++i) {
             auto dst = reinterpret_cast<char *>(dst_);
             auto src = reinterpret_cast<const char *>(src_);
             auto rem = i;
             for (size_t j = 0; j < ndim_; ++j) {
-                auto k = rem / idx_strides_[j + 1];
+                auto k = rem / idx_strides_[j];
                 dst += k * dst_strides_[j];
                 src += k * src_strides_[j];
-                rem %= idx_strides_[j + 1];
+                rem %= idx_strides_[j];
             }
             std::memcpy(dst, src, unit_);
         }
