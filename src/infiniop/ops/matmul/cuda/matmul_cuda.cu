@@ -76,7 +76,7 @@ infiniStatus_t Descriptor::calculate(
     auto op_a = _info.a_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
     auto op_b = _info.b_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
 
-    _opaque->internal->useCublas(
+    CHECK_STATUS(_opaque->internal->useCublas(
         (cudaStream_t)stream,
         [&](cublasHandle_t handle) {
             CHECK_CUBLAS(
@@ -105,7 +105,7 @@ infiniStatus_t Descriptor::calculate(
                     compute_type,
                     CUBLAS_GEMM_DEFAULT_TENSOR_OP));
             return INFINI_STATUS_SUCCESS;
-        });
+        }));
     return INFINI_STATUS_SUCCESS;
 }
 

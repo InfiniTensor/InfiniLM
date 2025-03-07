@@ -3,9 +3,9 @@
 
 #include "../../../utils.h"
 #include "../pool.h"
-#include "cuda_functions.cuh"
 #include "cuda_handle.h"
 #include <cublas_v2.h>
+#include <cudnn.h>
 #include <functional>
 
 #define CHECK_CUBLAS(API) CHECK_INTERNAL(API, CUBLAS_STATUS_SUCCESS)

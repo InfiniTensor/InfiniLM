@@ -1,8 +1,8 @@
-#ifndef __INFINIOP_CUDA_FUNCTIONS_CUH__
-#define __INFINIOP_CUDA_FUNCTIONS_CUH__
+#ifndef __INFINIOP_CUDA_COMMON_CUH__
+#define __INFINIOP_CUDA_COMMON_CUH__
 
+#include "cuda_handle.cuh"
 #include "infinicore.h"
-#include <cudnn.h>
 
 namespace device::cuda {
 
@@ -40,4 +40,4 @@ indexToOffset(
 
 } // namespace device::cuda
 
-#endif // __INFINIOP_CUDA_FUNCTIONS_CUH__
+#endif // __INFINIOP_CUDA_COMMON_CUH__
