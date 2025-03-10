@@ -2,6 +2,7 @@
 #define __INFINIOP_COMMON_ASCEND_H__
 
 #include "../../../utils.h"
+#include "../../tensor.h"
 #include "ascend_handle.h"
 #include <acl/acl.h>
 #include <acl/acl_base.h>
@@ -11,6 +12,7 @@
 #include <functional>
 #include <inttypes.h>
 #include <numeric>
+#include <sstream>
 #include <vector>
 
 #ifdef __cplusplus
@@ -21,15 +23,34 @@ extern "C" {
 };
 #endif
 
-struct InfiniopAscendHandle {
-    infiniDevice_t device;
-    int device_id;
-};
+struct aclnnTensorDescriptor {
+    uint64_t ndim;
+    std::vector<int64_t> shape;
+    std::vector<int64_t> strides;
+    int64_t offset = 0;
+    aclDataType dataType;
+    aclFormat format;
+    std::vector<int64_t> storageShape;
+    int64_t storageNdim = 1;
+    aclTensor *tensor;
 
-const char *dataTypeToString(aclDataType dtype);
-const char *formatToString(aclFormat format);
-infiniStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize);
-infiniStatus_t freeWorkspace(void *workspaceAddr);
+    // aclnnGemmGetWorkspaceSize only support 2D matrix multiply, so we need to convert 3D tensor to 2D tensor
+    aclnnTensorDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides, void *data = nullptr);
+    aclnnTensorDescriptor(infiniopTensorDescriptor_t y_desc, void *data = nullptr);
+    ~aclnnTensorDescriptor();
+
+    std::string toString();
+};
+typedef aclnnTensorDescriptor *aclnnTensorDescriptor_t;
+
 aclDataType toAclDataType(infiniDtype_t dt);
+
+#define GetRecentErrMsg()                                   \
+    {                                                       \
+        auto tmp_err_msg = aclGetRecentErrMsg();            \
+        if (tmp_err_msg != NULL) {                          \
+            printf(" ERROR Message : %s \n ", tmp_err_msg); \
+        }                                                   \
+    }
 
 #endif
