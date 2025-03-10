@@ -23,7 +23,7 @@ struct Descriptor::Opaque {
     }
 };
 
-static void setMatrixTensorEx(
+static infiniStatus_t setMatrixTensorEx(
     cnnlTensorDescriptor_t desc,
     const BlasMatrix &matrix, infiniDtype_t dtype,
     bool trans = false) {
@@ -39,20 +39,21 @@ static void setMatrixTensorEx(
     case 3: {
         std::vector<int> dim_size = {batch, rows, cols};
         std::vector<int> dim_stride = {stride, row_stride, col_stride};
-        cnnlSetTensorDescriptorEx(
+        CHECK_BANG(cnnlSetTensorDescriptorEx(
             desc, CNNL_LAYOUT_ARRAY,
             device::bang::getCnnlDtype(dtype), dim_size.size(),
-            dim_size.data(), dim_stride.data());
+            dim_size.data(), dim_stride.data()));
     } break;
     case 2: {
         std::vector<int> dim_size = {rows, cols};
         std::vector<int> dim_stride = {row_stride, col_stride};
-        cnnlSetTensorDescriptorEx(
+        CHECK_BANG(cnnlSetTensorDescriptorEx(
             desc, CNNL_LAYOUT_ARRAY,
             device::bang::getCnnlDtype(dtype), dim_size.size(),
-            dim_size.data(), dim_stride.data());
+            dim_size.data(), dim_stride.data()));
     } break;
     }
+    return INFINI_STATUS_SUCCESS;
 }
 
 Descriptor::~Descriptor() {
@@ -79,9 +80,9 @@ infiniStatus_t Descriptor::create(
     }
 
     cnnlTensorDescriptor_t a, b, c;
-    cnnlCreateTensorDescriptor(&a);
-    cnnlCreateTensorDescriptor(&b);
-    cnnlCreateTensorDescriptor(&c);
+    CHECK_BANG(cnnlCreateTensorDescriptor(&a));
+    CHECK_BANG(cnnlCreateTensorDescriptor(&b));
+    CHECK_BANG(cnnlCreateTensorDescriptor(&c));
 
     setMatrixTensorEx(a, info.a_matrix, a_desc->dtype());
     setMatrixTensorEx(b, info.b_matrix, b_desc->dtype());
@@ -90,26 +91,28 @@ infiniStatus_t Descriptor::create(
     cnnlMatMulDescriptor_t op;
     cnnlMatMulAlgo_t algo;
     cnnlMatMulHeuristicResult_t algoResult;
-    cnnlMatMulDescCreate(&op);
-    cnnlMatMulAlgoCreate(&algo);
-    cnnlCreateMatMulHeuristicResult(&algoResult);
+    CHECK_BANG(cnnlMatMulDescCreate(&op));
+    CHECK_BANG(cnnlMatMulAlgoCreate(&algo));
+    CHECK_BANG(cnnlCreateMatMulHeuristicResult(&algoResult));
     int32_t use_stride = true;
-    cnnlSetMatMulDescAttr(
+    CHECK_BANG(cnnlSetMatMulDescAttr(
         op,
         CNNL_MATMUL_USE_STRIDE,
         &use_stride,
-        sizeof(int32_t));
+        sizeof(int32_t)));
     int count = 0;
 
-    CHECK_STATUS(handle->internal()->useCnnl((cnrtQueue_t) nullptr,
-                                             [&](cnnlHandle_t _handle) {
-                                                 CHECK_BANG(
-                                                     cnnlGetBatchMatMulAlgoHeuristic(
-                                                         _handle,
-                                                         op, a, b, c,
-                                                         NULL, 1, &algoResult, &count));
-                                                 return INFINI_STATUS_SUCCESS;
-                                             }));
+    CHECK_STATUS(
+        handle->internal()->useCnnl(
+            (cnrtQueue_t) nullptr,
+            [&](cnnlHandle_t _handle) {
+                CHECK_BANG(
+                    cnnlGetBatchMatMulAlgoHeuristic(
+                        _handle,
+                        op, a, b, c,
+                        NULL, 1, &algoResult, &count));
+                return INFINI_STATUS_SUCCESS;
+            }));
 
     size_t workspace_size;
     CHECK_BANG(cnnlGetBatchMatMulHeuristicResult(algoResult, algo, &workspace_size));

@@ -20,7 +20,7 @@ auto Handle::internal() const -> const std::shared_ptr<Internal> & {
 infiniStatus_t Handle::Internal::useCnnl(cnrtQueue_t queue, const Fn<cnnlHandle_t> &f) const {
     auto handle = cnnl_handles.pop();
     if (!handle) {
-        cnnlCreate(&(*handle));
+        CHECK_BANG(cnnlCreate(&(*handle)));
     }
     CHECK_BANG(cnnlSetQueue(*handle, queue));
     CHECK_STATUS(f(*handle));
