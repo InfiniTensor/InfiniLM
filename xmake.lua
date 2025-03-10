@@ -89,7 +89,8 @@ option("moore-gpu")
 option_end()
 
 if has_config("moore-gpu") then
-    add_defines("ENABLE_MUSA_API")
+    add_defines("ENABLE_MOORE_API")
+    includes("xmake/musa.lua")
 end
 
 -- 海光
@@ -181,6 +182,9 @@ target("infiniop")
     end
     if has_config("metax-gpu") then
         add_deps("infiniop-metax")
+    end
+    if has_config("moore-gpu") then
+        add_deps("infini-musa")
     end
     if has_config("kunlun-xpu") then
         add_deps("infiniop-kunlun")
