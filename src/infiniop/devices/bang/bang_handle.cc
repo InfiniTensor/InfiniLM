@@ -1,11 +1,11 @@
+#include "../../tensor.h"
 #include "../pool.h"
+#include "_internal.h"
 #include "cnnl.h"
+#include "common_bang.h"
 #include "infiniop/tensor_descriptor.h"
 #include <memory>
 #include <vector>
-#include "../../tensor.h"
-#include "_internal.h"
-#include "common_bang.h"
 
 namespace device::bang {
 
@@ -17,7 +17,7 @@ auto Handle::internal() const -> const std::shared_ptr<Internal> & {
     return _internal;
 }
 
-infiniStatus_t Handle::Internal::use_cnnl(cnrtQueue_t queue, const Fn<cnnlHandle_t> &f) const {
+infiniStatus_t Handle::Internal::useCnnl(cnrtQueue_t queue, const Fn<cnnlHandle_t> &f) const {
     auto handle = cnnl_handles.pop();
     if (!handle) {
         cnnlCreate(&(*handle));
@@ -30,43 +30,43 @@ infiniStatus_t Handle::Internal::use_cnnl(cnrtQueue_t queue, const Fn<cnnlHandle
 
 cnnlDataType_t getCnnlDtype(infiniDtype_t dt) {
     switch (dt) {
-        case INFINI_DTYPE_F32:
-            return CNNL_DTYPE_FLOAT;
-        case INFINI_DTYPE_F64:
-            return CNNL_DTYPE_DOUBLE;
-        case INFINI_DTYPE_F16:
-            return CNNL_DTYPE_HALF;
-        case INFINI_DTYPE_I8:
-            return CNNL_DTYPE_INT8;
-        case INFINI_DTYPE_I32:
-            return CNNL_DTYPE_INT32;
-        case INFINI_DTYPE_U8:
-            return CNNL_DTYPE_UINT8;
-        case INFINI_DTYPE_BF16:
-            return CNNL_DTYPE_BFLOAT16;
-        case INFINI_DTYPE_I64:
-            return CNNL_DTYPE_INT64;
-        default:
-            return CNNL_DTYPE_INVALID;
+    case INFINI_DTYPE_F32:
+        return CNNL_DTYPE_FLOAT;
+    case INFINI_DTYPE_F64:
+        return CNNL_DTYPE_DOUBLE;
+    case INFINI_DTYPE_F16:
+        return CNNL_DTYPE_HALF;
+    case INFINI_DTYPE_I8:
+        return CNNL_DTYPE_INT8;
+    case INFINI_DTYPE_I32:
+        return CNNL_DTYPE_INT32;
+    case INFINI_DTYPE_U8:
+        return CNNL_DTYPE_UINT8;
+    case INFINI_DTYPE_BF16:
+        return CNNL_DTYPE_BFLOAT16;
+    case INFINI_DTYPE_I64:
+        return CNNL_DTYPE_INT64;
+    default:
+        return CNNL_DTYPE_INVALID;
     }
 }
 
 // set cnnl tensor descriptor without strides11
 inline infiniStatus_t setCnnlTensor(cnnlTensorDescriptor_t desc,
-                          const InfiniopTensorDescriptor* layout) {
+                                    const InfiniopTensorDescriptor *layout) {
     std::vector<int> dims(layout->ndim());
     for (size_t i = 0; i < layout->ndim(); i++) {
         dims[i] = static_cast<int>(layout->shape()[i]);
     }
     CHECK_BANG(cnnlSetTensorDescriptor(desc, CNNL_LAYOUT_ARRAY,
-                            getCnnlDtype(layout->dtype()), dims.size(),
-                            dims.data()));
+                                       getCnnlDtype(layout->dtype()), dims.size(),
+                                       dims.data()));
     return INFINI_STATUS_SUCCESS;
 }
 
 // set cnnl tensor descriptor with strides
 inline infiniStatus_t setCnnlTensorEx(cnnlTensorDescriptor_t desc,
-                            const InfiniopTensorDescriptor* layout) {
+                                      const InfiniopTensorDescriptor *layout) {
     std::vector<int> dim_size(layout->ndim()), dim_stride(layout->ndim());
     for (size_t i = 0; i < layout->ndim(); i++) {
         dim_size[i] = static_cast<int>(layout->shape()[i]);

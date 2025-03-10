@@ -1,7 +1,7 @@
 ﻿#include "matmul_bang.h"
+#include "../../../devices/bang/_internal.h"
 #include "../../../devices/bang/bang_handle.h"
 #include "../../../devices/bang/common_bang.h"
-#include "../../../devices/bang/_internal.h"
 #include <cnnl_extra.h>
 
 namespace op::matmul::bang {
@@ -101,16 +101,15 @@ infiniStatus_t Descriptor::create(
         sizeof(int32_t));
     int count = 0;
 
-    CHECK_STATUS(handle->internal()->use_cnnl((cnrtQueue_t)nullptr,
-             [&](cnnlHandle_t _handle) {
-                 CHECK_BANG(
-                    cnnlGetBatchMatMulAlgoHeuristic(
-                     _handle,
-                     op, a, b, c,
-                     NULL, 1, &algoResult, &count)
-                 );
-                return INFINI_STATUS_SUCCESS;
-             }));
+    CHECK_STATUS(handle->internal()->useCnnl((cnrtQueue_t) nullptr,
+                                             [&](cnnlHandle_t _handle) {
+                                                 CHECK_BANG(
+                                                     cnnlGetBatchMatMulAlgoHeuristic(
+                                                         _handle,
+                                                         op, a, b, c,
+                                                         NULL, 1, &algoResult, &count));
+                                                 return INFINI_STATUS_SUCCESS;
+                                             }));
 
     size_t workspace_size;
     CHECK_BANG(cnnlGetBatchMatMulHeuristicResult(algoResult, algo, &workspace_size));
@@ -118,8 +117,7 @@ infiniStatus_t Descriptor::create(
     *desc_ptr = new Descriptor(
         dtype, info, workspace_size,
         new Opaque{
-            op, algo, algoResult, a, b, c, handle->internal()
-        },
+            op, algo, algoResult, a, b, c, handle->internal()},
         handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
 }
@@ -137,7 +135,7 @@ infiniStatus_t Descriptor::calculate(
     if (_info.is_transed) {
         std::swap(a, b);
     }
-    CHECK_STATUS(_opaque->internal->use_cnnl(
+    CHECK_STATUS(_opaque->internal->useCnnl(
         (cnrtQueue_t)stream,
         [&](cnnlHandle_t handle) {
             CHECK_BANG(cnnlBatchMatMulBCast_v2(
@@ -151,7 +149,7 @@ infiniStatus_t Descriptor::calculate(
                 _opaque->c, c,
                 workspace,
                 workspace_size));
-        return INFINI_STATUS_SUCCESS;
+            return INFINI_STATUS_SUCCESS;
         }));
 
     return INFINI_STATUS_SUCCESS;

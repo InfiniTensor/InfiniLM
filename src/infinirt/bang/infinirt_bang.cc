@@ -1,5 +1,5 @@
-#include "../../utils.h"
 #include "infinirt_bang.h"
+#include "../../utils.h"
 #include "cnrt.h"
 
 #define CHECK_BANGRT(RT_API) CHECK_INTERNAL(RT_API, cnrtSuccess)
