@@ -52,7 +52,7 @@ __C infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_
         case INFINI_DEVICE_NVIDIA:                          \
             _status = infinirt::cuda::API PARAMS;           \
             break;                                          \
-        case INFINI_DEVICE_CAMBRICON:                          \
+        case INFINI_DEVICE_CAMBRICON:                       \
             _status = infinirt::bang::API PARAMS;           \
             break;                                          \
         case INFINI_DEVICE_ASCEND:                          \
