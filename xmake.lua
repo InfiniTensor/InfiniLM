@@ -138,6 +138,9 @@ target("infinirt")
     if has_config("metax-gpu") then
         add_deps("infinirt-metax")
     end
+    if has_config("kunlun-xpu") then
+        add_deps("infinirt-kunlun")
+    end
     set_languages("cxx17")
     set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
     add_files("src/infinirt/*.cc")

@@ -48,9 +48,7 @@ __C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr) {
         CREATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_KUNLUN_API
-    case INFINI_DEVICE_KUNLUN: {
-        return createKunlunHandle((infiniopKunlunHandle_t *)handle_ptr);
-    }
+        CREATE(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
 #ifdef ENABLE_METAX_API
         CREATE(INFINI_DEVICE_METAX, maca);
@@ -84,9 +82,7 @@ __C infiniStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
         DELETE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_KUNLUN_API
-    case INFINI_DEVICE_KUNLUN: {
-        return destroyKunlunHandle((infiniopKunlunHandle_t)handle);
-    }
+        DELETE(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
 #ifdef ENABLE_METAX_API
         DELETE(INFINI_DEVICE_METAX, maca);

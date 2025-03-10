@@ -2,12 +2,41 @@
 #define __INFINIOP_KUNLUN_HANDLE_H__
 
 #include "../../handle.h"
+#include "../pool.h"
+#include <functional>
+#include <memory>
+#include <xpu/runtime.h>
+#include <xpu/runtime_ex.h>
+#include <xpu/xdnn.h>
 
-struct InfiniopKunlunHandle;
+namespace xdnn = baidu::xpu::api;
 
-typedef struct InfiniopKunlunHandle *infiniopKunlunHandle_t;
+typedef XPUStream kunlunStream_t;
+typedef XPUEvent kunlunEvent_t;
+typedef xdnn::Context *xdnnHandle_t;
 
-infiniStatus_t createKunlunHandle(infiniopKunlunHandle_t *handle_ptr);
-infiniStatus_t destroyKunlunHandle(infiniopKunlunHandle_t handle);
+namespace device::kunlun {
+
+struct Handle : public InfiniopHandle {
+    class Internal;
+    auto internal() const -> const std::shared_ptr<Internal> &;
+
+    Handle(infiniDevice_t device, int device_id);
+
+private:
+    std::shared_ptr<Internal> _internal;
+
+public:
+    static infiniStatus_t create(InfiniopHandle **handle_ptr, int device_id);
+};
+
+class Handle::Internal {
+    Pool<xdnnHandle_t> dnn_handles;
+
+public:
+    void use_xdnn(kunlunStream_t stream, const std::function<void(xdnnHandle_t)> &f) const;
+};
+
+} // namespace device::kunlun
 
 #endif // __INFINIOP_KUNLUN_HANDLE_H__
