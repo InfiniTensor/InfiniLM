@@ -75,6 +75,7 @@ option_end()
 
 if has_config("metax-gpu") then
     add_defines("ENABLE_MACA_API")
+    includes("xmake/maca.lua")
 end
 
 -- 摩尔线程
@@ -169,7 +170,7 @@ target("infiniop")
         add_deps("infiniop-ascend")
     end
     if has_config("metax-gpu") then
-        add_deps("metax-gpu")
+        add_deps("infiniop-metax")
     end
     if has_config("kunlun-xpu") then
         add_deps("infiniop-kunlun")
