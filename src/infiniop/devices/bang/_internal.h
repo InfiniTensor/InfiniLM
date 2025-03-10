@@ -6,14 +6,18 @@
 #include "cnnl.h"
 #include "cnrt.h"
 #include <functional>
+#include "../../../utils.h"
 
 namespace device::bang {
 
 class Handle::Internal {
     Pool<cnnlHandle_t> cnnl_handles;
 
+    template <typename T>
+    using Fn = std::function<infiniStatus_t(T)>;
+
 public:
-    infiniStatus_t use_cnnl(cnrtQueue_t queue, const std::function<void(cnnlHandle_t)> &f) const;
+    infiniStatus_t use_cnnl(cnrtQueue_t queue, const Fn<cnnlHandle_t> &f) const;
 };
 
 cnnlDataType_t getCnnlDtype(infiniDtype_t dt);

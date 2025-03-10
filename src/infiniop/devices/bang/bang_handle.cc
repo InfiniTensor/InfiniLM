@@ -17,16 +17,13 @@ auto Handle::internal() const -> const std::shared_ptr<Internal> & {
     return _internal;
 }
 
-template <typename T>
-using Fn = std::function<void(T)>;
-
-infiniStatus_t Handle::Internal::use_cnnl(cnrtQueue_t queue, const std::function<void(cnnlHandle_t)> &f) const {
+infiniStatus_t Handle::Internal::use_cnnl(cnrtQueue_t queue, const Fn<cnnlHandle_t> &f) const {
     auto handle = cnnl_handles.pop();
     if (!handle) {
         cnnlCreate(&(*handle));
     }
     CHECK_BANG(cnnlSetQueue(*handle, queue));
-    f(*handle);
+    CHECK_STATUS(f(*handle));
     cnnl_handles.push(std::move(*handle));
     return INFINI_STATUS_SUCCESS;
 }

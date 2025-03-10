@@ -102,12 +102,8 @@ cnrtMemTransDir_t toBangMemcpyKind(infinirtMemcpyKind_t kind) {
         return cnrtMemcpyHostToDev;
     case INFINIRT_MEMCPY_D2H:
         return cnrtMemcpyDevToHost;
-    // Note: Bang has two types of D2D types,
-    // 1. cnrtMemcpyDevToDev: which is copy in a single device, and
-    // 2. cnrtMemcpyPeerToPeer: which is from a device to another.
-    // Here, cnrtMemcpyNoDirection is placed. 
     case INFINIRT_MEMCPY_D2D:
-        return cnrtMemcpyNoDirection;
+        return cnrtMemcpyDevToDev;
     case INFINIRT_MEMCPY_H2H:
         return cnrtMemcpyHostToHost;
     default:
@@ -125,11 +121,15 @@ infiniStatus_t memcpyAsync(void *dst, const void *src, size_t size, infinirtMemc
     return INFINI_STATUS_SUCCESS;
 }
 
+// Does not support async malloc. Use blocking-style malloc instead
 infiniStatus_t mallocAsync(void **p_ptr, size_t size, infinirtStream_t stream) {
-    return INFINI_STATUS_NOT_IMPLEMENTED;
+    CHECK_BANGRT(cnrtMalloc(p_ptr, size));
+    return INFINI_STATUS_SUCCESS;
 }
 
+// Does not support async free. Use blocking-style free instead
 infiniStatus_t freeAsync(void *ptr, infinirtStream_t stream) {
-    return INFINI_STATUS_NOT_IMPLEMENTED;
+    CHECK_BANGRT(cnrtFree(ptr));
+    return INFINI_STATUS_SUCCESS;
 }
 } // namespace infinirt::bang
