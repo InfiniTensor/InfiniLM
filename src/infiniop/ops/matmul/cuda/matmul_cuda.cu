@@ -76,34 +76,36 @@ infiniStatus_t Descriptor::calculate(
     auto op_a = _info.a_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
     auto op_b = _info.b_matrix.row_stride == 1 ? CUBLAS_OP_N : CUBLAS_OP_T;
 
-    _opaque->internal->use_cublas(
+    CHECK_STATUS(_opaque->internal->useCublas(
         (cudaStream_t)stream,
         [&](cublasHandle_t handle) {
-            cublasGemmStridedBatchedEx(
-                handle,
-                op_a,
-                op_b,
-                static_cast<int>(_info.m),
-                static_cast<int>(_info.n),
-                static_cast<int>(_info.k),
-                &alpha,
-                a,
-                a_type,
-                static_cast<int>(_info.a_matrix.ld()),
-                _info.a_matrix.stride,
-                b,
-                b_type,
-                static_cast<int>(_info.b_matrix.ld()),
-                _info.b_matrix.stride,
-                &beta,
-                c,
-                c_type,
-                static_cast<int>(_info.c_matrix.ld()),
-                _info.c_matrix.stride,
-                static_cast<int>(_info.batch),
-                compute_type,
-                CUBLAS_GEMM_DEFAULT_TENSOR_OP);
-        });
+            CHECK_CUBLAS(
+                cublasGemmStridedBatchedEx(
+                    handle,
+                    op_a,
+                    op_b,
+                    static_cast<int>(_info.m),
+                    static_cast<int>(_info.n),
+                    static_cast<int>(_info.k),
+                    &alpha,
+                    a,
+                    a_type,
+                    static_cast<int>(_info.a_matrix.ld()),
+                    _info.a_matrix.stride,
+                    b,
+                    b_type,
+                    static_cast<int>(_info.b_matrix.ld()),
+                    _info.b_matrix.stride,
+                    &beta,
+                    c,
+                    c_type,
+                    static_cast<int>(_info.c_matrix.ld()),
+                    _info.c_matrix.stride,
+                    static_cast<int>(_info.batch),
+                    compute_type,
+                    CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+            return INFINI_STATUS_SUCCESS;
+        }));
     return INFINI_STATUS_SUCCESS;
 }
 
