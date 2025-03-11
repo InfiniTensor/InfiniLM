@@ -1,6 +1,5 @@
 #include "../../tensor.h"
 #include "../pool.h"
-#include "_internal.h"
 #include "cnnl.h"
 #include "common_bang.h"
 #include "infiniop/tensor_descriptor.h"
@@ -51,9 +50,8 @@ cnnlDataType_t getCnnlDtype(infiniDtype_t dt) {
     }
 }
 
-// set cnnl tensor descriptor without strides11
-inline infiniStatus_t setCnnlTensor(cnnlTensorDescriptor_t desc,
-                                    const InfiniopTensorDescriptor *layout) {
+infiniStatus_t setCnnlTensor(cnnlTensorDescriptor_t desc,
+                             const InfiniopTensorDescriptor *layout) {
     std::vector<int> dims(layout->ndim());
     for (size_t i = 0; i < layout->ndim(); i++) {
         dims[i] = static_cast<int>(layout->shape()[i]);
@@ -64,9 +62,8 @@ inline infiniStatus_t setCnnlTensor(cnnlTensorDescriptor_t desc,
     return INFINI_STATUS_SUCCESS;
 }
 
-// set cnnl tensor descriptor with strides
-inline infiniStatus_t setCnnlTensorEx(cnnlTensorDescriptor_t desc,
-                                      const InfiniopTensorDescriptor *layout) {
+infiniStatus_t setCnnlTensorEx(cnnlTensorDescriptor_t desc,
+                               const InfiniopTensorDescriptor *layout) {
     std::vector<int> dim_size(layout->ndim()), dim_stride(layout->ndim());
     for (size_t i = 0; i < layout->ndim(); i++) {
         dim_size[i] = static_cast<int>(layout->shape()[i]);

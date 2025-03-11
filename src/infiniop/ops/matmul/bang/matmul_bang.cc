@@ -1,6 +1,4 @@
 ﻿#include "matmul_bang.h"
-#include "../../../devices/bang/_internal.h"
-#include "../../../devices/bang/bang_handle.h"
 #include "../../../devices/bang/common_bang.h"
 #include <cnnl_extra.h>
 
@@ -84,9 +82,9 @@ infiniStatus_t Descriptor::create(
     CHECK_BANG(cnnlCreateTensorDescriptor(&b));
     CHECK_BANG(cnnlCreateTensorDescriptor(&c));
 
-    setMatrixTensorEx(a, info.a_matrix, a_desc->dtype());
-    setMatrixTensorEx(b, info.b_matrix, b_desc->dtype());
-    setMatrixTensorEx(c, info.c_matrix, c_desc->dtype());
+    CHECK_STATUS(setMatrixTensorEx(a, info.a_matrix, a_desc->dtype()));
+    CHECK_STATUS(setMatrixTensorEx(b, info.b_matrix, b_desc->dtype()));
+    CHECK_STATUS(setMatrixTensorEx(c, info.c_matrix, c_desc->dtype()));
 
     cnnlMatMulDescriptor_t op;
     cnnlMatMulAlgo_t algo;
@@ -154,6 +152,7 @@ infiniStatus_t Descriptor::calculate(
                 workspace_size));
             return INFINI_STATUS_SUCCESS;
         }));
+    cnrtQueueSync((cnrtQueue_t)stream);
 
     return INFINI_STATUS_SUCCESS;
 }
