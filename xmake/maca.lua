@@ -34,8 +34,11 @@ rule_end()
 target("infiniop-metax")
     set_kind("static")
     on_install(function (target) end)
+    add_cxflags("-lstdc++ -Wall -fPIC")
     set_languages("cxx17")
+    set_warnings("all")
+
     add_files("../src/infiniop/devices/maca/*.cc", "../src/infiniop/ops/*/maca/*.cc")
     add_files("../src/infiniop/ops/*/maca/*.maca", {rule = "maca"})
-    add_cxflags("-lstdc++ -Werror -fPIC")
+
 target_end()
