@@ -1,6 +1,4 @@
 #include "../../tensor.h"
-#include "../pool.h"
-#include "cnnl.h"
 #include "common_bang.h"
 #include "infiniop/tensor_descriptor.h"
 #include <memory>
