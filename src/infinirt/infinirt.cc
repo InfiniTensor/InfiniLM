@@ -1,6 +1,7 @@
 #include "infinirt.h"
 #include "../utils.h"
 #include "ascend/infinirt_ascend.h"
+#include "bang/infinirt_bang.h"
 #include "cpu/infinirt_cpu.h"
 #include "cuda/infinirt_cuda.cuh"
 
@@ -50,6 +51,9 @@ __C infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_
             break;                                          \
         case INFINI_DEVICE_NVIDIA:                          \
             _status = infinirt::cuda::API PARAMS;           \
+            break;                                          \
+        case INFINI_DEVICE_CAMBRICON:                       \
+            _status = infinirt::bang::API PARAMS;           \
             break;                                          \
         case INFINI_DEVICE_ASCEND:                          \
             _status = infinirt::ascend::API PARAMS;         \

@@ -1,5 +1,4 @@
 ﻿#include "matmul_bang.h"
-#include "../../../devices/bang/bang_handle.h"
 #include "../../../devices/bang/common_bang.h"
 #include <cnnl_extra.h>
 
@@ -10,7 +9,7 @@ struct Descriptor::Opaque {
     cnnlMatMulAlgo_t algo;
     cnnlMatMulHeuristicResult_t algoResult;
     cnnlTensorDescriptor_t a, b, c;
-    std::shared_ptr<Pool<cnnlHandle_t>> cnnl_handle_pool;
+    std::shared_ptr<device::bang::Handle::Internal> internal;
 
     ~Opaque() {
         cnnlDestroyTensorDescriptor(a);
@@ -22,7 +21,7 @@ struct Descriptor::Opaque {
     }
 };
 
-static void setMatrixTensorEx(
+static infiniStatus_t setMatrixTensorEx(
     cnnlTensorDescriptor_t desc,
     const BlasMatrix &matrix, infiniDtype_t dtype,
     bool trans = false) {
@@ -38,20 +37,21 @@ static void setMatrixTensorEx(
     case 3: {
         std::vector<int> dim_size = {batch, rows, cols};
         std::vector<int> dim_stride = {stride, row_stride, col_stride};
-        cnnlSetTensorDescriptorEx(
+        CHECK_BANG(cnnlSetTensorDescriptorEx(
             desc, CNNL_LAYOUT_ARRAY,
-            cnnlDataTypeConvert(dtype), dim_size.size(),
-            dim_size.data(), dim_stride.data());
+            device::bang::getCnnlDtype(dtype), dim_size.size(),
+            dim_size.data(), dim_stride.data()));
     } break;
     case 2: {
         std::vector<int> dim_size = {rows, cols};
         std::vector<int> dim_stride = {row_stride, col_stride};
-        cnnlSetTensorDescriptorEx(
+        CHECK_BANG(cnnlSetTensorDescriptorEx(
             desc, CNNL_LAYOUT_ARRAY,
-            cnnlDataTypeConvert(dtype), dim_size.size(),
-            dim_size.data(), dim_stride.data());
+            device::bang::getCnnlDtype(dtype), dim_size.size(),
+            dim_size.data(), dim_stride.data()));
     } break;
     }
+    return INFINI_STATUS_SUCCESS;
 }
 
 Descriptor::~Descriptor() {
@@ -64,8 +64,8 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t c_desc,
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
-    auto handle = reinterpret_cast<infiniopBangHandle_t>(handle_);
-    auto dtype = c_desc->dtype;
+    auto handle = reinterpret_cast<device::bang::cambricon::Handle *>(handle_);
+    auto dtype = c_desc->dtype();
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
@@ -78,48 +78,47 @@ infiniStatus_t Descriptor::create(
     }
 
     cnnlTensorDescriptor_t a, b, c;
-    cnnlCreateTensorDescriptor(&a);
-    cnnlCreateTensorDescriptor(&b);
-    cnnlCreateTensorDescriptor(&c);
+    CHECK_BANG(cnnlCreateTensorDescriptor(&a));
+    CHECK_BANG(cnnlCreateTensorDescriptor(&b));
+    CHECK_BANG(cnnlCreateTensorDescriptor(&c));
 
-    setMatrixTensorEx(a, info.a_matrix, a_desc->dtype);
-    setMatrixTensorEx(b, info.b_matrix, b_desc->dtype);
-    setMatrixTensorEx(c, info.c_matrix, c_desc->dtype);
+    CHECK_STATUS(setMatrixTensorEx(a, info.a_matrix, a_desc->dtype()));
+    CHECK_STATUS(setMatrixTensorEx(b, info.b_matrix, b_desc->dtype()));
+    CHECK_STATUS(setMatrixTensorEx(c, info.c_matrix, c_desc->dtype()));
 
     cnnlMatMulDescriptor_t op;
     cnnlMatMulAlgo_t algo;
     cnnlMatMulHeuristicResult_t algoResult;
-    cnnlMatMulDescCreate(&op);
-    cnnlMatMulAlgoCreate(&algo);
-    cnnlCreateMatMulHeuristicResult(&algoResult);
+    CHECK_BANG(cnnlMatMulDescCreate(&op));
+    CHECK_BANG(cnnlMatMulAlgoCreate(&algo));
+    CHECK_BANG(cnnlCreateMatMulHeuristicResult(&algoResult));
     int32_t use_stride = true;
-    cnnlSetMatMulDescAttr(
+    CHECK_BANG(cnnlSetMatMulDescAttr(
         op,
         CNNL_MATMUL_USE_STRIDE,
         &use_stride,
-        sizeof(int32_t));
+        sizeof(int32_t)));
     int count = 0;
-    use_cnnl(handle->cnnl_handle_pool,
-             [&](cnnlHandle_t _handle) {
-                 cnnlGetBatchMatMulAlgoHeuristic(
-                     _handle,
-                     op, a, b, c,
-                     NULL, 1, &algoResult, &count);
-             });
+
+    CHECK_STATUS(
+        handle->internal()->useCnnl(
+            (cnrtQueue_t) nullptr,
+            [&](cnnlHandle_t _handle) {
+                CHECK_BANG(
+                    cnnlGetBatchMatMulAlgoHeuristic(
+                        _handle,
+                        op, a, b, c,
+                        NULL, 1, &algoResult, &count));
+                return INFINI_STATUS_SUCCESS;
+            }));
 
     size_t workspace_size;
-    cnnlGetBatchMatMulHeuristicResult(algoResult, algo, &workspace_size);
+    CHECK_BANG(cnnlGetBatchMatMulHeuristicResult(algoResult, algo, &workspace_size));
 
     *desc_ptr = new Descriptor(
         dtype, info, workspace_size,
         new Opaque{
-            op,
-            algo,
-            algoResult,
-            a,
-            b,
-            c,
-            handle->cnnl_handle_pool},
+            op, algo, algoResult, a, b, c, handle->internal()},
         handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
 }
@@ -137,21 +136,22 @@ infiniStatus_t Descriptor::calculate(
     if (_info.is_transed) {
         std::swap(a, b);
     }
-    use_cnnl(_opaque->cnnl_handle_pool,
-             (cnrtQueue_t)stream,
-             [&](cnnlHandle_t handle) {
-                 cnnlBatchMatMulBCast_v2(
-                     handle,
-                     _opaque->op,
-                     _opaque->algo,
-                     &alpha,
-                     _opaque->a, a,
-                     _opaque->b, b,
-                     &beta,
-                     _opaque->c, c,
-                     workspace,
-                     workspace_size);
-             });
+    CHECK_STATUS(_opaque->internal->useCnnl(
+        (cnrtQueue_t)stream,
+        [&](cnnlHandle_t handle) {
+            CHECK_BANG(cnnlBatchMatMulBCast_v2(
+                handle,
+                _opaque->op,
+                _opaque->algo,
+                &alpha,
+                _opaque->a, a,
+                _opaque->b, b,
+                &beta,
+                _opaque->c, c,
+                workspace,
+                workspace_size));
+            return INFINI_STATUS_SUCCESS;
+        }));
     cnrtQueueSync((cnrtQueue_t)stream);
 
     return INFINI_STATUS_SUCCESS;
