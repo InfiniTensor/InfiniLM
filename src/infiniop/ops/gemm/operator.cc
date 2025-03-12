@@ -17,6 +17,9 @@
 #ifdef ENABLE_METAX_API
 #include "maca/gemm_maca.h"
 #endif
+#ifdef ENABLE_MOORE_API
+#include "musa/matmul_musa.h"
+#endif
 #ifdef ENABLE_KUNLUN_API
 #include "kunlun/gemm_kunlun.h"
 #endif
@@ -54,6 +57,10 @@ __C infiniStatus_t infiniopCreateGemmDescriptor(
 #ifdef ENABLE_METAX_API
         CREATE(INFINI_DEVICE_METAX, maca);
 #endif
+#ifdef ENABLE_MOORE_API
+        CREATE(INFINI_DEVICE_MOORE, musa);
+#endif
+
 #ifdef ENABLE_KUNLUN_API
         CREATE(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
@@ -91,6 +98,9 @@ infiniopGetGemmWorkspaceSize(
 #endif
 #ifdef ENABLE_METAX_API
         GET(INFINI_DEVICE_METAX, maca);
+#endif
+#ifdef ENABLE_MOORE_API
+        GET(INFINI_DEVICE_MOORE, musa);
 #endif
 #ifdef ENABLE_KUNLUN_API
         GET(INFINI_DEVICE_KUNLUN, kunlun);
@@ -138,6 +148,9 @@ __C infiniStatus_t infiniopGemm(
 #ifdef ENABLE_METAX_API
         CALCULATE(INFINI_DEVICE_METAX, maca);
 #endif
+#ifdef ENABLE_MOORE_API
+        CALCULATE(INFINI_DEVICE_MOORE, musa);
+#endif
 #ifdef ENABLE_KUNLUN_API
         CALCULATE(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
@@ -173,6 +186,9 @@ infiniopDestroyGemmDescriptor(infiniopGemmDescriptor_t desc) {
 #endif
 #ifdef ENABLE_METAX_API
         DELETE(INFINI_DEVICE_METAX, maca);
+#endif
+#ifdef ENABLE_MOORE_API
+        DELETE(INFINI_DEVICE_MOORE, musa);
 #endif
 #ifdef ENABLE_KUNLUN_API
         DELETE(INFINI_DEVICE_KUNLUN, kunlun);

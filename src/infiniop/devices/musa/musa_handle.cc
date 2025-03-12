@@ -12,6 +12,7 @@ auto Handle::internal() const -> const std::shared_ptr<Internal> & {
 infiniStatus_t Handle::Internal::useMublas(MUstream stream, const Fn<mublasHandle_t> &f) const {
     mublasHandle_t *handle = mublas_handles.pop();
     if (!handle) {
+        handle = new mublasHandle_t;
         CHECK_MUBLAS(mublasCreate(handle));
     }
     CHECK_MUBLAS(mublasSetStream(*handle, stream));

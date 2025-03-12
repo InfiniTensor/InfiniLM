@@ -184,7 +184,7 @@ target("infiniop")
         add_deps("infiniop-metax")
     end
     if has_config("moore-gpu") then
-        add_deps("infini-musa")
+        add_deps("infiniop-moore")
     end
     if has_config("kunlun-xpu") then
         add_deps("infiniop-kunlun")

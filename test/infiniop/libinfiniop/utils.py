@@ -172,6 +172,11 @@ def get_args():
         help="Run METAX GPU test",
     )
     parser.add_argument(
+        "--moore",
+        action="store_true",
+        help="Run MTHREADS GPU test",
+    )
+    parser.add_argument(
         "--kunlun",
         action="store_true",
         help="Run KUNLUN XPU test",
@@ -443,6 +448,11 @@ def get_test_devices(args):
         import torch
 
         devices_to_test.append(InfiniDeviceEnum.METAX)
+    if args.moore:
+        import torch
+        import torch_musa
+
+        devices_to_test.append(InfiniDeviceEnum.MOORE)
     if args.kunlun:
         import torch_xmlir
 

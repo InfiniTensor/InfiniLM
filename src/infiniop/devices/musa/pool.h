@@ -21,7 +21,7 @@ public:
     void push(T *val) const {
         Node<T> *new_node = new Node<T>(val);
         new_node->next = _head.load();
-        while (!_head.compare_exchange_weak(new_node->next, new_node));
+        while (!_head.compare_exchange_weak(new_node->next, new_node)) {}
     }
 
     T *pop() const {

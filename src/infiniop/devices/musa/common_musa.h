@@ -5,6 +5,8 @@
 #include <mublas.h>
 #include <mudnn.h>
 #include <musa.h>
+// #include <musa_fp16.h>
+#include <musa_fp16_mtgpu.h>
 #include <musa_runtime_api.h>
 
 #define CHECK_MUBLAS(API) CHECK_INTERNAL(API, MUBLAS_STATUS_SUCCESS)
