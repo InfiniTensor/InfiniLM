@@ -61,7 +61,7 @@ infiniStatus_t calculate(
 
     auto unit = infiniSizeOf(dtype);
 
-    return internal->useXdnn(
+    CHECK_STATUS(internal->useXdnn(
         (kunlunStream_t)stream,
         [&](xdnnHandle_t handle) {
             for (size_t i = 0; i < info.batch; i++) {
@@ -88,7 +88,8 @@ infiniStatus_t calculate(
                     nullptr)));
             }
             return INFINI_STATUS_SUCCESS;
-        });
+        }));
+    return INFINI_STATUS_SUCCESS;
 }
 
 infiniStatus_t Descriptor::calculate(
