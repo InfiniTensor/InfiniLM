@@ -18,8 +18,8 @@ class Handle::Internal {
     using Fn = std::function<infiniStatus_t(T)>;
 
 public:
-    infiniStatus_t use_mcblas(hcStream_t stream, const Fn<hcblasHandle_t> &f) const;
-    infiniStatus_t use_mcdnn(hcStream_t stream, const Fn<hcdnnHandle_t> &f) const;
+    infiniStatus_t useMcblas(hcStream_t stream, const Fn<hcblasHandle_t> &f) const;
+    infiniStatus_t useMcdnn(hcStream_t stream, const Fn<hcdnnHandle_t> &f) const;
 };
 
 hcdnnDataType_t getHcdnnDtype(infiniDtype_t dt);

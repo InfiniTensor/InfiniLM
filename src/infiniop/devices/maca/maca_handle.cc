@@ -9,7 +9,7 @@ auto Handle::internal() const -> const std::shared_ptr<Internal> & {
     return _internal;
 }
 
-infiniStatus_t Handle::Internal::use_mcblas(hcStream_t stream, const Fn<hcblasHandle_t> &f) const {
+infiniStatus_t Handle::Internal::useMcblas(hcStream_t stream, const Fn<hcblasHandle_t> &f) const {
     auto handle = mcblas_handles.pop();
     if (!handle) {
         CHECK_MCBLAS(hcblasCreate(&(*handle)));
@@ -20,7 +20,7 @@ infiniStatus_t Handle::Internal::use_mcblas(hcStream_t stream, const Fn<hcblasHa
     return INFINI_STATUS_SUCCESS;
 }
 
-infiniStatus_t Handle::Internal::use_mcdnn(hcStream_t stream, const Fn<hcdnnHandle_t> &f) const {
+infiniStatus_t Handle::Internal::useMcdnn(hcStream_t stream, const Fn<hcdnnHandle_t> &f) const {
     auto handle = mcdnn_handles.pop();
     if (!handle) {
         CHECK_MCDNN(hcdnnCreate(&(*handle)));

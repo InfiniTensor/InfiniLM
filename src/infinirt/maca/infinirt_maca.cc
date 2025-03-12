@@ -5,7 +5,7 @@
 
 #define CHECK_MACART(RT_API) CHECK_INTERNAL(RT_API, hcSuccess)
 
-namespace infinirt::cuda {
+namespace infinirt::maca {
 infiniStatus_t getDeviceCount(int *count) {
     CHECK_MACART(hcGetDeviceCount(count));
     return INFINI_STATUS_SUCCESS;
@@ -90,7 +90,7 @@ infiniStatus_t freeHost(void *ptr) {
     return INFINI_STATUS_SUCCESS;
 }
 
-cudaMemcpyKind toMacaMemcpyKind(infinirtMemcpyKind_t kind) {
+hcMemcpyKind toMacaMemcpyKind(infinirtMemcpyKind_t kind) {
     switch (kind) {
     case INFINIRT_MEMCPY_H2D:
         return hcMemcpyHostToDevice;
@@ -124,4 +124,4 @@ infiniStatus_t freeAsync(void *ptr, infinirtStream_t stream) {
     CHECK_MACART(hcFreeAsync(ptr, (hcStream_t)stream));
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace infinirt::cuda
+} // namespace infinirt::maca
