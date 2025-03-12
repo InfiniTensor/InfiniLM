@@ -10,8 +10,6 @@ auto Handle::internal() const -> const std::shared_ptr<Internal> & {
     return _internal;
 }
 
-
-
 infiniStatus_t Handle::Internal::useXdnn(kunlunStream_t stream, const Fn<xdnnHandle_t> &f) const {
     auto handle = dnn_handles.pop();
     if (!handle) {
