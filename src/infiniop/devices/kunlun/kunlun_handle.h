@@ -1,6 +1,7 @@
 #ifndef __INFINIOP_KUNLUN_HANDLE_H__
 #define __INFINIOP_KUNLUN_HANDLE_H__
 
+#include "../../../utils.h"
 #include "../../handle.h"
 #include "../pool.h"
 #include <functional>
@@ -14,6 +15,8 @@ namespace xdnn = baidu::xpu::api;
 typedef XPUStream kunlunStream_t;
 typedef XPUEvent kunlunEvent_t;
 typedef xdnn::Context *xdnnHandle_t;
+
+#define CHECK_XDNN(API) CHECK_INTERNAL(API, XPU_SUCCESS)
 
 namespace device::kunlun {
 
@@ -32,9 +35,11 @@ public:
 
 class Handle::Internal {
     Pool<xdnnHandle_t> dnn_handles;
+    template <typename T>
+    using Fn = std::function<infiniStatus_t(T)>;
 
 public:
-    void use_xdnn(kunlunStream_t stream, const std::function<void(xdnnHandle_t)> &f) const;
+    infiniStatus_t useXdnn(kunlunStream_t stream, const Fn<xdnnHandle_t> &f) const;
 };
 
 } // namespace device::kunlun

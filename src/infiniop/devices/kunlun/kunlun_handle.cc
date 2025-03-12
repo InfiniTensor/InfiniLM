@@ -10,17 +10,17 @@ auto Handle::internal() const -> const std::shared_ptr<Internal> & {
     return _internal;
 }
 
-template <typename T>
-using Fn = std::function<void(T)>;
 
-void Handle::Internal::use_xdnn(kunlunStream_t stream, const Fn<xdnnHandle_t> &f) const {
+
+infiniStatus_t Handle::Internal::useXdnn(kunlunStream_t stream, const Fn<xdnnHandle_t> &f) const {
     auto handle = dnn_handles.pop();
     if (!handle) {
         *handle = xdnn::create_context();
     }
     (*handle)->set_stream(stream);
-    f(*handle);
+    CHECK_STATUS(f(*handle));
     dnn_handles.push(std::move(*handle));
+    return INFINI_STATUS_SUCCESS;
 }
 
 infiniStatus_t Handle::create(InfiniopHandle **handle_ptr, int device_id) {

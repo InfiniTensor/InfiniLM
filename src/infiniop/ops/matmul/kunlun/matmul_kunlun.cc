@@ -41,7 +41,7 @@ infiniStatus_t Descriptor::create(
 }
 
 template <class Tdata>
-void calculate(
+infiniStatus_t calculate(
     MatmulInfo info,
     std::shared_ptr<HandleInternal> internal,
     infiniDtype_t dtype,
@@ -61,11 +61,11 @@ void calculate(
 
     auto unit = infiniSizeOf(dtype);
 
-    internal->use_xdnn(
+    return internal->useXdnn(
         (kunlunStream_t)stream,
         [&](xdnnHandle_t handle) {
             for (size_t i = 0; i < info.batch; i++) {
-                xdnn::fc_fusion<Tdata, Tdata, Tdata, int16_t>(
+                CHECK_XDNN((xdnn::fc_fusion<Tdata, Tdata, Tdata, int16_t>(
                     handle,
                     (Tdata *)((char *)a + i * info.a_matrix.stride * unit),
                     (Tdata *)((char *)b + i * info.b_matrix.stride * unit),
@@ -85,8 +85,9 @@ void calculate(
                     beta,
                     nullptr,
                     xdnn::Activation_t::LINEAR,
-                    nullptr);
+                    nullptr)));
             }
+            return INFINI_STATUS_SUCCESS;
         });
 }
 
@@ -101,13 +102,9 @@ infiniStatus_t Descriptor::calculate(
     void *stream) const {
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        op::matmul::kunlun::calculate<float16>(_info, _opaque->internal, _dtype, c, beta, a, b, alpha, (kunlunStream_t)stream);
-        return INFINI_STATUS_SUCCESS;
-
+        return op::matmul::kunlun::calculate<float16>(_info, _opaque->internal, _dtype, c, beta, a, b, alpha, (kunlunStream_t)stream);
     case INFINI_DTYPE_F32:
-        op::matmul::kunlun::calculate<float>(_info, _opaque->internal, _dtype, c, beta, a, b, alpha, (kunlunStream_t)stream);
-        return INFINI_STATUS_SUCCESS;
-
+        return op::matmul::kunlun::calculate<float>(_info, _opaque->internal, _dtype, c, beta, a, b, alpha, (kunlunStream_t)stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
