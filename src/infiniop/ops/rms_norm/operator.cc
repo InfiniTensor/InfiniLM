@@ -2,6 +2,10 @@
 #include "../../handle.h"
 #include "infiniop/ops/rms_norm.h"
 
+#ifdef ENABLE_CPU_API
+#include "cpu/rms_norm_cpu.h"
+#endif
+
 __C infiniStatus_t infiniopCreateRMSNormDescriptor(
     infiniopHandle_t handle,
     infiniopRMSNormDescriptor_t *desc_ptr,
@@ -9,10 +13,20 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
     infiniopTensorDescriptor_t x_desc,
     infiniopTensorDescriptor_t w_desc,
     float epsilon) {
+
+#define CREATE(CASE, NAMESPACE)                                                 \
+    case CASE:                                                                  \
+        return op::rms_norm::NAMESPACE::Descriptor::create(                     \
+            handle,                                                             \
+            reinterpret_cast<op::rms_norm::NAMESPACE::Descriptor **>(desc_ptr), \
+            y_desc,                                                             \
+            x_desc,                                                             \
+            w_desc,                                                             \
+            epsilon);
+
     switch (handle->device) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuCreateRMSNormDescriptor(handle, (RMSNormCpuDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
+#ifdef ENABLE_CPU_API
+        CREATE(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NV_GPU
     case DevNvGpu: {
@@ -45,14 +59,22 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
     }
 #endif
     }
+
+#undef CREATE
+
     return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
 __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t desc, size_t *size) {
+
+#define GET(CASE, NAMESPACE)                                                                    \
+    case CASE:                                                                                  \
+        *size = reinterpret_cast<op::rms_norm::NAMESPACE::Descriptor *>(desc)->workspaceSize(); \
+        return INFINI_STATUS_SUCCESS;
+
     switch (desc->device_type) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuGetRMSNormWorkspaceSize((RMSNormCpuDescriptor_t)desc, size);
+#ifdef ENABLE_CPU_API
+        GET(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NV_GPU
     case DevNvGpu: {
@@ -82,15 +104,23 @@ __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t d
     }
 #endif
     }
+
+#undef GET
+
     return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
 __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *workspace, size_t workspace_size,
                                    void *y, const void *x, const void *w, void *stream) {
+
+#define CALCULATE(CASE, NAMESPACE)                                                       \
+    case CASE:                                                                           \
+        return reinterpret_cast<op::rms_norm::NAMESPACE::Descriptor *>(desc)->calculate( \
+            workspace, workspace_size, y, x, w, stream);
+
     switch (desc->device_type) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuRMSNorm((RMSNormCpuDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
+#ifdef ENABLE_CPU_API
+        CALCULATE(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NV_GPU
     case DevNvGpu: {
@@ -125,14 +155,22 @@ __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *works
     }
 #endif
     }
+
+#undef CALCULATE
+
     return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
 __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t desc) {
+
+#define DESTROY(CASE, NAMESPACE)                                              \
+    case CASE:                                                                \
+        delete reinterpret_cast<op::rms_norm::NAMESPACE::Descriptor *>(desc); \
+        return INFINI_STATUS_SUCCESS;
+
     switch (desc->device_type) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuDestroyRMSNormDescriptor((RMSNormCpuDescriptor_t)desc);
+#ifdef ENABLE_CPU_API
+        DESTROY(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NV_GPU
     case DevNvGpu: {
@@ -161,5 +199,8 @@ __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t 
     }
 #endif
     }
+
+#undef DESTROY
+
     return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }

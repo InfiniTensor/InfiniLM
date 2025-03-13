@@ -25,6 +25,7 @@ from libinfiniop import (
 # These are not meant to be imported from other modules
 _TEST_CASES = [
     # y_shape, x_shape, w_shape, y_stride, x_stride, w_dtype
+    ((1, 4), (1, 4), (4,), None, None, torch.float32),
     ((16, 2048), (16, 2048), (2048,), None, None, torch.float32),
     ((16, 2048), (16, 2048), (2048,), None, None, torch.float16),
     ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1), torch.float32),
@@ -57,7 +58,7 @@ def rms_norm(x, w, eps):
     hidden_states = x.to(torch.float32)
     variance = hidden_states.pow(2).mean(-1, keepdim=True)
     hidden_states = hidden_states * torch.rsqrt(variance + eps)
-    return w * hidden_states.to(input_dtype)
+    return (w * hidden_states).to(input_dtype)
 
 
 def test(
@@ -79,7 +80,7 @@ def test(
 
     y = torch.zeros(y_shape, dtype=dtype).to(torch_device)
     x = torch.rand(x_shape, dtype=dtype).to(torch_device)
-    w = torch.ones(w_shape, dtype=w_dtype).to(torch_device)
+    w = torch.rand(w_shape, dtype=w_dtype).to(torch_device)
 
     eps = 1e-5
     ans = rms_norm(x, w, eps)
@@ -106,7 +107,7 @@ def test(
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
     for tensor in [x_tensor, y_tensor, w_tensor]:
-        tensor.descriptor.contents.invalidate()
+        tensor.destroyDesc(lib)
 
     workspace_size = c_uint64(0)
     check_error(

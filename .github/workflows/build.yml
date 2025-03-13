@@ -46,3 +46,4 @@ jobs:
       run: |
         pip install torch
         LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/matmul.py --cpu
+        LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/rms_norm.py --cpu

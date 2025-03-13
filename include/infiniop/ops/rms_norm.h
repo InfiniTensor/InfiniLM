@@ -16,7 +16,7 @@ __C __export infiniStatus_t infiniopCreateRMSNormDescriptor(
 __C __export infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t desc, size_t *size);
 
 __C __export infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *workspace, size_t workspace_size,
-                                            void *y, void const *x, void const *w, void *stream);
+                                            void *y, const void *x, const void *w, void *stream);
 
 __C __export infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t desc);
 

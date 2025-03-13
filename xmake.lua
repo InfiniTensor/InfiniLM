@@ -8,7 +8,6 @@ add_includedirs("include")
 set_encodings("utf-8")
 
 if is_mode("debug") then
-    add_cxflags("-g -O0")
     add_defines("DEBUG_MODE")
 end
 
@@ -20,7 +19,7 @@ option("cpu")
 option_end()
 
 option("omp")
-    set_default(false)
+    set_default(true)
     set_showmenu(true)
     set_description("Enable or disable OpenMP support for cpu kernel")
 option_end()
@@ -28,6 +27,10 @@ option_end()
 if has_config("cpu") then
     includes("xmake/cpu.lua")
     add_defines("ENABLE_CPU_API")
+end
+
+if has_config("omp") then
+    add_defines("ENABLE_OMP")
 end
 
 -- 英伟达

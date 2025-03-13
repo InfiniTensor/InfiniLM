@@ -1,6 +1,5 @@
 #include "matmul_cpu.h"
 #include "../../../devices/cpu/common_cpu.h"
-#include "../../../devices/cpu/cpu_handle.h"
 
 namespace op::matmul::cpu {
 
@@ -52,17 +51,17 @@ void calculate(
                 for (size_t k_ = 0; k_ < info.k; ++k_) {
                     auto a_ = reinterpret_cast<const Tdata *>(a) + i * info.a_matrix.stride + m_ * info.a_matrix.row_stride + k_ * info.a_matrix.col_stride;
                     auto b_ = reinterpret_cast<const Tdata *>(b) + i * info.b_matrix.stride + n_ * info.b_matrix.col_stride + k_ * info.b_matrix.row_stride;
-                    if constexpr (std::is_same<Tdata, uint16_t>::value) {
-                        sum += f16_to_f32(*a_) * f16_to_f32(*b_);
+                    if constexpr (std::is_same<Tdata, fp16_t>::value) {
+                        sum += utils::cast<float>(*a_) * utils::cast<float>(*b_);
                     } else {
                         sum += *a_ * (*b_);
                     }
                 }
-                if constexpr (std::is_same<Tdata, uint16_t>::value) {
+                if constexpr (std::is_same<Tdata, fp16_t>::value) {
                     if (beta == 0) {
-                        *c_ = f32_to_f16(alpha * sum);
+                        *c_ = utils::cast<fp16_t>(alpha * sum);
                     } else {
-                        *c_ = f32_to_f16(beta * f16_to_f32(*c_) + alpha * sum);
+                        *c_ = utils::cast<fp16_t>(beta * utils::cast<float>(*c_) + alpha * sum);
                     }
                 } else {
                     *c_ = beta * (*c_) + alpha * sum;
@@ -84,7 +83,7 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        cpu::calculate<uint16_t>(_info, c, beta, a, b, alpha);
+        cpu::calculate<fp16_t>(_info, c, beta, a, b, alpha);
         return INFINI_STATUS_SUCCESS;
 
     case INFINI_DTYPE_F32:
