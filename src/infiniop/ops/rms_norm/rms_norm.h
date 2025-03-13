@@ -51,6 +51,10 @@ inline infiniStatus_t createRMSNormInfo(RMSNormInfo *info, infiniopTensorDescrip
         return INFINI_STATUS_BAD_TENSOR_SHAPE;
     }
 
+    if (w_desc->stride(0) != 1) {
+        return INFINI_STATUS_BAD_TENSOR_STRIDES;
+    }
+
     info->shape = std::move(y_desc->shape());
     info->y_strides = std::move(y_desc->strides());
     info->x_strides = std::move(x_desc->strides());

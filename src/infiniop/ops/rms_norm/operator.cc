@@ -5,6 +5,9 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/rms_norm_cpu.h"
 #endif
+#ifdef ENABLE_CUDA_API
+#include "cuda/rms_norm_cuda.cuh"
+#endif
 
 __C infiniStatus_t infiniopCreateRMSNormDescriptor(
     infiniopHandle_t handle,
@@ -28,10 +31,8 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaCreateRMSNormDescriptor((CudaHandle_t)handle, (RMSNormCudaDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
-    }
+#ifdef ENABLE_CUDA_API
+        CREATE(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -76,11 +77,8 @@ __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t d
 #ifdef ENABLE_CPU_API
         GET(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaGetRMSNormWorkspaceSize((RMSNormCudaDescriptor_t)desc, size);
-    }
-
+#ifdef ENABLE_CUDA_API
+        GET(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -122,11 +120,8 @@ __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *works
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaRMSNorm((RMSNormCudaDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
-    }
-
+#ifdef ENABLE_CUDA_API
+        CALCULATE(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -172,11 +167,8 @@ __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t 
 #ifdef ENABLE_CPU_API
         DESTROY(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaDestroyRMSNormDescriptor((RMSNormCudaDescriptor_t)desc);
-    }
-
+#ifdef ENABLE_CUDA_API
+        DESTROY(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
