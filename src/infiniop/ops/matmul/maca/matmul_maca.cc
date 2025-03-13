@@ -60,7 +60,6 @@ infiniStatus_t Descriptor::calculate(
     case INFINI_DTYPE_F32:
         a_type = b_type = c_type = HPCC_R_32F;
         compute_type = HCBLAS_COMPUTE_32F_FAST_TF32;
-#endif
         break;
 
     default:

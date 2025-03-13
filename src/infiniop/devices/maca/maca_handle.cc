@@ -5,6 +5,8 @@ Handle::Handle(infiniDevice_t device, int device_id)
     : InfiniopHandle{device, device_id},
       _internal(std::make_shared<Handle::Internal>()) {}
 
+Handle::Handle(int device_id) : Handle(INFINI_DEVICE_METAX, device_id) {}
+
 auto Handle::internal() const -> const std::shared_ptr<Internal> & {
     return _internal;
 }
