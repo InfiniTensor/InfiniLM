@@ -6,6 +6,7 @@
 
 namespace device::musa {
 struct Handle : public InfiniopHandle {
+    Handle(int device_id);
     class Internal;
     auto internal() const -> const std::shared_ptr<Internal> &;
 

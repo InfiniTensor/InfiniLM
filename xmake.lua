@@ -140,6 +140,9 @@ target("infinirt")
     if has_config("metax-gpu") then
         add_deps("infinirt-metax")
     end
+    if has_config("moore-gpu") then
+        add_deps("infinirt-moore")
+    end
     if has_config("kunlun-xpu") then
         add_deps("infinirt-kunlun")
     end

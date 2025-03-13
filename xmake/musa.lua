@@ -39,3 +39,13 @@ target("infiniop-moore")
     add_files("../src/infiniop/ops/*/musa/*.mu", {rule = "mu"})
     add_cxflags("-lstdc++ -Wall -fPIC")
 target_end()
+
+target("infinirt-moore")
+    set_kind("static")
+    set_languages("cxx17")
+    on_install(function (target) end)
+    add_deps("infini-utils")
+    -- Add files
+    add_files("$(projectdir)/src/infinirt/musa/*.cc")
+    add_cxflags("-lstdc++ -Wall -Werror -fPIC")
+target_end()

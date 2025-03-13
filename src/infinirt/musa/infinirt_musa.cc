@@ -122,7 +122,7 @@ infiniStatus_t memcpyAsync(void *dst, const void *src, size_t size, infinirtMemc
 }
 
 infiniStatus_t mallocAsync(void **p_ptr, size_t size, infinirtStream_t stream) {
-    return mallocDevice(p_ptr, size, stream);
+    return mallocDevice(p_ptr, size);
 }
 
 infiniStatus_t freeAsync(void *ptr, infinirtStream_t stream) {
