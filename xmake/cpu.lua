@@ -5,16 +5,21 @@ target("infiniop-cpu")
 
     set_warnings("all", "error")
 
-    if not is_plat("windows") then
+    if is_plat("windows") then
+        if has_config("omp") then
+            add_cxflags("/openmp")
+        end
+    else
         add_cxflags("-fPIC")
+        if has_config("omp") then
+            add_cxflags("-fopenmp")
+            add_ldflags("-fopenmp")
+        end
     end
 
     set_languages("cxx17")
     add_files("../src/infiniop/devices/cpu/*.cc", "../src/infiniop/ops/*/cpu/*.cc")
-    if has_config("omp") then
-        add_cxflags("-fopenmp")
-        add_ldflags("-fopenmp")
-    end
+
 target_end()
 
 target("infinirt-cpu")

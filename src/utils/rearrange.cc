@@ -4,6 +4,10 @@
 #include <cstring>
 #include <vector>
 
+#ifdef ENABLE_OMP
+#include <omp.h>
+#endif
+
 namespace utils {
 
 RearrangeMeta::RearrangeMeta(std::vector<ptrdiff_t> meta)
@@ -98,7 +102,8 @@ void RearrangeMeta::launch(void *dst_, const void *src_) const {
     if (count_ == 1) {
         std::memcpy(dst_, src_, unit_);
     } else {
-        for (size_t i = 0; i < count_; ++i) {
+#pragma omp parallel for
+        for (ptrdiff_t i = 0; i < (ptrdiff_t)count_; ++i) {
             auto dst = reinterpret_cast<char *>(dst_);
             auto src = reinterpret_cast<const char *>(src_);
             auto rem = i;

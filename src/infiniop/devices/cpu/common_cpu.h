@@ -2,17 +2,16 @@
 #define __INFINIOP_COMMON_CPU_H__
 
 #include "../../../utils.h"
+#include "cpu_handle.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <vector>
 
-// convert half-precision float to single-precision float
-float f16_to_f32(uint16_t code);
-
-// convert single-precision float to half-precision float
-uint16_t f32_to_f16(float val);
+#ifdef ENABLE_OMP
+#include <omp.h>
+#endif
 
 // return the memory offset of original tensor, given the flattened index of broadcasted tensor
 size_t indexToReducedOffset(size_t flat_index, size_t ndim, const ptrdiff_t *broadcasted_strides, const ptrdiff_t *target_strides);

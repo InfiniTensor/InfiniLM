@@ -3,6 +3,7 @@
 
 #include "infinicore.h"
 #include "utils/check.h"
+#include "utils/custom_types.h"
 #include "utils/rearrange.h"
 
 inline size_t infiniSizeOf(infiniDtype_t dtype) {
