@@ -54,7 +54,7 @@ int test_transpose_2d() {
     std::vector<float> b(numel);
 
     for (size_t i = 0; i < numel; i++) {
-        a[i] = i / numel;
+        a[i] = (float)i / numel;
     }
 
     utils::rearrange(b.data(), a.data(), shape.data(), strides_b.data(), strides_a.data(), 2, sizeof(float));

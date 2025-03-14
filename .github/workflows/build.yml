@@ -41,6 +41,10 @@ jobs:
       if: matrix.os != 'windows-latest'
       run: xmake install
 
+    - name: build infiniop-test
+      if: matrix.os != 'windows-latest'
+      run: xmake build infiniop-test
+
     - name: python test
       if: matrix.os != 'windows-latest'
       run: |
