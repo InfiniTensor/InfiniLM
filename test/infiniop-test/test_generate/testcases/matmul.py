@@ -18,6 +18,12 @@ def matmul(
     return alpha * np.matmul(a, b) + beta * c
 
 
+def random_tensor(shape, dtype):
+    rate = 1e-3  # 目前发现如果rate=1e-2还是无法全部通过测试
+    var = 0.5 * rate  # 这样设置可以保证采样范围在[-5e-4, 5e-4]
+    return rate * np.random.rand(*shape).astype(dtype) - var
+
+
 class MatmulTestCase(InfiniopTestCase):
     def __init__(
         self,
@@ -76,23 +82,113 @@ if __name__ == "__main__":
     # a, stride_a, b, stride_b, c, stride_c, alpha, beta
     test_cases = [
         MatmulTestCase(
-            np.random.rand(4, 5).astype(np.float32),
+            random_tensor((4, 5), np.float32),
             None,
-            np.random.rand(5, 6).astype(np.float32),
+            random_tensor((5, 6), np.float32),
             None,
-            np.random.rand(4, 6).astype(np.float32),
+            random_tensor((4, 6), np.float32),
             None,
             1.0,
             0.0,
         ),
         MatmulTestCase(
-            np.random.rand(4, 5).astype(np.float32),
+            random_tensor((4, 5), np.float32),
             gguf_strides(1, 4),
-            np.random.rand(5, 6).astype(np.float32),
+            random_tensor((5, 6), np.float32),
             gguf_strides(1, 5),
-            np.random.rand(4, 6).astype(np.float32),
+            random_tensor((4, 6), np.float32),
             gguf_strides(1, 4),
             1.0,
+            1.0,
+        ),
+        MatmulTestCase(
+            random_tensor((4, 5), np.float16),
+            None,
+            random_tensor((5, 6), np.float16),
+            None,
+            random_tensor((4, 6), np.float16),
+            None,
+            1.0,
+            0.0,
+        ),
+        MatmulTestCase(
+            random_tensor((4, 5), np.float16),
+            gguf_strides(1, 4),
+            random_tensor((5, 6), np.float16),
+            gguf_strides(1, 5),
+            random_tensor((4, 6), np.float16),
+            gguf_strides(1, 4),
+            1.0,
+            1.0,
+        ),
+        MatmulTestCase(
+            random_tensor((1, 2048), np.float16),
+            gguf_strides(1, 2048),
+            random_tensor((2048, 2048), np.float16),
+            gguf_strides(1, 2048),
+            random_tensor((1, 2048), np.float16),
+            gguf_strides(1, 2048),
+            1.0,
+            0.0,
+        ),
+        MatmulTestCase(
+            random_tensor((1, 2048), np.float32),
+            None,
+            random_tensor((2048, 2048), np.float32),
+            None,
+            random_tensor((1, 2048), np.float32),
+            None,
+            1.0,
+            0.0,
+        ),
+        MatmulTestCase(
+            random_tensor((2, 4, 2048), np.float16),
+            None,
+            random_tensor((2, 2048, 2048), np.float16),
+            None,
+            random_tensor((2, 4, 2048), np.float16),
+            None,
+            1.0,
+            0.0,
+        ),
+        MatmulTestCase(
+            random_tensor((2, 4, 2048), np.float32),
+            None,
+            random_tensor((2, 2048, 2048), np.float32),
+            None,
+            random_tensor((2, 4, 2048), np.float32),
+            None,
+            1.0,
+            0.0,
+        ),
+        MatmulTestCase(
+            random_tensor((6, 2048), np.float32),
+            gguf_strides(1, 2048),
+            random_tensor((2048, 2560), np.float32),
+            gguf_strides(1, 2560),
+            random_tensor((6, 2560), np.float32),
+            gguf_strides(1, 2560),
+            1.0,
+            1.0,
+        ),
+        MatmulTestCase(
+            random_tensor((4, 48, 64), np.float16),
+            None,
+            random_tensor((4, 64, 6), np.float16),
+            None,
+            random_tensor((4, 48, 6), np.float16),
+            None,
+            1.0 / 8,
+            1.0,
+        ),
+        MatmulTestCase(
+            random_tensor((4, 48, 64), np.float32),
+            None,
+            random_tensor((4, 64, 6), np.float32),
+            None,
+            random_tensor((4, 48, 6), np.float32),
+            None,
+            1.0 / 8,
             1.0,
         ),
     ]

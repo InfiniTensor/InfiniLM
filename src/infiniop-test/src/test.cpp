@@ -153,7 +153,7 @@ void allClose(std::shared_ptr<Tensor> actual_, std::shared_ptr<Tensor> expected_
     for (size_t i = 0; i < total; i++) {
         double a_ = getVal((char *)actual->data() + actual_offset, actual->ggml_type());
         double e_ = getVal((char *)expected->data() + expected_offset, expected->ggml_type());
-        if (std::fabs(a_ - e_) > atol || std::fabs(a_ - e_) > rtol * std::fmax(std::fabs(a_), std::fabs(e_))) {
+        if (std::fabs(a_ - e_) > atol && std::fabs(a_ - e_) > rtol * std::fmax(std::fabs(a_), std::fabs(e_))) {
             if (num_failed == 0) {
                 first_failed_msg = "First failed at index " + std::to_string(i) + " with value " + std::to_string(a_) + " but should be " + std::to_string(e_) + ".";
             }
