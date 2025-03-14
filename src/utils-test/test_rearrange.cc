@@ -45,28 +45,26 @@ size_t check_equal(
     return fails;
 }
 
-int test_transpose_2d() {
-    std::vector<size_t> shape = {3, 5};
-    std::vector<ptrdiff_t> strides_a = {5, 1};
-    std::vector<ptrdiff_t> strides_b = {1, 3};
+int test_transpose_any(size_t index, std::vector<size_t> shape, std::vector<ptrdiff_t> strides_a, std::vector<ptrdiff_t> strides_b) {
     auto numel = std::accumulate(shape.begin(), shape.end(), (size_t)1, std::multiplies<size_t>());
     std::vector<float> a(numel);
     std::vector<float> b(numel);
-
     for (size_t i = 0; i < numel; i++) {
         a[i] = (float)i / numel;
     }
 
-    utils::rearrange(b.data(), a.data(), shape.data(), strides_b.data(), strides_a.data(), 2, sizeof(float));
-    if (check_equal<float>(a.data(), b.data(), shape, strides_a, strides_b)) {
+    utils::rearrange(b.data(), a.data(), shape.data(), strides_b.data(), strides_a.data(), shape.size(), sizeof(float));
+    auto fails = check_equal<float>(a.data(), b.data(), shape, strides_a, strides_b);
+    if (fails > 0) {
+        std::cout << "test_transpose " << index << " failed" << std::endl;
         return 1;
     } else {
-        std::cout << "test_transpose_2d passed" << std::endl;
+        std::cout << "test_transpose " << index << " passed" << std::endl;
+        return 0;
     }
-
-    return 0;
 }
 
 int test_rearrange() {
-    return test_transpose_2d();
+    return test_transpose_any(1, {3, 5}, {5, 1}, {1, 3})
+         + test_transpose_any(2, {1, 2048}, {2048, 1}, {2048, 1});
 }
