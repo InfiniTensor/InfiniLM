@@ -22,6 +22,11 @@ target("infiniop-test")
     add_includedirs(INFINI_ROOT.."/include")
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infiniop", "infinirt")
+
+    if has_config("omp") then
+        add_cxflags("-fopenmp")
+        add_ldflags("-fopenmp")
+    end
     
     add_includedirs(os.projectdir().."/src/infiniop-test/include")
     add_files(os.projectdir().."/src/infiniop-test/src/*.cpp")
