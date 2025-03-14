@@ -20,11 +20,11 @@ void printData(const T *data, const std::vector<size_t> &shape, const std::vecto
 }
 
 template <>
-void printData(const uint16_t *data, const std::vector<size_t> &shape,
+void printData(const fp16_t *data, const std::vector<size_t> &shape,
                const std::vector<ptrdiff_t> &strides, size_t dim) {
     if (dim == shape.size() - 1) {
         for (size_t i = 0; i < shape[dim]; i++) {
-            std::cout << f16_to_f32(*(data + i * strides[dim])) << " ";
+            std::cout << utils::cast<float>(*(data + i * strides[dim])) << " ";
         }
     } else if (dim < shape.size() - 1) {
         for (size_t i = 0; i < shape[dim]; i++) {
@@ -177,7 +177,7 @@ void Tensor::debug() const {
     std::cout << "Tensor: " << tensor->info() << std::endl;
     switch (_ggml_type) {
     case GGML_TYPE_F16:
-        printData((uint16_t *)(tensor->data()), _shape, _strides, 0);
+        printData((fp16_t *)(tensor->data()), _shape, _strides, 0);
         break;
     case GGML_TYPE_F32:
         printData((float *)(tensor->data()), _shape, _strides, 0);
