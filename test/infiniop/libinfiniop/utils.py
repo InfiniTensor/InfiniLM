@@ -167,6 +167,11 @@ def get_args():
         help="Run ASCEND NPU test",
     )
     parser.add_argument(
+        "--metax",
+        action="store_true",
+        help="Run METAX GPU test",
+    )
+    parser.add_argument(
         "--kunlun",
         action="store_true",
         help="Run KUNLUN XPU test",
@@ -434,6 +439,10 @@ def get_test_devices(args):
 
         torch.npu.set_device(0)  # Ascend NPU needs explicit device initialization
         devices_to_test.append(InfiniDeviceEnum.ASCEND)
+    if args.metax:
+        import torch
+
+        devices_to_test.append(InfiniDeviceEnum.METAX)
     if args.kunlun:
         import torch_xmlir
 

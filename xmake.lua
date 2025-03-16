@@ -77,7 +77,8 @@ option("metax-gpu")
 option_end()
 
 if has_config("metax-gpu") then
-    add_defines("ENABLE_MACA_API")
+    add_defines("ENABLE_METAX_API")
+    includes("xmake/maca.lua")
 end
 
 -- 摩尔线程
@@ -134,6 +135,9 @@ target("infinirt")
     if has_config("ascend-npu") then
         add_deps("infinirt-ascend")
     end
+    if has_config("metax-gpu") then
+        add_deps("infinirt-metax")
+    end
     set_languages("cxx17")
     set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
     add_files("src/infinirt/*.cc")
@@ -172,7 +176,7 @@ target("infiniop")
         add_deps("infiniop-ascend")
     end
     if has_config("metax-gpu") then
-        add_deps("metax-gpu")
+        add_deps("infiniop-metax")
     end
     if has_config("kunlun-xpu") then
         add_deps("infiniop-kunlun")
