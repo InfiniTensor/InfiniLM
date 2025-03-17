@@ -6,15 +6,20 @@ use std::{
     str::{from_utf8, from_utf8_unchecked},
 };
 use tokeneer::{utok, Bpe, Lpe, Method, Tokeneer};
+use tokenizers::tokenizer::Tokenizer as Hf;
 
 pub struct Tokenizer {
     tokenize: Box<dyn Tokenize>,
     en_replace: HashMap<char, char>,
     de_replace: HashMap<char, char>,
+    hf: Option<Hf>,
 }
 
 impl GGufModel<'_> {
     pub fn tokenizer(&self) -> Tokenizer {
+        if let Ok("deepseek-r1-qwen") = self.get_str("tokenizer.ggml.pre") {
+            return Tokenizer::deepseek(self);
+        }
         match self.tokenizer_ggml_model().unwrap() {
             "llama" => Tokenizer::bpe_from_gguf(self),
             "fm9g8b" | "gpt2" => Tokenizer::lpe_from_gguf(self),
@@ -25,6 +30,11 @@ impl GGufModel<'_> {
 
 impl Tokenizer {
     pub fn encode(&self, text: &str) -> Vec<utok> {
+        if let Some(hf) = &self.hf {
+            let x = hf.encode(text, false).unwrap();
+            return x.get_ids().to_vec();
+        }
+
         let space = self.en_replace[&' '];
         let mut chars = text.chars();
         let mut text = match chars.next() {
@@ -44,6 +54,11 @@ impl Tokenizer {
     }
 
     pub fn decode(&self, token: utok) -> Cow<str> {
+        if let Some(hf) = &self.hf {
+            let x = hf.decode(&[token], false).unwrap();
+            return x.into();
+        }
+
         let piece = self.tokenize.decode(token);
         if let Ok(piece) = from_utf8(piece) {
             let ans = piece
@@ -92,6 +107,7 @@ impl Tokenizer {
             tokenize: Box::new(tokeneer),
             en_replace,
             de_replace,
+            hf: None,
         }
     }
 
@@ -127,7 +143,15 @@ impl Tokenizer {
             tokenize: Box::new(tokeneer),
             en_replace,
             de_replace,
+            hf: None,
         }
+    }
+
+    fn deepseek(gguf: &GGufModel) -> Self {
+        let mut ans = Tokenizer::lpe_from_gguf(gguf);
+        ans.hf =
+            Some(Hf::from_pretrained("deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", None).unwrap());
+        ans
     }
 }
 

@@ -172,6 +172,8 @@ fn test_infer() {
                                 );
 
                                 next.send(pair.idx() as _).unwrap()
+                            } else {
+                                stream.synchronize();
                             }
                         }
                     });
