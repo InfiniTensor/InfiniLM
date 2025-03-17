@@ -17,6 +17,7 @@ target("infiniop-cpu")
         end
     end
 
+    add_links("gomp")
     set_languages("cxx17")
     add_files("../src/infiniop/devices/cpu/*.cc", "../src/infiniop/ops/*/cpu/*.cc")
 
