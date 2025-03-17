@@ -26,7 +26,7 @@ impl GGufModel<'_> {
 
 impl Tokenizer {
     pub fn encode(&self, text: &str) -> Vec<utok> {
-        let space = self.en_replace[&' '];
+        let space = self.en_replace.get(&' ').unwrap_or(&' ');
         let mut chars = text.chars();
         let mut text = match chars.next() {
             Some(c) => {
@@ -110,12 +110,24 @@ impl Tokenizer {
             GGmlTokenType::Byte => TokenType::Byte,
         });
 
-        let mut detective = SpaceDetective::new();
-        let vocabs = tokens.map(|piece| {
-            let piece = piece.unwrap();
-            detective.record(piece);
-            piece.as_bytes()
-        });
+        let buffer = tokens
+            .map(|piece| {
+                let piece = piece.unwrap();
+                if map_utf8 {
+                    piece
+                        .chars()
+                        .map(|c| match c {
+                            'Ġ' => ' ',
+                            'Ċ' => '\n',
+                            _ => c,
+                        })
+                        .collect::<String>()
+                } else {
+                    piece.to_string()
+                }
+            })
+            .collect::<Vec<_>>();
+        let vocabs = buffer.iter().map(|s| s.as_bytes());
 
         let bos = gguf.tokenizer_ggml_bos_token_id().unwrap();
         let eos = gguf.tokenizer_ggml_eos_token_id().unwrap();
@@ -128,11 +140,10 @@ impl Tokenizer {
             });
 
         let tokeneer = Tokeneer::new(Lpe::new(vocabs, token_type, unk, map_utf8));
-        let (en_replace, de_replace) = detective.build_map();
         Self {
             tokenize: Box::new(tokeneer),
-            en_replace,
-            de_replace,
+            en_replace: HashMap::new(),
+            de_replace: HashMap::new(),
         }
     }
 }
