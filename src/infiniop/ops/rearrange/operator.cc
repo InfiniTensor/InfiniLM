@@ -2,120 +2,78 @@
 #include "../../handle.h"
 #include "infiniop/ops/rearrange.h"
 
+#ifdef ENABLE_CPU_API
+#include "cpu/rearrange_cpu.h"
+#endif
+
 __C infiniStatus_t infiniopCreateRearrangeDescriptor(
     infiniopHandle_t handle,
     infiniopRearrangeDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t dst,
     infiniopTensorDescriptor_t src) {
+
+#define CREATE(CASE, NAMESPACE)                                                  \
+    case CASE:                                                                   \
+        return op::rearrange::NAMESPACE::Descriptor::create(                     \
+            handle,                                                              \
+            reinterpret_cast<op::rearrange::NAMESPACE::Descriptor **>(desc_ptr), \
+            dst,                                                                 \
+            src)
+
     switch (handle->device) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuCreateRearrangeDescriptor(handle, (RearrangeCpuDescriptor_t *)desc_ptr, dst, src);
+
+#ifdef ENABLE_CPU_API
+        CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaCreateRearrangeDescriptor((CudaHandle_t)handle, (RearrangeCudaDescriptor_t *)desc_ptr, dst, src);
+
+    default:
+        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-#endif
-#ifdef ENABLE_CAMBRICON_MLU
-    case DevCambriconMlu: {
-        return bangCreateRearrangeDescriptor((BangHandle_t)handle, (RearrangeBangDescriptor_t *)desc_ptr, dst, src);
-    }
-#endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnCreateRearrangeDescriptor((AscendHandle_t)handle,
-                                              (RearrangeAclnnDescriptor_t *)desc_ptr,
-                                              dst,
-                                              src);
-    }
-#endif
-#ifdef ENABLE_METAX_GPU
-    case DevMetaxGpu: {
-        return macaCreateRearrangeDescriptor((MacaHandle_t)handle, (RearrangeMacaDescriptor_t *)desc_ptr, dst, src);
-    }
-#endif
-#ifdef ENABLE_MTHREADS_GPU
-    case DevMthreadsGpu: {
-        return musaCreateRearrangeDescriptor((MusaHandle_t)handle, (RearrangeMusaDescriptor_t *)desc_ptr, dst, src);
-    }
-#endif
-    }
-    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+#undef CREATE
 }
 
-__C infiniStatus_t infiniopRearrange(infiniopRearrangeDescriptor_t desc, void *dst, const void *src, void *stream) {
+__C infiniStatus_t infiniopRearrange(
+    infiniopRearrangeDescriptor_t desc,
+    void *dst,
+    const void *src,
+    void *stream) {
+
+#define CALCULATE(CASE, NAMESPACE)                                                  \
+    case CASE:                                                                      \
+        return reinterpret_cast<const op::rearrange::NAMESPACE::Descriptor *>(desc) \
+            ->calculate(dst, src, stream)
+
     switch (desc->device_type) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuRearrange((RearrangeCpuDescriptor_t)desc, dst, src, stream);
+
+#ifdef ENABLE_CPU_API
+        CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaRearrange((RearrangeCudaDescriptor_t)desc, dst, src, stream);
+
+    default:
+        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-#endif
-#ifdef ENABLE_CAMBRICON_MLU
-    case DevCambriconMlu: {
-        return bangRearrange((RearrangeBangDescriptor_t)desc, dst, src, stream);
-    }
-#endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnRearrange((RearrangeAclnnDescriptor_t)desc,
-                              dst,
-                              src,
-                              stream);
-    }
-#endif
-#ifdef ENABLE_METAX_GPU
-    case DevMetaxGpu: {
-        return macaRearrange((RearrangeMacaDescriptor_t)desc, dst, src, stream);
-    }
-#endif
-#ifdef ENABLE_MTHREADS_GPU
-    case DevMthreadsGpu: {
-        return musaRearrange((RearrangeMusaDescriptor_t)desc, dst, src, stream);
-    }
-#endif
-    }
-    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+#undef CALCULATE
 }
 
-__C infiniStatus_t infiniopDestroyRearrangeDescriptor(infiniopRearrangeDescriptor_t desc) {
+__C infiniStatus_t infiniopDestroyRearrangeDescriptor(
+    infiniopRearrangeDescriptor_t desc) {
+
+#define DELETE(CASE, NAMESPACE)                                                      \
+    case CASE:                                                                       \
+        delete reinterpret_cast<const op::rearrange::NAMESPACE::Descriptor *>(desc); \
+        return INFINI_STATUS_SUCCESS;
+
     switch (desc->device_type) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuDestroyRearrangeDescriptor((RearrangeCpuDescriptor_t)desc);
+
+#ifdef ENABLE_CPU_API
+        DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaDestroyRearrangeDescriptor((RearrangeCudaDescriptor_t)desc);
+
+    default:
+        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
 
-#endif
-#ifdef ENABLE_CAMBRICON_MLU
-    case DevCambriconMlu: {
-        return bangDestroyRearrangeDescriptor((RearrangeBangDescriptor_t)desc);
-    }
-#endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnDestroyRearrangeDescriptor((RearrangeAclnnDescriptor_t)desc);
-    }
-#endif
-#ifdef ENABLE_METAX_GPU
-    case DevMetaxGpu: {
-        return macaDestroyRearrangeDescriptor((RearrangeMacaDescriptor_t)desc);
-    }
-#endif
-#ifdef ENABLE_MTHREADS_GPU
-    case DevMthreadsGpu: {
-        return musaDestroyRearrangeDescriptor((RearrangeMusaDescriptor_t)desc);
-    }
-#endif
-    }
-    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+#undef DELETE
 }
