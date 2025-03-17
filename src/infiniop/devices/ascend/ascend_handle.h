@@ -2,13 +2,16 @@
 #define __INFINIOP_ASCEND_HANDLE_H__
 
 #include "../../handle.h"
-#include "infinicore.h"
 
-struct InfiniopAscendHandle;
-typedef struct InfiniopAscendHandle *infiniopAscendHandle_t;
+namespace device::ascend {
 
-infiniStatus_t createAscendHandle(infiniopAscendHandle_t *handle_ptr);
+class Handle : public InfiniopHandle {
 
-infiniStatus_t destroyAscendHandle(infiniopAscendHandle_t handle_ptr);
+    Handle(int device_id);
+
+public:
+    static infiniStatus_t create(InfiniopHandle **handle_ptr, int device_id);
+};
+} // namespace device::ascend
 
 #endif

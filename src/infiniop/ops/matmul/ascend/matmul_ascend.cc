@@ -1,8 +1,5 @@
 #include "matmul_ascend.h"
-#include "../../../devices/ascend/ascend_handle.h"
-#include "../../../devices/ascend/tensor_aclnn.h"
-#include <acl/acl_base.h>
-#include <aclnn/acl_meta.h>
+#include "../../../devices/ascend/common_ascend.h"
 #include <aclnnop/aclnn_matmul.h>
 #include <aclnnop/level2/aclnn_gemm.h>
 
@@ -34,7 +31,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t c_desc,
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
-    auto handle = reinterpret_cast<infiniopAscendHandle_t>(handle_);
+    auto handle = reinterpret_cast<device::ascend::Handle *>(handle_);
     auto dtype = c_desc->dtype();
 
     if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
@@ -47,35 +44,20 @@ infiniStatus_t Descriptor::create(
         return status;
     }
 
-    auto c = new aclnnTensorDescriptor(),
-         a = new aclnnTensorDescriptor(),
-         b = new aclnnTensorDescriptor();
+    auto c = new aclnnTensorDescriptor(toAclDataType(c_desc->dtype()),
+                                       {static_cast<int64_t>(info.c_matrix.rows), static_cast<int64_t>(info.c_matrix.cols)},
+                                       {info.c_matrix.row_stride, info.c_matrix.col_stride});
+    auto a = new aclnnTensorDescriptor(toAclDataType(a_desc->dtype()),
+                                       {static_cast<int64_t>(info.a_matrix.rows), static_cast<int64_t>(info.a_matrix.cols)},
+                                       {info.a_matrix.row_stride, info.a_matrix.col_stride});
+    auto b = new aclnnTensorDescriptor(toAclDataType(b_desc->dtype()),
+                                       {static_cast<int64_t>(info.b_matrix.rows), static_cast<int64_t>(info.b_matrix.cols)},
+                                       {info.b_matrix.row_stride, info.b_matrix.col_stride});
 
-    // Treat A, B, C as 2D matrix, reuse aclnnTensorDescriptor for batched
-    // operation
-    CHECK_STATUS(c->setDescriptor(
-        toAclDataType(c_desc->dtype()),
-        {static_cast<int64_t>(info.c_matrix.rows),
-         static_cast<int64_t>(info.c_matrix.cols)},
-        {info.c_matrix.row_stride, info.c_matrix.col_stride}));
-    CHECK_STATUS(a->setDescriptor(
-        toAclDataType(a_desc->dtype()),
-        {static_cast<int64_t>(info.a_matrix.rows),
-         static_cast<int64_t>(info.a_matrix.cols)},
-        {info.a_matrix.row_stride, info.a_matrix.col_stride}));
-    CHECK_STATUS(b->setDescriptor(
-        toAclDataType(b_desc->dtype()),
-        {static_cast<int64_t>(info.b_matrix.rows),
-         static_cast<int64_t>(info.b_matrix.cols)},
-        {info.b_matrix.row_stride, info.b_matrix.col_stride}));
+    auto tc = c->tensor,
+         ta = a->tensor,
+         tb = b->tensor;
 
-    CHECK_STATUS(c->createTensor());
-    CHECK_STATUS(a->createTensor());
-    CHECK_STATUS(b->createTensor());
-
-    auto tc = c->t,
-         ta = a->t,
-         tb = b->t;
     aclOpExecutor *executor;
     size_t workspace_size;
     // aclnnGemm support C = alpha * A @ B + beta * C
@@ -85,7 +67,6 @@ infiniStatus_t Descriptor::create(
 
     int8_t mt = 1;
     CHECK_ACL(aclnnGemmGetWorkspaceSize(ta, tb, tc, .5, .5, 0, 0, tc, mt, &workspace_size, &executor));
-    aclSetAclOpExecutorRepeatable(executor);
 
     *desc_ptr = new Descriptor(
         dtype, info, workspace_size,
@@ -110,9 +91,9 @@ infiniStatus_t Descriptor::calculate(
     float alpha,
     void *stream) const {
 
-    auto tc = _opaque->c->t,
-         ta = _opaque->a->t,
-         tb = _opaque->b->t;
+    auto tc = _opaque->c->tensor,
+         ta = _opaque->a->tensor,
+         tb = _opaque->b->tensor;
 
     size_t workspace_size;
     CHECK_ACL(aclnnGemmGetWorkspaceSize(

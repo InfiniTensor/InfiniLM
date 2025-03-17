@@ -1,19 +1,59 @@
 #include "common_ascend.h"
 
-infiniStatus_t mallocWorkspace(void **workspaceAddr, size_t workspaceSize) {
-    *workspaceAddr = nullptr;
-    if (workspaceSize > 0) {
-        CHECK_ACL(aclrtMalloc(workspaceAddr, workspaceSize,
-                              ACL_MEM_MALLOC_HUGE_FIRST));
-    }
-    return INFINI_STATUS_SUCCESS;
+std::vector<int64_t> inferStorageShape(std::vector<int64_t> shape, std::vector<int64_t> strides) {
+    auto index = std::max_element(strides.begin(), strides.end());
+    uint64_t max_stride_index = std::distance(strides.begin(), index);
+    auto storageShape = std::vector<int64_t>({shape[max_stride_index] * strides[max_stride_index]});
+
+    return storageShape;
 }
 
-infiniStatus_t freeWorkspace(void *workspaceAddr) {
-    if (workspaceAddr != nullptr) {
-        CHECK_ACL(aclrtFree(workspaceAddr));
+aclnnTensorDescriptor::aclnnTensorDescriptor(infiniopTensorDescriptor_t desc, void *data) {
+    this->ndim = desc->ndim();
+    this->shape = std::vector<int64_t>(ndim);
+    this->strides = std::vector<int64_t>(ndim);
+    for (uint64_t i = 0; i < ndim; ++i) {
+        this->shape[i] = static_cast<int64_t>(desc->dim(i));
+        this->strides[i] = desc->stride(i);
     }
-    return INFINI_STATUS_SUCCESS;
+    this->storageShape = inferStorageShape(this->shape, this->strides);
+    this->dataType = toAclDataType(desc->dtype());
+    // TODO: support other formats
+    this->format = aclFormat::ACL_FORMAT_ND;
+    this->tensor = aclCreateTensor(this->shape.data(),
+                                   this->ndim,
+                                   this->dataType,
+                                   this->strides.data(),
+                                   this->offset,
+                                   this->format,
+                                   this->storageShape.data(),
+                                   this->storageNdim,
+                                   data);
+}
+
+aclnnTensorDescriptor::aclnnTensorDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides, void *data) {
+    this->ndim = shape.size();
+    this->shape = shape;
+    this->strides = strides;
+    this->dataType = dtype;
+    this->format = aclFormat::ACL_FORMAT_ND;
+    this->storageShape = inferStorageShape(this->shape, this->strides);
+    this->tensor = aclCreateTensor(this->shape.data(),
+                                   this->ndim,
+                                   this->dataType,
+                                   this->strides.data(),
+                                   this->offset,
+                                   this->format,
+                                   this->storageShape.data(),
+                                   this->storageNdim,
+                                   data);
+}
+
+aclnnTensorDescriptor::~aclnnTensorDescriptor() {
+    if (this->tensor) {
+        aclDestroyTensor(this->tensor);
+        this->tensor = nullptr;
+    }
 }
 
 aclDataType toAclDataType(infiniDtype_t dt) {
@@ -128,4 +168,56 @@ const char *formatToString(aclFormat format) {
     default:
         return "UNKNOWN";
     }
+}
+
+std::string aclnnTensorDescriptor::toString() {
+    std::ostringstream oss;
+
+    // 写入 ndim
+    oss << "ndim: " << this->ndim << "\n";
+
+    // 写入 shape
+    oss << "shape: [";
+    for (uint64_t i = 0; i < this->ndim; ++i) {
+        oss << this->shape[i];
+        if (i < this->ndim - 1) {
+            oss << ", ";
+        }
+    }
+    oss << "]\n";
+
+    // 写入 stride
+    oss << "stride: [";
+    for (uint64_t i = 0; i < this->ndim; ++i) {
+        oss << this->strides[i];
+        if (i < this->ndim - 1) {
+            oss << ", ";
+        }
+    }
+    oss << "]\n";
+
+    // 写入 offset
+    oss << "offset: " << this->offset << "\n";
+
+    // 写入 dataType
+    oss << "dataType: " << dataTypeToString(this->dataType) << "\n";
+
+    // 写入 format
+    oss << "format: " << formatToString(this->format) << "\n";
+
+    // 写入 storageShape
+    oss << "storageShape: [";
+    for (int64_t i = 0; i < this->storageNdim; ++i) {
+        oss << this->storageShape[i];
+        if (i < this->storageNdim - 1) {
+            oss << ", ";
+        }
+    }
+    oss << "]\n";
+
+    // 写入 storageNdim
+    oss << "storageNdim: " << this->storageNdim << "\n";
+
+    // 返回构建的字符串
+    return oss.str();
 }
