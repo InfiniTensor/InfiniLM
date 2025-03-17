@@ -24,7 +24,7 @@ struct Handle : public InfiniopHandle {
     class Internal;
     auto internal() const -> const std::shared_ptr<Internal> &;
 
-    Handle(infiniDevice_t device, int device_id);
+    Handle(int device_id);
 
 private:
     std::shared_ptr<Internal> _internal;

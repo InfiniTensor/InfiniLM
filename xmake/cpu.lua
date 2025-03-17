@@ -4,6 +4,7 @@ target("infiniop-cpu")
     on_install(function (target) end)
 
     set_warnings("all", "error")
+    add_cxflags("-Wno-unknown-pragmas")
 
     if is_plat("windows") then
         if has_config("omp") then

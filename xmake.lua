@@ -121,6 +121,7 @@ target("infini-utils")
     on_install(function (target) end)
     set_languages("cxx17")
     add_files("src/utils/*.cc")
+    add_cxflags("-Wno-unknown-pragmas")
 target_end()
 
 target("infinirt")

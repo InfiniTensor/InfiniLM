@@ -2,8 +2,8 @@
 
 namespace device::kunlun {
 
-Handle::Handle(infiniDevice_t device, int device_id)
-    : InfiniopHandle{device, device_id},
+Handle::Handle(int device_id)
+    : InfiniopHandle{INFINI_DEVICE_KUNLUN, device_id},
       _internal(std::make_shared<Handle::Internal>()) {}
 
 auto Handle::internal() const -> const std::shared_ptr<Internal> & {
@@ -22,7 +22,7 @@ infiniStatus_t Handle::Internal::useXdnn(kunlunStream_t stream, const Fn<xdnnHan
 }
 
 infiniStatus_t Handle::create(InfiniopHandle **handle_ptr, int device_id) {
-    *handle_ptr = new Handle(INFINI_DEVICE_KUNLUN, device_id);
+    *handle_ptr = new Handle(device_id);
     return INFINI_STATUS_SUCCESS;
 }
 
