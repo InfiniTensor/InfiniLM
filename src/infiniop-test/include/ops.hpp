@@ -24,6 +24,8 @@ DECLARE_INFINIOP_TEST(matmul)
     }
 
 namespace infiniop_test {
+
+// Global variable for {op_name: builder} mappings
 extern std::unordered_map<std::string, const TestBuilder> TEST_BUILDERS;
 
 } // namespace infiniop_test

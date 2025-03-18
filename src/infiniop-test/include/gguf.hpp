@@ -68,35 +68,32 @@ static const size_t GGUF_TYPE_SIZE[GGUF_TYPE_COUNT] = {
 
 inline std::string ggufDataToString(const uint8_t *data, GGUF_TYPE gguf_type) {
     switch (gguf_type) {
-    case GGUF_TYPE_UINT8:
-        return std::to_string(*reinterpret_cast<const uint8_t *>(data));
-    case GGUF_TYPE_INT8:
-        return std::to_string(*reinterpret_cast<const int8_t *>(data));
-    case GGUF_TYPE_UINT16:
-        return std::to_string(*reinterpret_cast<const uint16_t *>(data));
-    case GGUF_TYPE_INT16:
-        return std::to_string(*reinterpret_cast<const int16_t *>(data));
-    case GGUF_TYPE_UINT32:
-        return std::to_string(*reinterpret_cast<const uint32_t *>(data));
-    case GGUF_TYPE_INT32:
-        return std::to_string(*reinterpret_cast<const int32_t *>(data));
-    case GGUF_TYPE_FLOAT32:
-        return std::to_string(*reinterpret_cast<const float *>(data));
-    case GGUF_TYPE_BOOL:
-        return std::to_string(*reinterpret_cast<const bool *>(data));
-    case GGUF_TYPE_STRING:
-        return std::to_string(*reinterpret_cast<const char *>(data));
-    case GGUF_TYPE_UINT64:
-        return std::to_string(*reinterpret_cast<const uint64_t *>(data));
-    case GGUF_TYPE_INT64:
-        return std::to_string(*reinterpret_cast<const int64_t *>(data));
-    case GGUF_TYPE_FLOAT64:
-        return std::to_string(*reinterpret_cast<const double *>(data));
+
+#define RETURN_GGUF_DATA(CASE, CTYPE) \
+    case CASE:                        \
+        return std::to_string(*reinterpret_cast<const CTYPE *>(data));
+
+        RETURN_GGUF_DATA(GGUF_TYPE_UINT8, uint8_t)
+        RETURN_GGUF_DATA(GGUF_TYPE_INT8, int8_t)
+        RETURN_GGUF_DATA(GGUF_TYPE_UINT16, uint16_t)
+        RETURN_GGUF_DATA(GGUF_TYPE_INT16, int16_t)
+        RETURN_GGUF_DATA(GGUF_TYPE_UINT32, uint32_t)
+        RETURN_GGUF_DATA(GGUF_TYPE_INT32, int32_t)
+        RETURN_GGUF_DATA(GGUF_TYPE_FLOAT32, float)
+        RETURN_GGUF_DATA(GGUF_TYPE_BOOL, bool)
+        RETURN_GGUF_DATA(GGUF_TYPE_UINT64, uint64_t)
+        RETURN_GGUF_DATA(GGUF_TYPE_INT64, int64_t)
+        RETURN_GGUF_DATA(GGUF_TYPE_FLOAT64, double)
+        RETURN_GGUF_DATA(GGUF_TYPE_STRING, char)
+
     case GGUF_TYPE_ARRAY:
         throw std::runtime_error("GGUF_TYPE_ARRAY should be processed element by element");
+
     default:
         return "GGUF_TYPE_UNKNOWN";
     }
+
+#undef RETURN_GGUF_DATA
 }
 
 struct GGUFKeyValue {
