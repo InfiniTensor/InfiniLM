@@ -37,9 +37,10 @@ __C infiniStatus_t infiniopGetRandomSampleWorkspaceSize(
     infiniopRandomSampleDescriptor_t desc,
     size_t *size) {
 
-#define GET(CASE, NAMESPACE)                                                                              \
-    case CASE:                                                                                            \
-        *size = reinterpret_cast<const op::random_sample::NAMESPACE::Descriptor *>(desc)->workspace_size; \
+#define GET(CASE, NAMESPACE)                                          \
+    case CASE:                                                        \
+        using Ptr = const op::random_sample::NAMESPACE::Descriptor *; \
+        *size = reinterpret_cast<Ptr>(desc)->minWorkspaceSize();      \
         return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {

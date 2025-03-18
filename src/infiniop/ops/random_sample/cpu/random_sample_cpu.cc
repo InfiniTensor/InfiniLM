@@ -41,6 +41,10 @@ infiniStatus_t Descriptor::create(
     return INFINI_STATUS_SUCCESS;
 }
 
+size_t Descriptor::minWorkspaceSize() const {
+    return _min_workspace_size;
+}
+
 template <typename DT>
 struct ComputeType {
     using type = DT;

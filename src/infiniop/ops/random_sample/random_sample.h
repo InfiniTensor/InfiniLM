@@ -12,13 +12,13 @@
         Opaque *_opaque;                                  \
                                                           \
         infiniDtype_t _dt_i, _dt_p;                       \
-        size_t _n;                                        \
+        size_t _n, _min_workspace_size;                   \
                                                           \
         Descriptor(                                       \
             infiniDtype_t dt_i,                           \
             infiniDtype_t dt_p,                           \
             size_t n,                                     \
-            size_t workspace_size_,                       \
+            size_t min_workspace_size,                    \
             Opaque *opaque,                               \
             infiniDevice_t device_type,                   \
             int device_id)                                \
@@ -27,11 +27,9 @@
               _dt_i(dt_i),                                \
               _dt_p(dt_p),                                \
               _n(n),                                      \
-              workspace_size(workspace_size_) {}          \
+              _min_workspace_size(min_workspace_size) {}  \
                                                           \
     public:                                               \
-        size_t workspace_size;                            \
-                                                          \
         ~Descriptor();                                    \
                                                           \
         static infiniStatus_t create(                     \
@@ -39,6 +37,8 @@
             Descriptor **desc_ptr,                        \
             infiniopTensorDescriptor_t result_desc,       \
             infiniopTensorDescriptor_t probs_desc);       \
+                                                          \
+        size_t minWorkspaceSize() const;                  \
                                                           \
         infiniStatus_t calculate(                         \
             void *workspace,                              \
