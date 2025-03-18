@@ -82,25 +82,14 @@ def random_sample(data, random_val, topp, topk, voc, temperature):
         globalM = dataNp[0]
         dataNp = (dataNp - globalM) / temperature
         dataNp = torch.softmax(dataNp.float(), dim=0)
-        sum_s = 0
-        for end in range(topk):
-            sum_s += dataNp[end]
-            if sum_s >= topp:
-                break
-        if end < topk - 1:
-            end += 1
-        else:
-            end = topk
+        for i in range(1, voc):
+            dataNp[i] += dataNp[i - 1]
+        limit_k = dataNp[min(topk, voc) - 1]
+        limit_p = dataNp[voc - 1] * topp
+        limit = min(limit_k, limit_p) * random_val
 
-        sum_s = 0
-        for i in range(end):
-            sum_s += dataNp[i]
-        random_val *= sum_s
-
-        sum_s = 0
-        for i in range(end):
-            sum_s += dataNp[i]
-            if random_val < sum_s:
+        for i in range(voc):
+            if limit < dataNp[i]:
                 return indices[i]
     else:
         return torch.argmax(data)
@@ -129,7 +118,7 @@ def test(
         data, random_val, topp, topk, voc, temperature
     )  # 这个函数在device速度可能会很慢，可以通过data.to("cpu")方式加快计算过程
 
-    indices = torch.zeros([1], dtype=torch.int64).to(torch_device)
+    indices = torch.zeros([], dtype=torch.int64).to(torch_device)
 
     x_tensor, indices_tensor = [to_tensor(tensor, lib) for tensor in [data, indices]]
 
@@ -147,7 +136,7 @@ def test(
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
     for tensor in [x_tensor, indices_tensor]:
-        tensor.descriptor.contents.invalidate()
+        tensor.destroyDesc(lib)
 
     workspace_size = c_uint64(0)
     check_error(
@@ -181,13 +170,13 @@ def test(
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
         debug_all(
-            (indices[0].type(ans.dtype), data[indices[0]]),
+            (indices.type(ans.dtype), data[indices]),
             (ans, data[ans]),
             "or",
             atol=atol,
             rtol=rtol,
         )
-    assert indices[0].type(ans.dtype) == ans or data[ans] == data[indices[0]]
+    assert indices.type(ans.dtype) == ans or data[ans] == data[indices]
 
     # Profiling workflow
     if PROFILE:
