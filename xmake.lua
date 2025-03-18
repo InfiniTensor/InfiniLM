@@ -121,6 +121,7 @@ target("infini-utils")
     on_install(function (target) end)
     set_languages("cxx17")
     add_files("src/utils/*.cc")
+    add_cxflags("-Wno-unknown-pragmas")
 target_end()
 
 target("infinirt")
@@ -137,6 +138,9 @@ target("infinirt")
     end
     if has_config("metax-gpu") then
         add_deps("infinirt-metax")
+    end
+    if has_config("kunlun-xpu") then
+        add_deps("infinirt-kunlun")
     end
     set_languages("cxx17")
     set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))

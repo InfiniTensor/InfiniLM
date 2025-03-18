@@ -18,3 +18,14 @@ target("infiniop-kunlun")
     set_languages("cxx17")
     add_files("$(projectdir)/src/infiniop/devices/kunlun/*.cc", "$(projectdir)/src/infiniop/ops/*/kunlun/*.cc")
 target_end()
+
+target("infinirt-kunlun")
+    set_kind("static")
+    add_deps("infini-utils")
+    set_languages("cxx17")
+    on_install(function (target) end)
+    -- Add include dirs
+    add_files("../src/infinirt/kunlun/*.cc")
+    add_cxflags("-lstdc++ -Wall -Werror -fPIC")
+
+target_end()

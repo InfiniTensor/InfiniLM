@@ -1,24 +1,29 @@
-#include "common_kunlun.h"
+#include "kunlun_handle.h"
 
-infiniStatus_t createKunlunHandle(infiniopKunlunHandle_t *handle_ptr) {
-    int device_id;
-    CHECK_KUNLUN(xpu_current_device(&device_id));
-    auto pool = std::make_shared<Pool<xdnnHandle_t>>();
-    xdnnHandle_t handle = xdnn::create_context();
-    pool->push(std::move(handle));
+namespace device::kunlun {
 
-    *handle_ptr = new InfiniopKunlunHandle{
-        INFINI_DEVICE_KUNLUN,
-        device_id,
-        std::move(pool),
-    };
+Handle::Handle(int device_id)
+    : InfiniopHandle{INFINI_DEVICE_KUNLUN, device_id},
+      _internal(std::make_shared<Handle::Internal>()) {}
 
+auto Handle::internal() const -> const std::shared_ptr<Internal> & {
+    return _internal;
+}
+
+infiniStatus_t Handle::Internal::useXdnn(kunlunStream_t stream, const Fn<xdnnHandle_t> &f) const {
+    auto handle = dnn_handles.pop();
+    if (!handle) {
+        *handle = xdnn::create_context();
+    }
+    (*handle)->set_stream(stream);
+    CHECK_STATUS(f(*handle));
+    dnn_handles.push(std::move(*handle));
     return INFINI_STATUS_SUCCESS;
 }
 
-infiniStatus_t destroyKunlunHandle(infiniopKunlunHandle_t handle_ptr) {
-    handle_ptr->xdnn_handle_pool = nullptr;
-    delete handle_ptr;
-
+infiniStatus_t Handle::create(InfiniopHandle **handle_ptr, int device_id) {
+    *handle_ptr = new Handle(device_id);
     return INFINI_STATUS_SUCCESS;
 }
+
+} // namespace device::kunlun
