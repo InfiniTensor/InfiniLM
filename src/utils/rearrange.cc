@@ -46,6 +46,7 @@ std::optional<RearrangeMeta> RearrangeMeta::create(
         }
         return std::abs(a.dst) > std::abs(b.dst);
     });
+    ndim = dims.size();
     // # 合并连续维度
     // ## 合并末尾连续维度到 unit
     for (auto it = dims.rbegin(); it != dims.rend(); ++it) {
