@@ -1,8 +1,8 @@
-#include "matmul_kunlun.h"
+#include "gemm_kunlun.h"
 #include "../../../../utils.h"
 #include "../../../devices/kunlun/kunlun_handle.h"
 
-namespace op::matmul::kunlun {
+namespace op::gemm::kunlun {
 
 typedef device::kunlun::Handle::Internal HandleInternal;
 
@@ -103,12 +103,12 @@ infiniStatus_t Descriptor::calculate(
     void *stream) const {
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        return op::matmul::kunlun::calculate<float16>(_info, _opaque->internal, _dtype, c, beta, a, b, alpha, (kunlunStream_t)stream);
+        return op::gemm::kunlun::calculate<float16>(_info, _opaque->internal, _dtype, c, beta, a, b, alpha, (kunlunStream_t)stream);
     case INFINI_DTYPE_F32:
-        return op::matmul::kunlun::calculate<float>(_info, _opaque->internal, _dtype, c, beta, a, b, alpha, (kunlunStream_t)stream);
+        return op::gemm::kunlun::calculate<float>(_info, _opaque->internal, _dtype, c, beta, a, b, alpha, (kunlunStream_t)stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 }
 
-} // namespace op::matmul::kunlun
+} // namespace op::gemm::kunlun

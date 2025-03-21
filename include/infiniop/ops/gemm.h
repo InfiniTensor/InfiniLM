@@ -3,29 +3,26 @@
 
 #include "../operator_descriptor.h"
 
-typedef InfiniopDescriptor *infiniopGEMMDescriptor_t;
+typedef InfiniopDescriptor *infiniopGemmDescriptor_t;
 
-__C __export infiniStatus_t infiniopCreateGEMMDescriptor(infiniopHandle_t handle,
-                                                         infiniopGEMMDescriptor_t *desc_ptr,
-                                                         infiniopTensorDescriptor_t y_desc,
-                                                         infiniopTensorDescriptor_t a_desc,
-                                                         infiniopTensorDescriptor_t b_desc,
+__C __export infiniStatus_t infiniopCreateGemmDescriptor(infiniopHandle_t handle,
+                                                         infiniopGemmDescriptor_t *desc_ptr,
                                                          infiniopTensorDescriptor_t c_desc,
-                                                         char transA,
-                                                         char transB);
+                                                         infiniopTensorDescriptor_t a_desc,
+                                                         infiniopTensorDescriptor_t b_desc);
 
-__C __export infiniStatus_t infiniopGetGEMMWorkspaceSize(infiniopGEMMDescriptor_t desc, size_t *size);
+__C __export infiniStatus_t infiniopGetGemmWorkspaceSize(infiniopGemmDescriptor_t desc, size_t *size);
 
-__C __export infiniStatus_t infiniopGEMM(infiniopGEMMDescriptor_t desc,
+__C __export infiniStatus_t infiniopGemm(infiniopGemmDescriptor_t desc,
                                          void *workspace,
                                          size_t workspace_size,
-                                         void *y,
+                                         void *c,
                                          void const *a,
                                          void const *b,
-                                         void const *c,
                                          float alpha,
                                          float beta,
                                          void *stream);
 
-__C __export infiniStatus_t infiniopDestroyGEMMDescriptor(infiniopGEMMDescriptor_t desc);
+__C __export infiniStatus_t infiniopDestroyGemmDescriptor(infiniopGemmDescriptor_t desc);
+
 #endif

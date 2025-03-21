@@ -1,5 +1,5 @@
-#ifndef __MATMUL_H__
-#define __MATMUL_H__
+#ifndef __GEMM_H__
+#define __GEMM_H__
 
 #include "../../operator.h"
 #include "blas.h"
@@ -46,7 +46,7 @@
 
 #define DESCRIPTOR(NAMESPACE)                             \
                                                           \
-    namespace op::matmul::NAMESPACE {                     \
+    namespace op::gemm::NAMESPACE {                       \
     class Descriptor final : public InfiniopDescriptor {  \
         struct Opaque;                                    \
         Opaque *_opaque;                                  \
@@ -90,4 +90,4 @@
     };                                                    \
     }
 
-#endif // __MATMUL_H__
+#endif // __GEMM_H__

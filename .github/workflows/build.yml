@@ -49,6 +49,6 @@ jobs:
       if: matrix.os != 'windows-latest'
       run: |
         pip install torch
-        LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/matmul.py --cpu
+        LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/gemm.py --cpu
         LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/rms_norm.py --cpu
         LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/random_sample.py --cpu

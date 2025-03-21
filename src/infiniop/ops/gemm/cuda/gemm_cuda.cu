@@ -1,7 +1,7 @@
 #include "../../../devices/cuda/cuda_handle.cuh"
-#include "matmul_cuda.cuh"
+#include "gemm_cuda.cuh"
 
-namespace op::matmul::cuda {
+namespace op::gemm::cuda {
 
 struct Descriptor::Opaque {
     std::shared_ptr<device::cuda::Handle::Internal> internal;
@@ -109,4 +109,4 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::matmul::cuda
+} // namespace op::gemm::cuda

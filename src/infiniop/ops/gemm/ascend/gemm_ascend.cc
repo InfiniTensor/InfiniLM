@@ -1,9 +1,9 @@
-#include "matmul_ascend.h"
+#include "gemm_ascend.h"
 #include "../../../devices/ascend/common_ascend.h"
 #include <aclnnop/aclnn_matmul.h>
 #include <aclnnop/level2/aclnn_gemm.h>
 
-namespace op::matmul::ascend {
+namespace op::gemm::ascend {
 
 struct Descriptor::Opaque {
     mutable aclOpExecutor *executor;
@@ -116,4 +116,4 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::matmul::ascend
+} // namespace op::gemm::ascend

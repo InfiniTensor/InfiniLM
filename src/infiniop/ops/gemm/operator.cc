@@ -1,40 +1,40 @@
 #include "../../operator.h"
 #include "../../handle.h"
-#include "infiniop/ops/matmul.h"
+#include "infiniop/ops/gemm.h"
 
 #ifdef ENABLE_CPU_API
-#include "cpu/matmul_cpu.h"
+#include "cpu/gemm_cpu.h"
 #endif
 #ifdef ENABLE_CUDA_API
-#include "cuda/matmul_cuda.cuh"
+#include "cuda/gemm_cuda.cuh"
 #endif
 #ifdef ENABLE_CAMBRICON_API
-#include "bang/matmul_bang.h"
+#include "bang/gemm_bang.h"
 #endif
 #ifdef ENABLE_ASCEND_API
-#include "ascend/matmul_ascend.h"
+#include "ascend/gemm_ascend.h"
 #endif
 #ifdef ENABLE_METAX_API
-#include "maca/matmul_maca.h"
+#include "maca/gemm_maca.h"
 #endif
 #ifdef ENABLE_KUNLUN_API
-#include "kunlun/matmul_kunlun.h"
+#include "kunlun/gemm_kunlun.h"
 #endif
 
-__C infiniStatus_t infiniopCreateMatmulDescriptor(
+__C infiniStatus_t infiniopCreateGemmDescriptor(
     infiniopHandle_t handle,
-    infiniopMatmulDescriptor_t *desc_ptr,
+    infiniopGemmDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t c_desc,
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
 
-#define CREATE(CASE, NAMESPACE)                                               \
-    case CASE:                                                                \
-        return op::matmul::NAMESPACE::Descriptor::create(                     \
-            handle,                                                           \
-            reinterpret_cast<op::matmul::NAMESPACE::Descriptor **>(desc_ptr), \
-            c_desc,                                                           \
-            a_desc,                                                           \
+#define CREATE(CASE, NAMESPACE)                                             \
+    case CASE:                                                              \
+        return op::gemm::NAMESPACE::Descriptor::create(                     \
+            handle,                                                         \
+            reinterpret_cast<op::gemm::NAMESPACE::Descriptor **>(desc_ptr), \
+            c_desc,                                                         \
+            a_desc,                                                         \
             b_desc)
 
     switch (handle->device) {
@@ -66,13 +66,13 @@ __C infiniStatus_t infiniopCreateMatmulDescriptor(
 }
 
 __C infiniStatus_t
-infiniopGetMatmulWorkspaceSize(
-    infiniopMatmulDescriptor_t desc,
+infiniopGetGemmWorkspaceSize(
+    infiniopGemmDescriptor_t desc,
     size_t *size) {
 
-#define GET(CASE, NAMESPACE)                                                                       \
-    case CASE:                                                                                     \
-        *size = reinterpret_cast<const op::matmul::NAMESPACE::Descriptor *>(desc)->workspace_size; \
+#define GET(CASE, NAMESPACE)                                                                     \
+    case CASE:                                                                                   \
+        *size = reinterpret_cast<const op::gemm::NAMESPACE::Descriptor *>(desc)->workspace_size; \
         return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {
@@ -103,8 +103,8 @@ infiniopGetMatmulWorkspaceSize(
 #undef GET
 }
 
-__C infiniStatus_t infiniopMatmul(
-    infiniopMatmulDescriptor_t desc,
+__C infiniStatus_t infiniopGemm(
+    infiniopGemmDescriptor_t desc,
     void *workspace, size_t workspace_size,
     void *c,
     const void *a,
@@ -113,12 +113,12 @@ __C infiniStatus_t infiniopMatmul(
     float beta,
     void *stream) {
 
-#define CALCULATE(CASE, NAMESPACE)                                               \
-    case CASE:                                                                   \
-        return reinterpret_cast<const op::matmul::NAMESPACE::Descriptor *>(desc) \
-            ->calculate(workspace, workspace_size,                               \
-                        c, beta,                                                 \
-                        a, b, alpha,                                             \
+#define CALCULATE(CASE, NAMESPACE)                                             \
+    case CASE:                                                                 \
+        return reinterpret_cast<const op::gemm::NAMESPACE::Descriptor *>(desc) \
+            ->calculate(workspace, workspace_size,                             \
+                        c, beta,                                               \
+                        a, b, alpha,                                           \
                         stream)
 
     switch (desc->device_type) {
@@ -150,11 +150,11 @@ __C infiniStatus_t infiniopMatmul(
 }
 
 __C infiniStatus_t
-infiniopDestroyMatmulDescriptor(infiniopMatmulDescriptor_t desc) {
+infiniopDestroyGemmDescriptor(infiniopGemmDescriptor_t desc) {
 
-#define DELETE(CASE, NAMESPACE)                                                   \
-    case CASE:                                                                    \
-        delete reinterpret_cast<const op::matmul::NAMESPACE::Descriptor *>(desc); \
+#define DELETE(CASE, NAMESPACE)                                                 \
+    case CASE:                                                                  \
+        delete reinterpret_cast<const op::gemm::NAMESPACE::Descriptor *>(desc); \
         return INFINI_STATUS_SUCCESS;
 
     switch (desc->device_type) {

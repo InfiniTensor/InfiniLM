@@ -4,7 +4,7 @@
 #include <iomanip>
 #include <iostream>
 
-namespace infiniop_test::matmul {
+namespace infiniop_test::gemm {
 struct Test::Attributes {
     float alpha;
     float beta;
@@ -43,30 +43,30 @@ std::shared_ptr<Test> Test::build(
 
 std::shared_ptr<infiniop_test::Result> Test::run(
     infiniopHandle_t handle, infiniDevice_t device, int device_id, size_t warm_ups, size_t iterations) {
-    infiniopMatmulDescriptor_t op_desc;
+    infiniopGemmDescriptor_t op_desc;
     auto alpha = _attributes->alpha;
     auto beta = _attributes->beta;
     auto a = _attributes->a->to(device, device_id);
     auto b = _attributes->b->to(device, device_id);
     auto c = _attributes->c->to(device, device_id);
-    CHECK_OR(infiniopCreateMatmulDescriptor(handle, &op_desc,
-                                            c->desc(),
-                                            a->desc(),
-                                            b->desc()),
+    CHECK_OR(infiniopCreateGemmDescriptor(handle, &op_desc,
+                                          c->desc(),
+                                          a->desc(),
+                                          b->desc()),
              return TEST_FAILED(OP_CREATION_FAILED, "Failed to create op descriptor."));
     size_t workspace_size;
-    CHECK_OR(infiniopGetMatmulWorkspaceSize(op_desc, &workspace_size),
+    CHECK_OR(infiniopGetGemmWorkspaceSize(op_desc, &workspace_size),
              return TEST_FAILED(OP_CREATION_FAILED, "Failed to get workspace size."));
     void *workspace;
     CHECK_OR(infinirtMalloc(&workspace, workspace_size),
              return TEST_FAILED(OP_CREATION_FAILED, "Failed to allocate workspace."));
-    CHECK_OR(infiniopMatmul(op_desc, workspace, workspace_size,
-                            c->data(),
-                            a->data(),
-                            b->data(),
-                            alpha,
-                            beta,
-                            nullptr),
+    CHECK_OR(infiniopGemm(op_desc, workspace, workspace_size,
+                          c->data(),
+                          a->data(),
+                          b->data(),
+                          alpha,
+                          beta,
+                          nullptr),
              return TEST_FAILED(OP_EXECUTION_FAILED, "Failed during execution."));
 
     try {
@@ -83,7 +83,7 @@ std::shared_ptr<infiniop_test::Result> Test::run(
 
     elapsed_time = benchmark(
         [=]() {
-            infiniopMatmul(
+            infiniopGemm(
                 op_desc, workspace, workspace_size,
                 c->data(),
                 a->data(),
@@ -91,7 +91,7 @@ std::shared_ptr<infiniop_test::Result> Test::run(
                 alpha,
                 beta,
                 nullptr);
-            infiniopMatmul(
+            infiniopGemm(
                 op_desc, workspace, workspace_size,
                 c->data(),
                 a->data(),
@@ -129,4 +129,4 @@ Test::~Test() {
     delete _attributes;
 }
 
-} // namespace infiniop_test::matmul
+} // namespace infiniop_test::gemm
