@@ -70,7 +70,7 @@ std::shared_ptr<infiniop_test::Result> Test::run(
              return TEST_FAILED(OP_EXECUTION_FAILED, "Failed during execution."));
 
     try {
-        allClose(c, _attributes->ans);
+        allClose(c, _attributes->ans, _rtol, _atol);
     } catch (const std::exception &e) {
         return TEST_FAILED(RESULT_INCORRECT, e.what());
     }

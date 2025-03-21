@@ -110,7 +110,7 @@ Tensor::Tensor(const GGUFTensorInfo *info,
         if (i == 0) {
             contiguous_strides[ndim - 1] = (ptrdiff_t)1;
         } else {
-            contiguous_strides[ndim - 1 - i] = (ptrdiff_t)_shape[ndim - i] * contiguous_strides[ndim - i];
+            contiguous_strides[ndim - 1 - i] = (ptrdiff_t)info->shape[i - 1] * contiguous_strides[ndim - i];
         }
     }
 
