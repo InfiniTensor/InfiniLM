@@ -1,8 +1,8 @@
-﻿#include "matmul_bang.h"
+﻿#include "gemm_bang.h"
 #include "../../../devices/bang/common_bang.h"
 #include <cnnl_extra.h>
 
-namespace op::matmul::bang {
+namespace op::gemm::bang {
 
 struct Descriptor::Opaque {
     cnnlMatMulDescriptor_t op;
@@ -157,4 +157,4 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::matmul::bang
+} // namespace op::gemm::bang

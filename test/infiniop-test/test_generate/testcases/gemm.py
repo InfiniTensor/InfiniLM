@@ -6,7 +6,7 @@ from typing import List
 from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides
 
 
-def matmul(
+def gemm(
     a: np.ndarray,
     b: np.ndarray,
     alpha: float = 1.0,
@@ -19,12 +19,12 @@ def matmul(
 
 
 def random_tensor(shape, dtype):
-    rate = 1e-3  # 目前发现如果rate=1e-2还是无法全部通过测试
-    var = 0.5 * rate  # 这样设置可以保证采样范围在[-5e-4, 5e-4]
+    rate = 1e-3
+    var = 0.5 * rate  # 数值范围在[-5e-4, 5e-4]
     return rate * np.random.rand(*shape).astype(dtype) - var
 
 
-class MatmulTestCase(InfiniopTestCase):
+class GemmTestCase(InfiniopTestCase):
     def __init__(
         self,
         a: np.ndarray,
@@ -36,7 +36,7 @@ class MatmulTestCase(InfiniopTestCase):
         alpha: float,
         beta: float,
     ):
-        super().__init__("matmul")
+        super().__init__("gemm")
         self.a = a
         self.stride_a = stride_a
         self.b = b
@@ -65,7 +65,7 @@ class MatmulTestCase(InfiniopTestCase):
         test_writer.add_tensor(
             test_writer.gguf_key("c"), self.c, raw_dtype=np_dtype_to_ggml(self.c.dtype)
         )
-        ans = matmul(
+        ans = gemm(
             self.a.astype(np.float64),
             self.b.astype(np.float64),
             self.alpha,
@@ -78,10 +78,10 @@ class MatmulTestCase(InfiniopTestCase):
 
 
 if __name__ == "__main__":
-    test_writer = InfiniopTestWriter("matmul.gguf")
+    test_writer = InfiniopTestWriter("gemm.gguf")
     # a, stride_a, b, stride_b, c, stride_c, alpha, beta
     test_cases = [
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((4, 5), np.float32),
             None,
             random_tensor((5, 6), np.float32),
@@ -91,7 +91,7 @@ if __name__ == "__main__":
             1.0,
             0.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((4, 5), np.float32),
             gguf_strides(1, 4),
             random_tensor((5, 6), np.float32),
@@ -101,7 +101,7 @@ if __name__ == "__main__":
             1.0,
             1.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((4, 5), np.float16),
             None,
             random_tensor((5, 6), np.float16),
@@ -111,7 +111,7 @@ if __name__ == "__main__":
             1.0,
             0.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((4, 5), np.float16),
             gguf_strides(1, 4),
             random_tensor((5, 6), np.float16),
@@ -121,7 +121,7 @@ if __name__ == "__main__":
             1.0,
             1.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((1, 2048), np.float16),
             gguf_strides(1, 2048),
             random_tensor((2048, 2048), np.float16),
@@ -131,7 +131,7 @@ if __name__ == "__main__":
             1.0,
             0.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((1, 2048), np.float32),
             None,
             random_tensor((2048, 2048), np.float32),
@@ -141,7 +141,7 @@ if __name__ == "__main__":
             1.0,
             0.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((2, 4, 2048), np.float16),
             None,
             random_tensor((2, 2048, 2048), np.float16),
@@ -151,7 +151,7 @@ if __name__ == "__main__":
             1.0,
             0.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((2, 4, 2048), np.float32),
             None,
             random_tensor((2, 2048, 2048), np.float32),
@@ -161,7 +161,7 @@ if __name__ == "__main__":
             1.0,
             0.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((6, 2048), np.float32),
             gguf_strides(1, 2048),
             random_tensor((2048, 2560), np.float32),
@@ -171,7 +171,7 @@ if __name__ == "__main__":
             1.0,
             1.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((4, 48, 64), np.float16),
             None,
             random_tensor((4, 64, 6), np.float16),
@@ -181,7 +181,7 @@ if __name__ == "__main__":
             1.0 / 8,
             1.0,
         ),
-        MatmulTestCase(
+        GemmTestCase(
             random_tensor((4, 48, 64), np.float32),
             None,
             random_tensor((4, 64, 6), np.float32),

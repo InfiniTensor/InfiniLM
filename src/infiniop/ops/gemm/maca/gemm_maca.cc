@@ -1,8 +1,8 @@
-#include "matmul_maca.h"
+#include "gemm_maca.h"
 #include "../../../devices/maca/common_maca.h"
 #include "../../../devices/maca/maca_handle.h"
 
-namespace op::matmul::maca {
+namespace op::gemm::maca {
 
 struct Descriptor::Opaque {
     std::shared_ptr<device::maca::Handle::Internal> internal;
@@ -106,4 +106,4 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::matmul::maca
+} // namespace op::gemm::maca

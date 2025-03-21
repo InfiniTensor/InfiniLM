@@ -14,11 +14,11 @@ xmake build infiniop-test
 
 - 生成测例
 
-在`/test/infiniop-test/`目录执行矩阵乘测例生成脚本，执行结束以后会在`/test/infiniop-test/`目录生成`matmul.gguf`测例文件。
+在`/test/infiniop-test/`目录执行矩阵乘测例生成脚本，执行结束以后会在`/test/infiniop-test/`目录生成`gemm.gguf`测例文件。
 
 ```bash
 cd /test/infiniop-test/
-python -m test_generate.testcases.matmul
+python -m test_generate.testcases.gemm
 ```
 
 - 测试测例
@@ -29,10 +29,10 @@ python -m test_generate.testcases.matmul
 infiniop-test --help
 ```
 
-示例：在CPU上测试`matmul.gguf`测例文件，预热20次，测试1000次。
+示例：在CPU上测试`gemm.gguf`测例文件，预热20次，测试1000次。
 
 ```bash
-infiniop-test matmul.gguf --cpu --warmup 20 --run 1000
+infiniop-test gemm.gguf --cpu --warmup 20 --run 1000
 ```
 
 ## 自定义测例

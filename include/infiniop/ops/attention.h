@@ -2,7 +2,7 @@
 #define __INFINIOP_ATTENTION_API_H__
 
 #include "../operator_descriptor.h"
-#include "matmul.h"
+#include "gemm.h"
 #include "swiglu.h"
 
 typedef InfiniopDescriptor *infiniopAttentionDescriptor_t;

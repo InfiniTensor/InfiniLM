@@ -1,7 +1,7 @@
-#include "matmul_cpu.h"
+#include "gemm_cpu.h"
 #include "../../../devices/cpu/common_cpu.h"
 
-namespace op::matmul::cpu {
+namespace op::gemm::cpu {
 
 Descriptor::~Descriptor() = default;
 
@@ -95,4 +95,4 @@ infiniStatus_t Descriptor::calculate(
     }
 }
 
-} // namespace op::matmul::cpu
+} // namespace op::gemm::cpu

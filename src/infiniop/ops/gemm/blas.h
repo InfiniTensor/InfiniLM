@@ -5,7 +5,7 @@
 #include "../../tensor.h"
 #include <algorithm>
 
-namespace op::matmul {
+namespace op::gemm {
 
 struct BlasMatrix {
     size_t ndim;
@@ -120,6 +120,6 @@ struct MatmulInfo {
     }
 };
 
-} // namespace op::matmul
+} // namespace op::gemm
 
 #endif // __BLAS_H__
