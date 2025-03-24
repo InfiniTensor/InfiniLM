@@ -5,7 +5,7 @@
 
 struct InfiniopHandle;
 
-typedef InfiniopHandle *infiniopHandle_t;
+typedef struct InfiniopHandle *infiniopHandle_t;
 
 __C __export infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr);
 

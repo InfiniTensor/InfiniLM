@@ -5,7 +5,7 @@
 #include "gemm.h"
 #include "swiglu.h"
 
-typedef InfiniopDescriptor *infiniopMLPDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopMLPDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateMLPDescriptor(infiniopHandle_t handle,
                                                         infiniopMLPDescriptor_t *desc_ptr,

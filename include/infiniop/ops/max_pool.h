@@ -3,7 +3,7 @@
 
 #include "../operator_descriptor.h"
 
-typedef InfiniopDescriptor *infiniopMaxPoolDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopMaxPoolDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateMaxPoolDescriptor(infiniopHandle_t handle,
                                                             infiniopMaxPoolDescriptor_t *desc_ptr,
