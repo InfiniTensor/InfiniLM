@@ -156,10 +156,10 @@ void calculate(BinaryCpuInfo info, void *c, const void *a, const void *b, Args &
     auto a_ = reinterpret_cast<const Tdata *>(a);
     auto b_ = reinterpret_cast<const Tdata *>(b);
     auto c_ = reinterpret_cast<Tdata *>(c);
-    ssize_t data_size = info.c_data_size;
+    ptrdiff_t data_size = info.c_data_size;
 
 #pragma omp parallel for
-    for (ssize_t i = 0; i < data_size; ++i) {
+    for (ptrdiff_t i = 0; i < data_size; ++i) {
         size_t a_index = info.broadcasted ? indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.a_strides.data())
                                           : indexToOffset(i, info.ndim, info.a_shape.data(), info.a_strides.data());
         size_t b_index = info.broadcasted ? indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.b_strides.data())
