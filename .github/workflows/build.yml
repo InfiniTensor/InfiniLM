@@ -26,16 +26,6 @@ jobs:
     - name: check format
       run: python3 scripts/format.py --path src --check
 
-    - name: Install OpenMP
-      if: matrix.os == 'ubuntu-latest'
-      run: sudo apt-get install -y libomp-dev
-
-    - name: Install LLVM for OpenMP (Windows)
-      if: matrix.os == 'windows-latest'
-      run: |
-          choco install llvm -y
-          echo "C:\Program Files\LLVM\bin" >> $env:GITHUB_PATH
-
     - name: install xmake
       uses: xmake-io/github-action-setup-xmake@v1
       with:
