@@ -18,7 +18,7 @@
 #include "maca/gemm_maca.h"
 #endif
 #ifdef ENABLE_MOORE_API
-#include "musa/matmul_musa.h"
+#include "musa/gemm_musa.h"
 #endif
 #ifdef ENABLE_KUNLUN_API
 #include "kunlun/gemm_kunlun.h"

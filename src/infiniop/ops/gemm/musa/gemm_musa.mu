@@ -1,8 +1,8 @@
 #include "../../../devices/musa/common_musa.h"
 #include "../../../devices/musa/musa_handle.h"
-#include "matmul_musa.h"
+#include "gemm_musa.h"
 
-namespace op::matmul::musa {
+namespace op::gemm::musa {
 
 struct Descriptor::Opaque {
     std::shared_ptr<device::musa::Handle::Internal> internal;
@@ -139,4 +139,4 @@ infiniStatus_t Descriptor::calculate(void *workspace,
     }
 }
 
-} // namespace op::matmul::musa
+} // namespace op::gemm::musa
