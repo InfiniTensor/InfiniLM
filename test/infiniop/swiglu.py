@@ -25,19 +25,25 @@ _TEST_CASES_ = [
     # shape, a_stride, b_stride, c_stride
     ((13, 4), None, None, None),
     ((13, 4), (10, 1), (10, 1), (10, 1)),
-    # ((13, 4, 4), None, None, None),
-    # ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1)),
+    ((13, 4, 4), None, None, None),
+    ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1)),
     ((16, 5632), None, None, None),
     ((16, 5632), (13312, 1), (13312, 1), (13312, 1)),
-    # ((4, 4, 5632), None, None, None),
-    # ((4, 4, 5632), (45056, 5632, 1), (45056, 5632, 1), (45056, 5632, 1)),
+    ((4, 4, 5632), None, None, None),
+    ((4, 4, 5632), (45056, 5632, 1), (45056, 5632, 1), (45056, 5632, 1)),
 ]
+
+class Inplace(Enum):
+    OUT_OF_PLACE = auto()
+    INPLACE_A = auto()
+    INPLACE_B = auto()
+
 
 # Inplace options applied for each test case in _TEST_CASES_
 _INPLACE = [
-    "Inplace.OUT_OF_PLACE",
-    "Inplace.INPLACE_A",
-    "Inplace.INPLACE_B",
+    Inplace.OUT_OF_PLACE,
+    Inplace.INPLACE_A,
+    Inplace.INPLACE_B,
 ]
 
 # Form the test cases by appending each element of _INPLACE to each tuple in _TEST_CASES_
@@ -48,7 +54,7 @@ _TEST_CASES = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16]
+_TENSOR_DTYPES = [torch.float16, torch.float32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
@@ -59,12 +65,6 @@ DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
-
-
-class Inplace(Enum):
-    OUT_OF_PLACE = auto()
-    INPLACE_A = auto()
-    INPLACE_B = auto()
 
 
 class SwiGLUDescriptor(Structure):
@@ -132,7 +132,7 @@ def test(
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
     for tensor in [a_tensor, b_tensor, c_tensor]:
-        tensor.descriptor.contents.invalidate()
+        tensor.destroyDesc(lib)
 
     def lib_swiglu():
         check_error(

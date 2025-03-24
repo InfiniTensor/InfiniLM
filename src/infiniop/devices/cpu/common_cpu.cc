@@ -19,7 +19,7 @@ size_t indexToOffset(
     const size_t *shape,
     const ptrdiff_t *strides) {
     size_t res = 0;
-    for (size_t i = ndim; i-- >= 0;) {
+    for (size_t i = ndim; i-- > 0;) {
         res += (flat_index % shape[i]) * strides[i];
         flat_index /= shape[i];
     }
