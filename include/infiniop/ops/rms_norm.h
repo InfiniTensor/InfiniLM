@@ -3,7 +3,7 @@
 
 #include "../operator_descriptor.h"
 
-typedef InfiniopDescriptor *infiniopRMSNormDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopRMSNormDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateRMSNormDescriptor(
     infiniopHandle_t handle,
