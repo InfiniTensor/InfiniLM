@@ -5,7 +5,7 @@
 #include "gemm.h"
 #include "swiglu.h"
 
-typedef InfiniopDescriptor *infiniopAttentionDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopAttentionDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateAttentionDescriptor(infiniopHandle_t handle,
                                                               infiniopAttentionDescriptor_t *desc_ptr,

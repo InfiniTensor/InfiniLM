@@ -3,7 +3,7 @@
 
 #include "../operator_descriptor.h"
 
-typedef InfiniopDescriptor *infiniopConvDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopConvDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateConvDescriptor(infiniopHandle_t handle,
                                                          infiniopConvDescriptor_t *desc_ptr,

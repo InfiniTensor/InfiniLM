@@ -3,7 +3,7 @@
 
 #include "../operator_descriptor.h"
 
-typedef InfiniopDescriptor *infiniopRandomSampleDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopRandomSampleDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateRandomSampleDescriptor(
     infiniopHandle_t handle,

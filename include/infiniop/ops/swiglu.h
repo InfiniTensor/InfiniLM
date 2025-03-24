@@ -3,7 +3,7 @@
 
 #include "../operator_descriptor.h"
 
-typedef InfiniopDescriptor *infiniopSwiGLUDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopSwiGLUDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateSwiGLUDescriptor(infiniopHandle_t handle,
                                                            infiniopSwiGLUDescriptor_t *desc_ptr,

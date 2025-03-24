@@ -3,7 +3,7 @@
 
 #include "../operator_descriptor.h"
 
-typedef InfiniopDescriptor *infiniopCausalSoftmaxDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopCausalSoftmaxDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(infiniopHandle_t handle,
                                                                   infiniopCausalSoftmaxDescriptor_t *desc_ptr,

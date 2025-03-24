@@ -3,7 +3,7 @@
 
 #include "../operator_descriptor.h"
 
-typedef InfiniopDescriptor *infiniopGlobalAvgPoolDescriptor_t;
+typedef struct InfiniopDescriptor *infiniopGlobalAvgPoolDescriptor_t;
 
 __C __export infiniStatus_t infiniopCreateGlobalAvgPoolDescriptor(infiniopHandle_t handle,
                                                                   infiniopGlobalAvgPoolDescriptor_t *desc_ptr,
