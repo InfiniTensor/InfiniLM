@@ -48,7 +48,6 @@
     };                                                    \
     }
 
-
 namespace op::binary {
 
 // Stores metadata for binary operations on CPU
