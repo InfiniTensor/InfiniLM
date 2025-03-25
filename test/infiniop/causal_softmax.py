@@ -80,7 +80,7 @@ def test(lib, handle, torch_device, x_shape, x_stride=None, dtype=torch.float16)
     )
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
-    x_tensor.descriptor.contents.invalidate()
+    x_tensor.destroyDesc(lib)
 
     workspace_size = c_uint64(0)
     check_error(

@@ -19,7 +19,7 @@ target("infiniop-cpu")
     end
 
     set_languages("cxx17")
-    add_files("../src/infiniop/devices/cpu/*.cc", "../src/infiniop/ops/*/cpu/*.cc")
+    add_files("../src/infiniop/devices/cpu/*.cc", "../src/infiniop/ops/*/cpu/*.cc", "../src/infiniop/reduce/cpu/*.cc")
 
 target_end()
 

@@ -2,14 +2,25 @@
 #include "../../handle.h"
 #include "infiniop/ops/causal_softmax.h"
 
+#ifdef ENABLE_CPU_API
+#include "cpu/causal_softmax_cpu.h"
+#endif
+
 __C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(
     infiniopHandle_t handle,
     infiniopCausalSoftmaxDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t y_desc) {
+
+#define CREATE(CASE, NAMESPACE)                                                       \
+    case CASE:                                                                        \
+        return op::causal_softmax::NAMESPACE::Descriptor::create(                     \
+            handle,                                                                   \
+            reinterpret_cast<op::causal_softmax::NAMESPACE::Descriptor **>(desc_ptr), \
+            y_desc);
+
     switch (handle->device) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuCreateCausalSoftmaxDescriptor(handle, (CausalSoftmaxCpuDescriptor_t *)desc_ptr, y_desc);
+#ifdef ENABLE_CPU_API
+        CREATE(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NV_GPU
     case DevNvGpu: {
@@ -43,10 +54,15 @@ __C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(
 }
 
 __C infiniStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDescriptor_t desc, size_t *size) {
+
+#define GET(CASE, NAMESPACE)                                                                          \
+    case CASE:                                                                                        \
+        *size = reinterpret_cast<op::causal_softmax::NAMESPACE::Descriptor *>(desc)->workspaceSize(); \
+        return INFINI_STATUS_SUCCESS;
+
     switch (desc->device_type) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuGetCausalSoftmaxWorkspaceSize((CausalSoftmaxCpuDescriptor_t)desc, size);
+#ifdef ENABLE_CPU_API
+        GET(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NV_GPU
     case DevNvGpu: {
@@ -81,10 +97,15 @@ __C infiniStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDe
 }
 
 __C infiniStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescriptor_t desc, void *workspace, size_t workspace_size, void *data, void *stream) {
+
+#define CALCULATE(CASE, NAMESPACE)                                                             \
+    case CASE:                                                                                 \
+        return reinterpret_cast<op::causal_softmax::NAMESPACE::Descriptor *>(desc)->calculate( \
+            workspace, workspace_size, data, stream);
+
     switch (desc->device_type) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuCausalSoftmax((CausalSoftmaxCpuDescriptor_t)desc, workspace, workspace_size, data, stream);
+#ifdef ENABLE_CPU_API
+        CALCULATE(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NV_GPU
     case DevNvGpu: {
@@ -118,10 +139,15 @@ __C infiniStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescriptor_t desc,
 }
 
 __C infiniStatus_t infiniopDestroyCausalSoftmaxDescriptor(infiniopCausalSoftmaxDescriptor_t desc) {
+
+#define DESTROY(CASE, NAMESPACE)                                                    \
+    case CASE:                                                                      \
+        delete reinterpret_cast<op::causal_softmax::NAMESPACE::Descriptor *>(desc); \
+        return INFINI_STATUS_SUCCESS;
+
     switch (desc->device_type) {
-#ifdef ENABLE_CPU
-    case DevCpu:
-        return cpuDestroyCausalSoftmaxDescriptor((CausalSoftmaxCpuDescriptor_t)desc);
+#ifdef ENABLE_CPU_API
+        DESTROY(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NV_GPU
     case DevNvGpu: {

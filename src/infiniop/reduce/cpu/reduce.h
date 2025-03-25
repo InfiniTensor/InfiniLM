@@ -36,14 +36,19 @@ T sum(const T *data, size_t len, ptrdiff_t stride = 1) {
     return result;
 }
 
-float sum(const fp16_t *data, size_t len, ptrdiff_t stride = 1) {
-    float result = 0;
-    for (size_t i = 0; i < len; i++) {
-        result += utils::cast<float>(data[i * stride]);
+float sum(const fp16_t *data, size_t len, ptrdiff_t stride = 1);
+
+template <typename T, typename = std::enable_if_t<ReduceToSame<T>::value>>
+T max(const T *data, size_t len, ptrdiff_t stride = 1) {
+    T result = data[0];
+    for (size_t i = 1; i < len; i++) {
+        result = std::max(result, data[i * stride]);
     }
 
     return result;
 }
+
+float max(const fp16_t *data, size_t len, ptrdiff_t stride = 1);
 
 template <typename T, typename = std::enable_if_t<ReduceToSame<T>::value>>
 T sumSquared(const T *data, size_t len, ptrdiff_t stride = 1) {
@@ -56,15 +61,7 @@ T sumSquared(const T *data, size_t len, ptrdiff_t stride = 1) {
     return result;
 }
 
-float sumSquared(const fp16_t *data, size_t len, ptrdiff_t stride = 1) {
-    float result = 0;
-    for (size_t i = 0; i < len; i++) {
-        float val = utils::cast<float>(data[i * stride]);
-        result += val * val;
-    }
-
-    return result;
-}
+float sumSquared(const fp16_t *data, size_t len, ptrdiff_t stride = 1);
 
 } // namespace reduce_op
 
