@@ -10,9 +10,11 @@ __C __export infiniStatus_t infiniopCreateTensorDescriptor(infiniopTensorDescrip
     } else {
         std::vector<ptrdiff_t> strides(ndim);
         ptrdiff_t dsize = 1;
-        for (size_t i = ndim - 1; i >= 0; i--) {
-            strides[i] = dsize;
-            dsize *= shape_[i];
+        if (ndim > 0) {
+            for (size_t i = ndim - 1; i >= 0; i--) {
+                strides[i] = dsize;
+                dsize *= shape_[i];
+            }
         }
         *desc_ptr = new InfiniopTensorDescriptor(datatype, ndim, shape_, strides.data());
     }

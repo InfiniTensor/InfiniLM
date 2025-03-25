@@ -77,8 +77,6 @@ def random_sample(data, random_val, topp, topk, voc, temperature):
         # sorted_indices = torch.argsort(dataNp, descending=True)
         indices = sorted_indices[:topk]
 
-        dataNp = dataNp[sorted_indices]
-
         globalM = dataNp[0]
         dataNp = (dataNp - globalM) / temperature
         dataNp = torch.softmax(dataNp.float(), dim=0)
