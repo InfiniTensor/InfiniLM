@@ -21,9 +21,7 @@ infiniStatus_t Descriptor::create(
     auto handle = reinterpret_cast<device::musa::Handle *>(handle_);
     auto dtype = c_desc->dtype();
 
-    if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
-        return INFINI_STATUS_BAD_TENSOR_DTYPE;
-    }
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32);
 
     infiniStatus_t status;
     auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
@@ -73,7 +71,7 @@ infiniStatus_t calculate(
     auto op_b = info.b_matrix.row_stride == 1 ? MUBLAS_OP_N : MUBLAS_OP_T;
 
     CHECK_STATUS(_internal->useMublas(
-        (MUstream)stream,
+        (musaStream_t)stream,
         [&](mublasHandle_t handle) {
             CHECK_MUBLAS(
                 mublasGemmStridedBatchedEx(
@@ -114,28 +112,12 @@ infiniStatus_t Descriptor::calculate(void *workspace,
                                      float alpha,
                                      void *stream) const {
     switch (_dtype) {
-    case INFINI_DTYPE_F16:
-        return musa::calculate<half>(_info,
-                                     _opaque->internal,
-                                     c,
-                                     beta,
-                                     a,
-                                     b,
-                                     alpha,
-                                     stream);
-
-    case INFINI_DTYPE_F32:
-        return musa::calculate<float>(_info,
-                                      _opaque->internal,
-                                      c,
-                                      beta,
-                                      a,
-                                      b,
-                                      alpha,
-                                      stream);
-
-    default:
-        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        case INFINI_DTYPE_F16:
+            return musa::calculate<half>(_info, _opaque->internal, c, beta, a, b, alpha, stream);
+        case INFINI_DTYPE_F32:
+            return musa::calculate<float>(_info,_opaque->internal, c, beta, a, b, alpha, stream);
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 }
 

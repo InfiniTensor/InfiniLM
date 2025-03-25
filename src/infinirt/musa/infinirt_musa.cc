@@ -39,7 +39,8 @@ infiniStatus_t streamSynchronize(infinirtStream_t stream) {
 }
 
 infiniStatus_t streamWaitEvent(infinirtStream_t stream, infinirtEvent_t event) {
-    return INFINI_STATUS_NOT_IMPLEMENTED;
+    CHECK_MUSART(musaStreamWaitEvent((musaStream_t)stream, (musaEvent_t)event));
+    return INFINI_STATUS_SUCCESS;
 }
 
 infiniStatus_t eventCreate(infinirtEvent_t *event_ptr) {

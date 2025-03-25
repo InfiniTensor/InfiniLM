@@ -11,26 +11,32 @@ auto Handle::internal() const -> const std::shared_ptr<Internal> & {
     return _internal;
 }
 
-infiniStatus_t Handle::Internal::useMublas(MUstream stream, const Fn<mublasHandle_t> &f) const {
-    mublasHandle_t *handle = mublas_handles.pop();
-    if (!handle) {
-        handle = new mublasHandle_t;
-        CHECK_MUBLAS(mublasCreate(handle));
+infiniStatus_t Handle::Internal::useMublas(musaStream_t stream, const Fn<mublasHandle_t> &f) const {
+    std::unique_ptr<mublasHandle_t> handle;
+    auto opt_handle = mublas_handles.pop();
+    if (opt_handle.has_value()) {
+        handle = std::move(*opt_handle);
+    } else {
+        handle = std::make_unique<mublasHandle_t>();
+        CHECK_MUBLAS(mublasCreate(&(*handle)));
     }
     CHECK_MUBLAS(mublasSetStream(*handle, stream));
     CHECK_STATUS(f(*handle));
-    mublas_handles.push(handle);
+    mublas_handles.push(std::move(handle));
     return INFINI_STATUS_SUCCESS;
 }
 
 infiniStatus_t Handle::Internal::useMudnn(musaStream_t stream, const Fn<::musa::dnn::Handle &> &f) const {
-    ::musa::dnn::Handle *handle = mudnn_handles.pop();
-    if (!handle) {
-        handle = new ::musa::dnn::Handle();
+    std::unique_ptr<::musa::dnn::Handle> handle;
+    auto opt_handle = mudnn_handles.pop();
+    if (opt_handle.has_value()) {
+        handle = std::move(*opt_handle);
+    } else {
+        handle = std::make_unique<::musa::dnn::Handle>();
     }
     CHECK_MUDNN(handle->SetStream(stream));
     CHECK_STATUS(f(*handle));
-    mudnn_handles.push(handle);
+    mudnn_handles.push(std::move(handle));
     return INFINI_STATUS_SUCCESS;
 }
 
