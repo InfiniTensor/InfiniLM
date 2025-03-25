@@ -5,21 +5,6 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/swiglu_cpu.h"
 #endif
-#ifdef ENABLE_CUDA_API
-#include "cuda/swiglu_cuda.cuh"
-#endif
-#ifdef ENABLE_CAMBRICON_API
-#include "bang/swiglu_bang.h"
-#endif
-#ifdef ENABLE_ASCEND_API
-#include "ascend/swiglu_ascend.h"
-#endif
-#ifdef ENABLE_METAX_API
-#include "maca/swiglu_maca.h"
-#endif
-#ifdef ENABLE_KUNLUN_API
-#include "kunlun/swiglu_kunlun.h"
-#endif
 
 __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
     infiniopHandle_t handle,
@@ -42,20 +27,36 @@ __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
-        CREATE(INFINI_DEVICE_NVIDIA, cuda);
+#ifdef ENABLE_NV_GPU
+    case DevNvGpu:
+        return cudaCreateSwiGLUDescriptor((CudaHandle_t)handle,
+                                          (SwiGLUCudaDescriptor_t *)desc_ptr,
+                                          c_desc, a_desc, b_desc);
 #endif
-#ifdef ENABLE_CAMBRICON_API
-        CREATE(INFINI_DEVICE_CAMBRICON, bang);
+#ifdef ENABLE_CAMBRICON_MLU
+    case DevCambriconMlu: {
+        return bangCreateSwiGLUDescriptor((BangHandle_t)handle,
+                                          (SwiGLUBangDescriptor_t *)desc_ptr,
+                                          c_desc, a_desc, b_desc);
+    }
 #endif
-#ifdef ENABLE_ASCEND_API
-        CREATE(INFINI_DEVICE_ASCEND, ascend);
+#ifdef ENABLE_ASCEND_NPU
+    case DevAscendNpu:
+        return ascendCreateSwiGLUDescriptor(
+            (AscendHandle_t)handle, (SwiGLUAscendDescriptor_t *)desc_ptr,
+            c_desc, a_desc, b_desc);
 #endif
-#ifdef ENABLE_METAX_API
-        CREATE(INFINI_DEVICE_METAX, maca);
+#ifdef ENABLE_METAX_GPU
+    case DevMetaxGpu: {
+        return macaCreateSwiGLUDescriptor((MacaHandle_t)handle,
+                                          (SwiGLUMacaDescriptor_t *)desc_ptr,
+                                          c_desc, a_desc, b_desc);
+    }
 #endif
-#ifdef ENABLE_KUNLUN_API
-        CREATE(INFINI_DEVICE_KUNLUN, kunlun);
+#ifdef ENABLE_MTHREADS_GPU
+    case DevMthreadsGpu:
+        return musaCreateSwiGLUDescriptor(
+            handle, (SwiGLUMusaDescriptor_t *)desc_ptr, c_desc, a_desc, b_desc);
 #endif
 
     default:
@@ -82,20 +83,26 @@ __C infiniStatus_t infiniopSwiGLU(
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
-        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+#ifdef ENABLE_NV_GPU
+    case DevNvGpu:
+        return cudaSwiGLU((SwiGLUCudaDescriptor_t)desc, c, a, b, stream);
 #endif
-#ifdef ENABLE_CAMBRICON_API
-        CALCULATE(INFINI_DEVICE_CAMBRICON, bang);
+#ifdef ENABLE_CAMBRICON_MLU
+    case DevCambriconMlu: {
+        return bangSwiGLU((SwiGLUBangDescriptor_t)desc, c, a, b, stream);
+    }
 #endif
-#ifdef ENABLE_ASCEND_API
-        CALCULATE(INFINI_DEVICE_ASCEND, ascend);
+#ifdef ENABLE_ASCEND_NPU
+    case DevAscendNpu:
+        return ascendSwiGLU((SwiGLUAscendDescriptor_t)desc, c, a, b, stream);
 #endif
-#ifdef ENABLE_METAX_API
-        CALCULATE(INFINI_DEVICE_METAX, maca);
+#ifdef ENABLE_METAX_GPU
+    case DevMetaxGpu:
+        return macaSwiGLU((SwiGLUMacaDescriptor_t)desc, c, a, b, stream);
 #endif
-#ifdef ENABLE_KUNLUN_API
-        CALCULATE(INFINI_DEVICE_KUNLUN, kunlun);
+#ifdef ENABLE_MTHREADS_GPU
+    case DevMthreadsGpu:
+        return musaSwiGLU((SwiGLUMusaDescriptor_t)desc, c, a, b, stream);
 #endif
 
     default:
@@ -118,20 +125,26 @@ infiniopDestroySwiGLUDescriptor(infiniopSwiGLUDescriptor_t desc) {
 #ifdef ENABLE_CPU_API
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
-        DELETE(INFINI_DEVICE_NVIDIA, cuda);
+#ifdef ENABLE_NV_GPU
+    case DevNvGpu:
+        return cudaDestroySwiGLUDescriptor((SwiGLUCudaDescriptor_t)desc);
 #endif
-#ifdef ENABLE_CAMBRICON_API
-        DELETE(INFINI_DEVICE_CAMBRICON, bang);
+#ifdef ENABLE_CAMBRICON_MLU
+    case DevCambriconMlu: {
+        return bangDestroySwiGLUDescriptor((SwiGLUBangDescriptor_t)desc);
+    }
 #endif
-#ifdef ENABLE_ASCEND_API
-        DELETE(INFINI_DEVICE_ASCEND, ascend);
+#ifdef ENABLE_ASCEND_NPU
+    case DevAscendNpu:
+        return ascendDestroySwiGLUDescriptor((SwiGLUAscendDescriptor_t)desc);
 #endif
-#ifdef ENABLE_METAX_API
-        DELETE(INFINI_DEVICE_METAX, maca);
+#ifdef ENABLE_METAX_GPU
+    case DevMetaxGpu:
+        return macaDestroySwiGLUDescriptor((SwiGLUMacaDescriptor_t)desc);
 #endif
-#ifdef ENABLE_KUNLUN_API
-        DELETE(INFINI_DEVICE_KUNLUN, kunlun);
+#ifdef ENABLE_MTHREADS_GPU
+    case DevMthreadsGpu:
+        return musaDestroySwiGLUDescriptor((SwiGLUMusaDescriptor_t)desc);
 #endif
 
     default:
