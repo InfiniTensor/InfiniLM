@@ -1,53 +1,8 @@
 #ifndef __INFINIOP_BINARY_CPU_H__
 #define __INFINIOP_BINARY_CPU_H__
 
-#include "../../devices/cpu/common_cpu.h"
-#include "../../operator.h"
-#include "../../tensor.h"
 #include "../binary.h"
 #include <utility>
-
-/**
- * 该类的设计基于 matmul.h 中 YdrMaster 设计的 DESCRIPTOR 宏。
- */
-
-#define BINARY_DESCRIPTOR(OP, NAMESPACE)                  \
-                                                          \
-    namespace op::OP::NAMESPACE {                         \
-    class Descriptor final : public InfiniopDescriptor {  \
-        struct Opaque;                                    \
-        Opaque *_opaque;                                  \
-        infiniDtype_t _dtype;                             \
-        op::binary::BinaryInfo _info;                     \
-                                                          \
-        Descriptor(                                       \
-            infiniDtype_t dtype,                          \
-            op::binary::BinaryInfo info,                  \
-            Opaque *opaque,                               \
-            infiniDevice_t device_type,                   \
-            int device_id)                                \
-            : InfiniopDescriptor{device_type, device_id}, \
-              _opaque(opaque),                            \
-              _dtype(dtype),                              \
-              _info(info) {}                              \
-                                                          \
-    public:                                               \
-        ~Descriptor();                                    \
-                                                          \
-        static infiniStatus_t create(                     \
-            infiniopHandle_t handle,                      \
-            Descriptor **desc_ptr,                        \
-            infiniopTensorDescriptor_t c_desc,            \
-            infiniopTensorDescriptor_t a_desc,            \
-            infiniopTensorDescriptor_t b_desc);           \
-                                                          \
-        infiniStatus_t calculate(                         \
-            void *c,                                      \
-            const void *a,                                \
-            const void *b,                                \
-            void *stream) const;                          \
-    };                                                    \
-    }
 
 namespace op::common_cpu {
 
