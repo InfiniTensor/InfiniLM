@@ -46,7 +46,7 @@ public:
         try {
             *instance = new BinaryInfo(c_desc, a_desc, b_desc);
             return INFINI_STATUS_SUCCESS;
-        } catch (const std::exception &e) {
+        } catch (const std::exception &) {
             return INFINI_STATUS_INTERNAL_ERROR;
         }
     }

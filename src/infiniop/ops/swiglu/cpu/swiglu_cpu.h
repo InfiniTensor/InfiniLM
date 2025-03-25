@@ -1,7 +1,7 @@
 #ifndef __SWIGLU_CPU_H__
 #define __SWIGLU_CPU_H__
 
-#include "../../../binary/cpu/binary.h"
+#include "../../../binary/cpu/binary_cpu.h"
 
 BINARY_DESCRIPTOR(swiglu, cpu)
 

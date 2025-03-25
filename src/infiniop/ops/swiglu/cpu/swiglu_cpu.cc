@@ -12,23 +12,28 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t gate_desc) {
 
     auto handle = reinterpret_cast<device::cpu::Handle *>(handle_);
-    constexpr std::array<infiniDtype_t, 3> SUPPORTED_DTYPES = {
-        INFINI_DTYPE_F16,
-        INFINI_DTYPE_F32,
-        INFINI_DTYPE_F64,
-    };
+    auto dtype = out_desc->dtype();
+    const auto &out_shape = out_desc->shape();
+    const auto &up_shape = up_desc->shape();
+    const auto &gate_shape = gate_desc->shape();
 
-    // Perform generic binary operator check
-    CHECK_STATUS(op::common_cpu::binary_op::check(out_desc, up_desc, gate_desc, SUPPORTED_DTYPES, true, true));
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
+    if (!SAME_VEC(out_shape, up_shape, gate_shape)) {
+        return INFINI_STATUS_BAD_TENSOR_SHAPE;
+    }
+
+    op::binary::BinaryInfo *info = nullptr;
+    CHECK_STATUS(op::binary::BinaryInfo::create(&info, out_desc, up_desc, gate_desc));
 
     // Create descriptor
     *desc_ptr = new Descriptor(
-        out_desc->dtype(),
-        {out_desc, up_desc, gate_desc},
+        dtype,
+        *info,
         nullptr,
         handle->device,
         handle->device_id);
 
+    delete info;
     return INFINI_STATUS_SUCCESS;
 }
 
