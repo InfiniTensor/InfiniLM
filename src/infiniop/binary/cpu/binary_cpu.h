@@ -1,6 +1,7 @@
 #ifndef __INFINIOP_BINARY_CPU_H__
 #define __INFINIOP_BINARY_CPU_H__
 
+#include "../../devices/cpu/common_cpu.h"
 #include "../binary.h"
 #include <utility>
 
@@ -18,11 +19,9 @@ void calculate(op::binary::BinaryInfo info, void *c, const void *a, const void *
 
 #pragma omp parallel for
     for (ptrdiff_t i = 0; i < data_size; ++i) {
-        size_t a_index = info.broadcasted ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.a_strides.data())
-                                          : op::common_cpu::indexToOffset(i, info.ndim, info.a_shape.data(), info.a_strides.data());
-        size_t b_index = info.broadcasted ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.b_strides.data())
-                                          : op::common_cpu::indexToOffset(i, info.ndim, info.b_shape.data(), info.b_strides.data());
-        size_t c_index = op::common_cpu::indexToOffset(i, info.ndim, info.c_shape.data(), info.c_strides.data());
+        size_t a_index = info.contiguous ? i : (info.broadcasted ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.a_strides.data()) : op::common_cpu::indexToOffset(i, info.ndim, info.a_shape.data(), info.a_strides.data()));
+        size_t b_index = info.contiguous ? i : (info.broadcasted ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.b_strides.data()) : op::common_cpu::indexToOffset(i, info.ndim, info.b_shape.data(), info.b_strides.data()));
+        size_t c_index = info.contiguous ? i : (op::common_cpu::indexToOffset(i, info.ndim, info.c_shape.data(), info.c_strides.data()));
 
         c_[c_index] = BinaryOp{}(a_[a_index], b_[b_index], std::forward<Args>(args)...);
     }
@@ -38,11 +37,9 @@ void calculate(op::binary::BinaryInfo info, void *c, const void *a, const void *
 
 #pragma omp parallel for
     for (ptrdiff_t i = 0; i < data_size; ++i) {
-        size_t a_index = info.broadcasted ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.a_strides.data())
-                                          : op::common_cpu::indexToOffset(i, info.ndim, info.a_shape.data(), info.a_strides.data());
-        size_t b_index = info.broadcasted ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.b_strides.data())
-                                          : op::common_cpu::indexToOffset(i, info.ndim, info.b_shape.data(), info.b_strides.data());
-        size_t c_index = op::common_cpu::indexToOffset(i, info.ndim, info.c_shape.data(), info.c_strides.data());
+        size_t a_index = info.contiguous ? i : (info.broadcasted ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.a_strides.data()) : op::common_cpu::indexToOffset(i, info.ndim, info.a_shape.data(), info.a_strides.data()));
+        size_t b_index = info.contiguous ? i : (info.broadcasted ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.c_strides.data(), info.b_strides.data()) : op::common_cpu::indexToOffset(i, info.ndim, info.b_shape.data(), info.b_strides.data()));
+        size_t c_index = info.contiguous ? i : (op::common_cpu::indexToOffset(i, info.ndim, info.c_shape.data(), info.c_strides.data()));
 
         if constexpr (std::is_same_v<Tdata, fp16_t>) {
             float a_val = utils::cast<float>(a_[a_index]);

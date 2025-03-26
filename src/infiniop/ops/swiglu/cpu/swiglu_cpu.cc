@@ -22,18 +22,17 @@ infiniStatus_t Descriptor::create(
         return INFINI_STATUS_BAD_TENSOR_SHAPE;
     }
 
-    op::binary::BinaryInfo *info = nullptr;
-    CHECK_STATUS(op::binary::BinaryInfo::create(&info, out_desc, up_desc, gate_desc));
+    op::binary::BinaryInfo info;
+    CHECK_STATUS(op::binary::createBinaryInfo(info, out_desc, up_desc, gate_desc));
 
     // Create descriptor
     *desc_ptr = new Descriptor(
         dtype,
-        *info,
+        std::move(info),
         nullptr,
         handle->device,
         handle->device_id);
 
-    delete info;
     return INFINI_STATUS_SUCCESS;
 }
 
