@@ -1,5 +1,7 @@
 #include "common_cpu.h"
 
+namespace op::common_cpu {
+
 size_t indexToReducedOffset(
     size_t flat_index,
     size_t ndim,
@@ -19,7 +21,7 @@ size_t indexToOffset(
     const size_t *shape,
     const ptrdiff_t *strides) {
     size_t res = 0;
-    for (size_t i = ndim; i-- >= 0;) {
+    for (size_t i = ndim; i-- > 0;) {
         res += (flat_index % shape[i]) * strides[i];
         flat_index /= shape[i];
     }
@@ -48,3 +50,5 @@ std::vector<size_t> getPaddedShape(
     }
     return padded_shape;
 }
+
+} // namespace op::common_cpu

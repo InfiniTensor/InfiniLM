@@ -37,3 +37,8 @@ target("infinirt-cpu")
     set_languages("cxx17")
     add_files("../src/infinirt/cpu/*.cc")
 target_end()
+
+if has_config("omp") then
+    add_requires("openmp")
+    add_packages("openmp")
+end

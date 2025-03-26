@@ -32,7 +32,7 @@ jobs:
         xmake-version: latest
 
     - name: configure xmake
-      run: xmake f -cv
+      run: xmake f --omp=y -cv
 
     - name: build with xmake
       run: xmake build

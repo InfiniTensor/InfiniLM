@@ -1,6 +1,7 @@
 #ifndef INFINIUTILS_CHECK_H
 #define INFINIUTILS_CHECK_H
 #include <iostream>
+#include <tuple>
 
 #define CHECK_API_OR(API, EXPECT, ACTION)                                       \
     do {                                                                        \
@@ -29,5 +30,14 @@
         CHECK_API_OR(found_supported_dtype, true,            \
                      return INFINI_STATUS_BAD_TENSOR_DTYPE); \
     } while (0)
+
+#define SAME_VEC(...)                                     \
+    [&] {                                                 \
+        auto &&_vec = std::forward_as_tuple(__VA_ARGS__); \
+        const auto &_base = std::get<0>(_vec);            \
+        return [&_base](auto &&...args) {                 \
+            return ((args == _base) && ...);              \
+        }(__VA_ARGS__);                                   \
+    }()
 
 #endif // INFINIUTILS_CHECK_H

@@ -13,6 +13,8 @@
 #include <omp.h>
 #endif
 
+namespace op::common_cpu {
+
 // return the memory offset of original tensor, given the flattened index of broadcasted tensor
 size_t indexToReducedOffset(size_t flat_index, size_t ndim, const ptrdiff_t *broadcasted_strides, const ptrdiff_t *target_strides);
 
@@ -27,5 +29,7 @@ size_t getPaddedSize(size_t ndim, size_t *shape, const size_t *pads);
 
 // calculate the padded shape and store the result in padded_shape
 std::vector<size_t> getPaddedShape(size_t ndim, const size_t *shape, const size_t *pads);
+
+} // namespace op::common_cpu
 
 #endif // __INFINIOP__COMMON_CPU_H__
