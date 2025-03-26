@@ -1,5 +1,6 @@
 #include "../utils.h"
 #include "tensor.h"
+#include <algorithm>
 #include <cstring>
 #include <functional>
 #include <numeric>
@@ -83,6 +84,24 @@ bool InfiniopTensorDescriptor::isContiguous(size_t dim_start, size_t dim_end) co
 
 bool InfiniopTensorDescriptor::isContiguous() const {
     return isContiguous(0, ndim() - 1);
+}
+
+bool InfiniopTensorDescriptor::hasBroadcastDim() const {
+    return std::any_of(
+        _shape.begin(), _shape.end(),
+        [&, i = 0](const auto &) mutable {
+            return _shape[i] != 1 && _strides[i++] == 0;
+        });
+}
+
+std::vector<size_t> InfiniopTensorDescriptor::getBroadcastDim() const {
+    std::vector<size_t> res;
+    for (size_t i = 0; i < ndim(); ++i) {
+        if (_shape[i] != 1 && _strides[i] == 0) {
+            res.push_back(i);
+        }
+    }
+    return res;
 }
 
 infiniopTensorDescriptor_t InfiniopTensorDescriptor::dimMerge(size_t dim_start, size_t dim_end) const {

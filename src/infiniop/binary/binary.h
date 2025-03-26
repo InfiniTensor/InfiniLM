@@ -3,7 +3,6 @@
 
 #include "../operator.h"
 #include "../tensor.h"
-#include <algorithm>
 #include <numeric>
 
 /**
@@ -73,39 +72,23 @@ inline infiniStatus_t createBinaryInfo(BinaryInfo &info,
         return INFINI_STATUS_BAD_PARAM;
     }
 
-    const auto &c_shape = c_desc->shape();
-    const auto &a_shape = a_desc->shape();
-    const auto &b_shape = b_desc->shape();
-    const auto &c_strides = c_desc->strides();
-    const auto &a_strides = a_desc->strides();
-    const auto &b_strides = b_desc->strides();
-
-    info.c_data_size = std::accumulate(c_shape.begin(), c_shape.end(), size_t(1), std::multiplies<size_t>());
+    info.c_data_size = c_desc->numel();
     info.ndim = c_desc->ndim();
     info.contiguous = c_desc->isContiguous() && a_desc->isContiguous() && b_desc->isContiguous();
 
-    // Check if a tensor is broadcasted by checking its shape and strides
-    auto isBroadcasted = [](const std::vector<size_t> &shape, const std::vector<ptrdiff_t> &strides) {
-        return std::any_of(
-            shape.begin(), shape.end(),
-            [&, i = 0](const auto &) mutable {
-                return shape[i] != 1 && strides[i++] == 0;
-            });
-    };
-
     // Destination cannot have broadcast setup
-    if (isBroadcasted(c_shape, c_strides)) {
+    if (c_desc->hasBroadcastDim()) {
         return INFINI_STATUS_BAD_TENSOR_STRIDES;
     }
     const bool ndim_match = (c_desc->ndim() == a_desc->ndim()) && (c_desc->ndim() == b_desc->ndim());
-    info.broadcasted = !info.contiguous && (!ndim_match || isBroadcasted(a_shape, a_strides) || isBroadcasted(b_shape, b_strides));
+    info.broadcasted = !info.contiguous && (!ndim_match || a_desc->hasBroadcastDim() || b_desc->hasBroadcastDim());
 
-    info.c_shape = std::move(c_shape);
-    info.a_shape = std::move(a_shape);
-    info.b_shape = std::move(b_shape);
-    info.c_strides = std::move(c_strides);
-    info.a_strides = std::move(a_strides);
-    info.b_strides = std::move(b_strides);
+    info.c_shape = std::move(c_desc->shape());
+    info.a_shape = std::move(a_desc->shape());
+    info.b_shape = std::move(b_desc->shape());
+    info.c_strides = std::move(c_desc->strides());
+    info.a_strides = std::move(a_desc->strides());
+    info.b_strides = std::move(b_desc->strides());
 
     return INFINI_STATUS_SUCCESS;
 }

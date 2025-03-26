@@ -28,6 +28,10 @@ public:
     bool isContiguous() const;
     size_t numel() const;
 
+    // a dim is broadcasted if it's corresponding stride is 0 but dim > 1
+    bool hasBroadcastDim() const;
+    std::vector<size_t> getBroadcastDim() const;
+
     infiniopTensorDescriptor_t dimMerge(size_t dim_start, size_t dim_end) const;
     infiniopTensorDescriptor_t dimSplit(size_t axis, const std::vector<size_t> &dims) const;
     infiniopTensorDescriptor_t dimPermute(const std::vector<size_t> &order) const;
