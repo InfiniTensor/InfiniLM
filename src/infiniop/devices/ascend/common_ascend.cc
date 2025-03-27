@@ -8,7 +8,7 @@ std::vector<int64_t> inferStorageShape(std::vector<int64_t> shape, std::vector<i
     return storageShape;
 }
 
-size_t aclnnTensorDescriptor::size() const {
+size_t aclnnTensorDescriptor::numel() const {
     return std::accumulate(shape.begin(), shape.end(), (size_t)1, std::multiplies<size_t>());
 }
 
