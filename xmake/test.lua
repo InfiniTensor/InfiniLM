@@ -1,17 +1,17 @@
 target("infiniutils-test")
     set_kind("binary")
     add_deps("infini-utils")
-    on_install(function (target) end)
 
     set_warnings("all", "error")
     set_languages("cxx17")
     
     add_files(os.projectdir().."/src/utils-test/*.cc")
+    set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
+target_end()
 
 target("infiniop-test")
     set_kind("binary")
     add_deps("infini-utils")
-    on_install(function (target) end)
     set_default(false)
 
     local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
@@ -31,4 +31,6 @@ target("infiniop-test")
     add_includedirs(os.projectdir().."/src/infiniop-test/include")
     add_files(os.projectdir().."/src/infiniop-test/src/*.cpp")
     add_files(os.projectdir().."/src/infiniop-test/src/ops/*.cpp")
+
+    set_installdir(INFINI_ROOT)
 target_end()
