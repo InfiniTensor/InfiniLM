@@ -43,7 +43,7 @@ void calculate(
         std::swap(a, b);
     }
 #pragma omp parallel for
-    for(ptrdiff_t index = 0; index < ptrdiff_t(info.batch * info.m * info.n); ++index){
+    for (ptrdiff_t index = 0; index < ptrdiff_t(info.batch * info.m * info.n); ++index) {
         size_t ind = index;
         size_t n_ = ind % info.n;
         ind /= info.n;
