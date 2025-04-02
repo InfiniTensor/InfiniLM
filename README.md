@@ -15,6 +15,22 @@ InfiniCore 是一个跨平台统一编程工具集，为不同芯片平台的功
 
 ## 配置和使用
 
+### 一键安装
+
+在 `script/` 目录中分别提供了 `install.bat` windows安装脚本和 `install.sh` linux安装脚本。使用方式如下：
+
+```shell
+cd InfiniCore
+
+# Windows
+.\scripts\install.bat . --nv-gpu=true 
+
+# Linux
+source ./scripts/install.sh . --nv-gpu=true
+```
+
+### 手动安装
+
 1. 项目配置
 
    - 查看当前配置
@@ -55,11 +71,17 @@ InfiniCore 是一个跨平台统一编程工具集，为不同芯片平台的功
 
    按输出提示设置 `INFINI_ROOT` 和 `LD_LIBRARY_PATH` 环境变量。
 
-4. 运行算子测试
+### 运行测试
+
+#### 运行Python算子测试
 
    ```shell
    python test/infiniop/[operator].py [--cpu | --nvidia | --cambricon | --ascend]
    ```
+
+#### 算子测试框架
+
+详见 `test/infiniop-test` 目录
 
 ## 开发指南
 
