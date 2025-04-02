@@ -1,8 +1,8 @@
 #ifndef __INFINIUTILS_REARRANGE_H__
 #define __INFINIUTILS_REARRANGE_H__
 
-#include <optional>
-#include <stddef.h>
+#include "result.hpp"
+#include <cstddef>
 #include <vector>
 
 namespace utils {
@@ -12,7 +12,7 @@ class RearrangeMeta {
     RearrangeMeta(std::vector<ptrdiff_t>);
 
 public:
-    static std::optional<RearrangeMeta> create(
+    static Result<RearrangeMeta> create(
         const size_t *shape,
         const ptrdiff_t *dst_strides,
         const ptrdiff_t *src_strides,

@@ -71,11 +71,9 @@ infiniStatus_t Descriptor::create(
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
-    infiniStatus_t status;
-    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::ROW_MAJOR);
-    if (status != INFINI_STATUS_SUCCESS) {
-        return status;
-    }
+    auto result = MatmulInfo::create(c_desc, a_desc, b_desc, MatrixLayout::ROW_MAJOR);
+    CHECK_RESULT(result);
+    auto info = result.take();
 
     cnnlTensorDescriptor_t a, b, c;
     CHECK_BANG(cnnlCreateTensorDescriptor(&a));

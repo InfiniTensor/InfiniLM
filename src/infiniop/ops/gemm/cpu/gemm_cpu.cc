@@ -18,14 +18,11 @@ infiniStatus_t Descriptor::create(
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
-    infiniStatus_t status;
-    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
-    if (status != INFINI_STATUS_SUCCESS) {
-        return status;
-    }
+    auto result = MatmulInfo::create(c_desc, a_desc, b_desc, MatrixLayout::COL_MAJOR);
+    CHECK_RESULT(result);
 
     *desc_ptr = new Descriptor(
-        dtype, info, 0,
+        dtype, result.take(), 0,
         nullptr,
         handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
