@@ -1,7 +1,6 @@
 #ifndef INFINIUTILS_H
 #define INFINIUTILS_H
 
-#include "infinicore.h"
 #include "utils/custom_types.h"
 #include "utils/rearrange.h"
 
