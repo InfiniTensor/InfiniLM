@@ -3,15 +3,16 @@
 #include "../../../reduce/cpu/reduce.h"
 
 namespace op::causal_softmax::cpu {
+
 Descriptor::~Descriptor() {}
 
 infiniStatus_t Descriptor::create(
     infiniopHandle_t handle,
     Descriptor **desc_ptr,
     infiniopTensorDescriptor_t y_desc) {
-    CausalSoftmaxInfo info;
-    CHECK_STATUS(createCausalSoftmaxInfo(&info, y_desc));
-    *desc_ptr = new Descriptor(nullptr, info, 0, handle->device, handle->device_id);
+    auto result = CausalSoftmaxInfo::create(y_desc);
+    CHECK_RESULT(result);
+    *desc_ptr = new Descriptor(nullptr, result.take(), 0, handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
 }
 
@@ -53,9 +54,11 @@ infiniStatus_t causal_softmax(const CausalSoftmaxInfo *info, T *data) {
     return INFINI_STATUS_SUCCESS;
 }
 
-infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size,
-                                     void *data,
-                                     void *stream) {
+infiniStatus_t Descriptor::calculate(
+    void *workspace, size_t workspace_size,
+    void *data,
+    void *stream) const {
+
     if (_info.dtype == INFINI_DTYPE_F16) {
         CHECK_STATUS(causal_softmax<fp16_t>(&_info, (fp16_t *)data));
     } else if (_info.dtype == INFINI_DTYPE_F32) {

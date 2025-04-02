@@ -70,9 +70,9 @@ infiniopGetGemmWorkspaceSize(
     infiniopGemmDescriptor_t desc,
     size_t *size) {
 
-#define GET(CASE, NAMESPACE)                                                                     \
-    case CASE:                                                                                   \
-        *size = reinterpret_cast<const op::gemm::NAMESPACE::Descriptor *>(desc)->workspace_size; \
+#define GET(CASE, NAMESPACE)                                                                      \
+    case CASE:                                                                                    \
+        *size = reinterpret_cast<const op::gemm::NAMESPACE::Descriptor *>(desc)->workspaceSize(); \
         return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {

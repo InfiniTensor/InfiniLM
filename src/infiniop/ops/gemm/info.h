@@ -1,5 +1,5 @@
-#ifndef __BLAS_H__
-#define __BLAS_H__
+#ifndef __GEMM_INFO_H__
+#define __GEMM_INFO_H__
 
 #include "../../../utils.h"
 #include "../../operator.h"
@@ -132,4 +132,4 @@ public:
 
 } // namespace op::gemm
 
-#endif // __BLAS_H__
+#endif // __GEMM_INFO_H__
