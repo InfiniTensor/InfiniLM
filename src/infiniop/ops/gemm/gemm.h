@@ -2,7 +2,7 @@
 #define __GEMM_H__
 
 #include "../../operator.h"
-#include "blas.h"
+#include "matmul_info.h"
 
 /**
  * # 关于 `DESCRIPTOR(NAMESPACE)` 和 `struct Opaque;` 的说明

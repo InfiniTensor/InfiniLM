@@ -38,14 +38,12 @@ infiniStatus_t Descriptor::create(
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
-    infiniStatus_t status;
-    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::ROW_MAJOR);
-    if (status != INFINI_STATUS_SUCCESS) {
-        return status;
-    }
+    auto result = MatmulInfo::create(c_desc, a_desc, b_desc, MatrixLayout::ROW_MAJOR);
+    CHECK_RESULT(result);
+    auto info = result.take();
 
     auto c = new aclnnTensorDescriptor(toAclDataType(c_desc->dtype()),
-                                       {static_cast<int64_t>(info.c_matrix.rows), static_cast<int64_t>(info.c_matrix.cols)},
+                                       {static_cast<int64_t>(info.m), static_cast<int64_t>(info.n)},
                                        {info.c_matrix.row_stride, info.c_matrix.col_stride});
     auto a = new aclnnTensorDescriptor(toAclDataType(a_desc->dtype()),
                                        {static_cast<int64_t>(info.a_matrix.rows), static_cast<int64_t>(info.a_matrix.cols)},

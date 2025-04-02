@@ -33,7 +33,7 @@ Result<RearrangeMeta> RearrangeMeta::create(
         if (shape[i] != 1) {
             auto sd = dst_strides_[i] * unit, ss = src_strides_[i] * unit;
             if (sd == 0) {
-                return Result<RearrangeMeta>(INFINI_STATUS_BAD_TENSOR_STRIDES);
+                return INFINI_STATUS_BAD_TENSOR_STRIDES;
             }
             dims.push_back(Dim{shape[i], sd, ss});
         }

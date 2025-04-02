@@ -5,6 +5,11 @@
 #include <infinicore.h>
 #include <variant>
 
+#define CHECK_RESULT(RESULT)    \
+    if (!RESULT) {              \
+        return RESULT.status(); \
+    }
+
 namespace utils {
 
 template <typename T, typename = std::enable_if_t<!std::is_same_v<T, infiniStatus_t>>>
@@ -13,7 +18,7 @@ class Result {
 
 public:
     explicit Result(T value) : _result(std::move(value)) {}
-    explicit Result(infiniStatus_t status) : _result(status) {
+    Result(infiniStatus_t status) : _result(status) {
         if (status == INFINI_STATUS_SUCCESS) {
             std::cerr << "Warning: Result created with success status but value is not set." << std::endl;
             std::abort();
