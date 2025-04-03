@@ -15,18 +15,30 @@ InfiniCore 是一个跨平台统一编程工具集，为不同芯片平台的功
 
 ## 配置和使用
 
+### 软件依赖
+
+- XMake编译器
+
+  XMake配置选项（`XMAKE_CONFIG_FLAGS`）以及含义
+  
+  - `--omp=[y|n]` 是否使用OpenMP，默认开启
+  - `--cpu=[y|n]` 是否编译CPU接口实现，默认开启
+  - `--nv-gpu=[y|n]` 是否编译英伟达GPU接口实现
+  - `--ascend-npu=[y|n]` 是否编译昇腾NPU接口实现
+  - `--cambricon-mlu=[y|n]` 是否编译寒武纪MLU接口实现
+  - `--metax-gpu=[y|n]` 是否编译沐曦GPU接口实现
+  - `--moore-gpu=[y|n]` 是否编译摩尔线程GPU接口实现
+  - `--sugon-dcu=[y|n]` 是否编译曙光DCU接口实现
+  - `--kunlun-xpu=[y|n]` 是否编译昆仑XPU接口实现
+
 ### 一键安装
 
-在 `script/` 目录中分别提供了 `install.bat` windows安装脚本和 `install.sh` linux安装脚本。使用方式如下：
+在 `script/` 目录中提供了 `install.py` 安装脚本。使用方式如下：
 
 ```shell
 cd InfiniCore
 
-# Windows
-.\scripts\install.bat . --nv-gpu=true 
-
-# Linux
-source ./scripts/install.sh . --nv-gpu=true
+python scripts/install.py [XMAKE_CONFIG_FLAGS]
 ```
 
 ### 手动安装
@@ -75,9 +87,15 @@ source ./scripts/install.sh . --nv-gpu=true
 
 #### 运行Python算子测试
 
-   ```shell
-   python test/infiniop/[operator].py [--cpu | --nvidia | --cambricon | --ascend]
-   ```
+```shell
+python test/infiniop/[operator].py [--cpu | --nvidia | --cambricon | --ascend]
+```
+
+#### 一键运行所有Python算子测试
+
+```shell
+python scripts/python_test.py [--cpu | --nvidia | --cambricon | --ascend]
+```
 
 #### 算子测试框架
 
