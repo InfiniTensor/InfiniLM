@@ -13,4 +13,14 @@ static inline __device__ float lowerBitMask(int i) {
     return (1 << (i + 1)) - 1;
 }
 
+// Atomic add for reduce
+static inline __device__ void atomic_add(__shared_ptr__ float *ptr, float value) {
+    int fail = 1;
+    while (fail) {
+        float a = SM2REG_atomic(ptr);
+        a = a + value;
+        fail = REG2SM_atomic(ptr, a);
+    }
+}
+
 #endif
