@@ -32,9 +32,10 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t x_desc,
     infiniopTensorDescriptor_t w_desc,
     float epsilon) {
-    RMSNormInfo info;
-    auto handle_ascend = reinterpret_cast<device::ascend::Handle *>(handle);
-    CHECK_STATUS(createRMSNormInfo(&info, y_desc, x_desc, w_desc, epsilon));
+
+    auto result = RMSNormInfo::create(y_desc, x_desc, w_desc, epsilon);
+    CHECK_RESULT(result);
+    auto info = result.take();
 
     size_t workspace_size = 0;
     aclOpExecutor *executor = nullptr;
@@ -65,14 +66,22 @@ infiniStatus_t Descriptor::create(
     CHECK_ACL(aclnnRmsNormGetWorkspaceSize(tx, tw, static_cast<double>(epsilon), ty, trstd, &workspace_size, &executor));
     aclSetAclOpExecutorRepeatable(executor);
 
-    size_t allWorkspaceSize = workspace_size + rstd->numel() * aclDataTypeSize(rstd->dataType);
-    *desc_ptr = new Descriptor(new Opaque{executor, y, x, w, rstd, workspace_size}, info, allWorkspaceSize, handle_ascend->device, handle_ascend->device_id);
+    auto handle_ascend = reinterpret_cast<device::ascend::Handle *>(handle);
+    size_t all_workspace_size = workspace_size + rstd->numel() * aclDataTypeSize(rstd->dataType);
+    *desc_ptr = new Descriptor(
+        new Opaque{executor, y, x, w, rstd, workspace_size},
+        std::move(info),
+        all_workspace_size,
+        handle_ascend->device, handle_ascend->device_id);
 
     return INFINI_STATUS_SUCCESS;
 }
 
-infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size, void *y,
-                                     const void *x, const void *w, void *stream) {
+infiniStatus_t Descriptor::calculate(
+    void *workspace, size_t workspace_size,
+    void *y, const void *x, const void *w,
+    void *stream) const {
+
     if (workspace_size < workspaceSize()) {
         return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
     }
