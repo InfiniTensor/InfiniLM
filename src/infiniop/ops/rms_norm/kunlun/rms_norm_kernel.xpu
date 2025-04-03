@@ -1,43 +1,8 @@
 #ifndef __RMS_NORM_KUNLUN_KERNEL_H__
 #define __RMS_NORM_KUNLUN_KERNEL_H__
 
-#include "xpu/kernel/xtdk.h"
-#include "xpu/kernel/xtdk_math.h"
-#include "xpu/kernel/xtdk_simd.h"
-
-// Get mask for vload_lm_ func
-// 0 - i bit 1, others 0
-static inline __device__ float lowerBitMask(int i) {
-    return (1 << (i + 1)) - 1;
-}
-
-// Use 16 floats instruction to calculate reduce
-// data_ptr is the pointer of LM
-static inline __device__ float sumSquaredF32(float *data_ptr, int count) {
-    __local__ float acc_buf[16];
-    int remain = count % 16;
-    int offset_last = count - remain;
-    int mask = lowerBitMask(remain - 1);
-    // Load last 16 data
-    float32x16_t v_last = vload_lm_float32x16_mz((data_ptr + offset_last), mask);
-    // Do v_last * v_last
-    v_last = vvmul_float32x16(v_last, v_last);
-    // for every 16 float data
-    for (int i = 0; i < offset_last; i += 16) {
-        float32x16_t v_0 = vload_lm_float32x16_mz(data_ptr + i);
-        // Do v_0 * v_0
-        v_0 = vvmul_float32x16(v_0, v_0);
-        // Add to v_last
-        v_last = vvadd_float32x16(v_last, v_0);
-    }
-    vstore_lm_float32x16_mz(acc_buf, v_last);
-    mfence();
-    float res = 0.0f;
-    for (int i = 0; i < 16; ++i) {
-        res += acc_buf[i];
-    }
-    return res;
-}
+#include "../../../devices/kunlun/kunlun_common.h"
+#include "../../../reduce/kunlun/reduce_kunlun.h"
 
 // Element wise mul used in x * w
 static inline __device__ void elementMul(float *x, float *w, float *y, int count, float rms) {
@@ -82,7 +47,7 @@ __global__ void rms_norm(float *y, long stride_y, float *x, long stride_x, float
     if (cid >= ncores) {
         return;
     }
-    
+
     // Divide m rows into all clusters equally
     // if m % cluster_num() != 0, cluster_id < m % cluster_num() do 1 row more
     // [m_start, m_end) is the range of m dim in current cluster
@@ -129,7 +94,7 @@ __global__ void rms_norm(float *y, long stride_y, float *x, long stride_x, float
             GM2LM(x_ptr, x_local, curr_nn * sizeof(float));
 
             // do reduce
-            float ss = sumSquaredF32(x_local, curr_nn);
+            float ss = op::common_kunlun::reduce_op::sumSquaredF32(x_local, curr_nn);
             atomic_add(&sm_output[curr_m - m_start], ss);
         }
         mfence();
@@ -159,6 +124,10 @@ __global__ void rms_norm(float *y, long stride_y, float *x, long stride_x, float
         sync_cluster();
         m_start += max_mm;
     }
+}
+
+void rms_norm_f32(void *y, long stride_y, const void *x, long stride_x, const void *w, int m, int n, float epsilon, XPUStream stream) {
+    rms_norm<<<8, 32, stream>>>((float *)y, stride_y, (float *)x, stride_x, (float *)w, m, n, epsilon);
 }
 
 #endif

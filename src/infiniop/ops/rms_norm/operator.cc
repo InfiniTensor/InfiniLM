@@ -8,6 +8,9 @@
 #ifdef ENABLE_CUDA_API
 #include "cuda/rms_norm_cuda.cuh"
 #endif
+#ifdef ENABLE_KUNLUN_API
+#include "kunlun/rms_norm_kunlun.h"
+#endif
 
 __C infiniStatus_t infiniopCreateRMSNormDescriptor(
     infiniopHandle_t handle,
@@ -33,6 +36,9 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
 #endif
 #ifdef ENABLE_CUDA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda)
+#endif
+#ifdef ENABLE_KUNLUN_API
+        CREATE(INFINI_DEVICE_KUNLUN, kunlun)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -80,6 +86,9 @@ __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t d
 #ifdef ENABLE_CUDA_API
         GET(INFINI_DEVICE_NVIDIA, cuda)
 #endif
+#ifdef ENABLE_KUNLUN_API
+        GET(INFINI_DEVICE_KUNLUN, kunlun)
+#endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
         return bangGetRMSNormWorkspaceSize((RMSNormBangDescriptor_t)desc, size);
@@ -122,6 +131,9 @@ __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *works
 #endif
 #ifdef ENABLE_CUDA_API
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda)
+#endif
+#ifdef ENABLE_KUNLUN_API
+        CALCULATE(INFINI_DEVICE_KUNLUN, kunlun)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -169,6 +181,9 @@ __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t 
 #endif
 #ifdef ENABLE_CUDA_API
         DESTROY(INFINI_DEVICE_NVIDIA, cuda)
+#endif
+#ifdef ENABLE_KUNLUN_API
+        DESTROY(INFINI_DEVICE_KUNLUN, kunlun)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
