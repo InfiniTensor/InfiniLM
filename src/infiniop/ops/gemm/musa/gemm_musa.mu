@@ -23,14 +23,11 @@ infiniStatus_t Descriptor::create(
 
     CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32);
 
-    infiniStatus_t status;
-    auto info = MatmulInfo(c_desc, a_desc, b_desc, &status, MatrixLayout::COL_MAJOR);
-    if (status != INFINI_STATUS_SUCCESS) {
-        return status;
-    }
+    auto result = MatmulInfo::create(c_desc, a_desc, b_desc, MatrixLayout::COL_MAJOR);
+    CHECK_RESULT(result);
 
     *desc_ptr = new Descriptor(
-        dtype, info, 0,
+        dtype, result.take(), 0,
         new Opaque{handle->internal()},
         handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
