@@ -2,7 +2,7 @@
 #define __GEMM_H__
 
 #include "../../operator.h"
-#include "blas.h"
+#include "info.h"
 
 /**
  * # 关于 `DESCRIPTOR(NAMESPACE)` 和 `struct Opaque;` 的说明
@@ -44,50 +44,50 @@
  * 这个宏仅适用于矩阵乘，但这种模式很容易复制到其他算子，以简化和规范算子的声明。
  */
 
-#define DESCRIPTOR(NAMESPACE)                             \
-                                                          \
-    namespace op::gemm::NAMESPACE {                       \
-    class Descriptor final : public InfiniopDescriptor {  \
-        struct Opaque;                                    \
-        Opaque *_opaque;                                  \
-        infiniDtype_t _dtype;                             \
-        MatmulInfo _info;                                 \
-                                                          \
-        Descriptor(                                       \
-            infiniDtype_t dtype,                          \
-            MatmulInfo info,                              \
-            size_t workspace_size_,                       \
-            Opaque *opaque,                               \
-            infiniDevice_t device_type,                   \
-            int device_id)                                \
-            : InfiniopDescriptor{device_type, device_id}, \
-              _opaque(opaque),                            \
-              _dtype(dtype),                              \
-              _info(info),                                \
-              workspace_size(workspace_size_) {}          \
-                                                          \
-    public:                                               \
-        size_t workspace_size;                            \
-                                                          \
-        ~Descriptor();                                    \
-                                                          \
-        static infiniStatus_t create(                     \
-            infiniopHandle_t handle,                      \
-            Descriptor **desc_ptr,                        \
-            infiniopTensorDescriptor_t c_desc,            \
-            infiniopTensorDescriptor_t a_desc,            \
-            infiniopTensorDescriptor_t b_desc);           \
-                                                          \
-        infiniStatus_t calculate(                         \
-            void *workspace,                              \
-            size_t workspace_size,                        \
-            void *c,                                      \
-            float beta,                                   \
-            const void *a,                                \
-            const void *b,                                \
-            float alpha,                                  \
-            void *stream) const;                          \
-    };                                                    \
+#define DESCRIPTOR(NAMESPACE)                                    \
+                                                                 \
+    namespace op::gemm::NAMESPACE {                              \
+    class Descriptor final : public InfiniopDescriptor {         \
+        struct Opaque;                                           \
+        Opaque *_opaque;                                         \
+        infiniDtype_t _dtype;                                    \
+        MatmulInfo _info;                                        \
+        size_t _workspace_size;                                  \
+                                                                 \
+        Descriptor(                                              \
+            infiniDtype_t dtype,                                 \
+            MatmulInfo info,                                     \
+            size_t workspace_size_,                              \
+            Opaque *opaque,                                      \
+            infiniDevice_t device_type,                          \
+            int device_id)                                       \
+            : InfiniopDescriptor{device_type, device_id},        \
+              _opaque(opaque),                                   \
+              _dtype(dtype),                                     \
+              _info(info),                                       \
+              _workspace_size(workspace_size_) {}                \
+                                                                 \
+    public:                                                      \
+        ~Descriptor();                                           \
+                                                                 \
+        size_t workspaceSize() const { return _workspace_size; } \
+                                                                 \
+        static infiniStatus_t create(                            \
+            infiniopHandle_t handle,                             \
+            Descriptor **desc_ptr,                               \
+            infiniopTensorDescriptor_t c_desc,                   \
+            infiniopTensorDescriptor_t a_desc,                   \
+            infiniopTensorDescriptor_t b_desc);                  \
+                                                                 \
+        infiniStatus_t calculate(                                \
+            void *workspace, size_t workspace_size,              \
+            void *c,                                             \
+            float beta,                                          \
+            const void *a,                                       \
+            const void *b,                                       \
+            float alpha,                                         \
+            void *stream) const;                                 \
+    };                                                           \
     }
 
 #endif // __GEMM_H__

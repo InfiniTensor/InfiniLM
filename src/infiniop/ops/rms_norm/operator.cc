@@ -8,6 +8,9 @@
 #ifdef ENABLE_CUDA_API
 #include "cuda/rms_norm_cuda.cuh"
 #endif
+#ifdef ENABLE_ASCEND_API
+#include "ascend/rms_norm_aclnn.h"
+#endif
 #ifdef ENABLE_KUNLUN_API
 #include "kunlun/rms_norm_kunlun.h"
 #endif
@@ -45,15 +48,8 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
         return bangCreateRMSNormDescriptor((BangHandle_t)handle, (RMSNormBangDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnCreateRMSNormDescriptor((AscendHandle_t)handle,
-                                            (RMSNormAclnnDescriptor_t *)desc_ptr,
-                                            y_desc,
-                                            x_desc,
-                                            w_desc,
-                                            epsilon);
-    }
+#ifdef ENABLE_ASCEND_API
+        CREATE(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -94,11 +90,8 @@ __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t d
         return bangGetRMSNormWorkspaceSize((RMSNormBangDescriptor_t)desc, size);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnGetRMSNormWorkspaceSize((RMSNormAclnnDescriptor_t)desc,
-                                            size);
-    }
+#ifdef ENABLE_ASCEND_API
+        GET(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -140,16 +133,8 @@ __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *works
         return bangRMSNorm((RMSNormBangDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnRMSNorm((RMSNormAclnnDescriptor_t)desc,
-                            workspace,
-                            workspace_size,
-                            y,
-                            x,
-                            w,
-                            stream);
-    }
+#ifdef ENABLE_ASCEND_API
+        CALCULATE(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -190,10 +175,8 @@ __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t 
         return bangDestroyRMSNormDescriptor((RMSNormBangDescriptor_t)desc);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return aclnnDestroyRMSNormDescriptor((RMSNormAclnnDescriptor_t)desc);
-    }
+#ifdef ENABLE_ASCEND_API
+        DESTROY(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {

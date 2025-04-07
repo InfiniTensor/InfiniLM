@@ -34,10 +34,10 @@ struct aclnnTensorDescriptor {
     int64_t storageNdim = 1;
     aclTensor *tensor;
 
-    // aclnnGemmGetWorkspaceSize only support 2D matrix multiply, so we need to convert 3D tensor to 2D tensor
     aclnnTensorDescriptor(aclDataType dtype, const std::vector<int64_t> &shape, const std::vector<int64_t> &strides, void *data = nullptr);
     aclnnTensorDescriptor(infiniopTensorDescriptor_t y_desc, void *data = nullptr);
     ~aclnnTensorDescriptor();
+    size_t numel() const;
 
     std::string toString();
 };

@@ -41,7 +41,7 @@ private:
     struct Node {
         U data;
         Node<U> *next;
-        Node(U &&data) : data(data), next(nullptr) {}
+        Node(U &&data) : data(std::move(data)), next(nullptr) {}
     };
 
     mutable std::atomic<Node<T> *> _head;

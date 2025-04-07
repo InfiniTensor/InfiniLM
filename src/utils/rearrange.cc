@@ -13,7 +13,7 @@ namespace utils {
 RearrangeMeta::RearrangeMeta(std::vector<ptrdiff_t> meta)
     : _meta(std::move(meta)) {}
 
-std::optional<RearrangeMeta> RearrangeMeta::create(
+Result<RearrangeMeta> RearrangeMeta::create(
     const size_t *shape,
     const ptrdiff_t *dst_strides_,
     const ptrdiff_t *src_strides_,
@@ -32,7 +32,9 @@ std::optional<RearrangeMeta> RearrangeMeta::create(
         // 剔除初始的 1 长维度
         if (shape[i] != 1) {
             auto sd = dst_strides_[i] * unit, ss = src_strides_[i] * unit;
-            // assert (sd != 0)
+            if (sd == 0) {
+                return INFINI_STATUS_BAD_TENSOR_STRIDES;
+            }
             dims.push_back(Dim{shape[i], sd, ss});
         }
     }
@@ -81,7 +83,7 @@ std::optional<RearrangeMeta> RearrangeMeta::create(
     for (ptrdiff_t i = ndim; i > 0; --i) {
         meta[1 + i - 1] *= meta[1 + i];
     }
-    return {RearrangeMeta(std::move(meta))};
+    return Result<RearrangeMeta>(meta);
 }
 
 size_t RearrangeMeta::ndim() const { return (_meta.size() - 2) / 3; }

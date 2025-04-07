@@ -20,35 +20,23 @@ jobs:
     - name: checkout code
       uses: actions/checkout@v4
 
-    - name: install black
-      run: pip install black
-
-    - name: check format
-      run: python3 scripts/format.py --path src --check
+    - name: Check Format
+      run: |
+        pip install black
+        python3 scripts/format.py --path src --check
 
     - name: install xmake
       uses: xmake-io/github-action-setup-xmake@v1
       with:
         xmake-version: latest
 
-    - name: configure xmake
-      run: xmake f --omp=y -cv
+    - name: Build & Install
+      run: python scripts/install.py --omp=y
 
-    - name: build with xmake
-      run: xmake build
-
-    - name: install to INFINI_ROOT
-      if: matrix.os != 'windows-latest'
-      run: xmake install
-
-    - name: build infiniop-test
-      if: matrix.os != 'windows-latest'
-      run: xmake build infiniop-test
-
-    - name: python test
-      if: matrix.os != 'windows-latest'
+    - name: install python packages
       run: |
+        pip install numpy
         pip install torch
-        LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/gemm.py --cpu
-        LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/rms_norm.py --cpu
-        LD_LIBRARY_PATH=$HOME/.infini/lib python test/infiniop/random_sample.py --cpu
+
+    - name: Python Test
+      run: python scripts/python_test.py --cpu

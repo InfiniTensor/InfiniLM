@@ -1,8 +1,6 @@
 #ifndef INFINIUTILS_H
 #define INFINIUTILS_H
 
-#include "infinicore.h"
-#include "utils/check.h"
 #include "utils/custom_types.h"
 #include "utils/rearrange.h"
 
@@ -38,13 +36,13 @@ inline size_t infiniSizeOf(infiniDtype_t dtype) {
         return 4;
     case INFINI_DTYPE_F64:
         return 8;
-    case INFINI_DTYPE_C8:
-        return 2;
     case INFINI_DTYPE_C16:
-        return 4;
+        return 2;
     case INFINI_DTYPE_C32:
-        return 8;
+        return 4;
     case INFINI_DTYPE_C64:
+        return 8;
+    case INFINI_DTYPE_C128:
         return 16;
     case INFINI_DTYPE_BF16:
         return 2;
@@ -85,14 +83,14 @@ inline std::string infiniDtypeToString(infiniDtype_t dtype) {
         return "F32";
     case INFINI_DTYPE_F64:
         return "F64";
-    case INFINI_DTYPE_C8:
-        return "C8";
     case INFINI_DTYPE_C16:
         return "C16";
     case INFINI_DTYPE_C32:
         return "C32";
     case INFINI_DTYPE_C64:
         return "C64";
+    case INFINI_DTYPE_C128:
+        return "C128";
     case INFINI_DTYPE_BF16:
         return "BF16";
     default:

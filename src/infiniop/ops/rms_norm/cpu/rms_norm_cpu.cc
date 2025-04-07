@@ -3,6 +3,7 @@
 #include "../../../reduce/cpu/reduce.h"
 
 namespace op::rms_norm::cpu {
+
 Descriptor::~Descriptor() {}
 
 infiniStatus_t Descriptor::create(
@@ -12,9 +13,9 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t x_desc,
     infiniopTensorDescriptor_t w_desc,
     float epsilon) {
-    RMSNormInfo info;
-    CHECK_STATUS(createRMSNormInfo(&info, y_desc, x_desc, w_desc, epsilon));
-    *desc_ptr = new Descriptor(nullptr, info, 0, handle->device, handle->device_id);
+    auto result = RMSNormInfo::create(y_desc, x_desc, w_desc, epsilon);
+    CHECK_RESULT(result);
+    *desc_ptr = new Descriptor(nullptr, result.take(), 0, handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
 }
 
@@ -68,9 +69,10 @@ infiniStatus_t rmsnormF16(const RMSNormInfo *info, fp16_t *y, const fp16_t *x, c
     return INFINI_STATUS_SUCCESS;
 }
 
-infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size,
-                                     void *y, const void *x, const void *w,
-                                     void *stream) {
+infiniStatus_t Descriptor::calculate(
+    void *workspace, size_t workspace_size,
+    void *y, const void *x, const void *w,
+    void *stream) const {
     if (_info.atype == INFINI_DTYPE_F16) {
         if (_info.wtype == INFINI_DTYPE_F16) {
             CHECK_STATUS(rmsnormF16(&_info, (fp16_t *)y, (const fp16_t *)x, (const fp16_t *)w));
