@@ -22,8 +22,10 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t x_desc,
     infiniopTensorDescriptor_t w_desc,
     float epsilon) {
-    RMSNormInfo info;
-    CHECK_STATUS(createRMSNormInfo(&info, y_desc, x_desc, w_desc, epsilon));
+    auto result = RMSNormInfo::create(y_desc, x_desc, w_desc, epsilon);
+    CHECK_RESULT(result);
+
+    auto info = result.take();
 
     if (info.x_strides[1] != 1 || info.y_strides[1] != 1) {
         return INFINI_STATUS_BAD_TENSOR_STRIDES;
@@ -59,7 +61,7 @@ infiniStatus_t launchKernel(
 }
 
 infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size,
-                                     void *y, const void *x, const void *w, void *stream) {
+                                     void *y, const void *x, const void *w, void *stream) const {
 
     if (workspace_size < _workspace_size) {
         return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
