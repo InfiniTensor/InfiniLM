@@ -1,6 +1,7 @@
-#include "swiglu_cpu.h"
+#include "swiglu_cuda.cuh"
+#include "swiglu_cuda_internal.cuh"
 
-namespace op::swiglu::cpu {
+namespace op::swiglu::cuda {
 
 Descriptor::~Descriptor() = default;
 
@@ -10,7 +11,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t out_desc,
     std::vector<infiniopTensorDescriptor_t> input_desc) {
 
-    auto handle = reinterpret_cast<device::cpu::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::cuda::Handle *>(handle_);
     auto dtype = out_desc->dtype();
 
     const auto &up_desc = input_desc.at(0);
@@ -20,11 +21,12 @@ infiniStatus_t Descriptor::create(
     const auto &gate_shape = gate_desc->shape();
 
     CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
+    if (!SAME_VEC(out_shape, up_shape, gate_shape)) {
+        return INFINI_STATUS_BAD_TENSOR_SHAPE;
+    }
 
-    CHECK_SAME_SHAPE(out_shape, up_shape, gate_shape);
-
-    // create CPU elementwise descriptor
-    CREATE_ELEMENTWISE_CPU_DESCRIPTOR;
+    // create CUDA elementwise descriptor
+    CREATE_ELEMENTWISE_CUDA_DESCRIPTOR
 
     return INFINI_STATUS_SUCCESS;
 }
@@ -36,13 +38,13 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        _device_info->calculate<SwiGLUOp, fp16_t>(_info, output, inputs, stream);
+        _device_info->calculate<256, SwiGLUOp, half>(_info, output, inputs, stream);
         break;
     case INFINI_DTYPE_F32:
-        _device_info->calculate<SwiGLUOp, float>(_info, output, inputs, stream);
+        _device_info->calculate<256, SwiGLUOp, float>(_info, output, inputs, stream);
         break;
     case INFINI_DTYPE_F64:
-        _device_info->calculate<SwiGLUOp, double>(_info, output, inputs, stream);
+        _device_info->calculate<256, SwiGLUOp, double>(_info, output, inputs, stream);
         break;
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
@@ -50,4 +52,4 @@ infiniStatus_t Descriptor::calculate(
 
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace op::swiglu::cpu
+} // namespace op::swiglu::cuda

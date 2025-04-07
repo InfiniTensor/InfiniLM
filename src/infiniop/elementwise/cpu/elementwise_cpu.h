@@ -21,9 +21,42 @@
         handle->device,                                                                           \
         handle->device_id);
 
-DEVICE_IMPL(cpu)
-
 namespace op::elementwise::cpu {
+
+class DeviceImpl final {
+    struct Opaque;
+    std::shared_ptr<struct Opaque> _opaque;
+
+    DeviceImpl(std::shared_ptr<Opaque> opaque) : _opaque(std::move(opaque)) {}
+
+public:
+    ~DeviceImpl() = default;
+
+    template <typename... Args>
+    static infiniStatus_t create(
+        DeviceImpl **device_info,
+        Args &&...args);
+
+    /* Invoke elementwise operation when all inputs have the same type */
+    template <typename Op, typename Tdata, typename... Args>
+    void calculate(
+        const op::elementwise::ElementwiseInfo &info,
+        void *output,
+        const std::vector<const void *> &inputs,
+        void *stream,
+        Args &&...args);
+
+    /* Invoke elementwise operation for different input types */
+    template <typename Op, typename Tout, typename... Tin,
+              typename... Args,
+              std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
+    void calculate(
+        const op::elementwise::ElementwiseInfo &info,
+        void *output,
+        const std::vector<const void *> &inputs,
+        void *stream,
+        Args &&...args);
+};
 
 struct DeviceImpl::Opaque {};
 
@@ -42,13 +75,13 @@ void calculate_impl(const op::elementwise::ElementwiseInfo &info, void *output, 
 
 #pragma omp parallel for
     for (ptrdiff_t i = 0; i < output_size; ++i) {
-        size_t out_idx = info.output_contiguous ? i : op::common_cpu::indexToOffset(i, info.ndim, info.output_shape.data(), info.output_strides.data());
+        size_t out_idx = info.output_contiguous ? i : op::common_cpu::indexToOffset(i, info.ndim, info.output_shape, info.output_strides);
 
         auto get_input_idx = [&](size_t input_id) {
             return info.input_contiguous[input_id] ? i
                                                    : (info.input_broadcasted[input_id]
-                                                          ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.output_strides.data(), info.input_strides[input_id].data())
-                                                          : op::common_cpu::indexToOffset(i, info.ndim, info.input_shapes[input_id].data(), info.input_strides[input_id].data()));
+                                                          ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.output_strides, info.input_strides[input_id])
+                                                          : op::common_cpu::indexToOffset(i, info.ndim, info.input_shapes[input_id], info.input_strides[input_id]));
         };
 
         out[out_idx] = utils::cast<Tout>(Op{}(std::get<Is>(input_ptrs)[get_input_idx(Is)]..., std::forward<Args>(args)...));
@@ -60,6 +93,7 @@ template <typename Op, typename Tout, typename... Tin, typename... Args, std::en
 void DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
                            void *output,
                            const std::vector<const void *> &inputs,
+                           void *stream,
                            Args &&...args) {
 
     static_assert(sizeof...(Tin) == Op::num_inputs, "Input type count mismatch");
@@ -80,13 +114,13 @@ void calculate_impl(const op::elementwise::ElementwiseInfo &info,
 
 #pragma omp parallel for
     for (ptrdiff_t i = 0; i < output_size; ++i) {
-        size_t out_idx = info.output_contiguous ? i : op::common_cpu::indexToOffset(i, info.ndim, info.output_shape.data(), info.output_strides.data());
+        size_t out_idx = info.output_contiguous ? i : op::common_cpu::indexToOffset(i, info.ndim, info.output_shape, info.output_strides);
 
         auto get_input_idx = [&](size_t input_id) {
             return info.input_contiguous[input_id] ? i
                                                    : (info.input_broadcasted[input_id]
-                                                          ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.output_strides.data(), info.input_strides[input_id].data())
-                                                          : op::common_cpu::indexToOffset(i, info.ndim, info.input_shapes[input_id].data(), info.input_strides[input_id].data()));
+                                                          ? op::common_cpu::indexToReducedOffset(i, info.ndim, info.output_strides, info.input_strides[input_id])
+                                                          : op::common_cpu::indexToOffset(i, info.ndim, info.input_shapes[input_id], info.input_strides[input_id]));
         };
 
         if constexpr (std::is_same_v<Tdata, fp16_t>) {
@@ -99,7 +133,7 @@ void calculate_impl(const op::elementwise::ElementwiseInfo &info,
 
 // Invoke elementwise operation when all inputs have the same type
 template <typename Op, typename Tdata, typename... Args>
-void DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info, void *output, const std::vector<const void *> &inputs, Args &&...args) {
+void DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info, void *output, const std::vector<const void *> &inputs, void *stream, Args &&...args) {
     constexpr size_t N = Op::num_inputs;
     calculate_impl<Op, Tdata>(info, output, inputs, std::make_index_sequence<N>{}, std::forward<Args>(args)...);
 }
