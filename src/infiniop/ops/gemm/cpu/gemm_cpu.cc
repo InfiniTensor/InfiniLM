@@ -43,9 +43,9 @@ void calculate(
         std::swap(a, b);
     }
 #pragma omp parallel for collapse(3)
-    for (size_t i = 0; i < info.batch; ++i) {
-        for (size_t m_ = 0; m_ < info.m; ++m_) {
-            for (size_t n_ = 0; n_ < info.n; ++n_) {
+    for (ptrdiff_t i = 0; i < ptrdiff_t(info.batch); ++i) {
+        for (ptrdiff_t m_ = 0; m_ < ptrdiff_t(info.m); ++m_) {
+            for (ptrdiff_t n_ = 0; n_ < ptrdiff_t(info.n); ++n_) {
                 auto c_ = reinterpret_cast<Tdata *>(c) + i * info.c_matrix.stride + m_ * info.c_matrix.row_stride + n_ * info.c_matrix.col_stride;
                 float sum = 0;
                 for (size_t k_ = 0; k_ < info.k; ++k_) {
