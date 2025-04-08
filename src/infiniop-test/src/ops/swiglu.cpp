@@ -46,9 +46,9 @@ std::shared_ptr<infiniop_test::Result> Test::run(
                                             b->desc()),
              return TEST_FAILED(OP_CREATION_FAILED, "Failed to create op descriptor."));
     CHECK_OR(infiniopSwiGLU(op_desc, c->data(), a->data(), b->data(), nullptr),
-             return TEST_FAILED(OP_CREATION_FAILED, "Failed to create op descriptor."));
+             return TEST_FAILED(OP_CREATION_FAILED, "Failed during execution."));
     try {
-        allClose(c, _attributes->ans);
+        allClose(c, _attributes->ans, _rtol, _atol);
     } catch (const std::exception &e) {
         return TEST_FAILED(RESULT_INCORRECT, e.what());
     }
@@ -63,7 +63,7 @@ std::shared_ptr<infiniop_test::Result> Test::run(
                 b->data(),
                 nullptr);
         },
-        (warm_ups + 1) / 2, (iterations + 1) / 2);
+        warm_ups, iterations);
     return TEST_PASSED(elapsed_time);
 }
 

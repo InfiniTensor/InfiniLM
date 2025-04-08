@@ -1,4 +1,3 @@
-from ast import List
 import numpy as np
 import gguf
 from typing import List
@@ -53,7 +52,6 @@ class SwiGLUTestCase(InfiniopTestCase):
         ans = swiglu(
             self.a.astype(np.float64),
             self.b.astype(np.float64),
-            # None,
         )
         test_writer.add_tensor(
             test_writer.gguf_key("ans"), ans, raw_dtype=gguf.GGMLQuantizationType.F64
