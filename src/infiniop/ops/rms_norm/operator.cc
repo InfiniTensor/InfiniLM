@@ -11,6 +11,9 @@
 #ifdef ENABLE_ASCEND_API
 #include "ascend/rms_norm_aclnn.h"
 #endif
+#ifdef ENABLE_METAX_API
+#include "maca/rms_norm_maca.cuh"
+#endif
 #ifdef ENABLE_MOORE_API
 #include "musa/rms_norm_musa.cuh"
 #endif
@@ -54,10 +57,8 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
 #ifdef ENABLE_ASCEND_API
         CREATE(INFINI_DEVICE_ASCEND, ascend)
 #endif
-#ifdef ENABLE_METAX_GPU
-    case DevMetaxGpu: {
-        return macaCreateRMSNormDescriptor((MacaHandle_t)handle, (RMSNormMacaDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
-    }
+#ifdef ENABLE_METAX_API
+        CREATE(INFINI_DEVICE_METAX, maca)
 #endif
 #ifdef ENABLE_MOORE_API
         CREATE(INFINI_DEVICE_MOORE, musa)
@@ -94,10 +95,8 @@ __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t d
 #ifdef ENABLE_ASCEND_API
         GET(INFINI_DEVICE_ASCEND, ascend)
 #endif
-#ifdef ENABLE_METAX_GPU
-    case DevMetaxGpu: {
-        return macaGetRMSNormWorkspaceSize((RMSNormMacaDescriptor_t)desc, size);
-    }
+#ifdef ENABLE_METAX_API
+        GET(INFINI_DEVICE_METAX, maca)
 #endif
 #ifdef ENABLE_MOORE_API
         GET(INFINI_DEVICE_MOORE, musa)
@@ -135,10 +134,8 @@ __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *works
 #ifdef ENABLE_ASCEND_API
         CALCULATE(INFINI_DEVICE_ASCEND, ascend)
 #endif
-#ifdef ENABLE_METAX_GPU
-    case DevMetaxGpu: {
-        return macaRMSNorm((RMSNormMacaDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
-    }
+#ifdef ENABLE_METAX_API
+        CALCULATE(INFINI_DEVICE_METAX, maca)
 #endif
 #ifdef ENABLE_MOORE_API
         CALCULATE(INFINI_DEVICE_MOORE, musa)
@@ -175,10 +172,8 @@ __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t 
 #ifdef ENABLE_ASCEND_API
         DESTROY(INFINI_DEVICE_ASCEND, ascend)
 #endif
-#ifdef ENABLE_METAX_GPU
-    case DevMetaxGpu: {
-        return macaDestroyRMSNormDescriptor((RMSNormMacaDescriptor_t)desc);
-    }
+#ifdef ENABLE_METAX_API
+        DESTROY(INFINI_DEVICE_METAX, maca)
 #endif
 #ifdef ENABLE_MOORE_API
         DESTROY(INFINI_DEVICE_MOORE, musa)

@@ -1,11 +1,8 @@
 
 local MACA_ROOT = os.getenv("MACA_PATH") or os.getenv("MACA_HOME") or os.getenv("MACA_ROOT")
-
 add_includedirs(MACA_ROOT .. "/include")
 add_linkdirs(MACA_ROOT .. "/lib")
-add_links("libhcdnn.so")
-add_links("libhcblas.so")
-add_links("libhcruntime.so")
+add_links("hcdnn", "hcblas", "hcruntime")
 
 rule("maca")
     set_extensions(".maca")
@@ -34,13 +31,11 @@ rule_end()
 target("infiniop-metax")
     set_kind("static")
     on_install(function (target) end)
-    add_cxflags("-lstdc++ -Wall -fPIC")
     set_languages("cxx17")
-    set_warnings("all")
-
+    set_warnings("all", "error")
+    add_cxflags("-lstdc++", "-fPIC", "-Wno-defaulted-function-deleted", "-Wno-strict-aliasing")
     add_files("../src/infiniop/devices/maca/*.cc", "../src/infiniop/ops/*/maca/*.cc")
     add_files("../src/infiniop/ops/*/maca/*.maca", {rule = "maca"})
-
 target_end()
 
 target("infinirt-metax")
@@ -48,7 +43,7 @@ target("infinirt-metax")
     set_languages("cxx17")
     on_install(function (target) end)
     add_deps("infini-utils")
-    -- Add files
-    add_files("$(projectdir)/src/infinirt/maca/*.cc")
-    add_cxflags("-lstdc++ -Wall -Werror -fPIC")
+    set_warnings("all", "error")
+    add_cxflags("-lstdc++ -fPIC")
+    add_files("../src/infinirt/maca/*.cc")
 target_end()
