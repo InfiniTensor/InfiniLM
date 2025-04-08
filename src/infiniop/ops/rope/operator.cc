@@ -1,10 +1,13 @@
 #include "../../operator.h"
 #include "../../handle.h"
-#include "infiniop/ops/rotary_embedding.h"
+#include "infiniop/ops/rope.h"
 
 __C infiniStatus_t infiniopCreateRoPEDescriptor(
-    infiniopHandle_t handle, infiniopRoPEDescriptor_t *desc_ptr,
-    infiniopTensorDescriptor_t t, infiniopTensorDescriptor_t pos_ids,
+    infiniopHandle_t handle,
+    infiniopRoPEDescriptor_t *desc_ptr,
+    infiniopTensorDescriptor_t y,
+    infiniopTensorDescriptor_t x,
+    infiniopTensorDescriptor_t pos_ids,
     infiniopTensorDescriptor_t sin_table,
     infiniopTensorDescriptor_t cos_table) {
     switch (handle->device) {
@@ -91,11 +94,16 @@ __C infiniStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
     return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniStatus_t infiniopRoPE(infiniopRoPEDescriptor_t desc,
-                                void *workspace, size_t workspace_size,
-                                void *t, const void *pos_ids,
-                                const void *sin_table, const void *cos_table,
-                                void *stream) {
+__C infiniStatus_t infiniopRoPE(
+    infiniopRoPEDescriptor_t desc,
+    void *workspace,
+    size_t workspace_size,
+    void *y,
+    const void *x,
+    void const *pos_ids,
+    void const *sin_table,
+    void const *cos_table,
+    void *stream) {
     switch (desc->device_type) {
 #ifdef ENABLE_CPU
     case DevCpu:

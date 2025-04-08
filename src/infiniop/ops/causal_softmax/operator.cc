@@ -9,14 +9,16 @@
 __C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(
     infiniopHandle_t handle,
     infiniopCausalSoftmaxDescriptor_t *desc_ptr,
-    infiniopTensorDescriptor_t y_desc) {
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x_desc) {
 
 #define CREATE(CASE, NAMESPACE)                                                       \
     case CASE:                                                                        \
         return op::causal_softmax::NAMESPACE::Descriptor::create(                     \
             handle,                                                                   \
             reinterpret_cast<op::causal_softmax::NAMESPACE::Descriptor **>(desc_ptr), \
-            y_desc);
+            y_desc,                                                                   \
+            x_desc);
 
     switch (handle->device) {
 #ifdef ENABLE_CPU_API
@@ -96,12 +98,17 @@ __C infiniStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDe
     return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
 }
 
-__C infiniStatus_t infiniopCausalSoftmax(infiniopCausalSoftmaxDescriptor_t desc, void *workspace, size_t workspace_size, void *data, void *stream) {
+__C infiniStatus_t infiniopCausalSoftmax(
+    infiniopCausalSoftmaxDescriptor_t desc,
+    void *workspace, size_t workspace_size,
+    void *y,
+    const void *x,
+    void *stream) {
 
 #define CALCULATE(CASE, NAMESPACE)                                                             \
     case CASE:                                                                                 \
         return reinterpret_cast<op::causal_softmax::NAMESPACE::Descriptor *>(desc)->calculate( \
-            workspace, workspace_size, data, stream);
+            workspace, workspace_size, y, x, stream);
 
     switch (desc->device_type) {
 #ifdef ENABLE_CPU_API
