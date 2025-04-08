@@ -4,6 +4,7 @@
 #include "../../../utils.h"
 #include "../../devices/cuda/cuda_common.cuh"
 #include "elementwise_cuda_api.cuh"
+
 namespace op::elementwise::cuda {
 
 /**
@@ -223,16 +224,17 @@ struct DeviceImpl::Opaque {
      * @param inputs       Vector of pointers to input tensors.
      * @param stream       CUDA stream used for asynchronous execution.
      * @param args         Additional arguments for the operation.
+     * @return infiniStatus_t  Status indicating success or failure.
      */
     template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tdata, typename... Args, size_t... Is>
-    void calculateImpl(const op::elementwise::ElementwiseInfo &info,
-                       void *output,
-                       const std::vector<const void *> &inputs,
-                       std::index_sequence<Is...>,
-                       cudaStream_t stream,
-                       Args &&...args) {
+    infiniStatus_t calculateImpl(const op::elementwise::ElementwiseInfo &info,
+                                 void *output,
+                                 const std::vector<const void *> &inputs,
+                                 std::index_sequence<Is...>,
+                                 cudaStream_t stream,
+                                 Args &&...args) {
         if (info.output_size == 0) {
-            return;
+            return INFINI_STATUS_SUCCESS;
         }
 
         // casting the output and the inputs to Tdata pointers
@@ -242,8 +244,8 @@ struct DeviceImpl::Opaque {
         for (size_t i = 0; i < N; ++i) {
             inputs_arr[i] = reinterpret_cast<const Tdata *>(inputs[i]);
         }
-        cudaMallocAsync(&d_inputs_arr, N * sizeof(*d_inputs_arr), stream);
-        cudaMemcpyAsync(d_inputs_arr, inputs_arr, N * sizeof(*d_inputs_arr), cudaMemcpyHostToDevice, stream);
+        CHECK_CUDA(cudaMallocAsync(&d_inputs_arr, N * sizeof(*d_inputs_arr), stream));
+        CHECK_CUDA(cudaMemcpyAsync(d_inputs_arr, inputs_arr, N * sizeof(*d_inputs_arr), cudaMemcpyHostToDevice, stream));
 
         // create and send the info to device
         const bool *d_bools = nullptr;
@@ -257,10 +259,10 @@ struct DeviceImpl::Opaque {
         std::vector<const size_t *> tmp_device_ptrs(info.input_size);
         std::vector<const ptrdiff_t *> tmp_device_ptrs_strides(info.input_size);
 
-        infoToDevice<N>(info, d_bools, d_input_contiguous,
-                        d_input_broadcasted, d_output_shape_strides, d_output_shape,
-                        d_output_strides, tmp_device_ptrs, d_input_shapes, tmp_device_ptrs_strides,
-                        d_input_strides, stream);
+        CHECK_STATUS(infoToDevice<N>(info, d_bools, d_input_contiguous,
+                                     d_input_broadcasted, d_output_shape_strides, d_output_shape,
+                                     d_output_strides, tmp_device_ptrs, d_input_shapes, tmp_device_ptrs_strides,
+                                     d_input_strides, stream));
 
         dim3 blockDims(std::min(BLOCK_SIZE, static_cast<size_t>(internal->maxThreadsPerBlock())));
         dim3 gridDims(std::min(CEIL_DIV(info.output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
@@ -280,7 +282,9 @@ struct DeviceImpl::Opaque {
                 info.input_size, out, d_inputs_arr, i, std::forward<Args>(args)...);
         }
 
-        freeAllDevice((const void **)d_inputs_arr, d_bools, d_output_shape_strides, info.input_size, d_input_shapes, d_input_strides, stream);
+        CHECK_STATUS(freeAllDevice((const void **)d_inputs_arr, d_bools, d_output_shape_strides,
+                                   info.input_size, d_input_shapes, d_input_strides, stream));
+        return INFINI_STATUS_SUCCESS;
     }
 
     /**
@@ -297,17 +301,18 @@ struct DeviceImpl::Opaque {
      * @param inputs       Vector of pointers to input tensors.
      * @param stream       CUDA stream used for asynchronous execution.
      * @param args         Additional arguments for the operation.
+     * @return infiniStatus_t  Status indicating success or failure.
      */
     template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tout, typename... Tin, typename... Args, size_t... Is,
               std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
-    void calculateImpl(const op::elementwise::ElementwiseInfo &info,
-                       void *output,
-                       const std::vector<const void *> &inputs,
-                       std::index_sequence<Is...>,
-                       cudaStream_t stream,
-                       Args &&...args) {
+    infiniStatus_t calculateImpl(const op::elementwise::ElementwiseInfo &info,
+                                 void *output,
+                                 const std::vector<const void *> &inputs,
+                                 std::index_sequence<Is...>,
+                                 cudaStream_t stream,
+                                 Args &&...args) {
         if (info.output_size == 0) {
-            return;
+            return INFINI_STATUS_SUCCESS;
         }
 
         Tout *out = reinterpret_cast<Tout *>(output);
@@ -318,8 +323,8 @@ struct DeviceImpl::Opaque {
 
         // Create array of input pointers on host (void*) to copy to device
         const void *host_input_ptrs[] = {reinterpret_cast<const void *>(std::get<Is>(inputs_arr))...};
-        cudaMallocAsync(&d_inputs_arr, N * sizeof(void *), stream);
-        cudaMemcpyAsync(d_inputs_arr, host_input_ptrs, N * sizeof(void *), cudaMemcpyHostToDevice, stream);
+        CHECK_CUDA(cudaMallocAsync(&d_inputs_arr, N * sizeof(void *), stream));
+        CHECK_CUDA(cudaMemcpyAsync(d_inputs_arr, host_input_ptrs, N * sizeof(void *), cudaMemcpyHostToDevice, stream));
 
         // Device pointers
         const bool *d_bools = nullptr;
@@ -333,10 +338,10 @@ struct DeviceImpl::Opaque {
         std::vector<const size_t *> tmp_device_ptrs(info.input_size);
         std::vector<const ptrdiff_t *> tmp_device_ptrs_strides(info.input_size);
 
-        infoToDevice<N>(info, d_bools, d_input_contiguous,
-                        d_input_broadcasted, d_output_shape_strides, d_output_shape,
-                        d_output_strides, tmp_device_ptrs, d_input_shapes, tmp_device_ptrs_strides,
-                        d_input_strides, stream);
+        CHECK_STATUS(infoToDevice<N>(info, d_bools, d_input_contiguous,
+                                     d_input_broadcasted, d_output_shape_strides, d_output_shape,
+                                     d_output_strides, tmp_device_ptrs, d_input_shapes, tmp_device_ptrs_strides,
+                                     d_input_strides, stream));
 
         dim3 blockDims(std::min(BLOCK_SIZE, static_cast<size_t>(internal->maxThreadsPerBlock())));
         dim3 gridDims(std::min(CEIL_DIV(info.output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
@@ -356,7 +361,8 @@ struct DeviceImpl::Opaque {
                 info.input_size, out, reinterpret_cast<const void **>(d_inputs_arr), i);
         }
 
-        freeAllDevice(d_inputs_arr, d_bools, d_output_shape_strides, info.input_size, d_input_shapes, d_input_strides, stream);
+        CHECK_STATUS(freeAllDevice(d_inputs_arr, d_bools, d_output_shape_strides, info.input_size, d_input_shapes, d_input_strides, stream));
+        return INFINI_STATUS_SUCCESS;
     }
 
 private:
@@ -393,31 +399,31 @@ private:
         const ptrdiff_t **&d_input_strides,
         cudaStream_t stream) const {
 
-        cudaMallocAsync(&d_bools, 2 * info.input_size * sizeof(*d_bools), stream);
-        cudaMemcpyAsync((void *)d_bools, info.input_contiguous, info.input_size * sizeof(bool), cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync((void *)(d_bools + info.input_size), info.input_broadcasted, info.input_size * sizeof(bool), cudaMemcpyHostToDevice, stream);
+        CHECK_CUDA(cudaMallocAsync(&d_bools, 2 * info.input_size * sizeof(*d_bools), stream));
+        CHECK_CUDA(cudaMemcpyAsync((void *)d_bools, info.input_contiguous, info.input_size * sizeof(bool), cudaMemcpyHostToDevice, stream));
+        CHECK_CUDA(cudaMemcpyAsync((void *)(d_bools + info.input_size), info.input_broadcasted, info.input_size * sizeof(bool), cudaMemcpyHostToDevice, stream));
 
-        cudaMallocAsync(&d_output_shape_strides, info.ndim * (sizeof(*d_output_shape) + sizeof(*d_output_strides)), stream);
-        cudaMemcpyAsync((void *)d_output_shape_strides, info.output_shape, info.ndim * sizeof(*d_output_shape), cudaMemcpyHostToDevice, stream);
-        cudaMemcpyAsync((void *)(d_output_shape_strides + info.ndim * sizeof(*d_output_shape)), info.output_strides, info.ndim * sizeof(*d_output_strides), cudaMemcpyHostToDevice, stream);
+        CHECK_CUDA(cudaMallocAsync(&d_output_shape_strides, info.ndim * (sizeof(*d_output_shape) + sizeof(*d_output_strides)), stream));
+        CHECK_CUDA(cudaMemcpyAsync((void *)d_output_shape_strides, info.output_shape, info.ndim * sizeof(*d_output_shape), cudaMemcpyHostToDevice, stream));
+        CHECK_CUDA(cudaMemcpyAsync((void *)(d_output_shape_strides + info.ndim * sizeof(*d_output_shape)), info.output_strides, info.ndim * sizeof(*d_output_strides), cudaMemcpyHostToDevice, stream));
 
-        cudaMallocAsync(&d_input_shapes, info.input_size * sizeof(*d_input_shapes), stream);
+        CHECK_CUDA(cudaMallocAsync(&d_input_shapes, info.input_size * sizeof(*d_input_shapes), stream));
         for (size_t i = 0; i < info.input_size; ++i) {
-            cudaMallocAsync(&tmp_device_ptrs[i], info.ndim * sizeof(*&tmp_device_ptrs[i]), stream);
-            cudaMemcpyAsync((void *)tmp_device_ptrs[i], info.input_shapes[i],
-                            info.ndim * sizeof(size_t), cudaMemcpyHostToDevice, stream);
+            CHECK_CUDA(cudaMallocAsync(&tmp_device_ptrs[i], info.ndim * sizeof(*&tmp_device_ptrs[i]), stream));
+            CHECK_CUDA(cudaMemcpyAsync((void *)tmp_device_ptrs[i], info.input_shapes[i],
+                                       info.ndim * sizeof(size_t), cudaMemcpyHostToDevice, stream));
         }
-        cudaMemcpyAsync((void *)d_input_shapes, tmp_device_ptrs.data(),
-                        info.input_size * sizeof(size_t *), cudaMemcpyHostToDevice, stream);
+        CHECK_CUDA(cudaMemcpyAsync((void *)d_input_shapes, tmp_device_ptrs.data(),
+                                   info.input_size * sizeof(size_t *), cudaMemcpyHostToDevice, stream));
 
-        cudaMallocAsync(&d_input_strides, info.input_size * sizeof(*d_input_strides), stream);
+        CHECK_CUDA(cudaMallocAsync(&d_input_strides, info.input_size * sizeof(*d_input_strides), stream));
         for (size_t i = 0; i < info.input_size; ++i) {
-            cudaMallocAsync(&tmp_device_ptrs_strides[i], info.ndim * sizeof(*&tmp_device_ptrs_strides[i]), stream);
-            cudaMemcpyAsync((void *)tmp_device_ptrs_strides[i], info.input_strides[i],
-                            info.ndim * sizeof(ptrdiff_t), cudaMemcpyHostToDevice, stream);
+            CHECK_CUDA(cudaMallocAsync(&tmp_device_ptrs_strides[i], info.ndim * sizeof(*&tmp_device_ptrs_strides[i]), stream));
+            CHECK_CUDA(cudaMemcpyAsync((void *)tmp_device_ptrs_strides[i], info.input_strides[i],
+                                       info.ndim * sizeof(ptrdiff_t), cudaMemcpyHostToDevice, stream));
         }
-        cudaMemcpyAsync((void *)d_input_strides, tmp_device_ptrs_strides.data(),
-                        info.input_size * sizeof(ptrdiff_t *), cudaMemcpyHostToDevice, stream);
+        CHECK_CUDA(cudaMemcpyAsync((void *)d_input_strides, tmp_device_ptrs_strides.data(),
+                                   info.input_size * sizeof(ptrdiff_t *), cudaMemcpyHostToDevice, stream));
 
         d_input_contiguous = d_bools;
         d_input_broadcasted = d_bools + info.input_size;
@@ -447,11 +453,11 @@ private:
                                         const ptrdiff_t **d_input_strides,
                                         cudaStream_t stream) const {
 
-        cudaFreeAsync((void *)d_inputs_arr, stream);
-        cudaFreeAsync((void *)d_bools, stream);
-        cudaFreeAsync((void *)d_output_shape_strides, stream);
-        cudaFreeAsync((void *)d_input_shapes, stream);
-        cudaFreeAsync((void *)d_input_strides, stream);
+        CHECK_CUDA(cudaFreeAsync((void *)d_inputs_arr, stream));
+        CHECK_CUDA(cudaFreeAsync((void *)d_bools, stream));
+        CHECK_CUDA(cudaFreeAsync((void *)d_output_shape_strides, stream));
+        CHECK_CUDA(cudaFreeAsync((void *)d_input_shapes, stream));
+        CHECK_CUDA(cudaFreeAsync((void *)d_input_strides, stream));
         return INFINI_STATUS_SUCCESS;
     }
 };
@@ -479,17 +485,18 @@ infiniStatus_t DeviceImpl::create(DeviceImpl **device_info,
  * @param inputs       Vector of input pointers (device memory).
  * @param stream       CUDA stream (opaque void*).
  * @param args         (UNUSED) Additional operation-specific arguments.
+ * @return infiniStatus_t  Status indicating success or failure.
  */
 template <unsigned int BLOCK_SIZE, typename Op, typename Tout, typename... Tin, typename... Args,
           std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int>>
-void DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
-                           void *output,
-                           const std::vector<const void *> &inputs,
-                           void *stream,
-                           Args &&...args) {
+infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
+                                     void *output,
+                                     const std::vector<const void *> &inputs,
+                                     void *stream,
+                                     Args &&...args) {
     constexpr size_t N = Op::num_inputs;
     static_assert(sizeof...(Tin) == N, "Input type count mismatch");
-    _opaque->calculateImpl<BLOCK_SIZE, N, Op, Tout, Tin...>(
+    return _opaque->calculateImpl<BLOCK_SIZE, N, Op, Tout, Tin...>(
         info, output, inputs,
         std::make_index_sequence<N>{},
         reinterpret_cast<cudaStream_t>(stream),
@@ -510,20 +517,20 @@ void DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
  * @param inputs       Vector of input pointers (device memory).
  * @param stream       CUDA stream (opaque void*).
  * @param args         Additional operation-specific arguments.
+ * @return infiniStatus_t  Status indicating success or failure.
  */
 template <unsigned int BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
-void DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
-                           void *output,
-                           const std::vector<const void *> &inputs,
-                           void *stream,
-                           Args &&...args) {
+infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
+                                     void *output,
+                                     const std::vector<const void *> &inputs,
+                                     void *stream,
+                                     Args &&...args) {
     constexpr size_t N = Op::num_inputs;
-    _opaque->calculateImpl<BLOCK_SIZE, N, Op, Tdata>(
+    return _opaque->calculateImpl<BLOCK_SIZE, N, Op, Tdata>(
         info, output, inputs,
         std::make_index_sequence<N>{},
         reinterpret_cast<cudaStream_t>(stream),
         std::forward<Args>(args)...);
-    cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(stream));
 }
 
 } // namespace op::elementwise::cuda

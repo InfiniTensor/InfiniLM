@@ -36,14 +36,11 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        _device_info->calculate<SwiGLUOp, fp16_t>(_info, output, inputs, stream);
-        break;
+        return _device_info->calculate<SwiGLUOp, fp16_t>(_info, output, inputs, stream);
     case INFINI_DTYPE_F32:
-        _device_info->calculate<SwiGLUOp, float>(_info, output, inputs, stream);
-        break;
+        return _device_info->calculate<SwiGLUOp, float>(_info, output, inputs, stream);
     case INFINI_DTYPE_F64:
-        _device_info->calculate<SwiGLUOp, double>(_info, output, inputs, stream);
-        break;
+        return _device_info->calculate<SwiGLUOp, double>(_info, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
