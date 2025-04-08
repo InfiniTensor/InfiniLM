@@ -5,6 +5,7 @@
 #include "../operator.h"
 #include "../tensor.h"
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <iostream>
 #include <memory>

@@ -16,7 +16,7 @@
                                                                                        \
     *desc_ptr = new Descriptor(                                                        \
         dtype,                                                                         \
-        std::move(info_result.take()),                                                 \
+        info_result.take(),                                                            \
         nullptr,                                                                       \
         handle->device,                                                                \
         handle->device_id);
@@ -125,7 +125,7 @@ void calculate_impl(const op::elementwise::ElementwiseInfo &info, void *output, 
 }
 
 // Invoke elementwise operation for different input types
-template <typename Op, typename Tout, typename... Tin, typename... Args, std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
+template <typename Op, typename Tout, typename... Tin, typename... Args, std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int>>
 infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
                                      void *output,
                                      const std::vector<const void *> &inputs,
