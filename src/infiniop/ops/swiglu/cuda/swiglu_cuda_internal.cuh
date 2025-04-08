@@ -34,25 +34,6 @@ public:
             return gate * sigmoid(gate) * up;
         }
     }
-
-    template <typename Tc, typename Ta, typename Tb>
-    __device__ __forceinline__ Tc operator()(const Ta &up, const Tb &gate) const {
-        if constexpr (std::is_same_v<Ta, half2>) {
-            return __hmul2(__hmul2(gate, sigmoid(gate)), up);
-        } else if constexpr (std::is_same_v<Ta, half> && std::is_same_v<Tb, float>) {
-            if constexpr (std::is_same_v<Tc, half>) {
-                return __float2half(__fmul_rd(__fmul_rd(gate, sigmoid(gate)), __half2float(up)));
-            } else {
-                return __fmul_rd(__fmul_rd(gate, sigmoid(gate)), __half2float(up));
-            }
-        } else if constexpr (std::is_same_v<Ta, half>) {
-            return __hmul(__hmul(gate, sigmoid(gate)), up);
-        } else if constexpr (std::is_same_v<Ta, float>) {
-            return __fmul_rd(__fmul_rd(gate, sigmoid(gate)), up);
-        } else {
-            return gate * sigmoid(gate) * up;
-        }
-    }
 } SwiGLUOp;
 } // namespace op::swiglu::cuda
 
