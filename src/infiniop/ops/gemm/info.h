@@ -8,10 +8,7 @@
 
 namespace op::gemm {
 
-class BlasMatrix {
-    BlasMatrix() = default;
-
-public:
+struct BlasMatrix {
     size_t ndim;
     size_t batch;
     ptrdiff_t stride;

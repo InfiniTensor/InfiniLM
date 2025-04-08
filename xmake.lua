@@ -46,6 +46,19 @@ if has_config("nv-gpu") then
     includes("xmake/cuda.lua")
 end
 
+-- 天数智芯
+option("iluvatar-gpu")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to complie implementations for Iluvatar GPU")
+option_end()
+
+if has_config("iluvatar-gpu") then
+    add_defines("ENABLE_CUDA_API")
+    add_defines("ENABLE_ILUVATAR_CUDA_API")
+    includes("xmake/iluvatar.lua")
+end
+
 -- 寒武纪
 option("cambricon-mlu")
     set_default(false)
@@ -174,6 +187,9 @@ target("infinirt")
     if has_config("moore-gpu") then
         add_deps("infinirt-moore")
     end
+    if has_config("iluvatar-gpu") then
+        add_deps("infinirt-iluvatar")
+    end
     if has_config("kunlun-xpu") then
         add_deps("infinirt-kunlun")
     end
@@ -192,6 +208,9 @@ target("infiniop")
     end
     if has_config("nv-gpu") then
         add_deps("infiniop-cuda")
+    end
+    if has_config("iluvatar-gpu") then
+        add_deps("infiniop-iluvatar")
     end
     if has_config("sugon-dcu") then
         local builddir = string.format(
@@ -248,7 +267,7 @@ target("infiniccl")
     if has_config("metax-gpu") then
         add_deps("infiniccl-metax")
     end
-    
+
     set_languages("cxx17")
 
     add_files("src/infiniccl/*.cc")

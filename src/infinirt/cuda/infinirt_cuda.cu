@@ -38,8 +38,12 @@ infiniStatus_t streamSynchronize(infinirtStream_t stream) {
 }
 
 infiniStatus_t streamWaitEvent(infinirtStream_t stream, infinirtEvent_t event) {
+#ifndef ENABLE_ILUVATAR_CUDA_API
     CHECK_CUDART(cudaStreamWaitEvent((cudaStream_t)stream, (cudaEvent_t)event));
     return INFINI_STATUS_SUCCESS;
+#else
+    return INFINI_STATUS_NOT_IMPLEMENTED;
+#endif
 }
 
 infiniStatus_t eventCreate(infinirtEvent_t *event_ptr) {
