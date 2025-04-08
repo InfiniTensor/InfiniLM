@@ -11,6 +11,9 @@
 #ifdef ENABLE_ASCEND_API
 #include "ascend/rms_norm_aclnn.h"
 #endif
+#ifdef ENABLE_MOORE_API
+#include "musa/rms_norm_musa.h"
+#endif
 #ifdef ENABLE_KUNLUN_API
 #include "kunlun/rms_norm_kunlun.h"
 #endif
@@ -56,10 +59,8 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
         return macaCreateRMSNormDescriptor((MacaHandle_t)handle, (RMSNormMacaDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
     }
 #endif
-#ifdef ENABLE_MTHREADS_GPU
-    case DevMthreadsGpu: {
-        return musaCreateRMSNormDescriptor((MusaHandle_t)handle, (RMSNormMusaDescriptor_t *)desc_ptr, y_desc, x_desc, w_desc, epsilon);
-    }
+#ifdef ENABLE_MOORE_API
+        CREATE(INFINI_DEVICE_MOORE, musa)
 #endif
     }
 
@@ -98,10 +99,8 @@ __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t d
         return macaGetRMSNormWorkspaceSize((RMSNormMacaDescriptor_t)desc, size);
     }
 #endif
-#ifdef ENABLE_MTHREADS_GPU
-    case DevMthreadsGpu: {
-        return musaGetRMSNormWorkspaceSize((RMSNormMusaDescriptor_t)desc, size);
-    }
+#ifdef ENABLE_MOORE_API
+        GET(INFINI_DEVICE_MOORE, musa)
 #endif
     }
 
@@ -141,10 +140,8 @@ __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *works
         return macaRMSNorm((RMSNormMacaDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
     }
 #endif
-#ifdef ENABLE_MTHREADS_GPU
-    case DevMthreadsGpu: {
-        return musaRMSNorm((RMSNormMusaDescriptor_t)desc, workspace, workspace_size, y, x, w, stream);
-    }
+#ifdef ENABLE_MOORE_API
+        CALCULATE(INFINI_DEVICE_MOORE, musa)
 #endif
     }
 
@@ -183,10 +180,8 @@ __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t 
         return macaDestroyRMSNormDescriptor((RMSNormMacaDescriptor_t)desc);
     }
 #endif
-#ifdef ENABLE_MTHREADS_GPU
-    case DevMthreadsGpu: {
-        return musaDestroyRMSNormDescriptor((RMSNormMusaDescriptor_t)desc);
-    }
+#ifdef ENABLE_MOORE_API
+        DESTROY(INFINI_DEVICE_MOORE, musa)
 #endif
     }
 
