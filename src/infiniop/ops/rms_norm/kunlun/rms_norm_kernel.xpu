@@ -1,5 +1,5 @@
-#ifndef __RMS_NORM_KUNLUN_KERNEL_H__
-#define __RMS_NORM_KUNLUN_KERNEL_H__
+#ifndef __RMS_NORM_KUNLUN_KERNEL_XPU__
+#define __RMS_NORM_KUNLUN_KERNEL_XPU__
 
 #include "../../../devices/kunlun/kunlun_common.h"
 #include "../../../reduce/kunlun/reduce_kunlun.h"
