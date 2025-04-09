@@ -18,11 +18,25 @@ public:
     ~DeviceImpl() = default;
 
     template <typename... Args>
-    static infiniStatus_t create(
-        DeviceImpl **device_info,
-        Args &&...args);
+    static infiniStatus_t create(DeviceImpl **device_info, Args &&...args);
 
-    /* Invoke elementwise operation when all inputs have the same dtype */
+    /**
+     * @brief Launches elementwise operation where all input types are the same.
+     *
+     * Calls the corresponding templated `calculateImpl` with a unified input type.
+     *
+     * @tparam BLOCK_SIZE  Number of threads per block.
+     * @tparam Op          Operation functor defining the computation.
+     * @tparam Tdata       Data type for both input and output tensors.
+     * @tparam Args...     Additional arguments passed to the operation.
+     *
+     * @param info         Metadata describing tensor shapes, strides, etc.
+     * @param output       Pointer to output buffer on device.
+     * @param inputs       Vector of input pointers (device memory).
+     * @param stream       CUDA stream (opaque void*).
+     * @param args         Additional operation-specific arguments.
+     * @return infiniStatus_t  Status indicating success or failure.
+     */
     template <unsigned int BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
     infiniStatus_t calculate(
         const op::elementwise::ElementwiseInfo &info,
@@ -31,7 +45,23 @@ public:
         void *stream,
         Args &&...args);
 
-    /* Invoke elementwise operation for different input types */
+    /**
+     * @brief Launches elementwise operation where input types may differ.
+     *
+     * Dispatches to templated `calculateImpl` using specified output and input types.
+     *
+     * @tparam BLOCK_SIZE  Number of threads per block.
+     * @tparam Op          Operation functor defining the computation.
+     * @tparam Tout        Output data type.
+     * @tparam Tin...      Input data types (must match Op::num_inputs).
+     * @tparam Args...     Additional arguments passed to the operation.
+     * @param info         Metadata describing tensor shapes, strides, etc.
+     * @param output       Pointer to output buffer on device.
+     * @param inputs       Vector of input pointers (device memory).
+     * @param stream       CUDA stream (opaque void*).
+     * @param args         (UNUSED) Additional operation-specific arguments.
+     * @return infiniStatus_t  Status indicating success or failure.
+     */
     template <unsigned int BLOCK_SIZE, typename Op, typename Tout, typename... Tin,
               typename... Args,
               std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
