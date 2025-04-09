@@ -31,32 +31,26 @@ public:
         }
         CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32);
 
-        auto ndim = y_desc->ndim();
-        if (ndim != x_desc->ndim()) {
-            return INFINI_STATUS_BAD_TENSOR_SHAPE;
-        }
-
-        if (ndim != 2 && ndim != 3) {
-            return INFINI_STATUS_BAD_TENSOR_SHAPE;
-        }
-
         auto shape = y_desc->shape();
-        if (!SAME_VEC(y_desc->shape(), x_desc->shape())) {
-            return INFINI_STATUS_BAD_TENSOR_SHAPE;
+        CHECK_SAME_SHAPE(shape, x_desc->shape());
+
+        auto ndim = y_desc->ndim();
+        if (ndim != 2 && ndim != 3) {
+            CHECK_STATUS(INFINI_STATUS_BAD_TENSOR_SHAPE);
         }
 
         if (shape[ndim - 1] < shape[ndim - 2]) {
-            return INFINI_STATUS_BAD_TENSOR_SHAPE;
+            CHECK_STATUS(INFINI_STATUS_BAD_TENSOR_SHAPE);
         }
 
         size_t batch_size = 1;
         size_t seq_len = shape[ndim - 2];
         size_t total_seq_len = shape[ndim - 1];
         ptrdiff_t y_stride_b = 0,
-                  x_stride_b = 0;
-        ptrdiff_t y_stride_i = y_desc->stride(ndim - 2),
+                  y_stride_i = y_desc->stride(ndim - 2),
                   y_stride_j = y_desc->stride(ndim - 1);
-        ptrdiff_t x_stride_i = x_desc->stride(ndim - 2),
+        ptrdiff_t x_stride_b = 0,
+                  x_stride_i = x_desc->stride(ndim - 2),
                   x_stride_j = x_desc->stride(ndim - 1);
 
         if (ndim == 3) {

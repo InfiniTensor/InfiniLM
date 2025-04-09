@@ -18,9 +18,8 @@ infiniStatus_t Descriptor::create(
     const auto &gate_shape = gate_desc->shape();
 
     CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
-    if (!SAME_VEC(out_shape, up_shape, gate_shape)) {
-        return INFINI_STATUS_BAD_TENSOR_SHAPE;
-    }
+
+    CHECK_SAME_SHAPE(out_shape, up_shape, gate_shape);
 
     op::binary::BinaryInfo info;
     CHECK_STATUS(op::binary::createBinaryInfo(info, out_desc, up_desc, gate_desc));
