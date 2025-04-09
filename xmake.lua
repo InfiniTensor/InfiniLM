@@ -4,8 +4,9 @@ local GREEN = '\27[0;32m'
 local YELLOW = '\27[1;33m'
 local NC = '\27[0m'  -- No Color
 
-add_includedirs("include")
 set_encodings("utf-8")
+
+add_includedirs("include")
 
 if is_mode("debug") then
     add_defines("DEBUG_MODE")
