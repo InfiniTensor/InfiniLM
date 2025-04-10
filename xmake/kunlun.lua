@@ -20,14 +20,17 @@ rule("xpu")
         local objectfile = target:objectfile(sourcefile)
         local basename = objectfile:gsub("%.o$", "")
         os.mkdir(path.directory(objectfile))
-        
         local cc = path.join(XTDK_DIR, "bin/clang++")
-
         local includedirs = table.concat(target:get("includedirs"), " ")
+        local arch_map = {
+            ["x86_64"] = "x86_64-linux-gnu",
+            ["arm64"] = "aarch64-linux-gnu"
+        }
+
 
         local args = {
             "--sysroot=/",
-            "--target=aarch64-linux-gnu",
+            "--target=" .. arch_map[os.arch()],
             "-fPIC",
             "-pie",
             "--xpu-arch=xpu2",
