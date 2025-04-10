@@ -5,7 +5,7 @@
 #include "../../../reduce/kunlun/reduce_kunlun.h"
 
 // Element wise mul used in x * w
-static inline __device__ void elementMul(float *x, float *w, float *y, int count, float rms) {
+static inline __device__ void element_mul(float *x, float *w, float *y, int count, float rms) {
     int remain = count % 16;
     int offset_last = count - remain;
     // y[i] = w[i] * x[i] * rms for remainder
@@ -29,7 +29,7 @@ static inline __device__ void elementMul(float *x, float *w, float *y, int count
 // RmsNorm main kernel func
 // kunlun2 has 8 cluster and 64 core
 // Call it by rmsnorm<<<8, 32, stream>>>()
-__global__ void rms_norm(float *y, long stride_y, float *x, long stride_x, float *w, int m, int n, float epsilon) {
+__global__ void rms_norm_f32(float *y, long stride_y, const float *x, long stride_x, const float *w, int m, int n, float epsilon) {
     // ncores in a cluster
     int ncores = core_num();
     // get cid of current core
@@ -85,7 +85,7 @@ __global__ void rms_norm(float *y, long stride_y, float *x, long stride_x, float
 
             // do reduce
             float ss = op::common_kunlun::reduce_op::sumSquaredF32(x_local, curr_nn);
-            atomic_add(&sm_output[curr_m - m_start], ss);
+            atomicAddF32(&sm_output[curr_m - m_start], ss);
         }
         mfence();
         sync_cluster();
@@ -103,7 +103,7 @@ __global__ void rms_norm(float *y, long stride_y, float *x, long stride_x, float
 
             float ss = SM2REG_atomic(sm_output + m - m_start);
             float rms = 1.0f / sqrt(ss / n + epsilon);
-            elementMul(x_local, w_local, y_local, nn, rms);
+            element_mul(x_local, w_local, y_local, nn, rms);
             mfence();
 
             auto y_ptr = y + m * stride_y + n_start;
@@ -116,8 +116,8 @@ __global__ void rms_norm(float *y, long stride_y, float *x, long stride_x, float
     }
 }
 
-void rms_norm_f32(void *y, long stride_y, const void *x, long stride_x, const void *w, int m, int n, float epsilon, XPUStream stream) {
-    rms_norm<<<8, 32, stream>>>((float *)y, stride_y, (float *)x, stride_x, (float *)w, m, n, epsilon);
+void rmsNormF32(void *y, long stride_y, const void *x, long stride_x, const void *w, int m, int n, float epsilon, XPUStream stream) {
+    rms_norm_f32<<<8, 32, stream>>>((float *)y, stride_y, (const float *)x, stride_x, (const float *)w, m, n, epsilon);
 }
 
 #endif

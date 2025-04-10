@@ -9,18 +9,21 @@
 
 // Get mask for vload_lm_ func
 // 0 - i bit 1, others 0
-static inline __device__ float lowerBitMask(int i) {
+inline __device__ float lowerBitMask(int i) {
     return (1 << (i + 1)) - 1;
 }
 
 // Atomic add for reduce
-static inline __device__ void atomic_add(__shared_ptr__ float *ptr, float value) {
-    int fail = 1;
-    while (fail) {
+inline __device__ void atomicAddF32(__shared_ptr__ float *ptr, float value) {
+    int success = 1;
+    while (success) {
+        // SM2REG read 32bit data to register
         float a = SM2REG_atomic(ptr);
         a = a + value;
-        fail = REG2SM_atomic(ptr, a);
+        success = REG2SM_atomic(ptr, a);
     }
 }
 
+// TODO: atomicAddF16
+// TODO: atomicAddI8
 #endif

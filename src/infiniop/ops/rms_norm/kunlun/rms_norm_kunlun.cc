@@ -3,7 +3,7 @@
 #include <memory>
 #include <stdint.h>
 
-void rms_norm_f32(void *y, long stride_y, const void *x, long stride_x, const void *w, int m, int n, float epsilon, XPUStream stream);
+void rmsNormF32(void *y, long stride_y, const void *x, long stride_x, const void *w, int m, int n, float epsilon, XPUStream stream);
 
 namespace op::rms_norm::kunlun {
 
@@ -53,7 +53,7 @@ infiniStatus_t launchKernel(
     kunlunStream_t stream) {
 
     if (atype == INFINI_DTYPE_F32 && wtype == INFINI_DTYPE_F32) {
-        rms_norm_f32(y, static_cast<long>(stride_y), x, static_cast<long>(stride_x), w, m, n, epsilon, stream);
+        rmsNormF32(y, static_cast<long>(stride_y), x, static_cast<long>(stride_x), w, m, n, epsilon, stream);
     } else {
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
