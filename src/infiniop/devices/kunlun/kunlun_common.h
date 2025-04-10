@@ -8,7 +8,7 @@
 #include "xpu/runtime.h"
 
 // Get mask for kunlun xpu 512bit register calculation
-// if data is not enough to 512bit, padding zero and use 
+// if data is not enough to 512bit, padding zero and use
 // mask to identify real data
 // 0 - i bit 1, others 0
 inline __device__ float lowerBitMask(int i) {
