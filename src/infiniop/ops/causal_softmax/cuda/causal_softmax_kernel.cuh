@@ -1,7 +1,8 @@
 #ifndef __CAUSAL_SOFTMAX_KERNEL_CUH__
 #define __CAUSAL_SOFTMAX_KERNEL_CUH__
 
-#include "../../../devices/cuda/cuda_common.cuh"
+#include "../../../devices/cuda/cuda_kernel_common.cuh"
+#include "../../../reduce/cuda/reduce.cuh"
 
 template <unsigned int BLOCK_SIZE, typename Tdata, typename Tcompute>
 INFINIOP_CUDA_KERNEL causalSoftmax(
@@ -31,7 +32,11 @@ INFINIOP_CUDA_KERNEL causalSoftmax(
         //          2 | * * * ... * * * |
         //  height: 3  col_id->
         if (width + blockIdx.x >= threadIdx.x + height) {
+#ifdef ENABLE_CUDA_API
+            y[col] = exp_(x[col] - max_);
+#else
             y[col] = exp(x[col] - max_);
+#endif
         } else {
             y[col] = Tdata(0);
         }

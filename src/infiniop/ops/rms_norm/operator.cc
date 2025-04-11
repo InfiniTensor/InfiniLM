@@ -12,7 +12,7 @@
 #include "ascend/rms_norm_aclnn.h"
 #endif
 #ifdef ENABLE_MOORE_API
-#include "musa/rms_norm_musa.h"
+#include "musa/rms_norm_musa.cuh"
 #endif
 #ifdef ENABLE_KUNLUN_API
 #include "kunlun/rms_norm_kunlun.h"

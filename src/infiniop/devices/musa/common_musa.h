@@ -10,9 +10,6 @@
 #define CHECK_MUBLAS(API) CHECK_INTERNAL(API, MUBLAS_STATUS_SUCCESS)
 #define CHECK_MUDNN(API) CHECK_INTERNAL((int)API, (int)::musa::dnn::Status::SUCCESS)
 
-#define INFINIOP_MUSA_KERNEL __global__ void
-#define MUSA_BLOCK_SIZE_1024 1024
-
 namespace device::musa {
 
 class Handle::Internal {

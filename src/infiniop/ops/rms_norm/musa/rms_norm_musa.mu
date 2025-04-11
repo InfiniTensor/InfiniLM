@@ -1,6 +1,6 @@
 #include "../../../devices/musa/common_musa.h"
-#include "rms_norm_kernel.h"
-#include "rms_norm_musa.h"
+#include "../cuda/rms_norm_kernel.cuh"
+#include "rms_norm_musa.cuh"
 
 namespace op::rms_norm::musa {
 
@@ -87,8 +87,8 @@ infiniStatus_t Descriptor::calculate(
     auto musa_stream = reinterpret_cast<musaStream_t>(stream);
 
     // launch kernel with different block sizes
-    if (_opaque->internal->maxThreadsPerBlock() == MUSA_BLOCK_SIZE_1024) {
-        CHECK_STATUS(launchKernel<MUSA_BLOCK_SIZE_1024>(batch_size, dim, y, _info.atype, stride_y, x, stride_x, w, _info.wtype, _info.epsilon, musa_stream));
+    if (_opaque->internal->maxThreadsPerBlock() == CUDA_BLOCK_SIZE_1024) {
+        CHECK_STATUS(launchKernel<CUDA_BLOCK_SIZE_1024>(batch_size, dim, y, _info.atype, stride_y, x, stride_x, w, _info.wtype, _info.epsilon, musa_stream));
     } else {
         return INFINI_STATUS_DEVICE_ARCHITECTURE_NOT_SUPPORTED;
     }
