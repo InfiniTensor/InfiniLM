@@ -1,6 +1,5 @@
-#include "causal_softmax_cuda.cuh"
-
 #include "../../../devices/cuda/cuda_common.cuh"
+#include "causal_softmax_cuda.cuh"
 #include "causal_softmax_kernel.cuh"
 
 namespace op::causal_softmax::cuda {
