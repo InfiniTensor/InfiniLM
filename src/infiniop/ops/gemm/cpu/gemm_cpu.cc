@@ -42,15 +42,15 @@ void calculate(
     if (info.is_transed) {
         std::swap(a, b);
     }
-    const size_t m_n = info.m * info.n;
-    const size_t n = info.n;
+
 #pragma omp parallel for
     for (ptrdiff_t index = 0; index < ptrdiff_t(info.batch * info.m * info.n); ++index) {
-        size_t i, m_, n_;
-        i = index / m_n;
-        size_t rem = index - i * m_n; // 替代 `%` 用减法
-        m_ = rem / n;
-        n_ = rem - m_ * n; // 替代 `%` 用减法
+        size_t ind = index;
+        size_t n_ = ind % info.n;
+        ind /= info.n;
+        size_t m_ = ind % info.m;
+        ind /= info.m;
+        size_t i = ind;
         auto c_ = reinterpret_cast<Tdata *>(c) + i * info.c_matrix.stride + m_ * info.c_matrix.row_stride + n_ * info.c_matrix.col_stride;
         float sum = 0;
         for (int k_ = 0; k_ < static_cast<int>(info.k); ++k_) {
