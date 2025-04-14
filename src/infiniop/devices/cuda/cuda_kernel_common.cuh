@@ -9,6 +9,10 @@
 #define CUDA_BLOCK_SIZE_1024 1024
 #define CUDA_BLOCK_SIZE_512 512
 
+#define CHECK_CUDA(API) CHECK_INTERNAL(API, cudaSuccess)
+
+namespace device::cuda {
+
 // return the memory offset of original tensor, given the flattened index of broadcasted tensor
 __forceinline__ __device__ __host__ size_t
 indexToReducedOffset(
@@ -38,6 +42,7 @@ indexToOffset(
     }
     return res;
 }
+} // namespace device::cuda
 
 #ifdef ENABLE_CUDA_API
 #include <cuda_fp16.h>

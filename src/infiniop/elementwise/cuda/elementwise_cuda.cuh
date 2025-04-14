@@ -3,6 +3,7 @@
 
 #include "../../../utils.h"
 #include "../../devices/cuda/cuda_common.cuh"
+#include "../../devices/cuda/cuda_kernel_common.cuh"
 #include "elementwise_cuda_api.cuh"
 
 namespace op::elementwise::cuda {
@@ -16,18 +17,17 @@ namespace op::elementwise::cuda {
  * @param lambda   Lambda to be called with std::integral_constant<size_t, Is>... as arguments.
  */
 template <typename Lambda, size_t... Is>
-__device__ __forceinline__ void call_expand(Lambda lambda, std::index_sequence<Is...>) {
+__device__ __forceinline__ void callExpand(Lambda lambda, std::index_sequence<Is...>) {
     lambda(std::integral_constant<size_t, Is>{}...);
 }
 
 /**
  * @brief CUDA kernel for performing elementwise operations on tensors where all inputs share the same data type.
  *
+ * @tparam N        Number of input tensors.
  * @tparam Op       Operator type implementing operator()(Tdata...).
  * @tparam Tdata    Common data type for inputs and output.
- * @tparam N        Number of input tensors.
  * @tparam Args     Additional arguments to pass to the operator.
- *
  * @param output_size         Total number of output elements.
  * @param ndim                Number of dimensions in tensors.
  * @param output_contiguous   Whether the output tensor is contiguous in memory.
@@ -37,24 +37,22 @@ __device__ __forceinline__ void call_expand(Lambda lambda, std::index_sequence<I
  * @param input_shapes        Shapes of the input tensors.
  * @param output_strides      Strides for the output tensor.
  * @param input_strides       Strides for each input tensor.
- * @param input_size          Total number of input elements (optional, may be unused).
  * @param output              Output buffer.
  * @param inputs              Array of input pointers, all of type Tdata.
  * @param offset              Linear offset to support partitioned execution.
  * @param args                Additional arguments passed to the operator.
  */
 template <size_t N, typename Op, typename Tdata, typename... Args>
-INFINIOP_CUDA_KERNEL elementwise_kernel(
+INFINIOP_CUDA_KERNEL elementwiseKernel(
     size_t output_size,
     size_t ndim,
     bool output_contiguous,
     const bool *__restrict__ input_contiguous,
     const bool *__restrict__ input_broadcasted,
     const size_t *__restrict__ output_shape,
-    const size_t *__restrict__ *__restrict__ input_shapes,
+    const size_t *__restrict__ input_shapes,
     const ptrdiff_t *__restrict__ output_strides,
-    const ptrdiff_t *__restrict__ *__restrict__ input_strides,
-    size_t input_size,
+    const ptrdiff_t *__restrict__ input_strides,
     Tdata *output,
     const Tdata *const *inputs,
     size_t offset,
@@ -68,8 +66,8 @@ INFINIOP_CUDA_KERNEL elementwise_kernel(
         auto get_input_idx = [&] __device__(size_t input_id) {
             return input_contiguous[input_id] ? idx
                                               : (input_broadcasted[input_id]
-                                                     ? device::cuda::indexToReducedOffset(idx, ndim, output_strides, input_strides[input_id])
-                                                     : device::cuda::indexToOffset(idx, ndim, input_shapes[input_id], input_strides[input_id]));
+                                                     ? device::cuda::indexToReducedOffset(idx, ndim, output_strides, input_strides + input_id * ndim)
+                                                     : device::cuda::indexToOffset(idx, ndim, input_shapes + input_id * ndim, input_strides + input_id * ndim));
         };
 
         // Use a helper to expand the index sequence into individual compile-time constants
@@ -85,7 +83,7 @@ INFINIOP_CUDA_KERNEL elementwise_kernel(
             }
         };
 
-        call_expand(expand_inputs, std::make_index_sequence<N>{});
+        callExpand(expand_inputs, std::make_index_sequence<N>{});
     }
 }
 
@@ -97,38 +95,38 @@ INFINIOP_CUDA_KERNEL elementwise_kernel(
  * @return     Pointer of type const T*.
  */
 template <typename T>
-__device__ inline const T *typed_input_ptr(const void *ptr) {
+__device__ inline const T *typedInputPtr(const void *ptr) {
     return reinterpret_cast<const T *>(ptr);
 }
 
 /**
- * @brief Launches a type-safe elementwise operation on a single output element.
+ * @brief Launches elementwise operation at a specific output index.
  *
- * @tparam Op     Operator type implementing a templated operator() for (Tout, Tin...).
- * @tparam Tout   Output data type.
- * @tparam Tin    Variadic input data types.
- * @tparam Is     Index sequence corresponding to each input.
- *
- * @param idx                 Linear index in the flattened output space.
- * @param out_idx             Actual output index (may be non-contiguous).
- * @param ndim                Number of dimensions in the tensors.
- * @param input_contiguous    Array indicating whether each input is contiguous.
- * @param input_broadcasted   Array indicating whether each input is broadcasted.
- * @param input_shapes        Shapes of the input tensors.
- * @param input_strides       Strides of the input tensors.
- * @param inputs              Raw pointers to input data.
- * @param output              Pointer to output data.
- * @param ...                 Index sequence used for unpacking variadic inputs.
+ * @tparam Op            Functor representing the elementwise operation.
+ * @tparam Tout          Output data type.
+ * @tparam Tin...        Input data types.
+ * @tparam Is...         Index sequence for unpacking variadic inputs.
+ * @param idx            Global linear index into the output tensor.
+ * @param out_idx        Offset into the output array.
+ * @param ndim           Number of dimensions in the tensors.
+ * @param input_contiguous   Flags indicating whether each input is contiguous.
+ * @param input_broadcasted  Flags indicating whether each input is broadcasted.
+ * @param input_shapes        Flattened input shapes (N * ndim).
+ * @param input_strides       Flattened input strides (N * ndim).
+ * @param output_strides      Output tensor strides.
+ * @param inputs              Array of pointers to input tensors.
+ * @param output              Pointer to output tensor.
+ * @param ...Is               Index sequence for iterating over input tensors.
  */
 template <typename Op, typename Tout, typename... Tin, size_t... Is>
-__device__ void launch_op(
+__device__ void launchOp(
     size_t idx,
     size_t out_idx,
     size_t ndim,
     const bool *__restrict__ input_contiguous,
     const bool *__restrict__ input_broadcasted,
-    const size_t *__restrict__ const *__restrict__ input_shapes,
-    const ptrdiff_t *__restrict__ const *__restrict__ input_strides,
+    const size_t *__restrict__ input_shapes,
+    const ptrdiff_t *__restrict__ input_strides,
     const ptrdiff_t *__restrict__ output_strides,
     const void *const *__restrict__ inputs,
     Tout *output,
@@ -138,12 +136,12 @@ __device__ void launch_op(
         return input_contiguous[input_id]
                  ? idx
                  : (input_broadcasted[input_id]
-                        ? device::cuda::indexToReducedOffset(idx, ndim, output_strides, input_strides[input_id])
-                        : device::cuda::indexToOffset(idx, ndim, input_shapes[input_id], input_strides[input_id]));
+                        ? device::cuda::indexToReducedOffset(idx, ndim, output_strides, input_strides + input_id * ndim)
+                        : device::cuda::indexToOffset(idx, ndim, input_shapes + input_id * ndim, input_strides + input_id * ndim));
     };
 
     output[out_idx] = Op{}.template operator()<Tout, Tin...>(
-        (typed_input_ptr<Tin>(inputs[Is])[get_input_idx(Is)])...);
+        (typedInputPtr<Tin>(inputs[Is])[get_input_idx(Is)])...);
 }
 
 /**
@@ -153,7 +151,6 @@ __device__ void launch_op(
  * @tparam Op     Operator type implementing a templated operator() for (Tout, Tin...).
  * @tparam Tout   Output data type.
  * @tparam Tin    Variadic input data types.
- *
  * @param output_size         Total number of output elements.
  * @param ndim                Number of dimensions in the tensors.
  * @param output_contiguous   Whether the output tensor is contiguous.
@@ -163,23 +160,21 @@ __device__ void launch_op(
  * @param input_shapes        Shapes of the input tensors.
  * @param output_strides      Strides of the output tensor.
  * @param input_strides       Strides of the input tensors.
- * @param input_size          Total number of input elements (unused here, but may be used for validation).
  * @param output              Pointer to the output buffer.
  * @param inputs              Array of untyped input pointers.
  * @param offset              Linear offset into the output for partitioned execution.
  */
 template <typename Op, typename Tout, typename... Tin>
-INFINIOP_CUDA_KERNEL elementwise_kernel(
+INFINIOP_CUDA_KERNEL elementwiseKernel(
     size_t output_size,
     size_t ndim,
     bool output_contiguous,
     const bool *__restrict__ input_contiguous,
     const bool *__restrict__ input_broadcasted,
     const size_t *__restrict__ output_shape,
-    const size_t *__restrict__ const *__restrict__ input_shapes,
+    const size_t *__restrict__ input_shapes,
     const ptrdiff_t *__restrict__ output_strides,
-    const ptrdiff_t *__restrict__ const *__restrict__ input_strides,
-    size_t input_size,
+    const ptrdiff_t *__restrict__ input_strides,
     Tout *output,
     const void *const *__restrict__ inputs,
     size_t offset) {
@@ -193,7 +188,7 @@ INFINIOP_CUDA_KERNEL elementwise_kernel(
                        ? idx
                        : device::cuda::indexToOffset(idx, ndim, output_shape, output_strides);
 
-    launch_op<Op, Tout, Tin...>(
+    launchOp<Op, Tout, Tin...>(
         idx,
         out_idx,
         ndim,
@@ -214,252 +209,185 @@ struct DeviceImpl::Opaque {
         : internal(internal) {}
 
     /**
-     * @brief Performs elementwise operations when all inputs and the output share the same data type.
+     * @brief Executes an elementwise operation where all inputs and the output share the same data type.
      *
-     * @tparam BLOCK_SIZE  The block size for the kernel launch.
-     * @tparam N           The number of input tensors.
-     * @tparam Op          The operation to perform (e.g., addition, multiplication).
-     * @tparam Tdata       The data type of the input and output tensors.
-     * @tparam Args        Additional arguments to be passed to the operation.
-     * @param info         Structure containing elementwise operation information (size, shape, etc.).
-     * @param output       Pointer to the output memory where results will be stored.
-     * @param inputs       Vector of pointers to input tensors.
-     * @param stream       CUDA stream used for asynchronous execution.
-     * @param args         Additional arguments for the operation.
-     * @return infiniStatus_t  Status indicating success or failure.
+     * @tparam BLOCK_SIZE    CUDA block size used for kernel launch.
+     * @tparam N             Number of input tensors.
+     * @tparam Op            Functor representing the elementwise operation.
+     * @tparam Tdata         Data type of both input and output tensors.
+     * @tparam Args          Optional additional arguments passed to the operation.
+     * @param info           Metadata about the operation including shape, size, and dimensionality.
+     * @param workspace      Temporary workspace used for storing metadata on device.
+     * @param output         Pointer to the output buffer.
+     * @param inputs         Vector of pointers to input buffers.
+     * @param stream         CUDA stream for asynchronous execution.
+     * @param args           Additional arguments forwarded to the operation.
+     * @return infiniStatus_t Returns success or failure status.
      */
-    template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tdata, typename... Args, size_t... Is>
+    template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tdata, typename... Args>
     infiniStatus_t calculateImpl(const op::elementwise::ElementwiseInfo &info,
+                                 void *workspace,
                                  void *output,
                                  const std::vector<const void *> &inputs,
-                                 std::index_sequence<Is...>,
                                  cudaStream_t stream,
                                  Args &&...args) {
-        if (info.output_size == 0) {
+        auto output_size = info.getOutputSize();
+        if (output_size == 0) {
             return INFINI_STATUS_SUCCESS;
         }
 
         // casting the output and the inputs to Tdata pointers
         Tdata *out = reinterpret_cast<Tdata *>(output);
-        const Tdata *inputs_arr[N];
-        const Tdata **d_inputs_arr = nullptr;
-        for (size_t i = 0; i < N; ++i) {
-            inputs_arr[i] = reinterpret_cast<const Tdata *>(inputs[i]);
-        }
-        CHECK_CUDA(cudaMallocAsync(&d_inputs_arr, N * sizeof(*d_inputs_arr), stream));
-        CHECK_CUDA(cudaMemcpyAsync(d_inputs_arr, inputs_arr, N * sizeof(*d_inputs_arr), cudaMemcpyHostToDevice, stream));
+        const void **d_inputs_arr = nullptr;
 
         // create and send the info to device
-        const bool *d_bools = nullptr;
         const bool *d_input_contiguous = nullptr;
         const bool *d_input_broadcasted = nullptr;
-        const int8_t *d_output_shape_strides = nullptr;
         const size_t *d_output_shape = nullptr;
         const ptrdiff_t *d_output_strides = nullptr;
-        const size_t **d_input_shapes = nullptr;
-        const ptrdiff_t **d_input_strides = nullptr;
-        std::vector<const size_t *> tmp_device_ptrs(info.input_size);
-        std::vector<const ptrdiff_t *> tmp_device_ptrs_strides(info.input_size);
+        const size_t *d_input_shapes = nullptr;
+        const ptrdiff_t *d_input_strides = nullptr;
 
-        CHECK_STATUS(infoToDevice<N>(info, d_bools, d_input_contiguous,
-                                     d_input_broadcasted, d_output_shape_strides, d_output_shape,
-                                     d_output_strides, tmp_device_ptrs, d_input_shapes, tmp_device_ptrs_strides,
-                                     d_input_strides, stream));
+        CHECK_STATUS(infoToDevice<N>(info, workspace, inputs.data(), d_inputs_arr, d_input_contiguous, d_input_broadcasted,
+                                     d_output_shape, d_output_strides, d_input_shapes, d_input_strides, stream));
 
         dim3 blockDims(std::min(BLOCK_SIZE, static_cast<size_t>(internal->maxThreadsPerBlock())));
-        dim3 gridDims(std::min(CEIL_DIV(info.output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
+        dim3 gridDims(std::min(CEIL_DIV(output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
         size_t step = gridDims.x * blockDims.x;
 
-        for (size_t i = 0; i < info.output_size; i += step) {
-            elementwise_kernel<N, Op, Tdata, Args...><<<gridDims, blockDims, 0, stream>>>(
-                info.output_size,
-                info.ndim,
-                info.output_contiguous,
+        for (size_t i = 0; i < output_size; i += step) {
+            elementwiseKernel<N, Op, Tdata, Args...><<<gridDims, blockDims, 0, stream>>>(
+                output_size,
+                info.getNdim(),
+                info.isOutputContiguous(),
                 d_input_contiguous,
                 d_input_broadcasted,
                 d_output_shape,
                 d_input_shapes,
                 d_output_strides,
                 d_input_strides,
-                info.input_size, out, d_inputs_arr, i, std::forward<Args>(args)...);
+                out, reinterpret_cast<const Tdata **>(d_inputs_arr), i, std::forward<Args>(args)...);
         }
 
-        CHECK_STATUS(freeAllDevice((const void **)d_inputs_arr, d_bools, d_output_shape_strides,
-                                   info.input_size, d_input_shapes, d_input_strides, stream));
         return INFINI_STATUS_SUCCESS;
     }
 
     /**
-     * @brief Performs elementwise operations when inputs and the outputs have mixed data types (i.e., different dtypes).
+     * @brief Executes an elementwise operation with mixed input and output data types.
      *
-     * @tparam BLOCK_SIZE  The block size for the kernel launch.
-     * @tparam N           The number of input tensors.
-     * @tparam Op          The operation to perform (e.g., addition, multiplication).
-     * @tparam Tout        The output data type.
-     * @tparam Tin         The input data types.
-     * @tparam Args        Additional arguments to be passed to the operation.
-     * @param info         Structure containing elementwise operation information (size, shape, etc.).
-     * @param output       Pointer to the output memory where results will be stored.
-     * @param inputs       Vector of pointers to input tensors.
-     * @param stream       CUDA stream used for asynchronous execution.
-     * @param args         Additional arguments for the operation.
-     * @return infiniStatus_t  Status indicating success or failure.
+     * @tparam BLOCK_SIZE    CUDA block size used for kernel launch.
+     * @tparam N             Number of input tensors.
+     * @tparam Op            Functor representing the elementwise operation.
+     * @tparam Tout          Data type of the output tensor.
+     * @tparam Tin...        Data types of the input tensors.
+     * @tparam Args          Optional additional arguments passed to the operation.(UNUSED)
+     * @param info           Metadata about the operation including shape, size, and dimensionality.
+     * @param workspace      Temporary workspace used for storing metadata on device.
+     * @param output         Pointer to the output buffer.
+     * @param inputs         Vector of pointers to input buffers.
+     * @param stream         CUDA stream for asynchronous execution.
+     * @param args           Additional arguments forwarded to the operation.
+     * @return infiniStatus_t Returns success or failure status.
      */
-    template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tout, typename... Tin, typename... Args, size_t... Is,
+    template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tout, typename... Tin, typename... Args,
               std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
     infiniStatus_t calculateImpl(const op::elementwise::ElementwiseInfo &info,
+                                 void *workspace,
                                  void *output,
                                  const std::vector<const void *> &inputs,
-                                 std::index_sequence<Is...>,
                                  cudaStream_t stream,
                                  Args &&...args) {
-        if (info.output_size == 0) {
+        auto output_size = info.getOutputSize();
+        if (output_size == 0) {
             return INFINI_STATUS_SUCCESS;
         }
 
         Tout *out = reinterpret_cast<Tout *>(output);
-
-        // Store input pointers with the correct types
-        const std::tuple<const Tin *...> inputs_arr{reinterpret_cast<const Tin *>(inputs[Is])...};
         const void **d_inputs_arr = nullptr;
 
-        // Create array of input pointers on host (void*) to copy to device
-        const void *host_input_ptrs[] = {reinterpret_cast<const void *>(std::get<Is>(inputs_arr))...};
-        CHECK_CUDA(cudaMallocAsync(&d_inputs_arr, N * sizeof(void *), stream));
-        CHECK_CUDA(cudaMemcpyAsync(d_inputs_arr, host_input_ptrs, N * sizeof(void *), cudaMemcpyHostToDevice, stream));
-
         // Device pointers
-        const bool *d_bools = nullptr;
         const bool *d_input_contiguous = nullptr;
         const bool *d_input_broadcasted = nullptr;
-        const int8_t *d_output_shape_strides = nullptr;
         const size_t *d_output_shape = nullptr;
         const ptrdiff_t *d_output_strides = nullptr;
-        const size_t **d_input_shapes = nullptr;
-        const ptrdiff_t **d_input_strides = nullptr;
-        std::vector<const size_t *> tmp_device_ptrs(info.input_size);
-        std::vector<const ptrdiff_t *> tmp_device_ptrs_strides(info.input_size);
+        const size_t *d_input_shapes = nullptr;
+        const ptrdiff_t *d_input_strides = nullptr;
 
-        CHECK_STATUS(infoToDevice<N>(info, d_bools, d_input_contiguous,
-                                     d_input_broadcasted, d_output_shape_strides, d_output_shape,
-                                     d_output_strides, tmp_device_ptrs, d_input_shapes, tmp_device_ptrs_strides,
-                                     d_input_strides, stream));
+        CHECK_STATUS(infoToDevice<N>(info, workspace, inputs.data(), d_inputs_arr, d_input_contiguous, d_input_broadcasted,
+                                     d_output_shape, d_output_strides, d_input_shapes, d_input_strides, stream));
 
         dim3 blockDims(std::min(BLOCK_SIZE, static_cast<size_t>(internal->maxThreadsPerBlock())));
-        dim3 gridDims(std::min(CEIL_DIV(info.output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
+        dim3 gridDims(std::min(CEIL_DIV(output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
         size_t step = gridDims.x * blockDims.x;
 
-        for (size_t i = 0; i < info.output_size; i += step) {
-            elementwise_kernel<Op, Tout, Tin...><<<gridDims, blockDims, 0, stream>>>(
-                info.output_size,
-                info.ndim,
-                info.output_contiguous,
+        for (size_t i = 0; i < output_size; i += step) {
+            elementwiseKernel<Op, Tout, Tin...><<<gridDims, blockDims, 0, stream>>>(
+                output_size,
+                info.getNdim(),
+                info.isOutputContiguous(),
                 d_input_contiguous,
                 d_input_broadcasted,
                 d_output_shape,
                 d_input_shapes,
                 d_output_strides,
                 d_input_strides,
-                info.input_size, out, reinterpret_cast<const void **>(d_inputs_arr), i);
+                out, reinterpret_cast<const void **>(d_inputs_arr), i);
         }
 
-        CHECK_STATUS(freeAllDevice(d_inputs_arr, d_bools, d_output_shape_strides, info.input_size, d_input_shapes, d_input_strides, stream));
         return INFINI_STATUS_SUCCESS;
     }
 
 private:
     /**
-     * @brief Transfers elementwise kernel metadata (shapes, strides, flags) from host to device.
+     * @brief Transfers elementwise operation metadata and input pointers from host to device memory.
      *
-     * @tparam N                      Number of inputs.
-     * @param info                    Structure containing input/output metadata.
-     * @param d_bools                 Device pointer for input_contiguous and input_broadcasted flags.
-     * @param d_input_contiguous      Device pointer to input contiguity flags.
-     * @param d_input_broadcasted     Device pointer to input broadcasting flags.
-     * @param d_output_shape_strides  Device buffer containing both output shape and strides.
-     * @param d_output_shape          Device pointer to output shape.
-     * @param d_output_strides        Device pointer to output strides.
-     * @param tmp_device_ptrs         Temporary device pointers for input shapes.
-     * @param d_input_shapes          Device array of pointers to input shapes.
-     * @param tmp_device_ptrs_strides Temporary device pointers for input strides.
-     * @param d_input_strides         Device array of pointers to input strides.
-     * @param stream                  CUDA stream for async allocation and transfers.
-     * @return infiniStatus_t         Status indicating success or failure.
+     * @tparam N                     Number of input tensors.
+     * @param info                   Elementwise operation metadata (shapes, strides, flags, etc.).
+     * @param workspace              Pointer to device workspace memory for storing metadata and input pointers.
+     * @param h_inputs_arr           Host array of input tensor pointers.
+     * @param d_inputs_arr           Output reference to device array of input tensor pointers.
+     * @param d_input_contiguous     Output reference to device array indicating whether each input is contiguous.
+     * @param d_input_broadcasted    Output reference to device array indicating whether each input is broadcasted.
+     * @param d_output_shape         Output reference to device array holding the output tensor shape.
+     * @param d_output_strides       Output reference to device array holding output tensor strides.
+     * @param d_input_shapes         Output reference to flattened input tensor shapes (N * ndim).
+     * @param d_input_strides        Output reference to flattened input tensor strides (N * ndim).
+     * @param stream                 CUDA stream used for asynchronous memory transfer.
+     * @return infiniStatus_t        Status indicating success or failure of the memory transfer and setup.
      */
     template <size_t N>
     infiniStatus_t infoToDevice(
         const op::elementwise::ElementwiseInfo &info,
-        const bool *&d_bools,
+        void *workspace,
+        const void *const *h_inputs_arr,
+        const void **&d_inputs_arr,
         const bool *&d_input_contiguous,
         const bool *&d_input_broadcasted,
-        const int8_t *&d_output_shape_strides,
         const size_t *&d_output_shape,
         const ptrdiff_t *&d_output_strides,
-        std::vector<const size_t *> &tmp_device_ptrs,
-        const size_t **&d_input_shapes,
-        std::vector<const ptrdiff_t *> &tmp_device_ptrs_strides,
-        const ptrdiff_t **&d_input_strides,
+        const size_t *&d_input_shapes,
+        const ptrdiff_t *&d_input_strides,
         cudaStream_t stream) const {
 
-        CHECK_CUDA(cudaMallocAsync(&d_bools, 2 * info.input_size * sizeof(*d_bools), stream));
-        CHECK_CUDA(cudaMemcpyAsync((void *)d_bools, info.input_contiguous, info.input_size * sizeof(*d_bools), cudaMemcpyHostToDevice, stream));
-        CHECK_CUDA(cudaMemcpyAsync((void *)(d_bools + info.input_size), info.input_broadcasted, info.input_size * sizeof(*d_bools), cudaMemcpyHostToDevice, stream));
+        constexpr auto input_size = N;
+        const auto ndim = info.getNdim();
+        constexpr auto input_arr_size = N * sizeof(*h_inputs_arr);
+        const int8_t *info_meta_start = info.getMetaStart();
+        const int8_t *d_meta_start = reinterpret_cast<int8_t *>(workspace) + input_arr_size;
 
-        CHECK_CUDA(cudaMallocAsync(&d_output_shape_strides, info.ndim * (sizeof(*d_output_shape) + sizeof(*d_output_strides)), stream));
-        CHECK_CUDA(cudaMemcpyAsync((void *)d_output_shape_strides, info.output_shape, info.ndim * sizeof(*d_output_shape), cudaMemcpyHostToDevice, stream));
-        CHECK_CUDA(cudaMemcpyAsync((void *)(d_output_shape_strides + info.ndim * sizeof(*d_output_shape)), info.output_strides, info.ndim * sizeof(*d_output_strides), cudaMemcpyHostToDevice, stream));
+        // copy the input pointer array and meta to device
+        CHECK_CUDA(cudaMemcpyAsync(workspace, h_inputs_arr, input_arr_size, cudaMemcpyHostToDevice, stream));
+        CHECK_CUDA(cudaMemcpyAsync((void *)d_meta_start, info_meta_start, info.getMetaMemSize(), cudaMemcpyHostToDevice, stream));
 
-        CHECK_CUDA(cudaMallocAsync(&d_input_shapes, info.input_size * sizeof(*d_input_shapes), stream));
-        for (size_t i = 0; i < info.input_size; ++i) {
-            CHECK_CUDA(cudaMallocAsync(&tmp_device_ptrs[i], info.ndim * sizeof(*&tmp_device_ptrs[i]), stream));
-            CHECK_CUDA(cudaMemcpyAsync((void *)tmp_device_ptrs[i], info.input_shapes[i],
-                                       info.ndim * sizeof(*tmp_device_ptrs[i]), cudaMemcpyHostToDevice, stream));
-        }
-        CHECK_CUDA(cudaMemcpyAsync((void *)d_input_shapes, tmp_device_ptrs.data(),
-                                   info.input_size * sizeof(*d_input_shapes), cudaMemcpyHostToDevice, stream));
+        // offset/assign the pointers
+        d_inputs_arr = reinterpret_cast<const void **>(workspace);
+        d_output_shape = reinterpret_cast<const size_t *>(d_meta_start);
+        d_output_strides = reinterpret_cast<const ptrdiff_t *>(d_output_shape + ndim);
+        d_input_shapes = reinterpret_cast<const size_t *>(d_output_strides + ndim);
+        d_input_strides = reinterpret_cast<const ptrdiff_t *>(d_input_shapes + input_size * ndim);
+        d_input_contiguous = reinterpret_cast<const bool *>(d_input_strides + input_size * ndim);
+        d_input_broadcasted = reinterpret_cast<const bool *>(d_input_contiguous + input_size);
 
-        CHECK_CUDA(cudaMallocAsync(&d_input_strides, info.input_size * sizeof(*d_input_strides), stream));
-        for (size_t i = 0; i < info.input_size; ++i) {
-            CHECK_CUDA(cudaMallocAsync(&tmp_device_ptrs_strides[i], info.ndim * sizeof(*tmp_device_ptrs_strides[i]), stream));
-            CHECK_CUDA(cudaMemcpyAsync((void *)tmp_device_ptrs_strides[i], info.input_strides[i],
-                                       info.ndim * sizeof(*tmp_device_ptrs_strides[i]), cudaMemcpyHostToDevice, stream));
-        }
-        CHECK_CUDA(cudaMemcpyAsync((void *)d_input_strides, tmp_device_ptrs_strides.data(),
-                                   info.input_size * sizeof(*d_input_strides), cudaMemcpyHostToDevice, stream));
-
-        d_input_contiguous = d_bools;
-        d_input_broadcasted = d_bools + info.input_size;
-        d_output_shape = reinterpret_cast<const size_t *>(d_output_shape_strides);
-        d_output_strides = reinterpret_cast<const ptrdiff_t *>(d_output_shape_strides + info.ndim * sizeof(*d_output_shape));
-
-        return INFINI_STATUS_SUCCESS;
-    }
-
-    /**
-     * @brief Frees all device-allocated memory used for metadata in elementwise kernel execution.
-     *
-     * @param d_inputs_arr            Device array of input pointers.
-     * @param d_bools                 Device memory holding input flags.
-     * @param d_output_shape_strides  Device buffer holding output shape and strides.
-     * @param input_size              Number of input tensors.
-     * @param d_input_shapes          Device array of input shape pointers.
-     * @param d_input_strides         Device array of input stride pointers.
-     * @param stream                  CUDA stream for async deallocation.
-     * @return infiniStatus_t         Status indicating success or failure.
-     */
-    inline infiniStatus_t freeAllDevice(const void **d_inputs_arr,
-                                        const bool *d_bools,
-                                        const int8_t *d_output_shape_strides,
-                                        const size_t input_size,
-                                        const size_t **d_input_shapes,
-                                        const ptrdiff_t **d_input_strides,
-                                        cudaStream_t stream) const {
-
-        CHECK_CUDA(cudaFreeAsync((void *)d_inputs_arr, stream));
-        CHECK_CUDA(cudaFreeAsync((void *)d_bools, stream));
-        CHECK_CUDA(cudaFreeAsync((void *)d_output_shape_strides, stream));
-        CHECK_CUDA(cudaFreeAsync((void *)d_input_shapes, stream));
-        CHECK_CUDA(cudaFreeAsync((void *)d_input_strides, stream));
         return INFINI_STATUS_SUCCESS;
     }
 };
@@ -476,6 +404,7 @@ infiniStatus_t DeviceImpl::create(DeviceImpl **device_info,
 template <unsigned int BLOCK_SIZE, typename Op, typename Tout, typename... Tin, typename... Args,
           std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int>>
 infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
+                                     void *workspace,
                                      void *output,
                                      const std::vector<const void *> &inputs,
                                      void *stream,
@@ -483,8 +412,7 @@ infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &inf
     constexpr size_t N = Op::num_inputs;
     static_assert(sizeof...(Tin) == N, "Input type count mismatch");
     return _opaque->calculateImpl<BLOCK_SIZE, N, Op, Tout, Tin...>(
-        info, output, inputs,
-        std::make_index_sequence<N>{},
+        info, workspace, output, inputs,
         reinterpret_cast<cudaStream_t>(stream),
         std::forward<Args>(args)...);
 }
@@ -492,14 +420,14 @@ infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &inf
 /* Invoke elementwise operation when all inputs have the same dtype */
 template <unsigned int BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
 infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
+                                     void *workspace,
                                      void *output,
                                      const std::vector<const void *> &inputs,
                                      void *stream,
                                      Args &&...args) {
     constexpr size_t N = Op::num_inputs;
     return _opaque->calculateImpl<BLOCK_SIZE, N, Op, Tdata>(
-        info, output, inputs,
-        std::make_index_sequence<N>{},
+        info, workspace, output, inputs,
         reinterpret_cast<cudaStream_t>(stream),
         std::forward<Args>(args)...);
 }

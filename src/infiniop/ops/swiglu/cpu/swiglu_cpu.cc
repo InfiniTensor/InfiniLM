@@ -30,6 +30,8 @@ infiniStatus_t Descriptor::create(
 }
 
 infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
     void *output,
     std::vector<const void *> inputs,
     void *stream) const {

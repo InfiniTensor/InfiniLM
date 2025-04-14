@@ -10,7 +10,7 @@ typedef struct SwiGLUOp {
 private:
     template <typename T>
     T sigmoid(const T &x) const {
-        return 1 / (1 + std::exp(-x));
+        return T(1) / (T(1) + std::exp(-x));
     }
 
 public:

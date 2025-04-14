@@ -1,6 +1,6 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_void_p
+from ctypes import POINTER, Structure, c_int32, c_void_p, c_uint64
 from libinfiniop import (
     infiniopHandle_t,
     infiniopTensorDescriptor_t,
@@ -14,6 +14,7 @@ from libinfiniop import (
     debug,
     get_tolerance,
     profile_operation,
+    create_workspace
 )
 from enum import Enum, auto
 
@@ -160,10 +161,19 @@ def test(
     for tensor in [a_tensor, b_tensor, c_tensor]:
         tensor.destroyDesc(lib)
 
+    workspace_size = c_uint64(0)
+    check_error(
+        lib.infiniopGetSwiGLUWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+    )
+    workspace = create_workspace(workspace_size.value, c.device)
+
     def lib_swiglu():
         check_error(
             lib.infiniopSwiGLU(
-                descriptor, c_tensor.data, a_tensor.data, b_tensor.data, None
+                descriptor, 
+                workspace.data_ptr() if workspace is not None else None,
+                workspace_size.value,
+                c_tensor.data, a_tensor.data, b_tensor.data, None
             )
         )
 
@@ -196,9 +206,17 @@ if __name__ == "__main__":
         infiniopTensorDescriptor_t,
     ]
 
+    lib.infiniopGetSwiGLUWorkspaceSize.restype = c_int32
+    lib.infiniopGetSwiGLUWorkspaceSize.argtypes = [
+        infiniopSwiGLUDescriptor_t,
+        POINTER(c_uint64),
+    ]
+
     lib.infiniopSwiGLU.restype = c_int32
     lib.infiniopSwiGLU.argtypes = [
         infiniopSwiGLUDescriptor_t,
+        c_void_p,
+        c_uint64,
         c_void_p,
         c_void_p,
         c_void_p,

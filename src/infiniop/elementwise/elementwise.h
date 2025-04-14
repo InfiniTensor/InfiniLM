@@ -19,20 +19,25 @@
         infiniDtype_t _dtype;                                                 \
         op::elementwise::ElementwiseInfo _info;                               \
         std::unique_ptr<op::elementwise::NAMESPACE::DeviceImpl> _device_info; \
+        size_t _workspace_size;                                               \
                                                                               \
         Descriptor(                                                           \
             infiniDtype_t dtype,                                              \
             op::elementwise::ElementwiseInfo info,                            \
             op::elementwise::NAMESPACE::DeviceImpl *device_info,              \
+            size_t workspace_size,                                            \
             infiniDevice_t device_type,                                       \
             int device_id)                                                    \
             : InfiniopDescriptor{device_type, device_id},                     \
               _dtype(dtype),                                                  \
               _info(std::move(info)),                                         \
-              _device_info(device_info) {}                                    \
+              _device_info(device_info),                                      \
+              _workspace_size(workspace_size) {}                              \
                                                                               \
     public:                                                                   \
         ~Descriptor();                                                        \
+                                                                              \
+        size_t workspaceSize() const { return _workspace_size; }              \
                                                                               \
         static infiniStatus_t create(                                         \
             infiniopHandle_t handle,                                          \
@@ -41,6 +46,7 @@
             std::vector<infiniopTensorDescriptor_t> input_descs);             \
                                                                               \
         infiniStatus_t calculate(                                             \
+            void *workspace, size_t workspace_size,                           \
             void *output,                                                     \
             std::vector<const void *> inputs,                                 \
             void *stream) const;                                              \
@@ -62,57 +68,70 @@ namespace op::elementwise {
  */
 struct ElementwiseInfo {
 private:
-    ElementwiseInfo() = default;
+    std::vector<int8_t> _meta;
+    size_t _output_size;
+    size_t _input_size;
+    size_t _ndim;
+    bool _output_contiguous;
+
+    ElementwiseInfo(std::vector<int8_t> meta,
+                    size_t output_size,
+                    size_t input_size,
+                    size_t ndim,
+                    bool output_contiguous)
+        : _meta(std::move(meta)), _output_size(output_size),
+          _input_size(input_size), _ndim(ndim),
+          _output_contiguous(output_contiguous) {}
 
 public:
-    size_t output_size;
-    size_t ndim;
-    bool output_contiguous;
-    bool *input_contiguous;
-    bool *input_broadcasted;
-    size_t *output_shape;
-    size_t **input_shapes;
-    ptrdiff_t *output_strides;
-    ptrdiff_t **input_strides;
-    size_t input_size;
-
-    ~ElementwiseInfo() {
-        delete[] input_contiguous;
-        delete[] input_broadcasted;
-        delete[] output_shape;
-        delete[] output_strides;
-
-        for (size_t i = 0; i < input_size; ++i) {
-            delete[] input_shapes[i];
-            delete[] input_strides[i];
+    inline size_t getMetaMemSize() const {
+        return _meta.size();
+    }
+    inline const int8_t *getMetaStart() const {
+        return _meta.data();
+    }
+    inline size_t getOutputSize() const {
+        return _output_size;
+    }
+    inline size_t getInputSize() const {
+        return _input_size;
+    }
+    inline size_t getNdim() const {
+        return _ndim;
+    }
+    inline bool isOutputContiguous() const {
+        return _output_contiguous;
+    }
+    inline const size_t *getOutputShape() const {
+        return reinterpret_cast<const size_t *>(_meta.data());
+    }
+    inline const ptrdiff_t *getOutputStrides() const {
+        return reinterpret_cast<const ptrdiff_t *>(getOutputShape() + _ndim);
+    }
+    inline const size_t *getAllInputShapes() const {
+        return reinterpret_cast<const size_t *>(getOutputStrides() + _ndim);
+    }
+    inline const size_t *getInputShape(const size_t &index) const {
+        if (index < _input_size) {
+            return reinterpret_cast<const size_t *>(getAllInputShapes() + index * _ndim);
         }
-        delete[] input_shapes;
-        delete[] input_strides;
+        return nullptr;
     }
-
-    ElementwiseInfo(ElementwiseInfo &&other) noexcept
-        : output_size(other.output_size),
-          ndim(other.ndim),
-          output_contiguous(other.output_contiguous),
-          input_contiguous(other.input_contiguous),
-          input_broadcasted(other.input_broadcasted),
-          output_shape(other.output_shape),
-          input_shapes(other.input_shapes),
-          output_strides(other.output_strides),
-          input_strides(other.input_strides),
-          input_size(other.input_size) {
-        other.input_contiguous = nullptr;
-        other.input_broadcasted = nullptr;
-        other.output_shape = nullptr;
-        other.input_shapes = nullptr;
-        other.output_strides = nullptr;
-        other.input_strides = nullptr;
-        other.input_size = 0;
+    inline const ptrdiff_t *getAllInputStrides() const {
+        return reinterpret_cast<const ptrdiff_t *>(getAllInputShapes() + _input_size * _ndim);
     }
-
-    ElementwiseInfo(const ElementwiseInfo &other) = delete;
-    ElementwiseInfo &operator=(const ElementwiseInfo &other) = delete;
-    ElementwiseInfo &operator=(ElementwiseInfo &&other) = delete;
+    inline const ptrdiff_t *getInputStrides(const size_t &index) const {
+        if (index < _input_size) {
+            return reinterpret_cast<const ptrdiff_t *>(getAllInputStrides() + index * _ndim);
+        }
+        return nullptr;
+    }
+    inline const bool *getInputContiguous() const {
+        return reinterpret_cast<const bool *>(getAllInputStrides() + _input_size * _ndim);
+    }
+    inline const bool *getInputBroadcasted() const {
+        return reinterpret_cast<const bool *>(getInputContiguous() + _input_size);
+    }
 
     using ResultType = utils::Result<ElementwiseInfo>;
 
@@ -136,40 +155,48 @@ public:
             return INFINI_STATUS_BAD_TENSOR_STRIDES;
         }
 
-        ElementwiseInfo info;
-        info.input_size = input_descs.size();
-        info.ndim = output_desc->ndim();
-        info.output_size = output_desc->numel();
-        info.output_contiguous = output_desc->isContiguous();
+        auto input_size = input_descs.size();
+        auto ndim = output_desc->ndim();
+        auto output_size = output_desc->numel();
+        auto output_contiguous = output_desc->isContiguous();
 
-        // Allocate memory for arrays
-        info.input_contiguous = new bool[info.input_size];
-        info.input_broadcasted = new bool[info.input_size];
-        info.output_shape = new size_t[info.ndim];
-        info.output_strides = new ptrdiff_t[info.ndim];
-        info.input_shapes = new size_t *[info.input_size];
-        info.input_strides = new ptrdiff_t *[info.input_size];
+        // Allocate memory for meta
+        auto shape_unit = output_desc->dim(0);
+        auto stride_unit = output_desc->stride(0);
+        size_t meta_mem_size = ndim * (sizeof(shape_unit) + sizeof(stride_unit))
+                             + input_size * ndim * sizeof(shape_unit)
+                             + input_size * ndim * sizeof(stride_unit)
+                             + 2 * input_size * sizeof(bool);
+        std::vector<int8_t> meta(meta_mem_size);
+        int8_t *meta_ptr = meta.data();
 
-        // Fill arrays
         const auto output_shape = output_desc->shape();
         const auto output_strides = output_desc->strides();
-        std::memcpy(info.output_shape, output_shape.data(), info.ndim * sizeof(*info.output_shape));
-        std::memcpy(info.output_strides, output_strides.data(), info.ndim * sizeof(*info.output_strides));
 
-        for (size_t i = 0; i < info.input_size; ++i) {
+        // Pointers to the sections within _meta
+        size_t *output_shape_p = reinterpret_cast<size_t *>(meta_ptr);
+        ptrdiff_t *output_strides_p = reinterpret_cast<ptrdiff_t *>(output_shape_p + ndim);
+        size_t *input_shapes = reinterpret_cast<size_t *>(output_strides_p + ndim);
+        ptrdiff_t *input_strides = reinterpret_cast<ptrdiff_t *>(input_shapes + input_size * ndim);
+        bool *input_contiguous = reinterpret_cast<bool *>(input_strides + input_size * ndim);
+        bool *input_broadcasted = input_contiguous + input_size;
+
+        // Copy output shape and strides
+        std::memcpy(output_shape_p, output_shape.data(), ndim * sizeof(*output_shape_p));
+        std::memcpy(output_strides_p, output_strides.data(), ndim * sizeof(*output_strides_p));
+
+        // Copy input shapes, strides, contiguous, and broadcasted flags
+        for (size_t i = 0; i < input_size; ++i) {
             auto &desc = input_descs[i];
-            info.input_contiguous[i] = desc->isContiguous();
-            info.input_broadcasted[i] = !info.input_contiguous[i] && (desc->ndim() != info.ndim || desc->hasBroadcastDim());
-
-            info.input_shapes[i] = new size_t[desc->ndim()];
-            const auto &in_shape = desc->shape();
-            std::memcpy(info.input_shapes[i], in_shape.data(), desc->ndim() * sizeof(*info.input_shapes[i]));
-
-            info.input_strides[i] = new ptrdiff_t[desc->ndim()];
-            const auto &in_strides = desc->strides();
-            std::memcpy(info.input_strides[i], in_strides.data(), desc->ndim() * sizeof(*info.input_strides[i]));
+            const auto in_shape = desc->shape();
+            const auto in_strides = desc->strides();
+            std::memcpy(input_shapes + i * ndim, in_shape.data(), ndim * sizeof(*input_shapes));
+            std::memcpy(input_strides + i * ndim, in_strides.data(), ndim * sizeof(*input_strides));
+            input_contiguous[i] = desc->isContiguous();
+            input_broadcasted[i] = !input_contiguous[i] && (desc->ndim() != ndim || desc->hasBroadcastDim());
         }
 
+        ElementwiseInfo info(std::move(meta), output_size, input_size, ndim, output_contiguous);
         return ResultType(std::move(info));
     }
 };

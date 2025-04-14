@@ -11,7 +11,11 @@ __C __export infiniStatus_t infiniopCreateSwiGLUDescriptor(infiniopHandle_t hand
                                                            infiniopTensorDescriptor_t a_desc,
                                                            infiniopTensorDescriptor_t b_desc);
 
+__C __export infiniStatus_t infiniopGetSwiGLUWorkspaceSize(infiniopSwiGLUDescriptor_t desc, size_t *size);
+
 __C __export infiniStatus_t infiniopSwiGLU(infiniopSwiGLUDescriptor_t desc,
+                                           void *workspace,
+                                           size_t workspace_size,
                                            void *c,
                                            void const *a,
                                            void const *b,

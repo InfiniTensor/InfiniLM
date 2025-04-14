@@ -31,6 +31,7 @@ public:
      * @tparam Args...     Additional arguments passed to the operation.
      *
      * @param info         Metadata describing tensor shapes, strides, etc.
+     * @param workspace    Pointer to workspace buffer on device.
      * @param output       Pointer to output buffer on device.
      * @param inputs       Vector of input pointers (device memory).
      * @param stream       CUDA stream (opaque void*).
@@ -40,6 +41,7 @@ public:
     template <unsigned int BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
     infiniStatus_t calculate(
         const op::elementwise::ElementwiseInfo &info,
+        void *workspace,
         void *output,
         const std::vector<const void *> &inputs,
         void *stream,
@@ -56,6 +58,7 @@ public:
      * @tparam Tin...      Input data types (must match Op::num_inputs).
      * @tparam Args...     Additional arguments passed to the operation.
      * @param info         Metadata describing tensor shapes, strides, etc.
+     * @param workspace    Pointer to workspace buffer on device.
      * @param output       Pointer to output buffer on device.
      * @param inputs       Vector of input pointers (device memory).
      * @param stream       CUDA stream (opaque void*).
@@ -67,6 +70,7 @@ public:
               std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
     infiniStatus_t calculate(
         const op::elementwise::ElementwiseInfo &info,
+        void *workspace,
         void *output,
         const std::vector<const void *> &inputs,
         void *stream,
@@ -82,14 +86,17 @@ public:
                                                                                                \
     auto info_result = op::elementwise::ElementwiseInfo::create(out_desc, input_desc);         \
     CHECK_RESULT(info_result);                                                                 \
+    auto info = info_result.take();                                                            \
+    auto workspace_size = info.getMetaMemSize() + info.getInputSize() * sizeof(void *);        \
                                                                                                \
     op::elementwise::cuda::DeviceImpl *device_impl;                                            \
     CHECK_STATUS(op::elementwise::cuda::DeviceImpl::create(&device_impl, handle->internal())); \
                                                                                                \
     *desc_ptr = new Descriptor(                                                                \
         dtype,                                                                                 \
-        std::move(info_result.take()),                                                         \
+        std::move(info),                                                                       \
         device_impl,                                                                           \
+        workspace_size,                                                                        \
         handle->device,                                                                        \
         handle->device_id);
 
