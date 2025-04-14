@@ -247,8 +247,7 @@ struct DeviceImpl::Opaque {
             info, workspace,
             reinterpret_cast<Tout *>(output), inputs,
             elementwiseKernel<Op, Tout, Tin...>,
-            stream,
-            std::forward<Args>(args)...);
+            stream);
     }
 
 private:
