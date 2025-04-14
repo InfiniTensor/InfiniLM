@@ -12,6 +12,7 @@ namespace op::elementwise::cuda {
  * @brief Casts an untyped device pointer to a typed pointer of type T.
  *
  * @tparam T   Desired pointer type.
+ *
  * @param ptr  Untyped pointer.
  * @return     Pointer of type const T*.
  */
@@ -72,6 +73,7 @@ struct InputIndexer {
  *
  * @tparam F    Callable type.
  * @tparam Is   Compile-time index sequence.
+ *
  * @param f     Callable to invoke with index constants.
  */
 template <typename F, size_t... Is>
@@ -86,6 +88,7 @@ __device__ __forceinline__ void unpackInputsAndApply(F &&f, std::index_sequence<
  * @tparam Op       Operator type implementing operator()(Tdata...).
  * @tparam Tdata    Common data type for inputs and output.
  * @tparam Args     Additional arguments to pass to the operator.
+ *
  * @param output_size         Total number of output elements.
  * @param ndim                Number of dimensions in tensors.
  * @param output_contiguous   Whether the output tensor is contiguous in memory.
@@ -138,6 +141,7 @@ INFINIOP_CUDA_KERNEL elementwiseKernel(
  * @tparam Op     Operator type implementing a templated operator() for (Tout, Tin...).
  * @tparam Tout   Output data type.
  * @tparam Tin    Variadic input data types.
+ *
  * @param output_size         Total number of output elements.
  * @param ndim                Number of dimensions in the tensors.
  * @param output_contiguous   Whether the output tensor is contiguous.
@@ -195,6 +199,7 @@ struct DeviceImpl::Opaque {
      * @tparam Op            Functor representing the elementwise operation.
      * @tparam Tdata         Data type of both input and output tensors.
      * @tparam Args          Optional additional arguments passed to the operation.
+     *
      * @param info           Metadata about the operation including shape, size, and dimensionality.
      * @param workspace      Temporary workspace used for storing metadata on device.
      * @param output         Pointer to the output buffer.
@@ -227,6 +232,7 @@ struct DeviceImpl::Opaque {
      * @tparam Tout          Data type of the output tensor.
      * @tparam Tin...        Data types of the input tensors.
      * @tparam Args          Optional additional arguments passed to the operation.(UNUSED)
+     *
      * @param info           Metadata about the operation including shape, size, and dimensionality.
      * @param workspace      Temporary workspace used for storing metadata on device.
      * @param output         Pointer to the output buffer.
@@ -255,6 +261,7 @@ private:
      * @brief Transfers elementwise operation metadata and input pointers from host to device memory.
      *
      * @tparam N                     Number of input tensors.
+     *
      * @param info                   Elementwise operation metadata (shapes, strides, flags, etc.).
      * @param workspace              Pointer to device workspace memory for storing metadata and input pointers.
      * @param h_inputs_arr           Host array of input tensor pointers.

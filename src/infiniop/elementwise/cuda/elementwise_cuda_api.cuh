@@ -57,6 +57,7 @@ public:
      * @tparam Tout        Output data type.
      * @tparam Tin...      Input data types (must match Op::num_inputs).
      * @tparam Args...     Additional arguments passed to the operation.
+     *
      * @param info         Metadata describing tensor shapes, strides, etc.
      * @param workspace    Pointer to workspace buffer on device.
      * @param output       Pointer to output buffer on device.
