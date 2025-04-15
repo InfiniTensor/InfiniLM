@@ -9,23 +9,23 @@
  * @brief Define the process for initializing a Descriptor of an elementwise operation
  * for its CPU implementation
  *
- * @param handle         The device handle.
- * @param dtype          The output dtype.
- * @param out_desc       The output tensor descriptor.
- * @param input_desc_vec A vector containing input tensor descriptors.
+ * @param HANDLE         The device handle.
+ * @param DTYPE          The output dtype.
+ * @param OUT_DESC       The output tensor descriptor.
+ * @param INPUT_DESC_VEC A vector containing input tensor descriptors.
  */
-#define CREATE_ELEMENTWISE_CPU_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)         \
+#define CREATE_ELEMENTWISE_CPU_DESCRIPTOR(HANDLE, DTYPE, OUT_DESC, INPUT_DESC_VEC)         \
                                                                                            \
-    auto info_result = op::elementwise::ElementwiseInfo::create(out_desc, input_desc_vec); \
+    auto info_result = op::elementwise::ElementwiseInfo::create(OUT_DESC, INPUT_DESC_VEC); \
     CHECK_RESULT(info_result);                                                             \
                                                                                            \
     *desc_ptr = new Descriptor(                                                            \
-        dtype,                                                                             \
+        DTYPE,                                                                             \
         info_result.take(),                                                                \
         nullptr,                                                                           \
         0,                                                                                 \
-        handle->device,                                                                    \
-        handle->device_id);
+        HANDLE->device,                                                                    \
+        HANDLE->device_id);
 
 namespace op::elementwise::cpu {
 

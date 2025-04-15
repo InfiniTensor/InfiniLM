@@ -83,27 +83,27 @@ public:
  * @brief Define the process for initializing a Descriptor of an elementwise operation
  * for its CUDA implementation
  *
- * @param handle         The device handle.
- * @param dtype          The output dtype.
- * @param out_desc       The output tensor descriptor.
- * @param input_desc_vec A vector containing input tensor descriptors.
+ * @param HANDLE         The device handle.
+ * @param DTYPE          The output dtype.
+ * @param OUT_DESC       The output tensor descriptor.
+ * @param INPUT_DESC_VEC A vector containing input tensor descriptors.
  */
-#define CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)          \
+#define CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(HANDLE, DTYPE, OUT_DESC, INPUT_DESC_VEC)          \
                                                                                              \
-    auto info_result = op::elementwise::ElementwiseInfo::create(out_desc, input_desc_vec);   \
+    auto info_result = op::elementwise::ElementwiseInfo::create(OUT_DESC, INPUT_DESC_VEC);   \
     CHECK_RESULT(info_result);                                                               \
     auto info = info_result.take();                                                          \
     auto workspace_size = info.getMetaMemSize() + info.getInputSize() * sizeof(void *);      \
                                                                                              \
-    auto device_impl_result = op::elementwise::cuda::DeviceImpl::create(handle->internal()); \
+    auto device_impl_result = op::elementwise::cuda::DeviceImpl::create(HANDLE->internal()); \
     CHECK_RESULT(device_impl_result);                                                        \
                                                                                              \
     *desc_ptr = new Descriptor(                                                              \
-        dtype,                                                                               \
+        DTYPE,                                                                               \
         std::move(info),                                                                     \
         std::move(device_impl_result.take()),                                                \
         workspace_size,                                                                      \
-        handle->device,                                                                      \
-        handle->device_id);
+        HANDLE->device,                                                                      \
+        HANDLE->device_id);
 
 #endif // __INFINIOP_ELEMENTWISE_CUDA_API_H__
