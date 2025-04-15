@@ -18,7 +18,7 @@ public:
     ~DeviceImpl() = default;
 
     template <typename... Args>
-    static infiniStatus_t create(DeviceImpl **device_info, Args &&...args);
+    static utils::Result<DeviceImpl *> create(Args &&...args);
 
     /**
      * @brief Launches elementwise operation where all input types are the same.
@@ -82,23 +82,28 @@ public:
 /**
  * @brief Define the process for initializing a Descriptor of an elementwise operation
  * for its CUDA implementation
+ *
+ * @param handle         The device handle.
+ * @param dtype          The output dtype.
+ * @param out_desc       The output tensor descriptor.
+ * @param input_desc_vec A vector containing input tensor descriptors.
  */
-#define CREATE_ELEMENTWISE_CUDA_DESCRIPTOR                                                     \
-                                                                                               \
-    auto info_result = op::elementwise::ElementwiseInfo::create(out_desc, input_desc);         \
-    CHECK_RESULT(info_result);                                                                 \
-    auto info = info_result.take();                                                            \
-    auto workspace_size = info.getMetaMemSize() + info.getInputSize() * sizeof(void *);        \
-                                                                                               \
-    op::elementwise::cuda::DeviceImpl *device_impl;                                            \
-    CHECK_STATUS(op::elementwise::cuda::DeviceImpl::create(&device_impl, handle->internal())); \
-                                                                                               \
-    *desc_ptr = new Descriptor(                                                                \
-        dtype,                                                                                 \
-        std::move(info),                                                                       \
-        device_impl,                                                                           \
-        workspace_size,                                                                        \
-        handle->device,                                                                        \
+#define CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)          \
+                                                                                             \
+    auto info_result = op::elementwise::ElementwiseInfo::create(out_desc, input_desc_vec);   \
+    CHECK_RESULT(info_result);                                                               \
+    auto info = info_result.take();                                                          \
+    auto workspace_size = info.getMetaMemSize() + info.getInputSize() * sizeof(void *);      \
+                                                                                             \
+    auto device_impl_result = op::elementwise::cuda::DeviceImpl::create(handle->internal()); \
+    CHECK_RESULT(device_impl_result);                                                        \
+                                                                                             \
+    *desc_ptr = new Descriptor(                                                              \
+        dtype,                                                                               \
+        std::move(info),                                                                     \
+        std::move(device_impl_result.take()),                                                \
+        workspace_size,                                                                      \
+        handle->device,                                                                      \
         handle->device_id);
 
 #endif // __INFINIOP_ELEMENTWISE_CUDA_API_H__

@@ -31,7 +31,7 @@
             : InfiniopDescriptor{device_type, device_id},                     \
               _dtype(dtype),                                                  \
               _info(std::move(info)),                                         \
-              _device_info(device_info),                                      \
+              _device_info(std::move(device_info)),                           \
               _workspace_size(workspace_size) {}                              \
                                                                               \
     public:                                                                   \

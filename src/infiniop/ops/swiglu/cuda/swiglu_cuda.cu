@@ -9,13 +9,13 @@ infiniStatus_t Descriptor::create(
     infiniopHandle_t handle_,
     Descriptor **desc_ptr,
     infiniopTensorDescriptor_t out_desc,
-    std::vector<infiniopTensorDescriptor_t> input_desc) {
+    std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
 
     auto handle = reinterpret_cast<device::cuda::Handle *>(handle_);
     auto dtype = out_desc->dtype();
 
-    const auto &up_desc = input_desc.at(0);
-    const auto &gate_desc = input_desc.at(1);
+    const auto &up_desc = input_desc_vec.at(0);
+    const auto &gate_desc = input_desc_vec.at(1);
     const auto &out_shape = out_desc->shape();
     const auto &up_shape = up_desc->shape();
     const auto &gate_shape = gate_desc->shape();
@@ -24,7 +24,7 @@ infiniStatus_t Descriptor::create(
     CHECK_SAME_SHAPE(out_shape, up_shape, gate_shape);
 
     // create CUDA elementwise descriptor
-    CREATE_ELEMENTWISE_CUDA_DESCRIPTOR
+    CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
 
     return INFINI_STATUS_SUCCESS;
 }

@@ -377,11 +377,9 @@ private:
 };
 
 template <typename... Args>
-infiniStatus_t DeviceImpl::create(DeviceImpl **device_info,
-                                  Args &&...args) {
+utils::Result<DeviceImpl *> DeviceImpl::create(Args &&...args) {
     auto opaque = std::make_shared<Opaque>(std::forward<Args>(args)...);
-    *device_info = new DeviceImpl(opaque);
-    return INFINI_STATUS_SUCCESS;
+    return utils::Result<DeviceImpl *>(new DeviceImpl(opaque));
 }
 
 /* Invoke elementwise operation for different input types */

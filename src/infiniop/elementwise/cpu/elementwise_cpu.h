@@ -8,18 +8,23 @@
 /**
  * @brief Define the process for initializing a Descriptor of an elementwise operation
  * for its CPU implementation
+ *
+ * @param handle         The device handle.
+ * @param dtype          The output dtype.
+ * @param out_desc       The output tensor descriptor.
+ * @param input_desc_vec A vector containing input tensor descriptors.
  */
-#define CREATE_ELEMENTWISE_CPU_DESCRIPTOR                                              \
-                                                                                       \
-    auto info_result = op::elementwise::ElementwiseInfo::create(out_desc, input_desc); \
-    CHECK_RESULT(info_result);                                                         \
-                                                                                       \
-    *desc_ptr = new Descriptor(                                                        \
-        dtype,                                                                         \
-        info_result.take(),                                                            \
-        nullptr,                                                                       \
-        0,                                                                             \
-        handle->device,                                                                \
+#define CREATE_ELEMENTWISE_CPU_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)         \
+                                                                                           \
+    auto info_result = op::elementwise::ElementwiseInfo::create(out_desc, input_desc_vec); \
+    CHECK_RESULT(info_result);                                                             \
+                                                                                           \
+    *desc_ptr = new Descriptor(                                                            \
+        dtype,                                                                             \
+        info_result.take(),                                                                \
+        nullptr,                                                                           \
+        0,                                                                                 \
+        handle->device,                                                                    \
         handle->device_id);
 
 namespace op::elementwise::cpu {
@@ -41,9 +46,7 @@ public:
     ~DeviceImpl() = default;
 
     template <typename... Args>
-    static infiniStatus_t create(
-        DeviceImpl **device_info,
-        Args &&...args);
+    static utils::Result<DeviceImpl> create(Args &&...args);
 
     /**
      * @brief Dispatches an elementwise operation with uniform input types.
@@ -98,9 +101,8 @@ public:
 struct DeviceImpl::Opaque {};
 
 template <typename... Args>
-infiniStatus_t DeviceImpl::create(DeviceImpl **device_info, Args &&...args) {
-    *device_info = new DeviceImpl(nullptr);
-    return INFINI_STATUS_SUCCESS;
+utils::Result<DeviceImpl> DeviceImpl::create(Args &&...args) {
+    return utils::Result<DeviceImpl>(nullptr);
 }
 
 // Perform elementwise operation for different input types

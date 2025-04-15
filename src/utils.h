@@ -98,6 +98,6 @@ inline std::string infiniDtypeToString(infiniDtype_t dtype) {
     }
 }
 
-#define CEIL_DIV(x, y) ((x + y - 1) / y)
+#define CEIL_DIV(x, y) (((x) + (y)-1) / (y))
 
 #endif
