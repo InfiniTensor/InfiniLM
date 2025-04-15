@@ -38,7 +38,7 @@ namespace op::elementwise::cpu {
  */
 class DeviceImpl final {
     struct Opaque;
-    std::shared_ptr<struct Opaque> _opaque;
+    std::shared_ptr<Opaque> _opaque;
 
     DeviceImpl(std::shared_ptr<Opaque> opaque) : _opaque(std::move(opaque)) {}
 

@@ -68,13 +68,13 @@ namespace op::elementwise {
  */
 struct ElementwiseInfo {
 private:
-    std::vector<int8_t> _meta;
+    std::vector<size_t> _meta;
     size_t _output_size;
     size_t _input_size;
     size_t _ndim;
     bool _output_contiguous;
 
-    ElementwiseInfo(std::vector<int8_t> meta,
+    ElementwiseInfo(std::vector<size_t> meta,
                     size_t output_size,
                     size_t input_size,
                     size_t ndim,
@@ -88,7 +88,7 @@ public:
         return _meta.size();
     }
     inline const int8_t *getMetaStart() const {
-        return _meta.data();
+        return reinterpret_cast<const int8_t *>(_meta.data());
     }
     inline size_t getOutputSize() const {
         return _output_size;
@@ -167,8 +167,8 @@ public:
                              + input_size * ndim * sizeof(shape_unit)
                              + input_size * ndim * sizeof(stride_unit)
                              + 2 * input_size * sizeof(bool);
-        std::vector<int8_t> meta(meta_mem_size);
-        int8_t *meta_ptr = meta.data();
+        std::vector<size_t> meta(meta_mem_size);
+        int8_t *meta_ptr = reinterpret_cast<int8_t *>(meta.data());
 
         const auto output_shape = output_desc->shape();
         const auto output_strides = output_desc->strides();
