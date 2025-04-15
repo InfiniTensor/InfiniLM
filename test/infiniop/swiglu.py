@@ -1,6 +1,6 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_void_p
+from ctypes import POINTER, Structure, c_int32, c_void_p, c_uint64
 from libinfiniop import (
     infiniopHandle_t,
     infiniopTensorDescriptor_t,
@@ -14,6 +14,7 @@ from libinfiniop import (
     debug,
     get_tolerance,
     profile_operation,
+    create_workspace
 )
 from enum import Enum, auto
 
@@ -25,8 +26,10 @@ _TEST_CASES_ = [
     # shape, a_stride, b_stride, c_stride
     ((13, 4), None, None, None),
     ((13, 4), (10, 1), (10, 1), (10, 1)),
+    ((13, 4), (0, 1), None, None),
     ((13, 4, 4), None, None, None),
     ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1)),
+    ((13, 4, 4), (4, 0, 1), (0, 4, 1), None),
     ((16, 5632), None, None, None),
     ((16, 5632), (13312, 1), (13312, 1), (13312, 1)),
     ((4, 4, 5632), None, None, None),
@@ -76,6 +79,38 @@ infiniopSwiGLUDescriptor_t = POINTER(SwiGLUDescriptor)
 
 def swiglu(a, b):
     return a * b / (1 + torch.exp(-b.float()).to(b.dtype))
+    
+
+
+def process_tensors(c, c_strides, a, a_stride, b, b_stride, inplace):
+    """
+    rearrange the tensors if needed and apply the inplace config.
+    if inplace is true and the output (i.e., c) is placed to the broadcasted input,
+    the inplace config is ignored and out-of-place is used
+    """
+    original_c_strides = c_strides if c_strides else c.stride()
+
+    def _rearrange(tensor, strides):
+        if strides and 0 in strides:
+            tensor.set_(tensor.untyped_storage(), 0, tensor.shape, strides)
+            return tensor
+        else:
+            return rearrange_if_needed(tensor, strides)
+
+    a, b, c = [
+        _rearrange(tensor, stride)
+        for tensor, stride in zip([a, b, c], [a_stride, b_stride, c_strides])
+    ]
+    c = (
+        c
+        if inplace == Inplace.OUT_OF_PLACE
+        else (a if inplace == Inplace.INPLACE_A else b)
+    )
+    # if inplace is true and c has broadcasted config, reset it to the original unbroadcasted strides
+    if 0 in c.stride():
+        c.set_(c.untyped_storage(), 0, c.shape, original_c_strides)
+
+    return a, b, c
 
 
 def test(
@@ -98,18 +133,10 @@ def test(
     a = torch.rand(shape, dtype=dtype).to(torch_device)
     b = torch.rand(shape, dtype=dtype).to(torch_device)
     c = torch.rand(shape, dtype=dtype).to(torch_device)
+    a, b, c = process_tensors(c, c_stride, a, a_stride, b, b_stride, inplace)
 
     ans = swiglu(a, b)
 
-    a, b, c = [
-        rearrange_if_needed(tensor, stride)
-        for tensor, stride in zip([a, b, c], [a_stride, b_stride, c_stride])
-    ]
-    c = (
-        c
-        if inplace == Inplace.OUT_OF_PLACE
-        else (a if inplace == Inplace.INPLACE_A else b)
-    )
     a_tensor, b_tensor = [to_tensor(tensor, lib) for tensor in [a, b]]
     c_tensor = (
         to_tensor(c, lib)
@@ -134,10 +161,19 @@ def test(
     for tensor in [a_tensor, b_tensor, c_tensor]:
         tensor.destroyDesc(lib)
 
+    workspace_size = c_uint64(0)
+    check_error(
+        lib.infiniopGetSwiGLUWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+    )
+    workspace = create_workspace(workspace_size.value, c.device)
+
     def lib_swiglu():
         check_error(
             lib.infiniopSwiGLU(
-                descriptor, c_tensor.data, a_tensor.data, b_tensor.data, None
+                descriptor, 
+                workspace.data_ptr() if workspace is not None else None,
+                workspace_size.value,
+                c_tensor.data, a_tensor.data, b_tensor.data, None
             )
         )
 
@@ -170,9 +206,17 @@ if __name__ == "__main__":
         infiniopTensorDescriptor_t,
     ]
 
+    lib.infiniopGetSwiGLUWorkspaceSize.restype = c_int32
+    lib.infiniopGetSwiGLUWorkspaceSize.argtypes = [
+        infiniopSwiGLUDescriptor_t,
+        POINTER(c_uint64),
+    ]
+
     lib.infiniopSwiGLU.restype = c_int32
     lib.infiniopSwiGLU.argtypes = [
         infiniopSwiGLUDescriptor_t,
+        c_void_p,
+        c_uint64,
         c_void_p,
         c_void_p,
         c_void_p,

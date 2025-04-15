@@ -5,6 +5,9 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/swiglu_cpu.h"
 #endif
+#ifdef ENABLE_CUDA_API
+#include "cuda/swiglu_cuda.cuh"
+#endif
 
 __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
     infiniopHandle_t handle,
@@ -19,19 +22,16 @@ __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
             handle,                                                           \
             reinterpret_cast<op::swiglu::NAMESPACE::Descriptor **>(desc_ptr), \
             c_desc,                                                           \
-            a_desc,                                                           \
-            b_desc)
+            {a_desc,                                                          \
+             b_desc})
 
     switch (handle->device) {
 
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu:
-        return cudaCreateSwiGLUDescriptor((CudaHandle_t)handle,
-                                          (SwiGLUCudaDescriptor_t *)desc_ptr,
-                                          c_desc, a_desc, b_desc);
+#ifdef ENABLE_CUDA_API
+        CREATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -66,8 +66,49 @@ __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
 #undef CREATE
 }
 
+__C infiniStatus_t infiniopGetSwiGLUWorkspaceSize(infiniopSwiGLUDescriptor_t desc, size_t *size) {
+
+#define GET(CASE, NAMESPACE)                                                                  \
+    case CASE:                                                                                \
+        *size = reinterpret_cast<op::swiglu::NAMESPACE::Descriptor *>(desc)->workspaceSize(); \
+        return INFINI_STATUS_SUCCESS;
+
+    switch (desc->device_type) {
+#ifdef ENABLE_CPU_API
+        GET(INFINI_DEVICE_CPU, cpu)
+#endif
+#ifdef ENABLE_CUDA_API
+        GET(INFINI_DEVICE_NVIDIA, cuda)
+#endif
+#ifdef ENABLE_CAMBRICON_MLU
+    case DevCambriconMlu: {
+        return bangGetSwiGLUWorkspaceSize((SwiGLUBangDescriptor_t)desc, size);
+    }
+#endif
+#ifdef ENABLE_ASCEND_API
+        GET(INFINI_DEVICE_ASCEND, ascend)
+#endif
+#ifdef ENABLE_METAX_GPU
+    case DevMetaxGpu: {
+        return macaGetSwiGLUWorkspaceSize((SwiGLUMacaDescriptor_t)desc, size);
+    }
+#endif
+#ifdef ENABLE_MTHREADS_GPU
+    case DevMthreadsGpu: {
+        return musaGetSwiGLUWorkspaceSize((SwiGLUMusaDescriptor_t)desc, size);
+    }
+#endif
+    }
+
+#undef GET
+
+    return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
+}
+
 __C infiniStatus_t infiniopSwiGLU(
     infiniopSwiGLUDescriptor_t desc,
+    void *workspace,
+    size_t workspace_size,
     void *c,
     const void *a,
     const void *b,
@@ -76,16 +117,15 @@ __C infiniStatus_t infiniopSwiGLU(
 #define CALCULATE(CASE, NAMESPACE)                                               \
     case CASE:                                                                   \
         return reinterpret_cast<const op::swiglu::NAMESPACE::Descriptor *>(desc) \
-            ->calculate(c, a, b, stream)
+            ->calculate(workspace, workspace_size, c, {a, b}, stream)
 
     switch (desc->device_type) {
 
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu:
-        return cudaSwiGLU((SwiGLUCudaDescriptor_t)desc, c, a, b, stream);
+#ifdef ENABLE_CUDA_API
+        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -125,9 +165,8 @@ infiniopDestroySwiGLUDescriptor(infiniopSwiGLUDescriptor_t desc) {
 #ifdef ENABLE_CPU_API
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu:
-        return cudaDestroySwiGLUDescriptor((SwiGLUCudaDescriptor_t)desc);
+#ifdef ENABLE_CUDA_API
+        DELETE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {

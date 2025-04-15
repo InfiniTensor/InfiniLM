@@ -28,6 +28,7 @@ target("infiniop-cuda")
     else
         add_cuflags("-Xcompiler=-Wall", "-Xcompiler=-Werror")
         add_cuflags("-Xcompiler=-fPIC")
+        add_cuflags("--extended-lambda")
         add_culdflags("-Xcompiler=-fPIC")
         add_cxxflags("-fPIC")
     end
