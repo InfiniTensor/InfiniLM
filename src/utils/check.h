@@ -3,6 +3,16 @@
 #include <iostream>
 #include <tuple>
 
+#define CHECK_OR_RETURN(CONDITION, ERROR)                                    \
+    do {                                                                     \
+        if (!(CONDITION)) {                                                  \
+            std::cerr << "Check Failed: `(" << #CONDITION << ")` is False"   \
+                      << " from " << __func__                                \
+                      << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+            return ERROR;                                                    \
+        }                                                                    \
+    } while (0)
+
 #define CHECK_API_OR(API, EXPECT, ACTION)                                       \
     do {                                                                        \
         auto api_result_ = (API);                                               \

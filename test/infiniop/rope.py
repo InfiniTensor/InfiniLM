@@ -1,8 +1,7 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
+from ctypes import POINTER, Structure, c_int32, c_uint64, c_void_p
 from libinfiniop import (
-    InfiniDtype,
     infiniopHandle_t,
     infiniopTensorDescriptor_t,
     open_lib,
@@ -18,29 +17,48 @@ from libinfiniop import (
     profile_operation,
     synchronize_device,
 )
+from enum import Enum, auto
 
 # ==============================================================================
 #  Configuration (Internal Use Only)
 # ==============================================================================
 # These are not meant to be imported from other modules
-_TEST_CASES = [
-    # (t_shape, t_strides)
-    ((1, 32, 128), None),
-    ((1, 32, 64), None),
+_TEST_CASES_ = [
+    # (shape, x_strides, y_strides)
+    ((1, 32, 128), None, None),
+    ((1, 32, 64), None, None),
     # 昇腾暂不满足这个用例，最后一维度 <=32 会有问题，可能与其核心
     # 接口 GatherMask 的内部实现相关，目前 48 64 128 都可以支持
-    ((4, 1, 32), None),
-    ((1, 32, 128), None),
-    ((3, 32, 128), (8000, 200, 1)),
+    ((4, 1, 32), (64, 64, 1), None),
+    ((11, 33, 128), None, (8000, 200, 1)),
+    ((3, 32, 128), (8000, 200, 1), (7000, 128, 1)),
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16]
+_TENSOR_DTYPES = [torch.float16, torch.float32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
     torch.float16: {"atol": 1e-4, "rtol": 1e-2},
+    torch.float32: {"atol": 1e-4, "rtol": 1e-3},
 }
+
+
+class Inplace(Enum):
+    OUT_OF_PLACE = auto()
+    INPLACE_X = auto()
+
+
+_INPLACE = [
+    Inplace.OUT_OF_PLACE,
+    Inplace.INPLACE_X,
+]
+
+_TEST_CASES = [
+    test_case + (inplace_item,)
+    for test_case in _TEST_CASES_
+    for inplace_item in _INPLACE
+]
 
 DEBUG = False
 PROFILE = False
@@ -55,23 +73,14 @@ class RoPEDescriptor(Structure):
 infiniopRoPEDescriptor_t = POINTER(RoPEDescriptor)
 
 
-def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
-    ndim = x.ndim
-    assert 0 <= 1 < ndim
-    assert freqs_cis.shape == (x.shape[0], x.shape[-1])
-    shape = [d if i == 0 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
-    return freqs_cis.view(*shape)
-
-
-def rotary_embedding(t, pos, theta, torch_device):
+def rotary_embedding(t, sin, cos, torch_device):
     dh = t.shape[2]
+    dt = t.dtype
     assert dh % 2 == 0, "Embedding dimension must be even."
-    t_even = t[..., 0::2]  # [seq_len, n_head, dh // 2]
-    t_odd = t[..., 1::2]  # [seq_len, n_head, dh // 2]
-    freqs = (1.0 / (theta ** (torch.arange(0, dh, 2).float() / dh))).to(torch_device)
-    freqs = torch.outer(pos, freqs)  # [seq_len, dh // 2]
-    cos = torch.cos(freqs).unsqueeze(1)  # [seq_len, 1, dh // 2]
-    sin = torch.sin(freqs).unsqueeze(1)  # [seq_len, 1, dh // 2]
+    t_even = t[..., 0::2].float()  # [seq_len, n_head, dh // 2]
+    t_odd = t[..., 1::2].float()  # [seq_len, n_head, dh // 2]
+    cos = cos.unsqueeze(1).float()  # [seq_len, 1, dh // 2]
+    sin = sin.unsqueeze(1).float()  # [seq_len, 1, dh // 2]
 
     t_out_even = t_even * cos - t_odd * sin
     t_out_odd = t_even * sin + t_odd * cos
@@ -80,51 +89,56 @@ def rotary_embedding(t, pos, theta, torch_device):
     t_out[..., 0::2] = t_out_even
     t_out[..., 1::2] = t_out_odd
 
-    return t_out
+    return t_out.to(dt).to(torch_device)
 
 
-def sin_cos_table(max_seq_len, dim, torch_device, theta):
-    pos = torch.arange(
-        0, max_seq_len, dtype=torch.float32, device=torch.device(torch_device)
-    )
+def sin_cos_table(pos, dim, torch_device, theta, dtype):
+    assert dim % 2 == 0, "Embedding dimension must be even."
     freqs = (1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))).to(
         torch_device
     )
-    # (a0, a1, a2) -> (a0, a0, a1, a1, a2, a2)
-    freqs = torch.repeat_interleave(freqs, repeats=2)
     angles = torch.outer(pos, freqs)
-    return torch.sin(angles), torch.cos(angles)
+    return torch.sin(angles).to(dtype), torch.cos(angles).to(dtype)
 
 
-def test(lib, handle, torch_device, shape, strides=None, dtype=torch.float16):
+def test(
+    lib,
+    handle,
+    torch_device,
+    shape,
+    x_strides=None,
+    y_strides=None,
+    inplace=Inplace.OUT_OF_PLACE,
+    dtype=torch.float32,
+):
+    if inplace == Inplace.INPLACE_X:
+        y_strides = x_strides
     print(
-        f"Testing Rotary Positional Embedding on {torch_device} with shape:{shape} strides:{strides} and dtype:{dtype}"
+        f"Testing Rotary Positional Embedding on {torch_device} with shape:{shape} x_strides:{x_strides} y_strides:{y_strides} and dtype:{dtype} inplace:{inplace}"
     )
 
-    t = torch.rand(shape, dtype=dtype)
+    x = torch.rand(shape, dtype=dtype).to(torch_device)
+    x = rearrange_if_needed(x, x_strides)
+    if inplace == Inplace.INPLACE_X:
+        y = x
+    else:
+        y = torch.rand(shape, dtype=dtype).to(torch_device)
+        y = rearrange_if_needed(y, y_strides)
+    theta = 1e5
+    pos = torch.arange(0, x.shape[0], dtype=torch.int32).to(torch_device)
+    sin_table, cos_table = sin_cos_table(pos, x.shape[2], x.device, theta, dtype)
 
-    t = rearrange_if_needed(t, strides)
-
-    posTmp = torch.arange(0, t.shape[0]).to(torch_device)
-    pos = torch.zeros(2 * posTmp.shape[0], dtype=torch.int32)
-    for i in range(posTmp.shape[0]):
-        pos[2 * i] = posTmp[i]
-        pos[2 * i + 1] = 0
-    pos = pos.to(torch_device)
-    theta = 1e4
-
-    ans = rotary_embedding(t, posTmp, theta, torch_device)
+    ans = rotary_embedding(x, sin_table, cos_table, torch_device)
 
     descriptor = infiniopRoPEDescriptor_t()
-    # 2x table length for test
-    sin_table, cos_table = sin_cos_table(t.shape[0] * 2, t.shape[2], t.device, theta)
-
-    t_tensor, sin_table_tensor, cos_table_tensor = [
-        to_tensor(tensor, lib) for tensor in [t, sin_table, cos_table]
+    x_tensor, pos_tensor, sin_table_tensor, cos_table_tensor = [
+        to_tensor(tensor, lib, force_unsigned=True)
+        for tensor in [x, pos, sin_table, cos_table]
     ]
-
-    pos_tensor = to_tensor(pos[: t.shape[0]], lib)
-    pos_tensor.descriptor.contents.dtype = InfiniDtype.U64
+    if inplace == Inplace.INPLACE_X:
+        y_tensor = x_tensor
+    else:
+        y_tensor = to_tensor(y, lib)
 
     if torch_device == "npu":
         synchronize_device(torch_device)
@@ -133,7 +147,8 @@ def test(lib, handle, torch_device, shape, strides=None, dtype=torch.float16):
         lib.infiniopCreateRoPEDescriptor(
             handle,
             ctypes.byref(descriptor),
-            t_tensor.descriptor,
+            y_tensor.descriptor,
+            x_tensor.descriptor,
             pos_tensor.descriptor,
             sin_table_tensor.descriptor,
             cos_table_tensor.descriptor,
@@ -141,14 +156,14 @@ def test(lib, handle, torch_device, shape, strides=None, dtype=torch.float16):
     )
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
-    for tensor in [t_tensor, pos_tensor, sin_table_tensor, cos_table_tensor]:
-        tensor.descriptor.contents.invalidate()
+    for tensor in [y_tensor, x_tensor, pos_tensor, sin_table_tensor, cos_table_tensor]:
+        tensor.destroyDesc(lib)
 
     workspace_size = c_uint64(0)
     check_error(
         lib.infiniopGetRoPEWorkspaceSize(descriptor, ctypes.byref(workspace_size))
     )
-    workspace = create_workspace(workspace_size.value, t.device)
+    workspace = create_workspace(workspace_size.value, x.device)
 
     def lib_rope():
         check_error(
@@ -156,7 +171,8 @@ def test(lib, handle, torch_device, shape, strides=None, dtype=torch.float16):
                 descriptor,
                 workspace.data_ptr() if workspace is not None else None,
                 workspace_size.value,
-                t_tensor.data,
+                y_tensor.data,
+                x_tensor.data,
                 pos_tensor.data,
                 sin_table_tensor.data,
                 cos_table_tensor.data,
@@ -168,13 +184,13 @@ def test(lib, handle, torch_device, shape, strides=None, dtype=torch.float16):
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
-        debug(t, ans, atol=atol, rtol=rtol)
-    assert torch.allclose(t, ans, atol=atol, rtol=rtol)
+        debug(y, ans, atol=atol, rtol=rtol)
+    assert torch.allclose(y, ans, atol=atol, rtol=rtol)
 
     if PROFILE:
         profile_operation(
             "PyTorch",
-            lambda: rotary_embedding(t, posTmp, theta, torch_device),
+            lambda: rotary_embedding(x, pos, theta, torch_device),
             torch_device,
             NUM_PRERUN,
             NUM_ITERATIONS,
