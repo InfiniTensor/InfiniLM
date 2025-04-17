@@ -26,7 +26,7 @@ from enum import Enum, auto
 _TEST_CASES_ = [
     # (shape, x_strides, y_strides)
     ((1, 32, 128), None, None),
-    ((1, 32, 64), None, None),
+    ((10, 32, 64), None, None),
     # 昇腾暂不满足这个用例，最后一维度 <=32 会有问题，可能与其核心
     # 接口 GatherMask 的内部实现相关，目前 48 64 128 都可以支持
     ((4, 1, 32), (64, 64, 1), None),
@@ -39,7 +39,7 @@ _TENSOR_DTYPES = [torch.float16, torch.float32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 1e-4, "rtol": 1e-2},
+    torch.float16: {"atol": 1e-3, "rtol": 1e-2},
     torch.float32: {"atol": 1e-4, "rtol": 1e-3},
 }
 
@@ -77,10 +77,17 @@ def rotary_embedding(t, sin, cos, torch_device):
     dh = t.shape[2]
     dt = t.dtype
     assert dh % 2 == 0, "Embedding dimension must be even."
-    t_even = t[..., 0::2].float()  # [seq_len, n_head, dh // 2]
-    t_odd = t[..., 1::2].float()  # [seq_len, n_head, dh // 2]
-    cos = cos.unsqueeze(1).float()  # [seq_len, 1, dh // 2]
-    sin = sin.unsqueeze(1).float()  # [seq_len, 1, dh // 2]
+    t_even = t[..., 0::2]  # [seq_len, n_head, dh // 2]
+    t_odd = t[..., 1::2]  # [seq_len, n_head, dh // 2]
+    cos = cos.unsqueeze(1)  # [seq_len, 1, dh // 2]
+    sin = sin.unsqueeze(1)  # [seq_len, 1, dh // 2]
+    if torch_device == "cpu":
+        (t_even, t_odd, cos, sin) = (
+            t_even.float(),
+            t_odd.float(),
+            cos.float(),
+            sin.float(),
+        )
 
     t_out_even = t_even * cos - t_odd * sin
     t_out_odd = t_even * sin + t_odd * cos

@@ -5,6 +5,9 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/rope_cpu.h"
 #endif
+#ifdef ENABLE_CUDA_API
+#include "cuda/rope_cuda.cuh"
+#endif
 
 __C infiniStatus_t infiniopCreateRoPEDescriptor(
     infiniopHandle_t handle,
@@ -30,13 +33,8 @@ __C infiniStatus_t infiniopCreateRoPEDescriptor(
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaCreateRoPEDescriptor((CudaHandle_t)handle,
-                                        (RoPECudaDescriptor_t *)desc_ptr, t,
-                                        pos_ids, sin_table, cos_table);
-    }
-
+#ifdef ENABLE_CUDA_API
+        CREATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -84,11 +82,8 @@ __C infiniStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
 #ifdef ENABLE_CPU_API
         GET(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaGetRoPEWorkspaceSize((RoPECudaDescriptor_t)desc, size);
-    }
-
+#ifdef ENABLE_CUDA_API
+        GET(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -137,12 +132,8 @@ __C infiniStatus_t infiniopRoPE(
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaRoPE((RoPECudaDescriptor_t)desc, workspace, workspace_size,
-                        t, pos_ids, sin_table, cos_table, stream);
-    }
-
+#ifdef ENABLE_CUDA_API
+        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -188,11 +179,8 @@ infiniopDestroyRoPEDescriptor(infiniopRoPEDescriptor_t desc) {
 #ifdef ENABLE_CPU_API
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_NV_GPU
-    case DevNvGpu: {
-        return cudaDestroyRoPEDescriptor((RoPECudaDescriptor_t)desc);
-    }
-
+#ifdef ENABLE_CUDA_API
+        DELETE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
