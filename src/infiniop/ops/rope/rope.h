@@ -105,8 +105,8 @@ public:
         // sin table and cos table must be totally contiguous
         CHECK_OR_RETURN(sin_desc->stride(1) == 1
                             && cos_desc->stride(1) == 1
-                            && sin_desc->stride(0) == table_dim
-                            && cos_desc->stride(0) == table_dim,
+                            && sin_desc->stride(0) == ptrdiff_t(table_dim)
+                            && cos_desc->stride(0) == ptrdiff_t(table_dim),
                         INFINI_STATUS_BAD_TENSOR_STRIDES);
 
         return utils::Result<RoPEInfo>(RoPEInfo{
