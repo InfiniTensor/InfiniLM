@@ -77,6 +77,14 @@ infiniStatus_t calculateRoPE(const RoPEInfo &info,
         return CALCULATE_ROPE(TDATA, uint32_t); \
     case INFINI_DTYPE_U64:                      \
         return CALCULATE_ROPE(TDATA, uint64_t); \
+    case INFINI_DTYPE_I8:                       \
+        return CALCULATE_ROPE(TDATA, int8_t);   \
+    case INFINI_DTYPE_I16:                      \
+        return CALCULATE_ROPE(TDATA, int16_t);  \
+    case INFINI_DTYPE_I32:                      \
+        return CALCULATE_ROPE(TDATA, int32_t);  \
+    case INFINI_DTYPE_I64:                      \
+        return CALCULATE_ROPE(TDATA, int64_t);  \
     default:                                    \
         return INFINI_STATUS_BAD_TENSOR_DTYPE;  \
     }

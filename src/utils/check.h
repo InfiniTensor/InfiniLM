@@ -41,6 +41,11 @@
                      return INFINI_STATUS_BAD_TENSOR_DTYPE); \
     } while (0)
 
+#define CHECK_DTYPE_ANY_INT(DT)                                                        \
+    CHECK_DTYPE(DT,                                                                    \
+                INFINI_DTYPE_U8, INFINI_DTYPE_U16, INFINI_DTYPE_U32, INFINI_DTYPE_U64, \
+                INFINI_DTYPE_I8, INFINI_DTYPE_I16, INFINI_DTYPE_I32, INFINI_DTYPE_I64);
+
 #define CHECK_SAME_VEC(ERR, FIRST, ...)              \
     do {                                             \
         for (const auto &shape___ : {__VA_ARGS__}) { \
