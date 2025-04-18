@@ -73,9 +73,9 @@ __C infiniStatus_t infiniopCreateRoPEDescriptor(
 
 __C infiniStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
                                                 size_t *size) {
-#define GET(CASE, NAMESPACE)                                                                     \
-    case CASE:                                                                                   \
-        *size = reinterpret_cast<const op::rope::NAMESPACE::Descriptor *>(desc)->workspace_size; \
+#define GET(CASE, NAMESPACE)                                                                      \
+    case CASE:                                                                                    \
+        *size = reinterpret_cast<const op::rope::NAMESPACE::Descriptor *>(desc)->workspaceSize(); \
         return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {
