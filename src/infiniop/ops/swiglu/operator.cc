@@ -85,7 +85,7 @@ __C infiniStatus_t infiniopGetSwiGLUWorkspaceSize(infiniopSwiGLUDescriptor_t des
         return bangGetSwiGLUWorkspaceSize((SwiGLUBangDescriptor_t)desc, size);
     }
 #endif
-#ifdef ENABLE_ASCEND_API
+#ifdef ENABLE_ASCEND_NPU
         GET(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU

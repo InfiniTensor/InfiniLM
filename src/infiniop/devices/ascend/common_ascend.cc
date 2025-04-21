@@ -41,7 +41,12 @@ aclnnTensorDescriptor::aclnnTensorDescriptor(aclDataType dtype, const std::vecto
     this->strides = strides;
     this->dataType = dtype;
     this->format = aclFormat::ACL_FORMAT_ND;
-    this->storageShape = inferStorageShape(this->shape, this->strides);
+    if (this->ndim != 0) {
+        this->storageShape = inferStorageShape(this->shape, this->strides);
+    } else {
+        this->storageShape = shape;
+        this->storageNdim = 0;
+    }
     this->tensor = aclCreateTensor(this->shape.data(),
                                    this->ndim,
                                    this->dataType,
