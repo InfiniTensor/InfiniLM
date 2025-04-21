@@ -12,11 +12,12 @@ os.chdir(PROJECT_DIR)
 def run_tests(args):
     failed = []
     for test in [
-        "gemm.py",
-        "rms_norm.py",
         "causal_softmax.py",
-        "swiglu.py",
+        "gemm.py",
         "random_sample.py",
+        "rms_norm.py",
+        "rope.py",
+        "swiglu.py",
     ]:
         result = subprocess.run(
             f"python {test} {args}", text=True, encoding="utf-8", shell=True

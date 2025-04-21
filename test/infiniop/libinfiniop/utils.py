@@ -10,7 +10,7 @@ def check_error(status):
         raise Exception("Error code " + str(status))
 
 
-def to_tensor(tensor, lib):
+def to_tensor(tensor, lib, force_unsigned=False):
     """
     Convert a PyTorch tensor to a library Tensor(descriptor, data).
     """
@@ -37,6 +37,16 @@ def to_tensor(tensor, lib):
         InfiniDtype.U64 if tensor.dtype == torch.uint64 else
         None
     )
+    
+    if force_unsigned:
+        dt = (
+            InfiniDtype.U8 if dt == InfiniDtype.I8 else
+            InfiniDtype.U16 if dt == InfiniDtype.I16 else
+            InfiniDtype.U32 if dt == InfiniDtype.I32 else
+            InfiniDtype.U64 if dt == InfiniDtype.I64 else
+            dt
+        )
+
     # fmt: on
     assert dt is not None
     # Create TensorDecriptor
