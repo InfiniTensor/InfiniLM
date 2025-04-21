@@ -95,7 +95,7 @@ __C infiniStatus_t infiniopGetSwiGLUWorkspaceSize(infiniopSwiGLUDescriptor_t des
     }
 #endif
 #ifdef ENABLE_ASCEND_API
-        // GET(INFINI_DEVICE_ASCEND, ascend)
+    // GET(INFINI_DEVICE_ASCEND, ascend)
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
