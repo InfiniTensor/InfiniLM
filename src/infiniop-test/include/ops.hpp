@@ -21,11 +21,12 @@ DECLARE_INFINIOP_TEST(rope)
 /*
  * Register all the tests here
  */
-#define TEST_BUILDER_MAPPINGS                     \
-    {                                             \
-        REGISTER_INFINIOP_TEST(gemm)              \
-            REGISTER_INFINIOP_TEST(random_sample) \
-                REGISTER_INFINIOP_TEST(rope)}
+#define TEST_BUILDER_MAPPINGS                 \
+    {                                         \
+        REGISTER_INFINIOP_TEST(gemm)          \
+        REGISTER_INFINIOP_TEST(random_sample) \
+        REGISTER_INFINIOP_TEST(rope)          \
+    }
 
 namespace infiniop_test {
 
