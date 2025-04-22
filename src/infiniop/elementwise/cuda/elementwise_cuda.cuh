@@ -208,7 +208,7 @@ struct DeviceImpl::Opaque {
      * @param args           Additional arguments forwarded to the operation.
      * @return infiniStatus_t Returns success or failure status.
      */
-    template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tdata, typename... Args>
+    template <uint32_t BLOCK_SIZE, size_t N, typename Op, typename Tdata, typename... Args>
     infiniStatus_t calculateImpl(const op::elementwise::ElementwiseInfo &info,
                                  void *workspace,
                                  void *output,
@@ -241,7 +241,7 @@ struct DeviceImpl::Opaque {
      * @param args           Additional arguments forwarded to the operation.
      * @return infiniStatus_t Returns success or failure status.
      */
-    template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tout, typename... Tin, typename... Args,
+    template <uint32_t BLOCK_SIZE, size_t N, typename Op, typename Tout, typename... Tin, typename... Args,
               std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
     infiniStatus_t calculateImpl(const op::elementwise::ElementwiseInfo &info,
                                  void *workspace,
@@ -329,7 +329,7 @@ private:
      * @param args          Additional arguments passed to the kernel.
      * @return infiniStatus_t  Status code indicating success or failure.
      */
-    template <size_t BLOCK_SIZE, size_t N, typename KernelFunc, typename Tout, typename... Args>
+    template <uint32_t BLOCK_SIZE, size_t N, typename KernelFunc, typename Tout, typename... Args>
     infiniStatus_t launchElementwiseKernel(
         const op::elementwise::ElementwiseInfo &info,
         void *workspace,
@@ -358,8 +358,8 @@ private:
                                      d_output_shape, d_output_strides,
                                      d_input_shapes, d_input_strides, stream));
 
-        dim3 blockDims(std::min(BLOCK_SIZE, static_cast<size_t>(internal->maxThreadsPerBlock())));
-        dim3 gridDims(std::min(CEIL_DIV(output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
+        dim3 blockDims(std::min(BLOCK_SIZE, static_cast<uint32_t>(internal->maxThreadsPerBlock())));
+        dim3 gridDims(std::min(uint32_t(CEIL_DIV(output_size, blockDims.x)), static_cast<uint32_t>(internal->gridSizeX())));
         size_t step = gridDims.x * blockDims.x;
 
         for (size_t i = 0; i < output_size; i += step) {
