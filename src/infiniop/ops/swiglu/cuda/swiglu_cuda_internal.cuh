@@ -14,7 +14,7 @@ private:
         } else if constexpr (std::is_same_v<T, half>) {
             return hrcp(__hadd(half(1.f), __float2half(__expf(__half2float(__hneg(x))))));
         } else if constexpr (std::is_same_v<T, float>) {
-            return __frcp_rd(__fadd_rd(1, __expf(-x)));
+            return __frcp_rn(__fadd_rn(1, __expf(-x)));
         } else {
             return 1 / (1 + std::exp(-x));
         }
@@ -29,7 +29,7 @@ public:
         } else if constexpr (std::is_same_v<T, half>) {
             return __hmul(__hmul(gate, sigmoid(gate)), up);
         } else if constexpr (std::is_same_v<T, float>) {
-            return __fmul_rd(__fmul_rd(gate, sigmoid(gate)), up);
+            return __fmul_rn(__fmul_rn(gate, sigmoid(gate)), up);
         } else {
             return gate * sigmoid(gate) * up;
         }
