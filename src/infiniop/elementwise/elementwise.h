@@ -84,8 +84,9 @@ private:
           _output_contiguous(output_contiguous) {}
 
 public:
+    // Get the Memory size of the meta data in bytes
     inline size_t getMetaMemSize() const {
-        return _meta.size();
+        return _meta.size() * sizeof(size_t);
     }
     inline const int8_t *getMetaStart() const {
         return reinterpret_cast<const int8_t *>(_meta.data());
@@ -167,7 +168,7 @@ public:
                              + input_size * ndim * sizeof(shape_unit)
                              + input_size * ndim * sizeof(stride_unit)
                              + 2 * input_size * sizeof(bool);
-        std::vector<size_t> meta(meta_mem_size);
+        std::vector<size_t> meta(CEIL_DIV(meta_mem_size, sizeof(size_t)));
         int8_t *meta_ptr = reinterpret_cast<int8_t *>(meta.data());
 
         const auto output_shape = output_desc->shape();
