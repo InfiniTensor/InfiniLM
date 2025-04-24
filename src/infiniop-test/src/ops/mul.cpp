@@ -73,12 +73,6 @@ std::shared_ptr<infiniop_test::Result> Test::run(
                 a->data(),
                 b->data(),
                 nullptr);
-            infiniopMul(
-                op_desc, workspace, workspace_size,
-                c->data(),
-                a->data(),
-                b->data(),
-                nullptr);
         },
         warm_ups, iterations);
 
