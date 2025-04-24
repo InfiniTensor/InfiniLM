@@ -6,7 +6,6 @@
 namespace op::gemm::ascend {
 
 struct Descriptor::Opaque {
-    mutable aclOpExecutor *executor;
     aclnnTensorDescriptor_t c, a, b;
     // cubeMathType
     // see doc:
@@ -17,7 +16,6 @@ struct Descriptor::Opaque {
         delete c;
         delete a;
         delete b;
-        aclDestroyAclOpExecutor(executor);
     }
 };
 
@@ -56,8 +54,8 @@ infiniStatus_t Descriptor::create(
          ta = a->tensor,
          tb = b->tensor;
 
-    aclOpExecutor *executor;
-    size_t workspace_size;
+    aclOpExecutor *executor = nullptr;
+    size_t workspace_size = 0;
     // aclnnGemm support C = alpha * A @ B + beta * C
     // see
     // https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/80RC3alpha003/apiref/aolapi/context/aclnnGemm.md
@@ -69,13 +67,15 @@ infiniStatus_t Descriptor::create(
     *desc_ptr = new Descriptor(
         dtype, info, workspace_size,
         new Opaque{
-            executor,
             c,
             a,
             b,
             mt,
         },
         handle->device, handle->device_id);
+
+    aclDestroyAclOpExecutor(executor);
+
     return INFINI_STATUS_SUCCESS;
 }
 
@@ -93,22 +93,24 @@ infiniStatus_t Descriptor::calculate(
          ta = _opaque->a->tensor,
          tb = _opaque->b->tensor;
 
-    size_t workspace_size;
+    size_t workspace_size = 0;
+    aclOpExecutor *executor = nullptr;
+
     CHECK_ACL(aclnnGemmGetWorkspaceSize(
         ta, tb, tc, alpha, beta, 0, 0, tc, _opaque->mt,
-        &workspace_size, &(_opaque->executor)));
+        &workspace_size, &executor));
     if (workspaceSize_ < workspace_size) {
         return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
     }
-    aclSetAclOpExecutorRepeatable(_opaque->executor);
+    CHECK_ACL(aclSetAclOpExecutorRepeatable(executor));
 
     auto unit = infiniSizeOf(_dtype);
     for (size_t i = 0; i < _info.batch; ++i) {
-        AclSetTensorAddr(_opaque->executor, 0, ta, ((char *)a) + i * _info.a_matrix.stride * unit);
-        AclSetTensorAddr(_opaque->executor, 1, tb, ((char *)b) + i * _info.b_matrix.stride * unit);
-        AclSetTensorAddr(_opaque->executor, 2, tc, ((char *)c) + i * _info.c_matrix.stride * unit);
-        AclSetTensorAddr(_opaque->executor, 3, tc, ((char *)c) + i * _info.c_matrix.stride * unit);
-        CHECK_ACL(aclnnGemm(workspace, workspace_size, _opaque->executor, stream));
+        AclSetTensorAddr(executor, 0, ta, ((char *)a) + i * _info.a_matrix.stride * unit);
+        AclSetTensorAddr(executor, 1, tb, ((char *)b) + i * _info.b_matrix.stride * unit);
+        AclSetTensorAddr(executor, 2, tc, ((char *)c) + i * _info.c_matrix.stride * unit);
+        AclSetTensorAddr(executor, 3, tc, ((char *)c) + i * _info.c_matrix.stride * unit);
+        CHECK_ACL(aclnnGemm(workspace, workspace_size, executor, stream));
     }
 
     return INFINI_STATUS_SUCCESS;

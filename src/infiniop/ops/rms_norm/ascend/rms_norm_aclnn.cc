@@ -5,7 +5,6 @@
 namespace op::rms_norm::ascend {
 
 struct Descriptor::Opaque {
-    mutable aclOpExecutor *executor;
     aclnnTensorDescriptor_t y;
     aclnnTensorDescriptor_t x;
     aclnnTensorDescriptor_t w;
@@ -17,7 +16,6 @@ struct Descriptor::Opaque {
         delete x;
         delete w;
         delete rstd;
-        aclDestroyAclOpExecutor(executor);
     }
 };
 
@@ -64,15 +62,16 @@ infiniStatus_t Descriptor::create(
 
     // Get WorkspaceSize and set executor
     CHECK_ACL(aclnnRmsNormGetWorkspaceSize(tx, tw, static_cast<double>(epsilon), ty, trstd, &workspace_size, &executor));
-    aclSetAclOpExecutorRepeatable(executor);
 
     auto handle_ascend = reinterpret_cast<device::ascend::Handle *>(handle);
     size_t all_workspace_size = workspace_size + rstd->numel() * aclDataTypeSize(rstd->dataType);
     *desc_ptr = new Descriptor(
-        new Opaque{executor, y, x, w, rstd, workspace_size},
+        new Opaque{y, x, w, rstd, workspace_size},
         std::move(info),
         all_workspace_size,
         handle_ascend->device, handle_ascend->device_id);
+
+    aclDestroyAclOpExecutor(executor);
 
     return INFINI_STATUS_SUCCESS;
 }
@@ -89,16 +88,21 @@ infiniStatus_t Descriptor::calculate(
     auto tx = _opaque->x->tensor;
     auto ty = _opaque->y->tensor;
     auto trstd = _opaque->rstd->tensor;
+    size_t workspace_size_ = 0;
+    aclOpExecutor *executor = nullptr;
+
+    CHECK_ACL(aclnnRmsNormGetWorkspaceSize(tx, tw, static_cast<double>(_info.epsilon), ty, trstd, &workspace_size_, &executor));
+    CHECK_ACL(aclSetAclOpExecutorRepeatable(executor));
 
     void *rstdPtr = (void *)((uint8_t *)workspace + _opaque->workspaceSize);
 
     auto unit = infiniSizeOf(_info.atype);
-    AclSetTensorAddr(_opaque->executor, 1, tw, (void *)w);
-    AclSetTensorAddr(_opaque->executor, 3, trstd, rstdPtr);
+    AclSetTensorAddr(executor, 1, tw, (void *)w);
+    AclSetTensorAddr(executor, 3, trstd, rstdPtr);
     for (size_t i = 0; i < (_info.shape)[0]; ++i) {
-        AclSetTensorAddr(_opaque->executor, 0, tx, ((char *)x) + i * (_info.x_strides)[0] * unit);
-        AclSetTensorAddr(_opaque->executor, 2, ty, ((char *)y) + i * (_info.y_strides)[0] * unit);
-        CHECK_ACL(aclnnRmsNorm(workspace, _opaque->workspaceSize, _opaque->executor, stream));
+        AclSetTensorAddr(executor, 0, tx, ((char *)x) + i * (_info.x_strides)[0] * unit);
+        AclSetTensorAddr(executor, 2, ty, ((char *)y) + i * (_info.y_strides)[0] * unit);
+        CHECK_ACL(aclnnRmsNorm(workspace, _opaque->workspaceSize, executor, stream));
     }
     return INFINI_STATUS_SUCCESS;
 }
