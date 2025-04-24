@@ -359,8 +359,7 @@ private:
                                      d_input_shapes, d_input_strides, stream));
 
         dim3 blockDims(std::min(BLOCK_SIZE, static_cast<uint32_t>(internal->maxThreadsPerBlock())));
-        dim3 gridDims(std::min(CEIL_DIV(output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
-
+        dim3 gridDims(std::min(uint32_t(CEIL_DIV(output_size, blockDims.x)), static_cast<uint32_t>(internal->gridSizeX())));
         size_t step = gridDims.x * blockDims.x;
 
         for (size_t i = 0; i < output_size; i += step) {
