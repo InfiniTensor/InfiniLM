@@ -54,4 +54,4 @@ infiniStatus_t Descriptor::calculate(
 
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace op::add::cuda
+} // namespace op::mul::cuda

@@ -80,13 +80,12 @@ std::shared_ptr<infiniop_test::Result> Test::run(
                 b->data(),
                 nullptr);
         },
-        (warm_ups + 1) / 2, (iterations + 1) / 2);
+        warm_ups, iterations);
 
     return TEST_PASSED(elapsed_time);
 }
 
 std::vector<std::string> Test::attribute_names() {
-    // MUL 操作不需要特殊属性（与 GEMM 不同，GEMM 需要 alpha 和 beta）
     return {};
 }
 

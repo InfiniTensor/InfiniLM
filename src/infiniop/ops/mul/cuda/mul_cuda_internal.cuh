@@ -21,6 +21,6 @@ typedef struct MulOp {
     }
 } MulOp;
 
-} // namespace op::add::cuda
+} // namespace op::mul::cuda
 
 #endif // __MUL_CUDA_H__
