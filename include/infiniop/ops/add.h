@@ -11,7 +11,11 @@ __C __export infiniStatus_t infiniopCreateAddDescriptor(infiniopHandle_t handle,
                                                         infiniopTensorDescriptor_t a,
                                                         infiniopTensorDescriptor_t b);
 
+__C __export infiniStatus_t infiniopGetAddWorkspaceSize(infiniopAddDescriptor_t desc, size_t *size);
+
 __C __export infiniStatus_t infiniopAdd(infiniopAddDescriptor_t desc,
+                                        void *workspace,
+                                        size_t workspace_size,
                                         void *c,
                                         void const *a,
                                         void const *b,
