@@ -11,8 +11,6 @@
 ![GitHub contributors](https://img.shields.io/github/contributors/InfiniTensor/InfiniCore)
 ![GitHub commit activity](https://img.shields.io/github/commit-activity/m/InfiniTensor/InfiniCore)
 
-文档
-
 InfiniCore 是一个跨平台统一编程工具集，为不同芯片平台的功能（包括计算、运行时、通信等）提供统一 C 语言接口。目前支持的硬件和后端包括：
 
 - CPU；
@@ -51,6 +49,7 @@ python scripts/install.py [XMAKE_CONFIG_FLAGS]
 | `--moore-gpu=[y\|n]`     | 是否编译摩尔线程 GPU 接口实现 | n
 | `--sugon-dcu=[y\|n]`     | 是否编译曙光 DCU 接口实现     | n
 | `--kunlun-xpu=[y\|n]`    | 是否编译昆仑 XPU 接口实现     | n
+| `--ccl=[y\|n]`           | 是否编译 InfiniCCL 通信库接口实现     | n
 
 ### 手动安装
 
@@ -111,6 +110,18 @@ python scripts/python_test.py [--cpu | --nvidia | --cambricon | --ascend]
 #### 算子测试框架
 
 详见 `test/infiniop-test` 目录
+
+#### 通信库（InfiniCCL）测试
+
+编译（需要先安装InfiniCCL）：
+```shell
+xmake build infiniccl-test
+```
+
+在英伟达平台运行测试（会自动使用所有可见的卡）：
+```shell
+infiniccl-test --nvidia
+```
 
 ## 开发指南
 

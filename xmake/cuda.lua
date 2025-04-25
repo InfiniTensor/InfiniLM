@@ -58,3 +58,34 @@ target("infinirt-cuda")
     set_languages("cxx17")
     add_files("../src/infinirt/cuda/*.cu")
 target_end()
+
+target("infiniccl-cuda")
+    set_kind("static")
+    add_deps("infinirt")
+    on_install(function (target) end)
+    if has_config("ccl") then
+        set_policy("build.cuda.devlink", true)
+        set_toolchains("cuda")
+        add_links("cudart")
+
+        if not is_plat("windows") then
+            add_cuflags("-Xcompiler=-fPIC")
+            add_culdflags("-Xcompiler=-fPIC")
+            add_cxflags("-fPIC")
+
+            local nccl_root = os.getenv("NCCL_ROOT")
+            if nccl_root then
+                add_includedirs(nccl_root .. "/include")
+                add_links(nccl_root .. "/lib/libnccl.so")
+            else
+                add_links("nccl") -- Fall back to default nccl linking
+            end
+
+            add_files("../src/infiniccl/cuda/*.cu")
+        else
+            print("[Warning] NCCL is not supported on Windows")
+        end
+    end
+    set_languages("cxx17")
+    
+target_end()

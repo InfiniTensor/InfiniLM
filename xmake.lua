@@ -118,6 +118,18 @@ if has_config("kunlun-xpu") then
     includes("xmake/kunlun.lua")
 end
 
+-- InfiniCCL
+option("ccl")
+set_default(false)
+    set_default(false)
+    set_showmenu(true)
+    set_description("Wether to complie implementations for InfiniCCL")
+option_end()
+
+if has_config("ccl") then
+    add_defines("ENABLE_CCL")
+end
+
 target("infini-utils")
     set_kind("static")
     on_install(function (target) end)
@@ -220,10 +232,25 @@ target("infiniop")
     add_installfiles("include/infinicore.h", {prefixdir = "include"})
 target_end()
 
+target("infiniccl")
+    set_kind("shared")
+    add_deps("infinirt")
+
+    if has_config("nv-gpu") then
+        add_deps("infiniccl-cuda")
+    end
+    
+    set_languages("cxx17")
+
+    add_files("src/infiniccl/*.cc")
+    add_installfiles("include/infiniccl.h", {prefixdir = "include"})
+
+    set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
+target_end()
 
 target("all")
     set_kind("phony")
-    add_deps("infiniop", "infinirt")
+    add_deps("infiniop", "infinirt", "infiniccl")
     after_build(function (target) print(YELLOW .. "[Congratulations!] Now you can install the libraries with \"xmake install\"" .. NC) end)
 target_end()
 
