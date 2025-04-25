@@ -44,46 +44,46 @@ __C infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_
     return INFINI_STATUS_SUCCESS;
 }
 
-#define INFINIRT_CALL_DEVICE_API_AND(API, PARAMS, ACTION)   \
-    {                                                       \
-        infiniStatus_t _status;                             \
-        switch (CURRENT_DEVICE_TYPE) {                      \
-        case INFINI_DEVICE_CPU:                             \
-            _status = infinirt::cpu::API PARAMS;            \
-            break;                                          \
-        case INFINI_DEVICE_NVIDIA:                          \
-            _status = infinirt::cuda::API PARAMS;           \
-            break;                                          \
-        case INFINI_DEVICE_CAMBRICON:                       \
-            _status = infinirt::bang::API PARAMS;           \
-            break;                                          \
-        case INFINI_DEVICE_ASCEND:                          \
-            _status = infinirt::ascend::API PARAMS;         \
-            break;                                          \
-        case INFINI_DEVICE_METAX:                           \
-            _status = infinirt::maca::API PARAMS;           \
-            break;                                          \
-        case INFINI_DEVICE_MOORE:                           \
-            _status = infinirt::musa::API PARAMS;           \
-            break;                                          \
-        default:                                            \
-            return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED; \
-        }                                                   \
-        { ACTION; }                                         \
-        return _status;                                     \
+#define INFINIRT_CALL_DEVICE_API_AND(DEVICE_TYPE, API, PARAMS, ACTION) \
+    {                                                                  \
+        infiniStatus_t _status;                                        \
+        switch (DEVICE_TYPE) {                                         \
+        case INFINI_DEVICE_CPU:                                        \
+            _status = infinirt::cpu::API PARAMS;                       \
+            break;                                                     \
+        case INFINI_DEVICE_NVIDIA:                                     \
+            _status = infinirt::cuda::API PARAMS;                      \
+            break;                                                     \
+        case INFINI_DEVICE_CAMBRICON:                                  \
+            _status = infinirt::bang::API PARAMS;                      \
+            break;                                                     \
+        case INFINI_DEVICE_ASCEND:                                     \
+            _status = infinirt::ascend::API PARAMS;                    \
+            break;                                                     \
+        case INFINI_DEVICE_METAX:                                      \
+            _status = infinirt::maca::API PARAMS;                      \
+            break;                                                     \
+        case INFINI_DEVICE_MOORE:                                      \
+            _status = infinirt::musa::API PARAMS;                      \
+            break;                                                     \
+        default:                                                       \
+            return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;            \
+        }                                                              \
+        { ACTION; }                                                    \
+        return _status;                                                \
     }
 
-#define INFINIRT_CALL_DEVICE_API(API, PARAMS) INFINIRT_CALL_DEVICE_API_AND(API, PARAMS, )
+#define INFINIRT_CALL_DEVICE_API(API, PARAMS) INFINIRT_CALL_DEVICE_API_AND(CURRENT_DEVICE_TYPE, API, PARAMS, )
 
 __C infiniStatus_t infinirtGetDeviceCount(infiniDevice_t device, int *count) {
     if (count == nullptr) {
         return INFINI_STATUS_NULL_POINTER;
     }
-    INFINIRT_CALL_DEVICE_API(getDeviceCount, (count));
+    INFINIRT_CALL_DEVICE_API_AND(device, getDeviceCount, (count), {});
 }
 
 __C infiniStatus_t infinirtSetDevice(infiniDevice_t device, int device_id) {
-    INFINIRT_CALL_DEVICE_API_AND(setDevice, (device_id),
+    INFINIRT_CALL_DEVICE_API_AND(device, setDevice, (device_id),
                                  { CURRENT_DEVICE_TYPE = device;
                                    CURRENT_DEVICE_ID = device_id; });
 }
