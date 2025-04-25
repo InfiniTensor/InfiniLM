@@ -6,22 +6,21 @@
 namespace op::causal_softmax::ascend {
 
 struct Descriptor::Opaque {
-    mutable aclOpExecutor *executor;
-    mutable aclOpExecutor *mask_executor;
     aclnnTensorDescriptor_t x;
     aclnnTensorDescriptor_t mask;
     aclnnTensorDescriptor_t y;
+    aclnnTensorDescriptor_t value;
     void *mask_addr;
-    size_t workspacesize_softmax;
-    size_t workspacesize_mask;
+    void *value_addr;
 
     ~Opaque() {
         delete x;
         delete mask;
         delete y;
+        delete value;
 
-        aclDestroyAclOpExecutor(executor);
-        aclDestroyAclOpExecutor(mask_executor);
+        aclrtFree(mask_addr);
+        aclrtFree(value_addr);
     }
 };
 
@@ -64,13 +63,13 @@ infiniStatus_t Descriptor::create(
         auto size = aclDataTypeSize(aclDataType::ACL_FLOAT16);
         CHECK_ACL(aclrtMalloc(&value_addr, size, ACL_MEM_MALLOC_HUGE_FIRST));
         CHECK_ACL(aclrtMemcpy(value_addr, size, &mask_value, size, ACL_MEMCPY_HOST_TO_DEVICE));
-        value = new aclnnTensorDescriptor(aclDataType::ACL_FLOAT16, {}, {}, value_addr);
+        value = new aclnnTensorDescriptor(aclDataType::ACL_FLOAT16, {}, {});
     } else {
         uint32_t mask_value = 0xff800000;
         auto size = aclDataTypeSize(aclDataType::ACL_FLOAT);
         CHECK_ACL(aclrtMalloc(&value_addr, size, ACL_MEM_MALLOC_HUGE_FIRST));
         CHECK_ACL(aclrtMemcpy(value_addr, size, &mask_value, size, ACL_MEMCPY_HOST_TO_DEVICE));
-        value = new aclnnTensorDescriptor(aclDataType::ACL_FLOAT, {}, {}, value_addr);
+        value = new aclnnTensorDescriptor(aclDataType::ACL_FLOAT, {}, {});
     }
 
     // Fill Mask Tensor
@@ -93,16 +92,18 @@ infiniStatus_t Descriptor::create(
     aclTensor *tvalue = value->tensor;
 
     CHECK_ACL(aclnnInplaceMaskedFillTensorGetWorkspaceSize(tx, tmask, tvalue, &workspacesize_mask, &mask_executor));
-    aclSetAclOpExecutorRepeatable(mask_executor);
     int64_t dim = 2;
 
     CHECK_ACL(aclnnSoftmaxGetWorkspaceSize(tx, dim, ty, &workspacesize_softmax, &executor));
-    aclSetAclOpExecutorRepeatable(executor);
 
     // Create the descriptor
     size_t all_workspacesize = workspacesize_softmax + workspacesize_mask;
-    *desc_ptr = new Descriptor(new Opaque{executor, mask_executor, x, mask, y, mask_addr, workspacesize_softmax, workspacesize_mask},
+    *desc_ptr = new Descriptor(new Opaque{x, mask, y, value, mask_addr, value_addr},
                                std::move(info), all_workspacesize, handle_ascend->device, handle_ascend->device_id);
+
+    // Delete useless executor
+    aclDestroyAclOpExecutor(executor);
+    aclDestroyAclOpExecutor(mask_executor);
 
     return INFINI_STATUS_SUCCESS;
 }
@@ -114,18 +115,24 @@ infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size, voi
     auto tx = _opaque->x->tensor;
     auto ty = _opaque->y->tensor;
     auto tmask = _opaque->mask->tensor;
-    auto executor = _opaque->executor;
-    auto mask_executor = _opaque->mask_executor;
-    auto mask_addr = _opaque->mask_addr;
+    auto tvalue = _opaque->value->tensor;
+    aclOpExecutor *executor = nullptr;
+    aclOpExecutor *mask_executor = nullptr;
+    size_t workspacesize_softmax = 0;
+    size_t workspacesize_mask = 0;
+    int64_t dim = 2;
 
     AclSetTensorAddr(mask_executor, 0, tx, (void *)x);
-    AclSetTensorAddr(mask_executor, 1, tmask, mask_addr);
-    CHECK_ACL(aclnnInplaceMaskedFillTensor(workspace, _opaque->workspacesize_mask, mask_executor, stream));
+    AclSetTensorAddr(mask_executor, 1, tmask, _opaque->mask_addr);
+    AclSetTensorAddr(mask_executor, 2, tvalue, _opaque->value_addr);
+    CHECK_ACL(aclnnInplaceMaskedFillTensorGetWorkspaceSize(tx, tmask, tvalue, &workspacesize_mask, &mask_executor));
+    CHECK_ACL(aclnnInplaceMaskedFillTensor(workspace, workspacesize_mask, mask_executor, stream));
     CHECK_ACL(aclrtSynchronizeStream(stream));
 
     AclSetTensorAddr(executor, 0, tx, (void *)x);
     AclSetTensorAddr(executor, 1, ty, y);
-    CHECK_ACL(aclnnSoftmax(workspace, _opaque->workspacesize_softmax, executor, stream));
+    CHECK_ACL(aclnnSoftmaxGetWorkspaceSize(tx, dim, ty, &workspacesize_softmax, &executor));
+    CHECK_ACL(aclnnSoftmax(workspace, workspacesize_softmax, executor, stream));
 
     return INFINI_STATUS_SUCCESS;
 }
