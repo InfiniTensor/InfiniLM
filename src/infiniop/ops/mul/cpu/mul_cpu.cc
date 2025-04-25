@@ -27,7 +27,7 @@ infiniStatus_t Descriptor::create(
     CREATE_ELEMENTWISE_CPU_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec);
 
     return INFINI_STATUS_SUCCESS;
-}    
+}
 
 infiniStatus_t Descriptor::calculate(
     void *workspace,
@@ -36,16 +36,16 @@ infiniStatus_t Descriptor::calculate(
     std::vector<const void *> inputs,
     void *stream) const {
 
-    switch(_dtype) {
-        case INFINI_DTYPE_F16:
-            return _device_info->calculate<MulOp, fp16_t>(_info, output, inputs, stream);
-        case INFINI_DTYPE_F32:
-            return _device_info->calculate<MulOp, float>(_info, output, inputs, stream);
-        case INFINI_DTYPE_F64:
-            return _device_info->calculate<MulOp, double>(_info, output, inputs, stream);
-        default:
-            return INFINI_STATUS_BAD_TENSOR_DTYPE; 
+    switch (_dtype) {
+    case INFINI_DTYPE_F16:
+        return _device_info->calculate<MulOp, fp16_t>(_info, output, inputs, stream);
+    case INFINI_DTYPE_F32:
+        return _device_info->calculate<MulOp, float>(_info, output, inputs, stream);
+    case INFINI_DTYPE_F64:
+        return _device_info->calculate<MulOp, double>(_info, output, inputs, stream);
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
     return INFINI_STATUS_SUCCESS;
 }
-}
+} // namespace op::mul::cpu

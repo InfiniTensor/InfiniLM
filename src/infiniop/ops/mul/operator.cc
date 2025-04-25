@@ -10,7 +10,6 @@
 #include "cuda/mul_cuda.cuh"
 #endif
 
-
 __C infiniStatus_t infiniopCreateMulDescriptor(
     infiniopHandle_t handle,
     infiniopMulDescriptor_t *desc_ptr,
