@@ -7,6 +7,7 @@
  */
 DECLARE_INFINIOP_TEST(gemm)
 DECLARE_INFINIOP_TEST(random_sample)
+DECLARE_INFINIOP_TEST(mul)
 
 #define REGISTER_INFINIOP_TEST(name)                      \
     {                                                     \
@@ -24,6 +25,7 @@ DECLARE_INFINIOP_TEST(random_sample)
     {                                         \
         REGISTER_INFINIOP_TEST(gemm)          \
         REGISTER_INFINIOP_TEST(random_sample) \
+        REGISTER_INFINIOP_TEST(mul)           \
     }
 
 namespace infiniop_test {
