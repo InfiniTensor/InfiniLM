@@ -49,6 +49,8 @@ private:
 
     uint32_t _block_idx;
     uint32_t _tile_len;
+    uint32_t _copy_len;
+    uint32_t _half_copy_len;
 
     // stridey[st_ynt_, st_ynh_, 1]
     int32_t st_ynt_;
@@ -68,6 +70,8 @@ __aicore__ inline void RoPEKernel<T>::Init(GM_ADDR y, GM_ADDR x, GM_ADDR pos, GM
     this->st_ynh_ = st_ynh;
     this->st_xnt_ = st_xnt;
     this->st_xnh_ = st_xnh;
+    _copy_len = (_tile_len * sizeof(T)) % BYTE_ALIGN == 0 ? _tile_len : (_tile_len * sizeof(T) + (BYTE_ALIGN - _tile_len * sizeof(T) % BYTE_ALIGN)) / sizeof(T);
+    _half_copy_len = (_tile_len / 2 * sizeof(T)) % BYTE_ALIGN == 0 ? _tile_len / 2 : (_tile_len / 2 * sizeof(T) + (BYTE_ALIGN - _tile_len / 2 * sizeof(T) % BYTE_ALIGN)) / sizeof(T);
 
     _block_idx = GetBlockIdx();
 
@@ -79,10 +83,10 @@ __aicore__ inline void RoPEKernel<T>::Init(GM_ADDR y, GM_ADDR x, GM_ADDR pos, GM
     yGm.SetGlobalBuffer((__gm__ T *)y);
 
     // Init Queue buffer
-    pipe.InitBuffer(inQue, BUFFER_NUM, _tile_len * sizeof(T));
+    pipe.InitBuffer(inQue, BUFFER_NUM, _copy_len * sizeof(T));
     pipe.InitBuffer(outQue, BUFFER_NUM, _tile_len * sizeof(T));
-    pipe.InitBuffer(sinQue, BUFFER_NUM, _tile_len / 2 * sizeof(T));
-    pipe.InitBuffer(cosQue, BUFFER_NUM, _tile_len / 2 * sizeof(T));
+    pipe.InitBuffer(sinQue, BUFFER_NUM, _half_copy_len * sizeof(T));
+    pipe.InitBuffer(cosQue, BUFFER_NUM, _half_copy_len * sizeof(T));
     pipe.InitBuffer(tmpOddBuf, _tile_len / 2 * sizeof(T));
     pipe.InitBuffer(tmpEvenBuf, _tile_len / 2 * sizeof(T));
     pipe.InitBuffer(tmpOddBuf1, _tile_len / 2 * sizeof(T));
@@ -99,11 +103,11 @@ __aicore__ inline void RoPEKernel<T>::CopyIn(int32_t i) {
     // Get idx of current tile in total input
     auto idx = i * st_xnt_ + _block_idx * st_xnh_;
     // Copy tile current tile into UB
-    DataCopy(inputUb, xGm[idx], _tile_len);
+    DataCopy(inputUb, xGm[idx], _copy_len);
     // Copy sin cos tile
     auto pos_idx = pGm(i);
-    DataCopy(sinUb, sinGm[pos_idx * _tile_len / 2], _tile_len / 2);
-    DataCopy(cosUb, cosGm[pos_idx * _tile_len / 2], _tile_len / 2);
+    DataCopy(sinUb, sinGm[pos_idx * _tile_len / 2], _half_copy_len);
+    DataCopy(cosUb, cosGm[pos_idx * _tile_len / 2], _half_copy_len);
     // Push in operands
     inQue.EnQue(inputUb);
     sinQue.EnQue(sinUb);
