@@ -243,4 +243,4 @@ if __name__ == "__main__":
         test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")
-    
+
