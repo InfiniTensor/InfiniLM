@@ -2,9 +2,9 @@
 #define __CLIP_CPU_H__
 
 #include "../../../elementwise/cpu/elementwise_cpu.h"
-#include "../clip.h"
+#include "infiniop/ops/clip.h"
 
-CLIP_DESCRIPTOR(clip, cpu)
+ELEMENTWISE_DESCRIPTOR(clip, cpu)
 
 namespace op::clip::cpu {
 
@@ -17,13 +17,6 @@ public:
         return std::max(std::min(x, max_val), min_val);
     }
 } ClipOp;
-
-// Create clip descriptor
-infiniStatus_t createClipDescriptor(
-    infiniopHandle_t handle,
-    Descriptor **desc_ptr,
-    infiniopTensorDescriptor_t out_desc,
-    std::vector<infiniopTensorDescriptor_t> input_desc_vec);
 
 } // namespace op::clip::cpu
 

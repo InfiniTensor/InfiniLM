@@ -19,7 +19,7 @@ __C infiniStatus_t infiniopCreateClipDescriptor(
 
 #define CREATE(CASE, NAMESPACE)                                             \
     case CASE:                                                              \
-        return op::clip::NAMESPACE::createClipDescriptor(                   \
+        return op::clip::NAMESPACE::Descriptor::create(                     \
             handle,                                                         \
             reinterpret_cast<op::clip::NAMESPACE::Descriptor **>(desc_ptr), \
             y,                                                              \

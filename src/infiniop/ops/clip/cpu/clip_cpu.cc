@@ -4,7 +4,7 @@ namespace op::clip::cpu {
 
 Descriptor::~Descriptor() = default;
 
-infiniStatus_t createClipDescriptor(
+infiniStatus_t Descriptor::create(
     infiniopHandle_t handle_,
     Descriptor **desc_ptr,
     infiniopTensorDescriptor_t out_desc,
