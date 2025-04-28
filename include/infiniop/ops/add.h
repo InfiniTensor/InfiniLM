@@ -17,8 +17,8 @@ __C __export infiniStatus_t infiniopAdd(infiniopAddDescriptor_t desc,
                                         void *workspace,
                                         size_t workspace_size,
                                         void *c,
-                                        void const *a,
-                                        void const *b,
+                                        const void *a,
+                                        const void *b,
                                         void *stream);
 
 __C __export infiniStatus_t infiniopDestroyAddDescriptor(infiniopAddDescriptor_t desc);
