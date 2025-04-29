@@ -27,7 +27,7 @@ DECLARE_INFINIOP_TEST(rope)
         REGISTER_INFINIOP_TEST(gemm)          \
         REGISTER_INFINIOP_TEST(random_sample) \
         REGISTER_INFINIOP_TEST(mul)           \
-        REGISTER_INFINIOP_TEST(rope)          \        
+        REGISTER_INFINIOP_TEST(rope)          \
     }
 
 namespace infiniop_test {

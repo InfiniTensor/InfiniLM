@@ -1,7 +1,8 @@
 from ast import List
 import numpy as np
 import gguf
-from enum import Enum, auto
+from typing import List
+
 
 from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides
 
@@ -108,15 +109,6 @@ _TEST_CASES_ = [
 
 _TENSOR_DTYPES_ = [np.float16, np.float32]
 
-class Inplace(Enum):
-    OUT_OF_PLACE = auto()
-    INPLACE_X = auto()
-
-
-_INPLACE_ = [
-    Inplace.OUT_OF_PLACE,
-    Inplace.INPLACE_X,
-]
 
 if __name__ == "__main__":
     test_writer = InfiniopTestWriter("rope.gguf")
@@ -124,26 +116,23 @@ if __name__ == "__main__":
 
     for dtype in _TENSOR_DTYPES_:
         for shape, stride_x, stride_y in _TEST_CASES_:
-            for inplace in _INPLACE_:
-                x = np.random.rand(*shape).astype(dtype)
-                if inplace == Inplace.INPLACE_X:
-                    y = x
-                else:
-                    y = np.random.rand(*shape).astype(dtype)
+            x = np.random.rand(*shape).astype(dtype)
 
-                pos_ids = np.arange(0, x.shape[0], dtype=np.int32)
+            y = np.random.rand(*shape).astype(dtype)
 
-                sin_table, cos_table = sin_cos_table(pos_ids, x.shape[2], theta=1e5, dtype=dtype)
+            pos_ids = np.arange(0, x.shape[0], dtype=np.int32)
 
-                test_case = RoPETestCase(
-                    y=y,
-                    x=x,
-                    stride_y=stride_y,
-                    stride_x=stride_x,
-                    pos_ids=pos_ids,
-                    sin_table=sin_table,
-                    cos_table=cos_table,
-                )
-                test_cases.append(test_case)
+            sin_table, cos_table = sin_cos_table(pos_ids, x.shape[2], theta=1e5, dtype=dtype)
+
+            test_case = RoPETestCase(
+                y=y,
+                x=x,
+                stride_y=stride_y,
+                stride_x=stride_x,
+                pos_ids=pos_ids,
+                sin_table=sin_table,
+                cos_table=cos_table,
+            )
+            test_cases.append(test_case)
     test_writer.add_tests(test_cases)
     test_writer.save()
