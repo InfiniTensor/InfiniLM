@@ -6,6 +6,10 @@
 #include "cpu/rearrange_cpu.h"
 #endif
 
+#ifdef ENABLE_CUDA_API
+#include "cuda/rearrange_cuda.cuh"
+#endif
+
 __C infiniStatus_t infiniopCreateRearrangeDescriptor(
     infiniopHandle_t handle,
     infiniopRearrangeDescriptor_t *desc_ptr,
@@ -24,6 +28,10 @@ __C infiniStatus_t infiniopCreateRearrangeDescriptor(
 
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu);
+#endif
+
+#ifdef ENABLE_CUDA_API
+        CREATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 
     default:
@@ -50,6 +58,10 @@ __C infiniStatus_t infiniopRearrange(
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
 
+#ifdef ENABLE_CUDA_API
+        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+#endif
+
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
@@ -69,6 +81,10 @@ __C infiniStatus_t infiniopDestroyRearrangeDescriptor(
 
 #ifdef ENABLE_CPU_API
         DELETE(INFINI_DEVICE_CPU, cpu);
+#endif
+
+#ifdef ENABLE_CUDA_API
+        DELETE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 
     default:

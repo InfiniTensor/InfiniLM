@@ -66,21 +66,22 @@ _TOLERANCE_MAP = {
     torch.float32: {"atol": 1e-7, "rtol": 1e-7},
 }
 
+
 DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
 
 
-class AddDescriptor(Structure):
+class MulDescriptor(Structure):
     _fields_ = [("device", c_int32)]
 
 
-infiniopAddDescriptor_t = POINTER(AddDescriptor)
+infiniopMulDescriptor_t = POINTER(MulDescriptor)
 
 
-def add(x, y):
-    return torch.add(x, y)
+def mul(x, y):
+    return torch.mul(x, y)
 
 
 def process_tensors(c, c_strides, a, a_stride, b, b_stride, inplace):
@@ -127,7 +128,7 @@ def test(
     sync=None,
 ):
     print(
-        f"Testing Add on {torch_device} with shape:{shape} a_stride:{a_stride} b_stride:{b_stride} c_stride:{c_stride} "
+        f"Testing Mul on {torch_device} with shape:{shape} a_stride:{a_stride} b_stride:{b_stride} c_stride:{c_stride} "
         f"dtype:{dtype} inplace:{inplace}"
     )
 
@@ -136,7 +137,7 @@ def test(
     c = torch.rand(shape, dtype=dtype).to(torch_device)
     a, b, c = process_tensors(c, c_stride, a, a_stride, b, b_stride, inplace)
 
-    ans = add(a, b)
+    ans = mul(a, b)
 
     a_tensor, b_tensor = [to_tensor(tensor, lib) for tensor in [a, b]]
     c_tensor = (
@@ -147,9 +148,9 @@ def test(
     if sync is not None:
         sync()
 
-    descriptor = infiniopAddDescriptor_t()
+    descriptor = infiniopMulDescriptor_t()
     check_error(
-        lib.infiniopCreateAddDescriptor(
+        lib.infiniopCreateMulDescriptor(
             handle,
             ctypes.byref(descriptor),
             c_tensor.descriptor,
@@ -164,13 +165,13 @@ def test(
 
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetAddWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+        lib.infiniopGetMulWorkspaceSize(descriptor, ctypes.byref(workspace_size))
     )
     workspace = create_workspace(workspace_size.value, c.device)
 
-    def lib_add():
+    def lib_mul():
         check_error(
-            lib.infiniopAdd(
+            lib.infiniopMul(
                 descriptor,
                 workspace.data_ptr() if workspace is not None else None,
                 workspace_size.value,
@@ -181,7 +182,7 @@ def test(
             )
         )
 
-    lib_add()
+    lib_mul()
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
@@ -191,34 +192,34 @@ def test(
     # Profiling workflow
     if PROFILE:
         # fmt: off
-        profile_operation("PyTorch", lambda: add(a, b), torch_device, NUM_PRERUN, NUM_ITERATIONS)
-        profile_operation("    lib", lambda: lib_add(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("PyTorch", lambda: mul(a, b), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("    lib", lambda: lib_mul(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
-    check_error(lib.infiniopDestroyAddDescriptor(descriptor))
+    check_error(lib.infiniopDestroyMulDescriptor(descriptor))
 
 
 if __name__ == "__main__":
     args = get_args()
     lib = open_lib()
 
-    lib.infiniopCreateAddDescriptor.restype = c_int32
-    lib.infiniopCreateAddDescriptor.argtypes = [
+    lib.infiniopCreateMulDescriptor.restype = c_int32
+    lib.infiniopCreateMulDescriptor.argtypes = [
         infiniopHandle_t,
-        POINTER(infiniopAddDescriptor_t),
+        POINTER(infiniopMulDescriptor_t),
         infiniopTensorDescriptor_t,
         infiniopTensorDescriptor_t,
         infiniopTensorDescriptor_t,
     ]
 
-    lib.infiniopGetAddWorkspaceSize.restype = c_int32
-    lib.infiniopGetAddWorkspaceSize.argtypes = [
-        infiniopAddDescriptor_t,
+    lib.infiniopGetMulWorkspaceSize.restype = c_int32
+    lib.infiniopGetMulWorkspaceSize.argtypes = [
+        infiniopMulDescriptor_t,
         POINTER(c_uint64),
     ]
 
-    lib.infiniopAdd.restype = c_int32
-    lib.infiniopAdd.argtypes = [
-        infiniopAddDescriptor_t,
+    lib.infiniopMul.restype = c_int32
+    lib.infiniopMul.argtypes = [
+        infiniopMulDescriptor_t,
         c_void_p,
         c_uint64,
         c_void_p,
@@ -227,9 +228,9 @@ if __name__ == "__main__":
         c_void_p,
     ]
 
-    lib.infiniopDestroyAddDescriptor.restype = c_int32
-    lib.infiniopDestroyAddDescriptor.argtypes = [
-        infiniopAddDescriptor_t,
+    lib.infiniopDestroyMulDescriptor.restype = c_int32
+    lib.infiniopDestroyMulDescriptor.argtypes = [
+        infiniopMulDescriptor_t,
     ]
 
     # Configure testing options
@@ -242,3 +243,4 @@ if __name__ == "__main__":
         test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")
+

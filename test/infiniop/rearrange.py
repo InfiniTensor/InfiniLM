@@ -17,19 +17,88 @@ from libinfiniop import (
     profile_operation,
 )
 
+def row_major_strides(shape):
+    """生成张量的行优先(C风格)stride
+    
+    Args:
+        shape: 张量形状
+    
+    Returns:
+        行优先strides列表
+    """
+    # 行优先 (C风格，从最后一维到第一维)
+    stride = 1
+    strides = [1]
+    for dim in reversed(shape[1:]):
+        stride *= dim
+        strides.insert(0, stride)
+    return strides
+
+def column_major_strides(shape):
+    """生成张量的列优先(Fortran风格)stride
+    
+    Args:
+        shape: 张量形状
+    
+    Returns:
+        列优先strides列表
+    """
+    # 列优先 (Fortran风格，从第一维到最后一维)
+    stride = 1
+    strides = [stride]
+    for dim in shape[:-1]:
+        stride *= dim
+        strides.append(stride)
+    return strides
+
+
+
 # ==============================================================================
 #  Configuration (Internal Use Only)
 # ==============================================================================
 # These are not meant to be imported from other modules
 _TEST_CASES = [
-    # ((src_shape, src_stride), (dst_shape, dst_stride))
-    (((2, 4, 32), None), ((2, 4, 32), (256, 64, 1))),
-    (((32, 6, 64), (64, 2560, 1)), ((32, 6, 64), None)),
-    (((4, 6, 64), (64, 2560, 1)), ((4, 6, 64), (131072, 64, 1))),
-    (((1, 32, 64), (2048, 64, 1)), ((1, 32, 64), (2048, 64, 1))),
-    (((32, 1, 64), (64, 2560, 1)), ((32, 1, 64), (64, 64, 1))),
-    (((4, 1, 64), (64, 2560, 1)), ((4, 1, 64), (64, 11264, 1))),
-    (((64,), (1,)), ((64,), (1,))),
+    # (shape, x_stride, y_stride)
+    (
+        (2, 4, 64),  # shape
+        (2, 4, 8),   # x_stride
+        (512, 128, 2) # y_stride
+    ),
+    (
+        (100, 100),  # shape
+        (1, 100),    # x_stride
+        (100, 1)     # y_stride
+    ),
+    (
+        (4, 4),      # shape
+        (1, 4),      # x_stride
+        (4, 1)       # y_stride
+    ),
+    (
+        (4, 6, 64),  # shape
+        (64, 4*64, 1), # x_stride
+        (6*64, 64, 1)  # y_stride
+    ),
+    (
+        (2000, 2000), # shape
+        (1, 2000),    # x_stride
+        (2000, 1)     # y_stride
+    ),
+    (
+        (2001, 2001), # shape
+        (1, 2001),    # x_stride
+        (2001, 1)     # y_stride
+    ),
+    (
+        (3, 4, 7, 53, 9), # shape
+        row_major_strides((3, 4, 7, 53, 9)), # x_stride
+        column_major_strides((3, 4, 7, 53, 9)) # y_stride
+    ),
+    (
+        (3, 4, 50, 50, 5, 7), # shape
+        row_major_strides((3, 4, 50, 50, 5, 7)),  # x_stride
+        column_major_strides((3, 4, 50, 50, 5, 7)) # y_stride
+    ),
 ]
 
 # Data types used for testing
@@ -58,23 +127,23 @@ def test(
     lib,
     handle,
     torch_device,
-    x_shape,
+    shape,
     x_stride,
-    y_shape,
     y_stride,
     dtype=torch.float16,
 ):
     print(
-        f"Testing Rerrange on {torch_device} with x_shape:{x_shape} x_stride:{x_stride} y_shape:{y_shape} y_stride:{y_stride} dtype:{dtype}"
+        f"Testing Rerrange on {torch_device} with shape:{shape} x_stride:{x_stride} y_stride:{y_stride} dtype:{dtype}"
     )
 
-    x = torch.rand(x_shape, dtype=dtype).to(torch_device)
-    y = torch.zeros(y_shape, dtype=dtype).to(torch_device)
+    x = torch.rand(shape, dtype=dtype).to(torch_device)
+    y = torch.zeros(shape, dtype=dtype).to(torch_device)
 
     x, y = [
         rearrange_if_needed(tensor, stride)
         for tensor, stride in zip([x, y], [x_stride, y_stride])
     ]
+
     x_tensor, y_tensor = [to_tensor(tensor, lib) for tensor in [x, y]]
 
     descriptor = infiniopRearrangeDescriptor_t()
@@ -86,7 +155,7 @@ def test(
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
     for tensor in [x_tensor, y_tensor]:
-        tensor.descriptor.contents.invalidate()
+        tensor.destroyDesc(lib)
 
     def lib_rearrange():
         check_error(

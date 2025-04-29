@@ -102,7 +102,7 @@ struct DeviceImpl::Opaque {};
 
 template <typename... Args>
 utils::Result<DeviceImpl> DeviceImpl::create(Args &&...args) {
-    return utils::Result<DeviceImpl>(nullptr);
+    return INFINI_STATUS_NOT_IMPLEMENTED;
 }
 
 // Perform elementwise operation for different input types
