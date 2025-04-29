@@ -52,6 +52,7 @@ def test(
     y_stride=None,
     x_stride=None,
     tensor_dtype=torch.float16,
+    sync=None
 ):
     print(
         f"Testing Expand on {torch_device} with x_shape:{x_shape} y_shape:{y_shape} x_stride:{x_stride} y_stride:{y_stride} dtype:{tensor_dtype}"
@@ -76,8 +77,11 @@ def test(
 
     x_tensor = to_tensor(x, lib)
     y_tensor = to_tensor(y, lib)
-    descriptor = infiniopExpandDescriptor_t()
+    
+    if sync is not None:
+        sync()
 
+    descriptor = infiniopExpandDescriptor_t()
     check_error(
         lib.infiniopCreateExpandDescriptor(
             handle,
