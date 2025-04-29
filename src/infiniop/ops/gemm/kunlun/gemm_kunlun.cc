@@ -62,7 +62,7 @@ infiniStatus_t calculate(
         (kunlunStream_t)stream,
         [&](xdnnHandle_t handle) {
             for (size_t i = 0; i < info.batch; i++) {
-                CHECK_XDNN((xdnn::fc_fusion<Tdata, Tdata, Tdata, int16_t>(
+                CHECK_KUNLUN((xdnn::fc_fusion<Tdata, Tdata, Tdata, int16_t>(
                     handle,
                     (Tdata *)((char *)a + i * info.a_matrix.stride * unit),
                     (Tdata *)((char *)b + i * info.b_matrix.stride * unit),

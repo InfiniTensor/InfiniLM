@@ -8,6 +8,9 @@
 #ifdef ENABLE_CUDA_API
 #include "cuda/swiglu_cuda.cuh"
 #endif
+#ifdef ENABLE_KUNLUN_API
+#include "kunlun/swiglu_kunlun.h"
+#endif
 
 __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
     infiniopHandle_t handle,
@@ -32,6 +35,9 @@ __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
 #endif
 #ifdef ENABLE_CUDA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda);
+#endif
+#ifdef ENABLE_KUNLUN_API
+        CREATE(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -80,6 +86,9 @@ __C infiniStatus_t infiniopGetSwiGLUWorkspaceSize(infiniopSwiGLUDescriptor_t des
 #ifdef ENABLE_CUDA_API
         GET(INFINI_DEVICE_NVIDIA, cuda)
 #endif
+#ifdef ENABLE_KUNLUN_API
+        GET(INFINI_DEVICE_KUNLUN, kunlun)
+#endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
         return bangGetSwiGLUWorkspaceSize((SwiGLUBangDescriptor_t)desc, size);
@@ -127,6 +136,9 @@ __C infiniStatus_t infiniopSwiGLU(
 #ifdef ENABLE_CUDA_API
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
+#ifdef ENABLE_KUNLUN_API
+        CALCULATE(INFINI_DEVICE_KUNLUN, kunlun);
+#endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
         return bangSwiGLU((SwiGLUBangDescriptor_t)desc, c, a, b, stream);
@@ -167,6 +179,9 @@ infiniopDestroySwiGLUDescriptor(infiniopSwiGLUDescriptor_t desc) {
 #endif
 #ifdef ENABLE_CUDA_API
         DELETE(INFINI_DEVICE_NVIDIA, cuda);
+#endif
+#ifdef ENABLE_KUNLUN_API
+        DELETE(INFINI_DEVICE_KUNLUN, kunlun);
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
