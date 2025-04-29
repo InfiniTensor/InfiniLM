@@ -44,10 +44,10 @@ std::shared_ptr<infiniop_test::Result> Test::run(
     auto max_val = _attributes->max_val->to(device, device_id);
     auto y = _attributes->y->to(device, device_id);
     CHECK_OR(infiniopCreateClipDescriptor(handle, &op_desc,
-                                         y->desc(),
-                                         x->desc(),
-                                         min_val->desc(),
-                                         max_val->desc()),
+                                          y->desc(),
+                                          x->desc(),
+                                          min_val->desc(),
+                                          max_val->desc()),
              return TEST_FAILED(OP_CREATION_FAILED, "Failed to create clip descriptor."));
     size_t workspace_size;
     CHECK_OR(infiniopGetClipWorkspaceSize(op_desc, &workspace_size),
@@ -56,11 +56,11 @@ std::shared_ptr<infiniop_test::Result> Test::run(
     CHECK_OR(infinirtMalloc(&workspace, workspace_size),
              return TEST_FAILED(OP_CREATION_FAILED, "Failed to allocate workspace."));
     CHECK_OR(infiniopClip(op_desc, workspace, workspace_size,
-                         y->data(),
-                         x->data(),
-                         min_val->data(),
-                         max_val->data(),
-                         nullptr),
+                          y->data(),
+                          x->data(),
+                          min_val->data(),
+                          max_val->data(),
+                          nullptr),
              return TEST_FAILED(OP_EXECUTION_FAILED, "Failed during execution."));
 
     try {

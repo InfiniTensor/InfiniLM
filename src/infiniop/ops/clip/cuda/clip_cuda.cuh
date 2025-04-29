@@ -6,8 +6,4 @@
 
 ELEMENTWISE_DESCRIPTOR(clip, cuda)
 
-namespace op::clip::cuda {
-
-} // namespace op::clip::cuda
-
 #endif // __CLIP_CUDA_API_H__
