@@ -169,8 +169,8 @@ __global__ void elementwiseKernel(
             reinterpret_cast<const bool *>(input_broadcasted),           \
             reinterpret_cast<const _size_t *>(output_shape),             \
             reinterpret_cast<const _size_t *>(input_shapes),             \
-            reinterpret_cast<const _ptrdiff_t *>(output_strides),         \
-            reinterpret_cast<const _ptrdiff_t *>(input_strides),          \
+            reinterpret_cast<const _ptrdiff_t *>(output_strides),        \
+            reinterpret_cast<const _ptrdiff_t *>(input_strides),         \
             reinterpret_cast<Tdata *>(output), inputs, args...);         \
     }
 
