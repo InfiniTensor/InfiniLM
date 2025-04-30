@@ -4,9 +4,9 @@
 #include "bang/infinirt_bang.h"
 #include "cpu/infinirt_cpu.h"
 #include "cuda/infinirt_cuda.cuh"
+#include "kunlun/infinirt_kunlun.h"
 #include "maca/infinirt_maca.h"
 #include "musa/infinirt_musa.h"
-#include "kunlun/infinirt_kunlun.h"
 
 thread_local infiniDevice_t CURRENT_DEVICE_TYPE = INFINI_DEVICE_CPU;
 thread_local int CURRENT_DEVICE_ID = 0;
@@ -71,7 +71,7 @@ __C infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_
             _status = infinirt::kunlun::API PARAMS;                    \
             break;                                                     \
         default:                                                       \
-            _status = INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;            \
+            _status = INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;         \
         }                                                              \
         { ACTION; }                                                    \
         return _status;                                                \
