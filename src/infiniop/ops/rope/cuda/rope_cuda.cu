@@ -46,7 +46,6 @@ infiniStatus_t calculateRoPE(const RoPEInfo &info,
                              const Tdata *sin_table,
                              const Tdata *cos_table,
                              cudaStream_t stream) {
-
     auto dimx = uint32_t(info.seqlen),
          dimy = uint32_t(info.nhead);
     int nthreads = std::max(int(info.table_dim), block_size);

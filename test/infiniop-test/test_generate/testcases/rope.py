@@ -92,25 +92,26 @@ class RoPETestCase(InfiniopTestCase):
             test_writer.gguf_key("ans"), ans, raw_dtype=gguf.GGMLQuantizationType.F64
         )
 
-# ==============================================================================
-#  Configuration (Internal Use Only)
-# ==============================================================================
-# These are not meant to be imported from other modules
-_TEST_CASES_ = [
-    # (shape, x_strides, y_strides)
-    ((1, 32, 128), None, None),
-    ((10, 32, 64), None, None),
-    # # 昇腾暂不满足这个用例，最后一维度 <=32 会有问题，可能与其核心
-    # # 接口 GatherMask 的内部实现相关，目前 48 64 128 都可以支持
-    ((4, 1, 32), gguf_strides(64, 64, 1), None),
-    ((11, 33, 128), None, gguf_strides(8000, 200, 1)),
-    ((3, 32, 128), gguf_strides(8000, 200, 1), gguf_strides(7000, 128, 1)),
-]
 
-_TENSOR_DTYPES_ = [np.float16, np.float32]
 
 
 if __name__ == "__main__":
+    # ==============================================================================
+    #  Configuration (Internal Use Only)
+    # ==============================================================================
+    # These are not meant to be imported from other modules
+    _TEST_CASES_ = [
+        # (shape, x_strides, y_strides)
+        ((1, 32, 128), None, None),
+        ((10, 32, 64), None, None),
+        # # 昇腾暂不满足这个用例，最后一维度 <=32 会有问题，可能与其核心
+        # # 接口 GatherMask 的内部实现相关，目前 48 64 128 都可以支持
+        ((4, 1, 32), gguf_strides(64, 64, 1), None),
+        ((11, 33, 128), None, gguf_strides(8000, 200, 1)),
+        ((3, 32, 128), gguf_strides(8000, 200, 1), gguf_strides(7000, 128, 1)),
+    ]
+
+    _TENSOR_DTYPES_ = [np.float16, np.float32]
     test_writer = InfiniopTestWriter("rope.gguf")
     test_cases = []
 
