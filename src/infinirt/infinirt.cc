@@ -6,6 +6,7 @@
 #include "cuda/infinirt_cuda.cuh"
 #include "maca/infinirt_maca.h"
 #include "musa/infinirt_musa.h"
+#include "kunlun/infinirt_kunlun.h"
 
 thread_local infiniDevice_t CURRENT_DEVICE_TYPE = INFINI_DEVICE_CPU;
 thread_local int CURRENT_DEVICE_ID = 0;
@@ -66,8 +67,11 @@ __C infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_
         case INFINI_DEVICE_MOORE:                                      \
             _status = infinirt::musa::API PARAMS;                      \
             break;                                                     \
+        case INFINI_DEVICE_KUNLUN:                                     \
+            _status = infinirt::kunlun::API PARAMS;                    \
+            break;                                                     \
         default:                                                       \
-            return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;            \
+            _status = INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;            \
         }                                                              \
         { ACTION; }                                                    \
         return _status;                                                \
