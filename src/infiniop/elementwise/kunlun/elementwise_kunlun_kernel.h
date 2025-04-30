@@ -2,8 +2,6 @@
 #define __INFINIOP_ELEMENTWISE_KUNLUN_XPU__
 
 #include "../../devices/kunlun/kunlun_kernel_common.h"
-#include "xpu/kernel/xtdk_io.h"
-// #include <cstdio>
 
 using namespace device::kunlun::kernel;
 
@@ -16,8 +14,8 @@ struct InputIndexer {
     const bool *input_contiguous;
     const bool *input_broadcasted;
     const _size_t *input_shapes;
-    const ptrdiff_t *input_strides;
-    const ptrdiff_t *output_strides;
+    const _ptrdiff_t *input_strides;
+    const _ptrdiff_t *output_strides;
 
     __device__ size_t operator()(size_t input_id) const {
         return input_contiguous[input_id]
@@ -43,7 +41,7 @@ getOutputIndex(size_t idx,
                bool is_contiguous,
                size_t ndim,
                const _size_t *shape,
-               const ptrdiff_t *strides) {
+               const _ptrdiff_t *strides) {
     return is_contiguous ? idx : indexToOffset(idx, ndim, shape, strides);
 }
 
@@ -85,8 +83,8 @@ __global__ void elementwiseKernel(
     const bool *input_broadcasted_gm,
     const _size_t *output_shape_gm,
     const _size_t *input_shapes_gm,
-    const ptrdiff_t *output_strides_gm,
-    const ptrdiff_t *input_strides_gm,
+    const _ptrdiff_t *output_strides_gm,
+    const _ptrdiff_t *input_strides_gm,
     Tdata *output,
     const void *const *inputs,
     Args... args) {
@@ -113,10 +111,10 @@ __global__ void elementwiseKernel(
     __local__ bool input_broadcasted[N];
     // Input shape/strides
     __local__ _size_t input_shapes[N * ndim];
-    __local__ ptrdiff_t input_strides[N * ndim];
+    __local__ _ptrdiff_t input_strides[N * ndim];
     // Output shape/strides
     __local__ _size_t output_shape[ndim];
-    __local__ ptrdiff_t output_strides[ndim];
+    __local__ _ptrdiff_t output_strides[ndim];
     // Inputs gm ptr buf
     __local__ __global_ptr__ Tdata *typed_inputs_ptr[N];
 
@@ -124,9 +122,9 @@ __global__ void elementwiseKernel(
     GM2LM_ASYNC(input_contiguous_gm, input_contiguous, N * sizeof(bool));
     GM2LM_ASYNC(input_broadcasted_gm, input_broadcasted, N * sizeof(bool));
     GM2LM_ASYNC(input_shapes_gm, input_shapes, N * ndim * sizeof(_size_t));
-    GM2LM_ASYNC(input_strides_gm, input_strides, N * ndim * sizeof(ptrdiff_t));
+    GM2LM_ASYNC(input_strides_gm, input_strides, N * ndim * sizeof(_ptrdiff_t));
     GM2LM_ASYNC(output_shape_gm, output_shape, ndim * sizeof(_size_t));
-    GM2LM_ASYNC(output_strides_gm, output_strides, ndim * sizeof(ptrdiff_t));
+    GM2LM_ASYNC(output_strides_gm, output_strides, ndim * sizeof(_ptrdiff_t));
     GM2LM_ASYNC(typed_inputs, typed_inputs_ptr, N * sizeof(__global_ptr__ Tdata *));
     mfence();
 
@@ -173,8 +171,8 @@ __global__ void elementwiseKernel(
             reinterpret_cast<const bool *>(input_broadcasted),           \
             reinterpret_cast<const _size_t *>(output_shape),             \
             reinterpret_cast<const _size_t *>(input_shapes),             \
-            reinterpret_cast<const ptrdiff_t *>(output_strides),         \
-            reinterpret_cast<const ptrdiff_t *>(input_strides),          \
+            reinterpret_cast<const _ptrdiff_t *>(output_strides),         \
+            reinterpret_cast<const _ptrdiff_t *>(input_strides),          \
             reinterpret_cast<Tdata *>(output), inputs, args...);         \
     }
 

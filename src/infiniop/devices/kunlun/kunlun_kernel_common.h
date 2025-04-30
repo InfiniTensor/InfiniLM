@@ -31,8 +31,8 @@ inline __device__ void atomicAddF32(__shared_ptr__ float *ptr, float value) {
 inline __device__ size_t indexToReducedOffset(
     size_t flat_index,
     size_t ndim,
-    const ptrdiff_t *broadcasted_strides,
-    const ptrdiff_t *target_strides) {
+    const _ptrdiff_t *broadcasted_strides,
+    const _ptrdiff_t *target_strides) {
 
     size_t res = 0;
     for (size_t i = 0; i < ndim; ++i) {
@@ -47,7 +47,7 @@ inline __device__ size_t indexToOffset(
     size_t flat_index,
     size_t ndim,
     const _size_t *shape,
-    const ptrdiff_t *strides) {
+    const _ptrdiff_t *strides) {
 
     size_t res = 0;
     for (size_t i = ndim; i-- > 0;) {

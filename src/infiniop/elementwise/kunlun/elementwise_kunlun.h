@@ -54,7 +54,6 @@ struct DeviceImpl::Opaque {
             reinterpret_cast<const void *const *>(d_inputs_arr),
             stream,
             args...);
-        // std::forward<Args>(args)...);
 
         return INFINI_STATUS_SUCCESS;
     }
