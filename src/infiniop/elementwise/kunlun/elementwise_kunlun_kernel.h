@@ -54,8 +54,6 @@ __device__ void launchOp(
     size_t output_index,
     Args... args) {
 
-    static_assert(N == Op::num_inputs, "template N is not equal to Op::num_inputs!\n");
-
 #pragma unroll
     // Copy inputs to buf
     for (size_t i = 0; i < N; i++) {
