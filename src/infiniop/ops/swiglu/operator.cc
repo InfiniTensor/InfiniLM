@@ -11,6 +11,9 @@
 #ifdef ENABLE_KUNLUN_API
 #include "kunlun/swiglu_kunlun.h"
 #endif
+#ifdef ENABLE_METAX_API
+#include "maca/swiglu_maca.h"
+#endif
 #ifdef ENABLE_ASCEND_API
 #include "ascend/swiglu_ascend.h"
 #endif
@@ -39,8 +42,13 @@ __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
 #ifdef ENABLE_CUDA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
+        < < < < < < < HEAD
 #ifdef ENABLE_KUNLUN_API
-        CREATE(INFINI_DEVICE_KUNLUN, kunlun);
+                CREATE(INFINI_DEVICE_KUNLUN, kunlun);
+=======
+#ifdef ENABLE_METAX_API
+                CREATE(INFINI_DEVICE_METAX, maca);
+>>>>>>> f3a0177 (Migrate elementwise base from cuda to maca, and implement swiglu with test pass)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -84,13 +92,18 @@ __C infiniStatus_t infiniopGetSwiGLUWorkspaceSize(infiniopSwiGLUDescriptor_t des
         GET(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_CUDA_API
-        GET(INFINI_DEVICE_NVIDIA, cuda)
+    GET(INFINI_DEVICE_NVIDIA, cuda)
 #endif
+        < < < < < < < HEAD
 #ifdef ENABLE_KUNLUN_API
         GET(INFINI_DEVICE_KUNLUN, kunlun)
+=======
+#ifdef ENABLE_METAX_API
+                GET(INFINI_DEVICE_METAX, maca);
+>>>>>>> f3a0177 (Migrate elementwise base from cuda to maca, and implement swiglu with test pass)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
-    case DevCambriconMlu: {
+            case DevCambriconMlu: {
         return bangGetSwiGLUWorkspaceSize((SwiGLUBangDescriptor_t)desc, size);
     }
 #endif
@@ -136,8 +149,13 @@ __C infiniStatus_t infiniopSwiGLU(
 #ifdef ENABLE_CUDA_API
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
+        < < < < < < < HEAD
 #ifdef ENABLE_KUNLUN_API
-        CALCULATE(INFINI_DEVICE_KUNLUN, kunlun);
+                CALCULATE(INFINI_DEVICE_KUNLUN, kunlun);
+=======
+#ifdef ENABLE_METAX_API
+                CALCULATE(INFINI_DEVICE_METAX, maca);
+>>>>>>> f3a0177 (Migrate elementwise base from cuda to maca, and implement swiglu with test pass)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -179,8 +197,13 @@ infiniopDestroySwiGLUDescriptor(infiniopSwiGLUDescriptor_t desc) {
 #ifdef ENABLE_CUDA_API
         DELETE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
+        < < < < < < < HEAD
 #ifdef ENABLE_KUNLUN_API
-        DELETE(INFINI_DEVICE_KUNLUN, kunlun);
+                DELETE(INFINI_DEVICE_KUNLUN, kunlun);
+=======
+#ifdef ENABLE_METAX_API
+                DELETE(INFINI_DEVICE_METAX, maca);
+>>>>>>> f3a0177 (Migrate elementwise base from cuda to maca, and implement swiglu with test pass)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
