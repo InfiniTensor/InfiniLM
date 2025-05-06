@@ -24,7 +24,7 @@ public:
     }
 } SwiGLUOp;
 
-// Defination for swiglu kernel interface
+// Definition for swiglu kernel interface
 LAUNCH_ELEMENTWISE_KERNEL_IMPL(SwiGLU, SwiGLUOp)
 
 // Template instantiate
