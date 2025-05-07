@@ -17,7 +17,7 @@ public:
     template <typename... Args>
     static utils::Result<DeviceImpl *> create(Args &&...args);
 
-    template <unsigned int BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
+    template <uint32_t BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
     infiniStatus_t calculate(
         const op::elementwise::ElementwiseInfo &info,
         void *workspace,
@@ -26,7 +26,7 @@ public:
         void *stream,
         Args &&...args);
 
-    template <unsigned int BLOCK_SIZE, typename Op, typename Tout, typename... Tin,
+    template <uint32_t BLOCK_SIZE, typename Op, typename Tout, typename... Tin,
               typename... Args,
               std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
     infiniStatus_t calculate(

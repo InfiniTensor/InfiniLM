@@ -1,9 +1,4 @@
-#ifdef ENABLE_SUGON_MACA_API
-#define INFINIOP_MACA_KERNEL __launch_bounds__(512) __global__ void
-#else
 #define INFINIOP_MACA_KERNEL __global__ void
-#endif
-
 // Posible maximum number of threads per block for MACA architectures
 // Used for picking correct kernel launch configuration
 #define MACA_BLOCK_SIZE_1024 1024

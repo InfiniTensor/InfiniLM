@@ -107,7 +107,7 @@ struct DeviceImpl::Opaque {
     Opaque(const std::shared_ptr<device::maca::Handle::Internal> &internal)
         : internal(internal) {}
 
-    template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tdata, typename... Args>
+    template <uint32_t BLOCK_SIZE, size_t N, typename Op, typename Tdata, typename... Args>
     infiniStatus_t calculateImpl(const op::elementwise::ElementwiseInfo &info,
                                  void *workspace,
                                  void *output,
@@ -122,7 +122,7 @@ struct DeviceImpl::Opaque {
             std::forward<Args>(args)...);
     }
 
-    template <size_t BLOCK_SIZE, size_t N, typename Op, typename Tout, typename... Tin, typename... Args,
+    template <uint32_t BLOCK_SIZE, size_t N, typename Op, typename Tout, typename... Tin, typename... Args,
               std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
     infiniStatus_t calculateImpl(const op::elementwise::ElementwiseInfo &info,
                                  void *workspace,
@@ -174,7 +174,7 @@ private:
         return INFINI_STATUS_SUCCESS;
     }
 
-    template <size_t BLOCK_SIZE, size_t N, typename KernelFunc, typename Tout, typename... Args>
+    template <uint32_t BLOCK_SIZE, size_t N, typename KernelFunc, typename Tout, typename... Args>
     infiniStatus_t launchElementwiseKernel(
         const op::elementwise::ElementwiseInfo &info,
         void *workspace,
@@ -203,8 +203,8 @@ private:
                                      d_output_shape, d_output_strides,
                                      d_input_shapes, d_input_strides, stream));
 
-        dim3 blockDims(std::min(BLOCK_SIZE, static_cast<size_t>(internal->maxThreadsPerBlock())));
-        dim3 gridDims(std::min(CEIL_DIV(output_size, blockDims.x), static_cast<size_t>(internal->gridSizeX())));
+        dim3 blockDims(std::min(BLOCK_SIZE, static_cast<uint32_t>(internal->maxThreadsPerBlock())));
+        dim3 gridDims(std::min(uint32_t(CEIL_DIV(output_size, blockDims.x)), static_cast<uint32_t>(internal->gridSizeX())));
         size_t step = gridDims.x * blockDims.x;
 
         for (size_t i = 0; i < output_size; i += step) {
@@ -228,7 +228,7 @@ utils::Result<DeviceImpl *> DeviceImpl::create(Args &&...args) {
 }
 
 /* Invoke elementwise operation for different input types */
-template <unsigned int BLOCK_SIZE, typename Op, typename Tout, typename... Tin, typename... Args,
+template <uint32_t BLOCK_SIZE, typename Op, typename Tout, typename... Tin, typename... Args,
           std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int>>
 infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
                                      void *workspace,
@@ -245,7 +245,7 @@ infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &inf
 }
 
 /* Invoke elementwise operation when all inputs have the same dtype */
-template <unsigned int BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
+template <uint32_t BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
 infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &info,
                                      void *workspace,
                                      void *output,
