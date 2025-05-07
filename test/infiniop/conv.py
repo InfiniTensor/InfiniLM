@@ -95,6 +95,7 @@ def test(
     dilations,
     tensor_stride=None,
     tensor_dtype=torch.float16,
+    sync=None
 ):
     assert len(pads) == len(strides) == len(dilations)
     print(
@@ -118,8 +119,11 @@ def test(
     x_tensor = to_tensor(x, lib)
     w_tensor = to_tensor(w, lib)
     y_tensor = to_tensor(y, lib)
-    descriptor = infiniopConvDescriptor_t()
+    
+    if sync is not None:
+        sync()
 
+    descriptor = infiniopConvDescriptor_t()
     check_error(
         lib.infiniopCreateConvDescriptor(
             handle,

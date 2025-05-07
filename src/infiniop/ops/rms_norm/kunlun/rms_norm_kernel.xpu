@@ -1,8 +1,10 @@
 #ifndef __RMS_NORM_KUNLUN_KERNEL_XPU__
 #define __RMS_NORM_KUNLUN_KERNEL_XPU__
 
-#include "../../../devices/kunlun/kunlun_common.h"
+#include "../../../devices/kunlun/kunlun_kernel_common.h"
 #include "../../../reduce/kunlun/reduce_kunlun.h"
+
+using namespace device::kunlun::kernel;
 
 // Element wise mul used in x * w
 static inline __device__ void elementwiseMulRms(float *x, float *w, float *y, int count, float rms) {

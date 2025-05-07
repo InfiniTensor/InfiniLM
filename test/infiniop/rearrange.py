@@ -131,6 +131,7 @@ def test(
     x_stride,
     y_stride,
     dtype=torch.float16,
+    sync=None
 ):
     print(
         f"Testing Rerrange on {torch_device} with shape:{shape} x_stride:{x_stride} y_stride:{y_stride} dtype:{dtype}"
@@ -145,6 +146,9 @@ def test(
     ]
 
     x_tensor, y_tensor = [to_tensor(tensor, lib) for tensor in [x, y]]
+    
+    if sync is not None:
+        sync()
 
     descriptor = infiniopRearrangeDescriptor_t()
     check_error(

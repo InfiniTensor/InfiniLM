@@ -55,6 +55,7 @@ def test(
     tensor_shape,
     tensor_dtype=torch.float16,
     inplace=Inplace.OUT_OF_PLACE,
+    sync=None
 ):
     print(
         f"Testing Relu on {torch_device} with tensor_shape:{tensor_shape} dtype:{tensor_dtype} inplace: {inplace.name}"
@@ -78,8 +79,11 @@ def test(
 
     x_tensor = to_tensor(x, lib)
     y_tensor = to_tensor(y, lib) if inplace == Inplace.OUT_OF_PLACE else x_tensor
-    descriptor = infiniopReluDescriptor_t()
 
+    if sync is not None:
+        sync()    
+
+    descriptor = infiniopReluDescriptor_t()
     check_error(
         lib.infiniopCreateReluDescriptor(
             handle,

@@ -101,6 +101,7 @@ def test(
     v_stride=None,
     k_cache_stride=None,
     v_cache_stride=None,
+    sync=None
 ):
     print(
         f"Testing Attention on {torch_device} with n_q_head:{n_q_head} n_kv_head:{n_kv_head} seq_len:{seq_len} head_dim:{head_dim} pos:{pos} "
@@ -139,6 +140,9 @@ def test(
     v_tensor = to_tensor(v, lib)
     k_cache_tensor = to_tensor(k_cache, lib)
     v_cache_tensor = to_tensor(v_cache, lib)
+    
+    if sync is not None:
+        sync()
 
     descriptor = infiniopAttentionDescriptor_t()
     check_error(
