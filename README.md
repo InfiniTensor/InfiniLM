@@ -175,6 +175,10 @@ options:
     {
         "clangd.arguments": [
             "--compile-commands-dir=.vscode"
-        ]
+        ],
+        "xmake.additionalConfigArguments": [
+            // 在这里配置 XMAKE_CONFIG_FLAGS
+            "--nv-gpu=y"
+        ],
     }
     ```

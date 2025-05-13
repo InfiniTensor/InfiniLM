@@ -5,6 +5,9 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/random_sample_cpu.h"
 #endif
+#ifdef ENABLE_CUDA_API
+#include "cuda/random_sample_cuda.cuh"
+#endif
 
 __C infiniStatus_t infiniopCreateRandomSampleDescriptor(
     infiniopHandle_t handle,
@@ -25,6 +28,9 @@ __C infiniStatus_t infiniopCreateRandomSampleDescriptor(
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
+#ifdef ENABLE_CUDA_API
+        CREATE(INFINI_DEVICE_NVIDIA, cuda);
+#endif
 
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -38,15 +44,19 @@ __C infiniStatus_t infiniopGetRandomSampleWorkspaceSize(
     size_t *size) {
 
 #define GET(CASE, NAMESPACE)                                          \
-    case CASE:                                                        \
+    case CASE: {                                                      \
         using Ptr = const op::random_sample::NAMESPACE::Descriptor *; \
         *size = reinterpret_cast<Ptr>(desc)->minWorkspaceSize();      \
+    }                                                                 \
         return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {
 
 #ifdef ENABLE_CPU_API
         GET(INFINI_DEVICE_CPU, cpu);
+#endif
+#ifdef ENABLE_CUDA_API
+        GET(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 
     default:
@@ -82,6 +92,9 @@ __C infiniStatus_t infiniopRandomSample(
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
+#ifdef ENABLE_CUDA_API
+        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+#endif
 
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -102,6 +115,9 @@ __C infiniStatus_t infiniopDestroyRandomSampleDescriptor(
 
 #ifdef ENABLE_CPU_API
         DELETE(INFINI_DEVICE_CPU, cpu);
+#endif
+#ifdef ENABLE_CUDA_API
+        DELETE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 
     default:
