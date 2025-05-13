@@ -477,7 +477,7 @@ def get_test_devices(args):
 def get_sync_func(device):
     import torch
     
-    if device == "cpu":
+    if device == InfiniDeviceEnum.CPU:
         sync = None
     else:
         sync = getattr(torch, infiniDeviceEnum_str_map[device]).synchronize
