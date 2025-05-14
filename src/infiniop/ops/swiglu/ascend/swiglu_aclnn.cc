@@ -26,25 +26,26 @@ infiniStatus_t Descriptor::create(infiniopHandle_t handle, Descriptor **desc_ptr
     return INFINI_STATUS_SUCCESS;
 }
 
-extern "C" infiniStatus_t swiglu_kernel_launch(void *c, void *a, void *b,
-                                               int dtype, int batch, int seq, int hd,
-                                               int stride_batch_c, int stride_batch_a, int stride_batch_b,
-                                               int stride_seq_c, int stride_seq_a, int stride_seq_b, void *stream);
+extern "C" infiniStatus_t swiglu_kernel_launch(
+    void *c, void *a, void *b,
+    infiniDtype_t dtype, size_t batch, size_t seq, size_t hd,
+    ptrdiff_t stride_batch_c, ptrdiff_t stride_batch_a, ptrdiff_t stride_batch_b,
+    ptrdiff_t stride_seq_c, ptrdiff_t stride_seq_a, ptrdiff_t stride_seq_b, void *stream);
 
 infiniStatus_t Descriptor::calculate(void *workspace,
                                      size_t workspace_size,
                                      void *c,
                                      std::vector<const void *> inputs,
                                      void *stream) const {
-    int batch = _info.ndim == 2 ? 1 : _info.shape[0];
-    int seq_len = _info.ndim == 2 ? _info.shape[0] : _info.shape[1];
-    int hidden_size = _info.shape[_info.ndim - 1];
-    int stride_batch_c = _info.ndim == 2 ? 1 : _info.c_strides[0];
-    int stride_batch_a = _info.ndim == 2 ? 1 : _info.a_strides[0];
-    int stride_batch_b = _info.ndim == 2 ? 1 : _info.b_strides[0];
-    int stride_seq_c = _info.ndim == 2 ? _info.c_strides[0] : _info.c_strides[1];
-    int stride_seq_a = _info.ndim == 2 ? _info.a_strides[0] : _info.a_strides[1];
-    int stride_seq_b = _info.ndim == 2 ? _info.b_strides[0] : _info.b_strides[1];
+    auto batch = _info.ndim == 2 ? 1 : _info.shape[0];
+    auto seq_len = _info.ndim == 2 ? _info.shape[0] : _info.shape[1];
+    auto hidden_size = _info.shape[_info.ndim - 1];
+    auto stride_batch_c = _info.ndim == 2 ? 1 : _info.c_strides[0];
+    auto stride_batch_a = _info.ndim == 2 ? 1 : _info.a_strides[0];
+    auto stride_batch_b = _info.ndim == 2 ? 1 : _info.b_strides[0];
+    auto stride_seq_c = _info.ndim == 2 ? _info.c_strides[0] : _info.c_strides[1];
+    auto stride_seq_a = _info.ndim == 2 ? _info.a_strides[0] : _info.a_strides[1];
+    auto stride_seq_b = _info.ndim == 2 ? _info.b_strides[0] : _info.b_strides[1];
     auto status = swiglu_kernel_launch(c, (void *)inputs[0], (void *)inputs[1], _info.dtype, batch, seq_len, hidden_size, stride_batch_c, stride_batch_a, stride_batch_b, stride_seq_c, stride_seq_a, stride_seq_b, stream);
     return status;
 }

@@ -39,11 +39,11 @@ public:
         }
         return utils::Result<SwigluInfo>(SwigluInfo{
             c_desc->dtype(),
-            std::move(c_desc->shape()),
+            c_desc->shape(),
             ndim,
-            std::move(c_desc->strides()),
-            std::move(a_desc->strides()),
-            std::move(b_desc->strides()),
+            c_desc->strides(),
+            a_desc->strides(),
+            b_desc->strides(),
         });
     }
 };
