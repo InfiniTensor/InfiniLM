@@ -72,7 +72,7 @@ fn test_infer() {
                 queue_alloc.queue().memcpy_d2d(
                     &mut embd.get_mut()[i * d..][..d],
                     &token_embd[tok as usize * d..][..d],
-                )
+                );
             }
             let mut idx =
                 Tensor::new(types::U32, &[1, input.len()]).map(|len| ctx.malloc::<u8>(len));

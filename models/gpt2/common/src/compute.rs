@@ -401,7 +401,7 @@ where
                 v_cache_layout: vc.layout(),
                 v_cache_base: vc.base_mut(),
                 mask: AttnMask::Causal,
-                pos: pos.into(),
+                pos,
             },
             workspace,
             queue_alloc,

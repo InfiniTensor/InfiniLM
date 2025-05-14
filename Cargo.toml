@@ -30,7 +30,7 @@ tensor.path = "tensor"
 causal-lm.path = "causal-lm"
 test-utils.path = "test-utils"
 
-ggus = "0.4"
+ggus = { git = "https://github.com/InfiniTensor/gguf", rev = "23c362f" }
 ndarray-layout = "0.1"
 log = "0.4"
 regex = "1.11"
@@ -38,7 +38,7 @@ itertools = "0.13"
 env_logger = "0.11"
 build-script-cfg = "0.0"
 
-operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "8712870", default-features = false }
+operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "c4be5d0", default-features = false }
 
 search-cl-tools = { git = "https://github.com/InfiniTensor/clrt", rev = "f69b160" }
 search-infini-tools = { git = "https://github.com/InfiniTensor/infini-rt", rev = "e8362c3" }

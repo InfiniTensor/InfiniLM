@@ -100,7 +100,7 @@ fn test_infer() {
                 queue_alloc.queue().memcpy_d2d(
                     &mut embd.get_mut()[i * d..][..d],
                     &token_embd[tok as usize * d..][..d],
-                )
+                );
             }
 
             worker

@@ -1,8 +1,8 @@
 ﻿use crate::Tensor;
-use ggus::ggml_quants::digit_layout::{types as ty, DigitLayout};
+use ggus::ggml_quants::digit_layout::types as ty;
 use operators::{
     random_sample::{self, Indices, RandomSample as Trait, SampleArgs},
-    Hardware, LaunchError, QueueAlloc, SchemeError, TopoNode,
+    Hardware, LaunchError, QueueAlloc, TopoNode,
 };
 use std::{
     marker::PhantomData,
@@ -27,11 +27,6 @@ where
 
     pub fn new(node: &impl TopoNode<H>) -> Self {
         Self(Op::new(node.processor()), PhantomData)
-    }
-
-    pub fn scheme(&mut self, dt: DigitLayout, nvoc: usize) -> Result<usize, SchemeError> {
-        self.0
-            .scheme(&random_sample::Args::layout(dt, nvoc), usize::MAX)
     }
 
     pub fn launch<Pair, L, I, QA>(
