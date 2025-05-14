@@ -191,7 +191,7 @@ pub fn test_infer(
         [
             cell(name).bold(true),
             cell(n),
-            cell(format!("{:.3?}", time)),
+            cell(format!("{time:.3?}")),
             cell(format!("{:.3?}", time.div_f64(n as _))),
         ]
     }

@@ -59,7 +59,7 @@ fn test_infer() {
         queue_alloc.put((free.0 >> 30) << 30);
         let weights = Weights::new(&model, Distribution::MONO, ctx);
 
-        let mut worker = Worker::new(0, &gpu, meta.clone(), weights);
+        let mut worker = Worker::new(0, gpu, meta.clone(), weights);
         let mut cache = meta.kv_cache(nctx).map(|size| ctx.malloc::<u8>(size));
         let indices = RandomSample::build_indices(nvoc, &queue_alloc);
         let sample = RandomSample::new(gpu);
@@ -78,7 +78,7 @@ fn test_infer() {
                 Tensor::new(types::U32, &[1, input.len()]).map(|len| ctx.malloc::<u8>(len));
             queue_alloc
                 .queue()
-                .memcpy_h2d(&mut idx.get_mut(), postion(input.len(), pos).get());
+                .memcpy_h2d(idx.get_mut(), postion(input.len(), pos).get());
             worker
                 .launch(
                     gpt2::args::Args {
@@ -129,8 +129,8 @@ fn postion(d: usize, pos: usize) -> Tensor<Blob> {
     let (&mut [], data, &mut []) = (unsafe { ans.get_mut().align_to_mut::<u32>() }) else {
         panic!()
     };
-    for i in 0..d {
-        data[i] = (pos + i) as u32;
+    for (i, data) in data.iter_mut().enumerate().take(d) {
+        *data = (pos + i) as _
     }
     ans
 }

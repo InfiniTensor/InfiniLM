@@ -9,7 +9,7 @@ use operators::{
     random_sample::{KVPair, SampleArgs},
     Alloc, QueueAlloc,
 };
-use std::{slice::from_raw_parts_mut, time::Instant, usize};
+use std::{slice::from_raw_parts_mut, time::Instant};
 use test_utils::{Inference, TokenizerAndPrompt};
 
 type Worker<'w> = LlamaWorker<Operators, Weights<'w>>;
@@ -85,7 +85,7 @@ fn test_infer() {
         // 去除 64MiB 以下的零头
         queue_alloc.put(free.0 & !((64 << 20) - 1));
 
-        let mut worker = Worker::new(0, &gpu, meta.clone(), weights);
+        let mut worker = Worker::new(0, gpu, meta.clone(), weights);
         let sin_cos =
             <Operators as llama::Operators>::build_sin_cos(dt_embd, nctx, dh, &queue_alloc);
         let indices = RandomSample::build_indices(nvoc, &queue_alloc);
