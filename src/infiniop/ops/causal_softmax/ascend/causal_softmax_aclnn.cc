@@ -97,7 +97,8 @@ infiniStatus_t Descriptor::create(
     CHECK_ACL(aclnnSoftmaxGetWorkspaceSize(tx, dim, ty, &workspacesize_softmax, &executor));
 
     // Create the descriptor
-    size_t all_workspacesize = workspacesize_softmax + workspacesize_mask;
+    size_t all_workspacesize = std::max(workspacesize_softmax, workspacesize_mask);
+
     *desc_ptr = new Descriptor(new Opaque{x, mask, y, value, mask_addr, value_addr},
                                std::move(info), all_workspacesize, handle_ascend->device, handle_ascend->device_id);
 
@@ -127,7 +128,6 @@ infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size, voi
     AclSetTensorAddr(mask_executor, 2, tvalue, _opaque->value_addr);
     CHECK_ACL(aclnnInplaceMaskedFillTensorGetWorkspaceSize(tx, tmask, tvalue, &workspacesize_mask, &mask_executor));
     CHECK_ACL(aclnnInplaceMaskedFillTensor(workspace, workspacesize_mask, mask_executor, stream));
-    CHECK_ACL(aclrtSynchronizeStream(stream));
 
     AclSetTensorAddr(executor, 0, tx, (void *)x);
     AclSetTensorAddr(executor, 1, ty, y);

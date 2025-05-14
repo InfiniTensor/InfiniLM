@@ -476,10 +476,11 @@ def get_test_devices(args):
 
 def get_sync_func(device):
     import torch
+    device_str = infiniDeviceEnum_str_map[device]
     
-    if device == "cpu":
+    if device_str == "cpu":
         sync = None
     else:
-        sync = getattr(torch, infiniDeviceEnum_str_map[device]).synchronize
+        sync = getattr(torch, device_str).synchronize
     
     return sync

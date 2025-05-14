@@ -5,10 +5,16 @@
 namespace op::rearrange::ascend {
 
 struct Descriptor::Opaque {
-    aclDataType dt;
-    std::vector<int64_t> shape;
-    std::vector<int64_t> dst_strides;
-    std::vector<int64_t> src_strides;
+    aclnnTensorDescriptor_t dst;
+    aclnnTensorDescriptor_t src;
+    void *workspace; // aclnnInplaceCopy workspace
+    uint64_t workspace_size;
+    ~Opaque() {
+        delete dst;
+        delete src;
+
+        aclrtFree(workspace);
+    }
 };
 
 Descriptor::~Descriptor() {
@@ -37,24 +43,31 @@ infiniStatus_t Descriptor::create(
     auto result = utils::RearrangeMeta::create(shape.data(), dst_strides.data(), src_strides.data(), ndim, element_size);
     CHECK_RESULT(result);
 
-    std::vector<int64_t> shape_(ndim);
-    std::vector<int64_t> dst_strides_(ndim);
-    std::vector<int64_t> src_strides_(ndim);
-    for (size_t i = 0; i < ndim; i++) {
-        shape_[i] = static_cast<int64_t>(shape[i]);
-        dst_strides_[i] = static_cast<int64_t>(dst_strides[i]);
-        src_strides_[i] = static_cast<int64_t>(src_strides[i]);
+    aclnnTensorDescriptor_t dst = new aclnnTensorDescriptor(y_desc);
+    aclnnTensorDescriptor_t src = new aclnnTensorDescriptor(x_desc);
+
+    uint64_t workspace_size = 0;
+    aclOpExecutor *executor = nullptr;
+    void *workspace = nullptr;
+    aclnnInplaceCopyGetWorkspaceSize(dst->tensor, src->tensor,
+                                     &workspace_size, &executor);
+    if (workspace_size != 0) {
+        CHECK_ACL(aclrtMalloc(&workspace, workspace_size, ACL_MEM_MALLOC_HUGE_FIRST));
     }
 
     *desc_ptr = new Descriptor(
         result.take(),
         new Opaque{
-            toAclDataType(dtype),
-            shape_,
-            dst_strides_,
-            src_strides_},
+            dst,
+            src,
+            workspace,
+            workspace_size},
         handle->device,
         handle->device_id);
+
+    // Delete useless executor
+    aclDestroyAclOpExecutor(executor);
+
     return INFINI_STATUS_SUCCESS;
 }
 
@@ -62,20 +75,19 @@ infiniStatus_t Descriptor::calculate(
     void *y,
     const void *x,
     void *stream) const {
+    auto tdst = _opaque->dst->tensor;
+    auto tsrc = _opaque->src->tensor;
 
-    auto y_ = aclnnTensorDescriptor(_opaque->dt, _opaque->shape, _opaque->dst_strides, y);
-    auto x_ = aclnnTensorDescriptor(_opaque->dt, _opaque->shape, _opaque->src_strides, (void *)x);
-
-    auto ty = y_.tensor;
-    auto tx = x_.tensor;
-    size_t workspace_size = 0;
+    uint64_t workspace_size = 0;
     aclOpExecutor *executor = nullptr;
-    void *workspace = nullptr;
-    CHECK_ACL(aclnnInplaceCopyGetWorkspaceSize(ty, tx, &workspace_size, &executor));
-    if (workspace_size != 0) {
-        CHECK_ACL(aclrtMalloc(&workspace, workspace_size, ACL_MEM_MALLOC_HUGE_FIRST));
-    }
-    CHECK_ACL(aclnnInplaceCopy(workspace, workspace_size, executor, stream));
+
+    AclSetTensorAddr(executor, 0, tdst, y);
+    AclSetTensorAddr(executor, 1, tsrc, (void *)x);
+    CHECK_ACL(aclnnInplaceCopyGetWorkspaceSize(tdst, tsrc, &workspace_size, &executor));
+    // Execute InplaceCopy
+    CHECK_ACL(aclnnInplaceCopy(_opaque->workspace, _opaque->workspace_size,
+                               executor, stream));
+
     return INFINI_STATUS_SUCCESS;
 }
 

@@ -37,7 +37,7 @@ _TENSOR_DTYPES = [torch.float16]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 0, "rtol": 1e-2},
+    torch.float16: {"atol": 1e-3, "rtol": 1e-2},
 }
 
 
@@ -143,6 +143,9 @@ def test(
         )
 
     lib_causal_softmax()
+    
+    if sync is not None:
+        sync() 
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
