@@ -1,0 +1,20 @@
+local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
+
+target("infinicore_infer")
+    set_kind("shared")
+
+    add_includedirs(INFINI_ROOT.."/include")
+    add_linkdirs(INFINI_ROOT.."/lib")
+    add_links("infiniop", "infinirt", "infiniccl")
+
+    set_languages("cxx17")
+    set_warnings("all", "error")
+
+    add_files("src/models/*/*.cpp")
+    add_files("src/tensor/*.cpp")
+    add_includedirs("include")
+
+    set_installdir(INFINI_ROOT)
+    add_installfiles("include/infinicore_infer.h", {prefixdir = "include"})
+    add_installfiles("include/infinicore_infer/*.h", {prefixdir = "include/infinicore_infer"})
+target_end()

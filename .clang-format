@@ -1,0 +1,30 @@
+---
+BasedOnStyle: LLVM
+IndentWidth: 4                        # 缩进宽度，LLVM 默认值为 2，改为 4
+AccessModifierOffset: -4              # public/protected/private 访问控制符相对成员的偏移，与 IndentWidth 配合，LLVM 默认值为 -2
+AlignOperands: AlignAfterOperator     # 双目运算符的行间对齐，LLVM 默认值为 Align，改为带符号一起换行
+BreakBeforeBinaryOperators: All       # 在双目运算符之前换行，LLVM 默认值为 None，改为换行时总是把双目运算符放在行首，包括赋值（=）
+ColumnLimit: 0                        # 列宽限制，LLVM 默认值为 80，改为不限制
+AllowShortBlocksOnASingleLine: Always # 是否允许短块（单个语句的块）不换行，LLVM 默认值为 Never，改为允许
+AllowShortLoopsOnASingleLine: true    # 是否允许短循环不换行，LLVM 默认值为 false，改为允许
+InsertBraces: true                    # 是否在 if/for/while/switch 等语句后插入大括号，LLVM 默认值为 false，改为允许
+BreakBeforeBraces: Custom             # 大括号换行配置，LLVM 默认值为 LLVM，改为自定义以使 BraceWrapping 生效
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: false
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
