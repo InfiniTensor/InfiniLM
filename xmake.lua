@@ -16,5 +16,5 @@ target("infinicore_infer")
 
     set_installdir(INFINI_ROOT)
     add_installfiles("include/infinicore_infer.h", {prefixdir = "include"})
-    add_installfiles("include/infinicore_infer/*.h", {prefixdir = "include/infinicore_infer"})
+    add_installfiles("include/infinicore_infer/models/*.h", {prefixdir = "include/infinicore_infer/models"})
 target_end()

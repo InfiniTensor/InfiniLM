@@ -1,4 +1,5 @@
 from ctypes import POINTER, c_uint, c_void_p, byref
+import sys
 import time
 from libinfinicore_infer import (
     JiugeMeta,
@@ -243,3 +244,38 @@ class JiugeForCauslLM:
         for kv_cache in kv_caches:
             drop_kv_cache(self.model_instance, kv_cache)
         return output_content, avg_time
+
+
+def test():
+    if len(sys.argv) < 3:
+        print(
+            "Usage: python test_llama.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+        )
+        sys.exit(1)
+    model_path = sys.argv[2]
+    device_type = DeviceType.DEVICE_TYPE_CPU
+    if sys.argv[1] == "--cpu":
+        device_type = DeviceType.DEVICE_TYPE_CPU
+    elif sys.argv[1] == "--nvidia":
+        device_type = DeviceType.DEVICE_TYPE_NVIDIA
+    elif sys.argv[1] == "--cambricon":
+        device_type = DeviceType.DEVICE_TYPE_CAMBRICON
+    elif sys.argv[1] == "--ascend":
+        device_type = DeviceType.DEVICE_TYPE_ASCEND
+    elif sys.argv[1] == "--metax":
+        device_type = DeviceType.DEVICE_TYPE_METAX
+    elif sys.argv[1] == "--moore":
+        device_type = DeviceType.DEVICE_TYPE_MOORE
+    else:
+        print(
+            "Usage: python test_llama.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+        )
+        sys.exit(1)
+
+    ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    model = JiugeForCauslLM(model_path, device_type, ndev)
+    model.generate("<用户>讲个长故事<AI>", 500)
+
+
+if __name__ == "__main__":
+    test()
