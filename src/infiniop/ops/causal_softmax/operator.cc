@@ -9,7 +9,7 @@
 #include "cuda/causal_softmax_cuda.cuh"
 #endif
 #ifdef ENABLE_ASCEND_API
-#include "ascend/causal_softmax_aclnn.h"
+#include "ascend/causal_softmax_ascend.h"
 #endif
 
 __C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(

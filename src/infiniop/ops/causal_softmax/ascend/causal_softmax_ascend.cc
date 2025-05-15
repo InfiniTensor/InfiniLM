@@ -1,4 +1,4 @@
-#include "causal_softmax_aclnn.h"
+#include "causal_softmax_ascend.h"
 #include "../../../devices/ascend/common_ascend.h"
 #include <aclnnop/aclnn_masked_fill_tensor.h>
 #include <aclnnop/aclnn_softmax.h>
