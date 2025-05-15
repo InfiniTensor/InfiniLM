@@ -1,4 +1,4 @@
-#include "swiglu_aclnn.h"
+#include "swiglu_ascend.h"
 #include "../../../devices/ascend/common_ascend.h"
 
 namespace op::swiglu::ascend {

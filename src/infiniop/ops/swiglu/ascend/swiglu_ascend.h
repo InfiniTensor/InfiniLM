@@ -20,23 +20,22 @@ public:
     std::vector<ptrdiff_t> b_strides;
 
     static utils::Result<SwigluInfo> create(infiniopTensorDescriptor_t c_desc, infiniopTensorDescriptor_t a_desc, infiniopTensorDescriptor_t b_desc) {
-        if (!c_desc || !a_desc || !b_desc) {
-            return INFINI_STATUS_BAD_PARAM;
-        }
-        if (c_desc->hasBroadcastDim()) {
-            return INFINI_STATUS_BAD_TENSOR_STRIDES;
-        }
-        if (c_desc->ndim() != a_desc->ndim() || c_desc->ndim() != b_desc->ndim() || (c_desc->ndim() != 2 && c_desc->ndim() != 3)) {
-            return INFINI_STATUS_BAD_TENSOR_SHAPE;
-        }
+        CHECK_OR_RETURN(c_desc && a_desc && b_desc, INFINI_STATUS_BAD_PARAM);
+        CHECK_OR_RETURN(!c_desc->hasBroadcastDim(), INFINI_STATUS_BAD_TENSOR_STRIDES);
+        CHECK_OR_RETURN(c_desc->ndim() == a_desc->ndim()
+                            && c_desc->ndim() == b_desc->ndim()
+                            && (c_desc->ndim() == 2 || c_desc->ndim() == 3),
+                        INFINI_STATUS_BAD_TENSOR_SHAPE);
         CHECK_SAME_SHAPE(c_desc->shape(), a_desc->shape(), b_desc->shape());
         int32_t ndim = c_desc->ndim();
-        if (c_desc->stride(ndim - 1) != 1 || a_desc->stride(ndim - 1) != 1 || b_desc->stride(ndim - 1) != 1) {
-            return INFINI_STATUS_BAD_TENSOR_STRIDES;
-        }
-        if (c_desc->dtype() != a_desc->dtype() || c_desc->dtype() != b_desc->dtype()) {
-            return INFINI_STATUS_BAD_TENSOR_DTYPE;
-        }
+        CHECK_OR_RETURN(c_desc->stride(ndim - 1) == 1
+                            && a_desc->stride(ndim - 1) == 1
+                            && b_desc->stride(ndim - 1) == 1,
+                        INFINI_STATUS_BAD_TENSOR_STRIDES);
+        CHECK_OR_RETURN(c_desc->dtype() == a_desc->dtype()
+                            && c_desc->dtype() == b_desc->dtype(),
+                        INFINI_STATUS_BAD_TENSOR_DTYPE);
+
         return utils::Result<SwigluInfo>(SwigluInfo{
             c_desc->dtype(),
             c_desc->shape(),

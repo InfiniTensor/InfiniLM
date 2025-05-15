@@ -12,7 +12,7 @@
 #include "kunlun/swiglu_kunlun.h"
 #endif
 #ifdef ENABLE_ASCEND_API
-#include "ascend/swiglu_aclnn.h"
+#include "ascend/swiglu_ascend.h"
 #endif
 
 __C infiniStatus_t infiniopCreateSwiGLUDescriptor(
