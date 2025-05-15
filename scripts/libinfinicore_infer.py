@@ -79,13 +79,13 @@ class KVCache(ctypes.Structure):
     pass
 
 
-def open_library():
+def __open_library__():
     lib_path = os.path.join(
         os.environ.get("INFINI_ROOT"), "lib", "libinfinicore_infer.so"
     )
     lib = ctypes.CDLL(lib_path)
-    lib.create_JiugeModel.restype = POINTER(JiugeModel)
-    lib.create_JiugeModel.argtypes = [
+    lib.createJiugeModel.restype = POINTER(JiugeModel)
+    lib.createJiugeModel.argtypes = [
         POINTER(JiugeMeta),  # JiugeMeta const *
         POINTER(JiugeWeights),  # JiugeWeights const *
         DeviceType,  # DeviceType
@@ -93,8 +93,8 @@ def open_library():
         POINTER(c_int),  # int const *dev_ids
     ]
 
-    lib.create_kv_cache.restype = POINTER(KVCache)
-    lib.drop_kv_cache.argtypes = [ctypes.POINTER(JiugeModel), POINTER(KVCache)]
+    lib.createKVCache.restype = POINTER(KVCache)
+    lib.dropKVCache.argtypes = [ctypes.POINTER(JiugeModel), POINTER(KVCache)]
     lib.inferBatch.restype = None
     lib.inferBatch.argtypes = [
         ctypes.POINTER(JiugeModel),  # struct JiugeModel const *
@@ -111,3 +111,11 @@ def open_library():
     ]
 
     return lib
+
+
+LIB = __open_library__()
+
+create_jiuge_model = LIB.createJiugeModel
+create_kv_cache = LIB.createKVCache
+drop_kv_cache = LIB.dropKVCache
+infer_batch = LIB.inferBatch
