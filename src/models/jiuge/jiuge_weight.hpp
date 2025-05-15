@@ -4,21 +4,21 @@
 #include "jiuge_impl.hpp"
 
 #include <cmath>
-inline std::shared_ptr<Tensor> get_in_embd(
+inline std::shared_ptr<Tensor> getInEmbd(
     JiugeMeta const *meta,
     JiugeWeights const *w) {
     auto shape = std::vector<size_t>({meta->dvoc, meta->d});
     return Tensor::weight((char *)w->input_embd, meta->dt_logits, shape);
 }
 
-inline std::shared_ptr<Tensor> get_out_norm(
+inline std::shared_ptr<Tensor> getOutNorm(
     JiugeMeta const *meta,
     JiugeWeights const *w) {
     auto shape = std::vector<size_t>({meta->d});
     return Tensor::weight((char *)w->output_norm, meta->dt_norm, shape);
 }
 
-inline std::shared_ptr<Tensor> get_out_embd(
+inline std::shared_ptr<Tensor> getOutEmbd(
     JiugeMeta const *meta,
     JiugeWeights const *w) {
     auto shape = std::vector<size_t>({meta->dvoc, meta->d});
@@ -26,7 +26,7 @@ inline std::shared_ptr<Tensor> get_out_embd(
         ->permute({1, 0});
 }
 
-inline std::shared_ptr<Tensor> get_attn_norm(
+inline std::shared_ptr<Tensor> getAttnNorm(
     JiugeMeta const *meta,
     JiugeWeights const *w,
     size_t layer) {
@@ -34,7 +34,7 @@ inline std::shared_ptr<Tensor> get_attn_norm(
     return Tensor::weight((char *)(w->attn_norm[layer]), meta->dt_norm, shape);
 }
 
-inline std::shared_ptr<Tensor> get_attn_qkv(
+inline std::shared_ptr<Tensor> getAttnQKV(
     JiugeMeta const *meta,
     JiugeWeights const *w,
     size_t layer, size_t idev, size_t ndev) {
@@ -48,7 +48,7 @@ inline std::shared_ptr<Tensor> get_attn_qkv(
         ->permute({1, 0});
 }
 
-inline std::shared_ptr<Tensor> get_attn_qkv_bias(
+inline std::shared_ptr<Tensor> getAttnQKVBias(
     JiugeMeta const *meta,
     JiugeWeights const *w,
     size_t layer, size_t idev, size_t ndev) {
@@ -60,9 +60,9 @@ inline std::shared_ptr<Tensor> get_attn_qkv_bias(
     return Tensor::weight((char *)(w->attn_qkv_b[layer]) + offset, meta->dt_mat, shape);
 }
 
-inline std::shared_ptr<Tensor> get_attn_o(JiugeMeta const *meta,
-                                          JiugeWeights const *w, size_t layer,
-                                          size_t idev, size_t ndev) {
+inline std::shared_ptr<Tensor> getAttnO(JiugeMeta const *meta,
+                                        JiugeWeights const *w, size_t layer,
+                                        size_t idev, size_t ndev) {
     auto nh = meta->nh;
     auto dh = meta->dh;
     auto d = meta->d;
@@ -72,7 +72,7 @@ inline std::shared_ptr<Tensor> get_attn_o(JiugeMeta const *meta,
         ->permute({1, 0});
 }
 
-inline std::shared_ptr<Tensor> get_ffn_norm(
+inline std::shared_ptr<Tensor> getFFNNorm(
     JiugeMeta const *meta,
     JiugeWeights const *w,
     size_t layer) {
@@ -80,7 +80,7 @@ inline std::shared_ptr<Tensor> get_ffn_norm(
     return Tensor::weight((char *)(w->ffn_norm[layer]), meta->dt_norm, shape);
 }
 
-inline std::shared_ptr<Tensor> get_ffn_gate_up(
+inline std::shared_ptr<Tensor> getFFNGateUp(
     JiugeMeta const *meta,
     JiugeWeights const *w,
     size_t layer, size_t idev, size_t ndev) {
@@ -93,7 +93,7 @@ inline std::shared_ptr<Tensor> get_ffn_gate_up(
         ->permute({1, 0});
 }
 
-inline std::shared_ptr<Tensor> get_ffn_down(
+inline std::shared_ptr<Tensor> getFFNDown(
     JiugeMeta const *meta,
     JiugeWeights const *w,
     size_t layer, size_t idev, size_t ndev) {
@@ -105,7 +105,7 @@ inline std::shared_ptr<Tensor> get_ffn_down(
         ->permute({1, 0});
 }
 
-inline std::shared_ptr<Tensor> get_sin_table(JiugeMeta const *meta) {
+inline std::shared_ptr<Tensor> getSinTable(JiugeMeta const *meta) {
     float *table = (float *)std::malloc(meta->dctx * meta->dh * sizeof(float));
     auto half_dh = meta->dh / 2;
     for (size_t i = 0; i < meta->dctx; i++) {
@@ -122,7 +122,7 @@ inline std::shared_ptr<Tensor> get_sin_table(JiugeMeta const *meta) {
     return tensor;
 }
 
-inline std::shared_ptr<Tensor> get_cos_table(JiugeMeta const *meta) {
+inline std::shared_ptr<Tensor> getCosTable(JiugeMeta const *meta) {
     float *table = (float *)std::malloc(meta->dctx * meta->dh * sizeof(float));
     auto half_dh = meta->dh / 2;
     for (size_t i = 0; i < meta->dctx; i++) {

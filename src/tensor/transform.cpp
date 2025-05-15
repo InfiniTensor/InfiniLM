@@ -4,7 +4,7 @@
 #include <numeric>
 #include <vector>
 
-std::shared_ptr<Tensor> Tensor::slice_impl(const std::vector<SliceParams> &slices) const {
+std::shared_ptr<Tensor> Tensor::sliceImpl(const std::vector<SliceParams> &slices) const {
     std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
 
     auto new_shape = std::vector<size_t>(this->_shape);
@@ -32,22 +32,22 @@ std::shared_ptr<Tensor> Tensor::slice_impl(const std::vector<SliceParams> &slice
 }
 
 std::shared_ptr<Tensor> Tensor::slice(size_t dim, size_t start, size_t len) {
-    return this->slice_impl({{dim, start, len}});
+    return this->sliceImpl({{dim, start, len}});
 }
 
 std::shared_ptr<Tensor const> Tensor::slice(size_t dim, size_t start, size_t len) const {
-    return this->slice_impl({{dim, start, len}});
+    return this->sliceImpl({{dim, start, len}});
 }
 
 std::shared_ptr<Tensor> Tensor::slice(const std::vector<SliceParams> &slices) {
-    return this->slice_impl(slices);
+    return this->sliceImpl(slices);
 }
 
 std::shared_ptr<Tensor const> Tensor::slice(const std::vector<SliceParams> &slices) const {
-    return this->slice_impl(slices);
+    return this->sliceImpl(slices);
 }
 
-std::shared_ptr<Tensor> Tensor::dim_merge(size_t dim_start, size_t dim_end) {
+std::shared_ptr<Tensor> Tensor::dimMerge(size_t dim_start, size_t dim_end) {
     ASSERT(dim_start <= dim_end && dim_end < this->_shape.size());
     if (dim_start == dim_end) {
         return shared_from_this();
@@ -77,7 +77,7 @@ std::shared_ptr<Tensor> Tensor::dim_merge(size_t dim_start, size_t dim_end) {
     return shared_from_this();
 }
 
-std::shared_ptr<Tensor> Tensor::dim_split(size_t dim, const std::vector<size_t> &dims) {
+std::shared_ptr<Tensor> Tensor::dimSplit(size_t dim, const std::vector<size_t> &dims) {
     ASSERT_EQ(this->_shape[dim], std::accumulate(dims.begin(), dims.end(), size_t(1), std::multiplies<size_t>()));
     auto new_shape = std::vector<size_t>();
     auto new_strides = std::vector<ptrdiff_t>();

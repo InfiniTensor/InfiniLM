@@ -48,9 +48,9 @@ private:
     std::shared_ptr<Storage> storage;
     infiniopTensorDescriptor_t _desc;
 
-    void *data_impl(ptrdiff_t offset) const;
+    void *dataImpl(ptrdiff_t offset) const;
     std::shared_ptr<Tensor>
-    slice_impl(const std::vector<SliceParams> &slices) const;
+    sliceImpl(const std::vector<SliceParams> &slices) const;
 
 public:
     static std::shared_ptr<Tensor> buffer(infiniDtype_t dtype,
@@ -65,23 +65,23 @@ public:
     std::shared_ptr<Tensor> slice(const std::vector<SliceParams> &slices);
     std::shared_ptr<Tensor const>
     slice(const std::vector<SliceParams> &slices) const;
-    std::shared_ptr<Tensor> dim_merge(size_t dim_start, size_t dim_end);
-    std::shared_ptr<Tensor> dim_split(size_t dim,
-                                      const std::vector<size_t> &dims);
+    std::shared_ptr<Tensor> dimMerge(size_t dim_start, size_t dim_end);
+    std::shared_ptr<Tensor> dimSplit(size_t dim,
+                                     const std::vector<size_t> &dims);
     std::shared_ptr<Tensor> permute(const std::vector<size_t> &order);
     void *data(ptrdiff_t offset = 0);
     void const *data(ptrdiff_t offset = 0) const;
-    void copy_from(std::shared_ptr<Tensor const> src, infiniopHandle_t handle,
-                   infinirtStream_t stream = nullptr);
+    void copyFrom(std::shared_ptr<Tensor const> src, infiniopHandle_t handle,
+                  infinirtStream_t stream = nullptr);
     const std::vector<size_t> &shape() const;
     const std::vector<ptrdiff_t> &strides() const;
     size_t ndim() const;
     infiniDtype_t dtype() const;
     std::shared_ptr<TensorDesc> desc() const;
-    size_t byte_size() const;
-    ptrdiff_t data_offset() const;
-    infiniDevice_t device_type() const;
-    int device_id() const;
+    size_t byteSize() const;
+    ptrdiff_t dataOffset() const;
+    infiniDevice_t deviceType() const;
+    int deviceId() const;
     bool is_contigous() const;
 
     void debug(const std::string &filename) const;

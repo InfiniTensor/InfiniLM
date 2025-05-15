@@ -32,13 +32,13 @@ __C struct KVCache *duplicateKVCache(const JiugeModel *model,
         for (unsigned int layer = 0; layer < model->meta.nlayer; layer++) {
             new_kv_cache->k[idev][layer]
                 ->slice(1, 0, seq_len)
-                ->copy_from(kv_cache->k[idev][layer]->slice(1, 0, seq_len),
-                            model->dev_resources[idev].handle);
+                ->copyFrom(kv_cache->k[idev][layer]->slice(1, 0, seq_len),
+                           model->dev_resources[idev].handle);
 
             new_kv_cache->v[idev][layer]
                 ->slice(1, 0, seq_len)
-                ->copy_from(kv_cache->v[idev][layer]->slice(1, 0, seq_len),
-                            model->dev_resources[idev].handle);
+                ->copyFrom(kv_cache->v[idev][layer]->slice(1, 0, seq_len),
+                           model->dev_resources[idev].handle);
         }
     }
     return new_kv_cache;

@@ -21,12 +21,12 @@ const std::vector<size_t> &Tensor::shape() const { return this->_shape; }
 const std::vector<ptrdiff_t> &Tensor::strides() const { return this->_strides; }
 size_t Tensor::ndim() const { return this->_shape.size(); }
 infiniDtype_t Tensor::dtype() const { return this->_dtype; }
-size_t Tensor::byte_size() const { return this->_size; }
-infiniDevice_t Tensor::device_type() const { return this->storage->device_type; }
-int Tensor::device_id() const { return this->storage->device_id; }
+size_t Tensor::byteSize() const { return this->_size; }
+infiniDevice_t Tensor::deviceType() const { return this->storage->device_type; }
+int Tensor::deviceId() const { return this->storage->device_id; }
 Tensor::~Tensor() {}
 
-ptrdiff_t Tensor::data_offset() const {
+ptrdiff_t Tensor::dataOffset() const {
     return (char *)(this->_data) - (char *)(this->storage->memory);
 }
 
@@ -90,22 +90,22 @@ std::shared_ptr<Tensor> Tensor::weight(void *data, infiniDtype_t dtype,
     return tensor;
 }
 
-void *Tensor::data_impl(ptrdiff_t offset) const {
+void *Tensor::dataImpl(ptrdiff_t offset) const {
     ASSERT(offset * dsize(this->dtype()) < this->_size);
 
     return (char *)(this->_data) + offset * dsize(this->dtype());
 }
 
 void *Tensor::data(ptrdiff_t offset) {
-    return this->data_impl(offset);
+    return this->dataImpl(offset);
 }
 
 const void *Tensor::data(ptrdiff_t offset) const {
-    return this->data_impl(offset);
+    return this->dataImpl(offset);
 }
 
-void Tensor::copy_from(std::shared_ptr<Tensor const> src,
-                       infiniopHandle_t handle, infinirtStream_t stream) {
+void Tensor::copyFrom(std::shared_ptr<Tensor const> src,
+                      infiniopHandle_t handle, infinirtStream_t stream) {
     ASSERT_EQ(this->shape(), src->shape());
     ASSERT_EQ(this->dtype(), src->dtype());
     infiniopRearrangeDescriptor_t desc;
@@ -172,11 +172,11 @@ void Tensor::debug(const std::string &filename) const {
         std::cout << s << " ";
     }
     std::cout << "] dtype=" << this->dtype()
-              << " device=" << this->device_type()
-              << " device_id=" << this->device_id() << std::endl;
+              << " device=" << this->deviceType()
+              << " device_id=" << this->deviceId() << std::endl;
     auto dtype = this->dtype();
     void const *cpu_data;
-    if (this->device_type() != INFINI_DEVICE_CPU) {
+    if (this->deviceType() != INFINI_DEVICE_CPU) {
         void *cpu_memory = std::malloc(this->storage->size);
         RUN_INFINI(infinirtMemcpy(cpu_memory, this->storage->memory,
                                   this->storage->size, INFINIRT_MEMCPY_D2H));
@@ -199,27 +199,27 @@ void Tensor::debug(const std::string &filename) const {
 
     switch (dtype) {
     case INFINI_DTYPE_F16:
-        print_data((uint16_t const *)((char const *)cpu_data + data_offset()),
+        print_data((uint16_t const *)((char const *)cpu_data + dataOffset()),
                    this->shape(), this->strides(), 0);
         break;
     case INFINI_DTYPE_F32:
-        print_data((float const *)((char const *)cpu_data + data_offset()),
+        print_data((float const *)((char const *)cpu_data + dataOffset()),
                    this->shape(), this->strides(), 0);
         break;
     case INFINI_DTYPE_U64:
-        print_data((uint64_t const *)((char const *)cpu_data + data_offset()),
+        print_data((uint64_t const *)((char const *)cpu_data + dataOffset()),
                    this->shape(), this->strides(), 0);
         break;
     case INFINI_DTYPE_I64:
-        print_data((int64_t const *)((char const *)cpu_data + data_offset()),
+        print_data((int64_t const *)((char const *)cpu_data + dataOffset()),
                    this->shape(), this->strides(), 0);
         break;
     case INFINI_DTYPE_U32:
-        print_data((uint32_t const *)((char const *)cpu_data + data_offset()),
+        print_data((uint32_t const *)((char const *)cpu_data + dataOffset()),
                    this->shape(), this->strides(), 0);
         break;
     case INFINI_DTYPE_I32:
-        print_data((int32_t const *)((char const *)cpu_data + data_offset()),
+        print_data((int32_t const *)((char const *)cpu_data + dataOffset()),
                    this->shape(), this->strides(), 0);
         break;
     default:

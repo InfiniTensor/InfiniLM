@@ -24,32 +24,32 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
         w_ffn_norm, w_ffn_gate_up, w_ffn_down;
     for (size_t layer = 0; layer < meta->nlayer; layer++) {
         w_attn_norm.push_back(
-            get_attn_norm(meta, weights, layer));
+            getAttnNorm(meta, weights, layer));
         w_attn_qkv.push_back(
-            get_attn_qkv(meta, weights, layer, idev, ndev));
+            getAttnQKV(meta, weights, layer, idev, ndev));
         if (weights->attn_qkv_b != nullptr) {
             b_attn_qkv.push_back(
-                get_attn_qkv_bias(meta, weights, layer, idev, ndev));
+                getAttnQKVBias(meta, weights, layer, idev, ndev));
         }
 
         w_attn_out.push_back(
-            get_attn_o(meta, weights, layer, idev, ndev));
+            getAttnO(meta, weights, layer, idev, ndev));
         w_ffn_norm.push_back(
-            get_ffn_norm(meta, weights, layer));
+            getFFNNorm(meta, weights, layer));
         w_ffn_gate_up.push_back(
-            get_ffn_gate_up(meta, weights, layer, idev, ndev));
+            getFFNGateUp(meta, weights, layer, idev, ndev));
         w_ffn_down.push_back(
-            get_ffn_down(meta, weights, layer, idev, ndev));
+            getFFNDown(meta, weights, layer, idev, ndev));
     }
 
     *rsrc = DeviceResource{device,
                            dev_id,
                            handle,
-                           get_in_embd(meta, weights),
-                           get_out_norm(meta, weights),
-                           get_out_embd(meta, weights),
-                           get_sin_table(meta),
-                           get_cos_table(meta),
+                           getInEmbd(meta, weights),
+                           getOutNorm(meta, weights),
+                           getOutEmbd(meta, weights),
+                           getSinTable(meta),
+                           getCosTable(meta),
                            w_attn_norm,
                            w_attn_qkv,
                            b_attn_qkv,
@@ -136,7 +136,7 @@ void inferDeviceBatch(const JiugeMeta &meta, const DeviceResource &rsrc,
     RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_attn_o, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     infiniopRoPEDescriptor_t desc_rope_q, desc_rope_k;
-    qkv_buf->dim_split(1, {nh + nkvh * 2, dh}); // (ntok, nh + 2 * nkvh, dh)
+    qkv_buf->dimSplit(1, {nh + nkvh * 2, dh}); // (ntok, nh + 2 * nkvh, dh)
     auto qkv_buf_q = qkv_buf->slice(1, 0, nh);
     auto qkv_buf_k = qkv_buf->slice(1, nh, nkvh);
     RUN_INFINI(infiniopCreateRoPEDescriptor(
@@ -154,7 +154,7 @@ void inferDeviceBatch(const JiugeMeta &meta, const DeviceResource &rsrc,
     // attention inner
     auto desc_attns = std::vector<infiniopAttentionDescriptor_t>(nreq);
     size_t token_offset = 0;
-    o_buf->dim_split(1, {nh, dh});
+    o_buf->dimSplit(1, {nh, dh});
     for (uint32_t req = 0; req < nreq; req++) {
         auto past_len = req_pos[req];
         auto seq_len = req_lens[req];
