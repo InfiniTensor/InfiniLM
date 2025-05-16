@@ -189,6 +189,9 @@ def test(
         )
 
     lib_rope()
+    
+    if sync is not None:
+        sync()
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:

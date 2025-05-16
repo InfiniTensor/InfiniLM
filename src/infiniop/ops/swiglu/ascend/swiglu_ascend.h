@@ -69,5 +69,11 @@ public:
         void *stream) const;
 };
 
+extern "C" infiniStatus_t swiglu_kernel_launch(
+    void *c, void *a, void *b,
+    infiniDtype_t dtype, size_t batch, size_t seq, size_t hd,
+    ptrdiff_t stride_batch_c, ptrdiff_t stride_batch_a, ptrdiff_t stride_batch_b,
+    ptrdiff_t stride_seq_c, ptrdiff_t stride_seq_a, ptrdiff_t stride_seq_b, void *stream);
+
 } // namespace op::swiglu::ascend
 #endif // __ACLNN_SWIGLU_H__

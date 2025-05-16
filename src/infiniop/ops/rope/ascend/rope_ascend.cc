@@ -1,4 +1,4 @@
-#include "rope_aclnn.h"
+#include "rope_ascend.h"
 #include "../../../devices/ascend/common_ascend.h"
 
 namespace op::rope::ascend {
@@ -23,23 +23,6 @@ infiniStatus_t Descriptor::create(
     return INFINI_STATUS_SUCCESS;
 }
 
-extern "C" infiniStatus_t rope_kernel_launch(
-    void *y,
-    void *x,
-    void *pos,
-    void *sin,
-    void *cos,
-    int32_t seq_len,
-    int32_t nhead,
-    int32_t dhead,
-    int32_t data_type,
-    int32_t pos_type,
-    int32_t y_stride_seqlen,
-    int32_t y_stride_nhead,
-    int32_t x_stride_seqlen,
-    int32_t x_stride_nhead,
-    void *stream);
-
 infiniStatus_t Descriptor::calculate(
     void *workspace,
     size_t workspace_size,
@@ -50,15 +33,18 @@ infiniStatus_t Descriptor::calculate(
     const void *cos_table,
     void *stream) const {
     CHECK_DTYPE(_info.data_type, INFINI_DTYPE_F32, INFINI_DTYPE_F16);
-    int32_t seq_len = _info.seqlen;
-    int32_t nhead = _info.nhead;
-    int32_t dhead = _info.dhead;
-    int32_t data_type = _info.data_type;
-    int32_t pos_type = _info.pos_type;
-    int32_t y_stride_seqlen = _info.y_stride_seqlen;
-    int32_t y_stride_nhead = _info.y_stride_nhead;
-    int32_t x_stride_seqlen = _info.x_stride_seqlen;
-    int32_t x_stride_nhead = _info.x_stride_nhead;
+
+    auto data_type = _info.data_type;
+    auto pos_type = _info.pos_type;
+    auto seq_len = _info.seqlen;
+    auto nhead = _info.nhead;
+    auto dhead = _info.dhead;
+
+    auto y_stride_seqlen = _info.y_stride_seqlen;
+    auto y_stride_nhead = _info.y_stride_nhead;
+    auto x_stride_seqlen = _info.x_stride_seqlen;
+    auto x_stride_nhead = _info.x_stride_nhead;
+
     return rope_kernel_launch(y, (void *)x, (void *)pos_ids, (void *)sin_table, (void *)cos_table, seq_len, nhead, dhead, data_type, pos_type, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead, stream);
 }
 } // namespace op::rope::ascend

@@ -1,9 +1,4 @@
-#include "../../../../../include/infinicore.h"
-#include "kernel_operator.h"
-
-constexpr int32_t BLOCK_NUM = 8;
-constexpr int32_t BUFFER_NUM = 2;
-constexpr int32_t BYTE_ALIGN = 32;
+#include "../../../devices/ascend/ascend_kernel_common.h"
 
 using namespace AscendC;
 
@@ -17,17 +12,23 @@ public:
     // y output tensor
     // tensor shape [nt, nh, dh]
     // make block_num = nh, tile_len = dh
-    __aicore__ inline void Init(GM_ADDR y, GM_ADDR x, GM_ADDR pos, GM_ADDR sin, GM_ADDR cos,
-                                int32_t dh,
-                                int32_t st_ynt, int32_t st_ynh,
-                                int32_t st_xnt, int32_t st_xnh);
-    __aicore__ inline void Process(int32_t seq_len);
+    __aicore__ inline void init(GM_ADDR y,
+                                GM_ADDR x,
+                                GM_ADDR pos,
+                                GM_ADDR sin,
+                                GM_ADDR cos,
+                                size_t dh,
+                                ptrdiff_t st_ynt,
+                                ptrdiff_t st_ynh,
+                                ptrdiff_t st_xnt,
+                                ptrdiff_t st_xnh);
+    __aicore__ inline void process(size_t seq_len);
 
 private:
     // Copy a tile into UB
-    __aicore__ inline void CopyIn(int32_t i);
-    __aicore__ inline void Compute(int32_t i);
-    __aicore__ inline void CopyOut(int32_t i);
+    __aicore__ inline void copyIn(size_t i);
+    __aicore__ inline void compute(size_t i);
+    __aicore__ inline void copyOut(size_t i);
 
 private:
     TPipe pipe;
@@ -47,31 +48,37 @@ private:
     GlobalTensor<T> sinGm;
     GlobalTensor<T> cosGm;
 
-    uint32_t _block_idx;
-    uint32_t _tile_len;
-    uint32_t _copy_len;
-    uint32_t _half_copy_len;
+    size_t _block_idx;
+    size_t _tile_len;
+    size_t _copy_len;
+    size_t _half_copy_len;
 
-    // stridey[st_ynt_, st_ynh_, 1]
-    int32_t st_ynt_;
-    int32_t st_ynh_;
-    // stridex[st_xnt_, st_xnh_, 1]
-    int32_t st_xnt_;
-    int32_t st_xnh_;
+    // stridey[_st_ynt, _st_ynh, 1]
+    ptrdiff_t _st_ynt;
+    ptrdiff_t _st_ynh;
+    // stridex[_st_xnt, _st_xnh, 1]
+    ptrdiff_t _st_xnt;
+    ptrdiff_t _st_xnh;
 };
 
 template <typename T, typename U>
-__aicore__ inline void RoPEKernel<T, U>::Init(GM_ADDR y, GM_ADDR x, GM_ADDR pos, GM_ADDR sin, GM_ADDR cos,
-                                              int32_t dh,
-                                              int32_t st_ynt, int32_t st_ynh,
-                                              int32_t st_xnt, int32_t st_xnh) {
+__aicore__ inline void RoPEKernel<T, U>::init(GM_ADDR y,
+                                              GM_ADDR x,
+                                              GM_ADDR pos,
+                                              GM_ADDR sin,
+                                              GM_ADDR cos,
+                                              size_t dh,
+                                              ptrdiff_t st_ynt,
+                                              ptrdiff_t st_ynh,
+                                              ptrdiff_t st_xnt,
+                                              ptrdiff_t st_xnh) {
     this->_tile_len = dh;
-    this->st_ynt_ = st_ynt;
-    this->st_ynh_ = st_ynh;
-    this->st_xnt_ = st_xnt;
-    this->st_xnh_ = st_xnh;
-    _copy_len = (_tile_len * sizeof(T)) % BYTE_ALIGN == 0 ? _tile_len : (_tile_len * sizeof(T) + (BYTE_ALIGN - _tile_len * sizeof(T) % BYTE_ALIGN)) / sizeof(T);
-    _half_copy_len = (_tile_len / 2 * sizeof(T)) % BYTE_ALIGN == 0 ? _tile_len / 2 : (_tile_len / 2 * sizeof(T) + (BYTE_ALIGN - _tile_len / 2 * sizeof(T) % BYTE_ALIGN)) / sizeof(T);
+    this->_st_ynt = st_ynt;
+    this->_st_ynh = st_ynh;
+    this->_st_xnt = st_xnt;
+    this->_st_xnh = st_xnh;
+    _copy_len = alignTileLen<T>(dh, BYTE_ALIGN);
+    _half_copy_len = alignTileLen<T>(dh, BYTE_ALIGN);
 
     _block_idx = GetBlockIdx();
 
@@ -96,12 +103,12 @@ __aicore__ inline void RoPEKernel<T, U>::Init(GM_ADDR y, GM_ADDR x, GM_ADDR pos,
 }
 
 template <typename T, typename U>
-__aicore__ inline void RoPEKernel<T, U>::CopyIn(int32_t i) {
+__aicore__ inline void RoPEKernel<T, U>::copyIn(size_t i) {
     LocalTensor<T> inputUb = inQue.AllocTensor<T>();
     LocalTensor<T> sinUb = sinQue.AllocTensor<T>();
     LocalTensor<T> cosUb = cosQue.AllocTensor<T>();
     // Get idx of current tile in total input
-    auto idx = i * st_xnt_ + _block_idx * st_xnh_;
+    auto idx = i * _st_xnt + _block_idx * _st_xnh;
     // Copy tile current tile into UB
     DataCopy(inputUb, xGm[idx], _copy_len);
     // Copy sin cos tile
@@ -115,7 +122,7 @@ __aicore__ inline void RoPEKernel<T, U>::CopyIn(int32_t i) {
 }
 
 template <typename T, typename U>
-__aicore__ inline void RoPEKernel<T, U>::Compute(int32_t i) {
+__aicore__ inline void RoPEKernel<T, U>::compute(size_t i) {
     LocalTensor<T> inputUb = inQue.DeQue<T>();
     LocalTensor<T> sinUb = sinQue.DeQue<T>();
     LocalTensor<T> cosUb = cosQue.DeQue<T>();
@@ -167,118 +174,130 @@ __aicore__ inline void RoPEKernel<T, U>::Compute(int32_t i) {
 }
 
 template <typename T, typename U>
-__aicore__ inline void RoPEKernel<T, U>::CopyOut(int32_t i) {
+__aicore__ inline void RoPEKernel<T, U>::copyOut(size_t i) {
     LocalTensor<T> outputUb = outQue.DeQue<T>();
-    auto idy = i * st_ynt_ + _block_idx * st_ynh_;
+    auto idy = i * _st_ynt + _block_idx * _st_ynh;
     DataCopyExtParams params = {1, static_cast<uint32_t>(_tile_len * sizeof(T)), 0, 0, 0};
     DataCopyPad(yGm[idy], outputUb, params);
     outQue.FreeTensor(outputUb);
 }
 
 template <typename T, typename U>
-__aicore__ inline void RoPEKernel<T, U>::Process(int32_t nt) {
+__aicore__ inline void RoPEKernel<T, U>::process(size_t seq_len) {
 
-    for (int32_t i = 0; i < nt; ++i) {
-        CopyIn(i);
-        Compute(i);
-        CopyOut(i);
+    for (size_t i = 0; i < seq_len; ++i) {
+        copyIn(i);
+        compute(i);
+        copyOut(i);
     }
 }
 
 #define ROPE_KERNEL(TYPE, POSTYPE)                                                                             \
     switch (POSTYPE) {                                                                                         \
-    case 3: {                                                                                                  \
+    case INFINI_DTYPE_I8: {                                                                                    \
         RoPEKernel<TYPE, int8_t> op;                                                                           \
-        op.Init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
-        op.Process(seq_len);                                                                                   \
+        op.init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
+        op.process(seq_len);                                                                                   \
         break;                                                                                                 \
     }                                                                                                          \
-    case 4: {                                                                                                  \
+    case INFINI_DTYPE_I16: {                                                                                   \
         RoPEKernel<TYPE, int16_t> op;                                                                          \
-        op.Init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
-        op.Process(seq_len);                                                                                   \
+        op.init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
+        op.process(seq_len);                                                                                   \
         break;                                                                                                 \
     }                                                                                                          \
-    case 5: {                                                                                                  \
+    case INFINI_DTYPE_I32: {                                                                                   \
         RoPEKernel<TYPE, int32_t> op;                                                                          \
-        op.Init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
-        op.Process(seq_len);                                                                                   \
+        op.init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
+        op.process(seq_len);                                                                                   \
         break;                                                                                                 \
     }                                                                                                          \
-    case 6: {                                                                                                  \
+    case INFINI_DTYPE_I64: {                                                                                   \
         RoPEKernel<TYPE, int64_t> op;                                                                          \
-        op.Init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
-        op.Process(seq_len);                                                                                   \
+        op.init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
+        op.process(seq_len);                                                                                   \
         break;                                                                                                 \
     }                                                                                                          \
-    case 7: {                                                                                                  \
+    case INFINI_DTYPE_U8: {                                                                                    \
         RoPEKernel<TYPE, uint8_t> op;                                                                          \
-        op.Init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
-        op.Process(seq_len);                                                                                   \
+        op.init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
+        op.process(seq_len);                                                                                   \
         break;                                                                                                 \
     }                                                                                                          \
-    case 8: {                                                                                                  \
+    case INFINI_DTYPE_U16: {                                                                                   \
         RoPEKernel<TYPE, uint16_t> op;                                                                         \
-        op.Init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
-        op.Process(seq_len);                                                                                   \
+        op.init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
+        op.process(seq_len);                                                                                   \
         break;                                                                                                 \
     }                                                                                                          \
-    case 9: {                                                                                                  \
+    case INFINI_DTYPE_U32: {                                                                                   \
         RoPEKernel<TYPE, uint32_t> op;                                                                         \
-        op.Init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
-        op.Process(seq_len);                                                                                   \
+        op.init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
+        op.process(seq_len);                                                                                   \
         break;                                                                                                 \
     }                                                                                                          \
-    case 10: {                                                                                                 \
+    case INFINI_DTYPE_U64: {                                                                                   \
         RoPEKernel<TYPE, uint64_t> op;                                                                         \
-        op.Init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
-        op.Process(seq_len);                                                                                   \
+        op.init(y, x, pos, sin, cos, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead); \
+        op.process(seq_len);                                                                                   \
         break;                                                                                                 \
     }                                                                                                          \
     }
 
-__global__ __aicore__ void rope_f16_kernel(GM_ADDR y, GM_ADDR x, GM_ADDR pos, GM_ADDR sin, GM_ADDR cos,
-                                           int32_t seq_len, int32_t dhead,
-                                           int32_t y_stride_seqlen, int32_t y_stride_nhead,
-                                           int32_t x_stride_seqlen, int32_t x_stride_nhead,
-                                           int32_t pos_type){
-    ROPE_KERNEL(half, pos_type)
+#define DEFINE_ROPE_KERNEL(KERNEL_NAME, TYPE)                         \
+    __global__ __aicore__ void KERNEL_NAME(GM_ADDR y,                 \
+                                           GM_ADDR x,                 \
+                                           GM_ADDR pos,               \
+                                           GM_ADDR sin,               \
+                                           GM_ADDR cos,               \
+                                           size_t seq_len,            \
+                                           size_t dhead,              \
+                                           ptrdiff_t y_stride_seqlen, \
+                                           ptrdiff_t y_stride_nhead,  \
+                                           ptrdiff_t x_stride_seqlen, \
+                                           ptrdiff_t x_stride_nhead,  \
+                                           int32_t pos_type) {        \
+        ROPE_KERNEL(TYPE, pos_type)                                   \
+    }
 
-}
+DEFINE_ROPE_KERNEL(rope_kernel_float, float)
+DEFINE_ROPE_KERNEL(rope_kernel_half, half)
 
-__global__ __aicore__ void rope_f32_kernel(GM_ADDR y, GM_ADDR x, GM_ADDR pos, GM_ADDR sin, GM_ADDR cos,
-                                           int32_t seq_len, int32_t dhead,
-                                           int32_t y_stride_seqlen, int32_t y_stride_nhead,
-                                           int32_t x_stride_seqlen, int32_t x_stride_nhead,
-                                           int32_t pos_type) {
-    ROPE_KERNEL(float, pos_type)
-}
+#undef DEFINE_ROPE_KERNEL
 
-extern "C" infiniStatus_t rope_kernel_launch(void *y,
-                                             void *x,
-                                             void *pos,
-                                             void *sin,
-                                             void *cos,
-                                             int32_t seq_len,
-                                             int32_t nhead,
-                                             int32_t dhead,
-                                             int32_t data_type,
-                                             int32_t pos_type,
-                                             int32_t y_stride_seqlen,
-                                             int32_t y_stride_nhead,
-                                             int32_t x_stride_seqlen,
-                                             int32_t x_stride_nhead,
-                                             void *stream) {
-    switch (data_type) {
-    case 12: // float16
-        rope_f16_kernel<<<nhead, nullptr, stream>>>(y, x, pos, sin, cos, seq_len, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead, pos_type);
-        break;
-    case 13: // float32
-        rope_f32_kernel<<<nhead, nullptr, stream>>>(y, x, pos, sin, cos, seq_len, dhead, y_stride_seqlen, y_stride_nhead, x_stride_seqlen, x_stride_nhead, pos_type);
-        break;
+extern "C" infiniStatus_t rope_kernel_launch(
+    void *y,
+    void *x,
+    void *pos,
+    void *sin,
+    void *cos,
+    size_t seq_len,
+    size_t nhead,
+    size_t dhead,
+    infiniDtype_t dtype,
+    infiniDtype_t pos_type,
+    ptrdiff_t y_stride_seqlen,
+    ptrdiff_t y_stride_nhead,
+    ptrdiff_t x_stride_seqlen,
+    ptrdiff_t x_stride_nhead,
+    void *stream) {
+
+#define LAUNCH_ROPE_KERNEL(DTYPE_ENUM, KERNEL_NAME)                  \
+    case DTYPE_ENUM:                                                 \
+        KERNEL_NAME<<<nhead, nullptr, stream>>>(y, x, pos, sin, cos, \
+                                                seq_len,             \
+                                                dhead,               \
+                                                y_stride_seqlen,     \
+                                                y_stride_nhead,      \
+                                                x_stride_seqlen,     \
+                                                x_stride_nhead,      \
+                                                pos_type);           \
+        return INFINI_STATUS_SUCCESS;
+
+    switch (dtype) {
+        LAUNCH_ROPE_KERNEL(INFINI_DTYPE_F16, rope_kernel_half)
+        LAUNCH_ROPE_KERNEL(INFINI_DTYPE_F32, rope_kernel_float)
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
-
-    return INFINI_STATUS_SUCCESS;
 }

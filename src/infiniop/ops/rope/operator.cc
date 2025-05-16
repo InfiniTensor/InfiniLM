@@ -9,7 +9,7 @@
 #include "cuda/rope_cuda.cuh"
 #endif
 #ifdef ENABLE_ASCEND_API
-#include "ascend/rope_aclnn.h"
+#include "ascend/rope_ascend.h"
 #endif
 
 __C infiniStatus_t infiniopCreateRoPEDescriptor(
