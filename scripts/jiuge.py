@@ -1,6 +1,9 @@
-from ctypes import POINTER, c_uint, c_void_p, byref
+from ctypes import POINTER, c_int, c_uint, c_void_p, byref
+from pathlib import Path
+import safetensors
 import sys
 import time
+
 from libinfinicore_infer import (
     JiugeMeta,
     JiugeWeights,
@@ -50,6 +53,9 @@ class LlamaWeightsNaming:
     def attn_v_b(self, i):
         return f"model.layers.{i}.self_attn.v_proj.bias"
 
+    def ffn_norm(self, i):
+        return f"model.layers.{i}.post_attention_layernorm.weight"
+
     def gate(self, i):
         return f"model.layers.{i}.mlp.gate_proj.weight"
 
@@ -58,6 +64,12 @@ class LlamaWeightsNaming:
 
     def down(self, i):
         return f"model.layers.{i}.mlp.down_proj.weight"
+
+    def match(state_dict):
+        return (
+            "model.norm.weight" in state_dict
+            and "model.layers.0.self_attn.q_proj.weight" in state_dict
+        )
 
 
 class JiugeMetaFromLlama(JiugeMeta):
@@ -96,12 +108,22 @@ class JiugeWeightsImpl(JiugeWeights):
         assert nh % ndev == 0
         assert nkvh % ndev == 0
         assert di % ndev == 0
-        self.input_embd = state_dict[naming.input_embd()].data_ptr()
-        self.output_norm = state_dict[naming.output_norm()].data_ptr()
-        self.output_embd = state_dict[naming.output_embd()].data_ptr()
-        self.attn_norm = (c_void_p * nlayer)(
-            *[state_dict[naming.attn_norm(i)].data_ptr() for i in range(nlayer)]
-        )
+
+        self.nlayer = nlayer
+        self.input_embd_tensor = state_dict[naming.input_embd()]
+        self.input_embd = self.input_embd_tensor.data_ptr()
+        self.output_norm_tensor = state_dict[naming.output_norm()]
+        self.output_norm = self.output_norm_tensor.data_ptr()
+        self.output_embd_tensor = state_dict[naming.output_embd()]
+        self.output_embd = self.output_embd_tensor.data_ptr()
+
+        self.attn_norm_tensors = [
+            state_dict[naming.attn_norm(i)] for i in range(nlayer)
+        ]
+        self.attn_norm_ptrs = [
+            self.attn_norm_tensors[i].data_ptr() for i in range(nlayer)
+        ]
+        self.attn_norm = (c_void_p * nlayer)(*self.attn_norm_ptrs)
 
         def qkv_slices(_i):
             _Q = (
@@ -125,9 +147,39 @@ class JiugeWeightsImpl(JiugeWeights):
             return _result
 
         self.qkv_tensor = [torch.concat(qkv_slices(i)) for i in range(nlayer)]
-        self.attn_qkv = (c_void_p * nlayer)(
-            *[self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
-        )
+        self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
+        self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
+
+        def qkv_b_slices(_i):
+            _QB = (
+                state_dict[naming.attn_q_b(_i)]
+                .reshape([nh, 2, dh // 2])
+                .transpose(1, 2)
+            )
+            _KB = (
+                state_dict[naming.attn_k_b(_i)]
+                .reshape([nkvh, 2, dh // 2])
+                .transpose(1, 2)
+            )
+            _VB = state_dict[naming.attn_v_b(_i)].reshape([nkvh, dh // 2, 2])
+            _result = []
+            _nh = nh // ndev
+            _nkvh = nkvh // ndev
+            for _idev in range(ndev):
+                _result.append(_QB[_idev * _nh : (_idev + 1) * _nh, :, :])
+                _result.append(_KB[_idev * _nkvh : (_idev + 1) * _nkvh, :, :])
+                _result.append(_VB[_idev * _nkvh : (_idev + 1) * _nkvh, :, :])
+            return _result
+
+        if naming.attn_q_b(0) in state_dict:
+            self.qkv_b_tensors = [torch.concat(qkv_b_slices(i)) for i in range(nlayer)]
+            self.qkv_b_tensor_ptrs = [
+                self.qkv_b_tensors[i].data_ptr() for i in range(nlayer)
+            ]
+            self.attn_qkv_b = (c_void_p * nlayer)(*self.qkv_b_tensor_ptrs)
+        else:
+            self.attn_qkv_b = None
+
         self.attn_o_tensor = [
             state_dict[naming.attn_o(i)]
             .reshape([d, ndev, nh // ndev * dh])
@@ -135,12 +187,14 @@ class JiugeWeightsImpl(JiugeWeights):
             .contiguous()
             for i in range(nlayer)
         ]
-        self.attn_o = (c_void_p * nlayer)(
-            *[self.attn_o_tensor[i].data_ptr() for i in range(nlayer)]
-        )
-        self.ffn_norm = (c_void_p * nlayer)(
-            *[state_dict[naming.ffn_norm(i)].data_ptr() for i in range(nlayer)]
-        )
+        self.attn_o_ptrs = [self.attn_o_tensor[i].data_ptr() for i in range(nlayer)]
+        self.attn_o = (c_void_p * nlayer)(*self.attn_o_ptrs)
+
+        self.ffn_norm_tensors = [state_dict[naming.ffn_norm(i)] for i in range(nlayer)]
+        self.ffn_norm_ptrs = [
+            self.ffn_norm_tensors[i].data_ptr() for i in range(nlayer)
+        ]
+        self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
 
         def gate_up_slices(_i):
             _result = []
@@ -152,11 +206,9 @@ class JiugeWeightsImpl(JiugeWeights):
                 _result.append(state_dict[naming.up(_i)][_start:_end, :])
             return _result
 
-        self.gate_up_tensor = [torch.concat(gate_up_slices(i)) for i in range(nlayer)]
-
-        self.ffn_gate_up = (c_void_p * nlayer)(
-            *[self.gate_up_tensor[i].data_ptr() for i in range(nlayer)]
-        )
+        self.gate_up_tensors = [torch.concat(gate_up_slices(i)) for i in range(nlayer)]
+        self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
+        self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
 
         self.ffn_down_tensor = [
             state_dict[naming.down(i)]
@@ -165,22 +217,46 @@ class JiugeWeightsImpl(JiugeWeights):
             .contiguous()
             for i in range(nlayer)
         ]
-        self.ffn_down = (c_void_p * nlayer)(
-            *[self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
-        )
+        self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
+        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
 
 
 class JiugeForCauslLM:
     def __init__(self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1):
-        model = transformers.LlamaForCausalLM.from_pretrained(
-            model_dir_path, torch_dtype=torch.float16
+        def load_all_safetensors_from_dir(dir_path_: str, torch_type=torch.float16):
+            tensors_ = {}
+            dir_path_ = Path(dir_path_)
+            for file in sorted(dir_path_.glob("*.safetensors")):
+                data_ = safetensors.safe_open(file, "pt")
+                for name_ in data_.keys():
+                    tensors_[name_] = data_.get_tensor(name_).to(torch_type)
+            return tensors_
+
+        config = transformers.AutoConfig.from_pretrained(
+            model_dir_path, trust_remote_code=True
         )
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
-        self.meta = JiugeMetaFromLlama(model.config, DataType.INFINI_DTYPE_F16)
-        self.weights = JiugeWeightsImpl(
-            self.meta, LlamaWeightsNaming(), model.state_dict(), ndev=ndev
-        )
-        dev_ids = (c_uint * ndev)(*[i for i in range(ndev)])
+        if "llama" == config.model_type:
+            model = transformers.LlamaForCausalLM.from_pretrained(model_dir_path).to(
+                torch.float16
+            )
+            self.meta = JiugeMetaFromLlama(model.config, DataType.INFINI_DTYPE_F16)
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
+            self.weights = JiugeWeightsImpl(
+                self.meta, LlamaWeightsNaming(), model.state_dict(), ndev=ndev
+            )
+        elif "fm9g" == config.model_type:
+            state_dict = load_all_safetensors_from_dir(model_dir_path)
+            if LlamaWeightsNaming.match(state_dict):
+                self.meta = JiugeMetaFromLlama(config, DataType.INFINI_DTYPE_F16)
+                self.weights = JiugeWeightsImpl(
+                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev
+                )
+                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                    model_dir_path, trust_remote_code=True
+                )
+        else:
+            raise ValueError("Unsupported model architecture")
+        dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
         self.model_instance = create_jiuge_model(
             byref(self.meta),
             byref(self.weights),
@@ -274,7 +350,7 @@ def test():
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     model = JiugeForCauslLM(model_path, device_type, ndev)
-    model.generate("<用户>讲个长故事<AI>", 500)
+    model.generate("Once upon a time,", 100)
 
 
 if __name__ == "__main__":

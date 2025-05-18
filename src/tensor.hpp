@@ -44,8 +44,7 @@ private:
     std::vector<ptrdiff_t> _strides;
     void *_data;
     ptrdiff_t _offset;
-    size_t _size;
-    std::shared_ptr<Storage> storage;
+    std::shared_ptr<Storage> _storage;
     infiniopTensorDescriptor_t _desc;
 
     void *dataImpl(ptrdiff_t offset) const;
@@ -78,7 +77,6 @@ public:
     size_t ndim() const;
     infiniDtype_t dtype() const;
     std::shared_ptr<TensorDesc> desc() const;
-    size_t byteSize() const;
     ptrdiff_t dataOffset() const;
     infiniDevice_t deviceType() const;
     int deviceId() const;
@@ -86,6 +84,7 @@ public:
 
     void debug(const std::string &filename) const;
     void debug() const;
+    std::string info() const;
 
     ~Tensor();
 };

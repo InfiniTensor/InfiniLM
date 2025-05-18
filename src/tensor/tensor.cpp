@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <numeric>
+#include <sstream>
 
 std::shared_ptr<TensorDesc>
 TensorDesc::create(infiniDtype_t dtype, const std::vector<size_t> &shape,
@@ -21,13 +22,12 @@ const std::vector<size_t> &Tensor::shape() const { return this->_shape; }
 const std::vector<ptrdiff_t> &Tensor::strides() const { return this->_strides; }
 size_t Tensor::ndim() const { return this->_shape.size(); }
 infiniDtype_t Tensor::dtype() const { return this->_dtype; }
-size_t Tensor::byteSize() const { return this->_size; }
-infiniDevice_t Tensor::deviceType() const { return this->storage->device_type; }
-int Tensor::deviceId() const { return this->storage->device_id; }
+infiniDevice_t Tensor::deviceType() const { return this->_storage->device_type; }
+int Tensor::deviceId() const { return this->_storage->device_id; }
 Tensor::~Tensor() {}
 
 ptrdiff_t Tensor::dataOffset() const {
-    return (char *)(this->_data) - (char *)(this->storage->memory);
+    return _offset;
 }
 
 std::shared_ptr<TensorDesc> Tensor::desc() const { return TensorDesc::create(this->_dtype, this->_shape, this->_strides); }
@@ -38,22 +38,19 @@ std::shared_ptr<Tensor> Tensor::buffer(infiniDtype_t dtype,
     std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
     tensor->_dtype = dtype;
     auto ndim = shape.size();
-    if (shape.empty()) {
-        tensor->_shape = std::vector<size_t>{1};
-        ndim = 1;
-    } else {
-        tensor->_shape = std::vector<size_t>(shape);
-    }
+    tensor->_shape = std::vector<size_t>(shape);
+
     size_t size = std::accumulate(shape.begin(), shape.end(), dsize(dtype), std::multiplies<size_t>());
     auto strides = std::vector<ptrdiff_t>(ndim);
-    strides[ndim - 1] = 1;
-    for (int i = ndim - 2; i >= 0; i--) {
-        strides[i] = strides[i + 1] * shape[i + 1];
+    if (ndim > 0) {
+        strides[ndim - 1] = 1;
+        for (int i = ndim - 2; i >= 0; i--) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
     }
     tensor->_strides = strides;
-    tensor->storage = Storage::createAsync(size, stream);
-    tensor->_size = size;
-    tensor->_data = tensor->storage->memory;
+    tensor->_storage = Storage::createAsync(size, stream);
+    tensor->_data = tensor->_storage->memory;
     infiniopCreateTensorDescriptor(&tensor->_desc, ndim, tensor->_shape.data(),
                                    strides.data(), dtype);
     tensor->_offset = 0;
@@ -66,24 +63,20 @@ std::shared_ptr<Tensor> Tensor::weight(void *data, infiniDtype_t dtype,
     ;
     tensor->_dtype = dtype;
     auto ndim = shape.size();
-    if (shape.empty()) {
-        tensor->_shape = std::vector<size_t>{1};
-        ndim = 1;
-    } else {
-        tensor->_shape = std::vector<size_t>(shape);
-    }
+    tensor->_shape = std::vector<size_t>(shape);
     size_t size = std::accumulate(shape.begin(), shape.end(), dsize(dtype), std::multiplies<size_t>());
     auto strides = std::vector<ptrdiff_t>(ndim);
-    strides[ndim - 1] = 1;
-    for (int i = ndim - 2; i >= 0; i--) {
-        strides[i] = strides[i + 1] * shape[i + 1];
+    if (ndim > 0) {
+        strides[ndim - 1] = 1;
+        for (int i = ndim - 2; i >= 0; i--) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
     }
     tensor->_strides = strides;
-    tensor->storage = Storage::create(size);
-    RUN_INFINI(infinirtMemcpy(tensor->storage->memory,
+    tensor->_storage = Storage::create(size);
+    RUN_INFINI(infinirtMemcpy(tensor->_storage->memory,
                               data, size, INFINIRT_MEMCPY_H2D));
-    tensor->_data = tensor->storage->memory;
-    tensor->_size = size;
+    tensor->_data = tensor->_storage->memory;
     infiniopCreateTensorDescriptor(&tensor->_desc, ndim, tensor->_shape.data(),
                                    strides.data(), dtype);
     tensor->_offset = 0;
@@ -91,8 +84,6 @@ std::shared_ptr<Tensor> Tensor::weight(void *data, infiniDtype_t dtype,
 }
 
 void *Tensor::dataImpl(ptrdiff_t offset) const {
-    ASSERT(offset * dsize(this->dtype()) < this->_size);
-
     return (char *)(this->_data) + offset * dsize(this->dtype());
 }
 
@@ -139,7 +130,6 @@ void print_data(T *data, const std::vector<size_t> &shape,
     } else if (dim < shape.size() - 1) {
         for (size_t i = 0; i < shape[dim]; i++) {
             print_data(data + i * strides[dim], shape, strides, dim + 1);
-            std::cout << std::endl;
         }
     }
 }
@@ -151,38 +141,46 @@ void print_data(uint16_t const *data, const std::vector<size_t> &shape,
         for (size_t i = 0; i < shape[dim]; i++) {
             std::cout << f16_to_f32(data[i * strides[dim]]) << " ";
         }
+        std::cout << std::endl;
     } else if (dim < shape.size() - 1) {
         for (size_t i = 0; i < shape[dim]; i++) {
             print_data(data + i * strides[dim], shape, strides, dim + 1);
-            std::cout << std::endl;
         }
     }
+}
+
+std::string Tensor::info() const {
+    std::stringstream ss;
+
+    ss << "Tensor: "
+       << "shape[ ";
+    for (auto s : this->shape()) {
+        ss << s << " ";
+    }
+    ss << "] strides[ ";
+    for (auto s : this->strides()) {
+        ss << s << " ";
+    }
+    ss << "] dtype=" << this->dtype()
+       << " device=" << this->deviceType()
+       << " device_id=" << this->deviceId();
+
+    return ss.str();
 }
 
 void Tensor::debug(const std::string &filename) const {
     RUN_INFINI(
         infinirtDeviceSynchronize());
-    std::cout << "Tensor: "
-              << "shape[ ";
-    for (auto s : this->shape()) {
-        std::cout << s << " ";
-    }
-    std::cout << "] strides[ ";
-    for (auto s : this->strides()) {
-        std::cout << s << " ";
-    }
-    std::cout << "] dtype=" << this->dtype()
-              << " device=" << this->deviceType()
-              << " device_id=" << this->deviceId() << std::endl;
+    std::cout << info() << std::endl;
     auto dtype = this->dtype();
     void const *cpu_data;
     if (this->deviceType() != INFINI_DEVICE_CPU) {
-        void *cpu_memory = std::malloc(this->storage->size);
-        RUN_INFINI(infinirtMemcpy(cpu_memory, this->storage->memory,
-                                  this->storage->size, INFINIRT_MEMCPY_D2H));
+        void *cpu_memory = std::malloc(this->_storage->size);
+        RUN_INFINI(infinirtMemcpy(cpu_memory, this->_storage->memory,
+                                  this->_storage->size, INFINIRT_MEMCPY_D2H));
         cpu_data = cpu_memory;
     } else {
-        cpu_data = this->data();
+        cpu_data = this->_storage->memory;
     }
 
     if (!filename.empty()) {
@@ -191,7 +189,7 @@ void Tensor::debug(const std::string &filename) const {
             std::cerr << "Error opening file for writing: " << filename << "\n";
             return;
         }
-        outFile.write(reinterpret_cast<const char *>(cpu_data), this->storage->size);
+        outFile.write(reinterpret_cast<const char *>(cpu_data), this->_storage->size);
         outFile.close();
         std::cout << "Data written to file: " << filename << "\n";
         return;

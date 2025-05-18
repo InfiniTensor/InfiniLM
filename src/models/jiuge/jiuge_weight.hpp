@@ -106,34 +106,34 @@ inline std::shared_ptr<Tensor> getFFNDown(
 }
 
 inline std::shared_ptr<Tensor> getSinTable(JiugeMeta const *meta) {
-    float *table = (float *)std::malloc(meta->dctx * meta->dh * sizeof(float));
     auto half_dh = meta->dh / 2;
+    uint16_t *table = (uint16_t *)std::malloc(meta->dctx * half_dh * sizeof(uint16_t));
+
     for (size_t i = 0; i < meta->dctx; i++) {
         for (size_t j = 0; j < half_dh; j++) {
             float _sin = std::sin(
                 static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
-            table[i * meta->dh + 2 * j] = _sin;
-            table[i * meta->dh + 2 * j + 1] = _sin;
+            table[i * half_dh + j] = f32_to_f16(_sin);
         }
     }
-    auto shape = std::vector<size_t>({meta->dctx, meta->dh});
+    auto shape = std::vector<size_t>({meta->dctx, half_dh});
     auto tensor = Tensor::weight(table, meta->dt_logits, shape);
     std::free(table);
     return tensor;
 }
 
 inline std::shared_ptr<Tensor> getCosTable(JiugeMeta const *meta) {
-    float *table = (float *)std::malloc(meta->dctx * meta->dh * sizeof(float));
     auto half_dh = meta->dh / 2;
+    uint16_t *table = (uint16_t *)std::malloc(meta->dctx * half_dh * sizeof(uint16_t));
+
     for (size_t i = 0; i < meta->dctx; i++) {
         for (size_t j = 0; j < half_dh; j++) {
             float _cos = std::cos(
                 static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
-            table[i * meta->dh + 2 * j] = _cos;
-            table[i * meta->dh + 2 * j + 1] = _cos;
+            table[i * half_dh + j] = f32_to_f16(_cos);
         }
     }
-    auto shape = std::vector<size_t>({meta->dctx, meta->dh});
+    auto shape = std::vector<size_t>({meta->dctx, half_dh});    
     auto tensor = Tensor::weight(table, meta->dt_logits, shape);
     std::free(table);
     return tensor;

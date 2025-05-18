@@ -2,6 +2,7 @@
 #define INFINICORE_INFER_UTILS_H
 #include <infinicore.h>
 
+#include <cstring>
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,6 +68,32 @@ inline float f16_to_f32(uint16_t h) {
         // Normalized float16
         uint32_t f32 = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
         return *(float *)&f32;
+    }
+}
+
+inline uint16_t f32_to_f16(float val) {
+    uint32_t f32;
+    memcpy(&f32, &val, sizeof(f32));               // Read the bits of the float32
+    uint16_t sign = (f32 >> 16) & 0x8000;          // Extract the sign bit
+    int32_t exponent = ((f32 >> 23) & 0xFF) - 127; // Extract and de-bias the exponent
+    uint32_t mantissa = f32 & 0x7FFFFF;            // Extract the mantissa (fraction part)
+
+    if (exponent >= 31) { // Special cases for Inf and NaN
+        // NaN
+        if (exponent == 128 && mantissa != 0) {
+            return static_cast<uint16_t>(sign | 0x7E00);
+        }
+        // Infinity
+        return static_cast<uint16_t>(sign | 0x7C00);
+    } else if (exponent >= -14) { // Normalized case
+        return (uint16_t)(sign | ((exponent + 15) << 10) | (mantissa >> 13));
+    } else if (exponent >= -24) {
+        mantissa |= 0x800000; // Add implicit leading 1
+        mantissa >>= (-14 - exponent);
+        return (uint16_t)(sign | (mantissa >> 13));
+    } else {
+        // Too small for subnormal: return signed zero
+        return (uint16_t)sign;
     }
 }
 

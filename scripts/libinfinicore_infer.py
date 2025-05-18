@@ -1,5 +1,5 @@
 import ctypes
-from ctypes import c_uint, c_int, c_float, c_void_p, POINTER
+from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER
 import os
 
 
@@ -40,14 +40,14 @@ class JiugeMeta(ctypes.Structure):
         ("dt_logits", DataType),
         ("dt_norm", DataType),
         ("dt_mat", DataType),
-        ("nlayer", c_uint),
-        ("d", c_uint),
-        ("nh", c_uint),
-        ("nkvh", c_uint),
-        ("dh", c_uint),
-        ("di", c_uint),
-        ("dctx", c_uint),
-        ("dvoc", c_uint),
+        ("nlayer", c_size_t),
+        ("d", c_size_t),
+        ("nh", c_size_t),
+        ("nkvh", c_size_t),
+        ("dh", c_size_t),
+        ("di", c_size_t),
+        ("dctx", c_size_t),
+        ("dvoc", c_size_t),
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
@@ -57,7 +57,7 @@ class JiugeMeta(ctypes.Structure):
 # Define the JiugeWeights struct
 class JiugeWeights(ctypes.Structure):
     _fields_ = [
-        ("nlayer", c_uint),
+        ("nlayer", c_size_t),
         ("input_embd", c_void_p),
         ("output_norm", c_void_p),
         ("output_embd", c_void_p),

@@ -20,12 +20,10 @@ std::shared_ptr<Tensor> Tensor::sliceImpl(const std::vector<SliceParams> &slices
     tensor->_dtype = this->_dtype;
     tensor->_shape = new_shape;
     tensor->_strides = std::vector<ptrdiff_t>(this->_strides);
-    tensor->_offset = offset * dsize(this->_dtype);
-    tensor->_data = static_cast<char *>(this->_data) + tensor->_offset;
+    tensor->_offset = offset * dsize(this->_dtype) + this->_offset;
+    tensor->_data = (char *)(this->_storage->memory) + tensor->_offset;
 
-    tensor->_size = std::accumulate(new_shape.begin(), new_shape.end(),
-                                    dsize(this->_dtype), std::multiplies<size_t>());
-    tensor->storage = this->storage;
+    tensor->_storage = this->_storage;
     infiniopCreateTensorDescriptor(&tensor->_desc, tensor->_shape.size(), tensor->_shape.data(),
                                    tensor->_strides.data(), tensor->_dtype);
     return tensor;
