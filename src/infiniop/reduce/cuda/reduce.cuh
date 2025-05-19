@@ -18,7 +18,7 @@ __device__ __forceinline__ Tcompute sumSquared(const Tdata *data_ptr, size_t cou
 
     // Each thread computes its partial sum
     for (size_t i = threadIdx.x; i < count; i += BLOCK_SIZE) {
-        ss += Tcompute(data_ptr[i] * data_ptr[i]);
+        ss += Tcompute(data_ptr[i]) * Tcompute(data_ptr[i]);
     }
 
     // Use CUB block-level reduction
