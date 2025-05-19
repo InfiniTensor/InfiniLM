@@ -48,7 +48,7 @@ infiniStatus_t causal_softmax(const CausalSoftmaxInfo *info, T *y, const T *x) {
             if constexpr (std::is_same<T, fp16_t>::value) {
                 y_[j * info->y_stride_j] = utils::cast<fp16_t>(utils::cast<float>(y_[j * info->y_stride_j]) / sum);
             } else {
-                y_[j * info->y_stride_j] = y_[y_offset + j * info->y_stride_j] / sum;
+                y_[j * info->y_stride_j] = y_[j * info->y_stride_j] / sum;
             }
         }
     }
