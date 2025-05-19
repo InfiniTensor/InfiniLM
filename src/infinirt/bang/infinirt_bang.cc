@@ -6,7 +6,8 @@
 
 namespace infinirt::bang {
 infiniStatus_t getDeviceCount(int *count) {
-    CHECK_BANGRT(cnrtGetDeviceCount(count));
+    unsigned int device_count = static_cast<unsigned int>(*count);
+    CHECK_BANGRT(cnrtGetDeviceCount(&device_count));
     return INFINI_STATUS_SUCCESS;
 }
 
@@ -22,7 +23,7 @@ infiniStatus_t deviceSynchronize() {
 
 infiniStatus_t streamCreate(infinirtStream_t *stream_ptr) {
     cnrtQueue_t queue;
-    CHECK_BANGRT(cnrtQueueCreate(&stream));
+    CHECK_BANGRT(cnrtQueueCreate(&queue));
     *stream_ptr = queue;
     return INFINI_STATUS_SUCCESS;
 }
@@ -55,7 +56,7 @@ infiniStatus_t eventRecord(infinirtEvent_t event, infinirtStream_t stream) {
 }
 
 infiniStatus_t eventQuery(infinirtEvent_t event, infinirtEventStatus_t *status_ptr) {
-    auto status = cnrtQueryNotifier((cnrtQueue_t)stream);
+    auto status = cnrtQueryNotifier((cnrtNotifier_t)event);
     if (status == cnrtSuccess) {
         *status_ptr = INFINIRT_EVENT_COMPLETE;
     } else if (status == cnrtErrorBusy) {
@@ -112,12 +113,12 @@ cnrtMemTransDir_t toBangMemcpyKind(infinirtMemcpyKind_t kind) {
 }
 
 infiniStatus_t memcpy(void *dst, const void *src, size_t size, infinirtMemcpyKind_t kind) {
-    CHECK_BANGRT(cnrtMemcpy(dst, src, size, toBangMemcpyKind(kind)));
+    CHECK_BANGRT(cnrtMemcpy(dst, (void *)src, size, toBangMemcpyKind(kind)));
     return INFINI_STATUS_SUCCESS;
 }
 
 infiniStatus_t memcpyAsync(void *dst, const void *src, size_t size, infinirtMemcpyKind_t kind, infinirtStream_t stream) {
-    CHECK_BANGRT(cnrtMemcpyAsync_V2(dst, src, size, (cnrtQueue_t)stream, toBangMemcpyKind(kind)));
+    CHECK_BANGRT(cnrtMemcpyAsync_V2(dst, (void *)src, size, (cnrtQueue_t)stream, toBangMemcpyKind(kind)));
     return INFINI_STATUS_SUCCESS;
 }
 

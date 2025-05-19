@@ -3,7 +3,7 @@
 #include "../infinirt_impl.h"
 
 namespace infinirt::bang {
-#ifdef ENABLE_BANG_API
+#ifdef ENABLE_CAMBRICON_API
 INFINIRT_DEVICE_API_IMPL
 #else
 INFINIRT_DEVICE_API_NOOP
