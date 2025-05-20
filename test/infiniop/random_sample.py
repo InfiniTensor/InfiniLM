@@ -43,6 +43,7 @@ _TOLERANCE_MAP = {
     torch.float16: {"atol": 0, "rtol": 0},
 }
 
+
 DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
@@ -59,27 +60,18 @@ infiniopRandomSampleDescriptor_t = POINTER(RandomSampleDescriptor)
 def random_sample(data, random_val, topp, topk, voc, temperature):
     if topp > 0 and topk > 1:
         sorted_vals, sorted_indices = torch.sort(data, descending=True)
-        
+
         scaled_vals = (sorted_vals - sorted_vals[0]) / temperature
         probs = torch.softmax(scaled_vals, dim=0)
         cum_probs = torch.cumsum(probs, dim=0)
-        
+
         k_index = min(topk, voc) - 1
         threshold = min(cum_probs[k_index], topp) * random_val
-        
+
         idx = torch.searchsorted(cum_probs, threshold)
         return sorted_indices[idx]
-    
+
     return torch.argmax(data)
-
-
-def random_sample(data, random_val, topp, topk, voc, temperature):
-    if topp > 0 and topk > 1:
-        ans = random_sample_1(data.to("cpu"), random_val, topp, topk, voc, temperature)
-    else:
-        ans = random_sample_0(data) 
-    
-    return ans
 
 
 def test(
@@ -92,7 +84,7 @@ def test(
     topk,
     temperature,
     dtype=torch.float16,
-    sync=None
+    sync=None,
 ):
     print(
         f"Testing RandomSample on {torch_device} with voc:{voc} random_val:{random_val} topp:{topp} topk:{topk} temperature:{temperature} dtype:{dtype}"
@@ -136,6 +128,7 @@ def test(
         )
     )
     workspace = create_workspace(workspace_size.value, torch_device)
+
     def lib_random_sample():
         check_error(
             lib.infiniopRandomSample(
@@ -223,4 +216,5 @@ if __name__ == "__main__":
     # Execute tests
     for device in get_test_devices(args):
         test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
+
     print("\033[92mTest passed!\033[0m")

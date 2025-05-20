@@ -11,8 +11,12 @@
 #ifdef ENABLE_METAX_API
 #include "maca/random_sample_maca.h"
 #endif
+#ifdef ENABLE_ASCEND_API
+#include "ascend/random_sample_aclnn.h"
+#endif
 
-__C infiniStatus_t infiniopCreateRandomSampleDescriptor(
+__C infiniStatus_t
+infiniopCreateRandomSampleDescriptor(
     infiniopHandle_t handle,
     infiniopRandomSampleDescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t result,
@@ -36,6 +40,9 @@ __C infiniStatus_t infiniopCreateRandomSampleDescriptor(
 #endif
 #ifdef ENABLE_METAX_API
         CREATE(INFINI_DEVICE_METAX, maca);
+#endif
+#ifdef ENABLE_ASCEND_API
+        CREATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 
     default:
@@ -66,6 +73,9 @@ __C infiniStatus_t infiniopGetRandomSampleWorkspaceSize(
 #endif
 #ifdef ENABLE_METAX_API
         GET(INFINI_DEVICE_METAX, maca);
+#endif
+#ifdef ENABLE_ASCEND_API
+        GET(INFINI_DEVICE_ASCEND, ascend);
 #endif
 
     default:
@@ -107,6 +117,9 @@ __C infiniStatus_t infiniopRandomSample(
 #ifdef ENABLE_METAX_API
         CALCULATE(INFINI_DEVICE_METAX, maca);
 #endif
+#ifdef ENABLE_ASCEND_API
+        CALCULATE(INFINI_DEVICE_ASCEND, ascend);
+#endif
 
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -134,6 +147,9 @@ __C infiniStatus_t infiniopDestroyRandomSampleDescriptor(
 #ifdef ENABLE_METAX_API
         DELETE(INFINI_DEVICE_METAX, maca);
 #endif
+#ifdef ENABLE_ASCEND_API
+        DELETE(INFINI_DEVICE_ASCEND, ascend);
+#endif
 
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -141,4 +157,3 @@ __C infiniStatus_t infiniopDestroyRandomSampleDescriptor(
 
 #undef DELETE
 }
-
