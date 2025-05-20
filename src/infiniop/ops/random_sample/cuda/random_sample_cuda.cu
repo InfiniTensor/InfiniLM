@@ -26,10 +26,12 @@ infiniStatus_t Descriptor::create(
     auto info = result.take();
     size_t workspace_size;
 
-#define CASE_P(CASE, Tidx, Tval)                                 \
-    case CASE:                                                   \
-        workspace_size = calculateWorkspace<Tidx, Tval>(info.n); \
-        break
+#define CASE_P(CASE, Tidx, Tval)                                        \
+    case CASE: {                                                        \
+        auto workspace_result = calculateWorkspace<Tidx, Tval>(info.n); \
+        CHECK_RESULT(workspace_result);                                 \
+        workspace_size = workspace_result.take();                       \
+    } break
 
 #define CASE_I(CASE, Tidx)                          \
     case CASE:                                      \
