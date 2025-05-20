@@ -15,7 +15,7 @@ inline std::shared_ptr<Tensor> getOutNorm(
     JiugeMeta const *meta,
     JiugeWeights const *w) {
     auto shape = std::vector<size_t>({meta->d});
-    return Tensor::weight((char *)w->output_norm, meta->dt_norm, shape);
+    return Tensor::weight((char *)w->output_norm, w->dt_norm, shape);
 }
 
 inline std::shared_ptr<Tensor> getOutEmbd(
@@ -31,7 +31,7 @@ inline std::shared_ptr<Tensor> getAttnNorm(
     JiugeWeights const *w,
     size_t layer) {
     auto shape = std::vector<size_t>({meta->d});
-    return Tensor::weight((char *)(w->attn_norm[layer]), meta->dt_norm, shape);
+    return Tensor::weight((char *)(w->attn_norm[layer]), w->dt_norm, shape);
 }
 
 inline std::shared_ptr<Tensor> getAttnQKV(
@@ -42,9 +42,9 @@ inline std::shared_ptr<Tensor> getAttnQKV(
     auto nh = meta->nh;
     auto dh = meta->dh;
     auto d = meta->d;
-    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * d * dsize(meta->dt_mat);
+    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * d * dsize(w->dt_mat);
     auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh, d});
-    return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, meta->dt_mat, shape)
+    return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, w->dt_mat, shape)
         ->permute({1, 0});
 }
 
@@ -55,9 +55,9 @@ inline std::shared_ptr<Tensor> getAttnQKVBias(
     auto nkvh = meta->nkvh;
     auto nh = meta->nh;
     auto dh = meta->dh;
-    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * dsize(meta->dt_mat);
+    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * dsize(w->dt_mat);
     auto shape = std::vector<size_t>({1, (nh + 2 * nkvh) / ndev * dh});
-    return Tensor::weight((char *)(w->attn_qkv_b[layer]) + offset, meta->dt_mat, shape);
+    return Tensor::weight((char *)(w->attn_qkv_b[layer]) + offset, w->dt_mat, shape);
 }
 
 inline std::shared_ptr<Tensor> getAttnO(JiugeMeta const *meta,
@@ -66,9 +66,9 @@ inline std::shared_ptr<Tensor> getAttnO(JiugeMeta const *meta,
     auto nh = meta->nh;
     auto dh = meta->dh;
     auto d = meta->d;
-    size_t offset = idev * d * (nh / ndev * dh) * dsize(meta->dt_mat);
+    size_t offset = idev * d * (nh / ndev * dh) * dsize(w->dt_mat);
     auto shape = std::vector<size_t>({d, nh / ndev * dh});
-    return Tensor::weight((char *)(w->attn_o[layer]) + offset, meta->dt_mat, shape)
+    return Tensor::weight((char *)(w->attn_o[layer]) + offset, w->dt_mat, shape)
         ->permute({1, 0});
 }
 
@@ -77,7 +77,7 @@ inline std::shared_ptr<Tensor> getFFNNorm(
     JiugeWeights const *w,
     size_t layer) {
     auto shape = std::vector<size_t>({meta->d});
-    return Tensor::weight((char *)(w->ffn_norm[layer]), meta->dt_norm, shape);
+    return Tensor::weight((char *)(w->ffn_norm[layer]), w->dt_norm, shape);
 }
 
 inline std::shared_ptr<Tensor> getFFNGateUp(
@@ -86,10 +86,10 @@ inline std::shared_ptr<Tensor> getFFNGateUp(
     size_t layer, size_t idev, size_t ndev) {
     auto di = meta->di;
     auto d = meta->d;
-    size_t offset = idev * (2 * di / ndev) * d * dsize(meta->dt_mat);
+    size_t offset = idev * (2 * di / ndev) * d * dsize(w->dt_mat);
     auto shape = std::vector<size_t>({2 * di / ndev, d});
     return Tensor::weight((char *)(w->ffn_gate_up[layer]) + offset,
-                          meta->dt_mat, shape)
+                          w->dt_mat, shape)
         ->permute({1, 0});
 }
 
@@ -99,21 +99,29 @@ inline std::shared_ptr<Tensor> getFFNDown(
     size_t layer, size_t idev, size_t ndev) {
     auto di = meta->di;
     auto d = meta->d;
-    size_t offset = idev * d * (di / ndev) * dsize(meta->dt_mat);
+    size_t offset = idev * d * (di / ndev) * dsize(w->dt_mat);
     auto shape = std::vector<size_t>({d, di / ndev});
-    return Tensor::weight((char *)(w->ffn_down[layer]) + offset, meta->dt_mat, shape)
+    return Tensor::weight((char *)(w->ffn_down[layer]) + offset, w->dt_mat, shape)
         ->permute({1, 0});
 }
 
 inline std::shared_ptr<Tensor> getSinTable(JiugeMeta const *meta) {
     auto half_dh = meta->dh / 2;
-    uint16_t *table = (uint16_t *)std::malloc(meta->dctx * half_dh * sizeof(uint16_t));
+    auto unit = dsize(meta->dt_logits);
+    void *table = std::malloc(meta->dctx * half_dh * unit);
 
     for (size_t i = 0; i < meta->dctx; i++) {
         for (size_t j = 0; j < half_dh; j++) {
             float _sin = std::sin(
                 static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
-            table[i * half_dh + j] = f32_to_f16(_sin);
+            if (meta->dt_logits == INFINI_DTYPE_F16) {
+                ((uint16_t *)table)[i * half_dh + j] = f32_to_f16(_sin);
+            } else if (meta->dt_logits == INFINI_DTYPE_F32) {
+                ((float *)table)[i * half_dh + j] = _sin;
+            } else {
+                std::cout << "unsupported data type" << std::endl;
+                exit(1);
+            }
         }
     }
     auto shape = std::vector<size_t>({meta->dctx, half_dh});
@@ -124,16 +132,24 @@ inline std::shared_ptr<Tensor> getSinTable(JiugeMeta const *meta) {
 
 inline std::shared_ptr<Tensor> getCosTable(JiugeMeta const *meta) {
     auto half_dh = meta->dh / 2;
-    uint16_t *table = (uint16_t *)std::malloc(meta->dctx * half_dh * sizeof(uint16_t));
+    auto unit = dsize(meta->dt_logits);
+    void *table = std::malloc(meta->dctx * half_dh * unit);
 
     for (size_t i = 0; i < meta->dctx; i++) {
         for (size_t j = 0; j < half_dh; j++) {
             float _cos = std::cos(
                 static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
-            table[i * half_dh + j] = f32_to_f16(_cos);
+            if (meta->dt_logits == INFINI_DTYPE_F16) {
+                ((uint16_t *)table)[i * half_dh + j] = f32_to_f16(_cos);
+            } else if (meta->dt_logits == INFINI_DTYPE_F32) {
+                ((float *)table)[i * half_dh + j] = _cos;
+            } else {
+                std::cout << "unsupported data type" << std::endl;
+                exit(1);
+            }
         }
     }
-    auto shape = std::vector<size_t>({meta->dctx, half_dh});    
+    auto shape = std::vector<size_t>({meta->dctx, half_dh});
     auto tensor = Tensor::weight(table, meta->dt_logits, shape);
     std::free(table);
     return tensor;

@@ -38,8 +38,6 @@ class DeviceType(ctypes.c_int):
 class JiugeMeta(ctypes.Structure):
     _fields_ = [
         ("dt_logits", DataType),
-        ("dt_norm", DataType),
-        ("dt_mat", DataType),
         ("nlayer", c_size_t),
         ("d", c_size_t),
         ("nh", c_size_t),
@@ -58,6 +56,8 @@ class JiugeMeta(ctypes.Structure):
 class JiugeWeights(ctypes.Structure):
     _fields_ = [
         ("nlayer", c_size_t),
+        ("dt_norm", DataType),
+        ("dt_mat", DataType),
         ("input_embd", c_void_p),
         ("output_norm", c_void_p),
         ("output_embd", c_void_p),

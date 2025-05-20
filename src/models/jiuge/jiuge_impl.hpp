@@ -3,6 +3,7 @@
 
 #include "infinicore_infer.h"
 
+#include "../../allocator.hpp"
 #include "../../tensor.hpp"
 
 #include <condition_variable>
@@ -23,7 +24,10 @@ struct DeviceResource {
         w_ffn_norm, w_ffn_gate_up, w_ffn_down;
     // Streams
     infinirtStream_t stream;
+    // Communicator
     infinicclComm_t comm;
+
+    std::unique_ptr<WorkspaceAllocator> workspace_allocator;
 };
 
 struct InferState {

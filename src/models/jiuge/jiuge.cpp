@@ -31,7 +31,6 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
             b_attn_qkv.push_back(
                 getAttnQKVBias(meta, weights, layer, idev, ndev));
         }
-
         w_attn_out.push_back(
             getAttnO(meta, weights, layer, idev, ndev));
         w_ffn_norm.push_back(
@@ -42,26 +41,29 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
             getFFNDown(meta, weights, layer, idev, ndev));
     }
 
-    *rsrc = DeviceResource{device,
-                           dev_id,
-                           handle,
-                           getInEmbd(meta, weights),
-                           getOutNorm(meta, weights),
-                           getOutEmbd(meta, weights),
-                           getSinTable(meta),
-                           getCosTable(meta),
-                           w_attn_norm,
-                           w_attn_qkv,
-                           b_attn_qkv,
-                           w_attn_out,
-                           w_ffn_norm,
-                           w_ffn_gate_up,
-                           w_ffn_down,
-                           stream,
-                           comm};
+    *rsrc = DeviceResource{
+        device,
+        dev_id,
+        handle,
+        getInEmbd(meta, weights),
+        getOutNorm(meta, weights),
+        getOutEmbd(meta, weights),
+        getSinTable(meta),
+        getCosTable(meta),
+        w_attn_norm,
+        w_attn_qkv,
+        b_attn_qkv,
+        w_attn_out,
+        w_ffn_norm,
+        w_ffn_gate_up,
+        w_ffn_down,
+        stream,
+        comm,
+        std::make_unique<WorkspaceAllocator>(0),
+    };
 }
 
-void inferDeviceBatch(const JiugeMeta &meta, const DeviceResource &rsrc,
+void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -75,6 +77,7 @@ void inferDeviceBatch(const JiugeMeta &meta, const DeviceResource &rsrc,
     auto dh = meta.dh;
     auto d = meta.d;
     auto dt_logits = meta.dt_logits;
+    // std::cout << "dt_logits: " <<(int)dt_logits << std::endl;
     auto di = meta.di / ndev;
     auto dvoc = meta.dvoc;
     auto stream = rsrc.stream;
@@ -215,12 +218,14 @@ void inferDeviceBatch(const JiugeMeta &meta, const DeviceResource &rsrc,
     infiniopRandomSampleDescriptor_t desc_sample;
     RUN_INFINI(infiniopCreateRandomSampleDescriptor(
         rsrc.handle, &desc_sample,
-        TensorDesc::create(INFINI_DTYPE_U64, {}, {})->get(),
+        TensorDesc::create(INFINI_DTYPE_U32, {}, {})->get(),
         TensorDesc::create(dt_logits, {dvoc}, {1})->get()));
     RUN_INFINI(infiniopGetRandomSampleWorkspaceSize(desc_sample, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     // Allocate workspace
-    RUN_INFINI(infinirtMallocAsync(&workspace, workspace_size, stream));
+    workspace = rsrc.workspace_allocator->alloc(workspace_size);
+    
+    // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
@@ -323,11 +328,13 @@ void inferDeviceBatch(const JiugeMeta &meta, const DeviceResource &rsrc,
         for (uint32_t req = 0; req < nreq; req++) {
             auto seq_len = req_lens[req];
             float random_val = std::uniform_real_distribution<float>(0, 1)(gen);
+            // prob_buf->debug();
             RUN_INFINI(infiniopRandomSample(
                 desc_sample, workspace, workspace_size,
                 result_buf->data(req),
                 prob_buf->data(req * dvoc), random_val, topp,
                 topk, temperature, stream));
+            // result_buf->debug();
             token_offset += seq_len;
         }
         RUN_INFINI(infinirtStreamSynchronize(stream));
@@ -350,7 +357,6 @@ void inferDeviceBatch(const JiugeMeta &meta, const DeviceResource &rsrc,
     infiniopDestroyRMSNormDescriptor(desc_norm_out);
     infiniopDestroyGemmDescriptor(desc_out_embd);
     infiniopDestroyRandomSampleDescriptor(desc_sample);
-    infinirtFree(workspace);
 }
 
 __C void

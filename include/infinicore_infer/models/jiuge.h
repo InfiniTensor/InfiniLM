@@ -11,7 +11,7 @@ struct JiugeModel;
 
 typedef struct
 {
-    infiniDtype_t dt_logits, dt_norm, dt_mat;
+    infiniDtype_t dt_logits;
     size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc;
     float epsilon, theta;
     uint32_t end_token;
@@ -20,6 +20,7 @@ typedef struct
 typedef struct
 {
     size_t nlayer;
+    infiniDtype_t dt_norm, dt_mat;
     // [dvoc, d]
     const void *input_embd;
     // [d]
