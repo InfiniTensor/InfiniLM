@@ -51,6 +51,7 @@ def test(
     torch_device,
     x_shape,
     tensor_dtype=torch.float16,
+    sync=None
 ):
     print(
         f"Testing GlobalAvgPool on {torch_device} with input tensor_shape: {x_shape} dtype: {tensor_dtype}"
@@ -70,8 +71,11 @@ def test(
 
     x_tensor = to_tensor(x, lib)
     y_tensor = to_tensor(y, lib)
-    descriptor = infiniopGlobalAvgPoolDescriptor_t()
+    
+    if sync is not None:
+        sync()
 
+    descriptor = infiniopGlobalAvgPoolDescriptor_t()
     check_error(
         lib.infiniopCreateGlobalAvgPoolDescriptor(
             handle,

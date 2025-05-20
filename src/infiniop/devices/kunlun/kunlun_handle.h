@@ -16,7 +16,7 @@ typedef XPUStream kunlunStream_t;
 typedef XPUEvent kunlunEvent_t;
 typedef xdnn::Context *xdnnHandle_t;
 
-#define CHECK_XDNN(API) CHECK_INTERNAL(API, XPU_SUCCESS)
+#define CHECK_KUNLUN(API) CHECK_INTERNAL(API, XPU_SUCCESS)
 
 namespace device::kunlun {
 

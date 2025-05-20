@@ -50,9 +50,8 @@ target("infiniop-ascend")
     add_files("$(projectdir)/src/infiniop/devices/ascend/*.cc", "$(projectdir)/src/infiniop/ops/*/ascend/*.cc")
 
     -- Add operator
-    -- TODO: add it back after ascend-kernels is fixed
-    -- add_rules("ascend-kernels")
-    -- add_links(builddir.."/libascend_kernels.a")
+    add_rules("ascend-kernels")
+    add_links(builddir.."/libascend_kernels.a")
 target_end()
 
 target("infinirt-ascend")
