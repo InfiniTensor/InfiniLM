@@ -216,5 +216,8 @@ impl WeightLoader for Weights<'_> {
 #[cfg(test)]
 mod infer;
 
+#[cfg(test)]
+mod web;
+
 #[cfg(all(test, use_nccl))]
 mod nccl_parallel;
