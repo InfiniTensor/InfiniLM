@@ -1,4 +1,5 @@
-﻿use crate::{Operators, RandomSample, Weights};
+﻿use super::Command;
+use crate::{Operators, RandomSample, Weights};
 use common::Distribution;
 use gguf::{ext::utok, GGufModel, Tokenizer};
 use llama::{
@@ -11,37 +12,24 @@ use operators::{
 };
 use std::{
     slice::from_raw_parts_mut,
-    sync::mpsc::{Receiver, Sender},
+    sync::mpsc::{Receiver, Sender, TryRecvError},
     time::{Duration, Instant},
 };
 use test_utils::{Inference, TokenizerAndPrompt};
 
 type Worker<'w> = LlamaWorker<Operators, Weights<'w>>;
 
-pub fn infer(prompts: Receiver<String>, responds: Sender<String>) {
-    let Some(Inference {
-        model,
-        devices,
-        prompt,
-        as_user,
-        temperature,
-        top_p,
-        top_k,
-        max_steps,
-        ..
-    }) = Inference::load()
-    else {
+pub fn infer(commands: Receiver<Command>, responds: Sender<String>) {
+    let Some(Inference { model, devices, .. }) = Inference::load() else {
         return;
     };
     let gguf = GGufModel::read(model.iter().map(|s| &**s));
 
-    let TokenizerAndPrompt { eos, tokenizer, .. } = TokenizerAndPrompt::new(&gguf, prompt, as_user);
+    let TokenizerAndPrompt { eos, tokenizer, .. } =
+        TokenizerAndPrompt::new(&gguf, Default::default(), false);
 
     let model = LlamaStorage::from_gguf(&gguf);
     println!("{:?}", model.meta);
-
-    let sample_args = SampleArgs::new(temperature, top_p, top_k).expect("invalid sample args");
-    println!("{sample_args:?}");
 
     let device = devices.map_or(0, |devices| devices.parse().unwrap());
     println!("using gpu{device}");
@@ -93,10 +81,9 @@ pub fn infer(prompts: Receiver<String>, responds: Sender<String>) {
         test_infer(
             eos,
             tokenizer,
-            max_steps,
-            prompts,
+            commands,
             responds,
-            |input, pos| {
+            |input, pos, sample_args| {
                 let mut embd = meta.embd(input.len()).map(alloc);
                 let mut logits = meta.logits(1).map(alloc);
 
@@ -159,12 +146,16 @@ pub fn infer(prompts: Receiver<String>, responds: Sender<String>) {
 fn test_infer(
     eos: utok,
     tokenizer: Tokenizer,
-    max_steps: usize,
-    prompts: Receiver<String>,
+    commands: Receiver<Command>,
     responds: Sender<String>,
-    mut lm: impl FnMut(&[utok], usize) -> utok,
+    mut lm: impl FnMut(&[utok], usize, SampleArgs) -> utok,
 ) {
-    for prompt in prompts {
+    while let Ok(Command::Infer {
+        prompt,
+        max_steps,
+        temperature,
+    }) = commands.recv()
+    {
         let mut tokens = tokenizer.encode(&prompt);
 
         let mut prefill = Duration::ZERO;
@@ -172,8 +163,18 @@ fn test_infer(
 
         let mut pos = 0;
         for _ in 0..max_steps {
+            match commands.try_recv() {
+                Ok(Command::Stop) => break,
+                Err(TryRecvError::Empty) => {}
+                _ => unreachable!(),
+            }
+
             let time = Instant::now();
-            let next = lm(&tokens, pos);
+            let next = lm(
+                &tokens,
+                pos,
+                SampleArgs::new(temperature, 0.6, 2000).unwrap(),
+            );
             let time = time.elapsed();
 
             if prefill.is_zero() {

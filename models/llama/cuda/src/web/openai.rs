@@ -8,7 +8,10 @@ pub const V1_COMPLETIONS_OBJECT: &str = "chat.completion";
 pub struct Completions {
     pub model: String,
     pub prompt: String,
+    pub n: Option<usize>,
+    pub temperature: Option<f32>,
 }
+
 #[derive(Serialize, Deserialize)]
 pub struct CompletionsResponse {
     pub id: String,
@@ -17,6 +20,7 @@ pub struct CompletionsResponse {
     pub model: String,
     pub object: String,
 }
+
 #[derive(Serialize, Deserialize)]
 pub struct CompletionsChoice {
     pub index: usize,

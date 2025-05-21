@@ -37,18 +37,27 @@ fn service() {
         .unwrap()
 }
 
+enum Command {
+    Infer {
+        prompt: String,
+        max_steps: usize,
+        temperature: f32,
+    },
+    Stop,
+}
+
 async fn start_infer_service() -> std::io::Result<()> {
     let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 8000));
-    info!("start service at {addr}");
+    println!("start service at {addr}");
 
-    let (sender, prompts) = mpsc::channel();
+    let (sender, commands) = mpsc::channel();
     let (responds, receiver) = mpsc::channel();
     let app = App {
         sender,
         receiver: Arc::new(Mutex::new(receiver)),
     };
 
-    let _thread = std::thread::spawn(move || infer::infer(prompts, responds));
+    let _thread = std::thread::spawn(move || infer::infer(commands, responds));
 
     let listener = TcpListener::bind(addr).await?;
     loop {
@@ -68,7 +77,7 @@ async fn start_infer_service() -> std::io::Result<()> {
 
 #[derive(Clone)]
 struct App {
-    sender: Sender<String>,
+    sender: Sender<Command>,
     receiver: Arc<Mutex<Receiver<String>>>,
 }
 
@@ -98,8 +107,19 @@ impl HyperService<Request<Incoming>> for App {
 }
 
 fn complete(completions: Completions, app: App) -> Response<BoxBody<Bytes, hyper::Error>> {
-    let Completions { model, prompt } = completions;
-    app.sender.send(prompt).unwrap();
+    let Completions {
+        model,
+        prompt,
+        n,
+        temperature,
+    } = completions;
+    app.sender
+        .send(Command::Infer {
+            prompt,
+            max_steps: n.unwrap_or(20000),
+            temperature: temperature.unwrap_or(0.),
+        })
+        .unwrap();
 
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     tokio::task::spawn_blocking(move || {
@@ -129,6 +149,7 @@ fn complete(completions: Completions, app: App) -> Response<BoxBody<Bytes, hyper
                 break;
             }
         }
+        let _ = app.sender.send(Command::Stop);
     });
 
     text_stream(UnboundedReceiverStream::new(receiver))
