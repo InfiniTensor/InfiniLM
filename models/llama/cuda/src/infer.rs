@@ -67,7 +67,9 @@ fn test_infer() {
         let stream = ctx.stream();
 
         let time = Instant::now();
-        let token_embd = stream.ctx().from_host(model.token_embd);
+        let mut host_ =  ctx.malloc_host::<u8>(model.token_embd.len());
+       host_.copy_from_slice(model.token_embd); 
+        let token_embd = stream.ctx().from_host(&host_);
         let weights = Weights::new(&model, Distribution::MONO, ctx);
         println!("load weights: {:?}", time.elapsed());
 
@@ -82,8 +84,8 @@ fn test_infer() {
         let alloc = |size| -> MemPoolBlob { queue_alloc.alloc(size) };
 
         let (free, _) = ctx.mem_info();
-        // 去除 64MiB 以下的零头
-        queue_alloc.put(free.0 & !((64 << 20) - 1));
+        // 去除 1GiB 以下的零头
+        queue_alloc.put(free.0 & !((1 << 30) - 1));
 
         let mut worker = Worker::new(0, &gpu, meta.clone(), weights);
         let sin_cos =
