@@ -82,7 +82,8 @@ impl<'ctx> Weights<'ctx> {
             ..
         } = model;
 
-        let mut calculator = WeightMemCalculator::new(ctx.dev().alignment());
+        let align = ctx.dev().alignment();
+        let mut calculator = WeightMemCalculator::new(if align != 0 { align } else { 1024 });
         let meta_dist = meta.distribute(dist);
         let blk_size = meta_dist.blk();
         let off_blks = (0..meta_dist.nblk)
@@ -129,7 +130,6 @@ impl<'ctx> Weights<'ctx> {
                 stream.memcpy_h2d(&mut mem[off], &data);
                 queue.push_back((stream.record(), Instant::now(), data))
             }
-
             while let Some((event, _, _)) = queue.front() {
                 if event.is_complete() {
                     let (_, time, data) = queue.pop_front().unwrap();
@@ -140,8 +140,13 @@ impl<'ctx> Weights<'ctx> {
                 }
             }
         }
-        stream.memcpy_h2d(&mut mem[off_output_norm.clone()], output_norm);
-        stream.memcpy_h2d(&mut mem[off_output.clone()], output);
+        let mut host_ = ctx.malloc_host::<u8>(output_norm.len());
+        host_.copy_from_slice(output_norm);
+        stream.memcpy_h2d(&mut mem[off_output_norm.clone()], &host_);
+        let mut host_ = ctx.malloc_host::<u8>(output.len());
+        host_.copy_from_slice(output);
+        stream.memcpy_h2d(&mut mem[off_output.clone()], &host_);
+        stream.synchronize();
 
         Self {
             nexp: meta.nexp,
@@ -214,6 +219,9 @@ impl WeightLoader for Weights<'_> {
 
 #[cfg(test)]
 mod infer;
+
+#[cfg(test)]
+mod web;
 
 #[cfg(all(test, use_nccl))]
 mod nccl_parallel;
