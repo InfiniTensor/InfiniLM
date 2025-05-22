@@ -98,7 +98,8 @@ void *Tensor::data() const {
 
 Tensor::Tensor(const GGUFTensorInfo *info,
                const void *ggml_ptr,
-               const GGUFKeyValue *strides_meta) {
+               const GGUFKeyValue *strides_meta,
+               const GGUFKeyValue *shapes_meta) {
     _ggml_type = info->ggml_type;
     _offset = 0;
     size_t ndim = static_cast<size_t>(info->ndim);
@@ -120,7 +121,6 @@ Tensor::Tensor(const GGUFTensorInfo *info,
         }
     } else {
         for (size_t i = 0; i < ndim; i++) {
-            _shape[i] = static_cast<size_t>(info->shape[ndim - 1 - i]);
             if (strides_meta->gguf_type == GGUF_TYPE_INT64) {
                 _strides[i] = (ptrdiff_t)(reinterpret_cast<const int64_t *>(
                     strides_meta->value.data())[ndim - 1 - i]);
@@ -145,6 +145,23 @@ Tensor::Tensor(const GGUFTensorInfo *info,
         contiguous_strides.data(),
         ndim,
         ggmlTypeSize(_ggml_type));
+
+    if (shapes_meta != nullptr) {
+
+        for (size_t i = 0; i < ndim; i++) {
+
+            if (shapes_meta->gguf_type == GGUF_TYPE_INT64) {
+                _shape[i] = (ptrdiff_t)(reinterpret_cast<const int64_t *>(
+                    shapes_meta->value.data())[i]);
+
+            } else if (shapes_meta->gguf_type == GGUF_TYPE_INT32) {
+                _shape[i] = (ptrdiff_t)(reinterpret_cast<const int32_t *>(
+                    shapes_meta->value.data())[i]);
+            } else {
+                throw std::runtime_error("Error Creating Tensor: Unsupported shape type");
+            }
+        }
+    }
 }
 
 Tensor::Tensor(std::shared_ptr<Memory> memory, size_t offset,

@@ -29,8 +29,8 @@ DECLARE_INFINIOP_TEST(add)
         REGISTER_INFINIOP_TEST(random_sample) \
         REGISTER_INFINIOP_TEST(add)           \
         REGISTER_INFINIOP_TEST(mul)           \
-        REGISTER_INFINIOP_TEST(swiglu)
-}
+        REGISTER_INFINIOP_TEST(swiglu)        \
+    }
 
 namespace infiniop_test {
 
