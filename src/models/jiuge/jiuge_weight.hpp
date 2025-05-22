@@ -56,7 +56,7 @@ inline std::shared_ptr<Tensor> getAttnQKVBias(
     auto nh = meta->nh;
     auto dh = meta->dh;
     size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * dsize(w->dt_mat);
-    auto shape = std::vector<size_t>({1, (nh + 2 * nkvh) / ndev * dh});
+    auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh});
     return Tensor::weight((char *)(w->attn_qkv_b[layer]) + offset, w->dt_mat, shape);
 }
 

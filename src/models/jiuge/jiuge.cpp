@@ -243,12 +243,12 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         if (has_qkv_bias) {
             RUN_INFINI(infiniopRearrange(
                 desc_qkv_bias,
-                qkv_buf->data(), rsrc.b_attn_qkv.data(), stream));
+                qkv_buf->data(), rsrc.b_attn_qkv[layer]->data(), stream));
         }
         RUN_INFINI(infiniopGemm(
             desc_attn_qkv, workspace, workspace_size,
             qkv_buf->data(), logits_out->data(),
-            rsrc.w_attn_qkv[layer]->data(), 1.0, 0.0, stream));
+            rsrc.w_attn_qkv[layer]->data(), 1.0, has_qkv_bias ? 1.0 : 0.0, stream));
         // rope
         RUN_INFINI(infiniopRoPE(
             desc_rope_q, workspace, workspace_size,
