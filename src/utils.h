@@ -100,4 +100,12 @@ inline std::string infiniDtypeToString(infiniDtype_t dtype) {
 
 #define CEIL_DIV(x, y) (((x) + (y)-1) / (y))
 
+namespace utils {
+
+inline size_t align(size_t size, size_t alignment) {
+    return (size + alignment - 1) & ~(alignment - 1);
+}
+
+} // namespace utils
+
 #endif

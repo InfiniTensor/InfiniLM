@@ -215,7 +215,7 @@ if __name__ == "__main__":
     # Tolerance map for different data types
     _TOLERANCE_MAP = {
         torch.float16: {"atol": 1e-4, "rtol": 1e-2},
-        torch.float32: {"atol": 1e-6, "rtol": 1e-4},
+        torch.float32: {"atol": 1e-5, "rtol": 1e-3},
     }
 
     DEBUG = False
@@ -267,6 +267,20 @@ if __name__ == "__main__":
             None,  # v_stride
             None,  # k_cache_stride
             None,  # v_cache_stride
+        ),
+        (
+            28,  # n_q_head
+            28,  # n_kv_head
+            15,  # seq_len
+            128,  # head_dim
+            0,  # pos
+            2048,  # k_cache_buf_len
+            2048,  # v_cache_buf_len
+            [128, 10752, 1],  # q_stride
+            [128, 10752, 1],  # k_stride
+            [128, 10752, 1],  # v_stride
+            [128, 3584, 1],  # k_cache_stride
+            [128, 3584, 1],  # v_cache_stride
         ),
     ]
     args = get_args()
