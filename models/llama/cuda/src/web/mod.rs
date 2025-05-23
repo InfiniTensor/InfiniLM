@@ -14,7 +14,7 @@ use hyper::{
 use hyper_util::rt::TokioIo;
 use log::{info, warn};
 use openai::{Completions, CompletionsChoice, CompletionsResponse, V1_COMPLETIONS_OBJECT};
-use response::{error, text_stream};
+use response::{error, single, text_stream};
 use std::{
     future::Future,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
@@ -117,6 +117,7 @@ fn complete(completions: Completions, app: App) -> Response<BoxBody<Bytes, hyper
         prompt,
         max_tokens,
         temperature,
+        stream,
     } = completions;
     app.sender
         .send(Command::Infer {
@@ -126,38 +127,51 @@ fn complete(completions: Completions, app: App) -> Response<BoxBody<Bytes, hyper
         })
         .unwrap();
 
-    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-    tokio::task::spawn_blocking(move || {
-        let response = app.receiver.lock().unwrap();
+    static ID: AtomicUsize = AtomicUsize::new(0);
+    let id = format!("InfiniLM-{:#x}", ID.fetch_add(1, SeqCst));
+    let created = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as _;
 
-        static ID: AtomicUsize = AtomicUsize::new(0);
+    if stream.is_some_and(|b| b) {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        tokio::task::spawn_blocking(move || {
+            let response = app.receiver.lock().unwrap();
 
-        let id = format!("InfiniLM-{:#x}", ID.fetch_add(1, SeqCst));
-        let created = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as _;
-
-        while let Ok(InferResponse::Piece(response)) = response.recv() {
-            let response = CompletionsResponse {
-                id: id.clone(),
-                choices: vec![CompletionsChoice {
-                    index: 0,
-                    text: response,
-                }],
-                created,
-                model: model.clone(),
-                object: V1_COMPLETIONS_OBJECT.into(),
-            };
-            let msg = serde_json::to_string(&response).unwrap();
-            if sender.send(msg).is_err() {
-                let _ = app.sender.send(Command::Stop);
-                break;
+            while let Ok(InferResponse::Piece(piece)) = response.recv() {
+                let response = CompletionsResponse {
+                    id: id.clone(),
+                    choices: vec![CompletionsChoice {
+                        index: 0,
+                        text: piece,
+                    }],
+                    created,
+                    model: model.clone(),
+                    object: V1_COMPLETIONS_OBJECT.into(),
+                };
+                let msg = serde_json::to_string(&response).unwrap();
+                if sender.send(msg).is_err() {
+                    let _ = app.sender.send(Command::Stop);
+                    break;
+                }
             }
+            app.sender.send(Command::Stop).unwrap()
+        });
+        text_stream(UnboundedReceiverStream::new(receiver))
+    } else {
+        let response = app.receiver.lock().unwrap();
+        let mut text = String::new();
+        while let Ok(InferResponse::Piece(piece)) = response.recv() {
+            text.push_str(&piece)
         }
-        app.sender.send(Command::Stop).unwrap();
-        // println!("over");
-    });
-
-    text_stream(UnboundedReceiverStream::new(receiver))
+        let response = CompletionsResponse {
+            id: id.clone(),
+            choices: vec![CompletionsChoice { index: 0, text }],
+            created,
+            model: model.clone(),
+            object: V1_COMPLETIONS_OBJECT.into(),
+        };
+        single(serde_json::to_string(&response).unwrap())
+    }
 }

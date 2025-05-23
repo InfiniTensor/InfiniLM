@@ -21,6 +21,16 @@ pub fn text_stream(
         .unwrap()
 }
 
+pub fn single(body: String) -> Response<BoxBody<Bytes, hyper::Error>> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/event-stream")
+        .header(CACHE_CONTROL, "no-cache")
+        .header(CONNECTION, "keep-alive")
+        .body(full(body))
+        .unwrap()
+}
+
 pub fn error(e: Error) -> Response<BoxBody<Bytes, hyper::Error>> {
     Response::builder()
         .status(e.status())

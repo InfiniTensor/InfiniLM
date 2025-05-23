@@ -10,6 +10,7 @@ pub struct Completions {
     pub prompt: String,
     pub max_tokens: Option<usize>,
     pub temperature: Option<f32>,
+    pub stream: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]

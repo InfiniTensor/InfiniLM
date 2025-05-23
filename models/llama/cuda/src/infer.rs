@@ -9,7 +9,7 @@ use operators::{
     random_sample::{KVPair, SampleArgs},
     Alloc, QueueAlloc,
 };
-use std::{slice::from_raw_parts_mut, time::Instant, usize};
+use std::{slice::from_raw_parts_mut, time::Instant};
 use test_utils::{Inference, TokenizerAndPrompt};
 
 type Worker<'w> = LlamaWorker<Operators, Weights<'w>>;
@@ -67,8 +67,8 @@ fn test_infer() {
         let stream = ctx.stream();
 
         let time = Instant::now();
-        let mut host_ =  ctx.malloc_host::<u8>(model.token_embd.len());
-       host_.copy_from_slice(model.token_embd); 
+        let mut host_ = ctx.malloc_host::<u8>(model.token_embd.len());
+        host_.copy_from_slice(model.token_embd);
         let token_embd = stream.ctx().from_host(&host_);
         let weights = Weights::new(&model, Distribution::MONO, ctx);
         println!("load weights: {:?}", time.elapsed());
@@ -87,7 +87,7 @@ fn test_infer() {
         // 去除 1GiB 以下的零头
         queue_alloc.put(free.0 & !((1 << 30) - 1));
 
-        let mut worker = Worker::new(0, &gpu, meta.clone(), weights);
+        let mut worker = Worker::new(0, gpu, meta.clone(), weights);
         let sin_cos =
             <Operators as llama::Operators>::build_sin_cos(dt_embd, nctx, dh, &queue_alloc);
         let indices = RandomSample::build_indices(nvoc, &queue_alloc);
