@@ -8,6 +8,9 @@
 #ifdef ENABLE_CUDA_API
 #include "cuda/causal_softmax_cuda.cuh"
 #endif
+#ifdef ENABLE_METAX_API
+#include "maca/causal_softmax_maca.h"
+#endif
 #ifdef ENABLE_ASCEND_API
 #include "ascend/causal_softmax_ascend.h"
 #endif
@@ -32,6 +35,9 @@ __C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(
 #endif
 #ifdef ENABLE_CUDA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda)
+#endif
+#ifdef ENABLE_METAX_API
+        CREATE(INFINI_DEVICE_METAX, maca)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -80,6 +86,9 @@ __C infiniStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDe
 #ifdef ENABLE_ASCEND_API
         GET(INFINI_DEVICE_ASCEND, ascend)
 #endif
+#ifdef ENABLE_METAX_API
+        GET(INFINI_DEVICE_METAX, maca)
+#endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
         return macaGetCausalSoftmaxWorkspaceSize((CausalSoftmaxMacaDescriptor_t)desc, size);
@@ -112,6 +121,9 @@ __C infiniStatus_t infiniopCausalSoftmax(
 #endif
 #ifdef ENABLE_CUDA_API
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda)
+#endif
+#ifdef ENABLE_METAX_API
+        CALCULATE(INFINI_DEVICE_METAX, maca)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
@@ -149,6 +161,9 @@ __C infiniStatus_t infiniopDestroyCausalSoftmaxDescriptor(infiniopCausalSoftmaxD
 #endif
 #ifdef ENABLE_CUDA_API
         DESTROY(INFINI_DEVICE_NVIDIA, cuda)
+#endif
+#ifdef ENABLE_METAX_API
+        DESTROY(INFINI_DEVICE_METAX, maca)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
