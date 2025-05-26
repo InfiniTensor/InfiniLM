@@ -32,7 +32,8 @@ struct DeviceResource {
 
 struct InferState {
     std::mutex mtx;
-    std::condition_variable cv_start, cv_done;
+    std::condition_variable cv_load, cv_start, cv_done;
+    bool loaded = false;
     bool proceed = false;
     bool exit_flag = false;
 };

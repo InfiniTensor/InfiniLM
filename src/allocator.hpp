@@ -13,8 +13,7 @@ class WorkspaceAllocator : public AllocatorBase {
 private:
     void *_memory;
     size_t _total_size;
-    size_t _used_size;
-    size_t _align = 256;
+    size_t _align;
 
 public:
     WorkspaceAllocator(size_t intial_size, size_t align = 256);

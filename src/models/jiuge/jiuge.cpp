@@ -61,6 +61,52 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
         comm,
         std::make_unique<WorkspaceAllocator>(0),
     };
+    RUN_INFINI(infinirtDeviceSynchronize());
+}
+
+void releaseDeviceResource(DeviceResource &res) {
+    infinirtDeviceSynchronize();
+    // Release individual Tensors
+    res.w_in_embd.reset();
+    res.w_out_norm.reset();
+    res.w_out_embd.reset();
+    res.sin_table.reset();
+    res.cos_table.reset();
+    for (auto &t : res.w_attn_norm) {
+        t.reset();
+    }
+    res.w_attn_norm.clear();
+    for (auto &t : res.w_attn_qkv) {
+        t.reset();
+    }
+    res.w_attn_qkv.clear();
+    for (auto &t : res.b_attn_qkv) {
+        t.reset();
+    }
+    res.b_attn_qkv.clear();
+    for (auto &t : res.w_attn_out) {
+        t.reset();
+    }
+    res.w_attn_out.clear();
+    for (auto &t : res.w_ffn_norm) {
+        t.reset();
+    }
+    res.w_ffn_norm.clear();
+    for (auto &t : res.w_ffn_gate_up) {
+        t.reset();
+    }
+    res.w_ffn_gate_up.clear();
+    for (auto &t : res.w_ffn_down) {
+        t.reset();
+    }
+    res.w_ffn_down.clear();
+    res.workspace_allocator.reset();
+    infiniopDestroyHandle(res.handle);
+    res.handle = nullptr;
+    infinirtStreamDestroy(res.stream);
+    res.stream = nullptr;
+    infinicclCommDestroy(res.comm);
+    res.comm = nullptr;
 }
 
 void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
@@ -291,6 +337,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             RUN_INFINI(infinicclAllReduce(
                 logits_in->data(), logits_in->data(), ntok * d, dt_logits,
                 INFINICCL_SUM, rsrc.comm, stream));
+            RUN_INFINI(infinirtStreamSynchronize(stream));
         }
         // 2. FFN
         // rms_norm
@@ -315,6 +362,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             RUN_INFINI(infinicclAllReduce(
                 logits_in->data(), logits_in->data(), ntok * d, dt_logits,
                 INFINICCL_SUM, rsrc.comm, stream));
+            RUN_INFINI(infinirtStreamSynchronize(stream));
         }
     }
     // Sample and Output
@@ -408,10 +456,20 @@ inferBatch(struct JiugeModel *model,
 
 void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, DeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
+    // Create Device Resource
     createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
+    {
+        std::unique_lock<std::mutex> lock(state.mtx);
+        state.loaded = true;
+        lock.unlock();
+        state.cv_load.notify_one();
+    }
+
+    // Infer Loop
     while (true) {
         std::unique_lock<std::mutex> lock(state.mtx);
         state.cv_start.wait(lock, [&] { return state.proceed || state.exit_flag; });
+        // quit if exit_flag is set
         if (state.exit_flag) {
             break;
         }
@@ -423,9 +481,8 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, DeviceReso
         state.cv_done.notify_one();
     }
 
-    infiniopDestroyHandle(rsrc->handle);
-    infinirtStreamDestroy(rsrc->stream);
-    infinicclCommDestroy(rsrc->comm);
+    // Clean-Up
+    releaseDeviceResource(*rsrc);
 }
 
 JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infiniDevice_t device_, std::vector<int> device_ids) : meta(*_meta) {
@@ -443,6 +500,11 @@ JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infi
 
     for (int i = 0; i < ndev; i++) {
         threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+    }
+    for (int i = 0; i < ndev; i++) {
+        std::unique_lock<std::mutex> lock(states[i].mtx);
+        states[i].cv_load.wait(lock, [&] { return states[i].loaded; });
+        lock.unlock();
     }
 }
 

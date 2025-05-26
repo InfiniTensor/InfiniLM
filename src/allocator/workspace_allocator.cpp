@@ -14,6 +14,8 @@ inline void *allocate(size_t size_) {
 
 WorkspaceAllocator::WorkspaceAllocator(size_t initial_size_, size_t align) {
     _align = align;
+    _total_size = 0;
+    _memory = nullptr;
     if (initial_size_ > 0) {
         _total_size = aligned_size(initial_size_, _align);
         _memory = allocate(_total_size);
@@ -23,9 +25,10 @@ WorkspaceAllocator::WorkspaceAllocator(size_t initial_size_, size_t align) {
 void *WorkspaceAllocator::alloc(size_t new_size) {
     if (_total_size < new_size) {
         if (_total_size != 0) {
+            RUN_INFINI(infinirtDeviceSynchronize());
             RUN_INFINI(infinirtFree(_memory));
         }
-        _total_size = aligned_size(new_size * 3 / 2, _align);
+        _total_size = aligned_size(new_size, _align);
         _memory = allocate(_total_size);
     }
     return _memory;
@@ -36,6 +39,7 @@ void WorkspaceAllocator::release(void *ptr) {
 
 WorkspaceAllocator::~WorkspaceAllocator() {
     if (_memory != nullptr) {
+        RUN_INFINI(infinirtDeviceSynchronize());
         RUN_INFINI(infinirtFree(_memory));
     }
 }

@@ -92,12 +92,12 @@ def __open_library__():
         c_int,  # int ndev
         POINTER(c_int),  # int const *dev_ids
     ]
-
+    lib.destroyJiugeModel.argtypes = [POINTER(JiugeModel)]
     lib.createKVCache.restype = POINTER(KVCache)
-    lib.dropKVCache.argtypes = [ctypes.POINTER(JiugeModel), POINTER(KVCache)]
+    lib.dropKVCache.argtypes = [POINTER(JiugeModel), POINTER(KVCache)]
     lib.inferBatch.restype = None
     lib.inferBatch.argtypes = [
-        ctypes.POINTER(JiugeModel),  # struct JiugeModel const *
+        POINTER(JiugeModel),  # struct JiugeModel const *
         POINTER(c_uint),  # unsigned int const *tokens
         c_uint,  # unsigned int ntok
         POINTER(c_uint),  # unsigned int const *req_lens
@@ -116,6 +116,7 @@ def __open_library__():
 LIB = __open_library__()
 
 create_jiuge_model = LIB.createJiugeModel
+destroy_jiuge_model = LIB.destroyJiugeModel
 create_kv_cache = LIB.createKVCache
 drop_kv_cache = LIB.dropKVCache
 infer_batch = LIB.inferBatch

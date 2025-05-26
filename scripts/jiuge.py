@@ -13,6 +13,7 @@ from libinfinicore_infer import (
     DataType,
     DeviceType,
     create_jiuge_model,
+    destroy_jiuge_model,
     create_kv_cache,
     drop_kv_cache,
     infer_batch,
@@ -281,6 +282,9 @@ class JiugeForCauslLM:
                 for name_ in data_.keys():
                     tensors_[name_] = data_.get_tensor(name_)
             return tensors_
+        
+        print("Loading model weights to host...")
+        load_start_time = time.time()
 
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             config = json.load(f)
@@ -293,7 +297,12 @@ class JiugeForCauslLM:
                 self.meta, LlamaWeightsNaming(), model.state_dict(), ndev=ndev
             )
         elif "fm9g" == config["model_type"]:
-            state_dict = load_all_safetensors_from_dir(model_dir_path)
+            if any(file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()):
+                state_dict = load_all_safetensors_from_dir(model_dir_path)
+            else:
+                state_dict = torch.load(
+                os.path.join(model_dir_path, "pytorch_model.bin"), weights_only=True, map_location="cpu"
+            )
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config)
                 self.weights = JiugeWeightsImpl(
@@ -317,6 +326,12 @@ class JiugeForCauslLM:
 
         else:
             raise ValueError("Unsupported model architecture")
+
+        load_end_time = time.time()
+        print(f"Time used: {load_end_time - load_start_time:.3f}s")
+        
+        print(f"Creating model on {ndev} devices...")
+        load_start_time = time.time()
         dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
         self.model_instance = create_jiuge_model(
             byref(self.meta),
@@ -325,18 +340,21 @@ class JiugeForCauslLM:
             ndev,
             dev_ids,
         )
+        load_end_time = time.time()
+        print(f"Time used: {load_end_time - load_start_time:.3f}s")
+        
 
     def infer(self, input_list, topp=1.0, topk=1, temperature=1.0):
         pass
 
     def generate(self, input_content, max_steps, topp=1.0, topk=1, temperature=1.0):
+        kv_cache = create_kv_cache(self.model_instance)
         input_content = self.tokenizer.apply_chat_template(
             conversation=[{"role": "user", "content": input_content}],
             add_generation_prompt=True,
             tokenize=False,
         )
         print(input_content, end="", flush=True)
-        kv_cache = create_kv_cache(self.model_instance)
         tokens = self.tokenizer.encode(input_content)
         ntok = len(tokens)
         nreq = 1
@@ -367,6 +385,7 @@ class JiugeForCauslLM:
             )
             steps += 1
             output_tokens = list(ans)
+            end_time = time.time()
             output_str = (
                 self.tokenizer._tokenizer.id_to_token(output_tokens[0])
                 .replace("▁", " ")
@@ -380,7 +399,7 @@ class JiugeForCauslLM:
             ntok = 1
             tokens = (c_uint * ntok)(*output_tokens)
             req_lens = (c_uint * nreq)(*[ntok])
-            end_time = time.time()
+            
             if step_i > 0:
                 total_time += end_time - start_time
 
@@ -390,6 +409,10 @@ class JiugeForCauslLM:
         for kv_cache in kv_caches:
             drop_kv_cache(self.model_instance, kv_cache)
         return output_content, avg_time
+    
+    def destroy_model_instance(self):
+        destroy_jiuge_model(self.model_instance)
+        print("Model destroyed")
 
 
 def test():
@@ -421,6 +444,7 @@ def test():
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     model = JiugeForCauslLM(model_path, device_type, ndev)
     model.generate("山东最高的山是？", 500)
+    model.destroy_model_instance()
 
 
 if __name__ == "__main__":
