@@ -11,8 +11,10 @@ __C __export infiniStatus_t infiniopCreateReluDescriptor(infiniopHandle_t handle
                                                          infiniopTensorDescriptor_t x);
 
 __C __export infiniStatus_t infiniopRelu(infiniopReluDescriptor_t desc,
+                                         void *workspace,
+                                         size_t workspace_size,
                                          void *y,
-                                         void const *x,
+                                         const void *x,
                                          void *stream);
 
 __C __export infiniStatus_t infiniopDestroyReluDescriptor(infiniopReluDescriptor_t desc);

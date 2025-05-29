@@ -295,6 +295,28 @@ def rearrange_(lib):
 
 
 @OpRegister.operator
+def relu_(lib):
+    lib.infiniopCreateReluDescriptor.restype = c_int32
+    lib.infiniopCreateReluDescriptor.argtypes = [
+        infiniopHandle_t,
+        POINTER(infiniopOperatorDescriptor_t),
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+    ]
+    lib.infiniopRelu.restype = c_int32
+    lib.infiniopRelu.argtypes = [
+        infiniopOperatorDescriptor_t,
+        c_void_p,
+        c_size_t,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+    ]
+    lib.infiniopDestroyReluDescriptor.restype = c_int32
+    lib.infiniopDestroyReluDescriptor.argtypes = [infiniopOperatorDescriptor_t]
+
+
+@OpRegister.operator
 def rms_norm_(lib):
     lib.infiniopCreateRMSNormDescriptor.restype = c_int32
     lib.infiniopCreateRMSNormDescriptor.argtypes = [
