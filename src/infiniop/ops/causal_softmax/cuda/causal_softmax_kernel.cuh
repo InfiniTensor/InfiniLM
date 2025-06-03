@@ -18,7 +18,7 @@ INFINIOP_CUDA_KERNEL causalSoftmax(
 
     // [Reduce] Find max value in each row and store in shared memory
     __shared__ Tdata max_;
-    Tdata max_0 = op::common_cuda::reduce_op::max<BLOCK_SIZE, Tdata>(x, width);
+    Tdata max_0 = op::common_cuda::reduce_op::max<BLOCK_SIZE, Tdata>(x, width - height + 1 + blockIdx.x);
     if (threadIdx.x == 0) {
         max_ = max_0;
     }

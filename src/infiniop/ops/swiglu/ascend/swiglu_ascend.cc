@@ -26,12 +26,6 @@ infiniStatus_t Descriptor::create(infiniopHandle_t handle, Descriptor **desc_ptr
     return INFINI_STATUS_SUCCESS;
 }
 
-extern "C" infiniStatus_t swiglu_kernel_launch(
-    void *c, void *a, void *b,
-    infiniDtype_t dtype, size_t batch, size_t seq, size_t hd,
-    ptrdiff_t stride_batch_c, ptrdiff_t stride_batch_a, ptrdiff_t stride_batch_b,
-    ptrdiff_t stride_seq_c, ptrdiff_t stride_seq_a, ptrdiff_t stride_seq_b, void *stream);
-
 infiniStatus_t Descriptor::calculate(void *workspace,
                                      size_t workspace_size,
                                      void *c,

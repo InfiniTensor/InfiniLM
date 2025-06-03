@@ -23,10 +23,9 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/../../../../include/infiniop/ 
 )
 
-
 ascendc_library(ascend_kernels STATIC
     ../../ops/swiglu/ascend/swiglu_ascend_kernel.cpp
-    # ../../ops/rotary_embedding/ascend/rotary_embedding_kernel.cpp
+    ../../ops/rope/ascend/rope_ascend_kernel.cpp
     # ../../ops/random_sample/ascend/random_sample_kernel.cpp
 )
 
