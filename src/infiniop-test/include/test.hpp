@@ -92,6 +92,7 @@ public:
                                                                               \
         static std::vector<std::string> attribute_names();                    \
         static std::vector<std::string> tensor_names();                       \
+        static std::vector<std::string> output_names();                       \
                                                                               \
         std::shared_ptr<infiniop_test::Result> run(                           \
             infiniopHandle_t handle, infiniDevice_t device, int device_id,    \
@@ -121,6 +122,7 @@ struct TestBuilder {
     BuilderFunc build;
     std::vector<std::string> attribute_names;
     std::vector<std::string> tensor_names;
+    std::vector<std::string> output_names;
 };
 } // namespace infiniop_test
 

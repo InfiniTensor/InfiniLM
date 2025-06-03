@@ -1,20 +1,31 @@
+from ast import List
 import numpy as np
 import gguf
 from typing import List
+from numpy.lib.stride_tricks import as_strided
 
 from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides, contiguous_gguf_strides
 
 
-def swiglu(
+def add(
     a: np.ndarray,
     b: np.ndarray,
 ):
-    c = a * b / (1.0 + np.exp(-b))
+    return a + b
 
-    return c
+def process_tensor(a, b, stride_a=None, stride_b=None):
+    def normalize_stride(tensor, stride):
+        if stride:
+            slices = tuple(slice(0, 1) if s == 0 else slice(None) for s in stride)
+            return tensor[slices]
+        else:
+            return tensor
 
+    a_unique = normalize_stride(a, stride_a)
+    b_unique = normalize_stride(b, stride_b)
+    return a_unique, b_unique
 
-class SwiGLUTestCase(InfiniopTestCase):
+class AddTestCase(InfiniopTestCase):
     def __init__(
         self,
         a: np.ndarray,
@@ -28,7 +39,7 @@ class SwiGLUTestCase(InfiniopTestCase):
         stride_c: List[int] | None,
 
     ):
-        super().__init__("swiglu")
+        super().__init__("add")
         self.a = a
         self.shape_a = shape_a
         self.stride_a = stride_a
@@ -47,7 +58,7 @@ class SwiGLUTestCase(InfiniopTestCase):
         if self.shape_b is not None:
             test_writer.add_array(test_writer.gguf_key("b.shape"), self.shape_b)
         if self.shape_c is not None:
-            test_writer.add_array(test_writer.gguf_key("c.shape"), self.shape_c)  
+            test_writer.add_array(test_writer.gguf_key("c.shape"), self.shape_c)
         if self.stride_a is not None:
             test_writer.add_array(test_writer.gguf_key("a.strides"), gguf_strides(*self.stride_a))
         if self.stride_b is not None:
@@ -65,7 +76,7 @@ class SwiGLUTestCase(InfiniopTestCase):
         test_writer.add_tensor(
             test_writer.gguf_key("c"), self.c, raw_dtype=np_dtype_to_ggml(self.c.dtype)
         )
-        ans = swiglu(
+        ans = add(
             self.a.astype(np.float64),
             self.b.astype(np.float64),
         )
@@ -75,43 +86,47 @@ class SwiGLUTestCase(InfiniopTestCase):
 
 
 if __name__ == "__main__":
-    test_writer = InfiniopTestWriter("swiglu.gguf")
+    test_writer = InfiniopTestWriter("add.gguf")
     test_cases = []
-
+    # ==============================================================================
+    #  Configuration (Internal Use Only)
+    # ==============================================================================
+    # These are not meant to be imported from other modules
     _TEST_CASES_ = [
-        ((64, 128), None, None, None),
-        ((64, 121), None, None, None),
-        ((15, 512), None, None, None),
+        # shape, a_stride, b_stride, c_stride
         ((13, 4), None, None, None),
         ((13, 4), (10, 1), (10, 1), (10, 1)),
+        ((13, 4), (0, 1), None, None),
         ((13, 4, 4), None, None, None),
         ((13, 4, 4), (20, 4, 1), (20, 4, 1), (20, 4, 1)),
+        ((13, 4, 4), (4, 0, 1), (0, 4, 1), None),
         ((16, 5632), None, None, None),
         ((16, 5632), (13312, 1), (13312, 1), (13312, 1)),
-        ((16, 5632), (5632, 1), (5632, 1), (1, 16)),
-        ((2, 3, 400), (1200, 400, 1), (1200, 400, 1), (1, 2, 6)),
         ((4, 4, 5632), None, None, None),
         ((4, 4, 5632), (45056, 5632, 1), (45056, 5632, 1), (45056, 5632, 1)),
     ]
     _TENSOR_DTYPES_ = [np.float32, np.float16]
-
     for dtype in _TENSOR_DTYPES_:
         for shape, stride_a, stride_b, stride_c in _TEST_CASES_:
             a = np.random.rand(*shape).astype(dtype)
             b = np.random.rand(*shape).astype(dtype)
             c = np.empty(tuple(0 for _ in shape), dtype=dtype)
-            test_case = SwiGLUTestCase(
+            a, b = process_tensor(a, b, stride_a, stride_b)
+            if stride_c is None:
+                stride_c = contiguous_gguf_strides(shape)
+            test_case = AddTestCase(
                 a=a,
-                shape_a=list(shape),
+                shape_a=shape,
                 stride_a=stride_a,
                 b=b,
-                shape_b=list(shape),
+                shape_b=shape,
                 stride_b=stride_b,
                 c=c,
-                shape_c=list(shape),
+                shape_c=shape,
                 stride_c=stride_c,
             )
             test_cases.append(test_case)
-
+            
     test_writer.add_tests(test_cases)
     test_writer.save()
+    
