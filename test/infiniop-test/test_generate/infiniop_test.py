@@ -29,6 +29,14 @@ def gguf_strides(*args: int) -> list[int] | None:
     return list(args)[::-1] if args else None
 
 
+def contiguous_gguf_strides(shape: tuple[int, ...]) -> list[int]:
+    strides = []
+    acc = 1
+    for size in reversed(shape):
+        strides.append(acc)
+        acc *= size
+    return strides[::-1]
+
 class InfiniopTestCase:
     op_name: str
 

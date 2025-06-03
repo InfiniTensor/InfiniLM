@@ -18,6 +18,7 @@ DECLARE_INFINIOP_TEST(add)
             infiniop_test::name::Test::build,             \
             infiniop_test::name::Test::attribute_names(), \
             infiniop_test::name::Test::tensor_names(),    \
+            infiniop_test::name::Test::output_names(),    \
         }},
 
 /*

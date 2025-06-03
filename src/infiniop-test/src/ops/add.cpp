@@ -87,6 +87,10 @@ std::vector<std::string> Test::tensor_names() {
     return {"a", "b", "c", "ans"};
 }
 
+std::vector<std::string> Test::output_names() {
+    return {"c"};
+}
+
 std::string Test::toString() const {
     std::ostringstream oss;
     oss << op_name() << std::endl;
