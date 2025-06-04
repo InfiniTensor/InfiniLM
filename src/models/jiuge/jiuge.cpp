@@ -135,8 +135,9 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di}, stream);
     auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, stream);
     auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, stream);
-    auto result_buf = Tensor::buffer(INFINI_DTYPE_U32, {nreq}, stream);
-    auto result_cpu = std::vector<uint32_t>(nreq);
+    auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, stream);
+    auto result_cpu = std::vector<int64_t>(nreq);
+
     // Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
     size_t req_start = 0;
@@ -270,7 +271,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     infiniopRandomSampleDescriptor_t desc_sample;
     RUN_INFINI(infiniopCreateRandomSampleDescriptor(
         rsrc.handle, &desc_sample,
-        TensorDesc::create(INFINI_DTYPE_U32, {}, {})->get(),
+        TensorDesc::create(INFINI_DTYPE_I64, {}, {})->get(),
         TensorDesc::create(dt_logits, {dvoc}, {1})->get()));
     RUN_INFINI(infiniopGetRandomSampleWorkspaceSize(desc_sample, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
@@ -398,7 +399,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         }
         RUN_INFINI(infinirtStreamSynchronize(stream));
         RUN_INFINI(infinirtMemcpy(result_cpu.data(), result_buf->data(),
-                                  sizeof(uint32_t) * nreq, INFINIRT_MEMCPY_D2H));
+                                  sizeof(int64_t) * nreq, INFINIRT_MEMCPY_D2H));
         for (uint32_t req = 0; req < nreq; req++) {
             ans[req] = result_cpu[req];
         }
