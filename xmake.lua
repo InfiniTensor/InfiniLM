@@ -242,6 +242,9 @@ target("infiniccl")
     if has_config("nv-gpu") then
         add_deps("infiniccl-cuda")
     end
+    if has_config("ascend-npu") then
+        add_deps("infiniccl-ascend")
+    end
     
     set_languages("cxx17")
 
