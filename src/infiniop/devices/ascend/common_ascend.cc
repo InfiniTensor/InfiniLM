@@ -1,11 +1,17 @@
 #include "common_ascend.h"
 
 std::vector<int64_t> inferStorageShape(std::vector<int64_t> shape, std::vector<int64_t> strides) {
-    auto index = std::max_element(strides.begin(), strides.end());
-    uint64_t max_stride_index = std::distance(strides.begin(), index);
-    auto storageShape = std::vector<int64_t>({shape[max_stride_index] * strides[max_stride_index]});
+    if (shape.size() != strides.size()) {
+        throw std::invalid_argument("Shape and strides must have the same length.");
+    }
 
-    return storageShape;
+    int64_t max_offset = 0;
+    for (size_t i = 0; i < shape.size(); ++i) {
+        max_offset += (shape[i] - 1) * strides[i];
+    }
+
+    // storage shape is 1D buffer that must cover all accessed elements
+    return {max_offset + 1};
 }
 
 size_t aclnnTensorDescriptor::numel() const {
@@ -18,7 +24,7 @@ aclnnTensorDescriptor::aclnnTensorDescriptor(infiniopTensorDescriptor_t desc, vo
     this->strides = std::vector<int64_t>(ndim);
     for (uint64_t i = 0; i < ndim; ++i) {
         this->shape[i] = static_cast<int64_t>(desc->dim(i));
-        this->strides[i] = desc->stride(i);
+        this->strides[i] = static_cast<int64_t>(desc->stride(i));
     }
     this->storageShape = inferStorageShape(this->shape, this->strides);
     this->dataType = toAclDataType(desc->dtype());

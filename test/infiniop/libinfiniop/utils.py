@@ -423,6 +423,7 @@ def test_operator(lib, device, test_func, test_cases, tensor_dtypes):
                     infiniDeviceEnum_str_map[device],
                     *test_case,
                     tensor_dtype,
+                    get_sync_func(device)
                 )
     finally:
         destroy_handle(lib, handle)
@@ -471,3 +472,15 @@ def get_test_devices(args):
         devices_to_test = [InfiniDeviceEnum.CPU]
 
     return devices_to_test
+
+
+def get_sync_func(device):
+    import torch
+    device_str = infiniDeviceEnum_str_map[device]
+    
+    if device == InfiniDeviceEnum.CPU:
+        sync = None
+    else:
+        sync = getattr(torch, device_str).synchronize
+    
+    return sync

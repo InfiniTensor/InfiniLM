@@ -1,4 +1,4 @@
-#include "causal_softmax_aclnn.h"
+#include "causal_softmax_ascend.h"
 #include "../../../devices/ascend/common_ascend.h"
 #include <aclnnop/aclnn_masked_fill_tensor.h>
 #include <aclnnop/aclnn_softmax.h>
@@ -12,6 +12,8 @@ struct Descriptor::Opaque {
     aclnnTensorDescriptor_t value;
     void *mask_addr;
     void *value_addr;
+    uint64_t workspacesize;
+    aclOpExecutor *executor;
 
     ~Opaque() {
         delete x;
@@ -21,6 +23,9 @@ struct Descriptor::Opaque {
 
         aclrtFree(mask_addr);
         aclrtFree(value_addr);
+
+        // Delete useless executor
+        aclDestroyAclOpExecutor(executor);
     }
 };
 
@@ -92,18 +97,18 @@ infiniStatus_t Descriptor::create(
     aclTensor *tvalue = value->tensor;
 
     CHECK_ACL(aclnnInplaceMaskedFillTensorGetWorkspaceSize(tx, tmask, tvalue, &workspacesize_mask, &mask_executor));
+
     int64_t dim = 2;
-
     CHECK_ACL(aclnnSoftmaxGetWorkspaceSize(tx, dim, ty, &workspacesize_softmax, &executor));
+    // set executor reusable
+    aclSetAclOpExecutorRepeatable(executor);
 
-    // Create the descriptor
-    size_t all_workspacesize = workspacesize_softmax + workspacesize_mask;
-    *desc_ptr = new Descriptor(new Opaque{x, mask, y, value, mask_addr, value_addr},
+    // Create the descripto
+    size_t all_workspacesize = std::max(workspacesize_softmax, workspacesize_mask);
+
+    *desc_ptr = new Descriptor(new Opaque{x, mask, y, value, mask_addr, value_addr,
+                                          workspacesize_softmax, executor},
                                std::move(info), all_workspacesize, handle_ascend->device, handle_ascend->device_id);
-
-    // Delete useless executor
-    aclDestroyAclOpExecutor(executor);
-    aclDestroyAclOpExecutor(mask_executor);
 
     return INFINI_STATUS_SUCCESS;
 }
@@ -116,23 +121,18 @@ infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size, voi
     auto ty = _opaque->y->tensor;
     auto tmask = _opaque->mask->tensor;
     auto tvalue = _opaque->value->tensor;
-    aclOpExecutor *executor = nullptr;
     aclOpExecutor *mask_executor = nullptr;
-    size_t workspacesize_softmax = 0;
     size_t workspacesize_mask = 0;
-    int64_t dim = 2;
 
     AclSetTensorAddr(mask_executor, 0, tx, (void *)x);
     AclSetTensorAddr(mask_executor, 1, tmask, _opaque->mask_addr);
     AclSetTensorAddr(mask_executor, 2, tvalue, _opaque->value_addr);
     CHECK_ACL(aclnnInplaceMaskedFillTensorGetWorkspaceSize(tx, tmask, tvalue, &workspacesize_mask, &mask_executor));
     CHECK_ACL(aclnnInplaceMaskedFillTensor(workspace, workspacesize_mask, mask_executor, stream));
-    CHECK_ACL(aclrtSynchronizeStream(stream));
 
-    AclSetTensorAddr(executor, 0, tx, (void *)x);
-    AclSetTensorAddr(executor, 1, ty, y);
-    CHECK_ACL(aclnnSoftmaxGetWorkspaceSize(tx, dim, ty, &workspacesize_softmax, &executor));
-    CHECK_ACL(aclnnSoftmax(workspace, workspacesize_softmax, executor, stream));
+    AclSetTensorAddr(_opaque->executor, 0, tx, (void *)x);
+    AclSetTensorAddr(_opaque->executor, 1, ty, y);
+    CHECK_ACL(aclnnSoftmax(workspace, _opaque->workspacesize, _opaque->executor, stream));
 
     return INFINI_STATUS_SUCCESS;
 }

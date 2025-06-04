@@ -8,6 +8,9 @@
 #ifdef ENABLE_CUDA_API
 #include "cuda/rope_cuda.cuh"
 #endif
+#ifdef ENABLE_ASCEND_API
+#include "ascend/rope_ascend.h"
+#endif
 
 __C infiniStatus_t infiniopCreateRoPEDescriptor(
     infiniopHandle_t handle,
@@ -43,12 +46,8 @@ __C infiniStatus_t infiniopCreateRoPEDescriptor(
                                         pos_ids, sin_table, cos_table);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return ascendCreateRoPEDescriptor((AscendHandle_t)handle,
-                                          (RoPEAscendDescriptor_t *)desc_ptr, t,
-                                          pos_ids, sin_table, cos_table);
-    }
+#ifdef ENABLE_ASCEND_API
+        CREATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -90,10 +89,8 @@ __C infiniStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
         return bangGetRoPEWorkspaceSize((RoPEBangDescriptor_t)desc, size);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return ascendGetRoPEWorkspaceSize((RoPEAscendDescriptor_t)desc, size);
-    }
+#ifdef ENABLE_ASCEND_API
+        GET(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -141,12 +138,8 @@ __C infiniStatus_t infiniopRoPE(
                         t, pos_ids, sin_table, cos_table, stream);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return ascendRoPE((RoPEAscendDescriptor_t)desc, workspace,
-                          workspace_size, t, pos_ids, sin_table, cos_table,
-                          stream);
-    }
+#ifdef ENABLE_ASCEND_API
+        CALCULATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {
@@ -187,10 +180,8 @@ infiniopDestroyRoPEDescriptor(infiniopRoPEDescriptor_t desc) {
         return bangDestroyRoPEDescriptor((RoPEBangDescriptor_t)desc);
     }
 #endif
-#ifdef ENABLE_ASCEND_NPU
-    case DevAscendNpu: {
-        return ascendDestroyRoPEDescriptor((RoPEAscendDescriptor_t)desc);
-    }
+#ifdef ENABLE_ASCEND_API
+        DELETE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_GPU
     case DevMetaxGpu: {

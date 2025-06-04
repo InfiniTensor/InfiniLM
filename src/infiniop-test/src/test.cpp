@@ -90,14 +90,19 @@ std::shared_ptr<Result> runTest(const GGUFFileReader &gguf_reader,
                 attrs[attr_name] = attr->second->value;
             }
         }
+
         for (auto tensor_name : builder.tensor_names) {
             auto info = tensor_info.find("test." + std::to_string(test_id) + "." + tensor_name);
             if (info != tensor_info.end()) {
+                auto shape = meta.find("test." + std::to_string(test_id) + "." + tensor_name + ".shape");
                 auto strides = meta.find("test." + std::to_string(test_id) + "." + tensor_name + ".strides");
+                bool is_output = std::find(builder.output_names.begin(), builder.output_names.end(), tensor_name) != builder.output_names.end();
                 tensors[tensor_name] = std::make_shared<Tensor>(
                     info->second.get(),
                     gguf_reader.getGgmlStart(),
-                    strides != meta.end() ? strides->second.get() : nullptr);
+                    shape != meta.end() ? shape->second.get() : nullptr,
+                    strides != meta.end() ? strides->second.get() : nullptr,
+                    is_output);
             }
         }
         std::shared_ptr<infiniop_test::base::Test> test;

@@ -58,7 +58,9 @@ private:
 public:
     Tensor(const GGUFTensorInfo *info,
            const void *ggml_ptr,
-           const GGUFKeyValue *strides_meta = nullptr);
+           const GGUFKeyValue *shape_meta = nullptr,
+           const GGUFKeyValue *strides_meta = nullptr,
+           bool isOutput = false);
     Tensor(std::shared_ptr<Memory> memory, size_t offset,
            const std::vector<size_t> &shape,
            const std::vector<ptrdiff_t> &strides,

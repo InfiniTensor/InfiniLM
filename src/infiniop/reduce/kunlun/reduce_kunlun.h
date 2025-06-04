@@ -1,9 +1,11 @@
 #ifndef __INFINIOP_REDUCE_KUNLUN_H__
 #define __INFINIOP_REDUCE_KUNLUN_H__
 
-#include "../../devices/kunlun/kunlun_common.h"
+#include "../../devices/kunlun/kunlun_kernel_common.h"
 
 namespace op::common_kunlun::reduce_op {
+
+using namespace device::kunlun::kernel;
 
 // Use 16 floats instruction to calculate reduce
 // data_ptr is the pointer of LM

@@ -117,6 +117,7 @@ def test(
     y_strides=None,
     inplace=Inplace.OUT_OF_PLACE,
     dtype=torch.float32,
+    sync=None
 ):
     if inplace == Inplace.INPLACE_X:
         y_strides = x_strides
@@ -147,8 +148,8 @@ def test(
     else:
         y_tensor = to_tensor(y, lib)
 
-    if torch_device == "npu":
-        synchronize_device(torch_device)
+    if sync is not None:
+        sync()
 
     check_error(
         lib.infiniopCreateRoPEDescriptor(
@@ -188,6 +189,9 @@ def test(
         )
 
     lib_rope()
+    
+    if sync is not None:
+        sync()
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:

@@ -2,8 +2,18 @@
 #define __INFINIOP_TENSOR_H__
 
 #include "infiniop/tensor_descriptor.h"
+
+#include "../utils.h"
+
 #include <string>
 #include <vector>
+
+#define TRANSFORM_TENSOR_DESC(__TENSOR_DESC__, __OP__) \
+    do {                                               \
+        auto __RESULT__ = __TENSOR_DESC__->__OP__;     \
+        CHECK_RESULT(__RESULT__);                      \
+        __TENSOR_DESC__ = __RESULT__.take();           \
+    } while (0)
 
 struct InfiniopTensorDescriptor {
 private:
@@ -32,9 +42,9 @@ public:
     bool hasBroadcastDim() const;
     std::vector<size_t> getBroadcastDim() const;
 
-    infiniopTensorDescriptor_t dimMerge(size_t dim_start, size_t dim_end) const;
-    infiniopTensorDescriptor_t dimSplit(size_t axis, const std::vector<size_t> &dims) const;
-    infiniopTensorDescriptor_t dimPermute(const std::vector<size_t> &order) const;
+    utils::Result<infiniopTensorDescriptor_t> dimMerge(size_t dim_start, size_t dim_end) const;
+    utils::Result<infiniopTensorDescriptor_t> dimSplit(size_t axis, const std::vector<size_t> &dims) const;
+    utils::Result<infiniopTensorDescriptor_t> dimPermute(const std::vector<size_t> &order) const;
 
     std::string toString() const;
 };

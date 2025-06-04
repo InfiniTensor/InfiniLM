@@ -162,6 +162,9 @@ target("infinirt")
     if has_config("nv-gpu") then
         add_deps("infinirt-cuda")
     end
+    if has_config("cambricon-mlu") then
+        add_deps("infinirt-cambricon")
+    end
     if has_config("ascend-npu") then
         add_deps("infinirt-ascend")
     end

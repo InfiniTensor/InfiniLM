@@ -50,3 +50,13 @@ target("infiniop-cambricon")
         add_files(mlu_files, {rule = "mlu"})
     end
 target_end()
+
+target("infinirt-cambricon")
+    set_kind("static")
+    add_deps("infini-utils")
+    set_languages("cxx17")
+    on_install(function (target) end)
+    -- Add include dirs
+    add_files("../src/infinirt/bang/*.cc")
+    add_cxflags("-lstdc++ -Wall -Werror -fPIC")
+target_end()

@@ -43,7 +43,7 @@ fp16_t _f32_to_f16(float val) {
     int32_t exponent = ((f32 >> 23) & 0xFF) - 127; // Extract and de-bias the exponent
     uint32_t mantissa = f32 & 0x7FFFFF;            // Extract the mantissa (fraction part)
 
-    if (exponent >= 31) { // Special cases for Inf and NaN
+    if (exponent >= 16) { // Special cases for Inf and NaN
         // NaN
         if (exponent == 128 && mantissa != 0) {
             return fp16_t{static_cast<uint16_t>(sign | 0x7E00)};

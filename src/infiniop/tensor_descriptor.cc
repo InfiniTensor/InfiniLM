@@ -12,7 +12,7 @@ __C __export infiniStatus_t infiniopCreateTensorDescriptor(infiniopTensorDescrip
         std::vector<ptrdiff_t> strides(ndim);
         ptrdiff_t dsize = 1;
         if (ndim > 0) {
-            for (size_t i = ndim - 1; i >= 0; i--) {
+            for (int i = (int)ndim - 1; i >= 0; i--) {
                 strides[i] = dsize;
                 dsize *= shape_[i];
             }
@@ -104,10 +104,8 @@ std::vector<size_t> InfiniopTensorDescriptor::getBroadcastDim() const {
     return res;
 }
 
-infiniopTensorDescriptor_t InfiniopTensorDescriptor::dimMerge(size_t dim_start, size_t dim_end) const {
-    if (dim_start > dim_end || dim_end >= ndim()) {
-        return nullptr;
-    }
+utils::Result<infiniopTensorDescriptor_t> InfiniopTensorDescriptor::dimMerge(size_t dim_start, size_t dim_end) const {
+    CHECK_OR_RETURN(dim_start <= dim_end && dim_end < ndim(), INFINI_STATUS_BAD_PARAM);
 
     size_t new_ndim = ndim() - (dim_end - dim_start);
     std::vector<size_t> new_shape(new_ndim);
@@ -120,9 +118,7 @@ infiniopTensorDescriptor_t InfiniopTensorDescriptor::dimMerge(size_t dim_start, 
         index++;
     }
 
-    if (!isContiguous(dim_start, dim_end)) {
-        return nullptr;
-    }
+    CHECK_OR_RETURN(isContiguous(dim_start, dim_end), INFINI_STATUS_BAD_PARAM);
 
     new_shape[index] = 1;
     for (size_t i = dim_start; i <= dim_end; i++) {
@@ -138,15 +134,15 @@ infiniopTensorDescriptor_t InfiniopTensorDescriptor::dimMerge(size_t dim_start, 
         index++;
     }
 
-    return new InfiniopTensorDescriptor(_dtype, new_ndim, new_shape.data(), new_strides.data());
+    return utils::Result<infiniopTensorDescriptor_t>(
+        new InfiniopTensorDescriptor(_dtype, new_ndim, new_shape.data(), new_strides.data()));
 }
 
-infiniopTensorDescriptor_t InfiniopTensorDescriptor::dimSplit(size_t axis, const std::vector<size_t> &dims) const {
+utils::Result<infiniopTensorDescriptor_t> InfiniopTensorDescriptor::dimSplit(size_t axis, const std::vector<size_t> &dims) const {
     size_t ndim_ = ndim();
 
-    if (dim(axis) != std::accumulate(dims.begin(), dims.end(), (size_t)1, std::multiplies<size_t>())) {
-        return nullptr;
-    }
+    CHECK_OR_RETURN(dim(axis) == std::accumulate(dims.begin(), dims.end(), (size_t)1, std::multiplies<size_t>()),
+                    INFINI_STATUS_BAD_PARAM);
 
     size_t new_ndim = ndim_ + dims.size() - 1;
     std::vector<size_t> new_shape(new_ndim);
@@ -168,24 +164,22 @@ infiniopTensorDescriptor_t InfiniopTensorDescriptor::dimSplit(size_t axis, const
         index++;
     }
 
-    return new InfiniopTensorDescriptor(_dtype, new_ndim, new_shape.data(), new_strides.data());
+    return utils::Result<infiniopTensorDescriptor_t>(
+        new InfiniopTensorDescriptor(_dtype, new_ndim, new_shape.data(), new_strides.data()));
 }
 
-infiniopTensorDescriptor_t InfiniopTensorDescriptor::dimPermute(const std::vector<size_t> &order) const {
+utils::Result<infiniopTensorDescriptor_t> InfiniopTensorDescriptor::dimPermute(const std::vector<size_t> &order) const {
     auto ndim_ = ndim();
-    if (order.size() != ndim_) {
-        return nullptr;
-    }
+    CHECK_OR_RETURN(order.size() == ndim_, INFINI_STATUS_BAD_PARAM);
     std::vector<size_t> new_shape(ndim_);
     std::vector<ptrdiff_t> new_strides(ndim_);
     for (size_t i = 0; i < ndim_; i++) {
-        if (std::find(order.begin(), order.end(), i) == order.end()) {
-            return nullptr;
-        }
+        CHECK_OR_RETURN(std::find(order.begin(), order.end(), i) != order.end(), INFINI_STATUS_BAD_PARAM);
         new_shape[i] = dim(order[i]);
         new_strides[i] = stride(order[i]);
     }
-    return new InfiniopTensorDescriptor(_dtype, ndim_, new_shape.data(), new_strides.data());
+    return utils::Result<infiniopTensorDescriptor_t>(
+        new InfiniopTensorDescriptor(_dtype, ndim_, new_shape.data(), new_strides.data()));
 }
 
 std::string InfiniopTensorDescriptor::toString() const {
