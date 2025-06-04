@@ -88,6 +88,7 @@ def test(
     padding,
     strides,
     tensor_dtype=torch.float16,
+    sync=None
 ):
     print(
         f"Testing AvgPool on {torch_device} with x_shape:{x_shape} kernel_shape:{k_shape} padding:{padding} strides:{strides} dtype:{tensor_dtype}"
@@ -109,6 +110,10 @@ def test(
 
     x_tensor = to_tensor(x, lib)
     y_tensor = to_tensor(y, lib)
+    
+    if sync is not None:
+        sync()
+
     descriptor = infiniopAvgPoolDescriptor_t()
 
     check_error(

@@ -65,6 +65,7 @@ def test(
     y_stride=None,
     w12_stride=None,
     w3_stride=None,
+    sync=None
 ):
     print(
         f"Testing MLP on {torch_device} with num_tokens:{num_tokens} hidden_size:{hidden_size} intermediate_size:{intermediate_size}"
@@ -97,6 +98,10 @@ def test(
     x_tensor = to_tensor(x, lib)
     w12_tensor = to_tensor(w12, lib)
     w3_tensor = to_tensor(w3, lib)
+    
+    if sync is not None:
+        sync()
+
     descriptor = infiniopMLPDescriptor_t()
     check_error(
         lib.infiniopCreateMLPDescriptor(

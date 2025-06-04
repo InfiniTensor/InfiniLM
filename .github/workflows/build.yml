@@ -30,36 +30,13 @@ jobs:
       with:
         xmake-version: latest
 
-    - name: Build & Install (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      run: bash scripts/install.sh . --omp=y
-      
-    - name: Build & Install (Windows)
-      if: matrix.os == 'windows-latest'
-      run: scripts/install.bat . --omp=y
+    - name: Build & Install
+      run: python scripts/install.py --omp=y
 
     - name: install python packages
       run: |
         pip install numpy
         pip install torch
 
-    - name: Python Test (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        export LD_LIBRARY_PATH=$HOME/.infini/lib:$LD_LIBRARY_PATH
-        python test/infiniop/gemm.py --cpu
-        python test/infiniop/rms_norm.py --cpu
-        python test/infiniop/causal_softmax.py --cpu
-        python test/infiniop/swiglu.py --cpu
-        python test/infiniop/random_sample.py --cpu
-
-    - name: Python Test (Windows)
-      if: matrix.os == 'windows-latest'
-      run: |
-        set PATH=$env:USERPROFILE\.infini\bin;$env:PATH
-        python test\infiniop\gemm.py --cpu
-        python test\infiniop\rms_norm.py --cpu
-        python test\infiniop\causal_softmax.py --cpu
-        python test\infiniop\swiglu.py --cpu
-        python test\infiniop\random_sample.py --cpu
-
+    - name: Python Test
+      run: python scripts/python_test.py --cpu

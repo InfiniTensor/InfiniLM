@@ -5,18 +5,19 @@
 namespace op::rms_norm::ascend {
 
 struct Descriptor::Opaque {
-    mutable aclOpExecutor *executor;
     aclnnTensorDescriptor_t y;
     aclnnTensorDescriptor_t x;
     aclnnTensorDescriptor_t w;
     aclnnTensorDescriptor_t rstd;
     size_t workspaceSize;
+    aclOpExecutor *executor;
 
     ~Opaque() {
         delete y;
         delete x;
         delete w;
         delete rstd;
+
         aclDestroyAclOpExecutor(executor);
     }
 };
@@ -69,7 +70,7 @@ infiniStatus_t Descriptor::create(
     auto handle_ascend = reinterpret_cast<device::ascend::Handle *>(handle);
     size_t all_workspace_size = workspace_size + rstd->numel() * aclDataTypeSize(rstd->dataType);
     *desc_ptr = new Descriptor(
-        new Opaque{executor, y, x, w, rstd, workspace_size},
+        new Opaque{y, x, w, rstd, workspace_size, executor},
         std::move(info),
         all_workspace_size,
         handle_ascend->device, handle_ascend->device_id);

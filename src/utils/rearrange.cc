@@ -138,4 +138,73 @@ void rearrange(
     }
 }
 
+utils::Result<RearrangeMeta> RearrangeMeta::distributeUnit(const std::vector<size_t> &candidates) const {
+    // 获取当前的unit大小
+    size_t current_unit = _meta[0];
+
+    // 寻找满足条件的unit值：当前unit能被其整除
+    size_t new_unit = 0;
+    for (size_t candidate : candidates) {
+        if (current_unit % candidate == 0) {
+            new_unit = candidate;
+            break;
+        }
+    }
+
+    // 如果没找到合适的值，返回错误
+    if (new_unit == 0) {
+        return INFINI_STATUS_BAD_PARAM;
+    }
+
+    // 如果找到的值就是当前unit，返回自身的副本
+    if (new_unit == current_unit) {
+        return Result<RearrangeMeta>(_meta);
+    }
+
+    // 获取当前维度
+    size_t ndim_value = this->ndim();
+
+    // 创建新的布局数组
+    std::vector<ptrdiff_t> layout(2 + (ndim_value + 1) * 3, 0);
+
+    // 设置新的unit值
+    layout[0] = new_unit;
+
+    // 计算扩展因子
+    ptrdiff_t extra = current_unit / new_unit;
+
+    // 计算步长指针的偏移量
+    ptrdiff_t idx_offset = 1;
+
+    // 在新布局中设置相应的指针
+    ptrdiff_t *new_idx = layout.data() + 1;
+    ptrdiff_t *new_dst = layout.data() + 2 + (ndim_value + 1);
+    ptrdiff_t *new_src = layout.data() + 2 + (ndim_value + 1) * 2;
+
+    // 复制并调整索引步长
+
+    // 索引步长需要重新计算
+    // 首先复制原来的索引步长
+    for (size_t i = 0; i < ndim_value + 1; ++i) {
+        new_idx[i] = _meta[idx_offset + i] * extra;
+    }
+
+    // 设置最后一个维度的步长为1
+    new_idx[ndim_value + 1] = 1;
+
+    // 复制目标步长数据，并添加新单元大小
+    for (size_t i = 0; i < ndim_value; ++i) {
+        new_dst[i] = dst_strides()[i];
+    }
+    new_dst[ndim_value] = new_unit;
+
+    // 复制源步长数据，并添加新单元大小
+    for (size_t i = 0; i < ndim_value; ++i) {
+        new_src[i] = src_strides()[i];
+    }
+    new_src[ndim_value] = new_unit;
+
+    return Result<RearrangeMeta>(layout);
+}
+
 } // namespace utils

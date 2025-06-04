@@ -13,45 +13,63 @@ class CausalSoftmaxInfo {
 public:
     infiniDtype_t dtype;
     size_t batch_size;
-    ptrdiff_t stride_b;
     size_t seq_len;
-    ptrdiff_t stride_i;
     size_t total_seq_len;
-    ptrdiff_t stride_j;
 
-    static utils::Result<CausalSoftmaxInfo> create(infiniopTensorDescriptor_t y_desc) {
+    ptrdiff_t y_stride_b;
+    ptrdiff_t y_stride_i;
+    ptrdiff_t y_stride_j;
+
+    ptrdiff_t x_stride_b;
+    ptrdiff_t x_stride_i;
+    ptrdiff_t x_stride_j;
+
+    static utils::Result<CausalSoftmaxInfo> create(infiniopTensorDescriptor_t y_desc, infiniopTensorDescriptor_t x_desc) {
         auto dtype = y_desc->dtype();
-        if (y_desc->dtype() != INFINI_DTYPE_F16 && y_desc->dtype() != INFINI_DTYPE_F32) {
+        if (dtype != x_desc->dtype()) {
             return INFINI_STATUS_BAD_TENSOR_DTYPE;
         }
+        CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32);
 
-        if (y_desc->ndim() != 2 && y_desc->ndim() != 3) {
-            return INFINI_STATUS_BAD_TENSOR_SHAPE;
+        auto shape = y_desc->shape();
+        CHECK_SAME_SHAPE(shape, x_desc->shape());
+
+        auto ndim = y_desc->ndim();
+        if (ndim != 2 && ndim != 3) {
+            CHECK_STATUS(INFINI_STATUS_BAD_TENSOR_SHAPE);
         }
 
-        if (y_desc->shape()[y_desc->ndim() - 1] < y_desc->shape()[y_desc->ndim() - 2]) {
-            return INFINI_STATUS_BAD_TENSOR_SHAPE;
+        if (shape[ndim - 1] < shape[ndim - 2]) {
+            CHECK_STATUS(INFINI_STATUS_BAD_TENSOR_SHAPE);
         }
 
         size_t batch_size = 1;
-        ptrdiff_t stride_b = 0;
-        size_t seq_len = y_desc->shape()[y_desc->ndim() - 2];
-        ptrdiff_t stride_i = y_desc->strides()[y_desc->ndim() - 2];
-        size_t total_seq_len = y_desc->shape()[y_desc->ndim() - 1];
-        ptrdiff_t stride_j = y_desc->strides()[y_desc->ndim() - 1];
-        if (y_desc->ndim() == 3) {
-            stride_b = y_desc->strides()[0];
-            batch_size = y_desc->shape()[0];
+        size_t seq_len = shape[ndim - 2];
+        size_t total_seq_len = shape[ndim - 1];
+        ptrdiff_t y_stride_b = 0,
+                  y_stride_i = y_desc->stride(ndim - 2),
+                  y_stride_j = y_desc->stride(ndim - 1);
+        ptrdiff_t x_stride_b = 0,
+                  x_stride_i = x_desc->stride(ndim - 2),
+                  x_stride_j = x_desc->stride(ndim - 1);
+
+        if (ndim == 3) {
+            y_stride_b = y_desc->stride(0);
+            x_stride_b = x_desc->stride(0);
+            batch_size = shape[0];
         }
 
         return utils::Result<CausalSoftmaxInfo>(CausalSoftmaxInfo{
             dtype,
             batch_size,
-            stride_b,
             seq_len,
-            stride_i,
             total_seq_len,
-            stride_j});
+            y_stride_b,
+            y_stride_i,
+            y_stride_j,
+            x_stride_b,
+            x_stride_i,
+            x_stride_j});
     }
 };
 

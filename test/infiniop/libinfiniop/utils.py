@@ -10,7 +10,7 @@ def check_error(status):
         raise Exception("Error code " + str(status))
 
 
-def to_tensor(tensor, lib):
+def to_tensor(tensor, lib, force_unsigned=False):
     """
     Convert a PyTorch tensor to a library Tensor(descriptor, data).
     """
@@ -37,6 +37,16 @@ def to_tensor(tensor, lib):
         InfiniDtype.U64 if tensor.dtype == torch.uint64 else
         None
     )
+    
+    if force_unsigned:
+        dt = (
+            InfiniDtype.U8 if dt == InfiniDtype.I8 else
+            InfiniDtype.U16 if dt == InfiniDtype.I16 else
+            InfiniDtype.U32 if dt == InfiniDtype.I32 else
+            InfiniDtype.U64 if dt == InfiniDtype.I64 else
+            dt
+        )
+
     # fmt: on
     assert dt is not None
     # Create TensorDecriptor
@@ -413,6 +423,7 @@ def test_operator(lib, device, test_func, test_cases, tensor_dtypes):
                     infiniDeviceEnum_str_map[device],
                     *test_case,
                     tensor_dtype,
+                    get_sync_func(device)
                 )
     finally:
         destroy_handle(lib, handle)
@@ -461,3 +472,15 @@ def get_test_devices(args):
         devices_to_test = [InfiniDeviceEnum.CPU]
 
     return devices_to_test
+
+
+def get_sync_func(device):
+    import torch
+    device_str = infiniDeviceEnum_str_map[device]
+    
+    if device == InfiniDeviceEnum.CPU:
+        sync = None
+    else:
+        sync = getattr(torch, device_str).synchronize
+    
+    return sync

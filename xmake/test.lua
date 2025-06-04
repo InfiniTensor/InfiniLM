@@ -34,3 +34,20 @@ target("infiniop-test")
 
     set_installdir(INFINI_ROOT)
 target_end()
+
+target("infiniccl-test")
+    set_kind("binary")
+    add_deps("infini-utils")
+    set_default(false)
+
+    set_warnings("all", "error")
+    set_languages("cxx17")
+
+    local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
+    add_includedirs(INFINI_ROOT.."/include")
+    add_linkdirs(INFINI_ROOT.."/lib")
+    add_links("infinirt", "infiniccl")
+    add_files(os.projectdir().."/src/infiniccl-test/*.cpp")
+
+    set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
+target_end()

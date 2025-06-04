@@ -103,6 +103,7 @@ def test(
     topk,
     temperature,
     dtype=torch.float16,
+    sync=None
 ):
     print(
         f"Testing RandomSample on {torch_device} with voc:{voc} random_val:{random_val} topp:{topp} topk:{topk} temperature:{temperature} dtype:{dtype}"
@@ -121,6 +122,9 @@ def test(
     x_tensor, indices_tensor = [to_tensor(tensor, lib) for tensor in [data, indices]]
 
     indices_tensor.descriptor.contents.dt = InfiniDtype.U64  # treat int64 as uint64
+
+    if sync is not None:
+        sync()
 
     descriptor = infiniopRandomSampleDescriptor_t()
     check_error(

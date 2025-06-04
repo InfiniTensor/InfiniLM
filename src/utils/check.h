@@ -3,6 +3,16 @@
 #include <iostream>
 #include <tuple>
 
+#define CHECK_OR_RETURN(CONDITION, ERROR)                                    \
+    do {                                                                     \
+        if (!(CONDITION)) {                                                  \
+            std::cerr << "Check Failed: `(" << #CONDITION << ")` is False"   \
+                      << " from " << __func__                                \
+                      << " at " << __FILE__ << ":" << __LINE__ << std::endl; \
+            return ERROR;                                                    \
+        }                                                                    \
+    } while (0)
+
 #define CHECK_API_OR(API, EXPECT, ACTION)                                       \
     do {                                                                        \
         auto api_result_ = (API);                                               \
@@ -31,13 +41,22 @@
                      return INFINI_STATUS_BAD_TENSOR_DTYPE); \
     } while (0)
 
-#define SAME_VEC(...)                                     \
-    [&] {                                                 \
-        auto &&_vec = std::forward_as_tuple(__VA_ARGS__); \
-        const auto &_base = std::get<0>(_vec);            \
-        return [&_base](auto &&...args) {                 \
-            return ((args == _base) && ...);              \
-        }(__VA_ARGS__);                                   \
-    }()
+#define CHECK_DTYPE_ANY_INT(DT)                                                        \
+    CHECK_DTYPE(DT,                                                                    \
+                INFINI_DTYPE_U8, INFINI_DTYPE_U16, INFINI_DTYPE_U32, INFINI_DTYPE_U64, \
+                INFINI_DTYPE_I8, INFINI_DTYPE_I16, INFINI_DTYPE_I32, INFINI_DTYPE_I64);
+
+#define CHECK_SAME_VEC(ERR, FIRST, ...)              \
+    do {                                             \
+        for (const auto &shape___ : {__VA_ARGS__}) { \
+            if (FIRST != shape___) {                 \
+                return ERR;                          \
+            }                                        \
+        }                                            \
+    } while (0)
+
+#define CHECK_SAME_SHAPE(FIRST, ...) CHECK_SAME_VEC(INFINI_STATUS_BAD_TENSOR_SHAPE, FIRST, __VA_ARGS__)
+
+#define CHECK_SAME_STRIDES(FIRST, ...) CHECK_SAME_VEC(INFINI_STATUS_BAD_TENSOR_STRIDES, FIRST, __VA_ARGS__)
 
 #endif // INFINIUTILS_CHECK_H

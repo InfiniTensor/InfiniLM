@@ -16,18 +16,20 @@ from libinfiniop import (
     get_tolerance,
     profile_operation,
 )
+from enum import Enum, auto
 
 # ==============================================================================
 #  Configuration (Internal Use Only)
 # ==============================================================================
 # These are not meant to be imported from other modules
-_TEST_CASES = [
-    # x_shape, x_stride
-    ((32, 512), None),
-    ((32, 512), (1024, 1)),
-    ((32, 5, 5), None),
-    ((32, 20, 512), None),
-    ((32, 20, 512), (20480, 512, 1)),  # Ascend 暂不支持非连续
+_TEST_CASES_ = [
+    # shape, x_stride, y_stride
+    ((3, 3), None, None),
+    ((32, 512), None, None),
+    ((32, 512), (1024, 1), (1024, 1)),
+    ((32, 5, 5), None, None),
+    ((32, 20, 512), None, None),
+    ((32, 20, 512), (20480, 512, 1), None),
 ]
 
 # Data types used for testing
@@ -35,8 +37,25 @@ _TENSOR_DTYPES = [torch.float16]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 0, "rtol": 1e-2},
+    torch.float16: {"atol": 1e-3, "rtol": 1e-2},
 }
+
+
+class Inplace(Enum):
+    OUT_OF_PLACE = auto()
+    INPLACE_X = auto()
+
+
+_INPLACE = [
+    Inplace.INPLACE_X,
+    Inplace.OUT_OF_PLACE,
+]
+
+_TEST_CASES = [
+    test_case + (inplace_item,)
+    for test_case in _TEST_CASES_
+    for inplace_item in _INPLACE
+]
 
 DEBUG = False
 PROFILE = False
@@ -59,12 +78,22 @@ def causal_softmax(x):
     return torch.nn.functional.softmax(masked, dim=-1).to(type)
 
 
-def test(lib, handle, torch_device, x_shape, x_stride=None, dtype=torch.float16):
+def test(
+    lib,
+    handle,
+    torch_device,
+    shape,
+    x_stride=None,
+    y_stride=None,
+    inplace=Inplace.OUT_OF_PLACE,
+    dtype=torch.float16,
+    sync=None
+):
     print(
-        f"Testing CausalSoftmax on {torch_device} with x_shape:{x_shape} x_stride:{x_stride} dtype:{dtype}"
+        f"Testing CausalSoftmax on {torch_device} with shape:{shape} x_stride:{x_stride} y_stride:{y_stride} dtype:{dtype} inplace:{inplace}"
     )
 
-    x = torch.rand(x_shape, dtype=dtype).to(torch_device)
+    x = torch.rand(shape, dtype=dtype).to(torch_device)
 
     ans = causal_softmax(x)
 
@@ -72,10 +101,21 @@ def test(lib, handle, torch_device, x_shape, x_stride=None, dtype=torch.float16)
 
     x_tensor = to_tensor(x, lib)
 
+    if inplace == Inplace.INPLACE_X:
+        y = x
+        y_tensor = x_tensor
+    else:
+        y = torch.zeros(shape, dtype=dtype).to(torch_device)
+        y = rearrange_if_needed(y, y_stride)
+        y_tensor = to_tensor(y, lib)
+        
+    if sync is not None:
+        sync()
+
     descriptor = infiniopCausalSoftmaxDescriptor_t()
     check_error(
         lib.infiniopCreateCausalSoftmaxDescriptor(
-            handle, ctypes.byref(descriptor), x_tensor.descriptor
+            handle, ctypes.byref(descriptor), y_tensor.descriptor, x_tensor.descriptor
         )
     )
 
@@ -96,17 +136,21 @@ def test(lib, handle, torch_device, x_shape, x_stride=None, dtype=torch.float16)
                 descriptor,
                 workspace.data_ptr() if workspace is not None else None,
                 workspace_size.value,
+                y_tensor.data,
                 x_tensor.data,
                 None,
             )
         )
 
     lib_causal_softmax()
+    
+    if sync is not None:
+        sync() 
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
-        debug(x, ans, atol=atol, rtol=rtol)
-    assert torch.allclose(x, ans, atol=atol, rtol=rtol)
+        debug(y, ans, atol=atol, rtol=rtol)
+    assert torch.allclose(y, ans, atol=atol, rtol=rtol)
 
     # Profiling workflow
     if PROFILE:

@@ -72,6 +72,7 @@ def test(
     x_stride,
     w_dtype=torch.float16,
     dtype=torch.float16,
+    sync=None
 ):
     print(
         f"Testing RMS_Norm on {torch_device} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
@@ -89,9 +90,11 @@ def test(
         rearrange_if_needed(tensor, stride)
         for tensor, stride in zip([x, y], [x_stride, y_stride])
     ]
-
     x_tensor, y_tensor, w_tensor = [to_tensor(tensor, lib) for tensor in [x, y, w]]
-
+    
+    if sync is not None:
+        sync()
+    
     descriptor = infiniopRMSNormDescriptor_t()
 
     check_error(

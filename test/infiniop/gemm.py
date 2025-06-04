@@ -83,6 +83,7 @@ def test(
     b_stride=None,
     c_stride=None,
     dtype=torch.float16,
+    sync=None
 ):
     print(
         f"Testing Gemm on {torch_device} with alpha:{alpha}, beta:{beta},"
@@ -103,6 +104,9 @@ def test(
         for tensor, stride in zip([a, b, c], [a_stride, b_stride, c_stride])
     ]
     a_tensor, b_tensor, c_tensor = [to_tensor(tensor, lib) for tensor in [a, b, c]]
+
+    if sync is not None:
+        sync()
 
     descriptor = infiniopGemmDescriptor_t()
     check_error(
