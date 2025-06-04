@@ -4,7 +4,7 @@ import gguf
 from typing import List
 
 
-from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides
+from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides, contiguous_gguf_strides
 
 
 def rotary_embedding(t, sin, cos):
@@ -45,6 +45,8 @@ class RoPETestCase(InfiniopTestCase):
         self,
         y: np.ndarray,
         x: np.ndarray,
+        shape_y: List[int] | None,
+        shape_x: List[int] | None,
         stride_y: List[int] | None,
         stride_x: List[int] | None,
         pos_ids: np.ndarray,
@@ -54,6 +56,8 @@ class RoPETestCase(InfiniopTestCase):
         super().__init__("rope")
         self.y = y
         self.x = x
+        self.shape_y = shape_y
+        self.shape_x = shape_x
         self.stride_y = stride_y
         self.stride_x = stride_x
         self.pos_ids = pos_ids
@@ -69,10 +73,16 @@ class RoPETestCase(InfiniopTestCase):
         test_writer.add_tensor(
             test_writer.gguf_key("x"), self.x, raw_dtype=np_dtype_to_ggml(self.x.dtype)
         )
-        if self.stride_y is not None:
-            test_writer.add_array(test_writer.gguf_key("y.strides"), self.stride_y)
+        if self.shape_y is not None:
+            test_writer.add_array(test_writer.gguf_key("y.shape"), self.shape_y)
+        if self.shape_x is not None:
+            test_writer.add_array(test_writer.gguf_key("x.shape"), self.shape_x)
+        test_writer.add_array(
+            test_writer.gguf_key("y.strides"),
+            gguf_strides(*self.stride_y if self.stride_y is not None else contiguous_gguf_strides(self.shape_y))
+        )
         if self.stride_x is not None:
-            test_writer.add_array(test_writer.gguf_key("x.strides"), self.stride_x)
+            test_writer.add_array(test_writer.gguf_key("x.strides"), gguf_strides(*self.stride_x))
 
         test_writer.add_tensor(
             test_writer.gguf_key("pos_ids"), self.pos_ids, raw_dtype=np_dtype_to_ggml(self.pos_ids.dtype)
@@ -106,9 +116,9 @@ if __name__ == "__main__":
         ((10, 32, 64), None, None),
         # # 昇腾暂不满足这个用例，最后一维度 <=32 会有问题，可能与其核心
         # # 接口 GatherMask 的内部实现相关，目前 48 64 128 都可以支持
-        ((4, 1, 32), gguf_strides(64, 64, 1), None),
-        ((11, 33, 128), None, gguf_strides(8000, 200, 1)),
-        ((3, 32, 128), gguf_strides(8000, 200, 1), gguf_strides(7000, 128, 1)),
+        ((4, 1, 32), (64, 64, 1), None),
+        ((11, 33, 128), None, (8000, 200, 1)),
+        ((3, 32, 128), (8000, 200, 1), (7000, 128, 1)),
     ]
 
     _TENSOR_DTYPES_ = [np.float16, np.float32]
@@ -118,16 +128,14 @@ if __name__ == "__main__":
     for dtype in _TENSOR_DTYPES_:
         for shape, stride_x, stride_y in _TEST_CASES_:
             x = np.random.rand(*shape).astype(dtype)
-
-            y = np.random.rand(*shape).astype(dtype)
-
+            y = np.empty(tuple(0 for _ in shape), dtype=dtype)
             pos_ids = np.arange(0, x.shape[0], dtype=np.int32)
-
             sin_table, cos_table = sin_cos_table(pos_ids, x.shape[2], theta=1e5, dtype=dtype)
-
             test_case = RoPETestCase(
                 y=y,
                 x=x,
+                shape_y=shape,
+                shape_x=shape,
                 stride_y=stride_y,
                 stride_x=stride_x,
                 pos_ids=pos_ids,
