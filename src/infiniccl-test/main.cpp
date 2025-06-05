@@ -60,6 +60,7 @@ ParsedArgs parseArgs(int argc, char *argv[]) {
 int main(int argc, char *argv[]) {
     ParsedArgs args = parseArgs(argc, argv);
     int ndevice = 0;
+    infinirtInit();
     if (infinirtGetDeviceCount(args.device_type, &ndevice) != INFINI_STATUS_SUCCESS) {
         std::cout << "Failed to get device count" << std::endl;
         return -1;
