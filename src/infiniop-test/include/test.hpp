@@ -60,6 +60,9 @@ std::shared_ptr<Result> runTest(
 // Check if two tensors are close within given tolerance
 void allClose(std::shared_ptr<Tensor> actual, std::shared_ptr<Tensor> expected, double rtol = 1e-3, double atol = 1e-3);
 
+// Check if two tensors are equal
+void allEqual(std::shared_ptr<Tensor> actual, std::shared_ptr<Tensor> expected);
+
 // Helper function for benchmarking a function
 double benchmark(std::function<void()> func, size_t warmups, size_t iterations);
 } // namespace infiniop_test
