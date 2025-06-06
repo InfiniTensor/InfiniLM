@@ -2,6 +2,7 @@
 #define __CLIP_CUDA_H__
 
 #include "../../../elementwise/cuda/elementwise_cuda.cuh"
+#include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
 namespace op::clip::cuda {
@@ -12,17 +13,14 @@ public:
 
     template <typename T>
     __device__ __forceinline__ T operator()(const T &x, const T &min_val, const T &max_val) const {
-        if constexpr (std::is_same_v<T, half2>) {
+        if constexpr (std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) {
+#ifndef ENABLE_ILUVATAR_CUDA_API
             return __hmax2(__hmin2(x, max_val), min_val);
-        } else if constexpr (std::is_same_v<T, half>) {
-            return __hmax(__hmin(x, max_val), min_val);
-        } else if constexpr (std::is_same_v<T, float>) {
-            return fmaxf(fminf(x, max_val), min_val);
-        } else if constexpr (std::is_same_v<T, double>) {
-            return fmax(fmin(x, max_val), min_val);
-        } else {
-            return std::max(std::min(x, max_val), min_val);
+#else
+            return {std::clamp(x.x, min_val.x, max_val.x), std::clamp(x.y, min_val.y, max_val.y)};
+#endif
         }
+        return std::clamp(x, min_val, max_val);
     }
 } ClipOp;
 } // namespace op::clip::cuda

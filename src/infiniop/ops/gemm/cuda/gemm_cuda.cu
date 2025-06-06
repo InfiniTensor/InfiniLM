@@ -60,7 +60,11 @@ infiniStatus_t Descriptor::calculate(
         break;
     case INFINI_DTYPE_BF16:
         a_type = b_type = c_type = CUDA_R_16BF;
+#ifdef ENABLE_ILUVATAR_CUDA_API
+        compute_type = CUDA_R_32F;
+#else
         compute_type = CUBLAS_COMPUTE_32F;
+#endif
         break;
     case INFINI_DTYPE_F32:
         a_type = b_type = c_type = CUDA_R_32F;

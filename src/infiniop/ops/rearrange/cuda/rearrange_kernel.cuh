@@ -233,16 +233,7 @@ utils::Result<void *> getRearrangeKernel(const RearrangeParams &params) {
 
     CHECK_OR_RETURN(grid_num <= MAX_GRID_ARRAY_SIZE && grid_num != 0, INFINI_STATUS_BAD_PARAM);
     CHECK_OR_RETURN(block_num <= MAX_BLOCK_ARRAY_SIZE && block_num != 0, INFINI_STATUS_BAD_PARAM);
-
     CHECK_OR_RETURN(constraint_num <= 2, INFINI_STATUS_BAD_PARAM);
-
-    auto block_len = params.block_len.data();
-    auto src_block_stride = params.src_block_stride.data();
-    auto dst_block_stride = params.dst_block_stride.data();
-    auto grid_len = params.grid_len.data();
-    auto src_grid_stride = params.src_grid_stride.data();
-    auto dst_grid_stride = params.dst_grid_stride.data();
-    auto constrain = params.constraints.data();
 
     void *kernel_func = nullptr;
 #define GET_REARRANGE_KERNEL(Tmem_type, block_array_size, grid_array_size, constraint_num) \

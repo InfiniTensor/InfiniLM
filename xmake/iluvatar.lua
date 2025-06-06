@@ -39,7 +39,7 @@ target("infiniop-iluvatar")
     add_rules("iluvatar.env")
     set_values("cuda.rdc", false)
 
-    add_links("cublas", "cudnn")
+    add_links("cudart", "cublas", "cudnn")
 
     set_warnings("all", "error")
     add_cuflags("-fPIC", "-x", "ivcore", "-std=c++17", {force = true})
