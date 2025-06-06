@@ -2,7 +2,7 @@ import numpy as np
 import gguf
 from typing import List, Optional, Tuple
 
-from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides
+from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides, contiguous_gguf_strides
 
 
 def clip(
@@ -52,6 +52,7 @@ class ClipTestCase(InfiniopTestCase):
         max_val: np.ndarray,
         max_stride: Optional[List[int]],
         y: np.ndarray,
+        y_shape:  Optional[List[int]],
         y_stride: Optional[List[int]],
     ):
         super().__init__("clip")
@@ -62,6 +63,7 @@ class ClipTestCase(InfiniopTestCase):
         self.max_val = max_val
         self.max_stride = max_stride
         self.y = y
+        self.y_shape=y_shape
         self.y_stride = y_stride
 
     def write_test(self, test_writer: "InfiniopTestWriter"):
@@ -69,13 +71,17 @@ class ClipTestCase(InfiniopTestCase):
 
         # Add strides as arrays if they exist
         if self.x_stride is not None:
-            test_writer.add_array(test_writer.gguf_key("x.strides"), self.x_stride)
+            test_writer.add_array(test_writer.gguf_key("x.strides"), gguf_strides(*self.x_stride))
         if self.min_stride is not None:
-            test_writer.add_array(test_writer.gguf_key("min_val.strides"), self.min_stride)
+            test_writer.add_array(test_writer.gguf_key("min_val.strides"), gguf_strides(*self.min_stride))
         if self.max_stride is not None:
-            test_writer.add_array(test_writer.gguf_key("max_val.strides"), self.max_stride)
-        if self.y_stride is not None:
-            test_writer.add_array(test_writer.gguf_key("y.strides"), self.y_stride)
+            test_writer.add_array(test_writer.gguf_key("max_val.strides"), gguf_strides(*self.max_stride))
+        if self.y_shape is not None:
+            test_writer.add_array(test_writer.gguf_key("y.shape"), self.y_shape)
+        test_writer.add_array(
+            test_writer.gguf_key("y.strides"),
+            gguf_strides(*self.y_stride if self.y_stride is not None else contiguous_gguf_strides(self.y_shape))
+        )
 
         # Add tensors to the test
         test_writer.add_tensor(
@@ -153,7 +159,7 @@ if __name__ == "__main__":
                 x = random_tensor(shape, dtype)
                 min_tensor = np.full(shape, min_val, dtype=dtype)
                 max_tensor = np.full(shape, max_val, dtype=dtype)
-                y = np.zeros(shape, dtype=dtype)
+                y = np.empty(tuple(0 for _ in shape), dtype=dtype)
 
                 test_cases.append(
                     ClipTestCase(
@@ -164,6 +170,7 @@ if __name__ == "__main__":
                         max_val=max_tensor,
                         max_stride=None,
                         y=y,
+                        y_shape=shape,
                         y_stride=None
                     )
                 )
@@ -172,15 +179,15 @@ if __name__ == "__main__":
     for shape in [s for s in shapes if len(s) == 2]:
         for dtype in dtypes:
             # Row-major stride
-            row_stride = gguf_strides(shape[1], 1)
+            row_stride = (shape[1], 1)
             # Column-major stride
-            col_stride = gguf_strides(1, shape[0])
+            col_stride = (1, shape[0])
 
             # Test case with row-major input and output
             x = random_tensor(shape, dtype)
             min_tensor = np.full(shape, -1.0, dtype=dtype)
             max_tensor = np.full(shape, 1.0, dtype=dtype)
-            y = np.zeros(shape, dtype=dtype)
+            y = np.empty(tuple(0 for _ in shape), dtype=dtype)
 
             test_cases.append(
                 ClipTestCase(
@@ -191,6 +198,7 @@ if __name__ == "__main__":
                     max_val=max_tensor,
                     max_stride=row_stride,
                     y=y,
+                    y_shape=shape,
                     y_stride=row_stride
                 )
             )
@@ -199,7 +207,7 @@ if __name__ == "__main__":
             x = random_tensor(shape, dtype)
             min_tensor = np.full(shape, -1.0, dtype=dtype)
             max_tensor = np.full(shape, 1.0, dtype=dtype)
-            y = np.zeros(shape, dtype=dtype)
+            y = np.empty(tuple(0 for _ in shape), dtype=dtype)
 
             test_cases.append(
                 ClipTestCase(
@@ -210,6 +218,7 @@ if __name__ == "__main__":
                     max_val=max_tensor,
                     max_stride=col_stride,
                     y=y,
+                    y_shape=shape,
                     y_stride=col_stride
                 )
             )
@@ -218,7 +227,7 @@ if __name__ == "__main__":
             x = random_tensor(shape, dtype)
             min_tensor = np.full(shape, -1.0, dtype=dtype)
             max_tensor = np.full(shape, 1.0, dtype=dtype)
-            y = np.zeros(shape, dtype=dtype)
+            y = np.empty(tuple(0 for _ in shape), dtype=dtype)
 
             test_cases.append(
                 ClipTestCase(
@@ -229,6 +238,7 @@ if __name__ == "__main__":
                     max_val=max_tensor,
                     max_stride=row_stride,
                     y=y,
+                    y_shape=shape,
                     y_stride=col_stride
                 )
             )
