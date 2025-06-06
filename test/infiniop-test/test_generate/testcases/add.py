@@ -100,7 +100,8 @@ if __name__ == "__main__":
             a = np.random.rand(*shape).astype(dtype)
             b = np.random.rand(*shape).astype(dtype)
             c = np.empty(tuple(0 for _ in shape), dtype=dtype)
-            a, b = process_zero_stride_tensor(a, b, stride_a, stride_b)
+            a = process_zero_stride_tensor(a, stride_a)
+            b = process_zero_stride_tensor(b, stride_b)
             test_case = AddTestCase(
                 a=a,
                 shape_a=shape,
