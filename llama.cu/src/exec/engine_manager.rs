@@ -16,6 +16,8 @@ use tokeneer::utok;
 pub(super) struct EngineManager {
     sess: BTreeMap<SessionId, SessionStub>,
     pre_output: BTreeMap<SessionId, usize>,
+    // 每次prefill的最大长度
+    chunked_prefill_len: Option<usize>,
 }
 
 #[derive(Default)]
@@ -39,6 +41,12 @@ pub enum CommandError {
 type E = CommandError;
 
 impl EngineManager {
+    pub fn new(chunked_prefill_len: Option<usize>) -> Self {
+        Self {
+            chunked_prefill_len,
+            ..Default::default()
+        }
+    }
     /// 接收命令
     pub fn receive(
         &mut self,
@@ -80,14 +88,50 @@ impl EngineManager {
             let seq = stub.state.seq;
             let out = stub.state.out;
             let end = pos + seq;
-            assert_eq!(out, 1, "TODO: chunked prefill");
-            // 尝试填充缓存
+            assert_eq!(out, 1, "TODO: ???");
+            //验证缓存是否溢出
             if end > max {
                 warn!("cache overflow {end} > {max}");
                 // 缓存溢出，不再推理
                 ans.overflow.push(stub.session);
                 continue;
             }
+            //chunked prefill
+            // 采用 state.seq 用于计算剩余需要prefill的长度
+            if let Some(prompt) = &stub.prompt {
+                if let Some(chunked_prefill_len) = self.chunked_prefill_len {
+                    if stub.state.seq > chunked_prefill_len {
+                        // 根据chunked_prefill_len重新计算seq和end
+                        let seq = chunked_prefill_len;
+                        let end = pos + seq;
+                        ans.sample.push(stub.session.sample_args);
+                        ans.output.push((id, 0));
+                        ans.reqs.push(Req {
+                            kv_cache: stub.session.cache.parts.clone(),
+                            pos,
+                            seq,
+                        });
+                        ans.tokens.extend(
+                            prompt
+                                .iter()
+                                .skip(prompt.len() - stub.state.seq)
+                                .take(chunked_prefill_len),
+                        );
+
+                        //更新stub信息
+                        stub.session.cache.pos = end;
+                        stub.state.seq -= chunked_prefill_len;
+
+                        //回填
+                        assert!(self.sess.insert(id, stub).is_none());
+
+                        //提前结束
+                        continue;
+                    }
+                }
+            }
+
+            // 尝试填充缓存
             stub.session.cache.pos = end;
             // 填充推理信息
             ans.sample.extend(repeat_n(stub.session.sample_args, out));
@@ -99,13 +143,11 @@ impl EngineManager {
             });
             if let Some(prompt) = stub.prompt.take() {
                 // prefill
-                debug_assert_eq!(seq, prompt.len());
-                ans.tokens.extend(prompt);
-                // if out == 0 {
-                //     // todo!("chunked prefill")
-                //     // ans.no_decode.push(stub.session);
-                //     // continue;
-                // }
+                if seq != prompt.len() {
+                    log::debug!("{:?} chunked prefil finished", id);
+                }
+                ans.tokens.extend(prompt[prompt.len() - seq..].to_owned());
+
                 stub.state.seq = 1
             } else {
                 // decode
@@ -115,6 +157,8 @@ impl EngineManager {
                     .push((pre_output[&id] as _, ans.tokens.len() as _));
                 ans.tokens.push(0)
             }
+
+            //输出处理
             stub.state.remain_steps -= 1;
             if stub.state.remain_steps == 0 {
                 // 生成结束

@@ -32,6 +32,7 @@ use tokeneer::utok;
 #[cfg(nccl)]
 use operators::nccl::{Communicator, CommunicatorGroup};
 
+// 目前在有prompt的情况下，state.seq 的长度代表prompt还有多少未prefill，也就是 `prompt[prompt.len() - state.seq..]` 代表未prefill的prompt
 pub(super) struct SessionStub {
     pub session: Session,
     pub state: State,
@@ -66,7 +67,8 @@ impl Request {
 }
 
 const NTOKS: &[usize] = &[1, 8, 32, 64, 128, 256, 1024];
-//TODO 该常量需要优化
+const CHUNKED_PREFILL_LEN: Option<usize> = Some(32);
+//TODO 该常量应该放在哪比较合适
 const MAX_TOKS: usize = 1024;
 
 pub(crate) fn engine(
@@ -102,6 +104,7 @@ pub(crate) fn engine(
             barrier: Some(Arc::new(Barrier::new(gpus.len()))),
             task_box: Default::default(),
             use_cuda_graph,
+            chunked_prefill_len: CHUNKED_PREFILL_LEN,
         };
 
         std::thread::scope(|s| {
@@ -145,6 +148,7 @@ fn mono(
         barrier: None,
         task_box: Default::default(),
         use_cuda_graph,
+        chunked_prefill_len: CHUNKED_PREFILL_LEN,
     }
     .lead(llama, output_head, commands, outputs, |ctx| {
         Handle::new(ctx)
@@ -160,6 +164,7 @@ struct Worker<'a> {
     barrier: Option<Arc<Barrier>>,
     task_box: TaskBox,
     use_cuda_graph: bool,
+    chunked_prefill_len: Option<usize>,
 }
 
 type TaskBox = Arc<RwLock<Option<Task>>>;
@@ -187,12 +192,13 @@ impl Worker<'_> {
             barrier,
             task_box,
             use_cuda_graph,
+            chunked_prefill_len,
         } = self;
 
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
         let attn = Attn::new(&gpu);
         gpu.apply(|ctx| {
-            let mut manager = EngineManager::default();
+            let mut manager = EngineManager::new(chunked_prefill_len);
             let mut handle = handle(ctx);
             let mut models = ModelGroup::new(
                 llama,
@@ -281,23 +287,39 @@ impl Worker<'_> {
                     }
                     // 推理
                     let x = models.launch(key, &reqs, &mut handle, &stream);
-                    // 输出
-                    let kv_pairs = output_head.launch(
-                        x,
-                        &out_idx_buf.as_slice()[..out_idx.len()],
-                        sample,
-                        &mut handle,
-                        &stream,
-                    );
-                    stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
-                    let output = Output::Complete {
-                        output: output.into(),
-                        kv_pair: kv_pairs.sporulate(),
-                        event: stream.record().sporulate(),
-                        finished: finished.into(),
-                    };
-                    if outputs.send(output).is_err() {
-                        break;
+
+                    // 如果没有输出，则跳过
+                    if !out_idx.is_empty() {
+                        let (output, sample): (Vec<_>, Vec<_>) = output
+                            .iter()
+                            .zip(sample.iter())
+                            .filter_map(|((id, len), sample_arg)| {
+                                if *len > 0 {
+                                    Some(((*id, *len), sample_arg))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unzip();
+
+                        let kv_pairs = output_head.launch(
+                            x,
+                            &out_idx_buf.as_slice()[..out_idx.len()],
+                            sample,
+                            &mut handle,
+                            &stream,
+                        );
+                        stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
+
+                        let output = Output::Complete {
+                            output: output.into(),
+                            kv_pair: kv_pairs.sporulate(),
+                            event: stream.record().sporulate(),
+                            finished: finished.into(),
+                        };
+                        if outputs.send(output).is_err() {
+                            break;
+                        }
                     }
                 }
             }
@@ -325,6 +347,7 @@ impl Worker<'_> {
             barrier,
             task_box,
             use_cuda_graph,
+            ..
         } = self;
 
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
