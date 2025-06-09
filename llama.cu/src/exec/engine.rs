@@ -66,6 +66,8 @@ impl Request {
 }
 
 const NTOKS: &[usize] = &[1, 8, 32, 64, 128, 256, 1024];
+//TODO 该常量需要优化
+const MAX_TOKS: usize = 1024;
 
 pub(crate) fn engine(
     llama: LLaMA<Tensor<&[u8], 2>>,
@@ -96,6 +98,7 @@ pub(crate) fn engine(
                 total: gpus.len(),
             },
             ntoks: NTOKS,
+            max_toks: MAX_TOKS,
             barrier: Some(Arc::new(Barrier::new(gpus.len()))),
             task_box: Default::default(),
             use_cuda_graph,
@@ -138,6 +141,7 @@ fn mono(
             total: 1,
         },
         ntoks: NTOKS,
+        max_toks: MAX_TOKS,
         barrier: None,
         task_box: Default::default(),
         use_cuda_graph,
@@ -152,6 +156,7 @@ struct Worker<'a> {
     dev: Device,
     dist: Distribution,
     ntoks: &'a [usize],
+    max_toks: usize,
     barrier: Option<Arc<Barrier>>,
     task_box: TaskBox,
     use_cuda_graph: bool,
@@ -178,6 +183,7 @@ impl Worker<'_> {
             dev,
             dist,
             ntoks,
+            max_toks,
             barrier,
             task_box,
             use_cuda_graph,
@@ -200,12 +206,12 @@ impl Worker<'_> {
 
             let mut output_head = OutputHead::new(output_head, ctx);
 
-            let max_tok = *ntoks.last().unwrap();
+            let max_tok = max_toks;
             let mut fast_embd = FastEmbedding::new(max_tok, ctx);
             let mut pre_kv_pairs = ctx.malloc::<KVPair>(max_tok);
 
             let stream = ctx.stream();
-            let len = *self.ntoks.last().unwrap();
+            let len = max_toks;
             const BUF_LEVEL: usize = 3;
             let mut events: [Event; BUF_LEVEL] = std::array::from_fn(|_| stream.record());
             let mut tok_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
@@ -249,6 +255,7 @@ impl Worker<'_> {
                     events[out_idx_buf.index()] = stream.record();
                     // 加载输入
                     let (key, tok) = models.load_inputs(
+                        &mut handle,
                         tokens.len(),
                         tok_buf.as_slice(),
                         pos_buf.as_slice(),
@@ -314,6 +321,7 @@ impl Worker<'_> {
             dev,
             dist,
             ntoks,
+            max_toks: _max_toks,
             barrier,
             task_box,
             use_cuda_graph,
