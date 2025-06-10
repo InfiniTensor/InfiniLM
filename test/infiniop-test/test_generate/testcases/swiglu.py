@@ -2,7 +2,7 @@ import numpy as np
 import gguf
 from typing import List
 
-from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides, contiguous_gguf_strides
+from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides, contiguous_gguf_strides, process_zero_stride_tensor
 
 
 def swiglu(
@@ -92,6 +92,8 @@ if __name__ == "__main__":
         ((2, 3, 400), (1200, 400, 1), (1200, 400, 1), (1, 2, 6)),
         ((4, 4, 5632), None, None, None),
         ((4, 4, 5632), (45056, 5632, 1), (45056, 5632, 1), (45056, 5632, 1)),
+        ((13, 4), (0, 1), None, None),
+        ((13, 4, 4), (4, 0, 1), (0, 4, 1), None),
     ]
     _TENSOR_DTYPES_ = [np.float32, np.float16]
 
@@ -100,6 +102,8 @@ if __name__ == "__main__":
             a = np.random.rand(*shape).astype(dtype)
             b = np.random.rand(*shape).astype(dtype)
             c = np.empty(tuple(0 for _ in shape), dtype=dtype)
+            a = process_zero_stride_tensor(a, stride_a)
+            b = process_zero_stride_tensor(b, stride_b)
             test_case = SwiGLUTestCase(
                 a=a,
                 shape_a=list(shape),

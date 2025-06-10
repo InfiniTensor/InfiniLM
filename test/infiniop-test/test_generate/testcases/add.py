@@ -4,7 +4,7 @@ import gguf
 from typing import List
 from numpy.lib.stride_tricks import as_strided
 
-from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides, contiguous_gguf_strides
+from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides, contiguous_gguf_strides, process_zero_stride_tensor
 
 
 def add(
@@ -13,17 +13,6 @@ def add(
 ):
     return a + b
 
-def process_tensor(a, b, stride_a=None, stride_b=None):
-    def normalize_stride(tensor, stride):
-        if stride:
-            slices = tuple(slice(0, 1) if s == 0 else slice(None) for s in stride)
-            return tensor[slices]
-        else:
-            return tensor
-
-    a_unique = normalize_stride(a, stride_a)
-    b_unique = normalize_stride(b, stride_b)
-    return a_unique, b_unique
 
 class AddTestCase(InfiniopTestCase):
     def __init__(
@@ -111,9 +100,8 @@ if __name__ == "__main__":
             a = np.random.rand(*shape).astype(dtype)
             b = np.random.rand(*shape).astype(dtype)
             c = np.empty(tuple(0 for _ in shape), dtype=dtype)
-            a, b = process_tensor(a, b, stride_a, stride_b)
-            if stride_c is None:
-                stride_c = contiguous_gguf_strides(shape)
+            a = process_zero_stride_tensor(a, stride_a)
+            b = process_zero_stride_tensor(b, stride_b)
             test_case = AddTestCase(
                 a=a,
                 shape_a=shape,

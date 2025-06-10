@@ -110,7 +110,7 @@ std::vector<std::string> Test::tensor_names() {
 }
 
 std::vector<std::string> Test::output_names() {
-    return {"result"};
+    return {};
 }
 
 std::string Test::toString() const {

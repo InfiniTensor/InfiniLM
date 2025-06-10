@@ -37,6 +37,13 @@ def contiguous_gguf_strides(shape: tuple[int, ...]) -> list[int]:
         acc *= size
     return strides[::-1]
 
+def process_zero_stride_tensor(tensor, stride=None):
+    if stride:
+        slices = tuple(slice(0, 1) if s == 0 else slice(None) for s in stride)
+        return tensor[slices]
+    else:
+        return tensor
+
 class InfiniopTestCase:
     op_name: str
 
