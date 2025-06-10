@@ -199,6 +199,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
             chunked_prefill_len,
         } = self;
 
+        dev.set_mempool_threshold(u64::MAX);
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
         let attn = Attn::new(&gpu);
         gpu.apply(|ctx| {
@@ -260,15 +261,15 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     let (key, tok) = models.load_inputs(
                         &mut handle,
                         tokens.len(),
-                        tok_buf.as_slice(),
-                        pos_buf.as_slice(),
+                        &*tok_buf,
+                        &*pos_buf,
                         &stream,
                     );
                     // 快速启动路径
                     fast_embd.launch(
                         tok,
                         &pre_kv_pairs,
-                        &fast_map.as_slice()[..fast_map.len()],
+                        &fast_embd_buf[..fast_map.len()],
                         &mut handle,
                         &stream,
                     );
@@ -301,7 +302,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
 
                         let kv_pairs = output_head.launch(
                             x,
-                            &out_idx_buf.as_slice()[..out_idx.len()],
+                            &out_idx_buf[..out_idx.len()],
                             sample,
                             &mut handle,
                             &stream,
@@ -346,6 +347,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
             ..
         } = self;
 
+        dev.set_mempool_threshold(u64::MAX);
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
         let attn = Attn::new(&gpu);
         let barrier = barrier.unwrap();
@@ -419,16 +421,20 @@ impl<T: Copy> BufN<'_, T> {
         }
 
         let piece = self.buf.len() / self.level;
-        let piece = &mut self.buf[self.index * piece..][..piece];
-        piece[..data.len()].copy_from_slice(data);
-        piece[data.len()..].fill(0)
+        let (data_, padding) = self.buf[self.index * piece..][..piece].split_at_mut(data.len());
+        data_.copy_from_slice(data);
+        padding.fill(0)
     }
 
     const fn index(&self) -> usize {
         self.index
     }
+}
 
-    fn as_slice(&self) -> &[T] {
+impl<T> Deref for BufN<'_, T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
         let piece = self.buf.len() / self.level;
         let (&[], piece, &[]) =
             (unsafe { self.buf[self.index * piece..][..piece].align_to::<T>() })
@@ -436,14 +442,5 @@ impl<T: Copy> BufN<'_, T> {
             unreachable!()
         };
         piece
-    }
-}
-
-impl<T> Deref for BufN<'_, T> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        let piece = self.buf.len() / self.level;
-        &self.buf[self.index * piece..][..piece]
     }
 }

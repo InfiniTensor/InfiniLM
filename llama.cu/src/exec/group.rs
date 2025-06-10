@@ -1,12 +1,12 @@
 ﻿use super::{KVCache, model::ModelExec};
-use crate::{exec::upos, handle::Handle, memory::MemPages};
+use crate::{exec::upos, handle::Handle, load::load_weight, memory::MemPages};
 use log::debug;
 use nn::{
     Distribution, Graph, GraphBuilder, LLaMA, NNGraph, Tensor, TensorMeta, digit_layout::types, op,
 };
 use operators::{
     attention_kv_cached::cuda::Operator as Attn,
-    cuda::{DevByte, Stream, VirByte, VirMem},
+    cuda::{DevByte, DevMem, Stream, VirByte},
 };
 use std::{
     collections::BTreeMap,
@@ -27,7 +27,7 @@ pub(crate) struct ModelGroup<'ctx> {
     internal: Internal<'ctx>,
     attn: Attn,
     pages: MemPages,
-    _weight: VirMem,
+    _weight: DevMem<'ctx>,
 }
 
 #[derive(Clone)]
@@ -67,7 +67,7 @@ impl<'ctx> ModelGroup<'ctx> {
         // 加载权重
         let dev = handle.ctx.dev();
         let mut pages = MemPages::new(dev);
-        let (_weight, edges) = pages.load_weight(&dev, edges);
+        let (_weight, edges) = load_weight(edges, handle.ctx);
         // 构建 cuda graph
         let graph = NNGraph(Graph { topo, nodes, edges });
         debug!("compiling model group @{}", dev.index());

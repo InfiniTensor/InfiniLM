@@ -1,11 +1,10 @@
 ﻿mod loader;
 mod range_collector;
 
-use crate::memory::MemPages;
 use bytesize::ByteSize;
 use log::{debug, trace};
 use nn::{Edge, TPAction, TPTensor, Tensor};
-use operators::cuda::{DevByte, Device, Stream, VirByte, VirMem};
+use operators::cuda::{CurrentCtx, DevByte, DevMem, Stream, VirByte};
 use range_collector::RangeCollector;
 use std::{
     collections::HashSet,
@@ -19,52 +18,55 @@ pub(crate) use loader::WeightLoader;
 type HostTPTensor<'a> = TPTensor<Tensor<&'a [u8], 2>>;
 type VirTensor = Tensor<*const VirByte, 2>;
 
-impl MemPages {
-    pub fn load_weight(
-        &mut self,
-        dev: &Device,
-        edges: Box<[Edge<HostTPTensor>]>,
-    ) -> (VirMem, Box<[Edge<VirTensor>]>) {
-        // 排布权重存储
-        let align = Some(dev.alignment()).filter(|&n| n > 0).unwrap_or(512);
-        let mut ranges = RangeCollector::new(align);
-        for nn::Edge { external, .. } in &edges {
-            if let Some(nn::External { item, .. }) = external {
-                let TPTensor { act, val } = item;
-                let len = match act {
-                    Some(act) => val.get().len() / act.dist.total * act.dist.len,
-                    None => val.get().len(),
-                };
-                ranges.insert((act.clone(), val.get().as_ptr()), len)
-            }
+pub(crate) fn load_weight<'ctx>(
+    edges: Box<[Edge<HostTPTensor>]>,
+    ctx: &'ctx CurrentCtx,
+) -> (DevMem<'ctx>, Box<[Edge<VirTensor>]>) {
+    // 排布权重存储
+    let align = Some(ctx.dev().alignment())
+        .filter(|&n| n > 0)
+        .unwrap_or(512);
+    let mut ranges = RangeCollector::new(align);
+    for nn::Edge { external, .. } in &edges {
+        if let Some(nn::External { item, .. }) = external {
+            let TPTensor { act, val } = item;
+            let len = match act {
+                Some(act) => val.get().len() / act.dist.total * act.dist.len,
+                None => val.get().len(),
+            };
+            ranges.insert((act.clone(), val.get().as_ptr()), len)
         }
-        // 权重加载
-        let time = Instant::now();
-        let mut weight = self.reserve_vir(ranges.size());
-        let mapped = weight.map(0, self.prop().create(weight.len()));
-        let edges = dev.context().apply(|ctx| {
-            let mut loader = WeightLoader::new(
-                ranges
-                    .sizes()
-                    .filter(|&(_, times)| times < 4)
-                    .map(|(size, _)| size),
-            );
-
-            let stream = ctx.stream();
-            let mut copied = HashSet::new();
-            edges
-                .into_iter()
-                .map(|nn::Edge { meta, external }| nn::Edge {
-                    meta,
-                    external: external.map(|external| {
-                        load_exteranl(external, &mut loader, &ranges, mapped, &mut copied, &stream)
-                    }),
-                })
-                .collect::<Box<_>>()
-        });
-        fmt_log(dev.index(), edges.len(), weight.len(), time.elapsed());
-        (weight, edges)
     }
+    // 权重加载
+    let time = Instant::now();
+    let mut weight = ctx.malloc::<u8>(ranges.size());
+    let mut loader = WeightLoader::new(
+        ranges
+            .sizes()
+            .filter(|&(_, times)| times < 4)
+            .map(|(size, _)| size),
+    );
+
+    let stream = ctx.stream();
+    let mut copied = HashSet::new();
+    let edges = edges
+        .into_iter()
+        .map(|nn::Edge { meta, external }| nn::Edge {
+            meta,
+            external: external.map(|external| {
+                load_exteranl(
+                    external,
+                    &mut loader,
+                    &ranges,
+                    &mut weight,
+                    &mut copied,
+                    &stream,
+                )
+            }),
+        })
+        .collect::<Box<_>>();
+    fmt_log(ctx.dev().index(), edges.len(), weight.len(), time.elapsed());
+    (weight, edges)
 }
 
 fn load_exteranl<'ctx>(

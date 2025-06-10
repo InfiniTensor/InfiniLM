@@ -19,11 +19,6 @@ impl MemPages {
     }
 
     #[inline(always)]
-    pub const fn prop(&self) -> MemProp {
-        self.prop
-    }
-
-    #[inline(always)]
     pub const fn page_size(&self) -> usize {
         self.size
     }
