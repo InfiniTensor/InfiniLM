@@ -6,7 +6,7 @@
     output_head::OutputHead,
 };
 use crate::{
-    exec::upos,
+    exec::{group::ModelGroupConfig, upos},
     handle::Handle,
     op::{FastEmbedding, random_sample::KVPair},
 };
@@ -66,7 +66,7 @@ impl Request {
     }
 }
 
-const NTOKS: &[usize] = &[1, 8, 32, 64, 128, 256, 1024];
+const NTOKS: [usize; 7] = [1, 8, 32, 64, 128, 256, 1024];
 const CHUNKED_PREFILL_LEN: Option<usize> = Some(32);
 //TODO 该常量应该放在哪比较合适
 const MAX_TOKS: usize = 1024;
@@ -99,11 +99,14 @@ pub(crate) fn engine(
                 len: 1,
                 total: gpus.len(),
             },
-            ntoks: NTOKS,
+            config: ModelGroupConfig {
+                static_model_keys: NTOKS,
+                dyn_cache_size: 1,
+                use_cuda_graph,
+            },
             max_toks: MAX_TOKS,
             barrier: Some(Arc::new(Barrier::new(gpus.len()))),
             task_box: Default::default(),
-            use_cuda_graph,
             chunked_prefill_len: CHUNKED_PREFILL_LEN,
         };
 
@@ -143,11 +146,14 @@ fn mono(
             len: 1,
             total: 1,
         },
-        ntoks: NTOKS,
+        config: ModelGroupConfig {
+            static_model_keys: NTOKS,
+            dyn_cache_size: 1,
+            use_cuda_graph,
+        },
         max_toks: MAX_TOKS,
         barrier: None,
         task_box: Default::default(),
-        use_cuda_graph,
         chunked_prefill_len: CHUNKED_PREFILL_LEN,
     }
     .lead(llama, output_head, commands, outputs, |ctx| {
@@ -156,14 +162,13 @@ fn mono(
 }
 
 #[derive(Clone)]
-struct Worker<'a> {
+struct Worker<T> {
     dev: Device,
     dist: Distribution,
-    ntoks: &'a [usize],
+    config: ModelGroupConfig<T>,
     max_toks: usize,
     barrier: Option<Arc<Barrier>>,
     task_box: TaskBox,
-    use_cuda_graph: bool,
     chunked_prefill_len: Option<usize>,
 }
 
@@ -175,7 +180,7 @@ struct Task {
     reqs: Vec<Req<Arc<[Mutex<KVCache>]>>>,
 }
 
-impl Worker<'_> {
+impl<T: IntoIterator<Item = usize>> Worker<T> {
     fn lead(
         self,
         llama: LLaMA<Tensor<&[u8], 2>>,
@@ -187,11 +192,10 @@ impl Worker<'_> {
         let Self {
             dev,
             dist,
-            ntoks,
+            config,
             max_toks,
             barrier,
             task_box,
-            use_cuda_graph,
             chunked_prefill_len,
         } = self;
 
@@ -200,15 +204,8 @@ impl Worker<'_> {
         gpu.apply(|ctx| {
             let mut manager = EngineManager::new(chunked_prefill_len);
             let mut handle = handle(ctx);
-            let mut models = ModelGroup::new(
-                llama,
-                dist,
-                attn,
-                ntoks.iter().copied(),
-                &mut handle,
-                barrier.as_deref(),
-                use_cuda_graph,
-            );
+            let mut models =
+                ModelGroup::new(llama, dist, config, attn, &mut handle, barrier.as_deref());
 
             let mut output_head = OutputHead::new(output_head, ctx);
 
@@ -342,11 +339,10 @@ impl Worker<'_> {
         let Self {
             dev,
             dist,
-            ntoks,
+            config,
             max_toks: _max_toks,
             barrier,
             task_box,
-            use_cuda_graph,
             ..
         } = self;
 
@@ -355,15 +351,8 @@ impl Worker<'_> {
         let barrier = barrier.unwrap();
         gpu.apply(|ctx| {
             let mut handle = Handle::with_comm(ctx, comm);
-            let mut models = ModelGroup::new(
-                llama,
-                dist,
-                attn,
-                ntoks.iter().copied(),
-                &mut handle,
-                Some(&barrier),
-                use_cuda_graph,
-            );
+            let mut models =
+                ModelGroup::new(llama, dist, config, attn, &mut handle, Some(&barrier));
 
             let stream = ctx.stream();
             loop {
