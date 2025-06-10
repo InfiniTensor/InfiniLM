@@ -9,7 +9,7 @@ mod bindings {
             use $crate::op::random_sample::bindings::*;
             #[allow(unused_unsafe, clippy::macro_metavars_in_unsafe)]
             let err = unsafe { $f };
-            assert_eq!(err, cudaError::cudaSuccess);
+            assert_eq!(err, cudaError_t::hcSuccess);
         }};
     }
 }

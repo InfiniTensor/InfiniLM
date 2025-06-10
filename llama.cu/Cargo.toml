@@ -4,8 +4,8 @@ version = "0.0.0"
 edition.workspace = true
 
 [dependencies]
-operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "ed28f2d", default-features = false, features = [
-    "nvidia-gpu",
+operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "13859bd", default-features = false, features = [
+    "metax-gpu",
 ] }
 nn = { git = "https://github.com/YdrMaster/InfiniNN", rev = "1fff7ec" }
 ggus = { git = "https://github.com/InfiniTensor/gguf", rev = "23c362f" }

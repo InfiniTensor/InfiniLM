@@ -37,6 +37,6 @@ impl Operator for AllReduce {
             .comm
             .as_ref()
             .unwrap()
-            .all_reduce(dst, Some(src), dt, ReduceType::ncclSum, stream);
+            .all_reduce(dst, Some(src), dt, ReduceType::hcclSum, stream);
     }
 }
