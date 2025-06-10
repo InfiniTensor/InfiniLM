@@ -1,5 +1,6 @@
 #include "infiniccl.h"
 
+#include "./ascend/infiniccl_ascend.h"
 #include "./cuda/infiniccl_cuda.h"
 
 __C infiniStatus_t infinicclCommInitAll(
@@ -14,6 +15,7 @@ __C infiniStatus_t infinicclCommInitAll(
 
     switch (device_type) {
         COMM_INIT_ALL(INFINI_DEVICE_NVIDIA, cuda)
+        COMM_INIT_ALL(INFINI_DEVICE_ASCEND, ascend)
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
@@ -32,6 +34,7 @@ __C infiniStatus_t infinicclCommDestroy(infinicclComm_t comm) {
 
     switch (comm->device_type) {
         COMM_DESTROY(INFINI_DEVICE_NVIDIA, cuda)
+        COMM_DESTROY(INFINI_DEVICE_ASCEND, ascend)
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }
@@ -57,6 +60,7 @@ __C infiniStatus_t infinicclAllReduce(
 
     switch (comm->device_type) {
         ALL_REDUCE(INFINI_DEVICE_NVIDIA, cuda)
+        ALL_REDUCE(INFINI_DEVICE_ASCEND, ascend)
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
     }

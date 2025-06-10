@@ -92,29 +92,32 @@ void *testAllReduceThread(void *arg) {
     ThreadArgs *args = (ThreadArgs *)arg;
     *(args->result) = 1;
     TEST_INFINI_THREAD(infinirtSetDevice(args->device_type, args->device_id));
+    infinirtStream_t stream;
+    TEST_INFINI_THREAD(infinirtStreamCreate(&stream));
     void *output = std::malloc(args->count * infiniSizeOf(args->dtype));
     std::memset(output, 0, args->count * infiniSizeOf(args->dtype));
     void *buf;
     TEST_INFINI_THREAD(infinirtMalloc(&buf, args->count * infiniSizeOf(args->dtype)));
     TEST_INFINI_THREAD(infinirtMemcpy(buf, args->data, args->count * infiniSizeOf(args->dtype), INFINIRT_MEMCPY_H2D));
-    TEST_INFINI_THREAD(infinicclAllReduce(buf, buf, args->count, args->dtype, INFINICCL_SUM, args->comm, NULL));
+    TEST_INFINI_THREAD(infinicclAllReduce(buf, buf, args->count, args->dtype, INFINICCL_SUM, args->comm, stream));
     TEST_INFINI_THREAD(infinirtDeviceSynchronize());
     TEST_INFINI_THREAD(infinirtMemcpy(output, buf, args->count * infiniSizeOf(args->dtype), INFINIRT_MEMCPY_D2H));
 
     if (checkData(output, args->ans, args->dtype, args->count) != 0) {
         std::free(output);
         infinirtFree(buf);
+        infinirtStreamDestroy(stream);
         return nullptr;
     }
     for (size_t i = 0; i < WARM_UPS; i++) {
-        TEST_INFINI_THREAD(infinicclAllReduce(buf, buf, args->count, args->dtype, INFINICCL_SUM, args->comm, NULL));
+        TEST_INFINI_THREAD(infinicclAllReduce(buf, buf, args->count, args->dtype, INFINICCL_SUM, args->comm, stream));
     }
     TEST_INFINI_THREAD(infinirtDeviceSynchronize());
 
     // measure time
     auto start = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < ITERATIONS; i++) {
-        TEST_INFINI_THREAD(infinicclAllReduce(buf, buf, args->count, args->dtype, INFINICCL_SUM, args->comm, NULL));
+        TEST_INFINI_THREAD(infinicclAllReduce(buf, buf, args->count, args->dtype, INFINICCL_SUM, args->comm, stream));
     }
     TEST_INFINI_THREAD(infinirtDeviceSynchronize());
     auto end = std::chrono::high_resolution_clock::now();
@@ -125,6 +128,7 @@ void *testAllReduceThread(void *arg) {
 
     std::free(output);
     infinirtFree(buf);
+    infinirtStreamDestroy(stream);
     return nullptr;
 }
 
