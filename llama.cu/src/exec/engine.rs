@@ -32,6 +32,7 @@ use tokeneer::utok;
 #[cfg(nccl)]
 use operators::nccl::{Communicator, CommunicatorGroup};
 
+// 目前在有prompt的情况下，state.seq 的长度代表prompt还有多少未prefill，也就是 `prompt[prompt.len() - state.seq..]` 代表未prefill的prompt
 pub(super) struct SessionStub {
     pub session: Session,
     pub state: State,
@@ -66,6 +67,9 @@ impl Request {
 }
 
 const NTOKS: &[usize] = &[1, 8, 32, 64, 128, 256, 1024];
+const CHUNKED_PREFILL_LEN: Option<usize> = Some(32);
+//TODO 该常量应该放在哪比较合适
+const MAX_TOKS: usize = 1024;
 
 pub(crate) fn engine(
     llama: LLaMA<Tensor<&[u8], 2>>,
@@ -96,9 +100,11 @@ pub(crate) fn engine(
                 total: gpus.len(),
             },
             ntoks: NTOKS,
+            max_toks: MAX_TOKS,
             barrier: Some(Arc::new(Barrier::new(gpus.len()))),
             task_box: Default::default(),
             use_cuda_graph,
+            chunked_prefill_len: CHUNKED_PREFILL_LEN,
         };
 
         std::thread::scope(|s| {
@@ -138,9 +144,11 @@ fn mono(
             total: 1,
         },
         ntoks: NTOKS,
+        max_toks: MAX_TOKS,
         barrier: None,
         task_box: Default::default(),
         use_cuda_graph,
+        chunked_prefill_len: CHUNKED_PREFILL_LEN,
     }
     .lead(llama, output_head, commands, outputs, |ctx| {
         Handle::new(ctx)
@@ -152,9 +160,11 @@ struct Worker<'a> {
     dev: Device,
     dist: Distribution,
     ntoks: &'a [usize],
+    max_toks: usize,
     barrier: Option<Arc<Barrier>>,
     task_box: TaskBox,
     use_cuda_graph: bool,
+    chunked_prefill_len: Option<usize>,
 }
 
 type TaskBox = Arc<RwLock<Option<Task>>>;
@@ -178,15 +188,17 @@ impl Worker<'_> {
             dev,
             dist,
             ntoks,
+            max_toks,
             barrier,
             task_box,
             use_cuda_graph,
+            chunked_prefill_len,
         } = self;
 
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
         let attn = Attn::new(&gpu);
         gpu.apply(|ctx| {
-            let mut manager = EngineManager::default();
+            let mut manager = EngineManager::new(chunked_prefill_len);
             let mut handle = handle(ctx);
             let mut models = ModelGroup::new(
                 llama,
@@ -200,12 +212,12 @@ impl Worker<'_> {
 
             let mut output_head = OutputHead::new(output_head, ctx);
 
-            let max_tok = *ntoks.last().unwrap();
+            let max_tok = max_toks;
             let mut fast_embd = FastEmbedding::new(max_tok, ctx);
             let mut pre_kv_pairs = ctx.malloc::<KVPair>(max_tok);
 
             let stream = ctx.stream();
-            let len = *self.ntoks.last().unwrap();
+            let len = max_toks;
             const BUF_LEVEL: usize = 3;
             let mut events: [Event; BUF_LEVEL] = std::array::from_fn(|_| stream.record());
             let mut tok_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
@@ -249,6 +261,7 @@ impl Worker<'_> {
                     events[out_idx_buf.index()] = stream.record();
                     // 加载输入
                     let (key, tok) = models.load_inputs(
+                        &mut handle,
                         tokens.len(),
                         tok_buf.as_slice(),
                         pos_buf.as_slice(),
@@ -274,23 +287,39 @@ impl Worker<'_> {
                     }
                     // 推理
                     let x = models.launch(key, &reqs, &mut handle, &stream);
-                    // 输出
-                    let kv_pairs = output_head.launch(
-                        x,
-                        &out_idx_buf.as_slice()[..out_idx.len()],
-                        sample,
-                        &mut handle,
-                        &stream,
-                    );
-                    stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
-                    let output = Output::Complete {
-                        output: output.into(),
-                        kv_pair: kv_pairs.sporulate(),
-                        event: stream.record().sporulate(),
-                        finished: finished.into(),
-                    };
-                    if outputs.send(output).is_err() {
-                        break;
+
+                    // 如果没有输出，则跳过
+                    if !out_idx.is_empty() {
+                        let (output, sample): (Vec<_>, Vec<_>) = output
+                            .iter()
+                            .zip(sample.iter())
+                            .filter_map(|((id, len), sample_arg)| {
+                                if *len > 0 {
+                                    Some(((*id, *len), sample_arg))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unzip();
+
+                        let kv_pairs = output_head.launch(
+                            x,
+                            &out_idx_buf.as_slice()[..out_idx.len()],
+                            sample,
+                            &mut handle,
+                            &stream,
+                        );
+                        stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
+
+                        let output = Output::Complete {
+                            output: output.into(),
+                            kv_pair: kv_pairs.sporulate(),
+                            event: stream.record().sporulate(),
+                            finished: finished.into(),
+                        };
+                        if outputs.send(output).is_err() {
+                            break;
+                        }
                     }
                 }
             }
@@ -314,9 +343,11 @@ impl Worker<'_> {
             dev,
             dist,
             ntoks,
+            max_toks: _max_toks,
             barrier,
             task_box,
             use_cuda_graph,
+            ..
         } = self;
 
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
