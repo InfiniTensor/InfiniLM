@@ -127,19 +127,20 @@ async fn start_infer_service(
                     tokens = &tokens[1..]
                 }
                 let think = if session_info.think {
-                    &tokens[..tokens.iter().take_while(|t| **t != _think).count()]
+                    if let Some(_think) = tokens.iter().position(|t| *t == _think) {
+                        session_info.think = false;
+                        let think = &tokens[.._think];
+                        tokens = &tokens[_think + 1..];
+                        think
+                    } else {
+                        let think = tokens;
+                        tokens = &[];
+                        think
+                    }
                 } else {
                     &[]
                 };
 
-                if session_info.think {
-                    if think.len() < tokens.len() {
-                        session_info.think = false;
-                        tokens = &tokens[think.len() + 1..]
-                    } else {
-                        tokens = &[]
-                    }
-                }
                 let think = service_manager_for_recv
                     .terminal
                     .decode(think, &mut session_info.buf);
