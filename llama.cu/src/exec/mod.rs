@@ -9,7 +9,6 @@ mod step;
 use crate::{
     memory::MemPages,
     op::random_sample::{KVPair, SampleArgs},
-    utils::cast_slice_mut,
 };
 use kv_cache::KVCache;
 use nn::Tensor;
@@ -96,18 +95,16 @@ pub(crate) fn decode(
 ) -> BTreeMap<SessionId, Vec<utok>> {
     let ctx = stream.ctx();
     let kv_pair = kv_pair.sprout(ctx);
-    let mut host = ctx.malloc_host::<KVPair>(kv_pair.len() / size_of::<KVPair>());
+    let mut host = vec![KVPair::ZERO; kv_pair.len() / size_of::<KVPair>()];
     stream
         .wait_for(&event.sprout(ctx))
         .memcpy_d2h(&mut host, &kv_pair)
-        .synchronize()
         .free(kv_pair);
-    let kv_pair: &mut [KVPair] = cast_slice_mut(&mut host);
     let mut offset = 0;
     output
         .into_iter()
         .map(|(id, len)| {
-            let slice = &kv_pair[offset..][..len];
+            let slice = &host[offset..][..len];
             offset += len;
             (id, slice.iter().map(|kv| kv.idx as _).collect())
         })

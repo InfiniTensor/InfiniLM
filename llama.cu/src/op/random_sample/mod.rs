@@ -33,6 +33,13 @@ pub struct KVPair {
     pub val: f16,
 }
 
+impl KVPair {
+    pub const ZERO: Self = Self {
+        idx: 0,
+        val: f16::ZERO,
+    };
+}
+
 layout!(KV_PAIR = "kvpair"; [1] in 8);
 
 #[derive(Clone, Copy, Debug)]
