@@ -123,6 +123,14 @@ static JINJA_ENV: LazyLock<RwLock<Environment<'_>>> = LazyLock::new(|| {
             ("strip", ThisType::String, []) => Ok(Value::from_safe_string(
                 value.to_str().unwrap().trim().into(),
             )),
+            ("split", ThisType::String, [splitter]) => Ok(Value::from_object(
+                value
+                    .to_str()
+                    .unwrap()
+                    .split(&*splitter.to_str().unwrap())
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>(),
+            )),
             _ => Err(UnknownMethod.into()),
         }
     });
