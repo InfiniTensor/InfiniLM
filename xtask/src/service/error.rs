@@ -1,11 +1,13 @@
-﻿use hyper::{Method, StatusCode};
+use hyper::{Method, StatusCode};
 use serde::Serialize;
+use std::fmt;
 
 #[derive(Debug)]
 pub(crate) enum Error {
     WrongJson(serde_json::Error),
     NotFound(NotFoundError),
     MsgNotSupported(MsgNotSupportedError),
+    ModelNotFound(String),
 }
 
 #[derive(Serialize, Debug)]
@@ -39,6 +41,7 @@ impl Error {
             Self::WrongJson(..) => StatusCode::BAD_REQUEST,
             Self::NotFound(..) => StatusCode::NOT_FOUND,
             Self::MsgNotSupported(..) => StatusCode::BAD_REQUEST,
+            Self::ModelNotFound(..) => StatusCode::NOT_FOUND,
         }
     }
 
@@ -48,6 +51,20 @@ impl Error {
             Self::WrongJson(e) => e.to_string(),
             Self::NotFound(e) => serde_json::to_string(&e).unwrap(),
             Self::MsgNotSupported(e) => serde_json::to_string(&e).unwrap(),
+            Self::ModelNotFound(model) => format!("Model not found: {}", model),
         }
     }
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::WrongJson(e) => write!(f, "Invalid JSON: {}", e),
+            Error::NotFound(e) => write!(f, "Not Found: {} {}", e.method, e.uri),
+            Error::MsgNotSupported(e) => write!(f, "Message type not supported: {:?}", e.message),
+            Error::ModelNotFound(model) => write!(f, "Model not found: {}", model),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
