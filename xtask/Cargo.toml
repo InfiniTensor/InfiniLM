@@ -22,7 +22,7 @@ hyper = { version = "1.6", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["http1", "tokio", "server"] }
 http-body-util = "0.1"
 tokio-stream = "0.1"
-openai-struct = { git = "https://github.com/YdrMaster/openai-struct", rev = "6e5adc3" }
+openai-struct = { git = "https://github.com/YdrMaster/openai-struct", rev = "13f73ab" }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["stream"] }

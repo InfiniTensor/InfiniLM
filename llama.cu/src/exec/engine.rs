@@ -258,13 +258,8 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     fast_embd_buf.save(&fast_map);
                     events[out_idx_buf.index()] = stream.record();
                     // 加载输入
-                    let (key, tok) = models.load_inputs(
-                        &mut handle,
-                        tokens.len(),
-                        &*tok_buf,
-                        &*pos_buf,
-                        &stream,
-                    );
+                    let (key, tok) =
+                        models.load_inputs(&mut handle, tokens.len(), &tok_buf, &pos_buf, &stream);
                     // 快速启动路径
                     fast_embd.launch(
                         tok,

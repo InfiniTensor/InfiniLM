@@ -11,12 +11,14 @@ pub(crate) fn create_chat_completion_response(
     id: SessionId,
     created: i32,
     model: String,
-    message: String,
+    think: Option<String>,
+    answer: Option<String>,
     finish_reason: Option<FinishReason>,
 ) -> CreateChatCompletionStreamResponse {
     let choices = vec![CreateChatCompletionStreamResponseChoices {
         delta: ChatCompletionStreamResponseDelta {
-            content: Some(message),
+            reasoning_content: think,
+            content: answer,
             function_call: None,
             refusal: None,
             role: None,

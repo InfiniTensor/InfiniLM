@@ -24,7 +24,6 @@ use openai_struct::{
     ChatCompletionRequestSystemMessage, ChatCompletionRequestUserMessage,
     CreateChatCompletionRequest, FinishReason,
 };
-
 use response::{error, text_stream};
 use serde_json::Value;
 use std::{
@@ -49,11 +48,13 @@ pub struct ServiceArgs {
     base: BaseArgs,
     #[clap(short, long)]
     port: u16,
+    #[clap(long)]
+    think: bool,
 }
 
 impl ServiceArgs {
     pub fn service(self) {
-        let Self { base, port } = self;
+        let Self { base, port, think } = self;
         let gpus = base.gpus();
         let max_steps = base.max_steps();
         tokio::runtime::Runtime::new()
@@ -64,6 +65,7 @@ impl ServiceArgs {
                 gpus,
                 max_steps,
                 !base.no_cuda_graph,
+                think,
             ))
             .unwrap()
     }
@@ -75,12 +77,25 @@ async fn start_infer_service(
     gpus: Box<[c_int]>,
     max_steps: usize,
     use_cuda_graph: bool,
+    think: bool,
 ) -> std::io::Result<()> {
     let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port));
     info!("start service at {addr}");
 
     let mut service = Service::new(model, &gpus, use_cuda_graph);
     let sessions: BTreeMap<SessionId, SessionInfo> = BTreeMap::new();
+
+    let (think, _think) = if think {
+        let &[think] = &*service.terminal().encode("<think>") else {
+            unreachable!()
+        };
+        let &[_think] = &*service.terminal().encode("</think>") else {
+            unreachable!()
+        };
+        (think, _think)
+    } else {
+        (utok::MAX, utok::MAX)
+    };
 
     let service_manager = Arc::new(ServiceManager {
         terminal: service.terminal().clone(),
@@ -89,12 +104,11 @@ async fn start_infer_service(
         cache_manager: Mutex::new(CacheManager::new(service.terminal().clone())),
     });
 
-    // 将所有recv逻辑移到这个handle中
     let service_manager_for_recv = service_manager.clone();
 
     let _response = tokio::task::spawn_blocking(move || {
         loop {
-            let Received { sessions, outputs } = service.recv(Duration::MAX);
+            let Received { sessions, outputs } = service.recv(Duration::from_millis(10));
 
             // 先处理输出
             for (session_id, tokens) in outputs {
@@ -104,19 +118,40 @@ async fn start_infer_service(
 
                 let mut sessions_guard = service_manager_for_recv.sessions.lock().unwrap();
                 let session_info = sessions_guard.get_mut(&session_id).unwrap();
-                // 更新session_info
+                // 更新 session_info
                 session_info.tokens.extend(&tokens);
 
+                let mut tokens = &tokens[..];
+                if tokens.first().is_some_and(|t| t == &think) {
+                    session_info.think = true;
+                    tokens = &tokens[1..]
+                }
+                let think = if session_info.think {
+                    &tokens[..tokens.iter().take_while(|t| **t != _think).count()]
+                } else {
+                    &[]
+                };
+                if think.len() < tokens.len() {
+                    session_info.think = false;
+                    tokens = &tokens[think.len() + 1..]
+                } else {
+                    tokens = &[]
+                }
+
+                let think = service_manager_for_recv
+                    .terminal
+                    .decode(think, &mut session_info.buf);
                 let text = service_manager_for_recv
                     .terminal
-                    .decode(&tokens, &mut session_info.buf);
-                debug!("解码完成：{tokens:?} -> {text:?}");
+                    .decode(tokens, &mut session_info.buf);
+                debug!("解码完成：{tokens:?} -> {think:?} | {text:?}");
 
                 let response = create_chat_completion_response(
                     session_id,
                     session_info.created as _,
                     session_info.model.clone(),
-                    text,
+                    Some(think).filter(|s| !s.is_empty()),
+                    Some(text).filter(|s| !s.is_empty()),
                     None,
                 );
                 let message = serde_json::to_string(&response).unwrap();
@@ -157,14 +192,13 @@ async fn start_infer_service(
                         session.id,
                         created as i32,
                         model,
-                        String::new(),
+                        None,
+                        None,
                         Some(reason),
                     );
                     sender
                         .send(serde_json::to_string(&response).unwrap())
-                        .unwrap_or_else(|_| {
-                            info!("{:?} 发送正常完成失败", session.id);
-                        });
+                        .unwrap_or_else(|_| info!("{:?} 发送正常完成失败", session.id));
                 }
             }
         }
@@ -192,6 +226,7 @@ async fn start_infer_service(
 struct SessionInfo {
     sender: UnboundedSender<String>,
     buf: TextBuf,
+    think: bool,
     tokens: Vec<utok>,
     model: String,
     created: u64,
@@ -299,6 +334,7 @@ fn complete_chat(
         sender,
         tokens,
         buf: TextBuf::new(),
+        think: false,
         model,
         created: SystemTime::now()
             .duration_since(UNIX_EPOCH)

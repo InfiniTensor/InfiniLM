@@ -246,6 +246,10 @@ impl Terminal {
         self.sender.send(Command::Remove(id)).is_ok()
     }
 
+    pub fn encode(&self, text: &str) -> Vec<utok> {
+        self.components.wait().tokenizer.encode(text)
+    }
+
     pub fn decode(&self, tokens: &[utok], buf: &mut TextBuf) -> String {
         self.components.wait().tokenizer.decode(tokens, buf)
     }
