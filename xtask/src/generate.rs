@@ -61,10 +61,10 @@ impl GenerateArgs {
         }
         println!();
         info!("prefill = {prefill:?}, decode = {decode:?}");
-        let time = decode / ntoks as _;
         info!(
-            "n toks = {ntoks}, perf: {time:?}/tok, {}tok/s",
-            Duration::from_secs(1).div_duration_f32(time),
+            "n toks = {ntoks}, perf: {:?}/tok, {}tok/s",
+            decode / ntoks as _,
+            ntoks as f64 / decode.as_secs_f64()
         )
     }
 }
