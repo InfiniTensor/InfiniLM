@@ -10,6 +10,7 @@ use hyper::{
         CACHE_CONTROL, CONNECTION, CONTENT_TYPE,
     },
 };
+use serde::Serialize;
 use tokio_stream::{Stream, StreamExt};
 
 pub fn text_stream(
@@ -24,6 +25,17 @@ pub fn text_stream(
         .header(ACCESS_CONTROL_ALLOW_METHODS, "GET,POST")
         .header(ACCESS_CONTROL_ALLOW_HEADERS, "Content-Type")
         .body(StreamBody::new(s.map(|s| Ok(Frame::data(format!("data: {s}\n\n").into())))).boxed())
+        .unwrap()
+}
+
+pub fn json(json: impl Serialize) -> Response<BoxBody<Bytes, hyper::Error>> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/json")
+        .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(ACCESS_CONTROL_ALLOW_METHODS, "GET,POST")
+        .header(ACCESS_CONTROL_ALLOW_HEADERS, "Content-Type")
+        .body(full(serde_json::to_string(&json).unwrap()))
         .unwrap()
 }
 

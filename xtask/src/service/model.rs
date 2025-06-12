@@ -28,8 +28,8 @@ use tokio::{
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 pub(super) struct Model {
+    max_tokens: usize,
     terminal: Terminal,
-    max_steps: usize,
     sessions: Mutex<BTreeMap<SessionId, SessionInfo>>,
     cache_manager: Mutex<CacheManager>,
 }
@@ -48,7 +48,7 @@ impl Model {
         let ModelConfig {
             path,
             gpus,
-            max_steps,
+            max_tokens,
             think,
         } = config;
 
@@ -67,26 +67,25 @@ impl Model {
             (utok::MAX, utok::MAX)
         };
 
-        let service_manager = Arc::new(Model {
+        let model = Arc::new(Model {
+            max_tokens: max_tokens.unwrap_or(2 << 10),
             terminal: service.terminal().clone(),
-            max_steps: max_steps.unwrap_or(2 << 10),
             sessions: Mutex::new(sessions),
             cache_manager: Mutex::new(CacheManager::new(service.terminal().clone())),
         });
 
-        let service_manager_for_recv = service_manager.clone();
-
+        let model_ = model.clone();
         let join_handle = tokio::task::spawn_blocking(move || {
             loop {
                 let Received { sessions, outputs } = service.recv(Duration::from_millis(10));
 
+                let mut sessions_guard = model_.sessions.lock().unwrap();
                 // 先处理输出
                 for (session_id, tokens) in outputs {
                     if tokens.is_empty() {
                         continue;
                     }
 
-                    let mut sessions_guard = service_manager_for_recv.sessions.lock().unwrap();
                     let session_info = sessions_guard.get_mut(&session_id).unwrap();
                     // 更新 session_info
                     session_info.tokens.extend(&tokens);
@@ -111,12 +110,8 @@ impl Model {
                         &[]
                     };
 
-                    let think = service_manager_for_recv
-                        .terminal
-                        .decode(think, &mut session_info.buf);
-                    let text = service_manager_for_recv
-                        .terminal
-                        .decode(tokens, &mut session_info.buf);
+                    let think = model_.terminal.decode(think, &mut session_info.buf);
+                    let text = model_.terminal.decode(tokens, &mut session_info.buf);
                     debug!("解码完成：{tokens:?} -> {think:?} | {text:?}");
 
                     let response = create_chat_completion_response(
@@ -131,16 +126,12 @@ impl Model {
 
                     if session_info.sender.send(message).is_err() {
                         info!("{session_id:?} 客户端连接已关闭");
-                        service_manager_for_recv.terminal.stop(session_id);
+                        model_.terminal.stop(session_id);
                     }
                 }
 
                 // 处理会话结束
                 if !sessions.is_empty() {
-                    let mut sessions_guard = service_manager_for_recv.sessions.lock().unwrap();
-                    let mut cache_manager_guard =
-                        service_manager_for_recv.cache_manager.lock().unwrap();
-
                     for (session, reason) in sessions {
                         let SessionInfo {
                             tokens,
@@ -152,7 +143,11 @@ impl Model {
                         let reason = match reason {
                             // 正常完成，插回cache
                             ReturnReason::Finish => {
-                                cache_manager_guard.insert(tokens, session.cache);
+                                model_
+                                    .cache_manager
+                                    .lock()
+                                    .unwrap()
+                                    .insert(tokens, session.cache);
                                 info!("{:?} 正常完成", session.id);
                                 FinishReason::Stop
                             }
@@ -177,12 +172,12 @@ impl Model {
             }
         });
 
-        (service_manager, join_handle)
+        (model, join_handle)
     }
 
     pub fn complete_chat(
         &self,
-        completions: CreateChatCompletionRequest,
+        req: CreateChatCompletionRequest,
     ) -> Response<BoxBody<Bytes, hyper::Error>> {
         let CreateChatCompletionRequest {
             model,
@@ -191,10 +186,10 @@ impl Model {
             temperature,
             top_p,
             ..
-        } = completions;
+        } = req;
         let (sender, receiver) = mpsc::unbounded_channel();
 
-        let max_steps = max_tokens.map_or(self.max_steps, |n| n as usize);
+        let max_tokens = max_tokens.map_or(self.max_tokens, |n| n as _);
         let sample_args =
             SampleArgs::new(temperature.unwrap_or(0.), top_p.unwrap_or(1.), usize::MAX).unwrap();
 
@@ -242,7 +237,7 @@ impl Model {
             .cache_manager
             .lock()
             .unwrap()
-            .send(tokens, sample_args, max_steps);
+            .send(tokens, sample_args, max_tokens);
 
         let session_info = SessionInfo {
             sender,

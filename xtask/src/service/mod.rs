@@ -4,20 +4,22 @@ mod model;
 mod openai;
 mod response;
 
-use crate::{parse_gpus, service::model::Model};
+use crate::parse_gpus;
 use error::*;
 use http_body_util::{BodyExt, combinators::BoxBody};
 use hyper::{
-    Method, Request, Response,
+    Request, Response,
     body::{Bytes, Incoming},
     server::conn::http1,
     service::Service as HyperService,
 };
 use hyper_util::rt::TokioIo;
 use log::{info, warn};
-use openai::V1_CHAT_COMPLETIONS;
+use model::Model;
+use openai::create_models;
 use openai_struct::CreateChatCompletionRequest;
 use response::error;
+use response::json;
 use std::collections::HashMap;
 use std::{ffi::c_int, fs::read_to_string, path::Path};
 use std::{
@@ -42,7 +44,7 @@ pub struct ServiceArgs {
     #[clap(long)]
     gpus: Option<String>,
     #[clap(long)]
-    max_steps: Option<usize>,
+    max_tokens: Option<usize>,
     #[clap(long)]
     think: bool,
 }
@@ -51,7 +53,7 @@ pub struct ServiceArgs {
 pub struct ModelConfig {
     pub path: String,
     pub gpus: Option<Box<[c_int]>>,
-    pub max_steps: Option<usize>,
+    pub max_tokens: Option<usize>,
     pub think: Option<bool>,
 }
 
@@ -63,7 +65,7 @@ impl ServiceArgs {
             no_cuda_graph,
             name,
             gpus,
-            max_steps,
+            max_tokens,
             think,
         } = self;
 
@@ -77,7 +79,7 @@ impl ServiceArgs {
                 ModelConfig {
                     path: file.clone(),
                     gpus: Some(parse_gpus(gpus.as_deref())),
-                    max_steps,
+                    max_tokens,
                     think: Some(think),
                 },
             )]
@@ -139,19 +141,25 @@ impl HyperService<Request<Incoming>> for App {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
-        let models = self.0.clone();
         match (req.method(), req.uri().path()) {
-            (&Method::POST, V1_CHAT_COMPLETIONS) => Box::pin(async move {
-                let whole_body = req.collect().await?.to_bytes();
-                let req = serde_json::from_slice::<CreateChatCompletionRequest>(&whole_body);
-                Ok(match req {
-                    Ok(req) => match models.get(&req.model) {
-                        Some(model) => model.complete_chat(req),
-                        None => error(Error::ModelNotFound(req.model)),
-                    },
-                    Err(e) => error(Error::WrongJson(e)),
+            openai::GET_MODELS => {
+                let json = json(create_models(self.0.keys().cloned()));
+                Box::pin(async move { Ok(json) })
+            }
+            openai::POST_CHAT_COMPLETIONS => {
+                let models = self.0.clone();
+                Box::pin(async move {
+                    let whole_body = req.collect().await?.to_bytes();
+                    let req = serde_json::from_slice::<CreateChatCompletionRequest>(&whole_body);
+                    Ok(match req {
+                        Ok(req) => match models.get(&req.model) {
+                            Some(model) => model.complete_chat(req),
+                            None => error(Error::ModelNotFound(req.model)),
+                        },
+                        Err(e) => error(Error::WrongJson(e)),
+                    })
                 })
-            }),
+            }
             // Return 404 Not Found for other routes.
             (method, uri) => {
                 let msg = Error::not_found(method, uri);

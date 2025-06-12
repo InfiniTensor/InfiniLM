@@ -1,4 +1,4 @@
-﻿use super::V1_CHAT_COMPLETIONS;
+﻿use super::openai::POST_CHAT_COMPLETIONS;
 use log::{info, trace, warn};
 use openai_struct::{
     ChatCompletionRequestMessage, CreateChatCompletionRequest, CreateChatCompletionStreamResponse,
@@ -74,7 +74,10 @@ async fn send_single_request(
     }
 
     let req = client
-        .post(format!("http://localhost:{port}{V1_CHAT_COMPLETIONS}"))
+        .post(format!(
+            "http://localhost:{port}{}",
+            POST_CHAT_COMPLETIONS.1
+        ))
         .headers(headers.clone())
         .body(req_body)
         .timeout(Duration::from_secs(100));
