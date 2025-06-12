@@ -47,3 +47,19 @@ target("infinirt-metax")
     add_cxflags("-lstdc++ -fPIC")
     add_files("../src/infinirt/maca/*.cc")
 target_end()
+
+target("infiniccl-metax")
+    set_kind("static")
+    add_deps("infinirt")
+    on_install(function (target) end)
+    set_warnings("all", "error")
+    if not is_plat("windows") then
+        add_cxflags("-fPIC")
+    end
+    if has_config("ccl") then
+        add_links("libhccl.so")
+        add_files("../src/infiniccl/maca/*.cc")
+    end
+    set_languages("cxx17")
+    
+target_end()
