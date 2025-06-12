@@ -20,11 +20,3 @@ pub(crate) fn layout<T, const N: usize>(t: &Tensor<T, N>) -> TensorLayout {
 pub(crate) fn offset_ptr<T, const N: usize>(t: &Tensor<*const T, N>) -> *const T {
     unsafe { t.get().byte_offset(t.layout().offset()) }
 }
-
-#[inline(always)]
-pub(crate) fn cast_slice_mut<T: Copy, U: Copy>(slice: &mut [T]) -> &mut [U] {
-    let ([], ans, []) = (unsafe { slice.align_to_mut() }) else {
-        panic!()
-    };
-    ans
-}

@@ -66,9 +66,14 @@ impl Request {
     }
 }
 
+// 用于测试chunked prefill和动态建图
+// const NTOKS: [usize; 2] = [1, 4];
+// const CHUNKED_PREFILL_LEN: Option<usize> = Some(2);
+// const MAX_TOKS: usize = 8;
+
+// TODO这些参数可能需要优化，目前是根据经验设置的
 const NTOKS: [usize; 7] = [1, 8, 32, 64, 128, 256, 1024];
-const CHUNKED_PREFILL_LEN: Option<usize> = Some(32);
-//TODO 该常量应该放在哪比较合适
+const CHUNKED_PREFILL_LEN: Option<usize> = Some(256);
 const MAX_TOKS: usize = 1024;
 
 pub(crate) fn engine(
@@ -203,7 +208,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
         let attn = Attn::new(&gpu);
         gpu.apply(|ctx| {
-            let mut manager = EngineManager::new(chunked_prefill_len);
+            let mut manager = EngineManager::new(chunked_prefill_len, max_toks);
             let mut handle = handle(ctx);
             let mut models =
                 ModelGroup::new(llama, dist, config, attn, &mut handle, barrier.as_deref());
@@ -283,18 +288,10 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
 
                     // 如果没有输出，则跳过
                     if !out_idx.is_empty() {
-                        let (output, sample): (Vec<_>, Vec<_>) = output
-                            .iter()
-                            .zip(sample.iter())
-                            .filter_map(|((id, len), sample_arg)| {
-                                if *len > 0 {
-                                    Some(((*id, *len), sample_arg))
-                                } else {
-                                    None
-                                }
-                            })
-                            .unzip();
-
+                        let output = output
+                            .into_iter()
+                            .filter_map(|(id, len)| if len > 0 { Some((id, len)) } else { None })
+                            .collect::<Vec<_>>();
                         let kv_pairs = output_head.launch(
                             x,
                             &out_idx_buf[..out_idx.len()],
