@@ -89,14 +89,26 @@ cargo service --help
 ```plaintext
 web service
 
-Usage: xtask service [OPTIONS] --port <PORT> <MODEL>
+Usage: xtask service [OPTIONS] --port <PORT> <FILE>
 
 Arguments:
-  <MODEL>
+  <FILE>
 
 Options:
+  -p, --port <PORT>
+      --no-cuda-graph
+      --name <NAME>
       --gpus <GPUS>
       --max-steps <MAX_STEPS>
-  -p, --port <PORT>
+      --think
   -h, --help
+```
+
+通过 TOML 配置文件可以配置多模型服务。示例格式：
+
+```toml
+[model-name]
+path = "model-path"
+think = true
+max-steps = 2048
 ```

@@ -1,6 +1,8 @@
-﻿use super::*;
+﻿use super::V1_CHAT_COMPLETIONS;
 use log::{info, trace, warn};
-use openai_struct::CreateChatCompletionStreamResponse;
+use openai_struct::{
+    ChatCompletionRequestMessage, CreateChatCompletionRequest, CreateChatCompletionStreamResponse,
+};
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use std::{env::VarError, time::Instant};
 use tokio::time::Duration;

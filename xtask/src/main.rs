@@ -55,21 +55,25 @@ struct BaseArgs {
 
 impl BaseArgs {
     fn gpus(&self) -> Box<[c_int]> {
-        self.gpus
-            .as_ref()
-            .map(|devices| {
-                static NUM_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").unwrap());
-                NUM_REGEX
-                    .find_iter(devices)
-                    .map(|c| c.as_str().parse().unwrap())
-                    .collect()
-            })
-            .unwrap_or_else(|| [0].into())
+        parse_gpus(self.gpus.as_deref())
     }
 
     fn max_steps(&self) -> usize {
         self.max_steps.unwrap_or(1000)
     }
+}
+
+fn parse_gpus(config: Option<&str>) -> Box<[c_int]> {
+    config
+        .as_ref()
+        .map(|devices| {
+            static NUM_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").unwrap());
+            NUM_REGEX
+                .find_iter(devices)
+                .map(|c| c.as_str().parse().unwrap())
+                .collect()
+        })
+        .unwrap_or_else(|| [0].into())
 }
 
 mod macros {
