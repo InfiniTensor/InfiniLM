@@ -1,4 +1,4 @@
-mod cache_manager;
+﻿mod cache_manager;
 mod error;
 mod openai;
 mod response;
@@ -243,7 +243,7 @@ async fn start_infer_service(
                     }
 
                     let think = terminal.decode(think, &mut session_info.buf);
-                    let text = terminal.decode(&tokens, &mut session_info.buf);
+                    let text = terminal.decode(tokens, &mut session_info.buf);
                     debug!("解码完成：{tokens:?} -> {think:?} | {text:?}");
                     (think, text)
                 } else {
