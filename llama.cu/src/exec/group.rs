@@ -1,5 +1,7 @@
-﻿use super::{KVCache, model::ModelExec};
-use crate::{exec::upos, handle::Handle, load::load_weight, memory::MemPages};
+﻿use super::model::ModelExec;
+use crate::{
+    CacheParts, batch::Req, exec::upos, handle::Handle, load::load_weight, memory::MemPages,
+};
 use log::debug;
 use nn::{
     Distribution, Graph, GraphBuilder, LLaMA, NNGraph, Tensor, TensorMeta, digit_layout::types, op,
@@ -11,17 +13,10 @@ use operators::{
 use std::{
     collections::BTreeMap,
     num::{NonZero, NonZeroUsize},
-    sync::{Arc, Barrier, Mutex},
+    sync::Barrier,
     time::Instant,
 };
 use tokeneer::utok;
-
-#[derive(Clone)]
-pub(crate) struct Req<Cache> {
-    pub kv_cache: Cache,
-    pub pos: usize,
-    pub seq: usize,
-}
 
 pub(crate) struct ModelGroup<'ctx> {
     internal: Internal<'ctx>,
@@ -137,7 +132,7 @@ impl<'ctx> ModelGroup<'ctx> {
     pub fn launch(
         &mut self,
         key: NonZeroUsize,
-        reqs: &[Req<Arc<[Mutex<KVCache>]>>],
+        reqs: &[Req<CacheParts>],
         handle: &mut Handle,
         stream: &Stream<'ctx>,
     ) -> Tensor<*const VirByte, 2> {
@@ -151,7 +146,7 @@ impl<'ctx> ModelGroup<'ctx> {
         let mut reqs = reqs
             .iter()
             .map(|req| Req {
-                kv_cache: req.kv_cache[handle.rank()].lock().unwrap(),
+                cache: req.cache.0[handle.rank()].lock().unwrap(),
                 pos: req.pos,
                 seq: req.seq,
             })
@@ -159,9 +154,9 @@ impl<'ctx> ModelGroup<'ctx> {
         let reqs = reqs
             .iter_mut()
             .map(|req| {
-                req.kv_cache.update(req.pos + req.seq, pages);
+                req.cache.update(req.pos + req.seq, pages);
                 Req {
-                    kv_cache: req.kv_cache.as_tensor(),
+                    cache: req.cache.as_tensor(),
                     pos: req.pos,
                     seq: req.seq,
                 }

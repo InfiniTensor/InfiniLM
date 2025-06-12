@@ -1,3 +1,4 @@
+mod batch;
 mod exec;
 mod handle;
 mod load;
@@ -7,7 +8,8 @@ mod op;
 mod utils;
 
 use crate::{
-    exec::{Command, Output, engine},
+    exec::{Command, KVCache, Output, engine},
+    memory::MemPages,
     model::{ChatTemplate, GGufModel, map_files},
     utils::meta,
 };
@@ -21,7 +23,7 @@ use std::{
     ffi::c_int,
     path::Path,
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
         mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError},
     },
     time::{Duration, Instant},
@@ -29,7 +31,7 @@ use std::{
 use tokeneer::{Bpe, Tokeneer};
 
 pub use crate::op::random_sample::SampleArgs;
-pub use exec::{DistKVCache, Session, SessionId};
+pub use batch::{Cache, Session, SessionId};
 pub use model::Message;
 pub use tokeneer::{TextBuf, utok};
 
@@ -53,9 +55,13 @@ pub enum ReturnReason {
 
 #[derive(Default)]
 pub struct Received {
-    pub sessions: Vec<(Session, ReturnReason)>,
+    pub sessions: Vec<(Session<CacheParts>, ReturnReason)>,
     pub outputs: BTreeMap<SessionId, Vec<utok>>,
 }
+
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct CacheParts(pub(crate) Arc<[Mutex<KVCache>]>);
 
 struct ModelComponents {
     tokenizer: Tokeneer<Bpe>,
@@ -212,8 +218,18 @@ impl Drop for Service {
 }
 
 impl Terminal {
-    pub fn new_cache(&self) -> DistKVCache {
-        DistKVCache::new(&self.components.wait().cache_template, &self.cache_parts)
+    pub fn new_cache(&self) -> Cache<CacheParts> {
+        let template = &self.components.wait().cache_template;
+        let parts = &self.cache_parts;
+        let total = parts.iter().map(|(_, len)| len).sum::<usize>();
+        let parts = parts
+            .iter()
+            .map(|(dev, len)| KVCache::new(template, *len, total, &MemPages::new(*dev)));
+        Cache {
+            cache: CacheParts(parts.map(Mutex::new).collect()),
+            capacity: template.shape()[0],
+            len: 0,
+        }
     }
 
     pub fn render(&self, msgs: &[Message]) -> String {
@@ -230,7 +246,7 @@ impl Terminal {
         self.components.wait().tokenizer.encode(text)
     }
 
-    pub fn start(&self, session: Session, tokens: &[utok], max_steps: usize) -> bool {
+    pub fn start(&self, session: Session<CacheParts>, tokens: &[utok], max_steps: usize) -> bool {
         assert_ne!(max_steps, 0, "Cannot decode 0 step");
         self.sender
             .send(Command::Insert(Request {

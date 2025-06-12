@@ -7,28 +7,27 @@ mod output_head;
 mod step;
 
 use crate::{
-    memory::MemPages,
-    op::random_sample::{KVPair, SampleArgs},
+    CacheParts,
+    batch::{Session as Session_, SessionId},
+    op::random_sample::KVPair,
 };
-use kv_cache::KVCache;
-use nn::Tensor;
-use operators::cuda::{ContextSpore, CurrentCtx, DevMemSpore, Device, EventSpore, Stream};
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use operators::cuda::{ContextSpore, CurrentCtx, DevMemSpore, EventSpore, Stream};
+use std::collections::BTreeMap;
 use tokeneer::utok;
 
 #[allow(non_camel_case_types)]
 type upos = u32;
 
 pub(crate) use engine::engine;
+pub(crate) use kv_cache::KVCache;
 
 pub(crate) enum Command {
     ShutDown,
     Insert(Request),
     Remove(SessionId),
 }
+
+type Session = Session_<CacheParts>;
 
 pub(crate) enum Output {
     Ready,
@@ -55,36 +54,6 @@ pub(crate) struct Request {
     pub prompt: Box<[utok]>,
     pub out: usize,
     pub max_steps: usize,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[repr(transparent)]
-pub struct SessionId(pub usize);
-
-pub struct Session {
-    pub id: SessionId,
-    pub sample_args: SampleArgs,
-    pub cache: DistKVCache,
-}
-
-pub struct DistKVCache {
-    parts: Arc<[Mutex<KVCache>]>,
-    len: usize,
-    pub pos: usize,
-}
-
-impl DistKVCache {
-    pub(crate) fn new(template: &Tensor<usize, 2>, parts: &[(Device, usize)]) -> Self {
-        let total = parts.iter().map(|(_, len)| len).sum::<usize>();
-        let parts = parts
-            .iter()
-            .map(|(dev, len)| KVCache::new(template, *len, total, &MemPages::new(*dev)));
-        Self {
-            parts: parts.map(Mutex::new).collect(),
-            len: template.shape()[0],
-            pos: 0,
-        }
-    }
 }
 
 pub(crate) fn decode(

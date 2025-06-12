@@ -1,15 +1,15 @@
-﻿use llama_cu::{DistKVCache, Session, SessionId, TextBuf};
+﻿use llama_cu::{Cache, CacheParts, Session, SessionId, TextBuf};
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
 pub(super) struct AppSession {
     name: String,
     msgs: Vec<String>,
-    info: Option<Session>,
+    info: Option<Session<CacheParts>>,
     pub buf: TextBuf,
 }
 
 impl AppSession {
-    pub fn new(name: impl ToString, cache: DistKVCache) -> Self {
+    pub fn new(name: impl ToString, cache: Cache<CacheParts>) -> Self {
         static ID: AtomicUsize = AtomicUsize::new(0);
         let session_id = SessionId(ID.fetch_add(1, SeqCst));
         Self {
@@ -40,7 +40,7 @@ impl AppSession {
         self.msgs.last_mut().unwrap()
     }
 
-    pub fn start(&mut self) -> Option<(Session, String)> {
+    pub fn start(&mut self) -> Option<(Session<CacheParts>, String)> {
         let ans = self
             .info
             .take()
@@ -49,7 +49,7 @@ impl AppSession {
         ans
     }
 
-    pub fn idle(&mut self, session: Session) {
+    pub fn idle(&mut self, session: Session<CacheParts>) {
         self.msgs.push(Default::default());
         assert!(self.info.replace(session).is_none())
     }

@@ -1,5 +1,5 @@
-﻿use super::group::Req;
-use crate::{
+﻿use crate::{
+    batch::Req,
     handle::Handle,
     op::{self, Operator as _},
     utils::{destruct, layout, offset_ptr},
@@ -148,7 +148,7 @@ impl<'ctx> Handle<'ctx> {
         let mut start = 0;
         for req in reqs {
             // [nkvh, 2, nctx, dh]
-            let cache = req.kv_cache.clone();
+            let cache = req.cache.clone();
             let cache = cache.transform(|layout| layout.index(1, *iblk));
             let k_cache = cache.clone().transform(|layout| layout.index(1, 0));
             let v_cache = cache.clone().transform(|layout| layout.index(1, 1));

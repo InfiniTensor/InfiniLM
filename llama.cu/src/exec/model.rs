@@ -1,5 +1,6 @@
-﻿use super::{group::Req, step::Step};
+﻿use super::step::Step;
 use crate::{
+    batch::Req,
     handle::Handle,
     memory::MemPages,
     utils::{self, destruct},

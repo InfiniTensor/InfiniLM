@@ -1,4 +1,4 @@
-use llama_cu::{DistKVCache, SampleArgs, Session, SessionId, Terminal, utok};
+use llama_cu::{Cache, CacheParts, SampleArgs, Session, SessionId, Terminal, utok};
 use std::{
     collections::BTreeMap,
     iter::zip,
@@ -8,7 +8,7 @@ use std::{
 
 pub(crate) struct CacheManager {
     terminal: Terminal,
-    caches: BTreeMap<Instant, (Vec<utok>, DistKVCache)>,
+    caches: BTreeMap<Instant, (Vec<utok>, Cache<CacheParts>)>,
 }
 
 impl CacheManager {
@@ -38,12 +38,12 @@ impl CacheManager {
         let cache = match best_cache {
             Some((key, pos)) => {
                 let (_, mut cache) = self.caches.remove(&key).unwrap();
-                cache.pos = pos;
+                cache.len = pos;
                 cache
             }
             None => self.terminal.new_cache(),
         };
-        let pos = cache.pos;
+        let pos = cache.len;
         self.terminal.start(
             Session {
                 id,
@@ -56,7 +56,7 @@ impl CacheManager {
         (id, tokens)
     }
 
-    pub fn insert(&mut self, tokens: Vec<utok>, cache: DistKVCache) {
+    pub fn insert(&mut self, tokens: Vec<utok>, cache: Cache<CacheParts>) {
         assert!(
             self.caches
                 .insert(Instant::now(), (tokens, cache))

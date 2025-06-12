@@ -1,11 +1,10 @@
 ﻿use super::{
-    Command, Output, Request, Session,
-    engine_manager::{EngineManager, Round},
-    group::{ModelGroup, Req},
-    kv_cache::KVCache,
+    Command, Output, Request, engine_manager::EngineManager, group::ModelGroup,
     output_head::OutputHead,
 };
 use crate::{
+    CacheParts,
+    batch::{Req, Round, SessionStub, State},
     exec::{group::ModelGroupConfig, upos},
     handle::Handle,
     op::{FastEmbedding, random_sample::KVPair},
@@ -23,7 +22,7 @@ use std::{
     num::NonZeroUsize,
     ops::Deref,
     sync::{
-        Arc, Barrier, Mutex, RwLock,
+        Arc, Barrier, RwLock,
         mpsc::{Receiver, Sender},
     },
 };
@@ -32,22 +31,10 @@ use tokeneer::utok;
 #[cfg(nccl)]
 use operators::nccl::{Communicator, CommunicatorGroup};
 
-// 目前在有prompt的情况下，state.seq 的长度代表prompt还有多少未prefill，也就是 `prompt[prompt.len() - state.seq..]` 代表未prefill的prompt
-pub(super) struct SessionStub {
-    pub session: Session,
-    pub state: State,
-    pub prompt: Option<Box<[utok]>>,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct State {
-    pub seq: usize,
-    pub out: usize,
-    pub remain_steps: usize,
-}
+type Stub = SessionStub<CacheParts>;
 
 impl Request {
-    pub(super) fn into_stub(self) -> SessionStub {
+    pub(super) fn into_stub(self) -> Stub {
         let Request {
             session,
             prompt,
@@ -182,7 +169,7 @@ type TaskBox = Arc<RwLock<Option<Task>>>;
 #[cfg_attr(not(nccl), allow(dead_code))]
 struct Task {
     key: NonZeroUsize,
-    reqs: Vec<Req<Arc<[Mutex<KVCache>]>>>,
+    reqs: Vec<Req<CacheParts>>,
 }
 
 impl<T: IntoIterator<Item = usize>> Worker<T> {
