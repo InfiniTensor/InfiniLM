@@ -79,8 +79,8 @@ class AddDescriptor(Structure):
 infiniopAddDescriptor_t = POINTER(AddDescriptor)
 
 
-def add(x, y):
-    return torch.add(x, y)
+def add(ans, x, y):
+    torch.add(x, y, out=ans)
 
 
 def process_tensors(c, c_strides, a, a_stride, b, b_stride, inplace):
@@ -134,9 +134,10 @@ def test(
     a = torch.rand(shape, dtype=dtype).to(torch_device)
     b = torch.rand(shape, dtype=dtype).to(torch_device)
     c = torch.rand(shape, dtype=dtype).to(torch_device)
+    ans = torch.zeros(shape, dtype=dtype).to(torch_device)
     a, b, c = process_tensors(c, c_stride, a, a_stride, b, b_stride, inplace)
 
-    ans = add(a, b)
+    add(ans, a, b)
 
     a_tensor, b_tensor = [to_tensor(tensor, lib) for tensor in [a, b]]
     c_tensor = (
@@ -191,7 +192,7 @@ def test(
     # Profiling workflow
     if PROFILE:
         # fmt: off
-        profile_operation("PyTorch", lambda: add(a, b), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("PyTorch", lambda: add(ans, a, b), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         profile_operation("    lib", lambda: lib_add(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
     check_error(lib.infiniopDestroyAddDescriptor(descriptor))

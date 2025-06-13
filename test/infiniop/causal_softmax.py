@@ -73,9 +73,8 @@ infiniopCausalSoftmaxDescriptor_t = POINTER(CausalSoftmaxDescriptor)
 def causal_softmax(x):
     type = x.dtype
     mask = torch.tril(torch.ones_like(x), diagonal=-1).flip(dims=[-2, -1])
-    y = x.clone()
-    masked = torch.where(mask == 1, -torch.inf, y.to(torch.float32))
-    return torch.nn.functional.softmax(masked, dim=-1).to(type)
+    masked = torch.where(mask == 1, -torch.inf, x.to(torch.float32))
+    return torch.nn.functional.softmax(masked, dim=-1, dtype=type)
 
 
 def test(

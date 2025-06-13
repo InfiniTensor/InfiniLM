@@ -24,14 +24,9 @@ from libinfiniop import (
 _TEST_CASES = [
     # alpha, beta, a_shape, b_shape, c_shape, a_stride, b_stride, c_stride
     (1.0, 0.0, (1, 2048), (2048, 2048), (1, 2048), None, None, None),
-    (1.0, 0.0, (1, 2048), (2048, 2048), (1, 2048), None, None, None),
-    (1.0, 0.0, (2, 4, 2048), (2, 2048, 2048), (2, 4, 2048), None, None, None),
     (1.0, 0.0, (2, 4, 2048), (2, 2048, 2048), (2, 4, 2048), None, None, None),
     (1.0, 0.0, (1, 2048), (2048, 2048), (1, 2048), (4096, 1), (4096, 1), (4096, 1)),
-    (1.0, 0.0, (1, 2048), (2048, 2048), (1, 2048), (4096, 1), (4096, 1), (4096, 1)),
     (1.0, 1.0, (6, 2048), (2048, 2560), (6, 2560), (2048, 1), (1, 2048), (2560, 1)),
-    (1.0, 1.0, (6, 2048), (2048, 2560), (6, 2560), (2048, 1), (1, 2048), (2560, 1)),
-    (1.0 / 8.0, 0.0, (4, 8 * 6, 64), (4, 64, 6), (4, 8 * 6, 6), None, None, None),
     (1.0 / 8.0, 0.0, (4, 8 * 6, 64), (4, 64, 6), (4, 8 * 6, 6), None, None, None),
 ]
 
@@ -61,11 +56,14 @@ infiniopGemmDescriptor_t = POINTER(GemmDescriptor)
 
 
 # PyTorch implementation for matrix multiplication
-def gemm(_c, beta, _a, _b, alpha):
-    a, b, c = _a.clone(), _b.clone(), _c.clone()
-    result_dtype = c.dtype
-    fp32_result = torch.matmul(a.to(torch.float32), b.to(torch.float32))
-    return alpha * fp32_result.to(result_dtype) + beta * c
+def gemm(d, _c, beta, _a, _b, alpha):
+    if _c.ndim == 2:
+        torch.addmm(_c, _a, _b, beta=beta, alpha=alpha, out=d)
+    elif _c.ndim == 3:
+        torch.baddbmm(_c, _a, _b, beta=beta, alpha=alpha, out=d)
+    else:
+        torch.matmul(_a, _b, out=d)
+        d.mul_(alpha).add_(_c, alpha=beta)
 
 
 # The argument list should be (lib, handle, torch_device, <param list>, dtype)
@@ -95,9 +93,10 @@ def test(
     a = torch.rand(a_shape, dtype=dtype).to(torch_device)
     b = torch.rand(b_shape, dtype=dtype).to(torch_device)
     c = torch.ones(c_shape, dtype=dtype).to(torch_device)
+    ans = torch.zeros(c_shape, dtype=dtype).to(torch_device)
 
     # Compute the PyTorch reference result
-    ans = gemm(c, beta, a, b, alpha)
+    gemm(ans, c, beta, a, b, alpha)
 
     a, b, c = [
         rearrange_if_needed(tensor, stride)
@@ -157,7 +156,7 @@ def test(
     # Profiling workflow
     if PROFILE:
         # fmt: off
-        profile_operation("PyTorch", lambda: gemm(c, beta, a, b, alpha), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("PyTorch", lambda: gemm(ans, c, beta, a, b, alpha), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         profile_operation("    lib", lambda: lib_gemm(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
     check_error(lib.infiniopDestroyGemmDescriptor(descriptor))
