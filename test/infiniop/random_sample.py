@@ -59,38 +59,19 @@ infiniopRandomSampleDescriptor_t = POINTER(RandomSampleDescriptor)
 
 def random_sample(data, random_val, topp, topk, voc, temperature):
     if topp > 0 and topk > 1:
-        indices = torch.zeros([topk], dtype=torch.int64)
-        dataNp = data.clone().detach()
-        sorted_indices = torch.arange(voc)
-
-        for i in range(topk):
-            for j in range(i + 1, voc):
-                if dataNp[i] < dataNp[j]:
-                    tmp = dataNp[i].clone().detach()
-                    dataNp[i] = dataNp[j].clone().detach()
-                    dataNp[j] = tmp
-
-                    tmpInd = sorted_indices[i].clone().detach()
-                    sorted_indices[i] = sorted_indices[j].clone().detach()
-                    sorted_indices[j] = tmpInd
-
-        # sorted_indices = torch.argsort(dataNp, descending=True)
-        indices = sorted_indices[:topk]
-
-        globalM = dataNp[0]
-        dataNp = (dataNp - globalM) / temperature
-        dataNp = torch.softmax(dataNp.float(), dim=0)
-        for i in range(1, voc):
-            dataNp[i] += dataNp[i - 1]
-        limit_k = dataNp[min(topk, voc) - 1]
-        limit_p = dataNp[voc - 1] * topp
-        limit = min(limit_k, limit_p) * random_val
-
-        for i in range(voc):
-            if limit < dataNp[i]:
-                return indices[i]
-    else:
-        return torch.argmax(data)
+        sorted_vals, sorted_indices = torch.sort(data, descending=True)
+        
+        scaled_vals = (sorted_vals - sorted_vals[0]) / temperature
+        probs = torch.softmax(scaled_vals, dim=0)
+        cum_probs = torch.cumsum(probs, dim=0)
+        
+        k_index = min(topk, voc) - 1
+        threshold = min(cum_probs[k_index], topp) * random_val
+        
+        idx = torch.searchsorted(cum_probs, threshold)
+        return sorted_indices[idx]
+    
+    return torch.argmax(data)
 
 
 def test(

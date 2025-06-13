@@ -53,12 +53,13 @@ class RMSNormDescriptor(Structure):
 infiniopRMSNormDescriptor_t = POINTER(RMSNormDescriptor)
 
 
-def rms_norm(x, w, eps):
-    input_dtype = x.dtype
-    hidden_states = x.to(torch.float32)
-    variance = hidden_states.pow(2).mean(-1, keepdim=True)
-    hidden_states = hidden_states * torch.rsqrt(variance + eps)
-    return (w * hidden_states).to(input_dtype)
+def rms_norm(ans, x, w, eps):
+    torch.pow(x, 2, out=ans)
+    mean = torch.mean(ans, dim=-1, keepdim=True)
+    mean.add_(eps)
+    torch.rsqrt(mean, out=mean)
+    torch.mul(x, mean, out=ans)
+    ans.mul_(w)
 
 
 def test(
@@ -82,9 +83,10 @@ def test(
     y = torch.zeros(y_shape, dtype=dtype).to(torch_device)
     x = torch.rand(x_shape, dtype=dtype).to(torch_device)
     w = torch.rand(w_shape, dtype=w_dtype).to(torch_device)
+    ans = torch.zeros(y_shape, dtype=dtype).to(torch_device)
 
     eps = 1e-5
-    ans = rms_norm(x, w, eps)
+    rms_norm(ans, x, w, eps)
 
     x, y = [
         rearrange_if_needed(tensor, stride)
@@ -141,7 +143,7 @@ def test(
     # Profiling workflow
     if PROFILE:
         # fmt: off
-        profile_operation("PyTorch", lambda: rms_norm(x, w, eps), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("PyTorch", lambda: rms_norm(ans, x, w, eps), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         profile_operation("    lib", lambda: lib_rms_norm(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
     check_error(lib.infiniopDestroyRMSNormDescriptor(descriptor))
