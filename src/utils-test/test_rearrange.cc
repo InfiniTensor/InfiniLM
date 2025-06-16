@@ -66,5 +66,7 @@ int test_transpose_any(size_t index, std::vector<size_t> shape, std::vector<ptrd
 
 int test_rearrange() {
     return test_transpose_any(1, {3, 5}, {5, 1}, {1, 3})
-         + test_transpose_any(2, {1, 2048}, {2048, 1}, {2048, 1});
+         + test_transpose_any(2, {1, 2048}, {2048, 1}, {2048, 1})
+         + test_transpose_any(3, {2, 2, 2, 4}, {16, 8, 1, 2}, {16, 8, 4, 1})
+         + test_transpose_any(4, {2, 2, 2, 2, 4}, {32, 16, 8, 1, 2}, {32, 16, 8, 4, 1});
 }

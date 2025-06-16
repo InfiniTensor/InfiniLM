@@ -70,15 +70,18 @@ Result<RearrangeMeta> RearrangeMeta::create(
             ndim -= 1;
         }
     }
-    dims.resize(ndim);
     // 填写序号步长、输入步长和输出步长
     std::vector<ptrdiff_t> meta(2 + ndim * 3);
     meta[0] = unit;
     meta[1 + ndim] = 1;
-    for (size_t i = 0; i < ndim; ++i) {
-        meta[1 + i] = dims[i].len;
-        meta[1 + 1 + ndim + i] = dims[i].dst;
-        meta[1 + 1 + ndim * 2 + i] = dims[i].src;
+    for (size_t i = 0, j = 0; i < ndim; ++i, ++j) {
+        // filter dim.len != 1
+        while (dims[j].len == 1) {
+            ++j;
+        }
+        meta[1 + i] = dims[j].len;
+        meta[1 + i + 1 + ndim] = dims[j].dst;
+        meta[1 + i + 1 + ndim * 2] = dims[j].src;
     }
     for (ptrdiff_t i = ndim; i > 0; --i) {
         meta[1 + i - 1] *= meta[1 + i];
