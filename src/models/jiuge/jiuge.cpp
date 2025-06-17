@@ -119,6 +119,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
+    auto ngroup = nh / nkvh;
     // auto dctx = meta.dctx;
     auto dh = meta.dh;
     auto d = meta.d;
@@ -208,30 +209,70 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     RUN_INFINI(infiniopGetRoPEWorkspaceSize(desc_rope_k, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     // attention inner
-    auto desc_attns = std::vector<infiniopAttentionDescriptor_t>(nreq);
+    auto desc_kv_rearranges = std::vector<infiniopRearrangeDescriptor_t>(nreq);
+    auto desc_q_rearranges = std::vector<infiniopRearrangeDescriptor_t>(nreq);
+    auto desc_qk_gemms = std::vector<infiniopGemmDescriptor_t>(nreq);
+    auto desc_qk_softmaxs = std::vector<infiniopCausalSoftmaxDescriptor_t>(nreq);
+    auto desc_attn_v_gemms = std::vector<infiniopGemmDescriptor_t>(nreq);
+    auto desc_attn_v_rearranges = std::vector<infiniopRearrangeDescriptor_t>(nreq);
     size_t token_offset = 0;
+    size_t max_qk_size = 0;
+    size_t max_seq_len = 0;
     o_buf->dimSplit(1, {nh, dh});
     for (uint32_t req = 0; req < nreq; req++) {
         auto past_len = req_pos[req];
         auto seq_len = req_lens[req];
+        auto total_len = past_len + seq_len;
         auto o = o_buf->slice({{0, token_offset, seq_len}});
-        auto q = qkv_buf->slice({{0, token_offset, seq_len}, {1, 0, nh}})
-                     ->permute({1, 0, 2});
-        auto k = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh, nkvh}})
-                     ->permute({1, 0, 2});
-        auto v = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}})
-                     ->permute({1, 0, 2});
-        auto k_cache = kv_caches[req]->k[idev][0];
-        auto v_cache = kv_caches[req]->v[idev][0];
-        RUN_INFINI(infiniopCreateAttentionDescriptor(
-            rsrc.handle, &desc_attns[req], o->desc()->get(), q->desc()->get(),
-            k->desc()->get(), v->desc()->get(), k_cache->desc()->get(),
-            v_cache->desc()->get(), past_len));
-        RUN_INFINI(
-            infiniopGetAttentionWorkspaceSize(desc_attns[req], &temp_size));
+        auto q = qkv_buf->slice({{0, token_offset, seq_len}, {1, 0, nh}});
+        auto k = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
+        // auto v = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
+        // kv cache tensors can share the same descriptor
+        // [nkvh, dh, total_len]
+        auto full_kv = kv_caches[req]->k[idev][0]->slice(0, 0, total_len)->permute({1, 2, 0});
+        auto cache_kv = kv_caches[req]->k[idev][0]->slice(0, past_len, seq_len);
+
+        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_kv_rearranges[req],
+                                                     cache_kv->desc()->get(), k->desc()->get()));
+
+        // [nkvh, ngroup, seq_len, dh]
+        q->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3});
+        auto q_t = TensorDesc::create(dt_logits, {nkvh, ngroup, seq_len, dh});
+        // [seq_len, nkvh, ngroup, dh] -> [nkvh, ngroup, seq_len, dh]
+        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_q_rearranges[req],
+                                                     q_t->get(), q->desc()->get()));
+        // [nkvh, ngroup, seq_len, dh] -> [seq_len, nkvh, ngroup, dh]
+        auto attn_v_t = q_t;
+        auto attn_v = TensorDesc::createWithOrder(dt_logits, {nkvh, ngroup, seq_len, dh}, {1, 2, 0, 3});
+        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_attn_v_rearranges[req],
+                                                     attn_v->get(), attn_v_t->get()));
+        q_t = TensorDesc::create(dt_logits, {nkvh, ngroup * seq_len, dh});
+        auto qk = TensorDesc::create(dt_logits, {nkvh, ngroup * seq_len, total_len});
+        max_qk_size = std::max(max_qk_size, size_t(seq_len * total_len));
+        max_seq_len = std::max(max_seq_len, size_t(seq_len));
+        RUN_INFINI(infiniopCreateGemmDescriptor(
+            rsrc.handle, &desc_qk_gemms[req], qk->get(), q_t->get(), full_kv->desc()->get()));
+        RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_qk_gemms[req], &temp_size));
         workspace_size = std::max(workspace_size, temp_size);
+
+        // [nkvh, total_len, dh]
+        auto full_v = kv_caches[req]->v[idev][0]->slice(0, 0, total_len)->permute({1, 0, 2});
+        RUN_INFINI(infiniopCreateGemmDescriptor(
+            rsrc.handle, &desc_attn_v_gemms[req], q_t->get(), qk->get(), full_v->desc()->get()));
+        RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_attn_v_gemms[req], &temp_size));
+        workspace_size = std::max(workspace_size, temp_size);
+
+        qk = TensorDesc::create(dt_logits, {nkvh * ngroup, seq_len, total_len});
+        RUN_INFINI(infiniopCreateCausalSoftmaxDescriptor(
+            rsrc.handle, &desc_qk_softmaxs[req], qk->get(), qk->get()));
+        RUN_INFINI(infiniopGetCausalSoftmaxWorkspaceSize(desc_qk_softmaxs[req], &temp_size));
+        workspace_size = std::max(workspace_size, temp_size);
+
         token_offset += seq_len;
     }
+    auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, stream);
+    auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, stream);
+    auto attn_val_buf = Tensor::buffer(dt_logits, {nh, max_seq_len, dh}, stream);
 
     // MLP descriptors
     infiniopGemmDescriptor_t desc_ffn_gate_up, desc_ffn_down;
@@ -313,17 +354,40 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
+            auto past_len = req_pos[req];
             auto seq_len = req_lens[req];
+            auto o = o_buf->slice({{0, token_offset, seq_len}});
+            auto q = qkv_buf->slice({{0, token_offset, seq_len}, {1, 0, nh}});
+            auto k = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
+            auto v = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
             // self attention
-            RUN_INFINI(infiniopAttention(
-                desc_attns[req], workspace, workspace_size,
-                o_buf->data(token_offset * nh * dh),
-                qkv_buf->data(token_offset * (nh + nkvh * 2) * dh),
-                qkv_buf->data(token_offset * (nh + nkvh * 2) * dh + nh * dh),
-                qkv_buf->data(token_offset * (nh + nkvh * 2) * dh + (nh + nkvh) * dh),
-                kv_caches[req]->k[idev][layer]->data(),
-                kv_caches[req]->v[idev][layer]->data(),
-                stream));
+            // concat
+            RUN_INFINI(infiniopRearrange(
+                desc_kv_rearranges[req],
+                kv_caches[req]->k[idev][layer]->data(past_len * nkvh * dh),
+                k->data(), stream));
+            RUN_INFINI(infiniopRearrange(
+                desc_kv_rearranges[req],
+                kv_caches[req]->v[idev][layer]->data(past_len * nkvh * dh),
+                v->data(), stream));
+            // qk
+            RUN_INFINI(infiniopRearrange(desc_q_rearranges[req], rearrange_q_buf->data(), q->data(), stream));
+            RUN_INFINI(infiniopGemm(
+                desc_qk_gemms[req], workspace, workspace_size,
+                qk_buf->data(), rearrange_q_buf->data(), kv_caches[req]->k[idev][layer]->data(), 1. / sqrt(dh), 0.0, stream));
+            // softmax
+            RUN_INFINI(infiniopCausalSoftmax(
+                desc_qk_softmaxs[req], workspace, workspace_size,
+                qk_buf->data(), qk_buf->data(), stream));
+            // attn val
+            RUN_INFINI(infiniopGemm(
+                desc_attn_v_gemms[req], workspace, workspace_size,
+                attn_val_buf->data(), qk_buf->data(), kv_caches[req]->v[idev][layer]->data(), 1.0, 0.0, stream));
+            // rearrange attn val
+            RUN_INFINI(infiniopRearrange(
+                desc_attn_v_rearranges[req],
+                o->data(token_offset * nh * dh),
+                attn_val_buf->data(), stream));
 
             token_offset += seq_len;
         }
@@ -407,13 +471,20 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
     // Clean up
     infiniopDestroyRMSNormDescriptor(desc_norm);
-    infiniopDestroyRearrangeDescriptor(desc_qkv_bias);
+    if (has_qkv_bias) {
+        infiniopDestroyRearrangeDescriptor(desc_qkv_bias);
+    }
     infiniopDestroyGemmDescriptor(desc_attn_qkv);
     infiniopDestroyGemmDescriptor(desc_attn_o);
     infiniopDestroyRoPEDescriptor(desc_rope_q);
     infiniopDestroyRoPEDescriptor(desc_rope_k);
     for (uint32_t req = 0; req < nreq; req++) {
-        infiniopDestroyAttentionDescriptor(desc_attns[req]);
+        infiniopDestroyRearrangeDescriptor(desc_kv_rearranges[req]);
+        infiniopDestroyRearrangeDescriptor(desc_q_rearranges[req]);
+        infiniopDestroyGemmDescriptor(desc_qk_gemms[req]);
+        infiniopDestroyCausalSoftmaxDescriptor(desc_qk_softmaxs[req]);
+        infiniopDestroyGemmDescriptor(desc_attn_v_gemms[req]);
+        infiniopDestroyRearrangeDescriptor(desc_attn_v_rearranges[req]);
     }
     infiniopDestroyGemmDescriptor(desc_ffn_gate_up);
     infiniopDestroySwiGLUDescriptor(desc_swiglu);

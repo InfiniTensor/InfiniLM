@@ -6,7 +6,7 @@ __C struct KVCache *createKVCache(const JiugeModel *model) {
     auto nkvh = model->meta.nkvh / ndev;
     auto max_len = model->meta.dctx;
     auto dh = model->meta.dh;
-    auto shape = std::vector<size_t>{nkvh, max_len, dh};
+    auto shape = std::vector<size_t>{max_len, nkvh, dh};
     for (unsigned int idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
         auto kcache = std::vector<std::shared_ptr<Tensor>>();
@@ -27,18 +27,20 @@ __C struct KVCache *duplicateKVCache(const JiugeModel *model,
                                      unsigned int seq_len) {
     auto new_kv_cache = createKVCache(model);
     auto ndev = model->dev_resources.size();
+    auto nkvh = model->meta.nkvh / ndev;
+    auto dh = model->meta.dh;
+    auto dt_size = dsize(model->meta.dt_logits);
     for (unsigned int idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
         for (unsigned int layer = 0; layer < model->meta.nlayer; layer++) {
-            new_kv_cache->k[idev][layer]
-                ->slice(1, 0, seq_len)
-                ->copyFrom(kv_cache->k[idev][layer]->slice(1, 0, seq_len),
-                           model->dev_resources[idev].handle);
-
-            new_kv_cache->v[idev][layer]
-                ->slice(1, 0, seq_len)
-                ->copyFrom(kv_cache->v[idev][layer]->slice(1, 0, seq_len),
-                           model->dev_resources[idev].handle);
+            RUN_INFINI(infinirtMemcpy(new_kv_cache->k[idev][layer]->data(),
+                                      kv_cache->k[idev][layer]->data(),
+                                      seq_len * nkvh * dh * dt_size,
+                                      INFINIRT_MEMCPY_D2D));
+            RUN_INFINI(infinirtMemcpy(new_kv_cache->v[idev][layer]->data(),
+                                      kv_cache->v[idev][layer]->data(),
+                                      seq_len * nkvh * dh * dt_size,
+                                      INFINIRT_MEMCPY_D2D));
         }
     }
     return new_kv_cache;
