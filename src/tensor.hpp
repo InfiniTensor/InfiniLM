@@ -25,6 +25,15 @@ struct SliceParams {
     size_t len;
 };
 
+template <typename... Args>
+std::vector<size_t> __shape(Args... args) {
+    return std::vector<size_t>{static_cast<size_t>(args)...};
+}
+
+template <typename... Args>
+std::vector<ptrdiff_t> __strides(Args... args) {
+    return std::vector<ptrdiff_t>{static_cast<ptrdiff_t>(args)...};
+}
 class TensorDesc {
 private:
     infiniopTensorDescriptor_t _desc;
@@ -33,6 +42,11 @@ public:
     static std::shared_ptr<TensorDesc>
     create(infiniDtype_t dtype, const std::vector<size_t> &shape,
            const std::vector<ptrdiff_t> &strides);
+    static std::shared_ptr<TensorDesc>
+    create(infiniDtype_t dtype, const std::vector<size_t> &shape);
+    static std::shared_ptr<TensorDesc>
+    createWithOrder(infiniDtype_t dtype, const std::vector<size_t> &shape,
+                    const std::vector<size_t> &order);
     infiniopTensorDescriptor_t get() const { return _desc; };
     ~TensorDesc();
 };
@@ -58,6 +72,8 @@ public:
     static std::shared_ptr<Tensor> weight(void *host_data,
                                           infiniDtype_t dtype,
                                           const std::vector<size_t> &shape);
+    std::shared_ptr<Tensor> memShare(const std::vector<size_t> &shape,
+                                     infiniDtype_t dtype = INFINI_DTYPE_INVALID) const;
     std::shared_ptr<Tensor> slice(size_t dim, size_t start, size_t len);
     std::shared_ptr<Tensor const> slice(size_t dim, size_t start,
                                         size_t len) const;
