@@ -60,11 +60,6 @@ def column_major_strides(shape):
 _TEST_CASES = [
     # (shape, x_stride, y_stride)
     (
-        (2, 4, 64),  # shape
-        (2, 4, 8),   # x_stride
-        (512, 128, 2) # y_stride
-    ),
-    (
         (100, 100),  # shape
         (1, 100),    # x_stride
         (100, 1)     # y_stride
@@ -88,6 +83,11 @@ _TEST_CASES = [
         (2001, 2001), # shape
         (1, 2001),    # x_stride
         (2001, 1)     # y_stride
+    ),
+    (
+        (2, 2, 2, 4), # shape
+        (16, 8, 4, 1), # x_stride
+        (16, 8, 1, 2)  # y_stride
     ),
     (
         (3, 4, 7, 53, 9), # shape
