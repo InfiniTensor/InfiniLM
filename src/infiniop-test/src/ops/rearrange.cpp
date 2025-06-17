@@ -34,7 +34,7 @@ std::shared_ptr<infiniop_test::Result> Test::run(
     size_t warm_ups,
     size_t iterations) {
 
-    infiniopGemmDescriptor_t op_desc;
+    infiniopRearrangeDescriptor_t op_desc;
     auto dst = _attributes->dst->to(device, device_id);
     auto src = _attributes->src->to(device, device_id);
     CHECK_OR(infiniopCreateRearrangeDescriptor(
