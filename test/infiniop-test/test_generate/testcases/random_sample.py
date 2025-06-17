@@ -1,9 +1,6 @@
-from ast import List
 import numpy as np
-import gguf
-from typing import List
 
-from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml, gguf_strides
+from .. import InfiniopTestWriter, InfiniopTestCase, np_dtype_to_ggml
 
 
 def random_tensor(voc, topk, dtype):

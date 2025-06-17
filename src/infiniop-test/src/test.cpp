@@ -173,6 +173,44 @@ void allClose(std::shared_ptr<Tensor> actual_, std::shared_ptr<Tensor> expected_
     }
 }
 
+void allEqual(std::shared_ptr<Tensor> actual_, std::shared_ptr<Tensor> expected_) {
+    auto actual = actual_->to(INFINI_DEVICE_CPU);
+    auto expected = expected_->to(INFINI_DEVICE_CPU);
+    auto ggml_type = actual->ggml_type();
+    auto shape = actual->shape();
+
+    if (ggml_type != expected->ggml_type()) {
+        throw std::runtime_error("Data type mismatch.");
+    }
+    if (shape != expected->shape()) {
+        throw std::runtime_error("Shape mismatch.");
+    }
+
+    auto ndim = shape.size();
+    size_t total = std::accumulate(shape.begin(), shape.end(), (size_t)1, std::multiplies<size_t>());
+    auto counter = std::vector<size_t>(ndim, 0);
+    ptrdiff_t actual_offset = 0,
+              expected_offset = 0;
+    size_t num_failed = 0;
+    std::string first_failed_msg;
+    for (size_t i = 0; i < total; i++) {
+        char *a_ = (char *)actual->data() + actual_offset,
+             *e_ = (char *)expected->data() + expected_offset;
+        if (std::memcmp(a_, e_, ggmlSizeOf(ggml_type))) {
+            if (num_failed == 0) {
+                first_failed_msg = "First failed at index " + std::to_string(i);
+            }
+            num_failed++;
+        }
+        incrementOffset(actual_offset, actual->strides(), ggmlTypeSize(actual->ggml_type()),
+                        expected_offset, expected->strides(), ggmlTypeSize(expected->ggml_type()),
+                        counter, shape);
+    }
+    if (num_failed > 0) {
+        throw std::runtime_error(std::to_string(num_failed) + " out of " + std::to_string(total) + " values failed. " + first_failed_msg);
+    }
+}
+
 double benchmark(std::function<void()> func, size_t warmups, size_t iterations) {
     if (iterations == 0) {
         return 0.0;

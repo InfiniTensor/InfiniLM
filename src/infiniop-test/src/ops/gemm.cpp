@@ -21,12 +21,7 @@ std::shared_ptr<Test> Test::build(
     double rtol, double atol) {
     auto test = std::shared_ptr<Test>(new Test(rtol, atol));
     test->_attributes = new Attributes();
-    if (attributes.find("alpha") == attributes.end()
-        || attributes.find("beta") == attributes.end()
-        || tensors.find("a") == tensors.end()
-        || tensors.find("b") == tensors.end()
-        || tensors.find("c") == tensors.end()
-        || tensors.find("ans") == tensors.end()) {
+    if (!check_names(attributes, Test::attribute_names()) || !check_names(tensors, Test::tensor_names())) {
         throw std::runtime_error("Invalid Test");
     }
 

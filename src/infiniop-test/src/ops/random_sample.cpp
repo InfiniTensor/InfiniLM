@@ -23,14 +23,7 @@ std::shared_ptr<Test> Test::build(
     double rtol, double atol) {
     auto test = std::shared_ptr<Test>(new Test(rtol, atol));
     test->_attributes = new Attributes();
-    if (attributes.find("random_val") == attributes.end()
-        || attributes.find("topp") == attributes.end()
-        || attributes.find("topk") == attributes.end()
-        || attributes.find("voc") == attributes.end()
-        || attributes.find("temperature") == attributes.end()
-        || tensors.find("data") == tensors.end()
-        || tensors.find("ans") == tensors.end()
-        || tensors.find("result") == tensors.end()) {
+    if (!check_names(attributes, Test::attribute_names()) || !check_names(tensors, Test::tensor_names())) {
         throw std::runtime_error("Invalid Test");
     }
 
