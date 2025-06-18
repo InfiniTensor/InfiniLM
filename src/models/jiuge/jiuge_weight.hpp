@@ -21,9 +21,14 @@ inline std::shared_ptr<Tensor> getOutNorm(
 inline std::shared_ptr<Tensor> getOutEmbd(
     JiugeMeta const *meta,
     JiugeWeights const *w) {
-    auto shape = std::vector<size_t>({meta->dvoc, meta->d});
-    return Tensor::weight((char *)w->output_embd, meta->dt_logits, shape)
-        ->permute({1, 0});
+    if (w->transpose_linear_weights != 0) {
+        auto shape = std::vector<size_t>({meta->dvoc, meta->d});
+        return Tensor::weight((char *)w->output_embd, meta->dt_logits, shape)
+            ->permute({1, 0});
+    } else {
+        auto shape = std::vector<size_t>({meta->d, meta->dvoc});
+        return Tensor::weight((char *)w->output_embd, meta->dt_logits, shape);
+    }
 }
 
 inline std::shared_ptr<Tensor> getAttnNorm(
@@ -43,9 +48,14 @@ inline std::shared_ptr<Tensor> getAttnQKV(
     auto dh = meta->dh;
     auto d = meta->d;
     size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * d * dsize(w->dt_mat);
-    auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh, d});
-    return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, w->dt_mat, shape)
-        ->permute({1, 0});
+    if (w->transpose_linear_weights != 0) {
+        auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh, d});
+        return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, w->dt_mat, shape)
+            ->permute({1, 0});
+    } else {
+        auto shape = std::vector<size_t>({d, (nh + 2 * nkvh) / ndev * dh});
+        return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, w->dt_mat, shape);
+    }
 }
 
 inline std::shared_ptr<Tensor> getAttnQKVBias(
@@ -67,9 +77,14 @@ inline std::shared_ptr<Tensor> getAttnO(JiugeMeta const *meta,
     auto dh = meta->dh;
     auto d = meta->d;
     size_t offset = idev * d * (nh / ndev * dh) * dsize(w->dt_mat);
-    auto shape = std::vector<size_t>({d, nh / ndev * dh});
-    return Tensor::weight((char *)(w->attn_o[layer]) + offset, w->dt_mat, shape)
-        ->permute({1, 0});
+    if (w->transpose_linear_weights != 0) {
+        auto shape = std::vector<size_t>({d, nh / ndev * dh});
+        return Tensor::weight((char *)(w->attn_o[layer]) + offset, w->dt_mat, shape)
+            ->permute({1, 0});
+    } else {
+        auto shape = std::vector<size_t>({nh / ndev * dh, d});
+        return Tensor::weight((char *)(w->attn_o[layer]) + offset, w->dt_mat, shape);
+    }
 }
 
 inline std::shared_ptr<Tensor> getFFNNorm(
@@ -87,10 +102,16 @@ inline std::shared_ptr<Tensor> getFFNGateUp(
     auto di = meta->di;
     auto d = meta->d;
     size_t offset = idev * (2 * di / ndev) * d * dsize(w->dt_mat);
-    auto shape = std::vector<size_t>({2 * di / ndev, d});
-    return Tensor::weight((char *)(w->ffn_gate_up[layer]) + offset,
-                          w->dt_mat, shape)
-        ->permute({1, 0});
+    if (w->transpose_linear_weights != 0) {
+        auto shape = std::vector<size_t>({2 * di / ndev, d});
+        return Tensor::weight((char *)(w->ffn_gate_up[layer]) + offset,
+                              w->dt_mat, shape)
+            ->permute({1, 0});
+    } else {
+        auto shape = std::vector<size_t>({d, 2 * di / ndev});
+        return Tensor::weight((char *)(w->ffn_gate_up[layer]) + offset,
+                              w->dt_mat, shape);
+    }
 }
 
 inline std::shared_ptr<Tensor> getFFNDown(
@@ -100,9 +121,14 @@ inline std::shared_ptr<Tensor> getFFNDown(
     auto di = meta->di;
     auto d = meta->d;
     size_t offset = idev * d * (di / ndev) * dsize(w->dt_mat);
-    auto shape = std::vector<size_t>({d, di / ndev});
-    return Tensor::weight((char *)(w->ffn_down[layer]) + offset, w->dt_mat, shape)
-        ->permute({1, 0});
+    if (w->transpose_linear_weights != 0) {
+        auto shape = std::vector<size_t>({d, di / ndev});
+        return Tensor::weight((char *)(w->ffn_down[layer]) + offset, w->dt_mat, shape)
+            ->permute({1, 0});
+    } else {
+        auto shape = std::vector<size_t>({di / ndev, d});
+        return Tensor::weight((char *)(w->ffn_down[layer]) + offset, w->dt_mat, shape);
+    }
 }
 
 inline std::shared_ptr<Tensor> getSinTable(JiugeMeta const *meta) {

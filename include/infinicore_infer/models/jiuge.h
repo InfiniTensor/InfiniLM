@@ -21,6 +21,8 @@ typedef struct
 {
     size_t nlayer;
     infiniDtype_t dt_norm, dt_mat;
+    // 0 if linear weights are passed as W, any other value if passed as W^T (default format in pytorch)
+    int transpose_linear_weights;
     // [dvoc, d]
     const void *input_embd;
     // [d]

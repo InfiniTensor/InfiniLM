@@ -115,6 +115,7 @@ class JiugeWeightsImpl(JiugeWeights):
         torch_dt_mat=torch.float16,
         torch_dt_norm=torch.float32,
         ndev=1,
+        transpose_weight=True,
     ):
         nlayer = meta.nlayer
         nh = meta.nh
@@ -150,13 +151,15 @@ class JiugeWeightsImpl(JiugeWeights):
             if naming.output_embd() in state_dict
             else naming.input_embd()
         )
-
+        self.transpose_linear_weights = 1 if transpose_weight else 0
         self.nlayer = nlayer
         self.input_embd_tensor = state_dict[input_embd_naming].to(torch_dt_logits)
         self.input_embd = self.input_embd_tensor.data_ptr()
         self.output_norm_tensor = state_dict[naming.output_norm()].to(torch_dt_norm)
         self.output_norm = self.output_norm_tensor.data_ptr()
         self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_mat)
+        if not transpose_weight:
+            self.output_embd_tensor = self.output_embd_tensor.transpose(0, 1).contiguous()
         self.output_embd = self.output_embd_tensor.data_ptr()
 
         self.attn_norm_tensors = [
@@ -191,6 +194,9 @@ class JiugeWeightsImpl(JiugeWeights):
         self.qkv_tensor = [
             torch.concat(qkv_slices(i)).to(torch_dt_mat) for i in range(nlayer)
         ]
+        if not transpose_weight:
+            for i in range(nlayer):
+                self.qkv_tensor[i] = self.qkv_tensor[i].reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d).transpose(1, 2).contiguous()
         self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
         self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
 
@@ -228,10 +234,12 @@ class JiugeWeightsImpl(JiugeWeights):
 
         self.attn_o_tensor = [
             state_dict[naming.attn_o(i)]
-            .to(torch_dt_mat)
-            .reshape([d, ndev, nh // ndev * dh])
-            .transpose(0, 1)
-            .contiguous()
+                .to(torch_dt_mat)
+                .reshape([d, ndev, nh // ndev * dh])
+                .transpose(0, 1)
+                .contiguous()
+            if transpose_weight 
+            else state_dict[naming.attn_o(i)].transpose(0, 1).to(torch_dt_mat).contiguous()
             for i in range(nlayer)
         ]
         self.attn_o_ptrs = [self.attn_o_tensor[i].data_ptr() for i in range(nlayer)]
@@ -258,6 +266,9 @@ class JiugeWeightsImpl(JiugeWeights):
         self.gate_up_tensors = [
             torch.concat(gate_up_slices(i)).to(torch_dt_mat) for i in range(nlayer)
         ]
+        if not transpose_weight:
+            for i in range(nlayer):
+                self.gate_up_tensors[i] = self.gate_up_tensors[i].reshape(ndev, 2 * di // ndev, d).transpose(1, 2).contiguous()
         self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
         self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
 
@@ -267,6 +278,8 @@ class JiugeWeightsImpl(JiugeWeights):
             .reshape([d, ndev, di // ndev])
             .transpose(0, 1)
             .contiguous()
+            if transpose_weight
+            else state_dict[naming.down(i)].transpose(0, 1).to(torch_dt_mat).contiguous()
             for i in range(nlayer)
         ]
         self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
@@ -292,12 +305,13 @@ class JiugeForCauslLM:
             self.config = config
         eos_token_id = self.config["eos_token_id"]
         self.eos_token_id = [eos_token_id] if type(eos_token_id) == int else eos_token_id
+        transpose_weight = device != DeviceType.DEVICE_TYPE_ASCEND # y = xW is faster than y=xW^T on Ascend
         if "llama" == config["model_type"]:
             model = transformers.LlamaForCausalLM.from_pretrained(model_dir_path).cpu().half()
             self.meta = JiugeMetaFromLlama(config)
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
             self.weights = JiugeWeightsImpl(
-                self.meta, LlamaWeightsNaming(), model.state_dict(), ndev=ndev
+                self.meta, LlamaWeightsNaming(), model.state_dict(), ndev=ndev, transpose_weight=transpose_weight
             )
         elif "fm9g" == config["model_type"]:
             if any(file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()):
@@ -309,7 +323,7 @@ class JiugeForCauslLM:
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config)
                 self.weights = JiugeWeightsImpl(
-                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev
+                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev, transpose_weight=transpose_weight
                 )
                 self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path, trust_remote_code=True
@@ -323,7 +337,7 @@ class JiugeForCauslLM:
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config)
                 self.weights = JiugeWeightsImpl(
-                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev
+                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev, transpose_weight=transpose_weight
                 )
                 self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path, trust_remote_code=True
@@ -335,7 +349,7 @@ class JiugeForCauslLM:
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config)
                 self.weights = JiugeWeightsImpl(
-                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev
+                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev, transpose_weight=transpose_weight
                 )
                 self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path

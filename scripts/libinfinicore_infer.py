@@ -58,6 +58,7 @@ class JiugeWeights(ctypes.Structure):
         ("nlayer", c_size_t),
         ("dt_norm", DataType),
         ("dt_mat", DataType),
+        ("transpose_linear_weights", c_int),
         ("input_embd", c_void_p),
         ("output_norm", c_void_p),
         ("output_embd", c_void_p),
