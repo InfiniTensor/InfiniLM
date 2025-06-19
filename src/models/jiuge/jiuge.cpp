@@ -41,6 +41,8 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
             getFFNDown(meta, weights, layer, idev, ndev));
     }
 
+    auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
+
     *rsrc = DeviceResource{
         device,
         dev_id,
@@ -60,7 +62,7 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
         stream,
         comm,
         std::make_unique<WorkspaceAllocator>(0),
-    };
+        memory_pool};
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
@@ -130,13 +132,14 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
 
     // Allocate buffers
-    auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, stream);
-    auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, stream);
-    auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, stream);
-    auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di}, stream);
-    auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, stream);
-    auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, stream);
-    auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, stream);
+    // std::cout << "Creating tensors buffers..." << std::endl;
+    auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, stream, rsrc.memory_pool);
+    auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, stream, rsrc.memory_pool);
+    auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, stream, rsrc.memory_pool);
+    auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di}, stream, rsrc.memory_pool);
+    auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, stream, rsrc.memory_pool);
+    auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, stream, rsrc.memory_pool);
+    auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, stream, rsrc.memory_pool);
     auto result_cpu = std::vector<int64_t>(nreq);
 
     // Prepare inputs
@@ -153,7 +156,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     if (rsrc.device == INFINI_DEVICE_CPU) {
         pos_ids_buf = Tensor::weight(batch_pos_ids.data(), INFINI_DTYPE_U32, {ntok});
     } else {
-        pos_ids_buf = Tensor::buffer(INFINI_DTYPE_U32, {ntok}, stream);
+        pos_ids_buf = Tensor::buffer(INFINI_DTYPE_U32, {ntok}, stream, rsrc.memory_pool);
         RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
                                        INFINIRT_MEMCPY_H2D, stream));
     }
@@ -270,9 +273,9 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
         token_offset += seq_len;
     }
-    auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, stream);
-    auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, stream);
-    auto attn_val_buf = Tensor::buffer(dt_logits, {nh, max_seq_len, dh}, stream);
+    auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, stream, rsrc.memory_pool);
+    auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, stream, rsrc.memory_pool);
+    auto attn_val_buf = Tensor::buffer(dt_logits, {nh, max_seq_len, dh}, stream, rsrc.memory_pool);
 
     // MLP descriptors
     infiniopGemmDescriptor_t desc_ffn_gate_up, desc_ffn_down;
