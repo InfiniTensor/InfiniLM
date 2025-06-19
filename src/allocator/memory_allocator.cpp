@@ -17,7 +17,7 @@ MemoryPool::~MemoryPool() {
 void *MemoryPool::alloc(size_t size) {
     auto it = freeBlocks.lower_bound(size);
     if (it == freeBlocks.end()) {
-        allocateNewRegion(std::max(size, size_t(16 * 1024 * 1024)));
+        allocateNewRegion(std::max(size, size_t(0)));
         it = freeBlocks.lower_bound(size);
         if (it == freeBlocks.end()) {
             throw std::bad_alloc();
