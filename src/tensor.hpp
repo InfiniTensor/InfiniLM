@@ -72,7 +72,6 @@ private:
 public:
     static std::shared_ptr<Tensor> buffer(infiniDtype_t dtype,
                                           const std::vector<size_t> &shape,
-                                          infinirtStream_t stream = nullptr,
                                           std::shared_ptr<MemoryPool> pool = nullptr);
     static std::shared_ptr<Tensor> weight(void *host_data,
                                           infiniDtype_t dtype,

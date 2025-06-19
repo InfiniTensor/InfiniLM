@@ -3,6 +3,7 @@
 
 #include "infinicore_infer.h"
 #include <map>
+#include <memory>
 #include <set>
 #include <unordered_map>
 #include <vector>
@@ -44,17 +45,23 @@ private:
     std::unordered_map<void *, std::set<Block>::iterator> ptrToBlock;
 };
 
-class WorkspaceAllocator : public AllocatorBase {
-private:
-    void *_memory;
-    size_t _total_size;
-    size_t _align;
+class WorkspaceHandle {
+    std::shared_ptr<MemoryPool> pool;
+    void *ptr;
+    size_t size;
 
 public:
-    WorkspaceAllocator(size_t intial_size, size_t align = 256);
-    ~WorkspaceAllocator();
-    void *alloc(size_t size) override;
-    void release(void *ptr) override;
+    WorkspaceHandle(std::shared_ptr<MemoryPool> pool, size_t size);
+    ~WorkspaceHandle();
+    void *data() const { return ptr; }
+
+    // Delete copy operations
+    WorkspaceHandle(const WorkspaceHandle &) = delete;
+    WorkspaceHandle &operator=(const WorkspaceHandle &) = delete;
+
+    // Allow move operations
+    WorkspaceHandle(WorkspaceHandle &&) = default;
+    WorkspaceHandle &operator=(WorkspaceHandle &&) = default;
 };
 
 #endif

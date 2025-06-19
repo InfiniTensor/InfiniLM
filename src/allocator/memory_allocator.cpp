@@ -81,7 +81,6 @@ void MemoryPool::tryCoalesce(const Block &block) {
         return;
     }
 
-    // Make a copy of the block since we can't modify the one in the set
     Block merged = *it;
     auto next = std::next(it);
     auto prev = (it == allBlocks.begin()) ? allBlocks.end() : std::prev(it);
@@ -108,4 +107,18 @@ void MemoryPool::tryCoalesce(const Block &block) {
     merged.isFree = true;
     auto newIt = allBlocks.insert(merged).first;
     freeBlocks.emplace(merged.size, newIt);
+}
+
+WorkspaceHandle::WorkspaceHandle(std::shared_ptr<MemoryPool> pool, size_t size)
+    : pool(pool), size(size) {
+    ptr = pool->alloc(size);
+    if (!ptr) {
+        throw std::runtime_error("Failed to allocate workspace");
+    }
+}
+
+WorkspaceHandle::~WorkspaceHandle() {
+    if (ptr) {
+        pool->release(ptr);
+    }
 }
