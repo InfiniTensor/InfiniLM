@@ -485,6 +485,8 @@ class JiugeForCauslLM:
         )
         print(input_content, end="", flush=True)
         tokens = self.tokenizer.encode(input_content)
+        print(type(tokens[0]))
+        exit(0)
         ntok = len(tokens)
         nreq = 1
         output_content = ""
