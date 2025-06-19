@@ -28,6 +28,8 @@ struct DeviceResource {
     infinicclComm_t comm;
 
     std::unique_ptr<WorkspaceAllocator> workspace_allocator;
+
+    std::vector<uint8_t> mask_values;
 };
 
 struct InferState {
