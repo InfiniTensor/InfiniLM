@@ -16,9 +16,8 @@ public:
     int device_id;
     std::shared_ptr<MemoryPool> memory_pool;
 
-    static std::shared_ptr<Storage> create(size_t size, std::shared_ptr<MemoryPool> pool = nullptr);
-    static std::shared_ptr<Storage> createAsync(size_t size, infinirtStream_t stream = nullptr,
-                                                std::shared_ptr<MemoryPool> pool = nullptr);
+    static std::shared_ptr<Storage> create(size_t size);
+    static std::shared_ptr<Storage> createAsync(size_t size, std::shared_ptr<MemoryPool> pool = nullptr);
     static std::shared_ptr<Storage> createHost(size_t size);
     ~Storage();
 };

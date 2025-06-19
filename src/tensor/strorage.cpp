@@ -1,7 +1,15 @@
 #include "../allocator.hpp"
 #include "../tensor.hpp"
 
-std::shared_ptr<Storage> Storage::create(size_t size, std::shared_ptr<MemoryPool> pool) {
+std::shared_ptr<Storage> Storage::create(size_t size) {
+    auto storage = std::make_shared<Storage>();
+    RUN_INFINI(infinirtMalloc(&storage->memory, size));
+    storage->size = size;
+    RUN_INFINI(infinirtGetDevice(&storage->device_type, &storage->device_id));
+    return storage;
+}
+
+std::shared_ptr<Storage> Storage::createAsync(size_t size, std::shared_ptr<MemoryPool> pool) {
     auto storage = std::make_shared<Storage>();
     storage->memory_pool = pool;
     if (pool) {
@@ -12,11 +20,6 @@ std::shared_ptr<Storage> Storage::create(size_t size, std::shared_ptr<MemoryPool
     storage->size = size;
     RUN_INFINI(infinirtGetDevice(&storage->device_type, &storage->device_id));
     return storage;
-}
-
-std::shared_ptr<Storage> Storage::createAsync(size_t size, infinirtStream_t stream,
-                                              std::shared_ptr<MemoryPool> pool) {
-    return create(size, pool);
 }
 
 std::shared_ptr<Storage> Storage::createHost(size_t size) {
