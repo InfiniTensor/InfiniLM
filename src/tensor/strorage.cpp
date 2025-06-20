@@ -9,7 +9,15 @@ std::shared_ptr<Storage> Storage::create(size_t size) {
     return storage;
 }
 
-std::shared_ptr<Storage> Storage::createAsync(size_t size, std::shared_ptr<MemoryPool> pool) {
+std::shared_ptr<Storage> Storage::createAsync(size_t size, infinirtStream_t stream) {
+    auto storage = std::make_shared<Storage>();
+    RUN_INFINI(infinirtMallocAsync(&storage->memory, size, stream));
+    storage->size = size;
+    RUN_INFINI(infinirtGetDevice(&storage->device_type, &storage->device_id));
+    return storage;
+}
+
+std::shared_ptr<Storage> Storage::createFromPool(size_t size, std::shared_ptr<MemoryPool> pool) {
     auto storage = std::make_shared<Storage>();
     storage->memory_pool = pool;
     if (pool) {

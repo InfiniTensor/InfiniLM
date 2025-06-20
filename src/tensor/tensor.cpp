@@ -83,7 +83,7 @@ std::shared_ptr<Tensor> Tensor::buffer(infiniDtype_t dtype,
         }
     }
     tensor->_strides = strides;
-    tensor->_storage = Storage::createAsync(size, pool);
+    tensor->_storage = Storage::createFromPool(size, pool);
     tensor->_data = tensor->_storage->memory;
     infiniopCreateTensorDescriptor(&tensor->_desc, ndim, tensor->_shape.data(),
                                    strides.data(), dtype);
