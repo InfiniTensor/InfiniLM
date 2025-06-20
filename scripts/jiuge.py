@@ -6,6 +6,7 @@ import sys
 import time
 import json
 import asyncio
+from typing import List
 
 from libinfinicore_infer import (
     JiugeMeta,
@@ -23,6 +24,26 @@ import torch
 import transformers
 
 torch.set_default_device("cpu")
+
+
+class RandSampleArgs:
+    def __init__(self, max_tokens, temperature, topk, topp):
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.topk = topk
+        self.topp = topp
+
+      
+class RequestMeta:
+    def __init__(self, id, tokens, args: RandSampleArgs, request, kv_cache: POINTER(KVCache), pos):
+        self.id = id
+        self.tokens = tokens
+        self.args = args
+        self.kv_cache = kv_cache
+        self.finished = False
+        self.request = request
+        self.pos = pos
+        self.outputs = []
 
 class LlamaWeightsNaming:
     def input_embd(self):
@@ -372,7 +393,88 @@ class JiugeForCauslLM:
         )
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
+    
+    
+    def infer(self, reqs: List[RequestMeta]):
+        flat_tokens = [] # total tokens in a batch
+        req_lens = [] # nreq
+        req_poses = [] # nreq
+        kv_caches = [] # nreq
+        # Maintains unfinished reqs
+        active_reqs = []
         
+        # Infer initialize
+        for r in reqs:
+            flat_tokens.extend(r.tokens)
+            req_lens.append(len(r.tokens))
+            req_poses.append(r.pos)
+            kv_caches.append(r.kv_cache)
+            active_reqs.append(r)
+        max_tokens = max(r.args.max_tokens for r in reqs)
+        ntok = len(flat_tokens)
+        nreq = len(active_reqs)
+        
+        # Pack to ctype array
+        tokens = (c_uint * ntok)(*flat_tokens)
+        req_lens = (c_uint * nreq)(*req_lens)
+        req_poses = (c_uint * nreq)(*req_poses)
+        kv_caches = (POINTER(KVCache) * nreq)(*kv_caches)
+        ans = (c_uint * nreq)()
+        
+        for step in range(max_tokens):   
+            infer_batch(
+                self.model_instance,
+                tokens,
+                ntok,
+                req_lens,
+                nreq,
+                req_poses,
+                kv_caches,
+                ans,
+                active_reqs[0].args.temperature,  # 这里一个 batch 共用这些参数？？
+                active_reqs[0].args.topk,
+                active_reqs[0].args.topp)
+            
+            output_tokens = list(ans) # nreq output
+            
+            # Check output of current step
+            for i, r in enumerate(active_reqs):
+                token = output_tokens[i]
+                if token in self.eos_token_id:
+                    r.finished = True
+                r.outputs.append(token)
+                
+            # Filter finished request
+            new_active = []
+            next_tokens = []
+            next_req_poses = []
+            next_kv_caches = []
+            for i, r in enumerate(active_reqs):
+                if not r.finished:
+                    new_active.append(r)
+                    next_tokens.append(output_tokens[i])
+                    next_req_poses.append(req_poses[i] + req_lens[i])
+                    next_kv_caches.append(kv_caches[i])
+                    
+            # Exit gen if no active reqs
+            if not new_active:
+                break
+    
+            # Prepare for next step infer
+            nreq = len(new_active)
+            ntok = len(new_active) # Next step gen 1 token for every req
+            tokens = (c_uint * ntok)(*next_tokens)
+            req_lens = (c_uint * nreq)(*([1] * nreq))
+            req_poses = (c_uint * nreq)(*next_req_poses)
+            kv_caches = (POINTER(KVCache) * nreq)(*next_kv_caches)
+            
+            active_reqs = new_active
+
+
+    def stop_batch_loop(self):
+        self.running = False
+        self.batch_thread.join()
+
     def create_kv_cache(self):
         return create_kv_cache(self.model_instance)
 
@@ -558,7 +660,73 @@ class JiugeForCauslLM:
         print("Model destroyed")
 
 
-def test():
+def test_infer():
+    if len(sys.argv) < 3:
+        print("Usage: python test_batch.py [--cpu | --nvidia| ...] <path/to/model_dir> [n_device]")
+        sys.exit(1)
+
+    model_path = sys.argv[2]
+    device_type_map = {
+        "--cpu": DeviceType.DEVICE_TYPE_CPU,
+        "--nvidia": DeviceType.DEVICE_TYPE_NVIDIA,
+        "--cambricon": DeviceType.DEVICE_TYPE_CAMBRICON,
+        "--ascend": DeviceType.DEVICE_TYPE_ASCEND,
+        "--metax": DeviceType.DEVICE_TYPE_METAX,
+        "--moore": DeviceType.DEVICE_TYPE_MOORE,
+    }
+
+    if sys.argv[1] not in device_type_map:
+        print("Unsupported device type.")
+        sys.exit(1)
+
+    device_type = device_type_map[sys.argv[1]]
+    ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+
+    # 初始化模型
+    model = JiugeForCauslLM(model_path, device_type, ndev)
+
+    # 构造多个请求（每个是一个 RequestMeta）
+    prompts = [
+        "山东最高的山是？",
+        "中国有多少个省？"
+    ]
+
+    requests = []
+    for i, prompt in enumerate(prompts):
+        # 编码为 token 列表
+        input_content = model.tokenizer.apply_chat_template(
+            conversation=[{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        tokens = model.tokenizer.encode(input_content)
+        
+        print(f"{i} th prompt: ", tokens)
+        # 创建 KV cache
+        kv_cache = create_kv_cache(model.model_instance)
+        print(f"finished create {i} th cache")
+
+        # 构造采样参数
+        args = RandSampleArgs(max_tokens=64, temperature=1.0, topk=1, topp=1.0)
+
+        # 创建请求结构
+        req = RequestMeta(id=i, tokens=tokens, args=args, request=input_content, kv_cache=kv_cache, pos=0)
+        requests.append(req)
+
+    # 执行推理
+    model.infer(requests)
+
+    # 打印结果
+    print("=== Inference Output ===")
+    for r in requests:
+        decoded = model.tokenizer.decode(r.outputs)
+        print(f"[Request {r.id}] Output: {decoded.strip()}")
+
+    # 清理模型
+    model.destroy_model_instance()
+
+
+def test_generate():
     if len(sys.argv) < 3:
         print(
             "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
@@ -591,4 +759,4 @@ def test():
 
 
 if __name__ == "__main__":
-    test()
+    test_infer()
