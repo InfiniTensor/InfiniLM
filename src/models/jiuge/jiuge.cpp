@@ -61,7 +61,8 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
         w_ffn_down,
         stream,
         comm,
-        memory_pool};
+        memory_pool,
+    };
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
