@@ -68,7 +68,7 @@ std::shared_ptr<TensorDesc> Tensor::desc() const { return TensorDesc::create(thi
 
 std::shared_ptr<Tensor> Tensor::buffer(infiniDtype_t dtype,
                                        const std::vector<size_t> &shape,
-                                       infinirtStream_t stream) {
+                                       std::shared_ptr<MemoryPool> pool) {
     std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
     tensor->_dtype = dtype;
     auto ndim = shape.size();
@@ -83,7 +83,7 @@ std::shared_ptr<Tensor> Tensor::buffer(infiniDtype_t dtype,
         }
     }
     tensor->_strides = strides;
-    tensor->_storage = Storage::createAsync(size, stream);
+    tensor->_storage = Storage::createFromPool(size, pool);
     tensor->_data = tensor->_storage->memory;
     infiniopCreateTensorDescriptor(&tensor->_desc, ndim, tensor->_shape.data(),
                                    strides.data(), dtype);

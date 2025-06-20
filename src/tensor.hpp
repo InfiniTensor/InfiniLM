@@ -1,20 +1,24 @@
 #ifndef INFER_TENSOR_H
 #define INFER_TENSOR_H
 
+#include "allocator.hpp"
 #include "infinicore_infer.h"
 #include "utils.hpp"
 #include <memory>
 #include <string>
 #include <vector>
 
-struct Storage {
+class Storage {
+public:
     void *memory;
     size_t size;
     infiniDevice_t device_type;
     int device_id;
+    std::shared_ptr<MemoryPool> memory_pool;
 
     static std::shared_ptr<Storage> create(size_t size);
     static std::shared_ptr<Storage> createAsync(size_t size, infinirtStream_t stream = nullptr);
+    static std::shared_ptr<Storage> createFromPool(size_t size, std::shared_ptr<MemoryPool> pool = nullptr);
     static std::shared_ptr<Storage> createHost(size_t size);
     ~Storage();
 };
@@ -68,7 +72,7 @@ private:
 public:
     static std::shared_ptr<Tensor> buffer(infiniDtype_t dtype,
                                           const std::vector<size_t> &shape,
-                                          infinirtStream_t stream = nullptr);
+                                          std::shared_ptr<MemoryPool> pool = nullptr);
     static std::shared_ptr<Tensor> weight(void *host_data,
                                           infiniDtype_t dtype,
                                           const std::vector<size_t> &shape);

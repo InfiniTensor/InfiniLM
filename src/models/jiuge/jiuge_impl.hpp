@@ -27,7 +27,7 @@ struct DeviceResource {
     // Communicator
     infinicclComm_t comm;
 
-    std::unique_ptr<WorkspaceAllocator> workspace_allocator;
+    std::shared_ptr<MemoryPool> memory_pool;
 };
 
 struct InferState {
