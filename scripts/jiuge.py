@@ -7,6 +7,7 @@ import time
 import json
 import asyncio
 from typing import List
+from fastapi import Request
 
 from libinfinicore_infer import (
     JiugeMeta,
@@ -35,7 +36,7 @@ class RandSampleArgs:
 
       
 class RequestMeta:
-    def __init__(self, id, tokens, args: RandSampleArgs, request, kv_cache: POINTER(KVCache), pos):
+    def __init__(self, id, tokens, args: RandSampleArgs, request: Request, kv_cache: POINTER(KVCache), pos):
         self.id = id
         self.tokens = tokens
         self.args = args
@@ -394,7 +395,7 @@ class JiugeForCauslLM:
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
     
-    
+  
     def infer(self, reqs: List[RequestMeta]):
         flat_tokens = [] # total tokens in a batch
         req_lens = [] # nreq
