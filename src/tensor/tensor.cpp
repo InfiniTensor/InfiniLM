@@ -190,6 +190,22 @@ void print_data(T *data, const std::vector<size_t> &shape,
     }
 }
 
+template <typename T>
+void print_int_data(T *data, const std::vector<size_t> &shape,
+                const std::vector<ptrdiff_t> &strides, size_t dim) {
+    if (dim == shape.size() - 1) {
+        for (size_t i = 0; i < shape[dim]; i++) {
+            int64_t val = data[i];
+            std::cout << val << " ";
+        }
+        std::cout << std::endl;
+    } else if (dim < shape.size() - 1) {
+        for (size_t i = 0; i < shape[dim]; i++) {
+            print_int_data(data + i * strides[dim], shape, strides, dim + 1);
+        }
+    }
+}
+
 template <>
 void print_data(uint16_t const *data, const std::vector<size_t> &shape,
                 const std::vector<ptrdiff_t> &strides, size_t dim) {
@@ -274,6 +290,14 @@ void Tensor::debug(const std::string &filename) const {
         break;
     case INFINI_DTYPE_I32:
         print_data((int32_t const *)((char const *)cpu_data + dataOffset()),
+                   this->shape(), this->strides(), 0);
+        break;
+    case INFINI_DTYPE_U8:
+        print_int_data((uint8_t const *)((char const *)cpu_data + dataOffset()),
+                   this->shape(), this->strides(), 0);
+        break;
+    case INFINI_DTYPE_BOOL:
+        print_int_data((uint8_t const *)((char const *)cpu_data + dataOffset()),
                    this->shape(), this->strides(), 0);
         break;
     default:
