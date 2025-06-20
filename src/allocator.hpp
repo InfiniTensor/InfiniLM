@@ -45,23 +45,4 @@ private:
     std::unordered_map<void *, std::set<Block>::iterator> ptrToBlock;
 };
 
-class WorkspaceHandle {
-    std::shared_ptr<MemoryPool> pool;
-    void *ptr;
-    size_t size;
-
-public:
-    WorkspaceHandle(std::shared_ptr<MemoryPool> pool, size_t size);
-    ~WorkspaceHandle();
-    void *data() const { return ptr; }
-
-    // Delete copy operations
-    WorkspaceHandle(const WorkspaceHandle &) = delete;
-    WorkspaceHandle &operator=(const WorkspaceHandle &) = delete;
-
-    // Allow move operations
-    WorkspaceHandle(WorkspaceHandle &&) = default;
-    WorkspaceHandle &operator=(WorkspaceHandle &&) = default;
-};
-
 #endif

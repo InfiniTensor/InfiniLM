@@ -316,8 +316,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     RUN_INFINI(infiniopGetRandomSampleWorkspaceSize(desc_sample, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     // Allocate workspace
-    WorkspaceHandle workspace_handle(rsrc.memory_pool, workspace_size);
-    void *workspace = workspace_handle.data();
+    std::shared_ptr<Storage> workspace_storage = Storage::createFromPool(workspace_size, rsrc.memory_pool);
+    void *workspace = workspace_storage->memory;
 
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
