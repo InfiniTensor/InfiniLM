@@ -27,9 +27,9 @@ private:
         void *base;
         void *ptr;
         size_t size;
-        bool isFree;
+        bool is_free;
         Block(void *b, void *p, size_t s, bool f)
-            : base(b), ptr(p), size(s), isFree(f) {}
+            : base(b), ptr(p), size(s), is_free(f) {}
         bool operator<(const Block &other) const {
             return ptr < other.ptr;
         }
@@ -39,10 +39,10 @@ private:
     void insertFreeBlock(Block &&block);
     void tryCoalesce(const Block &block);
 
-    std::vector<void *> baseRegions;
-    std::set<Block> allBlocks;
-    std::multimap<size_t, std::set<Block>::iterator> freeBlocks;
-    std::unordered_map<void *, std::set<Block>::iterator> ptrToBlock;
+    std::vector<void *> _base_regions;
+    std::set<Block> _all_blocks;
+    std::multimap<size_t, std::set<Block>::iterator> _free_blocks;
+    std::unordered_map<void *, std::set<Block>::iterator> _ptr_to_block;
 };
 
 #endif
