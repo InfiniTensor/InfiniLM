@@ -384,7 +384,7 @@ class JiugeForCauslLM:
         temperature = request.get("temperature", 1.0)
         topk = request.get("top_k", 1)
         topp = request.get("top_p", 1.0)
-        max_tokens = request.get("max_tokens", 512)
+        max_tokens = request.get("max_tokens", self.meta.dctx)
         input_content = self.tokenizer.apply_chat_template(
             conversation=messages,
             add_generation_prompt=True,

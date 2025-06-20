@@ -3,7 +3,7 @@ from libinfinicore_infer import DeviceType
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
-import asyncio
+import anyio
 import uvicorn
 import time
 import uuid
@@ -53,25 +53,39 @@ signal.signal(signal.SIGTERM, signal_handler)  # Handle docker stop / system shu
 
 app = FastAPI()
 
+# TO REMOVE: Global lock to ensure only one request is handled at a time
+# Remove this after multiple requests handling is implemented
+request_lock = anyio.Lock()
+
+
+def chunk_json(id_, content=None, role=None, finish_reason=None):
+    delta = {}
+    if content:
+        delta["content"] = content
+    if role:
+        delta["role"] = role
+    return {
+        "id": id_,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": "jiuge",
+        "system_fingerprint": None,
+        "choices": [
+            {
+                "index": 0,
+                "delta": delta,
+                "logprobs": None,
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
+
 
 async def chat_stream(id_, request_data, request: Request):
     try:
+        await request_lock.acquire()
         chunk = json.dumps(
-            {
-                "id": id_,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": "jiuge",
-                "system_fingerprint": None,
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"role": "assistant", "content": ""},
-                        "logprobs": None,
-                        "finish_reason": None,
-                    }
-                ],
-            },
+            chunk_json(id_, content="", role="assistant"),
             ensure_ascii=False,
         )
         yield f"{chunk}\n\n"
@@ -81,36 +95,15 @@ async def chat_stream(id_, request_data, request: Request):
                 print("Client disconnected. Aborting stream.")
                 break
             chunk = json.dumps(
-                {
-                    "id": id_,
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": "jiuge",
-                    "system_fingerprint": None,
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"content": token},
-                            "logprobs": None,
-                            "finish_reason": None,
-                        }
-                    ],
-                },
+                chunk_json(id_, content=token),
                 ensure_ascii=False,
             )
             yield f"{chunk}\n\n"
     finally:
+        if request_lock.locked():
+            request_lock.release()
         chunk = json.dumps(
-            {
-                "id": id_,
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": "jiuge",
-                "system_fingerprint": None,
-                "choices": [
-                    {"index": 0, "delta": {}, "logprobs": None, "finish_reason": "stop"}
-                ],
-            },
+            chunk_json(id_, finish_reason="stop"),
             ensure_ascii=False,
         )
         yield f"{chunk}\n\n"
@@ -121,20 +114,9 @@ def chat(id_, request_data):
         request_data,
         kv_cache,
     )
-
-    response = {
-        "id": id_,
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": "jiuge",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": output_text.strip()},
-                "finish_reason": "stop",
-            }
-        ],
-    }
+    response = chunk_json(
+        id_, content=output_text.strip(), role="assistant", finish_reason="stop"
+    )
     return JSONResponse(response)
 
 
