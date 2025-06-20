@@ -3,7 +3,9 @@ local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") an
 target("infinicore_infer")
     set_kind("shared")
 
-    add_includedirs(INFINI_ROOT.."/include")
+    add_includedirs("include", { public = false })
+    add_includedirs(INFINI_ROOT.."/include", { public = true })
+
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infiniop", "infinirt", "infiniccl")
 
