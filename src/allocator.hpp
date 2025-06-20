@@ -17,7 +17,7 @@ public:
 
 class MemoryPool : public AllocatorBase {
 public:
-    MemoryPool(size_t initialSize = 32 * 1024 * 1024); // default: 32MB
+    MemoryPool(size_t initialSize = 0);
     ~MemoryPool();
     void *alloc(size_t size) override;
     void release(void *ptr) override;
