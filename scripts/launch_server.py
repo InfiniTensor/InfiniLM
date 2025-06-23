@@ -120,7 +120,7 @@ def chat(id_, request_data):
     return JSONResponse(response)
 
 
-@app.post("/jiuge/chat/completions")
+@app.post("/chat/completions")
 async def chat_completions(request: Request):
     data = await request.json()
 
@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
 """
 curl -N -H "Content-Type: application/json" \
-     -X POST http://127.0.0.1:8000/jiuge/chat/completions \
+     -X POST http://127.0.0.1:8000/chat/completions \
      -d '{
        "model": "jiuge",
        "messages": [
