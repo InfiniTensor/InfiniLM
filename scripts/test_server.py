@@ -3,10 +3,10 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-API_URL = "http://localhost:8000/jiuge/chat/completions"
-MODEL = "FM9G-7B"
+API_URL = "http://localhost:8001/jiuge/chat/completions"
+MODEL = "/data/shared/models/9G/9G7B_MHA"
 PROMPT = ["给我讲个故事", "山东最高的山是？"]
-CONCURRENCY = 10  # 并发用户数量
+CONCURRENCY = 5  # 并发用户数量
 
 def single_run(user_id):
     payload = {

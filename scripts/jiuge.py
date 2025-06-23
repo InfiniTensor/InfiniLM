@@ -34,9 +34,17 @@ class RandSampleArgs:
         self.topk = topk
         self.topp = topp
 
-      
+
 class RequestMeta:
-    def __init__(self, id, tokens, args: RandSampleArgs, request: Request, kv_cache: POINTER(KVCache), pos):
+    def __init__(
+        self,
+        id,
+        tokens,
+        args: RandSampleArgs,
+        request: Request,
+        kv_cache: POINTER(KVCache),
+        pos,
+    ):
         self.id = id
         self.tokens = tokens
         self.args = args
@@ -45,6 +53,7 @@ class RequestMeta:
         self.request = request
         self.pos = pos
         self.outputs = []
+
 
 class LlamaWeightsNaming:
     def input_embd(self):
@@ -181,7 +190,9 @@ class JiugeWeightsImpl(JiugeWeights):
         self.output_norm = self.output_norm_tensor.data_ptr()
         self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_mat)
         if not transpose_weight:
-            self.output_embd_tensor = self.output_embd_tensor.transpose(0, 1).contiguous()
+            self.output_embd_tensor = self.output_embd_tensor.transpose(
+                0, 1
+            ).contiguous()
         self.output_embd = self.output_embd_tensor.data_ptr()
 
         self.attn_norm_tensors = [
@@ -218,7 +229,12 @@ class JiugeWeightsImpl(JiugeWeights):
         ]
         if not transpose_weight:
             for i in range(nlayer):
-                self.qkv_tensor[i] = self.qkv_tensor[i].reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d).transpose(1, 2).contiguous()
+                self.qkv_tensor[i] = (
+                    self.qkv_tensor[i]
+                    .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
+                    .transpose(1, 2)
+                    .contiguous()
+                )
         self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
         self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
 
@@ -255,13 +271,18 @@ class JiugeWeightsImpl(JiugeWeights):
             self.attn_qkv_b = None
 
         self.attn_o_tensor = [
-            state_dict[naming.attn_o(i)]
+            (
+                state_dict[naming.attn_o(i)]
                 .to(torch_dt_mat)
                 .reshape([d, ndev, nh // ndev * dh])
                 .transpose(0, 1)
                 .contiguous()
-            if transpose_weight 
-            else state_dict[naming.attn_o(i)].transpose(0, 1).to(torch_dt_mat).contiguous()
+                if transpose_weight
+                else state_dict[naming.attn_o(i)]
+                .transpose(0, 1)
+                .to(torch_dt_mat)
+                .contiguous()
+            )
             for i in range(nlayer)
         ]
         self.attn_o_ptrs = [self.attn_o_tensor[i].data_ptr() for i in range(nlayer)]
@@ -290,18 +311,28 @@ class JiugeWeightsImpl(JiugeWeights):
         ]
         if not transpose_weight:
             for i in range(nlayer):
-                self.gate_up_tensors[i] = self.gate_up_tensors[i].reshape(ndev, 2 * di // ndev, d).transpose(1, 2).contiguous()
+                self.gate_up_tensors[i] = (
+                    self.gate_up_tensors[i]
+                    .reshape(ndev, 2 * di // ndev, d)
+                    .transpose(1, 2)
+                    .contiguous()
+                )
         self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
         self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
 
         self.ffn_down_tensor = [
-            state_dict[naming.down(i)]
-            .to(torch_dt_mat)
-            .reshape([d, ndev, di // ndev])
-            .transpose(0, 1)
-            .contiguous()
-            if transpose_weight
-            else state_dict[naming.down(i)].transpose(0, 1).to(torch_dt_mat).contiguous()
+            (
+                state_dict[naming.down(i)]
+                .to(torch_dt_mat)
+                .reshape([d, ndev, di // ndev])
+                .transpose(0, 1)
+                .contiguous()
+                if transpose_weight
+                else state_dict[naming.down(i)]
+                .transpose(0, 1)
+                .to(torch_dt_mat)
+                .contiguous()
+            )
             for i in range(nlayer)
         ]
         self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
@@ -318,7 +349,7 @@ class JiugeForCauslLM:
                 for name_ in data_.keys():
                     tensors_[name_] = data_.get_tensor(name_)
             return tensors_
-        
+
         print("Loading model weights to host...")
         load_start_time = time.time()
 
@@ -326,26 +357,46 @@ class JiugeForCauslLM:
             config = json.load(f)
             self.config = config
         eos_token_id = self.config["eos_token_id"]
-        self.eos_token_id = [eos_token_id] if type(eos_token_id) == int else eos_token_id
-        transpose_weight = device != DeviceType.DEVICE_TYPE_ASCEND # y = xW is faster than y=xW^T on Ascend
+        self.eos_token_id = (
+            [eos_token_id] if type(eos_token_id) == int else eos_token_id
+        )
+        transpose_weight = (
+            device != DeviceType.DEVICE_TYPE_ASCEND
+        )  # y = xW is faster than y=xW^T on Ascend
         if "llama" == config["model_type"]:
-            model = transformers.LlamaForCausalLM.from_pretrained(model_dir_path).cpu().half()
+            model = (
+                transformers.LlamaForCausalLM.from_pretrained(model_dir_path)
+                .cpu()
+                .half()
+            )
             self.meta = JiugeMetaFromLlama(config)
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
             self.weights = JiugeWeightsImpl(
-                self.meta, LlamaWeightsNaming(), model.state_dict(), ndev=ndev, transpose_weight=transpose_weight
+                self.meta,
+                LlamaWeightsNaming(),
+                model.state_dict(),
+                ndev=ndev,
+                transpose_weight=transpose_weight,
             )
         elif "fm9g" == config["model_type"]:
-            if any(file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()):
+            if any(
+                file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()
+            ):
                 state_dict = load_all_safetensors_from_dir(model_dir_path)
             else:
                 state_dict = torch.load(
-                os.path.join(model_dir_path, "pytorch_model.bin"), weights_only=True, map_location="cpu"
-            )
+                    os.path.join(model_dir_path, "pytorch_model.bin"),
+                    weights_only=True,
+                    map_location="cpu",
+                )
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config)
                 self.weights = JiugeWeightsImpl(
-                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev, transpose_weight=transpose_weight
+                    self.meta,
+                    LlamaWeightsNaming(),
+                    state_dict,
+                    ndev=ndev,
+                    transpose_weight=transpose_weight,
                 )
                 self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path, trust_remote_code=True
@@ -354,12 +405,18 @@ class JiugeForCauslLM:
                 raise ValueError("Unsupported weight naming")
         elif "fm9g7b" == config["model_type"]:
             state_dict = torch.load(
-                os.path.join(model_dir_path, "pytorch_model.bin"), weights_only=True, map_location="cpu"
+                os.path.join(model_dir_path, "pytorch_model.bin"),
+                weights_only=True,
+                map_location="cpu",
             )
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config)
                 self.weights = JiugeWeightsImpl(
-                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev, transpose_weight=transpose_weight
+                    self.meta,
+                    LlamaWeightsNaming(),
+                    state_dict,
+                    ndev=ndev,
+                    transpose_weight=transpose_weight,
                 )
                 self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path, trust_remote_code=True
@@ -371,7 +428,11 @@ class JiugeForCauslLM:
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config)
                 self.weights = JiugeWeightsImpl(
-                    self.meta, LlamaWeightsNaming(), state_dict, ndev=ndev, transpose_weight=transpose_weight
+                    self.meta,
+                    LlamaWeightsNaming(),
+                    state_dict,
+                    ndev=ndev,
+                    transpose_weight=transpose_weight,
                 )
                 self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path
@@ -381,7 +442,7 @@ class JiugeForCauslLM:
 
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
-        
+
         print(f"Creating model on {ndev} devices...")
         load_start_time = time.time()
         dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
@@ -394,83 +455,6 @@ class JiugeForCauslLM:
         )
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
-    
-  
-    def infer(self, reqs: List[RequestMeta]):
-        flat_tokens = [] # total tokens in a batch
-        req_lens = [] # nreq
-        req_poses = [] # nreq
-        kv_caches = [] # nreq
-        # Maintains unfinished reqs
-        active_reqs = []
-        
-        # Infer initialize
-        for r in reqs:
-            flat_tokens.extend(r.tokens)
-            req_lens.append(len(r.tokens))
-            req_poses.append(r.pos)
-            kv_caches.append(r.kv_cache)
-            active_reqs.append(r)
-        max_tokens = max(r.args.max_tokens for r in reqs)
-        ntok = len(flat_tokens)
-        nreq = len(active_reqs)
-        
-        # Pack to ctype array
-        tokens = (c_uint * ntok)(*flat_tokens)
-        req_lens = (c_uint * nreq)(*req_lens)
-        req_poses = (c_uint * nreq)(*req_poses)
-        kv_caches = (POINTER(KVCache) * nreq)(*kv_caches)
-        ans = (c_uint * nreq)()
-        
-        for step in range(max_tokens):   
-            infer_batch(
-                self.model_instance,
-                tokens,
-                ntok,
-                req_lens,
-                nreq,
-                req_poses,
-                kv_caches,
-                ans,
-                active_reqs[0].args.temperature,  # 这里一个 batch 共用这些参数？？
-                active_reqs[0].args.topk,
-                active_reqs[0].args.topp)
-            
-            output_tokens = list(ans) # nreq output
-            
-            # Check output of current step
-            for i, r in enumerate(active_reqs):
-                token = output_tokens[i]
-                if token in self.eos_token_id:
-                    r.finished = True
-                r.outputs.append(token)
-                
-            # Filter finished request
-            new_active = []
-            next_tokens = []
-            next_req_poses = []
-            next_kv_caches = []
-            for i, r in enumerate(active_reqs):
-                if not r.finished:
-                    new_active.append(r)
-                    next_tokens.append(output_tokens[i])
-                    next_req_poses.append(req_poses[i] + req_lens[i])
-                    next_kv_caches.append(kv_caches[i])
-                    
-            # Exit gen if no active reqs
-            if not new_active:
-                break
-    
-            # Prepare for next step infer
-            nreq = len(new_active)
-            ntok = len(new_active) # Next step gen 1 token for every req
-            tokens = (c_uint * ntok)(*next_tokens)
-            req_lens = (c_uint * nreq)(*([1] * nreq))
-            req_poses = (c_uint * nreq)(*next_req_poses)
-            kv_caches = (POINTER(KVCache) * nreq)(*next_kv_caches)
-            
-            active_reqs = new_active
-
 
     def stop_batch_loop(self):
         self.running = False
@@ -535,9 +519,8 @@ class JiugeForCauslLM:
             tokens = (c_uint * ntok)(*output_tokens)
             req_lens = (c_uint * nreq)(*[ntok])
 
-
         return output_content
-    
+
     async def chat_stream_async(self, request, kv_cache):
         messages = request.get("messages", [])
         temperature = request.get("temperature", 1.0)
@@ -645,7 +628,7 @@ class JiugeForCauslLM:
             ntok = 1
             tokens = (c_uint * ntok)(*output_tokens)
             req_lens = (c_uint * nreq)(*[ntok])
-            
+
             if step_i > 0:
                 total_time += end_time - start_time
 
@@ -655,7 +638,7 @@ class JiugeForCauslLM:
         for kv_cache in kv_caches:
             drop_kv_cache(self.model_instance, kv_cache)
         return output_content, avg_time
-    
+
     def destroy_model_instance(self):
         destroy_jiuge_model(self.model_instance)
         print("Model destroyed")
@@ -663,7 +646,9 @@ class JiugeForCauslLM:
 
 def test_infer():
     if len(sys.argv) < 3:
-        print("Usage: python test_batch.py [--cpu | --nvidia| ...] <path/to/model_dir> [n_device]")
+        print(
+            "Usage: python test_batch.py [--cpu | --nvidia| ...] <path/to/model_dir> [n_device]"
+        )
         sys.exit(1)
 
     model_path = sys.argv[2]
@@ -687,10 +672,7 @@ def test_infer():
     model = JiugeForCauslLM(model_path, device_type, ndev)
 
     # 构造多个请求（每个是一个 RequestMeta）
-    prompts = [
-        "山东最高的山是？",
-        "中国有多少个省？"
-    ]
+    prompts = ["山东最高的山是？", "中国有多少个省？"]
 
     requests = []
     for i, prompt in enumerate(prompts):
@@ -701,7 +683,7 @@ def test_infer():
             tokenize=False,
         )
         tokens = model.tokenizer.encode(input_content)
-        
+
         print(f"{i} th prompt: ", tokens)
         # 创建 KV cache
         kv_cache = create_kv_cache(model.model_instance)
@@ -711,7 +693,14 @@ def test_infer():
         args = RandSampleArgs(max_tokens=64, temperature=1.0, topk=1, topp=1.0)
 
         # 创建请求结构
-        req = RequestMeta(id=i, tokens=tokens, args=args, request=input_content, kv_cache=kv_cache, pos=0)
+        req = RequestMeta(
+            id=i,
+            tokens=tokens,
+            args=args,
+            request=input_content,
+            kv_cache=kv_cache,
+            pos=0,
+        )
         requests.append(req)
 
     # 执行推理
