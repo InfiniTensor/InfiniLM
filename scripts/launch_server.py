@@ -1,5 +1,8 @@
+import asyncio
 from jiuge import JiugeForCauslLM
 from libinfinicore_infer import DeviceType
+from infer_task import InferTask
+from kvcache_pool import KVCachePool
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -37,25 +40,25 @@ else:
     sys.exit(1)
 ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
 
-model = JiugeForCauslLM(model_path, device_type, ndev)
-kv_cache = model.create_kv_cache()
+MODEL = JiugeForCauslLM(model_path, device_type, ndev)
 
+App = FastAPI()
+
+@App.on_event("startup")
+async def setup():
+    App.state.kv_cache_pool = KVCachePool(MODEL, 1)
+
+async def handle_shutdown():
+    await App.state.kv_cache_pool.finalize()
+    MODEL.destroy_model_instance()
+    sys.exit(0)
 
 def signal_handler(sig, frame):
     print(f"Received signal {sig}, cleaning up...")
-    model.drop_kv_cache(kv_cache)
-    model.destroy_model_instance()
-    sys.exit(0)
-
+    asyncio.create_task(handle_shutdown())
 
 signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C
 signal.signal(signal.SIGTERM, signal_handler)  # Handle docker stop / system shutdown
-
-app = FastAPI()
-
-# TO REMOVE: Global lock to ensure only one request is handled at a time
-# Remove this after multiple requests handling is implemented
-request_lock = anyio.Lock()
 
 
 def chunk_json(id_, content=None, role=None, finish_reason=None):
@@ -83,14 +86,18 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
 
 async def chat_stream(id_, request_data, request: Request):
     try:
-        await request_lock.acquire()
+        infer_task = InferTask(id_, MODEL.tokenizer, request_data)
+        await App.state.kv_cache_pool.acquire(infer_task)
         chunk = json.dumps(
             chunk_json(id_, content="", role="assistant"),
             ensure_ascii=False,
         )
         yield f"{chunk}\n\n"
 
-        async for token in model.chat_stream_async(request_data, kv_cache):
+        async for token in MODEL.chat_stream_async(
+            infer_task.request,
+            infer_task.kvcache(),
+        ):
             if await request.is_disconnected():
                 print("Client disconnected. Aborting stream.")
                 break
@@ -100,8 +107,7 @@ async def chat_stream(id_, request_data, request: Request):
             )
             yield f"{chunk}\n\n"
     finally:
-        if request_lock.locked():
-            request_lock.release()
+        await App.state.kv_cache_pool.release(infer_task)
         chunk = json.dumps(
             chunk_json(id_, finish_reason="stop"),
             ensure_ascii=False,
@@ -109,18 +115,22 @@ async def chat_stream(id_, request_data, request: Request):
         yield f"{chunk}\n\n"
 
 
-def chat(id_, request_data):
-    output_text = model.chat(
-        request_data,
-        kv_cache,
+async def chat(id_, request_data):
+    infer_task = InferTask(id_, MODEL.tokenizer, request_data)
+    await App.state.kv_cache_pool.acquire(infer_task)
+
+    output_text = MODEL.chat(
+        infer_task.request,
+        infer_task.kvcache(),
     )
     response = chunk_json(
         id_, content=output_text.strip(), role="assistant", finish_reason="stop"
     )
+    await App.state.kv_cache_pool.release(infer_task)
     return JSONResponse(response)
 
 
-@app.post("/chat/completions")
+@App.post("/chat/completions")
 async def chat_completions(request: Request):
     data = await request.json()
 
@@ -138,7 +148,7 @@ async def chat_completions(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(App, host="0.0.0.0", port=8000)
 
 """
 curl -N -H "Content-Type: application/json" \

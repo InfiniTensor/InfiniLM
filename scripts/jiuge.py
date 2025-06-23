@@ -372,6 +372,9 @@ class JiugeForCauslLM:
         )
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
+    
+    def max_context_len(self):
+        return self.meta.dctx
         
     def create_kv_cache(self):
         return create_kv_cache(self.model_instance)
