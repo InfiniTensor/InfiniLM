@@ -1,12 +1,4 @@
-from ctypes import POINTER, c_int, c_uint, c_void_p, byref
-import os
-from pathlib import Path
-import safetensors
-import sys
-import time
-import json
-import asyncio
-
+from typing import List
 from libinfinicore_infer import (
     JiugeMeta,
     JiugeWeights,
@@ -19,6 +11,15 @@ from libinfinicore_infer import (
     drop_kv_cache,
     infer_batch,
 )
+from infer_task import InferTask
+
+from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import os
+from pathlib import Path
+import safetensors
+import sys
+import time
+import json
 import torch
 import transformers
 
@@ -286,6 +287,47 @@ class JiugeWeightsImpl(JiugeWeights):
         self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
 
 
+class JiugeBatchedTask:
+    def __init__(self, tasks: List[InferTask]):
+        self.tasks = tasks
+        self.nreq = len(tasks)
+
+        # Precompute fields
+        token_lists = [t.tokens for t in tasks]
+        self.req_lens_list = [len(toks) for toks in token_lists]
+        self.req_pos_list = [t.pos for t in tasks]
+        self.kv_cache_ptrs = [t.kvcache() for t in tasks]
+        self.temperaturas_list = [t.temperature for t in tasks]
+        self.topks_list = [t.topk for t in tasks]
+        self.topps_list = [t.topp for t in tasks]
+
+        # Flatten token lists
+        flat_tokens = [tok for toks in token_lists for tok in toks]
+        self.ntok = len(flat_tokens)
+
+        # Convert to ctypes arrays in one pass
+        self.tokens = (c_uint * self.ntok)(*flat_tokens)
+        self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
+        self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
+        self.kv_caches = (POINTER(KVCache) * self.nreq)(*self.kv_cache_ptrs)
+        self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
+        self.topks = (c_uint * self.nreq)(*self.topks_list)
+        self.topps = (c_float * self.nreq)(*self.topps_list)
+
+    def input_args(self):
+        return (
+            self.tokens,
+            self.ntok,
+            self.req_lens,
+            self.nreq,
+            self.req_pos,
+            self.kv_caches,
+            self.temperaturas,
+            self.topks,
+            self.topps,
+        )
+
+
 class JiugeForCauslLM:
     def __init__(self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1):
         def load_all_safetensors_from_dir(dir_path_: str):
@@ -382,118 +424,17 @@ class JiugeForCauslLM:
     def drop_kv_cache(self, kv_cache):
         drop_kv_cache(self.model_instance, kv_cache)
 
-    def chat(self, request, kv_cache):
-        messages = request.get("messages", [])
-        temperature = request.get("temperature", 1.0)
-        topk = request.get("top_k", 1)
-        topp = request.get("top_p", 1.0)
-        max_tokens = request.get("max_tokens", self.meta.dctx)
-        input_content = self.tokenizer.apply_chat_template(
-            conversation=messages,
-            add_generation_prompt=True,
-            tokenize=False,
+    def batch_infer_one_round(self, tasks: List[InferTask]):
+        output = (c_uint * len(tasks))()
+        batch_inputs = JiugeBatchedTask(tasks)
+        infer_batch(
+            self.model_instance,
+            *(batch_inputs.input_args()),
+            output,
         )
+        return list(output)
 
-        tokens = self.tokenizer.encode(input_content)
-        ntok = len(tokens)
-        nreq = 1
-        output_content = ""
-        tokens = (c_uint * ntok)(*tokens)
-        req_lens = (c_uint * nreq)(*[ntok])
-        req_pos = (c_uint * nreq)(*[0])
-        kv_caches = (POINTER(KVCache) * nreq)(*[kv_cache])
-        ans = (c_uint * nreq)()
-
-        steps = 0
-        for step_i in range(max_tokens):
-            infer_batch(
-                self.model_instance,
-                tokens,
-                ntok,
-                req_lens,
-                nreq,
-                req_pos,
-                kv_caches,
-                ans,
-                temperature,
-                topk,
-                topp,
-            )
-            steps += 1
-            output_tokens = list(ans)
-            output_str = (
-                self.tokenizer._tokenizer.id_to_token(output_tokens[0])
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
-            output_content += output_str
-
-            if output_tokens[0] in self.eos_token_id:
-                break
-            req_pos[0] = req_pos[0] + ntok
-            ntok = 1
-            tokens = (c_uint * ntok)(*output_tokens)
-            req_lens = (c_uint * nreq)(*[ntok])
-
-
-        return output_content
-    
-    async def chat_stream_async(self, request, kv_cache):
-        messages = request.get("messages", [])
-        temperature = request.get("temperature", 1.0)
-        topk = request.get("top_k", 1)
-        topp = request.get("top_p", 1.0)
-        max_tokens = request.get("max_tokens", 512)
-
-        input_content = self.tokenizer.apply_chat_template(
-            conversation=messages,
-            add_generation_prompt=True,
-            tokenize=False,
-        )
-
-        tokens = self.tokenizer.encode(input_content)
-        ntok = len(tokens)
-        nreq = 1
-        tokens = (c_uint * ntok)(*tokens)
-        req_lens = (c_uint * nreq)(*[ntok])
-        req_pos = (c_uint * nreq)(*[0])
-        kv_caches = (POINTER(KVCache) * nreq)(*[kv_cache])
-        ans = (c_uint * nreq)()
-
-        for step_i in range(max_tokens):
-            infer_batch(
-                self.model_instance,
-                tokens,
-                ntok,
-                req_lens,
-                nreq,
-                req_pos,
-                kv_caches,
-                ans,
-                temperature,
-                topk,
-                topp,
-            )
-
-            output_tokens = list(ans)
-            output_str = (
-                self.tokenizer._tokenizer.id_to_token(output_tokens[0])
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
-
-            yield output_str  # Yield each token as it's produced
-            await asyncio.sleep(0)  # Let event loop breathe
-
-            if output_tokens[0] in self.eos_token_id:
-                break
-
-            req_pos[0] += ntok
-            ntok = 1
-            tokens = (c_uint * ntok)(*output_tokens)
-            req_lens = (c_uint * nreq)(*[ntok])
-
-    def generate(self, input_content, max_steps, topp=1.0, topk=1, temperature=1.0):
+    def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
         kv_cache = create_kv_cache(self.model_instance)
         input_content = self.tokenizer.apply_chat_template(
             conversation=[{"role": "user", "content": input_content}],
@@ -510,6 +451,9 @@ class JiugeForCauslLM:
         req_pos = (c_uint * nreq)(*[0])
         kv_caches = (POINTER(KVCache) * nreq)(*[kv_cache])
         ans = (c_uint * nreq)()
+        temperature = (c_float * nreq)(*[temperature_])
+        topk = (c_uint * nreq)(*[topk_])
+        topp = (c_float * nreq)(*[topp_])
 
         steps = 0
         total_time = 0
@@ -524,10 +468,10 @@ class JiugeForCauslLM:
                 nreq,
                 req_pos,
                 kv_caches,
-                ans,
                 temperature,
                 topk,
                 topp,
+                ans,
             )
             steps += 1
             output_tokens = list(ans)
@@ -545,7 +489,7 @@ class JiugeForCauslLM:
             ntok = 1
             tokens = (c_uint * ntok)(*output_tokens)
             req_lens = (c_uint * nreq)(*[ntok])
-            
+
             if step_i > 0:
                 total_time += end_time - start_time
 
@@ -555,7 +499,7 @@ class JiugeForCauslLM:
         for kv_cache in kv_caches:
             drop_kv_cache(self.model_instance, kv_cache)
         return output_content, avg_time
-    
+
     def destroy_model_instance(self):
         destroy_jiuge_model(self.model_instance)
         print("Model destroyed")

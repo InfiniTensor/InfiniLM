@@ -1,18 +1,19 @@
-import asyncio
 from jiuge import JiugeForCauslLM
 from libinfinicore_infer import DeviceType
 from infer_task import InferTask
 from kvcache_pool import KVCachePool
 
+import queue
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
-import anyio
+import contextlib
 import uvicorn
 import time
 import uuid
 import sys
-import signal
 import json
+import threading
+import janus
 
 if len(sys.argv) < 3:
     print(
@@ -40,26 +41,6 @@ else:
     sys.exit(1)
 ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
 
-MODEL = JiugeForCauslLM(model_path, device_type, ndev)
-
-App = FastAPI()
-
-@App.on_event("startup")
-async def setup():
-    App.state.kv_cache_pool = KVCachePool(MODEL, 1)
-
-async def handle_shutdown():
-    await App.state.kv_cache_pool.finalize()
-    MODEL.destroy_model_instance()
-    sys.exit(0)
-
-def signal_handler(sig, frame):
-    print(f"Received signal {sig}, cleaning up...")
-    asyncio.create_task(handle_shutdown())
-
-signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C
-signal.signal(signal.SIGTERM, signal_handler)  # Handle docker stop / system shutdown
-
 
 def chunk_json(id_, content=None, role=None, finish_reason=None):
     delta = {}
@@ -84,50 +65,156 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
     }
 
 
+MAX_BATCH = 3
+print(f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs.")
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    app.state.model = JiugeForCauslLM(model_path, device_type, ndev)
+    app.state.kv_cache_pool = KVCachePool(app.state.model, MAX_BATCH)
+    app.state.request_queue = janus.Queue()
+    worker_thread = threading.Thread(target=worker_loop, args=(app,), daemon=True)
+    worker_thread.start()
+
+    try:
+        yield  # The app runs here
+    finally:
+        # Shutdown
+        app.state.request_queue.sync_q.put(None)
+        worker_thread.join()
+        app.state.request_queue.shutdown()
+
+        app.state.kv_cache_pool.finalize()
+        app.state.model.destroy_model_instance()
+
+
+App = FastAPI(lifespan=lifespan)
+
+
+# App loop: take requests from the queue, do inference, and put unfinished requests back into the queue.
+def worker_loop(app):
+    while True:
+        try:
+            task = app.state.request_queue.sync_q.get(timeout=0.01)
+        except queue.Empty:
+            continue
+
+        if task is None:
+            return
+
+        batch = [task]
+        while len(batch) < MAX_BATCH:
+            try:
+                req = app.state.request_queue.sync_q.get_nowait()
+                if req is not None:
+                    batch.append(req)
+            except queue.Empty:
+                break
+        output_tokens = app.state.model.batch_infer_one_round(batch)
+        for task, token in zip(batch, output_tokens):
+            task.output(token)
+            if task.finish_reason is None:
+                app.state.request_queue.sync_q.put(task)
+            else:
+                print(f"[INFO] Task {task.id} finished infer.")
+                app.state.kv_cache_pool.release_sync(task)
+
+
+def build_task(id_, request_data, request: Request):
+    messages = request_data.get("messages", [])
+    input_content = request.app.state.model.tokenizer.apply_chat_template(
+        conversation=messages,
+        add_generation_prompt=True,
+        tokenize=False,
+    )
+    tokens = request.app.state.model.tokenizer.encode(input_content)
+    return InferTask(
+        id_,
+        tokens,
+        request_data.get("max_tokens", request.app.state.model.max_context_len()),
+        request_data.get("temperature", 1.0),
+        request_data.get("top_k", 1),
+        request_data.get("top_p", 1.0),
+        request.app.state.model.eos_token_id,
+    )
+
+
 async def chat_stream(id_, request_data, request: Request):
     try:
-        infer_task = InferTask(id_, MODEL.tokenizer, request_data)
-        await App.state.kv_cache_pool.acquire(infer_task)
+        infer_task = build_task(id_, request_data, request)
+        await request.app.state.kv_cache_pool.acquire(infer_task)
+
+        # Initial empty content
         chunk = json.dumps(
-            chunk_json(id_, content="", role="assistant"),
-            ensure_ascii=False,
+            chunk_json(id_, content="", role="assistant"), ensure_ascii=False
         )
         yield f"{chunk}\n\n"
 
-        async for token in MODEL.chat_stream_async(
-            infer_task.request,
-            infer_task.kvcache(),
-        ):
+        request.app.state.request_queue.sync_q.put(infer_task)
+
+        while True:
             if await request.is_disconnected():
                 print("Client disconnected. Aborting stream.")
                 break
-            chunk = json.dumps(
-                chunk_json(id_, content=token),
-                ensure_ascii=False,
+            if (
+                infer_task.finish_reason is not None
+                and infer_task.output_queue.async_q.empty()
+            ):
+                chunk = json.dumps(
+                    chunk_json(id_, finish_reason=infer_task.finish_reason),
+                    ensure_ascii=False,
+                )
+                yield f"{chunk}\n\n"
+                break
+
+            token = await infer_task.output_queue.async_q.get()
+            content = (
+                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
+                .replace("▁", " ")
+                .replace("<0x0A>", "\n")
             )
+            chunk = json.dumps(chunk_json(id_, content=content), ensure_ascii=False)
             yield f"{chunk}\n\n"
-    finally:
-        await App.state.kv_cache_pool.release(infer_task)
-        chunk = json.dumps(
-            chunk_json(id_, finish_reason="stop"),
-            ensure_ascii=False,
+
+    except Exception as e:
+        print(f"[Error] ID : {id_} Exception: {e}")
+
+
+async def chat(id_, request_data, request: Request):
+    try:
+        infer_task = build_task(id_, request_data, request)
+        await request.app.state.kv_cache_pool.acquire(infer_task)
+        request.app.state.request_queue.sync_q.put(infer_task)
+        output = []
+        while True:
+            if (
+                infer_task.finish_reason is not None
+                and infer_task.output_queue.async_q.empty()
+            ):
+                break
+
+            token = await infer_task.output_queue.async_q.get()
+            content = (
+                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
+                .replace("▁", " ")
+                .replace("<0x0A>", "\n")
+            )
+            output.append(content)
+
+        output_text = "".join(output).strip()
+        response = chunk_json(
+            id_,
+            content=output_text,
+            role="assistant",
+            finish_reason=infer_task.finish_reason or "stop",
         )
-        yield f"{chunk}\n\n"
+        return response
 
-
-async def chat(id_, request_data):
-    infer_task = InferTask(id_, MODEL.tokenizer, request_data)
-    await App.state.kv_cache_pool.acquire(infer_task)
-
-    output_text = MODEL.chat(
-        infer_task.request,
-        infer_task.kvcache(),
-    )
-    response = chunk_json(
-        id_, content=output_text.strip(), role="assistant", finish_reason="stop"
-    )
-    await App.state.kv_cache_pool.release(infer_task)
-    return JSONResponse(response)
+    except Exception as e:
+        print(f"[Error] ID: {id_} Exception: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
 @App.post("/chat/completions")
@@ -144,7 +231,7 @@ async def chat_completions(request: Request):
             chat_stream(id_, data, request), media_type="text/event-stream"
         )
     else:
-        return chat(id_, data)
+        return JSONResponse(chat(id_, data))
 
 
 if __name__ == "__main__":

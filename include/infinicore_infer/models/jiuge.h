@@ -75,22 +75,6 @@ __C __export void
 dropKVCache(const struct JiugeModel *,
             struct KVCache *);
 
-/// @brief 文本生成
-/// @param tokens 输入 token
-/// @param ntok 输入 token 数量
-/// @param req_pos 每个请求的起始位置
-/// @param output 输出 token 地址
-/// @param max_step 输出 token 最大数量
-/// @param temperature 采样温度（0. 表示贪心采样）
-/// @param topk 采样 topk（1 表示贪心采样）
-/// @param topp 采样 topp
-__C __export void
-generate(struct JiugeModel *,
-         struct KVCache *,
-         const uint32_t *tokens, uint32_t ntok, uint32_t req_pos,
-         uint32_t *output, uint32_t max_step,
-         float temperature, uint32_t topk, float topp);
-
 /// @brief 批次推理一轮
 /// @param tokens 输入 token 地址
 /// @param ntok 输入 token 数量
@@ -98,16 +82,16 @@ generate(struct JiugeModel *,
 /// @param req_lens 每个请求的 token 数量
 /// @param req_pos 每个请求的起始位置
 /// @param kv_caches 每个请求的 KV Cache
-/// @param ans 输出 token 数组，每个请求一个输出，长度至少为nreq
 /// @param temperature 采样温度（0. 表示贪心采样）
 /// @param topk 采样 topk（1 表示贪心采样）
 /// @param topp 采样 topp
+/// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 inferBatch(struct JiugeModel *,
            const uint32_t *tokens, uint32_t ntok,
            const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
            struct KVCache **kv_caches,
-           uint32_t *output,
-           float temperature, uint32_t topk, float topp);
+           const float *temperature, const uint32_t *topk, const float *topp,
+           uint32_t *output);
 
 #endif

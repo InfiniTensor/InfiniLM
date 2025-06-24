@@ -94,6 +94,7 @@ def __open_library__():
         POINTER(c_int),  # int const *dev_ids
     ]
     lib.destroyJiugeModel.argtypes = [POINTER(JiugeModel)]
+    lib.createKVCache.argtypes = [POINTER(JiugeModel)]
     lib.createKVCache.restype = POINTER(KVCache)
     lib.dropKVCache.argtypes = [POINTER(JiugeModel), POINTER(KVCache)]
     lib.inferBatch.restype = None
@@ -105,10 +106,10 @@ def __open_library__():
         c_uint,  # unsigned int nreq
         POINTER(c_uint),  # unsigned int const *req_pos
         POINTER(POINTER(KVCache)),  # struct KVCache **kv_caches
+        POINTER(c_float),  # float temperature
+        POINTER(c_uint),  # unsigned int topk
+        POINTER(c_float),  # float topp
         POINTER(c_uint),  # unsigned int *output
-        c_float,  # float temperature
-        c_uint,  # unsigned int topk
-        c_float,  # float topp
     ]
 
     return lib

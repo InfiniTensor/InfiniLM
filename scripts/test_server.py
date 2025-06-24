@@ -5,13 +5,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 API_URL = "http://localhost:8000/chat/completions"
 MODEL = "FM9G-7B"
-PROMPT = ["给我讲个故事", "山东最高的山是？"]
+PROMPT = ["山东最高的山是？", "给我讲个故事"]
 CONCURRENCY = 10  # 并发用户数量
 
 def single_run(user_id):
     payload = {
         "model": MODEL,
         "messages": [{"role": "user", "content": PROMPT[user_id % len(PROMPT)]}],
+        "max_tokens": 512,
         "stream": True
     }
     headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
@@ -86,6 +87,9 @@ def main():
             if r['stream_time'] < best_stream:
                 best_stream = r['stream_time']
                 best = r
+    
+    # Sort results by user ID
+    results.sort(key=lambda x: x["user"])
 
     with open("responses.txt", "w", encoding="utf-8") as fw:
         for r in results:

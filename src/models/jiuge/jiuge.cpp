@@ -115,8 +115,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                       struct KVCache **kv_caches,
-                      uint32_t *ans,
-                      float temperature, uint32_t topk, float topp) {
+                      const float *temperature, const uint32_t *topk, const float *topp,
+                      uint32_t *output) {
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
@@ -457,8 +457,10 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             RUN_INFINI(infiniopRandomSample(
                 desc_sample, workspace, workspace_size,
                 result_buf->data(req),
-                prob_buf->data(req * dvoc), random_val, topp,
-                topk, temperature, stream));
+                prob_buf->data(req * dvoc),
+                random_val,
+                topp[req], topk[req], temperature[req],
+                stream));
             // result_buf->debug();
             token_offset += seq_len;
         }
@@ -466,7 +468,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         RUN_INFINI(infinirtMemcpy(result_cpu.data(), result_buf->data(),
                                   sizeof(int64_t) * nreq, INFINIRT_MEMCPY_D2H));
         for (uint32_t req = 0; req < nreq; req++) {
-            ans[req] = result_cpu[req];
+            output[req] = result_cpu[req];
         }
     }
 
@@ -500,15 +502,15 @@ inferBatch(struct JiugeModel *model,
            const uint32_t *tokens, uint32_t ntok,
            const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
            struct KVCache **kv_caches,
-           uint32_t *ans,
-           float temperature, uint32_t topk, float topp) {
+           const float *temperature, const uint32_t *topk, const float *topp,
+           uint32_t *output) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
     model->req.kv_caches = kv_caches;
-    model->req.ans = ans;
+    model->req.output = output;
     model->req.temperature = temperature;
     model->req.topk = topk;
     model->req.topp = topp;
@@ -547,7 +549,7 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, DeviceReso
             break;
         }
 
-        inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok, req.req_lens, req.nreq, req.req_pos, req.kv_caches, req.ans, req.temperature, req.topk, req.topp);
+        inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok, req.req_lens, req.nreq, req.req_pos, req.kv_caches, req.temperature, req.topk, req.topp, req.output);
 
         state.proceed = false;
         lock.unlock();
