@@ -9,6 +9,9 @@
 #include <vector>
 
 class Storage {
+private:
+    Storage() = default;
+
 public:
     void *memory;
     size_t size;
