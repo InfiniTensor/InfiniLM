@@ -35,7 +35,7 @@ class DeviceType(ctypes.c_int):
     DEVICE_TYPE_MOORE = 5
 
 
-class JiugeMeta(ctypes.Structure):
+class JiugeMetaCStruct(ctypes.Structure):
     _fields_ = [
         ("dt_logits", DataType),
         ("nlayer", c_size_t),
@@ -53,7 +53,7 @@ class JiugeMeta(ctypes.Structure):
 
 
 # Define the JiugeWeights struct
-class JiugeWeights(ctypes.Structure):
+class JiugeWeightsCStruct(ctypes.Structure):
     _fields_ = [
         ("nlayer", c_size_t),
         ("dt_norm", DataType),
@@ -72,11 +72,11 @@ class JiugeWeights(ctypes.Structure):
     ]
 
 
-class JiugeModel(ctypes.Structure):
+class JiugeModelCSruct(ctypes.Structure):
     pass
 
 
-class KVCache(ctypes.Structure):
+class KVCacheCStruct(ctypes.Structure):
     pass
 
 
@@ -85,27 +85,27 @@ def __open_library__():
         os.environ.get("INFINI_ROOT"), "lib", "libinfinicore_infer.so"
     )
     lib = ctypes.CDLL(lib_path)
-    lib.createJiugeModel.restype = POINTER(JiugeModel)
+    lib.createJiugeModel.restype = POINTER(JiugeModelCSruct)
     lib.createJiugeModel.argtypes = [
-        POINTER(JiugeMeta),  # JiugeMeta const *
-        POINTER(JiugeWeights),  # JiugeWeights const *
+        POINTER(JiugeMetaCStruct),  # JiugeMeta const *
+        POINTER(JiugeWeightsCStruct),  # JiugeWeights const *
         DeviceType,  # DeviceType
         c_int,  # int ndev
         POINTER(c_int),  # int const *dev_ids
     ]
-    lib.destroyJiugeModel.argtypes = [POINTER(JiugeModel)]
-    lib.createKVCache.argtypes = [POINTER(JiugeModel)]
-    lib.createKVCache.restype = POINTER(KVCache)
-    lib.dropKVCache.argtypes = [POINTER(JiugeModel), POINTER(KVCache)]
+    lib.destroyJiugeModel.argtypes = [POINTER(JiugeModelCSruct)]
+    lib.createKVCache.argtypes = [POINTER(JiugeModelCSruct)]
+    lib.createKVCache.restype = POINTER(KVCacheCStruct)
+    lib.dropKVCache.argtypes = [POINTER(JiugeModelCSruct), POINTER(KVCacheCStruct)]
     lib.inferBatch.restype = None
     lib.inferBatch.argtypes = [
-        POINTER(JiugeModel),  # struct JiugeModel const *
+        POINTER(JiugeModelCSruct),  # struct JiugeModel const *
         POINTER(c_uint),  # unsigned int const *tokens
         c_uint,  # unsigned int ntok
         POINTER(c_uint),  # unsigned int const *req_lens
         c_uint,  # unsigned int nreq
         POINTER(c_uint),  # unsigned int const *req_pos
-        POINTER(POINTER(KVCache)),  # struct KVCache **kv_caches
+        POINTER(POINTER(KVCacheCStruct)),  # struct KVCache **kv_caches
         POINTER(c_float),  # float temperature
         POINTER(c_uint),  # unsigned int topk
         POINTER(c_float),  # float topp

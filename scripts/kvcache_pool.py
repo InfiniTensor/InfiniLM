@@ -1,27 +1,7 @@
+from infer_task import KVCache
+
 import asyncio
 from typing import List
-
-
-class KVCachePoolItem:
-    def __init__(self, model):
-        self.kvcache = model.create_kv_cache()
-        self.tokens = [0 for _ in range(model.max_context_len())]
-
-    def drop(self, model):
-        model.drop_kv_cache(self.kvcache)
-
-    def update_tokens(self, tokens, pos):
-        end = pos + len(tokens)
-        max_len = len(self.tokens)
-
-        # If overflow, truncate tokens to fit
-        if end > max_len:
-            tokens = tokens[: max_len - pos]
-            end = max_len
-
-        self.tokens[pos:end] = tokens
-
-
 import threading
 
 
@@ -29,7 +9,7 @@ class KVCachePool:
     def __init__(self, model, max_caches: int = 32):
         self.max_caches = max_caches
         self.model = model
-        self._available: List[KVCachePoolItem] = []
+        self._available: List[KVCache] = []
         self.num_caches = len(self._available)
         self._lock = threading.Lock()
         self._not_empty = threading.Condition(self._lock)
@@ -45,8 +25,10 @@ class KVCachePool:
                 if len(self._available) == 0:
                     if self.num_caches < self.max_caches:
                         self.num_caches += 1
-                        print(f"[INFO] Task {infer_task.id} created new KVCachePoolItem")
-                        return infer_task.bind_kvcache(KVCachePoolItem(self.model), 0)
+                        print(
+                            f"[INFO] Task {infer_task.id} created new KVCachePoolItem"
+                        )
+                        return infer_task.bind_kvcache(KVCache(self.model), 0)
                     else:
                         self._not_empty.wait()
                 else:
@@ -62,8 +44,7 @@ class KVCachePool:
     def release_sync(self, infer_task):
         with self._not_empty:
             print(f"[INFO] Task {infer_task.id} returned KVCachePoolItem to pool")
-            self._available.append(infer_task._kv_cache_pool_item)
-            infer_task._kv_cache_pool_item = None
+            self._available.append(infer_task.release_kvcache())
             self._not_empty.notify()
 
     async def acquire(self, infer_task):

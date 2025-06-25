@@ -1,6 +1,3 @@
-import janus
-
-
 class InferTask:
     def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens):
         self.id = id
@@ -11,21 +8,24 @@ class InferTask:
         self.topk = topk
         self.topp = topp
         self.end_tokens = end_tokens
-        self.output_queue = janus.Queue()
-        self._kv_cache_pool_item = None
+        self._kv_cache = None
         self.pos = 0
-        print(f"[INFO] Create InferTask {self.id}")
 
-    def bind_kvcache(self, kv_cache_pool_item, pos):
-        self._kv_cache_pool_item = kv_cache_pool_item
+    def bind_kvcache(self, kv_cache, pos=0):
+        self._kv_cache = kv_cache
         self.pos = pos
         self.tokens = self.tokens[pos:]
 
-    def kvcache(self):
-        return self._kv_cache_pool_item.kvcache
+    def release_kvcache(self):
+        cache = self._kv_cache
+        self._kv_cache = None
+        return cache
 
-    def output(self, out_token):
-        self._kv_cache_pool_item.update_tokens(self.tokens, self.pos)
+    def kvcache(self):
+        return self._kv_cache
+
+    def next(self, out_token):
+        self._kv_cache.update_tokens(self.tokens, self.pos)
 
         self.pos += len(self.tokens)
         if out_token == None or out_token in self.end_tokens:
@@ -35,4 +35,25 @@ class InferTask:
         else:
             self.tokens = [out_token]
 
-        self.output_queue.sync_q.put(out_token)
+
+class KVCache:
+    def __init__(self, model):
+        self._kvcache = model.create_kv_cache()
+        self.tokens = [0 for _ in range(model.max_context_len())]
+
+    def data(self):
+        return self._kvcache
+
+    def drop(self, model):
+        model.drop_kv_cache(self._kvcache)
+
+    def update_tokens(self, tokens, pos):
+        end = pos + len(tokens)
+        max_len = len(self.tokens)
+
+        # If overflow, truncate tokens to fit
+        if end > max_len:
+            tokens = tokens[: max_len - pos]
+            end = max_len
+
+        self.tokens[pos:end] = tokens

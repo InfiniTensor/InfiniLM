@@ -70,6 +70,17 @@ print(
     f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
 )
 
+# A wrapper for InferTask that supports async output queue
+class AsyncInferTask(InferTask):
+    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens):
+        super().__init__(id, tokens, max_tokens, temperature, topk, topp, end_tokens)
+        self.output_queue = janus.Queue()
+        print(f"[INFO] Create InferTask {self.id}")
+
+    def output(self, out_token):
+        self.next(out_token)
+        self.output_queue.sync_q.put(out_token)
+
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -132,7 +143,7 @@ def build_task(id_, request_data, request: Request):
         tokenize=False,
     )
     tokens = request.app.state.model.tokenizer.encode(input_content)
-    return InferTask(
+    return AsyncInferTask(
         id_,
         tokens,
         request_data.get("max_tokens", request.app.state.model.max_context_len()),
