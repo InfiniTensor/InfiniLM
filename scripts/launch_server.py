@@ -66,7 +66,9 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
 
 
 MAX_BATCH = 3
-print(f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs.")
+print(
+    f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
+)
 
 
 @contextlib.asynccontextmanager
@@ -180,6 +182,9 @@ async def chat_stream(id_, request_data, request: Request):
 
     except Exception as e:
         print(f"[Error] ID : {id_} Exception: {e}")
+    finally:
+        if infer_task.finish_reason is None:
+            infer_task.finish_reason = "cancel"
 
 
 async def chat(id_, request_data, request: Request):
@@ -215,6 +220,9 @@ async def chat(id_, request_data, request: Request):
     except Exception as e:
         print(f"[Error] ID: {id_} Exception: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+    finally:
+        if infer_task.finish_reason is None:
+            infer_task.finish_reason = "cancel"
 
 
 @App.post("/chat/completions")
