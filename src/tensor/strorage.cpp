@@ -2,7 +2,7 @@
 #include "../tensor.hpp"
 
 std::shared_ptr<Storage> Storage::create(size_t size) {
-    auto storage = std::make_shared<Storage>();
+    auto storage = std::shared_ptr<Storage>(new Storage());
     RUN_INFINI(infinirtMalloc(&storage->memory, size));
     storage->size = size;
     RUN_INFINI(infinirtGetDevice(&storage->device_type, &storage->device_id));
@@ -10,7 +10,7 @@ std::shared_ptr<Storage> Storage::create(size_t size) {
 }
 
 std::shared_ptr<Storage> Storage::createAsync(size_t size, infinirtStream_t stream) {
-    auto storage = std::make_shared<Storage>();
+    auto storage = std::shared_ptr<Storage>(new Storage());
     RUN_INFINI(infinirtMallocAsync(&storage->memory, size, stream));
     storage->size = size;
     RUN_INFINI(infinirtGetDevice(&storage->device_type, &storage->device_id));
@@ -18,7 +18,7 @@ std::shared_ptr<Storage> Storage::createAsync(size_t size, infinirtStream_t stre
 }
 
 std::shared_ptr<Storage> Storage::createFromPool(size_t size, std::shared_ptr<MemoryPool> pool) {
-    auto storage = std::make_shared<Storage>();
+    auto storage = std::shared_ptr<Storage>(new Storage());
     storage->memory_pool = pool;
     if (pool) {
         storage->memory = pool->alloc(size);
@@ -31,7 +31,7 @@ std::shared_ptr<Storage> Storage::createFromPool(size_t size, std::shared_ptr<Me
 }
 
 std::shared_ptr<Storage> Storage::createHost(size_t size) {
-    auto storage = std::make_shared<Storage>();
+    auto storage = std::shared_ptr<Storage>(new Storage());
     RUN_INFINI(infinirtMallocHost(&storage->memory, size));
     storage->size = size;
     storage->device_type = INFINI_DEVICE_CPU;
@@ -41,11 +41,11 @@ std::shared_ptr<Storage> Storage::createHost(size_t size) {
 }
 
 Storage::~Storage() {
-    if (device_type == INFINI_DEVICE_CPU) {
-        RUN_INFINI(infinirtFreeHost(memory));
+    if (memory_pool) {
+        memory_pool->release(memory);
     } else {
-        if (memory_pool) {
-            memory_pool->release(memory);
+        if (device_type == INFINI_DEVICE_CPU) {
+            RUN_INFINI(infinirtFreeHost(memory));
         } else {
             RUN_INFINI(infinirtFree(memory));
         }

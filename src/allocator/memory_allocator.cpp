@@ -15,9 +15,13 @@ MemoryPool::~MemoryPool() {
 }
 
 void *MemoryPool::alloc(size_t size) {
+    if (size == 0) {
+        return nullptr;
+    }
+
     auto it = _free_blocks.lower_bound(size);
     if (it == _free_blocks.end()) {
-        allocateNewRegion(std::max(size, size_t(0)));
+        allocateNewRegion(size);
         it = _free_blocks.lower_bound(size);
         if (it == _free_blocks.end()) {
             throw std::bad_alloc();
@@ -51,6 +55,10 @@ void *MemoryPool::alloc(size_t size) {
 }
 
 void MemoryPool::release(void *ptr) {
+    if (ptr == nullptr) {
+        return;
+    }
+
     auto it = _ptr_to_block.find(ptr);
     if (it == _ptr_to_block.end()) {
         throw std::runtime_error("Invalid pointer to free");
