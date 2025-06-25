@@ -45,10 +45,10 @@ struct InferRequest {
     uint32_t nreq;
     const uint32_t *req_pos;
     struct KVCache **kv_caches;
-    uint32_t *ans;
-    float temperature;
-    uint32_t topk;
-    float topp;
+    const float *temperature;
+    const uint32_t *topk;
+    const float *topp;
+    uint32_t *output;
 };
 
 struct JiugeModel {
