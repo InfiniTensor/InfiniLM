@@ -19,11 +19,6 @@ MemoryPool::~MemoryPool() {
     }
 }
 
-void *MemoryPool::alignPointer(void *ptr) const {
-    return reinterpret_cast<void *>(
-        (reinterpret_cast<uintptr_t>(ptr) + _alignment - 1) & ~(_alignment - 1));
-}
-
 void *MemoryPool::alloc(size_t size) {
     if (size == 0) {
         return nullptr;
@@ -48,29 +43,25 @@ void *MemoryPool::alloc(size_t size) {
     _all_blocks.erase(block_it);
 
     // Align the pointer within the block
-    void *aligned_ptr = alignPointer(block.ptr);
-    size_t alignment_padding = reinterpret_cast<char *>(aligned_ptr) - reinterpret_cast<char *>(block.ptr);
+    size_t alignment_padding = reinterpret_cast<char *>(block.ptr) - reinterpret_cast<char *>(block.ptr);
 
     // Calculate remaining space after allocation
     const size_t remaining = block.size - aligned_size - alignment_padding;
 
     // Create allocated block
-    Block alloc_block(block.base, aligned_ptr, aligned_size, false);
+    Block alloc_block(block.base, block.ptr, aligned_size, false);
     auto alloc_it = _all_blocks.insert(alloc_block).first;
-    _ptr_to_block[aligned_ptr] = alloc_it;
+    _ptr_to_block[block.ptr] = alloc_it;
 
     // Split remaining space if it's large enough
     if (remaining >= _alignment) {
-        void *rem_ptr = static_cast<char *>(aligned_ptr) + aligned_size;
+        void *rem_ptr = static_cast<char *>(block.ptr) + aligned_size;
         Block rem_block(block.base, rem_ptr, remaining, true);
         auto rem_it = _all_blocks.insert(rem_block).first;
         _free_blocks.emplace(remaining, rem_it);
-    } else {
-        // If remaining space is too small, include it in the allocated block
-        alloc_block.size += remaining;
     }
 
-    return aligned_ptr;
+    return block.ptr;
 }
 
 void MemoryPool::release(void *ptr) {
@@ -99,15 +90,14 @@ void *MemoryPool::allocateNewRegion(size_t size) {
     _base_regions.push_back(ptr);
 
     // Align the pointer within the allocated region
-    void *aligned_ptr = alignPointer(ptr);
-    size_t alignment_padding = reinterpret_cast<char *>(aligned_ptr) - reinterpret_cast<char *>(ptr);
+    size_t alignment_padding = reinterpret_cast<char *>(ptr) - reinterpret_cast<char *>(ptr);
     size_t usable_size = size - alignment_padding;
 
-    Block new_block(ptr, aligned_ptr, usable_size, true);
+    Block new_block(ptr, ptr, usable_size, true);
     auto it = _all_blocks.insert(new_block).first;
     _free_blocks.emplace(usable_size, it);
 
-    return aligned_ptr;
+    return ptr;
 }
 
 void MemoryPool::tryCoalesce(const Block &block) {

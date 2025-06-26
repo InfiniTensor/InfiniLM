@@ -43,7 +43,6 @@ private:
 
     void *allocateNewRegion(size_t size);
     void tryCoalesce(const Block &block);
-    void *alignPointer(void *ptr) const;
 
     size_t _alignment;
     std::vector<void *> _base_regions;
