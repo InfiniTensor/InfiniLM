@@ -49,7 +49,7 @@ void *MemoryPool::alloc(size_t size) {
 
     // Align the pointer within the block
     void *aligned_ptr = alignPointer(block.ptr);
-    size_t alignment_padding = reinterpret_cast<uintptr_t>(aligned_ptr) - reinterpret_cast<uintptr_t>(block.ptr);
+    size_t alignment_padding = reinterpret_cast<char *>(aligned_ptr) - reinterpret_cast<char *>(block.ptr);
 
     // Calculate remaining space after allocation
     const size_t remaining = block.size - aligned_size - alignment_padding;
@@ -100,7 +100,7 @@ void *MemoryPool::allocateNewRegion(size_t size) {
 
     // Align the pointer within the allocated region
     void *aligned_ptr = alignPointer(ptr);
-    size_t alignment_padding = reinterpret_cast<uintptr_t>(aligned_ptr) - reinterpret_cast<uintptr_t>(ptr);
+    size_t alignment_padding = reinterpret_cast<char *>(aligned_ptr) - reinterpret_cast<char *>(ptr);
     size_t usable_size = size - alignment_padding;
 
     Block new_block(ptr, aligned_ptr, usable_size, true);
