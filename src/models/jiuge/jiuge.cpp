@@ -387,7 +387,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             // rearrange attn val
             RUN_INFINI(infiniopRearrange(
                 desc_attn_v_rearranges[req],
-                o->data(token_offset * nh * dh),
+                o->data(),
                 attn_val_buf->data(), stream));
 
             token_offset += seq_len;
