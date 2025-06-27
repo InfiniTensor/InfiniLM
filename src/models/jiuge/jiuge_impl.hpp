@@ -28,6 +28,8 @@ struct DeviceResource {
     infinicclComm_t comm;
 
     std::shared_ptr<MemoryPool> memory_pool;
+    
+    std::vector<uint8_t> mask_values;
 };
 
 struct InferState {
