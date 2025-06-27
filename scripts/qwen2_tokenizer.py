@@ -1,4 +1,10 @@
 # -*- coding: utf-8 -*-
+"""
+用法：
+  python qwen2_tokenizer.py                         # 默认覆盖 tokenizer.json 文件
+  python qwen2_tokenizer.py input.json output.json  # 指定输入输出路径
+默认将覆盖原始文件 tokenizer.json,建议先备份。
+"""
 import json
 import sys
 import re
@@ -31,7 +37,7 @@ def piece_to_text(piece: str) -> str:
         return ''
     return text
 
-def check_missing_vocab(original_path="tokenizer.json", converted_path="tokenizer_readable.json"):
+def check_missing_vocab(original_path="tokenizer.json", converted_path="tokenizer.json"):
     with open(original_path, "r", encoding="utf-8") as f:
         original = json.load(f)["model"]["vocab"]
     with open(converted_path, "r", encoding="utf-8") as f:
@@ -53,7 +59,9 @@ def check_missing_vocab(original_path="tokenizer.json", converted_path="tokenize
 
     return missing_tokens
 
-def main(in_path='tokenizer.json', out_path='tokenizer_readable.json'):
+def main(in_path='tokenizer.json', out_path=None):
+    out_path = out_path or in_path
+
     with open(in_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     orig_vocab = data['model']['vocab']
