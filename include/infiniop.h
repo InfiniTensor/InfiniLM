@@ -19,6 +19,7 @@
 #include "infiniop/ops/relu.h"
 #include "infiniop/ops/rms_norm.h"
 #include "infiniop/ops/rope.h"
+#include "infiniop/ops/sub.h"
 #include "infiniop/ops/swiglu.h"
 #include "infiniop/tensor_descriptor.h"
 
