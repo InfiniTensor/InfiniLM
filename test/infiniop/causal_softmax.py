@@ -34,7 +34,7 @@ _TEST_CASES_ = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16]
+_TENSOR_DTYPES = [torch.float16, torch.float32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
