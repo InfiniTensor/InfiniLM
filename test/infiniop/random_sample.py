@@ -60,17 +60,17 @@ infiniopRandomSampleDescriptor_t = POINTER(RandomSampleDescriptor)
 def random_sample(data, random_val, topp, topk, voc, temperature):
     if topp > 0 and topk > 1:
         sorted_vals, sorted_indices = torch.sort(data, descending=True)
-        
+
         scaled_vals = (sorted_vals - sorted_vals[0]) / temperature
         probs = torch.softmax(scaled_vals, dim=0)
         cum_probs = torch.cumsum(probs, dim=0)
-        
+
         k_index = min(topk, voc) - 1
         threshold = min(cum_probs[k_index], topp) * random_val
-        
+
         idx = torch.searchsorted(cum_probs, threshold)
         return sorted_indices[idx]
-    
+
     return torch.argmax(data)
 
 
@@ -84,7 +84,7 @@ def test(
     topk,
     temperature,
     dtype=torch.float16,
-    sync=None
+    sync=None,
 ):
     print(
         f"Testing RandomSample on {torch_device} with voc:{voc} random_val:{random_val} topp:{topp} topk:{topk} temperature:{temperature} dtype:{dtype}"

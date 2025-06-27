@@ -26,6 +26,7 @@ include_directories(
 ascendc_library(ascend_kernels STATIC
     ../../ops/swiglu/ascend/swiglu_ascend_kernel.cpp
     ../../ops/rope/ascend/rope_ascend_kernel.cpp
-    # ../../ops/random_sample/ascend/random_sample_kernel.cpp
+    ../../ops/random_sample/ascend/random_sample_kernel.cpp
 )
 
+target_include_directories(ascend_kernels PRIVATE ../../../../include)

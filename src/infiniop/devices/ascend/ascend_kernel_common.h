@@ -7,6 +7,7 @@
 constexpr size_t BLOCK_NUM = 8;
 constexpr size_t BUFFER_NUM = 2;
 constexpr size_t BYTE_ALIGN = 32;
+constexpr size_t BLOCK_LEN = 256;
 
 template <typename T>
 __aicore__ inline size_t alignTileLen(size_t tile_len, size_t byte_align) {
