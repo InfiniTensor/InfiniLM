@@ -21,5 +21,7 @@ python jiuge.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore] 
 - 部署模型推理服务
 
 ```bash
-python launch_server.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]
+launch_server.py [-h] [--dev {cpu,nvidia,cambricon,ascend,metax,moore}]
+                        [--model-path MODEL_PATH] [--ndev NDEV] [--max-batch MAX_BATCH]
+                        [--max-tokens MAX_TOKENS]
 ```
