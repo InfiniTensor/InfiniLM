@@ -116,11 +116,11 @@ NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
 
 
-class RerrangeDescriptor(Structure):
+class RearrangeDescriptor(Structure):
     _fields_ = [("device", c_int32)]
 
 
-infiniopRearrangeDescriptor_t = POINTER(RerrangeDescriptor)
+infiniopRearrangeDescriptor_t = POINTER(RearrangeDescriptor)
 
 
 def rearrange_torch(x, x_shape, y_stride):

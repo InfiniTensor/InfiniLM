@@ -57,11 +57,14 @@ infiniopGemmDescriptor_t = POINTER(GemmDescriptor)
 
 # PyTorch implementation for matrix multiplication
 def gemm(d, _c, beta, _a, _b, alpha):
-    if _c.ndim == 2:
-        torch.addmm(_c, _a, _b, beta=beta, alpha=alpha, out=d)
-    elif _c.ndim == 3:
-        torch.baddbmm(_c, _a, _b, beta=beta, alpha=alpha, out=d)
-    else:
+    try:
+        if _c.ndim == 2:
+            torch.addmm(_c, _a, _b, beta=beta, alpha=alpha, out=d)
+        elif _c.ndim == 3:
+            torch.baddbmm(_c, _a, _b, beta=beta, alpha=alpha, out=d)
+        else:
+            raise
+    except Exception:
         torch.matmul(_a, _b, out=d)
         d.mul_(alpha).add_(_c, alpha=beta)
 
