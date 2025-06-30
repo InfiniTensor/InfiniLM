@@ -67,8 +67,13 @@ def random_sample(data, random_val, topp, topk, voc, temperature):
 
         k_index = min(topk, voc) - 1
         threshold = min(cum_probs[k_index], topp) * random_val
-
-        idx = torch.searchsorted(cum_probs, threshold)
+        
+        try:
+            idx = torch.searchsorted(cum_probs, threshold)
+        except Exception:
+            # Fallback for manual search if torch.searchsorted is not supported
+            indices = (cum_probs >= threshold).nonzero(as_tuple=True)[0]
+            idx = indices[0] if indices.numel() > 0 else torch.tensor(len(cum_probs)-1, device=cum_probs.device)
         return sorted_indices[idx]
 
     return torch.argmax(data)
