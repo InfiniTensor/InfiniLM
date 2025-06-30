@@ -52,17 +52,14 @@ if has_config("nv-gpu") then
     includes("xmake/cuda.lua")
 end
 
--- 天数智芯
-option("iluvatar-gpu")
-    set_default(false)
+option("cudnn")
+    set_default(true)
     set_showmenu(true)
-    set_description("Whether to complie implementations for Iluvatar GPU")
+    set_description("Whether to complie cudnn for Nvidia GPU")
 option_end()
 
-if has_config("iluvatar-gpu") then
-    add_defines("ENABLE_CUDA_API")
-    add_defines("ENABLE_ILUVATAR_CUDA_API")
-    includes("xmake/iluvatar.lua")
+if has_config("cudnn") then
+    add_defines("ENABLE_CUDNN_API")
 end
 
 -- 寒武纪
@@ -87,6 +84,19 @@ option_end()
 if has_config("ascend-npu") then
     add_defines("ENABLE_ASCEND_API")
     includes("xmake/ascend.lua")
+end
+
+-- 天数智芯
+option("iluvatar-gpu")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to complie implementations for Iluvatar GPU")
+option_end()
+
+if has_config("iluvatar-gpu") then
+    add_defines("ENABLE_CUDA_API")
+    add_defines("ENABLE_ILUVATAR_CUDA_API")
+    includes("xmake/iluvatar.lua")
 end
 
 -- 沐曦

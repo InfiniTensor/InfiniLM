@@ -34,6 +34,7 @@ infiniStatus_t Handle::Internal::useCublas(cudaStream_t stream, const Fn<cublasH
     return INFINI_STATUS_SUCCESS;
 }
 
+#ifdef ENABLE_CUDNN_API
 infiniStatus_t Handle::Internal::useCudnn(cudaStream_t stream, const Fn<cudnnHandle_t> &f) const {
     auto handle = dnn_handles.pop();
     if (!handle) {
@@ -44,6 +45,7 @@ infiniStatus_t Handle::Internal::useCudnn(cudaStream_t stream, const Fn<cudnnHan
     dnn_handles.push(std::move(*handle));
     return INFINI_STATUS_SUCCESS;
 }
+#endif
 
 int Handle::Internal::warpSize() const { return _warp_size; }
 int Handle::Internal::maxThreadsPerBlock() const { return _max_threads_per_block; }
@@ -54,6 +56,7 @@ int Handle::Internal::gridSizeX() const { return _grid_size[0]; }
 int Handle::Internal::gridSizeY() const { return _grid_size[1]; }
 int Handle::Internal::gridSizeZ() const { return _grid_size[2]; }
 
+#ifdef ENABLE_CUDNN_API
 cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
     switch (dt) {
     case INFINI_DTYPE_F16:
@@ -78,6 +81,7 @@ cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
         return CUDNN_DATA_FLOAT;
     }
 }
+#endif
 
 namespace nvidia {
 

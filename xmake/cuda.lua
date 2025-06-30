@@ -15,8 +15,11 @@ target("infiniop-cuda")
 
     set_policy("build.cuda.devlink", true)
     set_toolchains("cuda")
-    add_links("cuda", "cublas", "cudnn")
+    add_links("cuda", "cublas")
     add_linkdirs(CUDA_ROOT .. "/lib64/stubs")
+    if has_config("cudnn") then
+        add_links("cudnn")
+    end
     add_cugencodes("native")
 
     if is_plat("windows") then
@@ -37,6 +40,8 @@ target("infiniop-cuda")
             add_linkdirs(CUDNN_ROOT .. "/lib")
         end
     end
+
+    add_cuflags("-Xcompiler=-Wno-error=deprecated-declarations")
 
     set_languages("cxx17")
     add_files("../src/infiniop/devices/cuda/*.cu", "../src/infiniop/ops/*/cuda/*.cu", "../build/ninetoothed/*.c")
@@ -92,5 +97,5 @@ target("infiniccl-cuda")
         end
     end
     set_languages("cxx17")
-    
+
 target_end()
