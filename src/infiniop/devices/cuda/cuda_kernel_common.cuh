@@ -45,7 +45,7 @@ indexToOffset(
 }
 } // namespace device::cuda
 
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
 #include <cuda_fp16.h>
 __forceinline__ __device__ float
 exp_(const float val) {

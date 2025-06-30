@@ -5,7 +5,7 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/causal_softmax_cpu.h"
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
 #include "cuda/causal_softmax_cuda.cuh"
 #endif
 #ifdef ENABLE_METAX_API
@@ -33,7 +33,7 @@ __C infiniStatus_t infiniopCreateCausalSoftmaxDescriptor(
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_METAX_API
@@ -73,7 +73,7 @@ __C infiniStatus_t infiniopGetCausalSoftmaxWorkspaceSize(infiniopCausalSoftmaxDe
 #ifdef ENABLE_CPU_API
         GET(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         GET(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_CAMBRICON_MLU
@@ -119,7 +119,7 @@ __C infiniStatus_t infiniopCausalSoftmax(
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_METAX_API
@@ -159,7 +159,7 @@ __C infiniStatus_t infiniopDestroyCausalSoftmaxDescriptor(infiniopCausalSoftmaxD
 #ifdef ENABLE_CPU_API
         DESTROY(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         DESTROY(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_METAX_API

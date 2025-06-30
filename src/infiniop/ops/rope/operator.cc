@@ -5,7 +5,7 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/rope_cpu.h"
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
 #include "cuda/rope_cuda.cuh"
 #endif
 #ifdef ENABLE_ASCEND_API
@@ -39,26 +39,19 @@ __C infiniStatus_t infiniopCreateRoPEDescriptor(
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API
         CREATE(INFINI_DEVICE_METAX, maca);
 #endif
+#ifdef ENABLE_ASCEND_API
+        CREATE(INFINI_DEVICE_ASCEND, ascend);
+#endif
 #ifdef ENABLE_CAMBRICON_MLU
     case DevCambriconMlu: {
         return bangCreateRoPEDescriptor((BangHandle_t)handle,
                                         (RoPEBangDescriptor_t *)desc_ptr, t,
-                                        pos_ids, sin_table, cos_table);
-    }
-#endif
-#ifdef ENABLE_ASCEND_API
-        CREATE(INFINI_DEVICE_ASCEND, ascend);
-#endif
-#ifdef ENABLE_METAX_GPU
-    case DevMetaxGpu: {
-        return macaCreateRoPEDescriptor((MacaHandle_t)handle,
-                                        (RoPEMacaDescriptor_t *)desc_ptr, t,
                                         pos_ids, sin_table, cos_table);
     }
 #endif
@@ -87,7 +80,7 @@ __C infiniStatus_t infiniopGetRoPEWorkspaceSize(infiniopRoPEDescriptor_t desc,
 #ifdef ENABLE_CPU_API
         GET(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         GET(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API
@@ -138,7 +131,7 @@ __C infiniStatus_t infiniopRoPE(
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API
@@ -184,7 +177,7 @@ infiniopDestroyRoPEDescriptor(infiniopRoPEDescriptor_t desc) {
 #ifdef ENABLE_CPU_API
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         DELETE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API

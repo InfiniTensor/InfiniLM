@@ -48,7 +48,7 @@ option("nv-gpu")
 option_end()
 
 if has_config("nv-gpu") then
-    add_defines("ENABLE_CUDA_API")
+    add_defines("ENABLE_NVIDIA_API")
     includes("xmake/cuda.lua")
 end
 
@@ -121,7 +121,6 @@ option("sugon-dcu")
 option_end()
 
 if has_config("sugon-dcu") then
-    add_defines("ENABLE_CUDA_API")
     add_defines("ENABLE_SUGON_CUDA_API")
 end
 
