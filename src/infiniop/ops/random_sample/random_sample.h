@@ -87,6 +87,9 @@ class Calculate {
         case INFINI_DTYPE_F16:
             switch_f<Tidx, fp16_t>(algo, n, args);
             break;
+        case INFINI_DTYPE_BF16:
+            switch_f<Tidx, bf16_t>(algo, n, args);
+            break;
         case INFINI_DTYPE_F32:
             switch_f<Tidx, float>(algo, n, args);
             break;

@@ -40,12 +40,15 @@ infiniStatus_t rmsnorm(const RMSNormInfo *info, T *y, const T *x, const T *w) {
     return INFINI_STATUS_SUCCESS;
 }
 
-template <typename Tw>
-infiniStatus_t rmsnormF16(const RMSNormInfo *info, fp16_t *y, const fp16_t *x, const Tw *w) {
+template <typename T, typename Tw>
+infiniStatus_t rmsnormHalfPrecision(const RMSNormInfo *info, T *y, const T *x, const Tw *w) {
+    static_assert(std::is_same<T, fp16_t>::value || std::is_same<T, bf16_t>::value,
+                  "T must be fp16_t or bf16_t");
+
 #pragma omp parallel for
     for (ptrdiff_t i = 0; i < ptrdiff_t(info->shape[0]); i++) {
-        fp16_t *x_ = (fp16_t *)(x + i * info->x_strides[0]);
-        fp16_t *y_ = (fp16_t *)(y + i * info->y_strides[0]);
+        T *x_ = (T *)(x + i * info->x_strides[0]);
+        T *y_ = (T *)(y + i * info->y_strides[0]);
 
         // [Reduce] sum of x^2 on last dimension
         float ss = op::common_cpu::reduce_op::sumSquared(x_, info->shape[1], info->x_strides[1]);
@@ -56,10 +59,10 @@ infiniStatus_t rmsnormF16(const RMSNormInfo *info, fp16_t *y, const fp16_t *x, c
         for (size_t j = 0; j < info->shape[1]; j++) {
             if constexpr (std::is_same<Tw, float>::value) {
                 float val = utils::cast<float>(x_[j * info->x_strides[1]]) * w[j] * rms;
-                y_[j * info->y_strides[1]] = utils::cast<fp16_t>(val);
-            } else if constexpr (std::is_same<Tw, fp16_t>::value) {
+                y_[j * info->y_strides[1]] = utils::cast<T>(val);
+            } else if constexpr (std::is_same<Tw, T>::value) {
                 float val = utils::cast<float>(x_[j * info->x_strides[1]]) * utils::cast<float>(w[j]) * rms;
-                y_[j * info->y_strides[1]] = utils::cast<fp16_t>(val);
+                y_[j * info->y_strides[1]] = utils::cast<T>(val);
             } else {
                 std::abort();
             }
@@ -75,9 +78,17 @@ infiniStatus_t Descriptor::calculate(
     void *stream) const {
     if (_info.atype == INFINI_DTYPE_F16) {
         if (_info.wtype == INFINI_DTYPE_F16) {
-            CHECK_STATUS(rmsnormF16(&_info, (fp16_t *)y, (const fp16_t *)x, (const fp16_t *)w));
+            CHECK_STATUS(rmsnormHalfPrecision(&_info, (fp16_t *)y, (const fp16_t *)x, (const fp16_t *)w));
         } else if (_info.wtype == INFINI_DTYPE_F32) {
-            CHECK_STATUS(rmsnormF16(&_info, (fp16_t *)y, (const fp16_t *)x, (const float *)w));
+            CHECK_STATUS(rmsnormHalfPrecision(&_info, (fp16_t *)y, (const fp16_t *)x, (const float *)w));
+        } else {
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+    } else if (_info.atype == INFINI_DTYPE_BF16) {
+        if (_info.wtype == INFINI_DTYPE_BF16) {
+            CHECK_STATUS(rmsnormHalfPrecision(&_info, (bf16_t *)y, (const bf16_t *)x, (const bf16_t *)w));
+        } else if (_info.wtype == INFINI_DTYPE_F32) {
+            CHECK_STATUS(rmsnormHalfPrecision(&_info, (bf16_t *)y, (const bf16_t *)x, (const float *)w));
         } else {
             return INFINI_STATUS_BAD_TENSOR_DTYPE;
         }

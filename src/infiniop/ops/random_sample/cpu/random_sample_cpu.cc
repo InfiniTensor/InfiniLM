@@ -40,6 +40,11 @@ struct ComputeType<fp16_t> {
     using type = float;
 };
 
+template <>
+struct ComputeType<bf16_t> {
+    using type = float;
+};
+
 struct Algo {
 
     template <class Tidx, class Tval>

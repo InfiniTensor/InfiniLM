@@ -14,9 +14,7 @@ infiniStatus_t Descriptor::create(
     auto handle = reinterpret_cast<device::cpu::Handle *>(handle_);
     auto dtype = c_desc->dtype();
 
-    if (dtype != INFINI_DTYPE_F16 && dtype != INFINI_DTYPE_F32) {
-        return INFINI_STATUS_BAD_TENSOR_DTYPE;
-    }
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_BF16);
 
     auto result = MatmulInfo::create(c_desc, a_desc, b_desc, MatrixLayout::COL_MAJOR);
     CHECK_RESULT(result);
@@ -53,17 +51,17 @@ void calculate(
         for (int k_ = 0; k_ < static_cast<int>(info.k); ++k_) {
             auto a_ = reinterpret_cast<const Tdata *>(a) + i * info.a_matrix.stride + m_ * info.a_matrix.row_stride + k_ * info.a_matrix.col_stride;
             auto b_ = reinterpret_cast<const Tdata *>(b) + i * info.b_matrix.stride + n_ * info.b_matrix.col_stride + k_ * info.b_matrix.row_stride;
-            if constexpr (std::is_same<Tdata, fp16_t>::value) {
+            if constexpr (std::is_same<Tdata, fp16_t>::value || std::is_same<Tdata, bf16_t>::value) {
                 sum += utils::cast<float>(*a_) * utils::cast<float>(*b_);
             } else {
                 sum += *a_ * (*b_);
             }
         }
-        if constexpr (std::is_same<Tdata, fp16_t>::value) {
+        if constexpr (std::is_same<Tdata, fp16_t>::value || std::is_same<Tdata, bf16_t>::value) {
             if (beta == 0) {
-                *c_ = utils::cast<fp16_t>(alpha * sum);
+                *c_ = utils::cast<Tdata>(alpha * sum);
             } else {
-                *c_ = utils::cast<fp16_t>(beta * utils::cast<float>(*c_) + alpha * sum);
+                *c_ = utils::cast<Tdata>(beta * utils::cast<float>(*c_) + alpha * sum);
             }
         } else {
             *c_ = beta * (*c_) + alpha * sum;
@@ -84,6 +82,10 @@ infiniStatus_t Descriptor::calculate(
     switch (_dtype) {
     case INFINI_DTYPE_F16:
         cpu::calculate<fp16_t>(_info, c, beta, a, b, alpha);
+        return INFINI_STATUS_SUCCESS;
+
+    case INFINI_DTYPE_BF16:
+        cpu::calculate<bf16_t>(_info, c, beta, a, b, alpha);
         return INFINI_STATUS_SUCCESS;
 
     case INFINI_DTYPE_F32:

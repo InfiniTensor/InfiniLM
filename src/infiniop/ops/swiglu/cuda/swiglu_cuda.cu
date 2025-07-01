@@ -20,7 +20,7 @@ infiniStatus_t Descriptor::create(
     const auto &up_shape = up_desc->shape();
     const auto &gate_shape = gate_desc->shape();
 
-    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_BF16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
     CHECK_SAME_SHAPE(out_shape, up_shape, gate_shape);
 
     // create CUDA elementwise descriptor
@@ -43,6 +43,8 @@ infiniStatus_t Descriptor::calculate(
     switch (_dtype) {
     case INFINI_DTYPE_F16:
         return _device_info->calculate<256, SwiGLUOp, half>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<256, SwiGLUOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_F32:
         return _device_info->calculate<256, SwiGLUOp, float>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_F64:

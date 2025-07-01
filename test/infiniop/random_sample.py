@@ -37,10 +37,11 @@ _TEST_CASES = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16]
+_TENSOR_DTYPES = [torch.float16, torch.bfloat16]
 
 _TOLERANCE_MAP = {
     torch.float16: {"atol": 0, "rtol": 0},
+    torch.bfloat16: {"atol": 0, "rtol": 0},
 }
 
 

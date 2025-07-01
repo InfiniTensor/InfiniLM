@@ -78,7 +78,7 @@ public:
         const infiniDtype_t pos_type = pos_desc->dtype();
         CHECK_OR_RETURN(data_type == x_desc->dtype() && data_type == sin_desc->dtype() && data_type == cos_desc->dtype(),
                         INFINI_STATUS_BAD_TENSOR_DTYPE);
-        CHECK_DTYPE(data_type, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
+        CHECK_DTYPE(data_type, INFINI_DTYPE_F16, INFINI_DTYPE_BF16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
         CHECK_DTYPE_ANY_INT(pos_type);
 
         CHECK_OR_RETURN(y_desc->ndim() == 3

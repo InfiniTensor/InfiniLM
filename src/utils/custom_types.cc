@@ -61,3 +61,25 @@ fp16_t _f32_to_f16(float val) {
         return fp16_t{(uint16_t)sign};
     }
 }
+
+float _bf16_to_f32(bf16_t val) {
+    // 只需把 bf16 放到 float32 高 16 bit，其余 16 位置 0。
+    uint32_t bits32 = static_cast<uint32_t>(val._v) << 16;
+
+    float out;
+    std::memcpy(&out, &bits32, sizeof(out));
+    return out;
+}
+
+bf16_t _f32_to_bf16(float val) {
+    uint32_t bits32;
+    std::memcpy(&bits32, &val, sizeof(bits32));
+
+    // 截断前先加 0x7FFF，再根据第 16 位（有效位的最低位）的奇偶做 round-to-nearest-even
+    const uint32_t rounding_bias = 0x00007FFF +          // 0111 1111 1111 1111
+                                   ((bits32 >> 16) & 1); // 尾数的有效位的最低位奇数时 +1，即实现舍入偶数
+
+    uint16_t bf16_bits = static_cast<uint16_t>((bits32 + rounding_bias) >> 16);
+
+    return bf16_t{bf16_bits};
+}

@@ -32,11 +32,13 @@ public:
         if (x_desc->dtype() != atype) {
             return INFINI_STATUS_BAD_TENSOR_DTYPE;
         }
-        if (atype == INFINI_DTYPE_F16) {
-            if (wtype != INFINI_DTYPE_F16 && wtype != INFINI_DTYPE_F32) {
+        if (atype == INFINI_DTYPE_F16 || atype == INFINI_DTYPE_BF16) {
+            // For half-precision types (FP16/BF16), weights can be the same half-precision type or FP32
+            if (wtype != atype && wtype != INFINI_DTYPE_F32) {
                 return INFINI_STATUS_BAD_TENSOR_DTYPE;
             }
         } else if (atype == INFINI_DTYPE_F32 || atype == INFINI_DTYPE_F64) {
+            // For FP32/FP64, activations and weights must be of the same type
             if (atype != wtype) {
                 return INFINI_STATUS_BAD_TENSOR_DTYPE;
             }

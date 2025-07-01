@@ -30,6 +30,17 @@ INFINIOP_CUDA_KERNEL ropeThreadPerItem(
             Tangle y0 = x.x * cos__ - x.y * sin__,
                    y1 = x.x * sin__ + x.y * cos__;
             y = half2(y0, y1);
+        } else if constexpr (std::is_same<Tdata, __nv_bfloat16>::value) {
+            auto &y = reinterpret_cast<__nv_bfloat162 &>(y_[y_offset + 2 * i]);
+            auto &x = reinterpret_cast<const __nv_bfloat162 &>(x_[x_offset + 2 * i]);
+
+            Tangle x0 = __low2bfloat16(x);
+            Tangle x1 = __high2bfloat16(x);
+
+            Tangle y0 = x0 * cos__ - x1 * sin__;
+            Tangle y1 = x0 * sin__ + x1 * cos__;
+
+            y = __floats2bfloat162_rn(y0, y1);
         } else {
             Tangle x0 = x_[x_offset + 2 * i],
                    x1 = x_[x_offset + 2 * i + 1];

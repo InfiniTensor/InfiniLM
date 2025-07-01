@@ -1,3 +1,4 @@
+import torch
 import ctypes
 from .datatypes import *
 from .devices import *
@@ -223,11 +224,23 @@ def debug(actual, desired, atol=0, rtol=1e-2, equal_nan=False, verbose=True):
         If True, the function will print detailed information about any discrepancies between the tensors.
     """
     import numpy as np
+    # 如果是BF16，全部转成FP32再比对
+    if actual.dtype == torch.bfloat16 or desired.dtype == torch.bfloat16:
+        actual = actual.to(torch.float32)
+        desired = desired.to(torch.float32)
 
     print_discrepancy(actual, desired, atol, rtol, equal_nan, verbose)
     np.testing.assert_allclose(
         actual.cpu(), desired.cpu(), rtol, atol, equal_nan, verbose=True
     )
+
+
+def filter_tensor_dtypes_by_device(device, tensor_dtypes):
+    if device in (InfiniDeviceEnum.CPU, InfiniDeviceEnum.NVIDIA):
+        return tensor_dtypes
+    else:
+        # 过滤掉 torch.bfloat16
+        return [dt for dt in tensor_dtypes if dt != torch.bfloat16]
 
 
 def debug_all(
@@ -269,6 +282,9 @@ def debug_all(
     passed = False if condition == "or" else True
 
     for index, (actual, desired) in enumerate(zip(actual_vals, desired_vals)):
+        if actual.dtype == torch.bfloat16 or desired.dtype == torch.bfloat16:
+            actual = actual.to(torch.float32)
+            desired = desired.to(torch.float32)
         print(f" \033[36mCondition #{index + 1}:\033[0m {actual} == {desired}")
         indices = print_discrepancy(actual, desired, atol, rtol, equal_nan, verbose)
         if condition == "or":
@@ -418,6 +434,7 @@ def test_operator(lib, device, test_func, test_cases, tensor_dtypes):
     """
     lib.infinirtSetDevice(device, ctypes.c_int(0))
     handle = create_handle(lib)
+    tensor_dtypes = filter_tensor_dtypes_by_device(device, tensor_dtypes)
     try:
         for test_case in test_cases:
             for tensor_dtype in tensor_dtypes:
@@ -427,7 +444,7 @@ def test_operator(lib, device, test_func, test_cases, tensor_dtypes):
                     infiniDeviceEnum_str_map[device],
                     *test_case,
                     tensor_dtype,
-                    get_sync_func(device)
+                    get_sync_func(device),
                 )
     finally:
         destroy_handle(lib, handle)
@@ -480,11 +497,12 @@ def get_test_devices(args):
 
 def get_sync_func(device):
     import torch
+
     device_str = infiniDeviceEnum_str_map[device]
-    
+
     if device == InfiniDeviceEnum.CPU:
         sync = None
     else:
         sync = getattr(torch, device_str).synchronize
-    
+
     return sync

@@ -102,6 +102,8 @@ infiniStatus_t Descriptor::calculate(
     switch (_info.data_type) {
     case INFINI_DTYPE_F16:
         ROPE_TYPE(half);
+    case INFINI_DTYPE_BF16:
+        ROPE_TYPE(__nv_bfloat16);
     case INFINI_DTYPE_F32:
         ROPE_TYPE(float);
     case INFINI_DTYPE_F64:

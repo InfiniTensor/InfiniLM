@@ -37,6 +37,7 @@ T sum(const T *data, size_t len, ptrdiff_t stride = 1) {
 }
 
 float sum(const fp16_t *data, size_t len, ptrdiff_t stride = 1);
+float sum(const bf16_t *data, size_t len, ptrdiff_t stride = 1);
 
 template <typename T, typename = std::enable_if_t<ReduceToSame<T>::value>>
 T max(const T *data, size_t len, ptrdiff_t stride = 1) {
@@ -49,6 +50,7 @@ T max(const T *data, size_t len, ptrdiff_t stride = 1) {
 }
 
 float max(const fp16_t *data, size_t len, ptrdiff_t stride = 1);
+float max(const bf16_t *data, size_t len, ptrdiff_t stride = 1);
 
 template <typename T, typename = std::enable_if_t<ReduceToSame<T>::value>>
 T sumSquared(const T *data, size_t len, ptrdiff_t stride = 1) {
@@ -62,6 +64,7 @@ T sumSquared(const T *data, size_t len, ptrdiff_t stride = 1) {
 }
 
 float sumSquared(const fp16_t *data, size_t len, ptrdiff_t stride = 1);
+float sumSquared(const bf16_t *data, size_t len, ptrdiff_t stride = 1);
 
 } // namespace reduce_op
 

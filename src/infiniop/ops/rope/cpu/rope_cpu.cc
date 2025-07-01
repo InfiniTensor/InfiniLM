@@ -49,14 +49,14 @@ infiniStatus_t calculateRoPE(const RoPEInfo &info,
                 size_t pos0 = 2 * i;
                 size_t pos1 = 2 * i + 1;
 
-                if constexpr (std::is_same<Tdata, fp16_t>::value) {
+                if constexpr (std::is_same<Tdata, fp16_t>::value || std::is_same<Tdata, bf16_t>::value) {
                     float x0 = utils::cast<float>(x[x_offset + pos0]),
                           x1 = utils::cast<float>(x[x_offset + pos1]),
                           sin__ = utils::cast<float>(sin_table[table_offset + i]),
                           cos__ = utils::cast<float>(cos_table[table_offset + i]);
 
-                    y[y_offset + pos0] = utils::cast<fp16_t>(x0 * cos__ - x1 * sin__);
-                    y[y_offset + pos1] = utils::cast<fp16_t>(x0 * sin__ + x1 * cos__);
+                    y[y_offset + pos0] = utils::cast<Tdata>(x0 * cos__ - x1 * sin__);
+                    y[y_offset + pos1] = utils::cast<Tdata>(x0 * sin__ + x1 * cos__);
                 } else {
                     Tdata x0 = x[x_offset + pos0],
                           x1 = x[x_offset + pos1],
@@ -111,6 +111,8 @@ infiniStatus_t Descriptor::calculate(
     switch (_info.data_type) {
     case INFINI_DTYPE_F16:
         ROPE_TYPE(fp16_t);
+    case INFINI_DTYPE_BF16:
+        ROPE_TYPE(bf16_t);
     case INFINI_DTYPE_F32:
         ROPE_TYPE(float);
     case INFINI_DTYPE_F64:

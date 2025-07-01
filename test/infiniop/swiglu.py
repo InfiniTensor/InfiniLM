@@ -14,7 +14,7 @@ from libinfiniop import (
     debug,
     get_tolerance,
     profile_operation,
-    create_workspace
+    create_workspace,
 )
 from enum import Enum, auto
 
@@ -35,6 +35,7 @@ _TEST_CASES_ = [
     ((4, 4, 5632), None, None, None),
     ((4, 4, 5632), (45056, 5632, 1), (45056, 5632, 1), (45056, 5632, 1)),
 ]
+
 
 class Inplace(Enum):
     OUT_OF_PLACE = auto()
@@ -57,11 +58,12 @@ _TEST_CASES = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.float32]
+_TENSOR_DTYPES = [torch.float16, torch.bfloat16, torch.float32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
     torch.float16: {"atol": 1e-3, "rtol": 1e-3},
+    torch.bfloat16: {"atol": 5e-3, "rtol": 5e-3},
     torch.float32: {"atol": 2e-7, "rtol": 1e-7},
 }
 
@@ -80,7 +82,6 @@ infiniopSwiGLUDescriptor_t = POINTER(SwiGLUDescriptor)
 
 def swiglu(a, b):
     return a * b / (1 + torch.exp(-b.float()).to(b.dtype))
-    
 
 
 def process_tensors(c, c_strides, a, a_stride, b, b_stride, inplace):
@@ -171,10 +172,13 @@ def test(
     def lib_swiglu():
         check_error(
             lib.infiniopSwiGLU(
-                descriptor, 
+                descriptor,
                 workspace.data_ptr() if workspace is not None else None,
                 workspace_size.value,
-                c_tensor.data, a_tensor.data, b_tensor.data, None
+                c_tensor.data,
+                a_tensor.data,
+                b_tensor.data,
+                None,
             )
         )
 

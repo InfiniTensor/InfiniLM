@@ -19,7 +19,7 @@ infiniStatus_t Descriptor::create(
     const auto &up_shape = up_desc->shape();
     const auto &gate_shape = gate_desc->shape();
 
-    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_BF16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
 
     CHECK_SAME_SHAPE(out_shape, up_shape, gate_shape);
 
@@ -39,6 +39,8 @@ infiniStatus_t Descriptor::calculate(
     switch (_dtype) {
     case INFINI_DTYPE_F16:
         return _device_info->calculate<SwiGLUOp, fp16_t>(_info, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<SwiGLUOp, bf16_t>(_info, output, inputs, stream);
     case INFINI_DTYPE_F32:
         return _device_info->calculate<SwiGLUOp, float>(_info, output, inputs, stream);
     case INFINI_DTYPE_F64:

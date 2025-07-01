@@ -107,6 +107,11 @@ struct CudaTval<fp16_t> {
     using Type = half;
 };
 
+template <>
+struct CudaTval<bf16_t> {
+    using Type = __nv_bfloat16;
+};
+
 // ↑↑↑ 通过特化将 fp16_t 转换为 half
 // ↓↓↓ 用于采样过程的小型 kernel
 

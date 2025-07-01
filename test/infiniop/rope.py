@@ -35,11 +35,12 @@ _TEST_CASES_ = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.float32]
+_TENSOR_DTYPES = [torch.float16, torch.bfloat16, torch.float32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
     torch.float16: {"atol": 1e-3, "rtol": 1e-2},
+    torch.bfloat16: {"atol": 5e-3, "rtol": 5e-2},
     torch.float32: {"atol": 1e-4, "rtol": 1e-3},
 }
 
@@ -117,7 +118,7 @@ def test(
     y_strides=None,
     inplace=Inplace.OUT_OF_PLACE,
     dtype=torch.float32,
-    sync=None
+    sync=None,
 ):
     if inplace == Inplace.INPLACE_X:
         y_strides = x_strides
@@ -189,7 +190,7 @@ def test(
         )
 
     lib_rope()
-    
+
     if sync is not None:
         sync()
 

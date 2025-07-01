@@ -29,24 +29,24 @@ infiniStatus_t causal_softmax(const CausalSoftmaxInfo *info, T *y, const T *x) {
         const T *x_ = x + x_offset;
 
         for (size_t j = info->total_seq_len - info->seq_len + i + 1; j < info->total_seq_len; j++) {
-            if constexpr (std::is_same<T, fp16_t>::value) {
-                y_[j * info->y_stride_j] = utils::cast<fp16_t>(0.0f);
+            if constexpr (std::is_same<T, fp16_t>::value || std::is_same<T, bf16_t>::value) {
+                y_[j * info->y_stride_j] = utils::cast<T>(0.0f);
             } else {
                 y_[j * info->y_stride_j] = 0.0f;
             }
         }
         float val = op::common_cpu::reduce_op::max(x_, info->total_seq_len - info->seq_len + i + 1, info->x_stride_j);
         for (size_t j = 0; j <= info->total_seq_len - info->seq_len + i; j++) {
-            if constexpr (std::is_same<T, fp16_t>::value) {
-                y_[j * info->y_stride_j] = utils::cast<fp16_t>(std::exp(utils::cast<float>(x_[j * info->x_stride_j]) - val));
+            if constexpr (std::is_same<T, fp16_t>::value || std::is_same<T, bf16_t>::value) {
+                y_[j * info->y_stride_j] = utils::cast<T>(std::exp(utils::cast<float>(x_[j * info->x_stride_j]) - val));
             } else {
                 y_[j * info->y_stride_j] = std::exp(x_[j * info->x_stride_j] - val);
             }
         }
         float sum = op::common_cpu::reduce_op::sum(y_, info->total_seq_len - info->seq_len + i + 1, info->y_stride_j);
         for (size_t j = 0; j <= info->total_seq_len - info->seq_len + i; j++) {
-            if constexpr (std::is_same<T, fp16_t>::value) {
-                y_[j * info->y_stride_j] = utils::cast<fp16_t>(utils::cast<float>(y_[j * info->y_stride_j]) / sum);
+            if constexpr (std::is_same<T, fp16_t>::value || std::is_same<T, bf16_t>::value) {
+                y_[j * info->y_stride_j] = utils::cast<T>(utils::cast<float>(y_[j * info->y_stride_j]) / sum);
             } else {
                 y_[j * info->y_stride_j] = y_[j * info->y_stride_j] / sum;
             }
@@ -64,6 +64,8 @@ infiniStatus_t Descriptor::calculate(
 
     if (_info.dtype == INFINI_DTYPE_F16) {
         CHECK_STATUS(causal_softmax<fp16_t>(&_info, (fp16_t *)y, (const fp16_t *)x));
+    } else if (_info.dtype == INFINI_DTYPE_BF16) {
+        CHECK_STATUS(causal_softmax<bf16_t>(&_info, (bf16_t *)y, (const bf16_t *)x));
     } else if (_info.dtype == INFINI_DTYPE_F32) {
         CHECK_STATUS(causal_softmax<float>(&_info, (float *)y, (const float *)x));
     } else {

@@ -31,12 +31,13 @@ _TEST_CASES = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.float32]
+_TENSOR_DTYPES = [torch.float16, torch.float32, torch.bfloat16]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
     torch.float16: {"atol": 0, "rtol": 1e-2},
     torch.float32: {"atol": 0, "rtol": 1e-3},
+    torch.bfloat16: {"atol": 0, "rtol": 5e-2},
 }
 
 DEBUG = False
@@ -84,7 +85,7 @@ def test(
     b_stride=None,
     c_stride=None,
     dtype=torch.float16,
-    sync=None
+    sync=None,
 ):
     print(
         f"Testing Gemm on {torch_device} with alpha:{alpha}, beta:{beta},"
@@ -152,8 +153,10 @@ def test(
 
     # Validate results
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
+
     if DEBUG:
         debug(c, ans, atol=atol, rtol=rtol)
+
     assert torch.allclose(c, ans, atol=atol, rtol=rtol)
 
     # Profiling workflow

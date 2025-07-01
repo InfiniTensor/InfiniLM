@@ -23,21 +23,33 @@ from libinfiniop import (
 #  Configuration (Internal Use Only)
 # ==============================================================================
 # These are not meant to be imported from other modules
-_TEST_CASES = [
-    # y_shape, x_shape, w_shape, y_stride, x_stride, w_dtype
-    ((1, 4), (1, 4), (4,), None, None, torch.float32),
-    ((16, 2048), (16, 2048), (2048,), None, None, torch.float32),
-    ((16, 2048), (16, 2048), (2048,), None, None, torch.float16),
-    ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1), torch.float32),
-    ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1), torch.float16),
+_TEST_CASES_ = [
+    # y_shape, x_shape, w_shape, y_stride, x_stride
+    ((1, 4), (1, 4), (4,), None, None),
+    ((1, 4), (1, 4), (4,), None, None),
+    ((16, 2048), (16, 2048), (2048,), None, None),
+    ((16, 2048), (16, 2048), (2048,), None, None),
+    ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1)),
+    ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1)),
 ]
 
+# w (weight) types 
+# Note: 'None' means the same as input dtype
+_WEIGHT_DTYPES = [None, torch.float32]
 # x types used for testing
-_TENSOR_DTYPES = [torch.float16]
+_TENSOR_DTYPES = [torch.float16, torch.bfloat16]
+
+# Form the test cases by appending each element of _WEIGHT_DTYPES to each tuple in _TEST_CASES_
+_TEST_CASES = [
+    test_case + (w_dtype,)
+    for test_case in _TEST_CASES_
+    for w_dtype in _WEIGHT_DTYPES
+]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 1e-3, "rtol": 1e-3},
+    torch.float16: {"atol": 2e-3, "rtol": 2e-3},
+    torch.bfloat16: {"atol": 8e-3, "rtol": 8e-3},
 }
 
 DEBUG = False
@@ -73,13 +85,14 @@ def test(
     x_stride,
     w_dtype=torch.float16,
     dtype=torch.float16,
-    sync=None
+    sync=None,
 ):
     print(
         f"Testing RMS_Norm on {torch_device} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
         f" y_stride:{y_stride} x_stride:{x_stride} w_dtype:{w_dtype} dtype:{dtype}"
     )
 
+    w_dtype = w_dtype if w_dtype else dtype
     y = torch.zeros(y_shape, dtype=dtype).to(torch_device)
     x = torch.rand(x_shape, dtype=dtype).to(torch_device)
     w = torch.rand(w_shape, dtype=w_dtype).to(torch_device)
@@ -93,10 +106,10 @@ def test(
         for tensor, stride in zip([x, y], [x_stride, y_stride])
     ]
     x_tensor, y_tensor, w_tensor = [to_tensor(tensor, lib) for tensor in [x, y, w]]
-    
+
     if sync is not None:
         sync()
-    
+
     descriptor = infiniopRMSNormDescriptor_t()
 
     check_error(
@@ -169,7 +182,7 @@ if __name__ == "__main__":
         POINTER(c_uint64),
     ]
 
-    lib.infiniopRMSNorm.restypes = c_int32
+    lib.infiniopRMSNorm.restype = c_int32
     lib.infiniopRMSNorm.argtypes = [
         infiniopRMSNormDescriptor_t,
         c_void_p,
