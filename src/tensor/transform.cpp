@@ -7,25 +7,19 @@
 std::shared_ptr<Tensor> Tensor::sliceImpl(const std::vector<SliceParams> &slices) const {
     std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
 
-    auto new_shape = std::vector<size_t>(this->_shape);
+    auto new_shape = std::vector<size_t>(this->shape());
     ptrdiff_t offset = 0;
 
     for (const auto &slice : slices) {
         ASSERT(slice.len > 0);
-        ASSERT(this->_shape[slice.dim] >= slice.start + slice.len);
+        ASSERT(this->shape()[slice.dim] >= slice.start + slice.len);
         new_shape[slice.dim] = slice.len;
-        offset += slice.start * this->_strides[slice.dim];
+        offset += slice.start * this->strides()[slice.dim];
     }
 
-    tensor->_dtype = this->_dtype;
-    tensor->_shape = new_shape;
-    tensor->_strides = std::vector<ptrdiff_t>(this->_strides);
-    tensor->_offset = offset * dsize(this->_dtype) + this->_offset;
-    tensor->_data = (char *)(this->_storage->memory) + tensor->_offset;
-
+    tensor->_desc = TensorDesc::create(this->dtype(), new_shape, this->strides());
+    tensor->_offset = offset * dsize(this->dtype()) + this->_offset;
     tensor->_storage = this->_storage;
-    infiniopCreateTensorDescriptor(&tensor->_desc, tensor->_shape.size(), tensor->_shape.data(),
-                                   tensor->_strides.data(), tensor->_dtype);
     return tensor;
 }
 
@@ -45,10 +39,10 @@ std::shared_ptr<Tensor const> Tensor::slice(const std::vector<SliceParams> &slic
     return this->sliceImpl(slices);
 }
 
-std::shared_ptr<Tensor> Tensor::dimMerge(size_t dim_start, size_t dim_end) {
+void TensorDesc::dimMerge(size_t dim_start, size_t dim_end) {
     ASSERT(dim_start <= dim_end && dim_end < this->_shape.size());
     if (dim_start == dim_end) {
-        return shared_from_this();
+        return;
     }
 
     auto new_shape = std::vector<size_t>();
@@ -68,14 +62,15 @@ std::shared_ptr<Tensor> Tensor::dimMerge(size_t dim_start, size_t dim_end) {
     }
     this->_shape = new_shape;
     this->_strides = new_strides;
-    infiniopDestroyTensorDescriptor(this->_desc);
-    infiniopCreateTensorDescriptor(&this->_desc, this->_shape.size(), this->_shape.data(),
-                                   this->_strides.data(), this->_dtype);
+    this->resetDesc();
+}
 
+std::shared_ptr<Tensor> Tensor::dimMerge(size_t dim_start, size_t dim_end) {
+    this->_desc->dimMerge(dim_start, dim_end);
     return shared_from_this();
 }
 
-std::shared_ptr<Tensor> Tensor::dimSplit(size_t dim, const std::vector<size_t> &dims) {
+void TensorDesc::dimSplit(size_t dim, const std::vector<size_t> &dims) {
     ASSERT_EQ(this->_shape[dim], std::accumulate(dims.begin(), dims.end(), size_t(1), std::multiplies<size_t>()));
     auto new_shape = std::vector<size_t>();
     auto new_strides = std::vector<ptrdiff_t>();
@@ -93,13 +88,15 @@ std::shared_ptr<Tensor> Tensor::dimSplit(size_t dim, const std::vector<size_t> &
     }
     this->_shape = new_shape;
     this->_strides = new_strides;
-    infiniopDestroyTensorDescriptor(this->_desc);
-    infiniopCreateTensorDescriptor(&this->_desc, this->_shape.size(), this->_shape.data(),
-                                   this->_strides.data(), this->_dtype);
+    this->resetDesc();
+}
+
+std::shared_ptr<Tensor> Tensor::dimSplit(size_t dim, const std::vector<size_t> &dims) {
+    this->_desc->dimSplit(dim, dims);
     return shared_from_this();
 }
 
-std::shared_ptr<Tensor> Tensor::permute(const std::vector<size_t> &order) {
+void TensorDesc::permute(const std::vector<size_t> &order) {
     ASSERT_EQ(this->_shape.size(), order.size());
     auto new_shape = std::vector<size_t>(order.size());
     auto new_strides = std::vector<ptrdiff_t>(order.size());
@@ -110,8 +107,10 @@ std::shared_ptr<Tensor> Tensor::permute(const std::vector<size_t> &order) {
     }
     this->_shape = new_shape;
     this->_strides = new_strides;
-    infiniopDestroyTensorDescriptor(this->_desc);
-    infiniopCreateTensorDescriptor(&this->_desc, this->_shape.size(), this->_shape.data(),
-                                   this->_strides.data(), this->_dtype);
+    this->resetDesc();
+}
+
+std::shared_ptr<Tensor> Tensor::permute(const std::vector<size_t> &order) {
+    this->_desc->permute(order);
     return shared_from_this();
 }

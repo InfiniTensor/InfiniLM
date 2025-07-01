@@ -11,19 +11,23 @@
 class Storage {
 private:
     Storage() = default;
+    void *_memory;
+    size_t _size;
+    infiniDevice_t _device_type;
+    int _device_id;
+    std::shared_ptr<MemoryPool> _memory_pool;
 
 public:
-    void *memory;
-    size_t size;
-    infiniDevice_t device_type;
-    int device_id;
-    std::shared_ptr<MemoryPool> memory_pool;
-
     static std::shared_ptr<Storage> create(size_t size);
     static std::shared_ptr<Storage> createAsync(size_t size, infinirtStream_t stream = nullptr);
     static std::shared_ptr<Storage> createFromPool(size_t size, std::shared_ptr<MemoryPool> pool = nullptr);
     static std::shared_ptr<Storage> createHost(size_t size);
     ~Storage();
+
+    void *memory() const { return _memory; }
+    size_t size() const { return _size; }
+    infiniDevice_t deviceType() const { return _device_type; }
+    int deviceId() const { return _device_id; }
 };
 
 struct SliceParams {
@@ -43,9 +47,17 @@ std::vector<ptrdiff_t> __strides(Args... args) {
 }
 class TensorDesc {
 private:
+    infiniDtype_t _dtype;
+    std::vector<size_t> _shape;
+    std::vector<ptrdiff_t> _strides;
     infiniopTensorDescriptor_t _desc;
 
+    TensorDesc(infiniDtype_t dtype, const std::vector<size_t> &shape,
+               const std::vector<ptrdiff_t> &strides) : _dtype(dtype), _shape(shape), _strides(strides), _desc(nullptr) {}
+    void resetDesc();
+
 public:
+    ~TensorDesc();
     static std::shared_ptr<TensorDesc>
     create(infiniDtype_t dtype, const std::vector<size_t> &shape,
            const std::vector<ptrdiff_t> &strides);
@@ -54,19 +66,26 @@ public:
     static std::shared_ptr<TensorDesc>
     createWithOrder(infiniDtype_t dtype, const std::vector<size_t> &shape,
                     const std::vector<size_t> &order);
-    infiniopTensorDescriptor_t get() const { return _desc; };
-    ~TensorDesc();
+
+    infiniDtype_t dtype() const { return _dtype; }
+    const std::vector<size_t> &shape() const { return _shape; }
+    const std::vector<ptrdiff_t> &strides() const { return _strides; }
+    size_t ndim() const { return _shape.size(); }
+    infiniopTensorDescriptor_t desc() const;
+    bool isContigous() const;
+    std::string info() const;
+
+    void dimMerge(size_t dim_start, size_t dim_end);
+    void dimSplit(size_t dim, const std::vector<size_t> &dims);
+    void permute(const std::vector<size_t> &order);
 };
 
 class Tensor : public std::enable_shared_from_this<Tensor> {
 private:
-    infiniDtype_t _dtype;
-    std::vector<size_t> _shape;
-    std::vector<ptrdiff_t> _strides;
-    void *_data;
-    ptrdiff_t _offset;
     std::shared_ptr<Storage> _storage;
-    infiniopTensorDescriptor_t _desc;
+    std::shared_ptr<TensorDesc> _desc;
+
+    ptrdiff_t _offset;
 
     void *dataImpl(ptrdiff_t offset) const;
     std::shared_ptr<Tensor>
@@ -99,11 +118,11 @@ public:
     const std::vector<ptrdiff_t> &strides() const;
     size_t ndim() const;
     infiniDtype_t dtype() const;
-    std::shared_ptr<TensorDesc> desc() const;
+    bool isContigous() const;
+    infiniopTensorDescriptor_t desc() const;
     ptrdiff_t dataOffset() const;
     infiniDevice_t deviceType() const;
     int deviceId() const;
-    bool is_contigous() const;
 
     void debug(const std::string &filename) const;
     void debug() const;

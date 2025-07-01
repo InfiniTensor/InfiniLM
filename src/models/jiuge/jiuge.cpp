@@ -169,8 +169,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     // attn & mlp rmsnorm
     infiniopRMSNormDescriptor_t desc_norm;
     RUN_INFINI(infiniopCreateRMSNormDescriptor(
-        rsrc.handle, &desc_norm, logits_in->desc()->get(),
-        logits_out->desc()->get(), rsrc.w_attn_norm[0]->desc()->get(),
+        rsrc.handle, &desc_norm, logits_in->desc(),
+        logits_out->desc(), rsrc.w_attn_norm[0]->desc(),
         meta.epsilon));
     RUN_INFINI(infiniopGetRMSNormWorkspaceSize(desc_norm, &workspace_size));
     workspace_size = std::max(workspace_size, temp_size);
@@ -179,15 +179,15 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     infiniopRearrangeDescriptor_t desc_qkv_bias;
     if (has_qkv_bias) {
         RUN_INFINI(infiniopCreateRearrangeDescriptor(
-            rsrc.handle, &desc_qkv_bias, qkv_buf->desc()->get(),
-            TensorDesc::create(dt_logits, {ntok, (nh + nkvh * 2) * dh}, {0, 1})->get()));
+            rsrc.handle, &desc_qkv_bias, qkv_buf->desc(),
+            TensorDesc::create(dt_logits, {ntok, (nh + nkvh * 2) * dh}, {0, 1})->desc()));
     }
     RUN_INFINI(infiniopCreateGemmDescriptor(
-        rsrc.handle, &desc_attn_qkv, qkv_buf->desc()->get(),
-        logits_in->desc()->get(), rsrc.w_attn_qkv[0]->desc()->get()));
+        rsrc.handle, &desc_attn_qkv, qkv_buf->desc(),
+        logits_in->desc(), rsrc.w_attn_qkv[0]->desc()));
     RUN_INFINI(infiniopCreateGemmDescriptor(
-        rsrc.handle, &desc_attn_o, logits_in->desc()->get(),
-        o_buf->desc()->get(), rsrc.w_attn_out[0]->desc()->get()));
+        rsrc.handle, &desc_attn_o, logits_in->desc(),
+        o_buf->desc(), rsrc.w_attn_out[0]->desc()));
     RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_attn_qkv, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_attn_o, &temp_size));
@@ -197,15 +197,15 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto qkv_buf_q = qkv_buf->slice(1, 0, nh);
     auto qkv_buf_k = qkv_buf->slice(1, nh, nkvh);
     RUN_INFINI(infiniopCreateRoPEDescriptor(
-        rsrc.handle, &desc_rope_q, qkv_buf_q->desc()->get(), qkv_buf_q->desc()->get(),
-        pos_ids_buf->desc()->get(), rsrc.sin_table->desc()->get(),
-        rsrc.cos_table->desc()->get()));
+        rsrc.handle, &desc_rope_q, qkv_buf_q->desc(), qkv_buf_q->desc(),
+        pos_ids_buf->desc(), rsrc.sin_table->desc(),
+        rsrc.cos_table->desc()));
     RUN_INFINI(infiniopGetRoPEWorkspaceSize(desc_rope_q, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     RUN_INFINI(infiniopCreateRoPEDescriptor(
-        rsrc.handle, &desc_rope_k, qkv_buf_k->desc()->get(), qkv_buf_k->desc()->get(),
-        pos_ids_buf->desc()->get(), rsrc.sin_table->desc()->get(),
-        rsrc.cos_table->desc()->get()));
+        rsrc.handle, &desc_rope_k, qkv_buf_k->desc(), qkv_buf_k->desc(),
+        pos_ids_buf->desc(), rsrc.sin_table->desc(),
+        rsrc.cos_table->desc()));
     RUN_INFINI(infiniopGetRoPEWorkspaceSize(desc_rope_k, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     // attention inner
@@ -233,38 +233,38 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         auto cache_kv = kv_caches[req]->k[idev][0]->slice(0, past_len, seq_len);
 
         RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_kv_rearranges[req],
-                                                     cache_kv->desc()->get(), k->desc()->get()));
+                                                     cache_kv->desc(), k->desc()));
 
         // [nkvh, ngroup, seq_len, dh]
         q->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3});
         auto q_t = TensorDesc::create(dt_logits, {nkvh, ngroup, seq_len, dh});
         // [seq_len, nkvh, ngroup, dh] -> [nkvh, ngroup, seq_len, dh]
         RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_q_rearranges[req],
-                                                     q_t->get(), q->desc()->get()));
+                                                     q_t->desc(), q->desc()));
         // [nkvh, ngroup, seq_len, dh] -> [seq_len, nkvh, ngroup, dh]
         auto attn_v_t = q_t;
         auto attn_v = TensorDesc::createWithOrder(dt_logits, {nkvh, ngroup, seq_len, dh}, {1, 2, 0, 3});
         RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_attn_v_rearranges[req],
-                                                     attn_v->get(), attn_v_t->get()));
+                                                     attn_v->desc(), attn_v_t->desc()));
         q_t = TensorDesc::create(dt_logits, {nkvh, ngroup * seq_len, dh});
         auto qk = TensorDesc::create(dt_logits, {nkvh, ngroup * seq_len, total_len});
         max_qk_size = std::max(max_qk_size, size_t(seq_len * total_len));
         max_seq_len = std::max(max_seq_len, size_t(seq_len));
         RUN_INFINI(infiniopCreateGemmDescriptor(
-            rsrc.handle, &desc_qk_gemms[req], qk->get(), q_t->get(), full_kv->desc()->get()));
+            rsrc.handle, &desc_qk_gemms[req], qk->desc(), q_t->desc(), full_kv->desc()));
         RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_qk_gemms[req], &temp_size));
         workspace_size = std::max(workspace_size, temp_size);
 
         // [nkvh, total_len, dh]
         auto full_v = kv_caches[req]->v[idev][0]->slice(0, 0, total_len)->permute({1, 0, 2});
         RUN_INFINI(infiniopCreateGemmDescriptor(
-            rsrc.handle, &desc_attn_v_gemms[req], q_t->get(), qk->get(), full_v->desc()->get()));
+            rsrc.handle, &desc_attn_v_gemms[req], q_t->desc(), qk->desc(), full_v->desc()));
         RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_attn_v_gemms[req], &temp_size));
         workspace_size = std::max(workspace_size, temp_size);
 
         qk = TensorDesc::create(dt_logits, {nkvh * ngroup, seq_len, total_len});
         RUN_INFINI(infiniopCreateCausalSoftmaxDescriptor(
-            rsrc.handle, &desc_qk_softmaxs[req], qk->get(), qk->get()));
+            rsrc.handle, &desc_qk_softmaxs[req], qk->desc(), qk->desc()));
         RUN_INFINI(infiniopGetCausalSoftmaxWorkspaceSize(desc_qk_softmaxs[req], &temp_size));
         workspace_size = std::max(workspace_size, temp_size);
 
@@ -278,47 +278,47 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     infiniopGemmDescriptor_t desc_ffn_gate_up, desc_ffn_down;
     infiniopSwiGLUDescriptor_t desc_swiglu;
     RUN_INFINI(infiniopCreateGemmDescriptor(
-        rsrc.handle, &desc_ffn_gate_up, gate_up_buf->desc()->get(),
-        logits_out->desc()->get(), rsrc.w_ffn_gate_up[0]->desc()->get()));
+        rsrc.handle, &desc_ffn_gate_up, gate_up_buf->desc(),
+        logits_out->desc(), rsrc.w_ffn_gate_up[0]->desc()));
     RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_ffn_gate_up, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
     RUN_INFINI(infiniopCreateSwiGLUDescriptor(
-        rsrc.handle, &desc_swiglu, gate_buf->desc()->get(), up_buf->desc()->get(), gate_buf->desc()->get()));
+        rsrc.handle, &desc_swiglu, gate_buf->desc(), up_buf->desc(), gate_buf->desc()));
     RUN_INFINI(infiniopGetSwiGLUWorkspaceSize(desc_swiglu, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     RUN_INFINI(infiniopCreateGemmDescriptor(
-        rsrc.handle, &desc_ffn_down, logits_in->desc()->get(),
-        gate_buf->desc()->get(), rsrc.w_ffn_down[0]->desc()->get()));
+        rsrc.handle, &desc_ffn_down, logits_in->desc(),
+        gate_buf->desc(), rsrc.w_ffn_down[0]->desc()));
     RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_ffn_down, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
 
     // Output and sample
     infiniopRMSNormDescriptor_t desc_norm_out;
     RUN_INFINI(infiniopCreateRMSNormDescriptor(
-        rsrc.handle, &desc_norm_out, logits_out->slice(0, 0, 1)->desc()->get(),
-        logits_out->slice(0, 0, 1)->desc()->get(),
-        rsrc.w_out_norm->desc()->get(), meta.epsilon));
+        rsrc.handle, &desc_norm_out, logits_out->slice(0, 0, 1)->desc(),
+        logits_out->slice(0, 0, 1)->desc(),
+        rsrc.w_out_norm->desc(), meta.epsilon));
     RUN_INFINI(infiniopGetRMSNormWorkspaceSize(desc_norm_out, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     infiniopGemmDescriptor_t desc_out_embd;
     RUN_INFINI(infiniopCreateGemmDescriptor(
-        rsrc.handle, &desc_out_embd, prob_buf->desc()->get(),
-        logits_out->slice(0, 0, nreq)->desc()->get(),
-        rsrc.w_out_embd->desc()->get()));
+        rsrc.handle, &desc_out_embd, prob_buf->desc(),
+        logits_out->slice(0, 0, nreq)->desc(),
+        rsrc.w_out_embd->desc()));
     RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_out_embd, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     infiniopRandomSampleDescriptor_t desc_sample;
     RUN_INFINI(infiniopCreateRandomSampleDescriptor(
         rsrc.handle, &desc_sample,
-        TensorDesc::create(INFINI_DTYPE_I64, {}, {})->get(),
-        TensorDesc::create(dt_logits, {dvoc}, {1})->get()));
+        TensorDesc::create(INFINI_DTYPE_I64, {}, {})->desc(),
+        TensorDesc::create(dt_logits, {dvoc}, {1})->desc()));
     RUN_INFINI(infiniopGetRandomSampleWorkspaceSize(desc_sample, &temp_size));
     workspace_size = std::max(workspace_size, temp_size);
     // Allocate workspace
     std::shared_ptr<Storage> workspace_storage = Storage::createFromPool(workspace_size, rsrc.memory_pool);
-    void *workspace = workspace_storage->memory;
+    void *workspace = workspace_storage->memory();
 
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
