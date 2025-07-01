@@ -1,11 +1,8 @@
-#ifndef __CAUSAL_SOFTMAX_KERNEL_CUH__
+﻿#ifndef __CAUSAL_SOFTMAX_KERNEL_CUH__
 #define __CAUSAL_SOFTMAX_KERNEL_CUH__
 
-#include "../../../devices/cuda/cuda_kernel_common.cuh"
-#include "../../../reduce/cuda/reduce.cuh"
-
 template <unsigned int BLOCK_SIZE, typename Tdata, typename Tcompute>
-INFINIOP_CUDA_KERNEL causalSoftmax(
+__device__ void causalSoftmaxKernel(
     Tdata *y_, const Tdata *x_,
     size_t batch, size_t height, size_t width,
     ptrdiff_t y_stride_b, ptrdiff_t y_stride_h,
@@ -32,11 +29,11 @@ INFINIOP_CUDA_KERNEL causalSoftmax(
         //          2 | * * * ... * * * |
         //  height: 3  col_id->
         if (width + blockIdx.x >= threadIdx.x + height) {
-#ifdef ENABLE_NVIDIA_API
-            y[col] = exp_(x[col] - max_);
-#else
-            y[col] = exp(x[col] - max_);
-#endif
+            if constexpr (std::is_same_v<Tdata, half>) {
+                y[col] = hexp(x[col] - max_);
+            } else {
+                y[col] = exp(x[col] - max_);
+            }
         } else {
             y[col] = Tdata(0);
         }

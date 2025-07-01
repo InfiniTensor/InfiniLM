@@ -1,6 +1,6 @@
 #include "../../../devices/maca/common_maca.h"
 #include "../cuda/rms_norm_kernel.cuh"
-#include "rms_norm_maca.cuh"
+#include "rms_norm_metax.cuh"
 
 namespace op::rms_norm::maca {
 

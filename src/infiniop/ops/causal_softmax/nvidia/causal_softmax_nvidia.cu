@@ -1,8 +1,23 @@
 #include "../../../devices/cuda/cuda_common.cuh"
-#include "causal_softmax_cuda.cuh"
-#include "causal_softmax_kernel.cuh"
+#include "../../../devices/cuda/cuda_kernel_common.cuh"
+#include "causal_softmax_nvidia.cuh"
 
-namespace op::causal_softmax::cuda {
+#include <cub/block/block_reduce.cuh>
+
+#include "../../../reduce/cuda/reduce.cuh"
+
+#include "../cuda/kernel.cuh"
+
+template <unsigned int BLOCK_SIZE, typename Tdata, typename Tcompute>
+INFINIOP_CUDA_KERNEL causalSoftmax(
+    Tdata *y, const Tdata *x,
+    size_t batch, size_t height, size_t width,
+    ptrdiff_t y_stride_b, ptrdiff_t y_stride_h,
+    ptrdiff_t x_stride_b, ptrdiff_t x_stride_h) {
+    causalSoftmaxKernel<BLOCK_SIZE, Tdata, Tcompute>(y, x, batch, height, width, y_stride_b, y_stride_h, x_stride_b, x_stride_h);
+}
+
+namespace op::causal_softmax::nvidia {
 
 struct Descriptor::Opaque {
     std::shared_ptr<device::cuda::Handle::Internal> internal;
@@ -79,4 +94,4 @@ infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size,
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::causal_softmax::cuda
+} // namespace op::causal_softmax::nvidia

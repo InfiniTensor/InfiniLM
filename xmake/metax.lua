@@ -35,7 +35,7 @@ target("infiniop-metax")
     set_warnings("all", "error")
     add_cxflags("-lstdc++", "-fPIC", "-Wno-defaulted-function-deleted", "-Wno-strict-aliasing")
     add_files("../src/infiniop/devices/maca/*.cc", "../src/infiniop/ops/*/maca/*.cc")
-    add_files("../src/infiniop/ops/*/maca/*.maca", {rule = "maca"})
+    add_files("../src/infiniop/ops/*/maca/*.maca", "../src/infiniop/ops/*/metax/*.maca", {rule = "maca"})
 target_end()
 
 target("infinirt-metax")
@@ -61,5 +61,5 @@ target("infiniccl-metax")
         add_files("../src/infiniccl/maca/*.cc")
     end
     set_languages("cxx17")
-    
+
 target_end()

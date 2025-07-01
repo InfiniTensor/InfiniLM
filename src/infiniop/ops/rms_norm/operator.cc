@@ -12,7 +12,7 @@
 #include "ascend/rms_norm_aclnn.h"
 #endif
 #ifdef ENABLE_METAX_API
-#include "maca/rms_norm_maca.cuh"
+#include "metax/rms_norm_metax.cuh"
 #endif
 #ifdef ENABLE_MOORE_API
 #include "musa/rms_norm_musa.cuh"
