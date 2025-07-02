@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <numeric>
 #include <sstream>
 
@@ -143,8 +144,13 @@ std::shared_ptr<Tensor> Tensor::weight(void *data, infiniDtype_t dtype,
 
     tensor->_storage = Storage::create(size);
     tensor->_desc = TensorDesc::create(dtype, shape, strides);
-    RUN_INFINI(infinirtMemcpy(tensor->_storage->memory(),
-                              data, size, INFINIRT_MEMCPY_H2D));
+    // NOTE: 为兼容部分平台（沐曦）多线程并发对同一host数据执行memcpy卡死问题
+    static std::mutex mutex;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        RUN_INFINI(infinirtMemcpy(tensor->_storage->memory(),
+                                  data, size, INFINIRT_MEMCPY_H2D));
+    }
 
     tensor->_offset = 0;
     return tensor;
