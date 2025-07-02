@@ -34,8 +34,14 @@ public:
     std::vector<ptrdiff_t> strides() const;
     ptrdiff_t stride(size_t i) const;
     std::vector<ptrdiff_t> getByteStrides() const;
+
+    // Whether dimensions in [dim_start, dim_end] can be merged into a single dimension
+    bool isMergable(size_t dim_start, size_t dim_end) const;
+    bool isContiguous(size_t dim_) const;
     bool isContiguous(size_t dim_start, size_t dim_end) const;
     bool isContiguous() const;
+
+    // Total number of elements in the tensor
     size_t numel() const;
 
     // a dim is broadcasted if it's corresponding stride is 0 but dim > 1

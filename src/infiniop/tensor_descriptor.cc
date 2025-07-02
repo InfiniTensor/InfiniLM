@@ -70,19 +70,63 @@ std::vector<ptrdiff_t> InfiniopTensorDescriptor::getByteStrides() const {
     return byte_strides;
 }
 
-bool InfiniopTensorDescriptor::isContiguous(size_t dim_start, size_t dim_end) const {
-    if (ndim() == 0) {
+bool InfiniopTensorDescriptor::isContiguous(size_t dim_) const {
+    if (dim(dim_) == 1) {
         return true;
     }
-    for (size_t i = dim_start + 1; i <= dim_end; i++) {
+
+    return stride(dim_) == ptrdiff_t(1);
+}
+
+bool InfiniopTensorDescriptor::isMergable(size_t dim_start, size_t dim_end) const {
+    if (dim_start > dim_end) {
+        throw std::invalid_argument("Invalid input");
+    } else if (dim_start == dim_end) {
+        return true;
+    }
+
+    // Slice out shape and strides from dim_start to dim_end, excluding 1-sized dimensions.
+    // Return false at once if any effective broadcast (0-strided) dimension is found.
+    std::vector<size_t> shape_;
+    std::vector<ptrdiff_t> strides_;
+    for (size_t i = dim_start; i <= dim_end; i++) {
+        if (dim(i) != 1) {
+            if (stride(i) == 0) {
+                return false;
+            }
+            shape_.push_back(dim(i));
+            strides_.push_back(stride(i));
+        }
+    }
+
+    auto ndim_ = shape_.size();
+
+    for (size_t i = 1; i < ndim_; i++) {
         if (stride(i - 1) != static_cast<ptrdiff_t>(dim(i)) * stride(i)) {
             return false;
         }
     }
+
     return true;
 }
 
+bool InfiniopTensorDescriptor::isContiguous(size_t dim_start, size_t dim_end) const {
+    if (dim_start > dim_end) {
+        throw std::invalid_argument("Invalid input");
+    }
+
+    if (!isMergable(dim_start, dim_end)) {
+        return false;
+    }
+
+    return stride(dim_end) == ptrdiff_t(1);
+}
+
 bool InfiniopTensorDescriptor::isContiguous() const {
+    if (ndim() == 0) {
+        return true;
+    }
+
     return isContiguous(0, ndim() - 1);
 }
 
@@ -118,7 +162,7 @@ utils::Result<infiniopTensorDescriptor_t> InfiniopTensorDescriptor::dimMerge(siz
         index++;
     }
 
-    CHECK_OR_RETURN(isContiguous(dim_start, dim_end), INFINI_STATUS_BAD_PARAM);
+    CHECK_OR_RETURN(isMergable(dim_start, dim_end), INFINI_STATUS_BAD_PARAM);
 
     new_shape[index] = 1;
     for (size_t i = dim_start; i <= dim_end; i++) {

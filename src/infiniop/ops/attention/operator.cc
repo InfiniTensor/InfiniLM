@@ -44,7 +44,7 @@ __C __export infiniStatus_t infiniopCreateAttentionDescriptor(infiniopHandle_t h
         return INFINI_STATUS_BAD_TENSOR_SHAPE;
     }
 
-    if (!out_desc->isContiguous(0, 2)) {
+    if (!out_desc->isContiguous()) {
         return INFINI_STATUS_BAD_TENSOR_STRIDES;
     }
 
