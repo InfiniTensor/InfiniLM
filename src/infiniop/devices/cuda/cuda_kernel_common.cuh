@@ -6,6 +6,7 @@
 
 // Posible maximum number of threads per block for CUDA architectures
 // Used for picking correct kernel launch configuration
+#define CUDA_BLOCK_SIZE_4096 4096
 #define CUDA_BLOCK_SIZE_1024 1024
 #define CUDA_BLOCK_SIZE_512 512
 
