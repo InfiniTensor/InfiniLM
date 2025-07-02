@@ -38,18 +38,19 @@ python scripts/install.py [XMAKE_CONFIG_FLAGS]
 
 参数 `XMAKE_CONFIG_FLAGS` 是 xmake 构建配置，可配置下列可选项：
 
-| 选项                     | 功能                          | 默认值
-|--------------------------|-------------------------------|:-:
-| `--omp=[y\|n]`           | 是否使用 OpenMP               | y
-| `--cpu=[y\|n]`           | 是否编译 CPU 接口实现         | y
-| `--nv-gpu=[y\|n]`        | 是否编译英伟达 GPU 接口实现   | n
-| `--ascend-npu=[y\|n]`    | 是否编译昇腾 NPU 接口实现     | n
-| `--cambricon-mlu=[y\|n]` | 是否编译寒武纪 MLU 接口实现   | n
-| `--metax-gpu=[y\|n]`     | 是否编译沐曦 GPU 接口实现     | n
-| `--moore-gpu=[y\|n]`     | 是否编译摩尔线程 GPU 接口实现 | n
-| `--sugon-dcu=[y\|n]`     | 是否编译曙光 DCU 接口实现     | n
-| `--kunlun-xpu=[y\|n]`    | 是否编译昆仑 XPU 接口实现     | n
-| `--ccl=[y\|n]`           | 是否编译 InfiniCCL 通信库接口实现     | n
+| 选项                     | 功能                              | 默认值
+|--------------------------|-----------------------------------|:-:
+| `--omp=[y\|n]`           | 是否使用 OpenMP                   | y
+| `--cpu=[y\|n]`           | 是否编译 CPU 接口实现             | y
+| `--nv-gpu=[y\|n]`        | 是否编译英伟达 GPU 接口实现       | n
+| `--ascend-npu=[y\|n]`    | 是否编译昇腾 NPU 接口实现         | n
+| `--cambricon-mlu=[y\|n]` | 是否编译寒武纪 MLU 接口实现       | n
+| `--metax-gpu=[y\|n]`     | 是否编译沐曦 GPU 接口实现         | n
+| `--moore-gpu=[y\|n]`     | 是否编译摩尔线程 GPU 接口实现     | n
+| `--iluvatar-gpu=[y\|n]`  | 是否编译沐曦 GPU 接口实现         | n
+| `--sugon-dcu=[y\|n]`     | 是否编译曙光 DCU 接口实现         | n
+| `--kunlun-xpu=[y\|n]`    | 是否编译昆仑 XPU 接口实现         | n
+| `--ccl=[y\|n]`           | 是否编译 InfiniCCL 通信库接口实现 | n
 
 ### 手动安装
 
@@ -114,11 +115,13 @@ python scripts/python_test.py [--cpu | --nvidia | --cambricon | --ascend]
 #### 通信库（InfiniCCL）测试
 
 编译（需要先安装InfiniCCL）：
+
 ```shell
 xmake build infiniccl-test
 ```
 
 在英伟达平台运行测试（会自动使用所有可见的卡）：
+
 ```shell
 infiniccl-test --nvidia
 ```
