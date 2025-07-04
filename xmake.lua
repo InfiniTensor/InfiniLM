@@ -12,6 +12,10 @@ if is_mode("debug") then
     add_defines("DEBUG_MODE")
 end
 
+if is_plat("windows") then
+    set_runtimes("MD")
+end
+
 -- CPU
 option("cpu")
     set_default(true)

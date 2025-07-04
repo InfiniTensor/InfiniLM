@@ -73,6 +73,8 @@ python scripts/install.py [XMAKE_CONFIG_FLAGS]
      ```shell
      # 英伟达
      # 可以指定 CUDA 路径， 一般环境变量为 `CUDA_HOME` 或者 `CUDA_ROOT`
+     # window系统：--cuda="%CUDA_HOME%"
+     # linux系统：--cuda=$CUDA_HOME
      xmake f --nv-gpu=true --cuda=$CUDA_HOME -cv
 
      # 寒武纪
