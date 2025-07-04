@@ -12,6 +12,7 @@ from libinfinicore_infer import (
     infer_batch,
 )
 from infer_task import InferTask, KVCache
+from qwen2_tokenizer import piece_to_text
 
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 import os
@@ -368,6 +369,7 @@ class JiugeForCauslLM:
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             config = json.load(f)
             self.config = config
+            self.model_type = config["model_type"]
         eos_token_id = self.config["eos_token_id"]
         self.eos_token_id = (
             [eos_token_id] if type(eos_token_id) == int else eos_token_id
@@ -515,11 +517,19 @@ class JiugeForCauslLM:
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
             steps += 1
-            output_str = (
-                self.tokenizer._tokenizer.id_to_token(output_tokens[0])
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
+            if self.model_type == "qwen2":
+                token_piece = self.tokenizer.convert_ids_to_tokens(output_tokens[0])
+                output_str = (
+                    piece_to_text(token_piece)                    
+                    .replace("▁", " ")
+                    .replace("<0x0A>", "\n")
+                )
+            else:
+                output_str = (
+                    self.tokenizer._tokenizer.id_to_token(output_tokens[0])
+                    .replace("▁", " ")
+                    .replace("<0x0A>", "\n")
+                )
             output_content += output_str
             print(output_str, end="", flush=True)
             if output_tokens[0] in self.eos_token_id:
