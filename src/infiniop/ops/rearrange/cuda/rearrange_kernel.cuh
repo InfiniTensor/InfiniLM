@@ -63,13 +63,13 @@ struct Constraint {
                 size_t remaining                                                                                                                                                 \
                     = blockIdx.x;                                                                                                                                                \
                                                                                                                                                                                  \
-                for (ptrdiff_t i = grid_array_size - 1; i >= 0; i--) {                                                                                                             \
+                for (ptrdiff_t i = grid_array_size - 1; i >= 0; i--) {                                                                                                           \
                     size_t idx = remaining % grid_len.a[i];                                                                                                                      \
                     remaining /= grid_len.a[i];                                                                                                                                  \
                     src_offset += idx * src_grid_stride.a[i];                                                                                                                    \
                     dst_offset += idx * dst_grid_stride.a[i];                                                                                                                    \
                     if (constraint_num > 0) {                                                                                                                                    \
-                        for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                           \
+                        for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                         \
                             if (i == constraints.a[j].grid_idx) {                                                                                                                \
                                 constraints_grid_idx_multiple[j] = idx * constraints.a[j].grid_div_block;                                                                        \
                             }                                                                                                                                                    \
@@ -80,7 +80,7 @@ struct Constraint {
                 /* 将结果存入共享内存 */                                                                                                                                \
                 shared_src_offset = src_offset;                                                                                                                                  \
                 shared_dst_offset = dst_offset;                                                                                                                                  \
-                for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                                   \
+                for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                                 \
                     shared_constraints_grid_idx_multiple[j] = constraints_grid_idx_multiple[j];                                                                                  \
                 }                                                                                                                                                                \
             }                                                                                                                                                                    \
@@ -92,18 +92,18 @@ struct Constraint {
             ptrdiff_t src_offset = shared_src_offset;                                                                                                                            \
             ptrdiff_t dst_offset = shared_dst_offset;                                                                                                                            \
             ARRAY_TYPE_SIZE constraints_grid_idx_multiple[constraint_num > 0 ? constraint_num : 1];                                                                              \
-            for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                                       \
+            for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                                     \
                 constraints_grid_idx_multiple[j] = shared_constraints_grid_idx_multiple[j];                                                                                      \
             }                                                                                                                                                                    \
                                                                                                                                                                                  \
-            for (ptrdiff_t i = block_array_size - 1; i >= 0; i--) {                                                                                                                \
+            for (ptrdiff_t i = block_array_size - 1; i >= 0; i--) {                                                                                                              \
                 size_t idx = remaining % block_len.a[i];                                                                                                                         \
                 remaining /= block_len.a[i];                                                                                                                                     \
                 /* 计算偏移量 */                                                                                                                                            \
                 src_offset += idx * src_block_stride.a[i];                                                                                                                       \
                 dst_offset += idx * dst_block_stride.a[i];                                                                                                                       \
                 if (constraint_num > 0) {                                                                                                                                        \
-                    for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                               \
+                    for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                             \
                         if (i == constraints.a[j].block_idx) {                                                                                                                   \
                             if (constraints_grid_idx_multiple[j] + idx >= constraints.a[j].total_len) {                                                                          \
                                 return;                                                                                                                                          \
@@ -115,7 +115,7 @@ struct Constraint {
                                                                                                                                                                                  \
             src_offset += remaining * src_block_stride.a[0];                                                                                                                     \
             dst_offset += remaining * dst_block_stride.a[0];                                                                                                                     \
-            for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                                       \
+            for (ptrdiff_t j = 0; j < constraint_num; j++) {                                                                                                                     \
                 if (0 == constraints.a[j].block_idx) {                                                                                                                           \
                     if (constraints_grid_idx_multiple[j] + remaining >= constraints.a[j].total_len) {                                                                            \
                         return;                                                                                                                                                  \
@@ -133,7 +133,7 @@ struct Constraint {
                 ptrdiff_t dst_offset = 0;                                                                                                                                        \
                 size_t remaining = blockIdx.x;                                                                                                                                   \
                                                                                                                                                                                  \
-                for (ptrdiff_t i = grid_array_size - 1; i >= 0; i--) {                                                                                                             \
+                for (ptrdiff_t i = grid_array_size - 1; i >= 0; i--) {                                                                                                           \
                     size_t idx = remaining % grid_len.a[i];                                                                                                                      \
                     remaining /= grid_len.a[i];                                                                                                                                  \
                     src_offset += idx * src_grid_stride.a[i];                                                                                                                    \
@@ -152,7 +152,7 @@ struct Constraint {
             ptrdiff_t src_offset = shared_src_offset;                                                                                                                            \
             ptrdiff_t dst_offset = shared_dst_offset;                                                                                                                            \
                                                                                                                                                                                  \
-            for (ptrdiff_t i = block_array_size - 1; i > 0; i--) {                                                                                                                 \
+            for (ptrdiff_t i = block_array_size - 1; i > 0; i--) {                                                                                                               \
                 size_t idx = remaining % block_len.a[i];                                                                                                                         \
                 remaining /= block_len.a[i];                                                                                                                                     \
                 /* 计算偏移量 */                                                                                                                                            \
