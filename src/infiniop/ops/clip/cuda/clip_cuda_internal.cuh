@@ -19,8 +19,9 @@ public:
 #else
             return {std::clamp(x.x, min_val.x, max_val.x), std::clamp(x.y, min_val.y, max_val.y)};
 #endif
+        } else {
+            return std::clamp(x, min_val, max_val);
         }
-        return std::clamp(x, min_val, max_val);
     }
 } ClipOp;
 } // namespace op::clip::cuda

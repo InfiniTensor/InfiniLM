@@ -31,6 +31,10 @@ target("infiniop-cuda")
         add_cuflags("--extended-lambda")
         add_culdflags("-Xcompiler=-fPIC")
         add_cxxflags("-fPIC")
+        add_cuflags("--expt-relaxed-constexpr")
+        if CUDNN_ROOT ~= nil then
+            add_linkdirs(CUDNN_ROOT .. "/lib")
+        end
     end
 
     set_languages("cxx17")

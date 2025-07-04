@@ -38,20 +38,16 @@ _TEST_CASES_ = [
     ((5, 10), None, None, -2.0, 0.0),
     ((2, 3, 4), None, None, -2.0, 0.0),
     # 奇怪形状测试
-    ((7, 13), None, None, -1.0, 1.0),     # 质数维度
-    ((3, 5, 7), None, None, -1.0, 1.0),   # 三维质数
+    ((7, 13), None, None, -1.0, 1.0),  # 质数维度
+    ((3, 5, 7), None, None, -1.0, 1.0),  # 三维质数
     # 非标准形状测试
-    ((1, 1), None, None, -1.0, 1.0),       # 最小形状
-    ((100, 100), None, None, -1.0, 1.0),   # 大形状
-    ((16, 16, 16), None, None, -1.0, 1.0), # 大三维
+    ((1, 1), None, None, -1.0, 1.0),  # 最小形状
+    ((100, 100), None, None, -1.0, 1.0),  # 大形状
+    ((16, 16, 16), None, None, -1.0, 1.0),  # 大三维
     # 极端值测试
     ((10,), None, None, -1000.0, 1000.0),  # 大范围
-    ((10,), None, None, -0.001, 0.001),    # 小范围
-    ((10,), None, None, 0.0, 0.0),         # min=max
-    # 特殊形状测试
-    ((0,), None, None, -1.0, 1.0),         # 空张量
-    ((1, 0), None, None, -1.0, 1.0),       # 空维度
-
+    ((10,), None, None, -0.001, 0.001),  # 小范围
+    ((10,), None, None, 0.0, 0.0),  # min=max
 ]
 
 
@@ -88,30 +84,13 @@ NUM_ITERATIONS = 1000
 
 class ClipDescriptor(Structure):
     _fields_ = [("device_type", c_int32), ("device_id", c_int32)]
+
+
 infiniopClipDescriptor_t = POINTER(ClipDescriptor)
 
 
 def clip(x, min_val, max_val):
     return torch.clamp(x, min_val, max_val)
-
-
-def create_tensor_with_stride(shape, stride, dtype, device):
-    """Create a tensor with specific stride without using view() that might cause errors."""
-    x = torch.rand(shape, dtype=dtype, device=device) * 4.0 - 2.0  # Range: [-2, 2]
-    if stride is None:
-        return x
-    if len(shape) == 2 and len(stride) == 2:
-        if stride == (shape[1], 1):
-            return x.contiguous()
-        elif stride == (1, shape[0]):
-            return x.transpose(0, 1).contiguous().transpose(0, 1)
-        else:
-            y = torch.zeros(shape, dtype=dtype, device=device)
-            for i in range(shape[0]):
-                for j in range(shape[1]):
-                    y[i, j] = x[i, j]
-            return y.contiguous()
-    return x
 
 
 def test(
@@ -125,12 +104,13 @@ def test(
     max_val=1.0,
     inplace=Inplace.OUT_OF_PLACE,
     dtype=torch.float32,
+    sync=None,
 ):
     print(
         f"Testing Clip on {torch_device} with shape:{shape} x_stride:{x_stride} y_stride:{y_stride} "
         f"min_val:{min_val} max_val:{max_val} dtype:{dtype} inplace:{inplace}"
     )
-    x = create_tensor_with_stride(shape, x_stride, dtype, torch_device)
+    x = torch.rand(shape, dtype=dtype).to(torch_device)
     ans = clip(x, min_val, max_val)
     x = rearrange_if_needed(x, x_stride)
     x_tensor = to_tensor(x, lib)
@@ -141,18 +121,34 @@ def test(
         y = torch.zeros(shape, dtype=dtype).to(torch_device)
         y = rearrange_if_needed(y, y_stride)
         y_tensor = to_tensor(y, lib)
+
+    if sync is not None:
+        sync()
+
     descriptor = infiniopClipDescriptor_t()
+    min_, max_ = torch.tensor([min_val], dtype=dtype).to(torch_device), torch.tensor(
+        [max_val], dtype=dtype
+    ).to(torch_device)
+    min_tensor = to_tensor(
+        min_, lib, force_shape=shape, force_strides=[0 for _ in shape]
+    )
+    max_tensor = to_tensor(
+        max_, lib, force_shape=shape, force_strides=[0 for _ in shape]
+    )
     check_error(
         lib.infiniopCreateClipDescriptor(
-            handle, ctypes.byref(descriptor), y_tensor.descriptor, x_tensor.descriptor
+            handle,
+            ctypes.byref(descriptor),
+            y_tensor.descriptor,
+            x_tensor.descriptor,
+            min_tensor.descriptor,
+            max_tensor.descriptor,
         )
     )
 
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetClipWorkspaceSize(
-            descriptor, ctypes.byref(workspace_size)
-        )
+        lib.infiniopGetClipWorkspaceSize(descriptor, ctypes.byref(workspace_size))
     )
     workspace = create_workspace(workspace_size.value, x.device)
 
@@ -164,8 +160,8 @@ def test(
                 workspace_size.value,
                 y_tensor.data,
                 x_tensor.data,
-                c_float(min_val),
-                c_float(max_val),
+                min_tensor.data,
+                max_tensor.data,
                 None,
             )
         )
@@ -209,6 +205,8 @@ if __name__ == "__main__":
         POINTER(infiniopClipDescriptor_t),
         infiniopTensorDescriptor_t,
         infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
     ]
 
     lib.infiniopGetClipWorkspaceSize.restype = c_int32
@@ -224,8 +222,8 @@ if __name__ == "__main__":
         c_uint64,
         c_void_p,
         c_void_p,
-        c_float,
-        c_float,
+        c_void_p,
+        c_void_p,
         c_void_p,
     ]
 

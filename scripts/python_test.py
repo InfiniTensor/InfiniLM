@@ -13,6 +13,7 @@ def run_tests(args):
     failed = []
     for test in [
         "add.py",
+        "clip.py",
         "gemm.py",
         "random_sample.py",
         "rms_norm.py",
@@ -22,7 +23,7 @@ def run_tests(args):
         "attention.py",
         "causal_softmax.py",
         "rearrange.py",
-        "mul.py"
+        "mul.py",
     ]:
         result = subprocess.run(
             f"python {test} {args} --debug", text=True, encoding="utf-8", shell=True

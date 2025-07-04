@@ -11,15 +11,23 @@ def check_error(status):
         raise Exception("Error code " + str(status))
 
 
-def to_tensor(tensor, lib, force_unsigned=False):
+def to_tensor(tensor, lib, force_unsigned=False, force_shape=None, force_strides=None):
     """
     Convert a PyTorch tensor to a library Tensor(descriptor, data).
     """
     import torch
 
     ndim = tensor.ndimension()
-    shape = (ctypes.c_size_t * ndim)(*tensor.shape)
-    strides = (ctypes.c_int64 * ndim)(*(tensor.stride()))
+    if force_shape is not None:
+        ndim = len(force_shape)
+        shape = (ctypes.c_size_t * ndim)(*force_shape)
+    else:
+        shape = (ctypes.c_size_t * ndim)(*tensor.shape)
+    if force_strides is not None:
+        ndim = len(force_strides)
+        strides = (ctypes.c_int64 * ndim)(*force_strides)
+    else:
+        strides = (ctypes.c_int64 * ndim)(*(tensor.stride()))
     # fmt: off
     dt = (
         InfiniDtype.I8 if tensor.dtype == torch.int8 else
