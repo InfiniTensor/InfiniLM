@@ -187,7 +187,7 @@ async def chat_stream(id_, request_data, request: Request):
         chunk = json.dumps(
             chunk_json(id_, content="", role="assistant"), ensure_ascii=False
         )
-        yield f"{chunk}\n\n"
+        yield f"data: {chunk}\n\n"
 
         request.app.state.request_queue.sync_q.put(infer_task)
 
@@ -203,7 +203,7 @@ async def chat_stream(id_, request_data, request: Request):
                     chunk_json(id_, finish_reason=infer_task.finish_reason),
                     ensure_ascii=False,
                 )
-                yield f"{chunk}\n\n"
+                yield f"data: {chunk}\n\n"
                 break
 
             token = await infer_task.output_queue.async_q.get()
@@ -213,7 +213,7 @@ async def chat_stream(id_, request_data, request: Request):
                 .replace("<0x0A>", "\n")
             )
             chunk = json.dumps(chunk_json(id_, content=content), ensure_ascii=False)
-            yield f"{chunk}\n\n"
+            yield f"data: {chunk}\n\n"
 
     except Exception as e:
         print(f"[Error] ID : {id_} Exception: {e}")
