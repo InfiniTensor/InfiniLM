@@ -56,6 +56,7 @@ python scripts/install.py [XMAKE_CONFIG_FLAGS]
 
 1. 项目配置
 
+   windows系统上，建议使用`xmake v2.8.9`编译项目。
    - 查看当前配置
 
      ```shell

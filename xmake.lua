@@ -10,6 +10,8 @@ add_includedirs("include")
 
 if is_mode("debug") then
     add_defines("DEBUG_MODE")
+    add_ldflags("/utf-8", {force = true})
+    add_cxflags("/utf-8", {force = true})
 end
 
 if is_plat("windows") then
