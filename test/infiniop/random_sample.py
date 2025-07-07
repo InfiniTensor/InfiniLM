@@ -1,21 +1,21 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_uint64, c_void_p, c_float
+from ctypes import c_uint64
 from libinfiniop import (
-    InfiniDtype,
-    infiniopHandle_t,
-    infiniopTensorDescriptor_t,
-    open_lib,
-    to_tensor,
+    LIBINFINIOP,
+    TestTensor,
     get_test_devices,
     check_error,
-    create_workspace,
     test_operator,
     get_args,
     debug_all,
     get_tolerance,
     profile_operation,
-    synchronize_device,
+    TestWorkspace,
+    InfiniDtype,
+    InfiniDtypeNames,
+    InfiniDeviceNames,
+    infiniopOperatorDescriptor_t,
 )
 
 # ==============================================================================
@@ -37,11 +37,11 @@ _TEST_CASES = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.bfloat16]
+_TENSOR_DTYPES = [InfiniDtype.F16, InfiniDtype.BF16]
 
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 0, "rtol": 0},
-    torch.bfloat16: {"atol": 0, "rtol": 0},
+    InfiniDtype.F16: {"atol": 0, "rtol": 0},
+    InfiniDtype.BF16: {"atol": 0, "rtol": 0},
 }
 
 
@@ -49,13 +49,6 @@ DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
-
-
-class RandomSampleDescriptor(Structure):
-    _fields_ = [("device", c_int32)]
-
-
-infiniopRandomSampleDescriptor_t = POINTER(RandomSampleDescriptor)
 
 
 def random_sample(data, random_val, topp, topk, voc, temperature):
@@ -68,81 +61,81 @@ def random_sample(data, random_val, topp, topk, voc, temperature):
 
         k_index = min(topk, voc) - 1
         threshold = min(cum_probs[k_index], topp) * random_val
-        
+
         try:
             idx = torch.searchsorted(cum_probs, threshold)
         except Exception:
             # Fallback for manual search if torch.searchsorted is not supported
             indices = (cum_probs >= threshold).nonzero(as_tuple=True)[0]
-            idx = indices[0] if indices.numel() > 0 else torch.tensor(len(cum_probs)-1, device=cum_probs.device)
+            idx = (
+                indices[0]
+                if indices.numel() > 0
+                else torch.tensor(len(cum_probs) - 1, device=cum_probs.device)
+            )
         return sorted_indices[idx]
 
     return torch.argmax(data)
 
 
 def test(
-    lib,
     handle,
-    torch_device,
+    device,
     voc,
     random_val,
     topp,
     topk,
     temperature,
-    dtype=torch.float16,
+    dtype=InfiniDtype.F16,
     sync=None,
 ):
     print(
-        f"Testing RandomSample on {torch_device} with voc:{voc} random_val:{random_val} topp:{topp} topk:{topk} temperature:{temperature} dtype:{dtype}"
+        f"Testing RandomSample on {InfiniDeviceNames[device]} with voc:{voc} random_val:{random_val} topp:{topp} topk:{topk} temperature:{temperature} dtype:{InfiniDtypeNames[dtype]}"
     )
 
-    data = torch.arange(voc).float() * 0.0001
     _perm = torch.randperm(voc)
-    data = data[_perm].to(dtype).to(torch_device)
+    logits = TestTensor.from_torch(
+        torch.arange(voc)[_perm].float() * 0.0001, dtype, device
+    )
 
     ans = random_sample(
-        data, random_val, topp, topk, voc, temperature
+        logits.torch_tensor(), random_val, topp, topk, voc, temperature
     )  # 这个函数在device速度可能会很慢，可以通过data.to("cpu")方式加快计算过程
 
-    indices = torch.zeros([], dtype=torch.int64).to(torch_device)
-
-    x_tensor, indices_tensor = [to_tensor(tensor, lib) for tensor in [data, indices]]
-
-    indices_tensor.descriptor.contents.dt = InfiniDtype.U64  # treat int64 as uint64
+    indices = TestTensor([], None, InfiniDtype.I32, device, mode="zeros")
 
     if sync is not None:
         sync()
 
-    descriptor = infiniopRandomSampleDescriptor_t()
+    descriptor = infiniopOperatorDescriptor_t()
     check_error(
-        lib.infiniopCreateRandomSampleDescriptor(
+        LIBINFINIOP.infiniopCreateRandomSampleDescriptor(
             handle,
             ctypes.byref(descriptor),
-            indices_tensor.descriptor,
-            x_tensor.descriptor,
+            indices.descriptor,
+            logits.descriptor,
         )
     )
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
-    for tensor in [x_tensor, indices_tensor]:
-        tensor.destroyDesc(lib)
+    for tensor in [logits, indices]:
+        tensor.destroy_desc()
 
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetRandomSampleWorkspaceSize(
+        LIBINFINIOP.infiniopGetRandomSampleWorkspaceSize(
             descriptor, ctypes.byref(workspace_size)
         )
     )
-    workspace = create_workspace(workspace_size.value, torch_device)
+    workspace = TestWorkspace(workspace_size.value, device)
 
     def lib_random_sample():
         check_error(
-            lib.infiniopRandomSample(
+            LIBINFINIOP.infiniopRandomSample(
                 descriptor,
-                workspace.data_ptr() if workspace is not None else None,
+                workspace.data(),
                 workspace_size.value,
-                indices_tensor.data,
-                x_tensor.data,
+                indices.data(),
+                logits.data(),
                 random_val,
                 topp,
                 topk,
@@ -153,66 +146,36 @@ def test(
 
     lib_random_sample()
 
-    if torch_device == "npu":
-        synchronize_device(torch_device)
+    if sync is not None:
+        sync()
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
         debug_all(
-            (indices.type(ans.dtype), data[indices]),
-            (ans, data[ans]),
+            (indices.actual_tensor(), logits.actual_tensor()[indices.actual_tensor()]),
+            (ans, logits.torch_tensor()[ans]),
             "or",
             atol=atol,
             rtol=rtol,
         )
-    assert indices.type(ans.dtype) == ans or data[ans] == data[indices]
+    assert (
+        indices.actual_tensor() == ans
+        or logits.actual_tensor()[indices.actual_tensor()] == logits.torch_tensor()[ans]
+    )
 
     # Profiling workflow
     if PROFILE:
         # fmt: off
         profile_operation("PyTorch", lambda: random_sample(
-                data, random_val, topp, topk, voc, temperature
-            ), torch_device, NUM_PRERUN, NUM_ITERATIONS)
-        profile_operation("    lib", lambda: lib_random_sample(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+            logits.torch_tensor(), random_val, topp, topk, voc, temperature
+        ), device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("    lib", lambda: lib_random_sample(), device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
-    check_error(lib.infiniopDestroyRandomSampleDescriptor(descriptor))
+    check_error(LIBINFINIOP.infiniopDestroyRandomSampleDescriptor(descriptor))
 
 
 if __name__ == "__main__":
     args = get_args()
-    lib = open_lib()
-
-    lib.infiniopCreateRandomSampleDescriptor.restype = c_int32
-    lib.infiniopCreateRandomSampleDescriptor.argtypes = [
-        infiniopHandle_t,
-        POINTER(infiniopRandomSampleDescriptor_t),
-        infiniopTensorDescriptor_t,
-    ]
-
-    lib.infiniopGetRandomSampleWorkspaceSize.restype = c_int32
-    lib.infiniopGetRandomSampleWorkspaceSize.argtypes = [
-        infiniopRandomSampleDescriptor_t,
-        POINTER(c_uint64),
-    ]
-
-    lib.infiniopRandomSample.restype = c_int32
-    lib.infiniopRandomSample.argtypes = [
-        infiniopRandomSampleDescriptor_t,
-        c_void_p,
-        c_uint64,
-        c_uint64,
-        c_void_p,
-        c_float,
-        c_float,
-        c_int32,
-        c_float,
-        c_void_p,
-    ]
-
-    lib.infiniopDestroyRandomSampleDescriptor.restype = c_int32
-    lib.infiniopDestroyRandomSampleDescriptor.argtypes = [
-        infiniopRandomSampleDescriptor_t,
-    ]
 
     DEBUG = args.debug
     PROFILE = args.profile
@@ -221,6 +184,6 @@ if __name__ == "__main__":
 
     # Execute tests
     for device in get_test_devices(args):
-        test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
+        test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")

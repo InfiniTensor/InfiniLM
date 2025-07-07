@@ -1,21 +1,22 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_uint64, c_void_p
+from ctypes import c_uint64
 from libinfiniop import (
-    infiniopHandle_t,
-    infiniopTensorDescriptor_t,
-    open_lib,
-    to_tensor,
+    LIBINFINIOP,
+    TestTensor,
     get_test_devices,
     check_error,
-    rearrange_if_needed,
-    create_workspace,
     test_operator,
     get_args,
     debug,
     get_tolerance,
     profile_operation,
-    synchronize_device,
+    TestWorkspace,
+    InfiniDtype,
+    InfiniDtypeNames,
+    InfiniDeviceEnum,
+    InfiniDeviceNames,
+    infiniopOperatorDescriptor_t,
 )
 from enum import Enum, auto
 
@@ -35,13 +36,13 @@ _TEST_CASES_ = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.bfloat16, torch.float32]
+_TENSOR_DTYPES = [InfiniDtype.F16, InfiniDtype.BF16, InfiniDtype.F32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 1e-3, "rtol": 1e-2},
-    torch.bfloat16: {"atol": 5e-3, "rtol": 5e-2},
-    torch.float32: {"atol": 1e-4, "rtol": 1e-3},
+    InfiniDtype.F16: {"atol": 1e-3, "rtol": 1e-2},
+    InfiniDtype.BF16: {"atol": 5e-3, "rtol": 5e-2},
+    InfiniDtype.F32: {"atol": 1e-4, "rtol": 1e-3},
 }
 
 
@@ -67,14 +68,7 @@ NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
 
 
-class RoPEDescriptor(Structure):
-    _fields_ = [("device", c_int32)]
-
-
-infiniopRoPEDescriptor_t = POINTER(RoPEDescriptor)
-
-
-def rotary_embedding(t, sin, cos, torch_device):
+def rotary_embedding(ans, t, sin, cos, device):
     dh = t.shape[2]
     dt = t.dtype
     assert dh % 2 == 0, "Embedding dimension must be even."
@@ -82,7 +76,7 @@ def rotary_embedding(t, sin, cos, torch_device):
     t_odd = t[..., 1::2]  # [seq_len, n_head, dh // 2]
     cos = cos.unsqueeze(1)  # [seq_len, 1, dh // 2]
     sin = sin.unsqueeze(1)  # [seq_len, 1, dh // 2]
-    if torch_device == "cpu":
+    if device == InfiniDeviceEnum.CPU:
         (t_even, t_odd, cos, sin) = (
             t_even.float(),
             t_odd.float(),
@@ -93,26 +87,23 @@ def rotary_embedding(t, sin, cos, torch_device):
     t_out_even = t_even * cos - t_odd * sin
     t_out_odd = t_even * sin + t_odd * cos
 
-    t_out = torch.empty_like(t)
-    t_out[..., 0::2] = t_out_even
-    t_out[..., 1::2] = t_out_odd
-
-    return t_out.to(dt).to(torch_device)
+    ans[..., 0::2] = t_out_even.to(dt)
+    ans[..., 1::2] = t_out_odd.to(dt)
 
 
-def sin_cos_table(pos, dim, torch_device, theta, dtype):
+def sin_cos_table(pos, dim, device, theta, dtype):
     assert dim % 2 == 0, "Embedding dimension must be even."
-    freqs = (1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))).to(
-        torch_device
-    )
+    freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
     angles = torch.outer(pos, freqs)
-    return torch.sin(angles).to(dtype), torch.cos(angles).to(dtype)
+    return (
+        TestTensor.from_torch(torch.sin(angles), dtype, device),
+        TestTensor.from_torch(torch.cos(angles), dtype, device),
+    )
 
 
 def test(
-    lib,
     handle,
-    torch_device,
+    device,
     shape,
     x_strides=None,
     y_strides=None,
@@ -120,71 +111,71 @@ def test(
     dtype=torch.float32,
     sync=None,
 ):
+    x = TestTensor(shape, x_strides, dtype, device)
     if inplace == Inplace.INPLACE_X:
-        y_strides = x_strides
-    print(
-        f"Testing Rotary Positional Embedding on {torch_device} with shape:{shape} x_strides:{x_strides} y_strides:{y_strides} and dtype:{dtype} inplace:{inplace}"
-    )
-
-    x = torch.rand(shape, dtype=dtype).to(torch_device)
-    x = rearrange_if_needed(x, x_strides)
-    if inplace == Inplace.INPLACE_X:
+        if x_strides != y_strides:
+            return
         y = x
     else:
-        y = torch.rand(shape, dtype=dtype).to(torch_device)
-        y = rearrange_if_needed(y, y_strides)
+        y = TestTensor(shape, y_strides, dtype, device)
+
+    print(
+        f"Testing Rotary Positional Embedding on {InfiniDeviceNames[device]} with shape:{shape} x_strides:{x_strides} y_strides:{y_strides} and dtype:{InfiniDtypeNames[dtype]} inplace:{inplace}"
+    )
     theta = 1e5
-    pos = torch.arange(0, x.shape[0], dtype=torch.int32).to(torch_device)
-    sin_table, cos_table = sin_cos_table(pos, x.shape[2], x.device, theta, dtype)
+    pos = TestTensor.from_torch(torch.arange(0, x.shape[0]), InfiniDtype.I32, device)
+    sin_table, cos_table = sin_cos_table(
+        pos.torch_tensor(), x.shape[2], x.device, theta, dtype
+    )
 
-    ans = rotary_embedding(x, sin_table, cos_table, torch_device)
+    rotary_embedding(
+        y.torch_tensor(),
+        x.torch_tensor(),
+        sin_table.torch_tensor(),
+        cos_table.torch_tensor(),
+        device,
+    )
 
-    descriptor = infiniopRoPEDescriptor_t()
-    x_tensor, pos_tensor, sin_table_tensor, cos_table_tensor = [
-        to_tensor(tensor, lib, force_unsigned=True)
-        for tensor in [x, pos, sin_table, cos_table]
-    ]
-    if inplace == Inplace.INPLACE_X:
-        y_tensor = x_tensor
-    else:
-        y_tensor = to_tensor(y, lib)
+    descriptor = infiniopOperatorDescriptor_t()
 
     if sync is not None:
         sync()
 
     check_error(
-        lib.infiniopCreateRoPEDescriptor(
+        LIBINFINIOP.infiniopCreateRoPEDescriptor(
             handle,
             ctypes.byref(descriptor),
-            y_tensor.descriptor,
-            x_tensor.descriptor,
-            pos_tensor.descriptor,
-            sin_table_tensor.descriptor,
-            cos_table_tensor.descriptor,
+            y.descriptor,
+            x.descriptor,
+            pos.descriptor,
+            sin_table.descriptor,
+            cos_table.descriptor,
         )
     )
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
-    for tensor in [y_tensor, x_tensor, pos_tensor, sin_table_tensor, cos_table_tensor]:
-        tensor.destroyDesc(lib)
+    for tensor in [y, x, pos, sin_table, cos_table]:
+        tensor.destroy_desc()
 
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetRoPEWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+        LIBINFINIOP.infiniopGetRoPEWorkspaceSize(
+            descriptor, ctypes.byref(workspace_size)
+        )
     )
-    workspace = create_workspace(workspace_size.value, x.device)
+    workspace = TestWorkspace(workspace_size.value, x.device)
 
     def lib_rope():
         check_error(
-            lib.infiniopRoPE(
+            LIBINFINIOP.infiniopRoPE(
                 descriptor,
-                workspace.data_ptr() if workspace is not None else None,
+                workspace.data(),
                 workspace_size.value,
-                y_tensor.data,
-                x_tensor.data,
-                pos_tensor.data,
-                sin_table_tensor.data,
-                cos_table_tensor.data,
+                y.data(),
+                x.data(),
+                pos.data(),
+                sin_table.data(),
+                cos_table.data(),
                 None,
             )
         )
@@ -196,60 +187,32 @@ def test(
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
-        debug(y, ans, atol=atol, rtol=rtol)
-    assert torch.allclose(y, ans, atol=atol, rtol=rtol)
+        debug(y.actual_tensor(), y.torch_tensor(), atol=atol, rtol=rtol)
+    assert torch.allclose(y.actual_tensor(), y.torch_tensor(), atol=atol, rtol=rtol)
 
     if PROFILE:
         profile_operation(
             "PyTorch",
-            lambda: rotary_embedding(x, sin_table, cos_table, torch_device),
-            torch_device,
+            lambda: rotary_embedding(
+                y.torch_tensor(),
+                x.torch_tensor(),
+                sin_table.torch_tensor(),
+                cos_table.torch_tensor(),
+                device,
+            ),
+            device,
             NUM_PRERUN,
             NUM_ITERATIONS,
         )
         profile_operation(
-            "    lib", lambda: lib_rope(), torch_device, NUM_PRERUN, NUM_ITERATIONS
+            "    lib", lambda: lib_rope(), device, NUM_PRERUN, NUM_ITERATIONS
         )
 
-    check_error(lib.infiniopDestroyRoPEDescriptor(descriptor))
+    check_error(LIBINFINIOP.infiniopDestroyRoPEDescriptor(descriptor))
 
 
 if __name__ == "__main__":
     args = get_args()
-    lib = open_lib()
-
-    lib.infiniopCreateRoPEDescriptor.restype = c_int32
-    lib.infiniopCreateRoPEDescriptor.argtypes = [
-        infiniopHandle_t,
-        POINTER(infiniopRoPEDescriptor_t),
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-    ]
-
-    lib.infiniopGetRoPEWorkspaceSize.restype = c_int32
-    lib.infiniopGetRoPEWorkspaceSize.argtypes = [
-        infiniopRoPEDescriptor_t,
-        POINTER(c_uint64),
-    ]
-
-    lib.infiniopRoPE.restype = c_int32
-    lib.infiniopRoPE.argtypes = [
-        infiniopRoPEDescriptor_t,
-        c_void_p,
-        c_uint64,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-    ]
-
-    lib.infiniopDestroyRoPEDescriptor.restype = c_int32
-    lib.infiniopDestroyRoPEDescriptor.argtypes = [
-        infiniopRoPEDescriptor_t,
-    ]
 
     # Configure testing options
     DEBUG = args.debug
@@ -259,6 +222,6 @@ if __name__ == "__main__":
 
     # Execute tests
     for device in get_test_devices(args):
-        test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
+        test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")

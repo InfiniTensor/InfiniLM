@@ -10,8 +10,20 @@ class InfiniDeviceEnum:
     SUGON = 8
 
 
+InfiniDeviceNames = {
+    InfiniDeviceEnum.CPU: "CPU",
+    InfiniDeviceEnum.NVIDIA: "NVIDIA",
+    InfiniDeviceEnum.CAMBRICON: "Cambricon",
+    InfiniDeviceEnum.ASCEND: "Ascend",
+    InfiniDeviceEnum.METAX: "Metax",
+    InfiniDeviceEnum.MOORE: "Moore",
+    InfiniDeviceEnum.ILUVATAR: "Iluvatar",
+    InfiniDeviceEnum.KUNLUN: "Kunlun",
+    InfiniDeviceEnum.SUGON: "Sugon",
+}
+
 # Mapping that maps InfiniDeviceEnum to torch device string
-infiniDeviceEnum_str_map = {
+torch_device_map = {
     InfiniDeviceEnum.CPU: "cpu",
     InfiniDeviceEnum.NVIDIA: "cuda",
     InfiniDeviceEnum.CAMBRICON: "mlu",
