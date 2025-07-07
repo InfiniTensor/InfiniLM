@@ -207,11 +207,7 @@ async def chat_stream(id_, request_data, request: Request):
                 break
 
             token = await infer_task.output_queue.async_q.get()
-            content = (
-                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
+            content = request.app.state.model.tokenizer.decode([token], skip_special_tokens=True)
             chunk = json.dumps(chunk_json(id_, content=content), ensure_ascii=False)
             yield f"data: {chunk}\n\n"
 
@@ -227,6 +223,7 @@ async def chat(id_, request_data, request: Request):
         infer_task = build_task(id_, request_data, request)
         await request.app.state.kv_cache_pool.acquire(infer_task)
         request.app.state.request_queue.sync_q.put(infer_task)
+        decoded_tokens = []
         output = []
         while True:
             if (
@@ -236,11 +233,8 @@ async def chat(id_, request_data, request: Request):
                 break
 
             token = await infer_task.output_queue.async_q.get()
-            content = (
-                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
+            decoded_tokens.append(token)
+            content = request.app.state.model.tokenizer.decode(decoded_tokens, skip_special_tokens=True)
             output.append(content)
 
         output_text = "".join(output).strip()
