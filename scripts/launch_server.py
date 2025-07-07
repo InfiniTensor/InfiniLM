@@ -274,8 +274,8 @@ async def chat_completions(request: Request):
             chat_stream(id_, data, request), media_type="text/event-stream"
         )
     else:
-        return JSONResponse(chat(id_, data))
-
+        response = await chat(id_, data, request)
+        return JSONResponse(content=response)
 
 if __name__ == "__main__":
     uvicorn.run(App, host="0.0.0.0", port=8000)
