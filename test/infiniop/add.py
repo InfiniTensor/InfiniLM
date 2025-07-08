@@ -1,20 +1,21 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_void_p, c_uint64
+from ctypes import c_uint64
 from libinfiniop import (
-    infiniopHandle_t,
-    infiniopTensorDescriptor_t,
-    open_lib,
-    to_tensor,
+    LIBINFINIOP,
+    TestTensor,
     get_test_devices,
     check_error,
-    rearrange_if_needed,
     test_operator,
     get_args,
     debug,
     get_tolerance,
     profile_operation,
-    create_workspace,
+    TestWorkspace,
+    InfiniDtype,
+    InfiniDtypeNames,
+    InfiniDeviceNames,
+    infiniopOperatorDescriptor_t,
 )
 from enum import Enum, auto
 
@@ -58,12 +59,12 @@ _TEST_CASES = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.float32]
+_TENSOR_DTYPES = [InfiniDtype.F16, InfiniDtype.F32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 1e-3, "rtol": 1e-3},
-    torch.float32: {"atol": 1e-7, "rtol": 1e-7},
+    InfiniDtype.F16: {"atol": 1e-3, "rtol": 1e-3},
+    InfiniDtype.F32: {"atol": 1e-7, "rtol": 1e-7},
 }
 
 DEBUG = False
@@ -72,52 +73,13 @@ NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
 
 
-class AddDescriptor(Structure):
-    _fields_ = [("device", c_int32)]
-
-
-infiniopAddDescriptor_t = POINTER(AddDescriptor)
-
-
-def add(ans, x, y):
-    torch.add(x, y, out=ans)
-
-
-def process_tensors(c, c_strides, a, a_stride, b, b_stride, inplace):
-    """
-    rearrange the tensors if needed and apply the inplace config.
-    if inplace is true and the output (i.e., c) is placed to the broadcasted input,
-    the inplace config is ignored and out-of-place is used
-    """
-    original_c_strides = c_strides if c_strides else c.stride()
-
-    def _rearrange(tensor, strides):
-        if strides and 0 in strides:
-            tensor.set_(tensor.untyped_storage(), 0, tensor.shape, strides)
-            return tensor
-        else:
-            return rearrange_if_needed(tensor, strides)
-
-    a, b, c = [
-        _rearrange(tensor, stride)
-        for tensor, stride in zip([a, b, c], [a_stride, b_stride, c_strides])
-    ]
-    c = (
-        c
-        if inplace == Inplace.OUT_OF_PLACE
-        else (a if inplace == Inplace.INPLACE_A else b)
-    )
-    # if inplace is true and c has broadcasted config, reset it to the original unbroadcasted strides
-    if 0 in c.stride():
-        c.set_(c.untyped_storage(), 0, c.shape, original_c_strides)
-
-    return a, b, c
+def add(c, a, b):
+    torch.add(a, b, out=c)
 
 
 def test(
-    lib,
     handle,
-    torch_device,
+    device,
     shape,
     a_stride=None,
     b_stride=None,
@@ -126,58 +88,64 @@ def test(
     dtype=torch.float16,
     sync=None,
 ):
+    a = TestTensor(shape, a_stride, dtype, device)
+    b = TestTensor(shape, b_stride, dtype, device)
+    if inplace == Inplace.INPLACE_A:
+        if a_stride != c_stride:
+            return
+        c = a
+    elif inplace == Inplace.INPLACE_B:
+        if c_stride != b_stride:
+            return
+        c = b
+    else:
+        c = TestTensor(shape, c_stride, dtype, device, mode="ones")
+
+    if c.is_broadcast():
+        return
+
     print(
-        f"Testing Add on {torch_device} with shape:{shape} a_stride:{a_stride} b_stride:{b_stride} c_stride:{c_stride} "
-        f"dtype:{dtype} inplace:{inplace}"
+        f"Testing Add on {InfiniDeviceNames[device]} with shape:{shape} a_stride:{a_stride} b_stride:{b_stride} c_stride:{c_stride} "
+        f"dtype:{InfiniDtypeNames[dtype]} inplace:{inplace}"
     )
 
-    a = torch.rand(shape, dtype=dtype).to(torch_device)
-    b = torch.rand(shape, dtype=dtype).to(torch_device)
-    c = torch.rand(shape, dtype=dtype).to(torch_device)
-    ans = torch.zeros(shape, dtype=dtype).to(torch_device)
-    a, b, c = process_tensors(c, c_stride, a, a_stride, b, b_stride, inplace)
+    add(c.torch_tensor(), a.torch_tensor(), b.torch_tensor())
 
-    add(ans, a, b)
-
-    a_tensor, b_tensor = [to_tensor(tensor, lib) for tensor in [a, b]]
-    c_tensor = (
-        to_tensor(c, lib)
-        if inplace == Inplace.OUT_OF_PLACE
-        else (a_tensor if inplace == Inplace.INPLACE_A else b_tensor)
-    )
     if sync is not None:
         sync()
 
-    descriptor = infiniopAddDescriptor_t()
+    descriptor = infiniopOperatorDescriptor_t()
     check_error(
-        lib.infiniopCreateAddDescriptor(
+        LIBINFINIOP.infiniopCreateAddDescriptor(
             handle,
             ctypes.byref(descriptor),
-            c_tensor.descriptor,
-            a_tensor.descriptor,
-            b_tensor.descriptor,
+            c.descriptor,
+            a.descriptor,
+            b.descriptor,
         )
     )
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
-    for tensor in [a_tensor, b_tensor, c_tensor]:
-        tensor.destroyDesc(lib)
+    for tensor in [a, b, c]:
+        tensor.destroy_desc()
 
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetAddWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+        LIBINFINIOP.infiniopGetAddWorkspaceSize(
+            descriptor, ctypes.byref(workspace_size)
+        )
     )
-    workspace = create_workspace(workspace_size.value, c.device)
+    workspace = TestWorkspace(workspace_size.value, c.device)
 
     def lib_add():
         check_error(
-            lib.infiniopAdd(
+            LIBINFINIOP.infiniopAdd(
                 descriptor,
-                workspace.data_ptr() if workspace is not None else None,
-                workspace_size.value,
-                c_tensor.data,
-                a_tensor.data,
-                b_tensor.data,
+                workspace.data(),
+                workspace.size(),
+                c.data(),
+                a.data(),
+                b.data(),
                 None,
             )
         )
@@ -186,52 +154,20 @@ def test(
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
-        debug(c, ans, atol=atol, rtol=rtol)
-    assert torch.allclose(c, ans, atol=atol, rtol=rtol)
+        debug(c.actual_tensor(), c.torch_tensor(), atol=atol, rtol=rtol)
+    assert torch.allclose(c.actual_tensor(), c.torch_tensor(), atol=atol, rtol=rtol)
 
     # Profiling workflow
     if PROFILE:
         # fmt: off
-        profile_operation("PyTorch", lambda: add(ans, a, b), torch_device, NUM_PRERUN, NUM_ITERATIONS)
-        profile_operation("    lib", lambda: lib_add(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("PyTorch", lambda: add(c.torch_tensor(), a.torch_tensor(), b.torch_tensor()), device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("    lib", lambda: lib_add(), device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
-    check_error(lib.infiniopDestroyAddDescriptor(descriptor))
+    check_error(LIBINFINIOP.infiniopDestroyAddDescriptor(descriptor))
 
 
 if __name__ == "__main__":
     args = get_args()
-    lib = open_lib()
-
-    lib.infiniopCreateAddDescriptor.restype = c_int32
-    lib.infiniopCreateAddDescriptor.argtypes = [
-        infiniopHandle_t,
-        POINTER(infiniopAddDescriptor_t),
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-    ]
-
-    lib.infiniopGetAddWorkspaceSize.restype = c_int32
-    lib.infiniopGetAddWorkspaceSize.argtypes = [
-        infiniopAddDescriptor_t,
-        POINTER(c_uint64),
-    ]
-
-    lib.infiniopAdd.restype = c_int32
-    lib.infiniopAdd.argtypes = [
-        infiniopAddDescriptor_t,
-        c_void_p,
-        c_uint64,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-    ]
-
-    lib.infiniopDestroyAddDescriptor.restype = c_int32
-    lib.infiniopDestroyAddDescriptor.argtypes = [
-        infiniopAddDescriptor_t,
-    ]
 
     # Configure testing options
     DEBUG = args.debug
@@ -240,6 +176,6 @@ if __name__ == "__main__":
     NUM_ITERATIONS = args.num_iterations
 
     for device in get_test_devices(args):
-        test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
+        test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")

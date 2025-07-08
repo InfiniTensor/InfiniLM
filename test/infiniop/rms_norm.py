@@ -1,22 +1,21 @@
-from ctypes import POINTER, Structure, c_int32, c_uint64, c_void_p, c_float
-import ctypes
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_uint64, c_void_p, c_float
+from ctypes import c_uint64
 from libinfiniop import (
-    infiniopHandle_t,
-    infiniopTensorDescriptor_t,
-    open_lib,
-    to_tensor,
+    LIBINFINIOP,
+    TestTensor,
     get_test_devices,
     check_error,
-    rearrange_if_needed,
-    create_workspace,
     test_operator,
     get_args,
     debug,
     get_tolerance,
     profile_operation,
+    TestWorkspace,
+    InfiniDtype,
+    InfiniDtypeNames,
+    InfiniDeviceNames,
+    infiniopOperatorDescriptor_t,
 )
 
 # ==============================================================================
@@ -33,36 +32,27 @@ _TEST_CASES_ = [
     ((16, 2048), (16, 2048), (2048,), (4096, 1), (4096, 1)),
 ]
 
-# w (weight) types 
+# w (weight) types
 # Note: 'None' means the same as input dtype
-_WEIGHT_DTYPES = [None, torch.float32]
+_WEIGHT_DTYPES = [None, InfiniDtype.F32]
 # x types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.bfloat16]
+_TENSOR_DTYPES = [InfiniDtype.F16, InfiniDtype.BF16]
 
 # Form the test cases by appending each element of _WEIGHT_DTYPES to each tuple in _TEST_CASES_
 _TEST_CASES = [
-    test_case + (w_dtype,)
-    for test_case in _TEST_CASES_
-    for w_dtype in _WEIGHT_DTYPES
+    test_case + (w_dtype,) for test_case in _TEST_CASES_ for w_dtype in _WEIGHT_DTYPES
 ]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 2e-3, "rtol": 2e-3},
-    torch.bfloat16: {"atol": 8e-3, "rtol": 8e-3},
+    InfiniDtype.F16: {"atol": 2e-3, "rtol": 2e-3},
+    InfiniDtype.BF16: {"atol": 8e-3, "rtol": 8e-3},
 }
 
 DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
-
-
-class RMSNormDescriptor(Structure):
-    _fields_ = [("device", c_int32)]
-
-
-infiniopRMSNormDescriptor_t = POINTER(RMSNormDescriptor)
 
 
 def rms_norm(ans, x, w, eps):
@@ -75,73 +65,67 @@ def rms_norm(ans, x, w, eps):
 
 
 def test(
-    lib,
     handle,
-    torch_device,
+    device,
     y_shape,
     x_shape,
     w_shape,
     y_stride,
     x_stride,
-    w_dtype=torch.float16,
-    dtype=torch.float16,
+    w_dtype=InfiniDtype.F32,
+    dtype=InfiniDtype.F16,
     sync=None,
 ):
+    w_dtype = w_dtype if w_dtype else dtype
     print(
-        f"Testing RMS_Norm on {torch_device} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
-        f" y_stride:{y_stride} x_stride:{x_stride} w_dtype:{w_dtype} dtype:{dtype}"
+        f"Testing RMS_Norm on {InfiniDeviceNames[device]} with y_shape:{y_shape} x_shape:{x_shape} w_shape:{w_shape}"
+        f" y_stride:{y_stride} x_stride:{x_stride} w_dtype:{InfiniDtypeNames[w_dtype]} dtype:{InfiniDtypeNames[dtype]}"
     )
 
-    w_dtype = w_dtype if w_dtype else dtype
-    y = torch.zeros(y_shape, dtype=dtype).to(torch_device)
-    x = torch.rand(x_shape, dtype=dtype).to(torch_device)
-    w = torch.rand(w_shape, dtype=w_dtype).to(torch_device)
-    ans = torch.zeros(y_shape, dtype=dtype).to(torch_device)
+    y = TestTensor(y_shape, y_stride, dtype, device, mode="ones")
+    x = TestTensor(x_shape, x_stride, dtype, device, scale=0.01)
+    w = TestTensor(w_shape, None, w_dtype, device)
 
-    eps = 1e-5
-    rms_norm(ans, x, w, eps)
-
-    x, y = [
-        rearrange_if_needed(tensor, stride)
-        for tensor, stride in zip([x, y], [x_stride, y_stride])
-    ]
-    x_tensor, y_tensor, w_tensor = [to_tensor(tensor, lib) for tensor in [x, y, w]]
+    eps = 1e-6
+    rms_norm(y.torch_tensor(), x.torch_tensor(), w.torch_tensor(), eps)
 
     if sync is not None:
         sync()
 
-    descriptor = infiniopRMSNormDescriptor_t()
+    descriptor = infiniopOperatorDescriptor_t()
 
     check_error(
-        lib.infiniopCreateRMSNormDescriptor(
+        LIBINFINIOP.infiniopCreateRMSNormDescriptor(
             handle,
             ctypes.byref(descriptor),
-            y_tensor.descriptor,
-            x_tensor.descriptor,
-            w_tensor.descriptor,
+            y.descriptor,
+            x.descriptor,
+            w.descriptor,
             eps,
         )
     )
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
-    for tensor in [x_tensor, y_tensor, w_tensor]:
-        tensor.destroyDesc(lib)
+    for tensor in [x, y, w]:
+        tensor.destroy_desc()
 
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetRMSNormWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+        LIBINFINIOP.infiniopGetRMSNormWorkspaceSize(
+            descriptor, ctypes.byref(workspace_size)
+        )
     )
-    workspace = create_workspace(workspace_size.value, y.device)
+    workspace = TestWorkspace(workspace_size.value, y.device)
 
     def lib_rms_norm():
         check_error(
-            lib.infiniopRMSNorm(
+            LIBINFINIOP.infiniopRMSNorm(
                 descriptor,
-                workspace.data_ptr() if workspace is not None else None,
+                workspace.data(),
                 workspace_size.value,
-                y_tensor.data,
-                x_tensor.data,
-                w_tensor.data,
+                y.data(),
+                x.data(),
+                w.data(),
                 None,
             )
         )
@@ -150,53 +134,20 @@ def test(
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
     if DEBUG:
-        debug(y, ans, atol=atol, rtol=rtol)
-    assert torch.allclose(y, ans, atol=atol, rtol=rtol)
+        debug(y.actual_tensor(), y.torch_tensor(), atol=atol, rtol=rtol)
+    assert torch.allclose(y.actual_tensor(), y.torch_tensor(), atol=atol, rtol=rtol)
 
     # Profiling workflow
     if PROFILE:
         # fmt: off
-        profile_operation("PyTorch", lambda: rms_norm(ans, x, w, eps), torch_device, NUM_PRERUN, NUM_ITERATIONS)
-        profile_operation("    lib", lambda: lib_rms_norm(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("PyTorch", lambda: rms_norm(y.torch_tensor(), x.torch_tensor(), w.torch_tensor(), eps), device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("    lib", lambda: lib_rms_norm(), device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
-    check_error(lib.infiniopDestroyRMSNormDescriptor(descriptor))
+    check_error(LIBINFINIOP.infiniopDestroyRMSNormDescriptor(descriptor))
 
 
 if __name__ == "__main__":
     args = get_args()
-    lib = open_lib()
-
-    lib.infiniopCreateRMSNormDescriptor.restype = c_int32
-    lib.infiniopCreateRMSNormDescriptor.argtypes = [
-        infiniopHandle_t,
-        POINTER(infiniopRMSNormDescriptor_t),
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-        c_float,
-    ]
-
-    lib.infiniopGetRMSNormWorkspaceSize.restype = c_int32
-    lib.infiniopGetRMSNormWorkspaceSize.argtypes = [
-        infiniopRMSNormDescriptor_t,
-        POINTER(c_uint64),
-    ]
-
-    lib.infiniopRMSNorm.restype = c_int32
-    lib.infiniopRMSNorm.argtypes = [
-        infiniopRMSNormDescriptor_t,
-        c_void_p,
-        c_uint64,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-    ]
-
-    lib.infiniopDestroyRMSNormDescriptor.restype = c_int32
-    lib.infiniopDestroyRMSNormDescriptor.argtypes = [
-        infiniopRMSNormDescriptor_t,
-    ]
 
     # Configure testing options
     DEBUG = args.debug
@@ -206,6 +157,6 @@ if __name__ == "__main__":
 
     # Execute tests
     for device in get_test_devices(args):
-        test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
+        test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")

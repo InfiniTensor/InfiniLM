@@ -1,40 +1,14 @@
 import os
 import platform
 import ctypes
-from ctypes import c_int, c_int64, c_uint64, Structure, POINTER
+from ctypes import c_int, c_int64, c_uint64, POINTER
 from .datatypes import *
 from .devices import *
+from .op_register import OpRegister
 from pathlib import Path
-
-Device = c_int
-Optype = c_int
+from .structs import *
 
 INFINI_ROOT = os.getenv("INFINI_ROOT") or str(Path.home() / ".infini")
-
-
-class TensorDescriptor(Structure):
-    _fields_ = []
-
-
-infiniopTensorDescriptor_t = ctypes.POINTER(TensorDescriptor)
-
-
-class CTensor:
-    def __init__(self, desc, torch_tensor):
-        self.descriptor = desc
-        self.torch_tensor_ = torch_tensor
-        self.data = torch_tensor.data_ptr()
-
-    def destroyDesc(self, lib_):
-        lib_.infiniopDestroyTensorDescriptor(self.descriptor)
-        self.descriptor = None
-
-
-class Handle(Structure):
-    _fields_ = [("device", c_int), ("device_id", c_int)]
-
-
-infiniopHandle_t = POINTER(Handle)
 
 
 class InfiniLib:
@@ -98,4 +72,9 @@ def open_lib():
     lib.infinirtSetDevice.argtypes = [c_int, c_int]
     lib.infinirtSetDevice.restype = c_int
 
+    OpRegister.register_lib(lib)
+
     return lib
+
+
+LIBINFINIOP = open_lib()

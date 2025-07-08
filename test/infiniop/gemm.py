@@ -1,20 +1,21 @@
 import torch
 import ctypes
-from ctypes import POINTER, Structure, c_int32, c_size_t, c_uint64, c_void_p, c_float
+from ctypes import c_uint64
 from libinfiniop import (
-    infiniopHandle_t,
-    infiniopTensorDescriptor_t,
-    open_lib,
-    to_tensor,
+    LIBINFINIOP,
+    TestTensor,
     get_test_devices,
     check_error,
-    rearrange_if_needed,
-    create_workspace,
     test_operator,
     get_args,
     debug,
     get_tolerance,
     profile_operation,
+    TestWorkspace,
+    InfiniDtype,
+    InfiniDtypeNames,
+    InfiniDeviceNames,
+    infiniopOperatorDescriptor_t,
 )
 
 # ==============================================================================
@@ -31,29 +32,19 @@ _TEST_CASES = [
 ]
 
 # Data types used for testing
-_TENSOR_DTYPES = [torch.float16, torch.float32, torch.bfloat16]
+_TENSOR_DTYPES = [InfiniDtype.F16, InfiniDtype.BF16, InfiniDtype.F32]
 
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
-    torch.float16: {"atol": 0, "rtol": 1e-2},
-    torch.float32: {"atol": 0, "rtol": 1e-3},
-    torch.bfloat16: {"atol": 0, "rtol": 5e-2},
+    InfiniDtype.F16: {"atol": 0, "rtol": 1e-2},
+    InfiniDtype.F32: {"atol": 0, "rtol": 1e-3},
+    InfiniDtype.BF16: {"atol": 0, "rtol": 5e-2},
 }
 
 DEBUG = False
 PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
-
-
-# ==============================================================================
-#  Definitions
-# ==============================================================================
-class GemmDescriptor(Structure):
-    _fields_ = [("device", c_int32)]
-
-
-infiniopGemmDescriptor_t = POINTER(GemmDescriptor)
 
 
 # PyTorch implementation for matrix multiplication
@@ -73,9 +64,8 @@ def gemm(d, _c, beta, _a, _b, alpha):
 # The argument list should be (lib, handle, torch_device, <param list>, dtype)
 # The <param list> should keep the same order as the one specified in _TEST_CASES
 def test(
-    lib,
     handle,
-    torch_device,
+    device,
     alpha,
     beta,
     a_shape,
@@ -84,65 +74,71 @@ def test(
     a_stride=None,
     b_stride=None,
     c_stride=None,
-    dtype=torch.float16,
+    dtype=InfiniDtype.F16,
     sync=None,
 ):
     print(
-        f"Testing Gemm on {torch_device} with alpha:{alpha}, beta:{beta},"
+        f"Testing Gemm on {InfiniDeviceNames[device]} with alpha:{alpha}, beta:{beta},"
         f" a_shape:{a_shape}, b_shape:{b_shape}, c_shape:{c_shape},"
-        f" a_stride:{a_stride}, b_stride:{b_stride}, c_stride:{c_stride}, dtype:{dtype}"
+        f" a_stride:{a_stride}, b_stride:{b_stride}, c_stride:{c_stride}, dtype:{InfiniDtypeNames[dtype]}"
     )
 
     # Initialize tensors
-    a = torch.rand(a_shape, dtype=dtype).to(torch_device)
-    b = torch.rand(b_shape, dtype=dtype).to(torch_device)
-    c = torch.ones(c_shape, dtype=dtype).to(torch_device)
-    ans = torch.zeros(c_shape, dtype=dtype).to(torch_device)
+    a = TestTensor(a_shape, a_stride, dtype, device)
+    b = TestTensor(b_shape, b_stride, dtype, device)
+    c = TestTensor(c_shape, c_stride, dtype, device, mode="ones")
+    ans = TestTensor(c_shape, c_stride, dtype, device, mode="zeros")
 
     # Compute the PyTorch reference result
-    gemm(ans, c, beta, a, b, alpha)
+    def torch_gemm():
+        gemm(
+            ans.torch_tensor(),
+            c.torch_tensor(),
+            beta,
+            a.torch_tensor(),
+            b.torch_tensor(),
+            alpha,
+        )
 
-    a, b, c = [
-        rearrange_if_needed(tensor, stride)
-        for tensor, stride in zip([a, b, c], [a_stride, b_stride, c_stride])
-    ]
-    a_tensor, b_tensor, c_tensor = [to_tensor(tensor, lib) for tensor in [a, b, c]]
+    torch_gemm()
 
     if sync is not None:
         sync()
 
-    descriptor = infiniopGemmDescriptor_t()
+    descriptor = infiniopOperatorDescriptor_t()
     check_error(
-        lib.infiniopCreateGemmDescriptor(
+        LIBINFINIOP.infiniopCreateGemmDescriptor(
             handle,
             ctypes.byref(descriptor),
-            c_tensor.descriptor,
-            a_tensor.descriptor,
-            b_tensor.descriptor,
+            c.descriptor,
+            a.descriptor,
+            b.descriptor,
         )
     )
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
-    for tensor in [a_tensor, b_tensor, c_tensor]:
-        tensor.destroyDesc(lib)
+    for tensor in [a, b, c]:
+        tensor.destroy_desc()
 
     # Get workspace size and create workspace
     workspace_size = c_uint64(0)
     check_error(
-        lib.infiniopGetGemmWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+        LIBINFINIOP.infiniopGetGemmWorkspaceSize(
+            descriptor, ctypes.byref(workspace_size)
+        )
     )
-    workspace = create_workspace(workspace_size.value, a.device)
+    workspace = TestWorkspace(workspace_size.value, device)
 
     # Execute infiniop gemm operator
     def lib_gemm():
         check_error(
-            lib.infiniopGemm(
+            LIBINFINIOP.infiniopGemm(
                 descriptor,
-                workspace.data_ptr() if workspace is not None else None,
+                workspace.data(),
                 workspace_size.value,
-                c_tensor.data,
-                a_tensor.data,
-                b_tensor.data,
+                c.data(),
+                a.data(),
+                b.data(),
                 alpha,
                 beta,
                 None,
@@ -155,17 +151,17 @@ def test(
     atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
 
     if DEBUG:
-        debug(c, ans, atol=atol, rtol=rtol)
+        debug(c.actual_tensor(), ans.torch_tensor(), atol=atol, rtol=rtol)
 
-    assert torch.allclose(c, ans, atol=atol, rtol=rtol)
+    assert torch.allclose(c.actual_tensor(), ans.torch_tensor(), atol=atol, rtol=rtol)
 
     # Profiling workflow
     if PROFILE:
         # fmt: off
-        profile_operation("PyTorch", lambda: gemm(ans, c, beta, a, b, alpha), torch_device, NUM_PRERUN, NUM_ITERATIONS)
-        profile_operation("    lib", lambda: lib_gemm(), torch_device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("PyTorch", lambda: torch_gemm(), device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("    lib", lambda: lib_gemm(), device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
-    check_error(lib.infiniopDestroyGemmDescriptor(descriptor))
+    check_error(LIBINFINIOP.infiniopDestroyGemmDescriptor(descriptor))
 
 
 # ==============================================================================
@@ -173,40 +169,6 @@ def test(
 # ==============================================================================
 if __name__ == "__main__":
     args = get_args()
-    lib = open_lib()
-
-    lib.infiniopCreateGemmDescriptor.restype = c_int32
-    lib.infiniopCreateGemmDescriptor.argtypes = [
-        infiniopHandle_t,
-        POINTER(infiniopGemmDescriptor_t),
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-    ]
-
-    lib.infiniopGetGemmWorkspaceSize.restype = c_int32
-    lib.infiniopGetGemmWorkspaceSize.argtypes = [
-        infiniopGemmDescriptor_t,
-        POINTER(c_size_t),
-    ]
-
-    lib.infiniopGemm.restype = c_int32
-    lib.infiniopGemm.argtypes = [
-        infiniopGemmDescriptor_t,
-        c_void_p,
-        c_uint64,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-        c_float,
-        c_float,
-        c_void_p,
-    ]
-
-    lib.infiniopDestroyGemmDescriptor.restype = c_int32
-    lib.infiniopDestroyGemmDescriptor.argtypes = [
-        infiniopGemmDescriptor_t,
-    ]
 
     # Configure testing options
     DEBUG = args.debug
@@ -216,6 +178,6 @@ if __name__ == "__main__":
 
     # Execute tests
     for device in get_test_devices(args):
-        test_operator(lib, device, test, _TEST_CASES, _TENSOR_DTYPES)
+        test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")

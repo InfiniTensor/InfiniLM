@@ -1,9 +1,9 @@
+from typing import Sequence
 import torch
 import ctypes
 from .datatypes import *
 from .devices import *
-from typing import Sequence
-from .liboperators import infiniopTensorDescriptor_t, CTensor, infiniopHandle_t
+from .liboperators import infiniopTensorDescriptor_t, LIBINFINIOP, infiniopHandle_t
 
 
 def check_error(status):
@@ -11,79 +11,173 @@ def check_error(status):
         raise Exception("Error code " + str(status))
 
 
-def to_tensor(tensor, lib, force_unsigned=False, force_shape=None, force_strides=None):
-    """
-    Convert a PyTorch tensor to a library Tensor(descriptor, data).
-    """
-    import torch
+class CTensor:
+    def __init__(self, dt: InfiniDtype, shape, strides):
+        self.descriptor = infiniopTensorDescriptor_t()
+        self.dt = dt
+        self.ndim = len(shape)
+        if strides is None:
+            strides = [1 for _ in shape]
+            for i in range(self.ndim - 2, -1, -1):
+                strides[i] = strides[i + 1] * shape[i + 1]
 
-    ndim = tensor.ndimension()
-    if force_shape is not None:
-        ndim = len(force_shape)
-        shape = (ctypes.c_size_t * ndim)(*force_shape)
-    else:
-        shape = (ctypes.c_size_t * ndim)(*tensor.shape)
-    if force_strides is not None:
-        ndim = len(force_strides)
-        strides = (ctypes.c_int64 * ndim)(*force_strides)
-    else:
-        strides = (ctypes.c_int64 * ndim)(*(tensor.stride()))
-    # fmt: off
-    dt = (
-        InfiniDtype.I8 if tensor.dtype == torch.int8 else
-        InfiniDtype.I16 if tensor.dtype == torch.int16 else
-        InfiniDtype.I32 if tensor.dtype == torch.int32 else
-        InfiniDtype.I64 if tensor.dtype == torch.int64 else
-        InfiniDtype.U8 if tensor.dtype == torch.uint8 else
-        InfiniDtype.F16 if tensor.dtype == torch.float16 else
-        InfiniDtype.BF16 if tensor.dtype == torch.bfloat16 else
-        InfiniDtype.F32 if tensor.dtype == torch.float32 else
-        InfiniDtype.F64 if tensor.dtype == torch.float64 else
-        # TODO: These following types may not be supported by older
-        # versions of PyTorch.
-        InfiniDtype.U16 if tensor.dtype == torch.uint16 else
-        InfiniDtype.U32 if tensor.dtype == torch.uint32 else
-        InfiniDtype.U64 if tensor.dtype == torch.uint64 else
-        None
-    )
-    
-    if force_unsigned:
-        dt = (
-            InfiniDtype.U8 if dt == InfiniDtype.I8 else
-            InfiniDtype.U16 if dt == InfiniDtype.I16 else
-            InfiniDtype.U32 if dt == InfiniDtype.I32 else
-            InfiniDtype.U64 if dt == InfiniDtype.I64 else
-            dt
+        assert self.ndim == len(strides)
+        self.c_shape = (ctypes.c_size_t * self.ndim)(*shape)
+        self.c_strides = (ctypes.c_ssize_t * self.ndim)(*strides)
+
+        LIBINFINIOP.infiniopCreateTensorDescriptor(
+            ctypes.byref(self.descriptor),
+            self.ndim,
+            self.c_shape,
+            self.c_strides,
+            self.dt,
         )
 
-    # fmt: on
-    assert dt is not None
-    # Create TensorDecriptor
-    tensor_desc = infiniopTensorDescriptor_t()
-    lib.infiniopCreateTensorDescriptor(
-        ctypes.byref(tensor_desc), ndim, shape, strides, dt
-    )
-    # Create Tensor
-    return CTensor(tensor_desc, tensor)
+    def destroy_desc(self):
+        if self.descriptor is not None:
+            LIBINFINIOP.infiniopDestroyTensorDescriptor(self.descriptor)
+            self.descriptor = None
 
 
-def create_workspace(size, torch_device):
-    print(f" - Workspace Size : {size}")
-    if size == 0:
-        return None
-    import torch
+class TestTensor(CTensor):
+    def __init__(
+        self,
+        shape,
+        strides,
+        dt: InfiniDtype,
+        device: InfiniDeviceEnum,
+        mode="random",
+        scale=None,
+        bias=None,
+        set_tensor=None,
+    ):
+        self.dt = dt
+        self.device = device
+        self.shape = shape
+        self.strides = strides
+        torch_shape = []
+        torch_strides = [] if strides is not None else None
+        for i in range(len(shape)):
+            if strides is not None and strides[i] == 0:
+                torch_shape.append(1)
+                torch_strides.append(1)
+            elif strides is not None and strides[i] != 0:
+                torch_shape.append(shape[i])
+                torch_strides.append(strides[i])
+            else:
+                torch_shape.append(shape[i])
+        if mode == "random":
+            self._torch_tensor = torch.rand(
+                torch_shape, dtype=to_torch_dtype(dt), device=torch_device_map[device]
+            )
+        elif mode == "zeros":
+            self._torch_tensor = torch.zeros(
+                torch_shape, dtype=to_torch_dtype(dt), device=torch_device_map[device]
+            )
+        elif mode == "ones":
+            self._torch_tensor = torch.ones(
+                torch_shape, dtype=to_torch_dtype(dt), device=torch_device_map[device]
+            )
+        elif mode == "manual":
+            assert set_tensor is not None
+            assert torch_shape == list(set_tensor.shape)
+            assert torch_strides == list(set_tensor.stride())
+            self._torch_tensor = set_tensor.to(to_torch_dtype(dt)).to(
+                torch_device_map[device]
+            )
+        else:
+            raise ValueError("Unsupported mode")
 
-    return torch.zeros(size=(size,), dtype=torch.uint8, device=torch_device)
+        if scale is not None:
+            self._torch_tensor *= scale
+        if bias is not None:
+            self._torch_tensor += bias
+
+        if strides is not None:
+            self._data_tensor = rearrange_tensor(self._torch_tensor, torch_strides)
+        else:
+            self._data_tensor = self._torch_tensor.clone()
+
+        super().__init__(self.dt, shape, strides)
+
+    def torch_tensor(self):
+        return self._torch_tensor
+
+    def actual_tensor(self):
+        return self._data_tensor
+
+    def data(self):
+        return self._data_tensor.data_ptr()
+
+    def is_broadcast(self):
+        return self.strides is not None and 0 in self.strides
+
+    @staticmethod
+    def from_torch(torch_tensor, dt: InfiniDtype, device: InfiniDeviceEnum):
+        shape_ = list(torch_tensor.shape)
+        strides_ = list(torch_tensor.stride())
+        return TestTensor(
+            shape_, strides_, dt, device, mode="manual", set_tensor=torch_tensor
+        )
 
 
-def create_handle(lib):
+def to_torch_dtype(dt: InfiniDtype, compatability_mode=False):
+    if dt == InfiniDtype.I8:
+        return torch.int8
+    elif dt == InfiniDtype.I16:
+        return torch.int16
+    elif dt == InfiniDtype.I32:
+        return torch.int32
+    elif dt == InfiniDtype.I64:
+        return torch.int64
+    elif dt == InfiniDtype.U8:
+        return torch.uint8
+    elif dt == InfiniDtype.F16:
+        return torch.float16
+    elif dt == InfiniDtype.BF16:
+        return torch.bfloat16
+    elif dt == InfiniDtype.F32:
+        return torch.float32
+    elif dt == InfiniDtype.F64:
+        return torch.float64
+    # TODO: These following types may not be supported by older
+    # versions of PyTorch. Use compatability mode to convert them.
+    elif dt == InfiniDtype.U16:
+        return torch.int16 if compatability_mode else torch.uint16
+    elif dt == InfiniDtype.U32:
+        return torch.int32 if compatability_mode else torch.uint32
+    elif dt == InfiniDtype.U64:
+        return torch.int64 if compatability_mode else torch.uint64
+    else:
+        raise ValueError("Unsupported data type")
+
+
+class TestWorkspace:
+    def __init__(self, size, device):
+        if size != 0:
+            self.tensor = TestTensor((size,), None, InfiniDtype.U8, device, mode="ones")
+        else:
+            self.tensor = None
+        self._size = size
+
+    def data(self):
+        if self.tensor is not None:
+            return self.tensor.data()
+        else:
+            return None
+
+    def size(self):
+        return ctypes.c_uint64(self._size)
+
+
+def create_handle():
     handle = infiniopHandle_t()
-    check_error(lib.infiniopCreateHandle(ctypes.byref(handle)))
+    check_error(LIBINFINIOP.infiniopCreateHandle(ctypes.byref(handle)))
     return handle
 
 
-def destroy_handle(lib, handle):
-    check_error(lib.infiniopDestroyHandle(handle))
+def destroy_handle(handle):
+    check_error(LIBINFINIOP.infiniopDestroyHandle(handle))
 
 
 def rearrange_tensor(tensor, new_strides):
@@ -130,13 +224,6 @@ def rearrange_tensor(tensor, new_strides):
     new_tensor.set_(new_tensor.untyped_storage(), offset, shape, tuple(new_strides))
 
     return new_tensor
-
-
-def rearrange_if_needed(tensor, stride):
-    """
-    Rearrange a PyTorch tensor if the given stride is not None.
-    """
-    return rearrange_tensor(tensor, stride) if stride is not None else tensor
 
 
 def get_args():
@@ -232,6 +319,7 @@ def debug(actual, desired, atol=0, rtol=1e-2, equal_nan=False, verbose=True):
         If True, the function will print detailed information about any discrepancies between the tensors.
     """
     import numpy as np
+
     # 如果是BF16，全部转成FP32再比对
     if actual.dtype == torch.bfloat16 or desired.dtype == torch.bfloat16:
         actual = actual.to(torch.float32)
@@ -316,7 +404,9 @@ def debug_all(
     assert passed, "\033[31mThe condition has not been satisfied\033[0m"
 
 
-def print_discrepancy(actual, expected, atol=0, rtol=1e-3, equal_nan=True, verbose=True):
+def print_discrepancy(
+    actual, expected, atol=0, rtol=1e-3, equal_nan=True, verbose=True
+):
     if actual.shape != expected.shape:
         raise ValueError("Tensors must have the same shape to compare.")
 
@@ -329,8 +419,12 @@ def print_discrepancy(actual, expected, atol=0, rtol=1e-3, equal_nan=True, verbo
     expected_isnan = torch.isnan(expected)
 
     # Calculate the difference mask based on atol and rtol
-    nan_mismatch = actual_isnan ^ expected_isnan if equal_nan else actual_isnan | expected_isnan
-    diff_mask = nan_mismatch | (torch.abs(actual - expected) > (atol + rtol * torch.abs(expected)))
+    nan_mismatch = (
+        actual_isnan ^ expected_isnan if equal_nan else actual_isnan | expected_isnan
+    )
+    diff_mask = nan_mismatch | (
+        torch.abs(actual - expected) > (atol + rtol * torch.abs(expected))
+    )
     diff_indices = torch.nonzero(diff_mask, as_tuple=False)
     delta = actual - expected
 
@@ -427,35 +521,33 @@ def profile_operation(desc, func, torch_device, NUM_PRERUN, NUM_ITERATIONS):
     print(f" {desc} time: {elapsed * 1000 :6f} ms")
 
 
-def test_operator(lib, device, test_func, test_cases, tensor_dtypes):
+def test_operator(device, test_func, test_cases, tensor_dtypes):
     """
     Testing a specified operator on the given device with the given test function, test cases, and tensor data types.
 
     Arguments:
     ----------
-    - lib (ctypes.CDLL): The library object containing the operator implementations.
     - device (InfiniDeviceEnum): The device on which the operator should be tested. See device.py.
     - test_func (function): The test function to be executed for each test case.
     - test_cases (list of tuples): A list of test cases, where each test case is a tuple of parameters
         to be passed to `test_func`.
     - tensor_dtypes (list): A list of tensor data types (e.g., `torch.float32`) to test.
     """
-    lib.infinirtSetDevice(device, ctypes.c_int(0))
-    handle = create_handle(lib)
+    LIBINFINIOP.infinirtSetDevice(device, ctypes.c_int(0))
+    handle = create_handle()
     tensor_dtypes = filter_tensor_dtypes_by_device(device, tensor_dtypes)
     try:
         for test_case in test_cases:
             for tensor_dtype in tensor_dtypes:
                 test_func(
-                    lib,
                     handle,
-                    infiniDeviceEnum_str_map[device],
+                    device,
                     *test_case,
                     tensor_dtype,
                     get_sync_func(device),
                 )
     finally:
-        destroy_handle(lib, handle)
+        destroy_handle(handle)
 
 
 def get_test_devices(args):
@@ -506,7 +598,7 @@ def get_test_devices(args):
 def get_sync_func(device):
     import torch
 
-    device_str = infiniDeviceEnum_str_map[device]
+    device_str = torch_device_map[device]
 
     if device == InfiniDeviceEnum.CPU:
         sync = None
