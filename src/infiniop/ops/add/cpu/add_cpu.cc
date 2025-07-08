@@ -19,7 +19,7 @@ infiniStatus_t Descriptor::create(
     const auto &a_shape = a_desc->shape();
     const auto &b_shape = b_desc->shape();
 
-    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64, INFINI_DTYPE_BF16);
 
     CHECK_SAME_SHAPE(c_shape, a_shape, b_shape);
 
@@ -43,6 +43,8 @@ infiniStatus_t Descriptor::calculate(
         return _device_info->calculate<AddOp, float>(_info, output, inputs, stream);
     case INFINI_DTYPE_F64:
         return _device_info->calculate<AddOp, double>(_info, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<AddOp, bf16_t>(_info, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }

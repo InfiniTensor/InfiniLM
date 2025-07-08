@@ -22,7 +22,7 @@ infiniStatus_t Descriptor::create(
     const auto &min_shape = min_desc->shape();
     const auto &max_shape = max_desc->shape();
 
-    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64, INFINI_DTYPE_BF16);
     CHECK_SAME_SHAPE(out_shape, in_shape);
     CHECK_SAME_SHAPE(out_shape, min_shape);
     CHECK_SAME_SHAPE(out_shape, max_shape);
@@ -50,6 +50,8 @@ infiniStatus_t Descriptor::calculate(
         return _device_info->calculate<256, ClipOp, float>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_F64:
         return _device_info->calculate<256, ClipOp, double>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<256, ClipOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
