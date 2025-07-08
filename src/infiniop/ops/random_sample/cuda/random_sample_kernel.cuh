@@ -193,7 +193,7 @@ struct Algo {
         argMax_(
             kv_pair,
             logits,
-            n,
+            static_cast<int>(n),
             workspace,
             workspace_size, stream);
         castIdx<<<1, 1, 0, stream>>>((Tidx *)result, kv_pair);
@@ -232,20 +232,20 @@ struct Algo {
         auto block = cub::Min()((size_t)block_size, n);
         auto grid = (n + block - 1) / block;
         // sort
-        fillIndices<<<grid, block, 0, stream>>>(indices, n);
+        fillIndices<<<static_cast<unsigned int>(grid), static_cast<unsigned int>(block), 0, stream>>>(indices, static_cast<int>(n));
         CHECK_CUDA(radixSort(
             workspace_, workspace_size,
             logits, sorted,
             indices, indices_out,
-            n,
+            static_cast<int>(n),
             stream));
         // softmax
-        partialSoftmaxKernel<<<grid, block, 0, stream>>>(sorted, n, temperature);
+        partialSoftmaxKernel<<<static_cast<unsigned int>(grid), static_cast<unsigned int>(block), 0, stream>>>(sorted, static_cast<int>(n), temperature);
         setSoftmaxMaxKernel<<<1, 1, 0, stream>>>(sorted);
         // sum
         CHECK_CUDA(inclusiveSum(
             workspace_, workspace,
-            sorted, n,
+            sorted, static_cast<int>(n),
             stream));
         // sample
         randomSampleKernel<<<1, 1, 0, stream>>>(

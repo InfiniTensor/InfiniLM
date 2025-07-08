@@ -297,7 +297,7 @@ utils::Result<RearrangeParams> prepareRearrangeParams(const utils::RearrangeMeta
                 block_len.push_back(split_dims[j].num_per_block);
                 src_block_stride.push_back(dims[i].src_stride);
                 dst_block_stride.push_back(dims[i].dst_stride);
-                split_dims[j].array_struct_idx_block = block_dim;
+                split_dims[j].array_struct_idx_block = static_cast<int>(block_dim);
                 block_dim += 1;
                 block_len_total *= split_dims[j].num_per_block;
             }
@@ -316,7 +316,7 @@ utils::Result<RearrangeParams> prepareRearrangeParams(const utils::RearrangeMeta
                     grid_len.push_back(split_dims[j].num_per_grid);
                     src_grid_stride.push_back(dims[i].src_stride * split_dims[j].num_per_block);
                     dst_grid_stride.push_back(dims[i].dst_stride * split_dims[j].num_per_block);
-                    split_dims[j].array_struct_idx_grid = grid_len.size() - 1;
+                    split_dims[j].array_struct_idx_grid = static_cast<int>(grid_len.size() - 1);
                 }
             }
 
@@ -420,7 +420,7 @@ infiniStatus_t launchKernel(
 
     CHECK_OR_RETURN(cudaLaunchKernel(
                         kernel_func,
-                        grid_size, BLOCK_SIZE,
+                        static_cast<unsigned int>(grid_size), static_cast<unsigned int>(BLOCK_SIZE),
                         args, 0, stream)
                         == cudaSuccess,
                     INFINI_STATUS_INTERNAL_ERROR);
