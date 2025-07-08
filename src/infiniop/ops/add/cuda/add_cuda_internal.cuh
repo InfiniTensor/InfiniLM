@@ -2,6 +2,7 @@
 #define __ADD_CUDA_H__
 
 #include "../../../elementwise/cuda/elementwise_cuda.cuh"
+#include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
 namespace op::add::cuda {
@@ -12,7 +13,7 @@ public:
     __device__ __forceinline__ T operator()(const T &a, const T &b) const {
         if constexpr (std::is_same_v<T, half2>) {
             return __hadd2(a, b);
-        } else if constexpr (std::is_same_v<T, half>) {
+        } else if constexpr (std::is_same_v<T, half> || std::is_same_v<T, __nv_bfloat16>) {
             return __hadd(a, b);
         } else if constexpr (std::is_same_v<T, float>) {
             return __fadd_rd(a, b);
