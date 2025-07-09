@@ -60,4 +60,9 @@ __forceinline__ __device__ __half
 exp_(const __half x) {
     return hexp(x);
 }
+
+__forceinline__ __device__ __hpcc_bfloat16;
+exp_(const __hpcc_bfloat16; x) {
+    return hexp(x);
+}
 #endif
