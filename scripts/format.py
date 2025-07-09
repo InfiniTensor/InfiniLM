@@ -62,7 +62,7 @@ def format_file(file: Path, check: bool, formatter) -> bool:
                     text=True,
                     check=True,
                 )
-                if process.stderr:
+                if process.returncode != 0:
                     print(f"{Fore.YELLOW}{file} is not formatted.{Style.RESET_ALL}")
                     print(
                         f"Use {Fore.CYAN}{formatter} {file}{Style.RESET_ALL} to format it."
