@@ -94,7 +94,7 @@ def rotary_embedding(ans, t, sin, cos, device):
 def sin_cos_table(pos, dim, device, theta, dtype):
     assert dim % 2 == 0, "Embedding dimension must be even."
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
-    angles = torch.outer(pos, freqs)
+    angles = torch.outer(pos.cpu(), freqs)
     return (
         TestTensor.from_torch(torch.sin(angles), dtype, device),
         TestTensor.from_torch(torch.cos(angles), dtype, device),

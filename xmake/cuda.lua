@@ -15,8 +15,7 @@ target("infiniop-cuda")
 
     set_policy("build.cuda.devlink", true)
     set_toolchains("cuda")
-    add_links("cuda", "cublas")
-    add_linkdirs(CUDA_ROOT .. "/lib64/stubs")
+    add_links("cudart", "cublas")
     if has_config("cudnn") then
         add_links("cudnn")
     end
