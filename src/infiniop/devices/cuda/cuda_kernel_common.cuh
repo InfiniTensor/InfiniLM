@@ -4,6 +4,9 @@
 #define INFINIOP_CUDA_KERNEL __global__ void
 #endif
 
+#include <cuda_bf16.h>
+#include <cuda_fp16.h>
+
 // Posible maximum number of threads per block for CUDA architectures
 // Used for picking correct kernel launch configuration
 #define CUDA_BLOCK_SIZE_4096 4096
@@ -12,8 +15,9 @@
 
 #define CHECK_CUDA(API) CHECK_INTERNAL(API, cudaSuccess)
 
-namespace device::cuda {
+using cuda_bfloat16 = nv_bfloat16;
 
+namespace device::cuda {
 // return the memory offset of original tensor, given the flattened index of broadcasted tensor
 __forceinline__ __device__ __host__ size_t
 indexToReducedOffset(
@@ -45,8 +49,6 @@ indexToOffset(
 }
 } // namespace device::cuda
 
-#ifdef ENABLE_NVIDIA_API
-#include <cuda_fp16.h>
 __forceinline__ __device__ float
 exp_(const float val) {
     return expf(val);
@@ -73,4 +75,3 @@ __forceinline__ __device__ __nv_bfloat16
 exp_(const __nv_bfloat16 x) {
     return hexp(x);
 }
-#endif

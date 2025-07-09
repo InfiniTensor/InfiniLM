@@ -1,8 +1,8 @@
 #include "../../../devices/maca/common_maca.h"
-#include "../../../devices/maca/maca_kernel_common.h"
 #include "causal_softmax_metax.h"
 
 #include <hccub/block/block_reduce.cuh>
+#include "../../../devices/maca/maca_kernel_common.h"
 
 #include "../../../reduce/cuda/reduce.cuh"
 

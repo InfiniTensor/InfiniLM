@@ -1,7 +1,7 @@
 #include "../../../devices/cuda/cuda_common.cuh"
-#include "../../../devices/cuda/cuda_kernel_common.cuh"
 #include "causal_softmax_nvidia.cuh"
 
+#include "../../../devices/cuda/cuda_kernel_common.cuh"
 #include <cub/block/block_reduce.cuh>
 
 #include "../../../reduce/cuda/reduce.cuh"
