@@ -3,7 +3,7 @@
 
 #include "../../../elementwise/cpu/elementwise_cpu.h"
 
-ELEMENTWISE_DESCRIPTOR(swiglu, cpu)
+ELEMENTWISE_DESCRIPTOR(swiglu, cpu, cpu)
 
 namespace op::swiglu::cpu {
 typedef struct SwiGLUOp {

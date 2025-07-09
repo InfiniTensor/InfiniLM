@@ -6,7 +6,7 @@
 #include "cpu/clip_cpu.h"
 #endif
 #ifdef ENABLE_NVIDIA_API
-#include "cuda/clip_cuda.cuh"
+#include "nvidia/clip_nvidia.cuh"
 #endif
 
 __C infiniStatus_t infiniopCreateClipDescriptor(
@@ -31,7 +31,7 @@ __C infiniStatus_t infiniopCreateClipDescriptor(
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CREATE(INFINI_DEVICE_NVIDIA, cuda);
+        CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:
@@ -53,7 +53,7 @@ __C infiniStatus_t infiniopGetClipWorkspaceSize(infiniopClipDescriptor_t desc, s
         GET(INFINI_DEVICE_CPU, cpu)
 #endif
 #ifdef ENABLE_NVIDIA_API
-        GET(INFINI_DEVICE_NVIDIA, cuda)
+        GET(INFINI_DEVICE_NVIDIA, nvidia)
 #endif
     }
 
@@ -83,7 +83,7 @@ __C infiniStatus_t infiniopClip(
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+        CALCULATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:
@@ -107,7 +107,7 @@ infiniopDestroyClipDescriptor(infiniopClipDescriptor_t desc) {
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        DELETE(INFINI_DEVICE_NVIDIA, cuda);
+        DELETE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:

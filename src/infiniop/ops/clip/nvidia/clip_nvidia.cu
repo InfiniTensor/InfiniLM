@@ -1,7 +1,7 @@
-#include "clip_cuda.cuh"
-#include "clip_cuda_internal.cuh"
+#include "../cuda/kernel.cuh"
+#include "clip_nvidia.cuh"
 
-namespace op::clip::cuda {
+namespace op::clip::nvidia {
 
 Descriptor::~Descriptor() = default;
 
@@ -45,17 +45,17 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        return _device_info->calculate<256, ClipOp, half>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::ClipOp, half>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_F32:
-        return _device_info->calculate<256, ClipOp, float>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::ClipOp, float>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_F64:
-        return _device_info->calculate<256, ClipOp, double>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::ClipOp, double>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_BF16:
-        return _device_info->calculate<256, ClipOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::ClipOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace op::clip::cuda
+} // namespace op::clip::nvidia
