@@ -1,9 +1,4 @@
-
-local CUDA_ROOT = os.getenv("CUDA_ROOT") or os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH")
 local CUDNN_ROOT = os.getenv("CUDNN_ROOT") or os.getenv("CUDNN_HOME") or os.getenv("CUDNN_PATH")
-if CUDA_ROOT ~= nil then
-    add_includedirs(CUDA_ROOT .. "/include")
-end
 if CUDNN_ROOT ~= nil then
     add_includedirs(CUDNN_ROOT .. "/include")
 end
@@ -20,6 +15,14 @@ target("infiniop-cuda")
         add_links("cudnn")
     end
     add_cugencodes("native")
+
+    on_load(function (target)
+        import("lib.detect.find_tool")
+        local nvcc = find_tool("nvcc")
+        if nvcc ~= nil then
+            target:add("linkdirs", path.directory(path.directory(nvcc.program)) .. "/lib64/stubs")
+        end
+    end)
 
     if is_plat("windows") then
         add_cuflags("-Xcompiler=/utf-8", "--expt-relaxed-constexpr", "--allow-unsupported-compiler")
