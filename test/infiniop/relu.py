@@ -1,31 +1,40 @@
-from ctypes import POINTER, Structure, c_int32, c_void_p
 import ctypes
-import sys
-import os
-import time
+from ctypes import c_uint64
+from enum import Enum, auto
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from operatorspy import (
-    open_lib,
-    to_tensor,
-    DeviceEnum,
-    infiniopHandle_t,
-    infiniopTensorDescriptor_t,
-    create_handle,
-    destroy_handle,
+import torch
+from libinfiniop import (
+    LIBINFINIOP,
+    InfiniDeviceNames,
+    InfiniDtype,
+    InfiniDtypeNames,
+    TestTensor,
+    TestWorkspace,
     check_error,
+    debug,
+    get_args,
+    get_test_devices,
+    get_tolerance,
+    infiniopOperatorDescriptor_t,
+    profile_operation,
+    test_operator,
 )
 
-from operatorspy.tests.test_utils import get_args
-from enum import Enum, auto
-import torch
-
-# constant for control whether profile the pytorch and lib functions
-# NOTE: need to manually add synchronization function to the lib function,
-#       e.g., cudaDeviceSynchronize() for CUDA
-PROFILE = False
-NUM_PRERUN = 10
-NUM_ITERATIONS = 1000
+# ==============================================================================
+#  Configuration (Internal Use Only)
+# ==============================================================================
+# These are not meant to be imported from other modules
+_TEST_CASES_ = [
+    # tensor_shape, inplace
+    # TODO: Uncomment the following line.
+    # ((),),
+    ((1, 3),),
+    ((3, 3),),
+    ((32, 20, 512),),
+    ((33, 333, 333),),
+    ((32, 256, 112, 112),),
+    ((3, 3, 13, 9, 17),),
+]
 
 
 class Inplace(Enum):
@@ -33,160 +42,121 @@ class Inplace(Enum):
     INPLACE_X = auto()
 
 
-class ReluDescriptor(Structure):
-    _fields_ = [("device", c_int32)]
+# Inplace options applied for each test case in _TEST_CASES_
+_INPLACE = [
+    Inplace.OUT_OF_PLACE,
+    Inplace.INPLACE_X,
+]
 
+# Form the test cases by appending each element of _INPLACE to each tuple in _TEST_CASES_
+_TEST_CASES = [
+    test_case + (inplace_item,)
+    for test_case in _TEST_CASES_
+    for inplace_item in _INPLACE
+]
 
-infiniopReluDescriptor_t = POINTER(ReluDescriptor)
+# Data types used for testing
+_TENSOR_DTYPES = [InfiniDtype.F16, InfiniDtype.F32, InfiniDtype.BF16]
+
+# Tolerance map for different data types
+_TOLERANCE_MAP = {
+    InfiniDtype.F16: {"atol": 1e-3, "rtol": 1e-3},
+    InfiniDtype.F32: {"atol": 1e-7, "rtol": 1e-7},
+    InfiniDtype.BF16: {"atol": 1e-3, "rtol": 1e-3},
+}
+
+DEBUG = False
+PROFILE = False
+NUM_PRERUN = 10
+NUM_ITERATIONS = 1000
 
 
 def relu(x):
-    if PROFILE:
-        ans = torch.nn.functional.relu(x).to(x.dtype)
-        torch.cuda.synchronize()
-        return ans
     return torch.nn.functional.relu(x).to(x.dtype)
 
 
 def test(
-    lib,
-    handle,
-    torch_device,
-    tensor_shape,
-    tensor_dtype=torch.float16,
-    inplace=Inplace.OUT_OF_PLACE,
-    sync=None
+    handle, device, shape, inplace=Inplace.OUT_OF_PLACE, dtype=torch.float16, sync=None
 ):
+    x_torch_tensor = torch.rand(shape) * 2 - 1
+
+    x = TestTensor(
+        shape,
+        x_torch_tensor.stride(),
+        dtype,
+        device,
+        mode="manual",
+        set_tensor=x_torch_tensor,
+    )
+
+    if inplace == Inplace.INPLACE_X:
+        y = x
+    else:
+        y = TestTensor(shape, None, dtype, device)
+
+    if y.is_broadcast():
+        return
+
     print(
-        f"Testing Relu on {torch_device} with tensor_shape:{tensor_shape} dtype:{tensor_dtype} inplace: {inplace.name}"
+        f"Testing Relu on {InfiniDeviceNames[device]} with shape:{shape} dtype:{InfiniDtypeNames[dtype]} inplace: {inplace}"
     )
 
-    x = torch.rand(tensor_shape, dtype=tensor_dtype).to(torch_device) * 2 - 1
-    y = (
-        torch.rand(tensor_shape, dtype=tensor_dtype).to(torch_device)
-        if inplace == Inplace.OUT_OF_PLACE
-        else x
-    )
-
-    for i in range(NUM_PRERUN if PROFILE else 1):
-        ans = relu(x)
-    if PROFILE:
-        start_time = time.time()
-        for i in range(NUM_ITERATIONS):
-            _ = relu(x)
-        elapsed = (time.time() - start_time) / NUM_ITERATIONS
-        print(f"pytorch time: {elapsed :6f}")
-
-    x_tensor = to_tensor(x, lib)
-    y_tensor = to_tensor(y, lib) if inplace == Inplace.OUT_OF_PLACE else x_tensor
+    ans = relu(x.torch_tensor())
 
     if sync is not None:
-        sync()    
+        sync()
 
-    descriptor = infiniopReluDescriptor_t()
+    descriptor = infiniopOperatorDescriptor_t()
     check_error(
-        lib.infiniopCreateReluDescriptor(
-            handle,
-            ctypes.byref(descriptor),
-            y_tensor.descriptor,
-            x_tensor.descriptor,
+        LIBINFINIOP.infiniopCreateReluDescriptor(
+            handle, ctypes.byref(descriptor), y.descriptor, x.descriptor
         )
     )
 
     # Invalidate the shape and strides in the descriptor to prevent them from being directly used by the kernel
-    x_tensor.descriptor.contents.invalidate()
-    y_tensor.descriptor.contents.invalidate()
+    for tensor in [x, y]:
+        tensor.destroy_desc()
 
-    for i in range(NUM_PRERUN if PROFILE else 1):
-        check_error(lib.infiniopRelu(descriptor, y_tensor.data, x_tensor.data, None))
+    workspace_size = c_uint64(0)
+    check_error(
+        LIBINFINIOP.infiniopGetReluWorkspaceSize(
+            descriptor, ctypes.byref(workspace_size)
+        )
+    )
+    workspace = TestWorkspace(workspace_size.value, y.device)
+
+    def lib_relu():
+        LIBINFINIOP.infiniopRelu(
+            descriptor, workspace.data(), workspace.size(), y.data(), x.data(), None
+        )
+
+    lib_relu()
+
+    atol, rtol = get_tolerance(_TOLERANCE_MAP, dtype)
+    if DEBUG:
+        debug(y.actual_tensor(), ans, atol=atol, rtol=rtol)
+    assert torch.allclose(y.actual_tensor(), ans, atol=atol, rtol=rtol)
+
+    # Profiling workflow
     if PROFILE:
-        start_time = time.time()
-        for i in range(NUM_ITERATIONS):
-            check_error(
-                lib.infiniopRelu(descriptor, y_tensor.data, x_tensor.data, None)
-            )
-        elapsed = (time.time() - start_time) / NUM_ITERATIONS
-        print(f"    lib time: {elapsed :6f}")
-
-    assert torch.allclose(y, ans, atol=0, rtol=1e-3)
-    check_error(lib.infiniopDestroyReluDescriptor(descriptor))
-
-
-def test_cpu(lib, test_cases):
-    device = DeviceEnum.DEVICE_CPU
-    handle = create_handle(lib, device)
-    for tensor_shape, inplace in test_cases:
         # fmt: off
-        test(lib, handle, "cpu", tensor_shape, tensor_dtype=torch.float16, inplace=inplace)
-        test(lib, handle, "cpu", tensor_shape, tensor_dtype=torch.float32, inplace=inplace)
+        profile_operation("PyTorch", lambda: relu(x.torch_tensor()), device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("    lib", lambda: lib_relu(), device, NUM_PRERUN, NUM_ITERATIONS)
         # fmt: on
-    destroy_handle(lib, handle)
 
-
-def test_cuda(lib, test_cases):
-
-    device = DeviceEnum.DEVICE_CUDA
-    handle = create_handle(lib, device)
-    for tensor_shape, inplace in test_cases:
-        # fmt: off
-        test(lib, handle, "cuda", tensor_shape, tensor_dtype=torch.float16, inplace=inplace)
-        test(lib, handle, "cuda", tensor_shape, tensor_dtype=torch.float32, inplace=inplace)
-        # fmt: on
-    destroy_handle(lib, handle)
-
-
-def test_bang(lib, test_cases):
-    import torch_mlu
-
-    device = DeviceEnum.DEVICE_BANG
-    handle = create_handle(lib, device)
-    for tensor_shape, inplace in test_cases:
-        # fmt: off
-        test(lib, handle, "mlu", tensor_shape, tensor_dtype=torch.float16, inplace=inplace)
-        test(lib, handle, "mlu", tensor_shape, tensor_dtype=torch.float32, inplace=inplace)
-        # fmt: on
-    destroy_handle(lib, handle)
+    check_error(LIBINFINIOP.infiniopDestroyReluDescriptor(descriptor))
 
 
 if __name__ == "__main__":
-    test_cases = [
-        # tensor_shape, inplace
-        ((), Inplace.OUT_OF_PLACE),
-        ((), Inplace.INPLACE_X),
-        ((1, 3), Inplace.OUT_OF_PLACE),
-        ((3, 3), Inplace.OUT_OF_PLACE),
-        ((3, 3, 13, 9, 17), Inplace.INPLACE_X),
-        ((32, 20, 512), Inplace.INPLACE_X),
-        ((33, 333, 333), Inplace.OUT_OF_PLACE),
-        ((32, 256, 112, 112), Inplace.OUT_OF_PLACE),
-    ]
     args = get_args()
-    lib = open_lib()
-    lib.infiniopCreateReluDescriptor.restype = c_int32
-    lib.infiniopCreateReluDescriptor.argtypes = [
-        infiniopHandle_t,
-        POINTER(infiniopReluDescriptor_t),
-        infiniopTensorDescriptor_t,
-        infiniopTensorDescriptor_t,
-    ]
-    lib.infiniopRelu.restype = c_int32
-    lib.infiniopRelu.argtypes = [
-        infiniopReluDescriptor_t,
-        c_void_p,
-        c_void_p,
-        c_void_p,
-    ]
-    lib.infiniopDestroyReluDescriptor.restype = c_int32
-    lib.infiniopDestroyReluDescriptor.argtypes = [
-        infiniopReluDescriptor_t,
-    ]
 
-    if args.cpu:
-        test_cpu(lib, test_cases)
-    if args.cuda:
-        test_cuda(lib, test_cases)
-    if args.bang:
-        test_bang(lib, test_cases)
-    if not (args.cpu or args.cuda or args.bang):
-        test_cpu(lib, test_cases)
+    # Configure testing options
+    DEBUG = args.debug
+    PROFILE = args.profile
+    NUM_PRERUN = args.num_prerun
+    NUM_ITERATIONS = args.num_iterations
+
+    for device in get_test_devices(args):
+        test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
+
     print("\033[92mTest passed!\033[0m")
