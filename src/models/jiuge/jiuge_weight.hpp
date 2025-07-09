@@ -142,6 +142,8 @@ inline std::shared_ptr<Tensor> getSinTable(JiugeMeta const *meta) {
                 static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
             if (meta->dt_logits == INFINI_DTYPE_F16) {
                 ((uint16_t *)table)[i * half_dh + j] = f32_to_f16(_sin);
+            } else if (meta->dt_logits == INFINI_DTYPE_BF16) {
+                ((uint16_t *)table)[i * half_dh + j] = f32_to_bf16(_sin);
             } else if (meta->dt_logits == INFINI_DTYPE_F32) {
                 ((float *)table)[i * half_dh + j] = _sin;
             } else {
@@ -167,6 +169,8 @@ inline std::shared_ptr<Tensor> getCosTable(JiugeMeta const *meta) {
                 static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
             if (meta->dt_logits == INFINI_DTYPE_F16) {
                 ((uint16_t *)table)[i * half_dh + j] = f32_to_f16(_cos);
+            } else if (meta->dt_logits == INFINI_DTYPE_BF16) {
+                ((uint16_t *)table)[i * half_dh + j] = f32_to_bf16(_cos);
             } else if (meta->dt_logits == INFINI_DTYPE_F32) {
                 ((float *)table)[i * half_dh + j] = _cos;
             } else {

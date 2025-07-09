@@ -85,6 +85,8 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             dt_ = DataType.INFINI_DTYPE_F16
         elif dtype == torch.float32:
             dt_ = DataType.INFINI_DTYPE_F32
+        elif dtype == torch.bfloat16:
+            dt_ = DataType.INFINI_DTYPE_BF16
         else:
             dt_ = DataType.INFINI_DTYPE_F16
         super().__init__(
@@ -134,12 +136,16 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
             self.dt_mat = DataType.INFINI_DTYPE_F16
         elif torch_dt_mat == torch.float32:
             self.dt_mat = DataType.INFINI_DTYPE_F32
+        elif torch_dt_mat == torch.bfloat16:
+            self.dt_mat = DataType.INFINI_DTYPE_BF16
         else:
             raise ValueError("Unsupported proj weight data type")
         if torch_dt_norm == torch.float16:
             self.dt_norm = DataType.INFINI_DTYPE_F16
         elif torch_dt_norm == torch.float32:
             self.dt_norm = DataType.INFINI_DTYPE_F32
+        elif torch_dt_norm == torch.bfloat16:
+            self.dt_norm = DataType.INFINI_DTYPE_BF16
         else:
             raise ValueError("Unsupported norm weight data type")
 
