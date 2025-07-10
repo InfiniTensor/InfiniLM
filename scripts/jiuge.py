@@ -91,15 +91,19 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
         else:
             dt_ = DataType.INFINI_DTYPE_F16
 
-        scale_input = 1.0
-        scale_output = 1.0
-        scale_o = 1.0
-        scale_down = 1.0
+        self.scale_input = 1.0
+        self.scale_output = 1.0
+        self.scale_o = 1.0
+        self.scale_down = 1.0
         if "fm9g" == config["model_type"]:
-            scale_input = config["scale_emb"]
-            scale_output = config["hidden_size"] // config["dim_model_base"]
-            scale_o = config["scale_depth"] / math.sqrt(config["num_hidden_layers"])
-            scale_down = config["scale_depth"] / math.sqrt(config["num_hidden_layers"])
+            self.scale_input = config["scale_emb"]
+            self.scale_output = config["hidden_size"] // config["dim_model_base"]
+            self.scale_o = config["scale_depth"] / math.sqrt(
+                config["num_hidden_layers"]
+            )
+            self.scale_down = config["scale_depth"] / math.sqrt(
+                config["num_hidden_layers"]
+            )
 
         super().__init__(
             dt_logits=dt_,
