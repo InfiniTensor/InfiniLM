@@ -6,7 +6,7 @@
 #include "cpu/add_cpu.h"
 #endif
 #ifdef ENABLE_NVIDIA_API
-#include "cuda/add_cuda.cuh"
+#include "nvidia/add_nvidia.cuh"
 #endif
 
 __C infiniStatus_t infiniopCreateAddDescriptor(
@@ -31,7 +31,7 @@ __C infiniStatus_t infiniopCreateAddDescriptor(
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CREATE(INFINI_DEVICE_NVIDIA, cuda);
+        CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:
@@ -46,14 +46,14 @@ __C infiniStatus_t infiniopGetAddWorkspaceSize(infiniopAddDescriptor_t desc, siz
 #define GET(CASE, NAMESPACE)                                                               \
     case CASE:                                                                             \
         *size = reinterpret_cast<op::add::NAMESPACE::Descriptor *>(desc)->workspaceSize(); \
-        return INFINI_STATUS_SUCCESS;
+        return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {
 #ifdef ENABLE_CPU_API
-        GET(INFINI_DEVICE_CPU, cpu)
+        GET(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        GET(INFINI_DEVICE_NVIDIA, cuda)
+        GET(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -83,7 +83,7 @@ __C infiniStatus_t infiniopAdd(
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+        CALCULATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:
@@ -99,7 +99,7 @@ infiniopDestroyAddDescriptor(infiniopAddDescriptor_t desc) {
 #define DELETE(CASE, NAMESPACE)                                                \
     case CASE:                                                                 \
         delete reinterpret_cast<const op::add::NAMESPACE::Descriptor *>(desc); \
-        return INFINI_STATUS_SUCCESS;
+        return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {
 
@@ -107,7 +107,7 @@ infiniopDestroyAddDescriptor(infiniopAddDescriptor_t desc) {
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        DELETE(INFINI_DEVICE_NVIDIA, cuda);
+        DELETE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:

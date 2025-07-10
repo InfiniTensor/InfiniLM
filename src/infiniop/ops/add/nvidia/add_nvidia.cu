@@ -1,7 +1,7 @@
-#include "mul_cuda.cuh"
-#include "mul_cuda_internal.cuh"
+#include "add_nvidia.cuh"
+#include "../cuda/kernel.cuh"
 
-namespace op::mul::cuda {
+namespace op::add::nvidia {
 
 Descriptor::~Descriptor() = default;
 
@@ -43,17 +43,17 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        return _device_info->calculate<256, MulOp, half>(_info, workspace, output, inputs, stream);
-    case INFINI_DTYPE_F32:
-        return _device_info->calculate<256, MulOp, float>(_info, workspace, output, inputs, stream);
-    case INFINI_DTYPE_F64:
-        return _device_info->calculate<256, MulOp, double>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::AddOp, half>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_BF16:
-        return _device_info->calculate<256, MulOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::AddOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F32:
+        return _device_info->calculate<256, cuda::AddOp, float>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F64:
+        return _device_info->calculate<256, cuda::AddOp, double>(_info, workspace, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace op::mul::cuda
+} // namespace op::add::cuda

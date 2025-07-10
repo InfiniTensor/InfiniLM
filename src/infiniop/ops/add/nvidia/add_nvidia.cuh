@@ -3,6 +3,6 @@
 
 #include "../../../elementwise/cuda/elementwise_cuda_api.cuh"
 
-ELEMENTWISE_DESCRIPTOR(add, cuda, cuda)
+ELEMENTWISE_DESCRIPTOR(add, nvidia, cuda)
 
 #endif // __ADD_CUDA_API_H__
