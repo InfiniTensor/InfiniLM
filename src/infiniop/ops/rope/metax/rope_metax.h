@@ -3,6 +3,6 @@
 
 #include "../rope.h"
 
-DESCRIPTOR(maca)
+DESCRIPTOR(metax)
 
 #endif // __INFINIOP_ROPE_MACA_H__

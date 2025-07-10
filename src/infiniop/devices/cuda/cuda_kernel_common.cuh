@@ -16,6 +16,7 @@
 #define CHECK_CUDA(API) CHECK_INTERNAL(API, cudaSuccess)
 
 using cuda_bfloat16 = nv_bfloat16;
+using cuda_bfloat162 = nv_bfloat162;
 
 namespace device::cuda {
 // return the memory offset of original tensor, given the flattened index of broadcasted tensor

@@ -3,6 +3,6 @@
 
 #include "../../../elementwise/maca/elementwise_maca_api.h"
 
-ELEMENTWISE_DESCRIPTOR(swiglu, maca)
+ELEMENTWISE_DESCRIPTOR(swiglu, metax, maca)
 
 #endif // __SWIGLU_MACA_API_H__

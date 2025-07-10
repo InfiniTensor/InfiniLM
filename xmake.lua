@@ -174,7 +174,7 @@ target("infini-utils")
         add_cxflags("-fPIC", "-Wno-unknown-pragmas")
         if has_config("omp") then
             add_cxflags("-fopenmp")
-            add_ldflags("-fopenmp")
+            add_ldflags("-fopenmp", {force = true})
         end
     end
 

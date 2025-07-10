@@ -8,6 +8,18 @@
 
 #include "../cuda/kernel.cuh"
 
+template <unsigned int BLOCK_SIZE, typename Tcompute, typename Tdata, typename Tweight>
+INFINIOP_CUDA_KERNEL rmsnormKernel(
+    Tdata *__restrict__ y,
+    ptrdiff_t stride_y,
+    const Tdata *__restrict__ x,
+    ptrdiff_t stride_x,
+    const Tweight *__restrict__ w,
+    size_t dim,
+    float epsilon) {
+    rmsnormBlock<BLOCK_SIZE, Tcompute>(y, stride_y, x, stride_x, w, dim, epsilon);
+}
+
 namespace op::rms_norm::nvidia {
 
 struct Descriptor::Opaque {
@@ -52,14 +64,14 @@ infiniStatus_t launchKernel(
     float epsilon,
     cudaStream_t cuda_stream) {
 
-#define LAUNCH_KERNEL(Tdata, Tweight, Tcompute)                                                     \
-    rmsnormBlock<BLOCK_SIZE, Tdata, Tweight, Tcompute><<<batch_size, BLOCK_SIZE, 0, cuda_stream>>>( \
-        reinterpret_cast<Tdata *>(y),                                                               \
-        stride_y,                                                                                   \
-        reinterpret_cast<const Tdata *>(x),                                                         \
-        stride_x,                                                                                   \
-        reinterpret_cast<const Tweight *>(w),                                                       \
-        dim,                                                                                        \
+#define LAUNCH_KERNEL(Tdata, Tweight, Tcompute)                                                      \
+    rmsnormKernel<BLOCK_SIZE, Tcompute, Tdata, Tweight><<<batch_size, BLOCK_SIZE, 0, cuda_stream>>>( \
+        reinterpret_cast<Tdata *>(y),                                                                \
+        stride_y,                                                                                    \
+        reinterpret_cast<const Tdata *>(x),                                                          \
+        stride_x,                                                                                    \
+        reinterpret_cast<const Tweight *>(w),                                                        \
+        dim,                                                                                         \
         epsilon)
 
     if (atype == INFINI_DTYPE_F16 && wtype == INFINI_DTYPE_F16) {
@@ -108,4 +120,4 @@ infiniStatus_t Descriptor::calculate(
     }
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace op::rms_norm::cuda
+} // namespace op::rms_norm::nvidia

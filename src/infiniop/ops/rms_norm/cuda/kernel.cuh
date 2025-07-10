@@ -1,8 +1,8 @@
 #ifndef __RMS_NORM_CUDA_KERNEL_H__
 #define __RMS_NORM_CUDA_KERNEL_H__
 
-template <unsigned int BLOCK_SIZE, typename Tdata, typename Tweight, typename Tcompute>
-INFINIOP_CUDA_KERNEL rmsnormBlock(
+template <unsigned int BLOCK_SIZE, typename Tcompute, typename Tdata, typename Tweight>
+__device__ void rmsnormBlock(
     Tdata *__restrict__ y,
     ptrdiff_t stride_y,
     const Tdata *__restrict__ x,

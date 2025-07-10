@@ -2,7 +2,7 @@
 #define __INFINIOP_ROPE_CUDA_KERNEL_CUH__
 
 template <typename Tdata, typename Tindex, typename Tangle>
-INFINIOP_CUDA_KERNEL ropeThreadPerItem(
+__device__ void ropeThreadPerItemBlock(
     Tdata *y_,
     const Tdata *x_,
     const Tindex *__restrict__ pos_ids,
@@ -28,9 +28,9 @@ INFINIOP_CUDA_KERNEL ropeThreadPerItem(
             Tangle y0 = x.x * cos__ - x.y * sin__,
                    y1 = x.x * sin__ + x.y * cos__;
             y = half2(y0, y1);
-        } else if constexpr (std::is_same<Tdata, __nv_bfloat16>::value) {
-            auto &y = reinterpret_cast<__nv_bfloat162 &>(y_[y_offset + 2 * i]);
-            auto &x = reinterpret_cast<const __nv_bfloat162 &>(x_[x_offset + 2 * i]);
+        } else if constexpr (std::is_same<Tdata, cuda_bfloat16>::value) {
+            auto &y = reinterpret_cast<cuda_bfloat162 &>(y_[y_offset + 2 * i]);
+            auto &x = reinterpret_cast<const cuda_bfloat162 &>(x_[x_offset + 2 * i]);
 
             Tangle x0 = __low2bfloat16(x);
             Tangle x1 = __high2bfloat16(x);

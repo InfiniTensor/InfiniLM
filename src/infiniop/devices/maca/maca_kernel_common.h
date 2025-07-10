@@ -1,8 +1,5 @@
 #define INFINIOP_MACA_KERNEL __global__ void
 
-#include <maca_bf16.h>
-#include <maca_fp16.h>
-
 // Posible maximum number of threads per block for MACA architectures
 // Used for picking correct kernel launch configuration
 #define MACA_BLOCK_SIZE_1024 1024
@@ -10,7 +7,8 @@
 
 #define CHECK_MACA(API) CHECK_INTERNAL(API, hcSuccess)
 
-using cuda_bfloat16 = maca_bfloat16;
+using cuda_bfloat16 = hpcc_bfloat16;
+using cuda_bfloat162 = hpcc_bfloat162;
 
 namespace device::maca {
 
@@ -52,7 +50,7 @@ exp_(const float val) {
 
 __forceinline__ __device__ long double
 exp_(const long double val) {
-    return expl(val);
+    return exp(val);
 }
 
 __forceinline__ __device__ double
@@ -65,7 +63,7 @@ exp_(const __half x) {
     return hexp(x);
 }
 
-__forceinline__ __device__ __hpcc_bfloat16;
-exp_(const __hpcc_bfloat16; x) {
+__forceinline__ __device__ __hpcc_bfloat16
+exp_(const __hpcc_bfloat16 x) {
     return hexp(x);
 }

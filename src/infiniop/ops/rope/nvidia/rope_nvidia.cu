@@ -5,6 +5,26 @@
 
 #include "../cuda/kernel.cuh"
 
+template <typename Tdata, typename Tindex, typename Tangle>
+INFINIOP_CUDA_KERNEL ropeThreadPerItemKernel(
+    Tdata *y_,
+    const Tdata *x_,
+    const Tindex *__restrict__ pos_ids,
+    const Tangle *__restrict__ sin_table,
+    const Tangle *__restrict__ cos_table,
+    size_t table_dim,
+    ptrdiff_t y_stride_seqlen,
+    ptrdiff_t y_stride_nhead,
+    ptrdiff_t x_stride_seqlen,
+    ptrdiff_t x_stride_nhead) {
+    ropeThreadPerItemBlock(
+        y_, x_, pos_ids,
+        sin_table, cos_table,
+        table_dim,
+        y_stride_seqlen, y_stride_nhead,
+        x_stride_seqlen, x_stride_nhead);
+}
+
 namespace op::rope::nvidia {
 
 struct Descriptor::Opaque {
@@ -53,7 +73,7 @@ infiniStatus_t calculateRoPE(const RoPEInfo &info,
          dimy = uint32_t(info.nhead);
     int nthreads = std::max(int(info.table_dim), block_size);
 
-    ropeThreadPerItem<<<dim3(dimx, dimy), nthreads, 0, stream>>>(
+    ropeThreadPerItemKernel<<<dim3(dimx, dimy), nthreads, 0, stream>>>(
         y, x, pos_ids, sin_table, cos_table, info.table_dim,
         info.y_stride_seqlen, info.y_stride_nhead, info.x_stride_seqlen, info.x_stride_nhead);
 
@@ -106,7 +126,7 @@ infiniStatus_t Descriptor::calculate(
     case INFINI_DTYPE_F16:
         ROPE_TYPE(half);
     case INFINI_DTYPE_BF16:
-        ROPE_TYPE(__nv_bfloat16);
+        ROPE_TYPE(cuda_bfloat16);
     case INFINI_DTYPE_F32:
         ROPE_TYPE(float);
     case INFINI_DTYPE_F64:
@@ -121,4 +141,4 @@ infiniStatus_t Descriptor::calculate(
 #undef ROPE_TYPE
 #undef CALCULATE_ROPE
 
-} // namespace op::rope::cuda
+} // namespace op::rope::nvidia

@@ -1,6 +1,24 @@
 #include "../../../devices/maca/common_maca.h"
-#include "../cuda/rms_norm_kernel.cuh"
 #include "rms_norm_metax.cuh"
+
+#include "../../../devices/maca/maca_kernel_common.h"
+#include <cub/block/block_reduce.cuh>
+
+#include "../../../reduce/cuda/reduce.cuh"
+
+#include "../cuda/kernel.cuh"
+
+template <unsigned int BLOCK_SIZE, typename Tcompute, typename Tdata, typename Tweight>
+INFINIOP_MACA_KERNEL rmsnormKernel(
+    Tdata *__restrict__ y,
+    ptrdiff_t stride_y,
+    const Tdata *__restrict__ x,
+    ptrdiff_t stride_x,
+    const Tweight *__restrict__ w,
+    size_t dim,
+    float epsilon) {
+    rmsnormBlock<BLOCK_SIZE, Tcompute>(y, stride_y, x, stride_x, w, dim, epsilon);
+}
 
 namespace op::rms_norm::maca {
 
@@ -46,14 +64,14 @@ infiniStatus_t launchKernel(
     float epsilon,
     hcStream_t maca_stream) {
 
-#define LAUNCH_KERNEL(Tdata, Tweight, Tcompute)                                                     \
-    rmsnormBlock<BLOCK_SIZE, Tdata, Tweight, Tcompute><<<batch_size, BLOCK_SIZE, 0, maca_stream>>>( \
-        reinterpret_cast<Tdata *>(y),                                                               \
-        stride_y,                                                                                   \
-        reinterpret_cast<const Tdata *>(x),                                                         \
-        stride_x,                                                                                   \
-        reinterpret_cast<const Tweight *>(w),                                                       \
-        dim,                                                                                        \
+#define LAUNCH_KERNEL(Tdata, Tweight, Tcompute)                                                      \
+    rmsnormKernel<BLOCK_SIZE, Tcompute, Tdata, Tweight><<<batch_size, BLOCK_SIZE, 0, maca_stream>>>( \
+        reinterpret_cast<Tdata *>(y),                                                                \
+        stride_y,                                                                                    \
+        reinterpret_cast<const Tdata *>(x),                                                          \
+        stride_x,                                                                                    \
+        reinterpret_cast<const Tweight *>(w),                                                        \
+        dim,                                                                                         \
         epsilon)
 
     if (atype == INFINI_DTYPE_F16 && wtype == INFINI_DTYPE_F16) {
@@ -91,8 +109,8 @@ infiniStatus_t Descriptor::calculate(
     auto maca_stream = reinterpret_cast<hcStream_t>(stream);
 
     // launch kernel with different block sizes
-    if (_opaque->internal->maxThreadsPerBlock() == CUDA_BLOCK_SIZE_1024) {
-        CHECK_STATUS(launchKernel<CUDA_BLOCK_SIZE_1024>(batch_size, dim, y, _info.atype, stride_y, x, stride_x, w, _info.wtype, _info.epsilon, maca_stream));
+    if (_opaque->internal->maxThreadsPerBlock() == MACA_BLOCK_SIZE_1024) {
+        CHECK_STATUS(launchKernel<MACA_BLOCK_SIZE_1024>(batch_size, dim, y, _info.atype, stride_y, x, stride_x, w, _info.wtype, _info.epsilon, maca_stream));
     } else {
         return INFINI_STATUS_DEVICE_ARCHITECTURE_NOT_SUPPORTED;
     }
