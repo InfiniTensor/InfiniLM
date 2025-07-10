@@ -90,6 +90,17 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             dt_ = DataType.INFINI_DTYPE_BF16
         else:
             dt_ = DataType.INFINI_DTYPE_F16
+
+        scale_input = 1.0
+        scale_output = 1.0
+        scale_o = 1.0
+        scale_down = 1.0
+        if "fm9g" == config["model_type"]:
+            scale_input = config["scale_emb"]
+            scale_output = config["hidden_size"] // config["dim_model_base"]
+            scale_o = config["scale_depth"] / math.sqrt(config["num_hidden_layers"])
+            scale_down = config["scale_depth"] / math.sqrt(config["num_hidden_layers"])
+
         super().__init__(
             dt_logits=dt_,
             nlayer=config["num_hidden_layers"],
@@ -108,22 +119,6 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             dvoc=config["vocab_size"],
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
-            scale_input=(config["scale_emb"] if "scale_emb" in config else 1.0),
-            scale_output=(
-                config["hidden_size"] // config["dim_model_base"]
-                if "dim_model_base" in config
-                else 1.0
-            ),
-            scale_o=(
-                config["scale_depth"] / math.sqrt(config["num_hidden_layers"])
-                if "scale_depth" in config
-                else 1.0
-            ),
-            scale_down=(
-                config["scale_depth"] / math.sqrt(config["num_hidden_layers"])
-                if "scale_depth" in config
-                else 1.0
-            ),
             end_token=2,
         )
         self.torch_dtype_logits = dtype
