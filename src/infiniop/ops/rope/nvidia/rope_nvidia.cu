@@ -1,8 +1,11 @@
 #include "../../../devices/cuda/cuda_common.cuh"
-#include "rope_cuda.cuh"
-#include "rope_cuda_kernel.cuh"
+#include "rope_nvidia.cuh"
 
-namespace op::rope::cuda {
+#include "../../../devices/cuda/cuda_kernel_common.cuh"
+
+#include "../cuda/kernel.cuh"
+
+namespace op::rope::nvidia {
 
 struct Descriptor::Opaque {
     std::shared_ptr<device::cuda::Handle::Internal> internal;

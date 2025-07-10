@@ -1,7 +1,7 @@
-#include "swiglu_cuda.cuh"
-#include "swiglu_cuda_internal.cuh"
+#include "swiglu_nvidia.cuh"
+#include "../cuda/kernel.cuh"
 
-namespace op::swiglu::cuda {
+namespace op::swiglu::nvidia {
 
 Descriptor::~Descriptor() = default;
 
@@ -42,13 +42,13 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        return _device_info->calculate<256, SwiGLUOp, half>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::SwiGLUOp, half>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_BF16:
-        return _device_info->calculate<256, SwiGLUOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::SwiGLUOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_F32:
-        return _device_info->calculate<256, SwiGLUOp, float>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::SwiGLUOp, float>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_F64:
-        return _device_info->calculate<256, SwiGLUOp, double>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::SwiGLUOp, double>(_info, workspace, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }

@@ -3,6 +3,6 @@
 
 #include "../rms_norm.h"
 
-DESCRIPTOR(cuda)
+DESCRIPTOR(nvidia)
 
 #endif

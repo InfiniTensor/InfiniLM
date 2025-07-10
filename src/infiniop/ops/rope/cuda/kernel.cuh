@@ -1,8 +1,6 @@
 #ifndef __INFINIOP_ROPE_CUDA_KERNEL_CUH__
 #define __INFINIOP_ROPE_CUDA_KERNEL_CUH__
 
-#include "../../../devices/cuda/cuda_kernel_common.cuh"
-
 template <typename Tdata, typename Tindex, typename Tangle>
 INFINIOP_CUDA_KERNEL ropeThreadPerItem(
     Tdata *y_,

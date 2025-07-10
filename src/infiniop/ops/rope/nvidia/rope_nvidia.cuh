@@ -3,6 +3,6 @@
 
 #include "../rope.h"
 
-DESCRIPTOR(cuda)
+DESCRIPTOR(nvidia)
 
 #endif // __INFINIOP_ROPE_CUDA_H__

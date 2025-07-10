@@ -1,12 +1,6 @@
 #ifndef __RMS_NORM_CUDA_KERNEL_H__
 #define __RMS_NORM_CUDA_KERNEL_H__
 
-#include "../../../devices/cuda/cuda_kernel_common.cuh"
-
-#include <cub/block/block_reduce.cuh>
-
-#include "../../../reduce/cuda/reduce.cuh"
-
 template <unsigned int BLOCK_SIZE, typename Tdata, typename Tweight, typename Tcompute>
 INFINIOP_CUDA_KERNEL rmsnormBlock(
     Tdata *__restrict__ y,

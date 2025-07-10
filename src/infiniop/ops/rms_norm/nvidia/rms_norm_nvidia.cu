@@ -1,8 +1,14 @@
 #include "../../../devices/cuda/cuda_common.cuh"
-#include "rms_norm_cuda.cuh"
-#include "rms_norm_kernel.cuh"
+#include "rms_norm_nvidia.cuh"
 
-namespace op::rms_norm::cuda {
+#include "../../../devices/cuda/cuda_kernel_common.cuh"
+#include <cub/block/block_reduce.cuh>
+
+#include "../../../reduce/cuda/reduce.cuh"
+
+#include "../cuda/kernel.cuh"
+
+namespace op::rms_norm::nvidia {
 
 struct Descriptor::Opaque {
     std::shared_ptr<device::cuda::Handle::Internal> internal;
