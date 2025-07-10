@@ -5,8 +5,11 @@
 #include "../pool.h"
 #include "cuda_handle.h"
 #include <cublas_v2.h>
-#include <cudnn.h>
 #include <functional>
+
+#ifdef ENABLE_CUDNN_API
+#include <cudnn.h>
+#endif
 
 #define CHECK_CUBLAS(API) CHECK_INTERNAL(API, CUBLAS_STATUS_SUCCESS)
 #define CHECK_CUDNN(API) CHECK_INTERNAL(API, CUDNN_STATUS_SUCCESS)
@@ -15,7 +18,9 @@ namespace device::cuda {
 
 class Handle::Internal {
     Pool<cublasHandle_t> blas_handles;
+#ifdef ENABLE_CUDNN_API
     Pool<cudnnHandle_t> dnn_handles;
+#endif
 
     int _warp_size,
         _max_threads_per_block,
@@ -29,7 +34,9 @@ public:
     Internal(int);
 
     infiniStatus_t useCublas(cudaStream_t stream, const Fn<cublasHandle_t> &f) const;
+#ifdef ENABLE_CUDNN_API
     infiniStatus_t useCudnn(cudaStream_t stream, const Fn<cudnnHandle_t> &f) const;
+#endif
 
     int warpSize() const;
     int maxThreadsPerBlock() const;

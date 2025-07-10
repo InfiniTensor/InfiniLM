@@ -6,7 +6,9 @@
 
 namespace device::cuda {
 
+#ifdef ENABLE_CUDNN_API
 cudnnDataType_t getCudnnDtype(infiniDtype_t dt);
+#endif
 
 } // namespace device::cuda
 

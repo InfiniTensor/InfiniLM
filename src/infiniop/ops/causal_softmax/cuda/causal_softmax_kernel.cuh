@@ -32,7 +32,7 @@ INFINIOP_CUDA_KERNEL causalSoftmax(
         //          2 | * * * ... * * * |
         //  height: 3  col_id->
         if (width + blockIdx.x >= threadIdx.x + height) {
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
             y[col] = exp_(x[col] - max_);
 #else
             y[col] = exp(x[col] - max_);

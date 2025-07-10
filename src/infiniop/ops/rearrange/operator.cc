@@ -9,7 +9,7 @@
 #include "ascend/rearrange_ascend.h"
 #endif
 
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
 #include "cuda/rearrange_cuda.cuh"
 #endif
 #ifdef ENABLE_METAX_API
@@ -39,7 +39,7 @@ __C infiniStatus_t infiniopCreateRearrangeDescriptor(
         CREATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API
@@ -72,7 +72,7 @@ __C infiniStatus_t infiniopRearrange(
         CALCULATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API
@@ -103,7 +103,7 @@ __C infiniStatus_t infiniopDestroyRearrangeDescriptor(
         DELETE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         DELETE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API

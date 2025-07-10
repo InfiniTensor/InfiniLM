@@ -5,7 +5,7 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/cpu_handle.h"
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
 #include "cuda/cuda_handle.h"
 #endif
 #ifdef ENABLE_CAMBRICON_API
@@ -41,7 +41,7 @@ __C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr) {
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda::nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API
@@ -78,7 +78,7 @@ __C infiniStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
 #ifdef ENABLE_CPU_API
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         DELETE(INFINI_DEVICE_NVIDIA, cuda::nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API

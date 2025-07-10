@@ -5,7 +5,7 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/rms_norm_cpu.h"
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
 #include "cuda/rms_norm_cuda.cuh"
 #endif
 #ifdef ENABLE_ASCEND_API
@@ -43,7 +43,7 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CREATE(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_KUNLUN_API
@@ -81,7 +81,7 @@ __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t d
 #ifdef ENABLE_CPU_API
         GET(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         GET(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_KUNLUN_API
@@ -120,7 +120,7 @@ __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *works
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_KUNLUN_API
@@ -158,7 +158,7 @@ __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t 
 #ifdef ENABLE_CPU_API
         DESTROY(INFINI_DEVICE_CPU, cpu)
 #endif
-#ifdef ENABLE_CUDA_API
+#ifdef ENABLE_NVIDIA_API
         DESTROY(INFINI_DEVICE_NVIDIA, cuda)
 #endif
 #ifdef ENABLE_KUNLUN_API
