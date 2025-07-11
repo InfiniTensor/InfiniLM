@@ -1,8 +1,8 @@
-#ifndef __REARRANGE_MACA_KERNEL_H__
-#define __REARRANGE_MACA_KERNEL_H__
+#ifndef __REARRANGE_METAX_KERNEL_H__
+#define __REARRANGE_METAX_KERNEL_H__
 
-#include "../../../devices/maca/common_maca.h"
-#include "../../../devices/maca/maca_kernel_common.h"
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_kernel_common.h"
 
 #define ARRAY_TYPE_STRIDE ptrdiff_t
 #define ARRAY_TYPE_SIZE size_t
@@ -328,4 +328,4 @@ utils::Result<void *> getRearrangeKernel(const RearrangeParams &params) {
 
     return utils::Result<void *>(kernel_func);
 }
-#endif // __REARRANGE_MACA_KERNEL_H__
+#endif // __REARRANGE_METAX_KERNEL_H__

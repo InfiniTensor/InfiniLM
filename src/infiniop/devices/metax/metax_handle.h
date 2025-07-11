@@ -1,10 +1,10 @@
-#ifndef __INFINIOP_MACA_HANDLE_H__
-#define __INFINIOP_MACA_HANDLE_H__
+#ifndef __INFINIOP_METAX_HANDLE_H__
+#define __INFINIOP_METAX_HANDLE_H__
 
 #include "../../handle.h"
 #include <memory>
 
-namespace device::maca {
+namespace device::metax {
 struct Handle : public InfiniopHandle {
     Handle(int device_id);
     class Internal;
@@ -20,6 +20,6 @@ private:
     std::shared_ptr<Internal> _internal;
 };
 
-} // namespace device::maca
+} // namespace device::metax
 
-#endif // __INFINIOP_MACA_HANDLE_H__
+#endif // __INFINIOP_METAX_HANDLE_H__

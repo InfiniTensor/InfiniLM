@@ -1,6 +1,6 @@
 #include "swiglu_metax.h"
 
-#include "../../../elementwise/maca/elementwise_maca.h"
+#include "../../../elementwise/metax/elementwise_metax.h"
 
 #include "../cuda/kernel.cuh"
 
@@ -14,7 +14,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t out_desc,
     std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
 
-    auto handle = reinterpret_cast<device::maca::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
     auto dtype = out_desc->dtype();
 
     const auto &up_desc = input_desc_vec.at(0);
@@ -26,8 +26,8 @@ infiniStatus_t Descriptor::create(
     CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_BF16, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
     CHECK_SAME_SHAPE(out_shape, up_shape, gate_shape);
 
-    // create MACA elementwise descriptor
-    CREATE_ELEMENTWISE_MACA_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
+    // create METAX elementwise descriptor
+    CREATE_ELEMENTWISE_METAX_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
 
     return INFINI_STATUS_SUCCESS;
 }

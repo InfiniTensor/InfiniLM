@@ -34,7 +34,7 @@ target("infiniop-metax")
     set_languages("cxx17")
     set_warnings("all", "error")
     add_cxflags("-lstdc++", "-fPIC", "-Wno-defaulted-function-deleted", "-Wno-strict-aliasing")
-    add_files("../src/infiniop/devices/maca/*.cc", "../src/infiniop/ops/*/metax/*.cc")
+    add_files("../src/infiniop/devices/metax/*.cc", "../src/infiniop/ops/*/metax/*.cc")
     add_files("../src/infiniop/ops/*/metax/*.maca", {rule = "maca"})
 target_end()
 
@@ -45,7 +45,7 @@ target("infinirt-metax")
     add_deps("infini-utils")
     set_warnings("all", "error")
     add_cxflags("-lstdc++ -fPIC")
-    add_files("../src/infinirt/maca/*.cc")
+    add_files("../src/infinirt/metax/*.cc")
 target_end()
 
 target("infiniccl-metax")
@@ -58,7 +58,7 @@ target("infiniccl-metax")
     end
     if has_config("ccl") then
         add_links("libhccl.so")
-        add_files("../src/infiniccl/maca/*.cc")
+        add_files("../src/infiniccl/metax/*.cc")
     end
     set_languages("cxx17")
 

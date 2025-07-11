@@ -1,15 +1,15 @@
-#include "../../../devices/maca/common_maca.h"
+#include "../../../devices/metax/metax_common.h"
 #include "causal_softmax_metax.h"
 
 #include <hccub/block/block_reduce.cuh>
-#include "../../../devices/maca/maca_kernel_common.h"
+#include "../../../devices/metax/metax_kernel_common.h"
 
 #include "../../../reduce/cuda/reduce.cuh"
 
 #include "../cuda/kernel.cuh"
 
 template <unsigned int BLOCK_SIZE, typename Tdata, typename Tcompute>
-INFINIOP_MACA_KERNEL causalSoftmax(
+INFINIOP_METAX_KERNEL causalSoftmax(
     Tdata *y, const Tdata *x,
     size_t batch, size_t height, size_t width,
     ptrdiff_t y_stride_b, ptrdiff_t y_stride_h,
@@ -20,7 +20,7 @@ INFINIOP_MACA_KERNEL causalSoftmax(
 namespace op::causal_softmax::metax {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::maca::Handle::Internal> internal;
+    std::shared_ptr<device::metax::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -35,7 +35,7 @@ infiniStatus_t Descriptor::create(
     auto info = CausalSoftmaxInfo::create(y_desc, x_desc);
     CHECK_RESULT(info);
     *desc_ptr = new Descriptor(
-        new Opaque{reinterpret_cast<device::maca::Handle *>(handle)->internal()},
+        new Opaque{reinterpret_cast<device::metax::Handle *>(handle)->internal()},
         info.take(), 0, handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
 }
@@ -76,12 +76,12 @@ infiniStatus_t Descriptor::calculate(void *workspace, size_t workspace_size,
                                      const void *x,
                                      void *stream_) const {
     hcStream_t stream = (hcStream_t)stream_;
-    if (_opaque->internal->maxThreadsPerBlock() == MACA_BLOCK_SIZE_1024) {
-        CHECK_STATUS(launchKernel<MACA_BLOCK_SIZE_1024>(
+    if (_opaque->internal->maxThreadsPerBlock() == METAX_BLOCK_SIZE_1024) {
+        CHECK_STATUS(launchKernel<METAX_BLOCK_SIZE_1024>(
             y, x, _info.dtype, _info.batch_size, _info.seq_len, _info.total_seq_len,
             _info.y_stride_b, _info.y_stride_i, _info.x_stride_b, _info.x_stride_i, stream));
-    } else if (_opaque->internal->maxThreadsPerBlock() == MACA_BLOCK_SIZE_512) {
-        CHECK_STATUS(launchKernel<MACA_BLOCK_SIZE_512>(
+    } else if (_opaque->internal->maxThreadsPerBlock() == METAX_BLOCK_SIZE_512) {
+        CHECK_STATUS(launchKernel<METAX_BLOCK_SIZE_512>(
             y, x, _info.dtype, _info.batch_size, _info.seq_len, _info.total_seq_len,
             _info.y_stride_b, _info.y_stride_i, _info.x_stride_b, _info.x_stride_i, stream));
     } else {

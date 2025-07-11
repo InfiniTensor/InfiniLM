@@ -1,16 +1,16 @@
-#define INFINIOP_MACA_KERNEL __global__ void
+#define INFINIOP_METAX_KERNEL __global__ void
 
-// Posible maximum number of threads per block for MACA architectures
+// Posible maximum number of threads per block for METAX architectures
 // Used for picking correct kernel launch configuration
-#define MACA_BLOCK_SIZE_1024 1024
-#define MACA_BLOCK_SIZE_512 512
+#define METAX_BLOCK_SIZE_1024 1024
+#define METAX_BLOCK_SIZE_512 512
 
-#define CHECK_MACA(API) CHECK_INTERNAL(API, hcSuccess)
+#define CHECK_METAX(API) CHECK_INTERNAL(API, hcSuccess)
 
 using cuda_bfloat16 = hpcc_bfloat16;
 using cuda_bfloat162 = hpcc_bfloat162;
 
-namespace device::maca {
+namespace device::metax {
 
 // return the memory offset of original tensor, given the flattened index of broadcasted tensor
 __forceinline__ __device__ __host__ size_t
@@ -41,7 +41,7 @@ indexToOffset(
     }
     return res;
 }
-} // namespace device::maca
+} // namespace device::metax
 
 __forceinline__ __device__ float
 exp_(const float val) {

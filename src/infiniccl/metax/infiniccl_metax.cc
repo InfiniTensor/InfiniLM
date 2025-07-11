@@ -1,4 +1,4 @@
-#include "infiniccl_maca.h"
+#include "infiniccl_metax.h"
 
 #include "../../utils.h"
 
@@ -51,7 +51,7 @@ inline hcclComm_t getHcclComm(infinicclComm_t comm) {
     return static_cast<hcclComm_t>(comm->comm);
 }
 
-namespace infiniccl::maca {
+namespace infiniccl::metax {
 
 infiniStatus_t commInitAll(
     infinicclComm_t *comms,
@@ -92,4 +92,4 @@ infiniStatus_t allReduce(
 
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace infiniccl::maca
+} // namespace infiniccl::metax

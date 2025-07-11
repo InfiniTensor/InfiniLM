@@ -1,4 +1,4 @@
-#include "../../../devices/maca/maca_kernel_common.h"
+#include "../../../devices/metax/metax_kernel_common.h"
 #include "infinicore.h"
 #include <hccub/device/device_radix_sort.cuh>
 #include <hccub/device/device_reduce.cuh>
@@ -62,7 +62,7 @@ utils::Result<size_t> calculateWorkspace(size_t n_) {
     const auto n = static_cast<int>(n_);
 
     size_t argmax;
-    CHECK_MACA(argMax_<Tval>(
+    CHECK_METAX(argMax_<Tval>(
         nullptr, nullptr, n,
         nullptr, argmax,
         nullptr));
@@ -77,7 +77,7 @@ utils::Result<size_t> calculateWorkspace(size_t n_) {
     size_random += align256(sizeof(Tidx) * n);
     // cub device api
     size_t size_radix_sort;
-    CHECK_MACA((radixSort<Tval, Tidx>(
+    CHECK_METAX((radixSort<Tval, Tidx>(
         nullptr, size_radix_sort,
         nullptr, nullptr,
         nullptr, nullptr,
@@ -85,7 +85,7 @@ utils::Result<size_t> calculateWorkspace(size_t n_) {
         nullptr)));
 
     size_t size_inclusive_sum;
-    CHECK_MACA(inclusiveSum<Tval>(
+    CHECK_METAX(inclusiveSum<Tval>(
         nullptr, size_inclusive_sum,
         nullptr, n,
         nullptr));
@@ -233,7 +233,7 @@ struct Algo {
         auto grid = (n + block - 1) / block;
         // sort
         fillIndices<<<grid, block, 0, stream>>>(indices, n);
-        CHECK_MACA(radixSort(
+        CHECK_METAX(radixSort(
             workspace_, workspace_size,
             logits, sorted,
             indices, indices_out,
@@ -243,7 +243,7 @@ struct Algo {
         partialSoftmaxKernel<<<grid, block, 0, stream>>>(sorted, n, temperature);
         setSoftmaxMaxKernel<<<1, 1, 0, stream>>>(sorted);
         // sum
-        CHECK_MACA(inclusiveSum(
+        CHECK_METAX(inclusiveSum(
             workspace_, workspace,
             sorted, n,
             stream));

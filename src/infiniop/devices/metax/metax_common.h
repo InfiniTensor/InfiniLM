@@ -1,6 +1,6 @@
 #include "../../../utils.h"
 #include "../pool.h"
-#include "maca_handle.h"
+#include "metax_handle.h"
 #include <hcblas/hcblas.h>
 #include <hcdnn/hcdnn.h>
 #include <memory>
@@ -8,7 +8,7 @@
 #define CHECK_MCBLAS(API) CHECK_INTERNAL(API, HCBLAS_STATUS_SUCCESS)
 #define CHECK_MCDNN(API) CHECK_INTERNAL(API, HCDNN_STATUS_SUCCESS)
 
-namespace device::maca {
+namespace device::metax {
 
 class Handle::Internal {
     Pool<hcblasHandle_t> mcblas_handles;
@@ -39,4 +39,4 @@ public:
 
 hcdnnDataType_t getHcdnnDtype(infiniDtype_t dt);
 
-} // namespace device::maca
+} // namespace device::metax

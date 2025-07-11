@@ -1,12 +1,12 @@
-#ifndef __INFINIOP_ELEMENTWISE_MACA_H__
-#define __INFINIOP_ELEMENTWISE_MACA_H__
+#ifndef __INFINIOP_ELEMENTWISE_METAX_H__
+#define __INFINIOP_ELEMENTWISE_METAX_H__
 
 #include "../../../utils.h"
-#include "../../devices/maca/common_maca.h"
-#include "../../devices/maca/maca_kernel_common.h"
-#include "elementwise_maca_api.h"
+#include "../../devices/metax/metax_common.h"
+#include "../../devices/metax/metax_kernel_common.h"
+#include "elementwise_metax_api.h"
 
-namespace op::elementwise::maca {
+namespace op::elementwise::metax {
 template <typename T>
 __device__ __forceinline__ const T *typedInputPtr(const void *ptr) {
     return reinterpret_cast<const T *>(ptr);
@@ -14,7 +14,7 @@ __device__ __forceinline__ const T *typedInputPtr(const void *ptr) {
 
 __device__ __forceinline__ size_t getOutputIndex(size_t idx, bool is_contiguous, size_t ndim,
                                                  const size_t *shape, const ptrdiff_t *strides) {
-    return is_contiguous ? idx : device::maca::indexToOffset(idx, ndim, shape, strides);
+    return is_contiguous ? idx : device::metax::indexToOffset(idx, ndim, shape, strides);
 }
 
 struct InputIndexer {
@@ -30,8 +30,8 @@ struct InputIndexer {
         return input_contiguous[input_id]
                  ? idx
                  : (input_broadcasted[input_id]
-                        ? device::maca::indexToReducedOffset(idx, ndim, output_strides, input_strides + input_id * ndim)
-                        : device::maca::indexToOffset(idx, ndim, input_shapes + input_id * ndim, input_strides + input_id * ndim));
+                        ? device::metax::indexToReducedOffset(idx, ndim, output_strides, input_strides + input_id * ndim)
+                        : device::metax::indexToOffset(idx, ndim, input_shapes + input_id * ndim, input_strides + input_id * ndim));
     }
 };
 
@@ -41,7 +41,7 @@ __device__ __forceinline__ void unpackInputsAndApply(F &&f, std::index_sequence<
 }
 
 template <size_t N, typename Op, typename Tdata, typename... Args>
-INFINIOP_MACA_KERNEL elementwiseKernel(
+INFINIOP_METAX_KERNEL elementwiseKernel(
     size_t output_size,
     size_t ndim,
     bool output_contiguous,
@@ -72,7 +72,7 @@ INFINIOP_MACA_KERNEL elementwiseKernel(
 }
 
 template <typename Op, typename Tout, typename... Tin>
-INFINIOP_MACA_KERNEL elementwiseKernel(
+INFINIOP_METAX_KERNEL elementwiseKernel(
     size_t output_size,
     size_t ndim,
     bool output_contiguous,
@@ -102,9 +102,9 @@ INFINIOP_MACA_KERNEL elementwiseKernel(
 }
 
 struct DeviceImpl::Opaque {
-    std::shared_ptr<device::maca::Handle::Internal> internal;
+    std::shared_ptr<device::metax::Handle::Internal> internal;
 
-    Opaque(const std::shared_ptr<device::maca::Handle::Internal> &internal)
+    Opaque(const std::shared_ptr<device::metax::Handle::Internal> &internal)
         : internal(internal) {}
 
     template <uint32_t BLOCK_SIZE, size_t N, typename Op, typename Tdata, typename... Args>
@@ -159,8 +159,8 @@ private:
         const int8_t *d_meta_start = reinterpret_cast<int8_t *>(workspace) + input_arr_size;
 
         // copy the input pointer array and meta to device
-        CHECK_MACA(hcMemcpyAsync(workspace, h_inputs_arr, input_arr_size, hcMemcpyHostToDevice, stream));
-        CHECK_MACA(hcMemcpyAsync((void *)d_meta_start, info_meta_start, info.getMetaMemSize(), hcMemcpyHostToDevice, stream));
+        CHECK_METAX(hcMemcpyAsync(workspace, h_inputs_arr, input_arr_size, hcMemcpyHostToDevice, stream));
+        CHECK_METAX(hcMemcpyAsync((void *)d_meta_start, info_meta_start, info.getMetaMemSize(), hcMemcpyHostToDevice, stream));
 
         // offset/assign the pointers
         d_inputs_arr = reinterpret_cast<const void **>(workspace);
@@ -259,6 +259,6 @@ infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &inf
         std::forward<Args>(args)...);
 }
 
-} // namespace op::elementwise::maca
+} // namespace op::elementwise::metax
 
 #endif
