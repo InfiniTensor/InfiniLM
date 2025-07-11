@@ -1,13 +1,16 @@
 #ifndef __INFINIOP_REDUCE_CUDA_H__
 #define __INFINIOP_REDUCE_CUDA_H__
 
-#include <cub/block/block_reduce.cuh>
-
 /*
  * Device functions for reduction operations on CUDA.
  *
  * Note: Only local result on thread 0 is guranteed to be correct.
  *       A manual broadcast is needed for other threads.
+ *
+ * Important Note: This is a device-independent header file containing reduce kernels
+ *                 for all cuda-supporting platforms. Include device-specific headers
+ *                 (such as <cub/block/block_reduce.cuh> for nvidia) in your source file
+ *                 and then include this file for proper usage.
  */
 namespace op::common_cuda::reduce_op {
 

@@ -6,7 +6,7 @@
 #include "cpu/sub_cpu.h"
 #endif
 #ifdef ENABLE_NVIDIA_API
-#include "cuda/sub_cuda.cuh"
+#include "nvidia/sub_nvidia.cuh"
 #endif
 
 __C infiniStatus_t infiniopCreateSubDescriptor(
@@ -31,7 +31,7 @@ __C infiniStatus_t infiniopCreateSubDescriptor(
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CREATE(INFINI_DEVICE_NVIDIA, cuda);
+        CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:
@@ -46,14 +46,14 @@ __C infiniStatus_t infiniopGetSubWorkspaceSize(infiniopSubDescriptor_t desc, siz
 #define GET(CASE, NAMESPACE)                                                               \
     case CASE:                                                                             \
         *size = reinterpret_cast<op::sub::NAMESPACE::Descriptor *>(desc)->workspaceSize(); \
-        return INFINI_STATUS_SUCCESS;
+        return INFINI_STATUS_SUCCESS
 
     switch (desc->device_type) {
 #ifdef ENABLE_CPU_API
-        GET(INFINI_DEVICE_CPU, cpu)
+        GET(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        GET(INFINI_DEVICE_NVIDIA, cuda)
+        GET(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -83,7 +83,7 @@ __C infiniStatus_t infiniopSub(
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+        CALCULATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:
@@ -107,7 +107,7 @@ infiniopDestroySubDescriptor(infiniopSubDescriptor_t desc) {
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        DELETE(INFINI_DEVICE_NVIDIA, cuda);
+        DELETE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:

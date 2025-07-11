@@ -108,7 +108,7 @@ option_end()
 
 if has_config("metax-gpu") then
     add_defines("ENABLE_METAX_API")
-    includes("xmake/maca.lua")
+    includes("xmake/metax.lua")
 end
 
 -- 摩尔线程
@@ -174,7 +174,7 @@ target("infini-utils")
         add_cxflags("-fPIC", "-Wno-unknown-pragmas")
         if has_config("omp") then
             add_cxflags("-fopenmp")
-            add_ldflags("-fopenmp")
+            add_ldflags("-fopenmp", {force = true})
         end
     end
 

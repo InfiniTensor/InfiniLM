@@ -46,7 +46,7 @@ target("infiniop-cuda")
     add_cuflags("-Xcompiler=-Wno-error=deprecated-declarations")
 
     set_languages("cxx17")
-    add_files("../src/infiniop/devices/cuda/*.cu", "../src/infiniop/ops/*/cuda/*.cu", "../build/ninetoothed/*.c")
+    add_files("../src/infiniop/devices/cuda/*.cu", "../src/infiniop/ops/*/cuda/*.cu", "../src/infiniop/ops/*/nvidia/*.cu", "../build/ninetoothed/*.c")
 target_end()
 
 target("infinirt-cuda")

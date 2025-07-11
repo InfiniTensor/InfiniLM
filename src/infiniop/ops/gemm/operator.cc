@@ -15,7 +15,7 @@
 #include "ascend/gemm_ascend.h"
 #endif
 #ifdef ENABLE_METAX_API
-#include "maca/gemm_maca.h"
+#include "metax/gemm_metax.h"
 #endif
 #ifdef ENABLE_MOORE_API
 #include "musa/gemm_musa.h"
@@ -55,7 +55,7 @@ __C infiniStatus_t infiniopCreateGemmDescriptor(
         CREATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_API
-        CREATE(INFINI_DEVICE_METAX, maca);
+        CREATE(INFINI_DEVICE_METAX, metax);
 #endif
 #ifdef ENABLE_MOORE_API
         CREATE(INFINI_DEVICE_MOORE, musa);
@@ -97,7 +97,7 @@ infiniopGetGemmWorkspaceSize(
         GET(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_API
-        GET(INFINI_DEVICE_METAX, maca);
+        GET(INFINI_DEVICE_METAX, metax);
 #endif
 #ifdef ENABLE_MOORE_API
         GET(INFINI_DEVICE_MOORE, musa);
@@ -146,7 +146,7 @@ __C infiniStatus_t infiniopGemm(
         CALCULATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_API
-        CALCULATE(INFINI_DEVICE_METAX, maca);
+        CALCULATE(INFINI_DEVICE_METAX, metax);
 #endif
 #ifdef ENABLE_MOORE_API
         CALCULATE(INFINI_DEVICE_MOORE, musa);
@@ -185,7 +185,7 @@ infiniopDestroyGemmDescriptor(infiniopGemmDescriptor_t desc) {
         DELETE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_API
-        DELETE(INFINI_DEVICE_METAX, maca);
+        DELETE(INFINI_DEVICE_METAX, metax);
 #endif
 #ifdef ENABLE_MOORE_API
         DELETE(INFINI_DEVICE_MOORE, musa);
