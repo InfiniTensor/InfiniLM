@@ -453,3 +453,39 @@ def swiglu_(lib):
     lib.infiniopDestroySwiGLUDescriptor.argtypes = [
         infiniopOperatorDescriptor_t,
     ]
+
+@OpRegister.operator
+def conv_(lib):
+    lib.infiniopCreateConvDescriptor.restype = c_int32
+    lib.infiniopCreateConvDescriptor.argtypes = [
+        infiniopHandle_t,
+        POINTER(infiniopOperatorDescriptor_t),
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_size_t,
+    ]
+    lib.infiniopGetConvWorkspaceSize.restype = c_int32
+    lib.infiniopGetConvWorkspaceSize.argtypes = [
+        infiniopOperatorDescriptor_t,
+        POINTER(c_size_t),
+    ]
+    lib.infiniopConv.restype = c_int32
+    lib.infiniopConv.argtypes = [
+        infiniopOperatorDescriptor_t,
+        c_void_p,
+        c_size_t,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+    ]
+    lib.infiniopDestroyConvDescriptor.restype = c_int32
+    lib.infiniopDestroyConvDescriptor.argtypes = [
+        infiniopOperatorDescriptor_t,
+    ]
