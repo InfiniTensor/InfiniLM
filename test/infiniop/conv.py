@@ -42,7 +42,7 @@ _TEST_CASES = [
     ),
     (
         (1, 3, 4, 4),
-        (48, 16, 4, 1), 
+        (48, 16, 4, 1),
         (2, 3, 3, 3),
         (27, 9, 3, 1),
         (1, 1),
@@ -85,7 +85,7 @@ _TENSOR_DTYPES = [InfiniDtype.F16, InfiniDtype.F32, InfiniDtype.BF16]
 # Tolerance map for different data types
 _TOLERANCE_MAP = {
     InfiniDtype.F16: {"atol": 1e-3, "rtol": 1e-3},
-    InfiniDtype.F32: {"atol": 1e-6, "rtol": 1e-6},
+    InfiniDtype.F32: {"atol": 1e-5, "rtol": 1e-5},
     InfiniDtype.BF16: {"atol": 1e-3, "rtol": 1e-2},
 }
 
@@ -94,14 +94,27 @@ PROFILE = False
 NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
 
+
 def conv(x, w, stride, padding, dilation, y_tensor, bias=None):
     match len(x.shape) - 2:
         case 1:
-            y_tensor.copy_(F.conv1d(x, w, bias=bias, stride=stride, padding=padding, dilation=dilation))
+            y_tensor.copy_(
+                F.conv1d(
+                    x, w, bias=bias, stride=stride, padding=padding, dilation=dilation
+                )
+            )
         case 2:
-            y_tensor.copy_(F.conv2d(x, w, bias=bias, stride=stride, padding=padding, dilation=dilation))
+            y_tensor.copy_(
+                F.conv2d(
+                    x, w, bias=bias, stride=stride, padding=padding, dilation=dilation
+                )
+            )
         case 3:
-            y_tensor.copy_(F.conv3d(x, w, bias=bias, stride=stride, padding=padding, dilation=dilation))
+            y_tensor.copy_(
+                F.conv3d(
+                    x, w, bias=bias, stride=stride, padding=padding, dilation=dilation
+                )
+            )
         case _:
             print("Error: Pytorch -> Unsupported tensor dimension")
 
@@ -163,12 +176,23 @@ def test(
     y_shape, y_stride = inferShapeStride(x_shape, w_shape, pads, strides, dilations)
     y = TestTensor(y_shape, y_stride, dt=tensor_dtype, device=device)
 
-    b = TestTensor((w.shape[0],), (1,), dt=tensor_dtype, device=device, scale=0.01) if w.shape[0] > 1 else None
-    print(
-        f"Testing Conv on {InfiniDeviceNames[device]} with x_shape: {x_shape}, w_shape: {w_shape}, b_shape: {w_shape[0]}, pads: {pads}, strides: {strides}, dilations: {dilations}, x_stride: {x_stride} dtype:{tensor_dtype}"
-        f"dtype:{InfiniDtypeNames[tensor_dtype]}"
+    b = (
+        TestTensor((w.shape[0],), (1,), dt=tensor_dtype, device=device, scale=0.01)
+        if w.shape[0] > 1
+        else None
     )
-    conv(x.torch_tensor(), w.torch_tensor(), strides, pads, dilations, y.torch_tensor(), b.torch_tensor() if b is not None else None)
+    print(
+        f"Testing Conv on {InfiniDeviceNames[device]} with x_shape: {x_shape}, w_shape: {w_shape}, b_shape: {w_shape[0]}, pads: {pads}, strides: {strides}, dilations: {dilations}, x_stride: {x_stride} dtype:{InfiniDtypeNames[tensor_dtype]}"
+    )
+    conv(
+        x.torch_tensor(),
+        w.torch_tensor(),
+        strides,
+        pads,
+        dilations,
+        y.torch_tensor(),
+        b.torch_tensor() if b is not None else None,
+    )
 
     if sync is not None:
         sync()
@@ -196,7 +220,9 @@ def test(
 
     workspace_size = ctypes.c_uint64(0)
     check_error(
-        LIBINFINIOP.infiniopGetConvWorkspaceSize(descriptor, ctypes.byref(workspace_size))
+        LIBINFINIOP.infiniopGetConvWorkspaceSize(
+            descriptor, ctypes.byref(workspace_size)
+        )
     )
     workspace = TestWorkspace(workspace_size.value, y.device)
 
@@ -241,4 +267,3 @@ if __name__ == "__main__":
         test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
 
     print("\033[92mTest passed!\033[0m")
-

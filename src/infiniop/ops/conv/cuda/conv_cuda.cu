@@ -1,5 +1,8 @@
+#include "../../../devices/cuda/cuda_common.cuh"
 #include "../../../devices/cuda/cuda_handle.cuh"
 #include "conv_cuda.cuh"
+
+#ifdef ENABLE_CUDNN_API
 
 #define DESTROY_CUDNN_DESCRIPTOR(desc_ptr, destroy_func) \
     do {                                                 \
@@ -427,3 +430,5 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 } // namespace op::conv::cuda
+
+#endif // ENABLE_CUDNN_API

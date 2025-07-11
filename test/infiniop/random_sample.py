@@ -99,6 +99,8 @@ def test(
 
     ans = random_sample(
         logits.torch_tensor(), random_val, topp, topk, voc, temperature
+    ).to(
+        torch.int32
     )  # 这个函数在device速度可能会很慢，可以通过data.to("cpu")方式加快计算过程
 
     indices = TestTensor([], None, InfiniDtype.I32, device, mode="zeros")
