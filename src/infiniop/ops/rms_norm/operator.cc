@@ -58,7 +58,7 @@ __C infiniStatus_t infiniopCreateRMSNormDescriptor(
         CREATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_API
-        CREATE(INFINI_DEVICE_METAX, maca);
+        CREATE(INFINI_DEVICE_METAX, metax);
 #endif
 #ifdef ENABLE_MOORE_API
         CREATE(INFINI_DEVICE_MOORE, musa);
@@ -96,7 +96,7 @@ __C infiniStatus_t infiniopGetRMSNormWorkspaceSize(infiniopRMSNormDescriptor_t d
         GET(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_API
-        GET(INFINI_DEVICE_METAX, maca);
+        GET(INFINI_DEVICE_METAX, metax);
 #endif
 #ifdef ENABLE_MOORE_API
         GET(INFINI_DEVICE_MOORE, musa);
@@ -135,7 +135,7 @@ __C infiniStatus_t infiniopRMSNorm(infiniopRMSNormDescriptor_t desc, void *works
         CALCULATE(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_API
-        CALCULATE(INFINI_DEVICE_METAX, maca);
+        CALCULATE(INFINI_DEVICE_METAX, metax);
 #endif
 #ifdef ENABLE_MOORE_API
         CALCULATE(INFINI_DEVICE_MOORE, musa);
@@ -173,7 +173,7 @@ __C infiniStatus_t infiniopDestroyRMSNormDescriptor(infiniopRMSNormDescriptor_t 
         DESTROY(INFINI_DEVICE_ASCEND, ascend);
 #endif
 #ifdef ENABLE_METAX_API
-        DESTROY(INFINI_DEVICE_METAX, maca);
+        DESTROY(INFINI_DEVICE_METAX, metax);
 #endif
 #ifdef ENABLE_MOORE_API
         DESTROY(INFINI_DEVICE_MOORE, musa);

@@ -1,12 +1,12 @@
-#include "../../../devices/maca/common_maca.h"
+#include "../../../devices/metax/metax_common.h"
 #include "rope_metax.h"
 
-#include "../../../devices/maca/maca_kernel_common.h"
+#include "../../../devices/metax/metax_kernel_common.h"
 
 #include "../cuda/kernel.cuh"
 
 template <typename Tdata, typename Tindex, typename Tangle>
-INFINIOP_MACA_KERNEL ropeThreadPerItemKernel(
+INFINIOP_METAX_KERNEL ropeThreadPerItemKernel(
     Tdata *y_,
     const Tdata *x_,
     const Tindex *__restrict__ pos_ids,
@@ -28,7 +28,7 @@ INFINIOP_MACA_KERNEL ropeThreadPerItemKernel(
 namespace op::rope::metax {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::maca::Handle::Internal> internal;
+    std::shared_ptr<device::metax::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -44,7 +44,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t sin_desc,
     infiniopTensorDescriptor_t cos_desc) {
 
-    auto handle = reinterpret_cast<device::maca::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
 
     auto info = RoPEInfo::createRoPEInfo(y_desc, x_desc, pos_desc, sin_desc, cos_desc);
     CHECK_RESULT(info);
@@ -53,7 +53,7 @@ infiniStatus_t Descriptor::create(
     *desc_ptr = new Descriptor(
         info.take(),
         0,
-        new Opaque{reinterpret_cast<device::maca::Handle *>(handle)->internal()},
+        new Opaque{reinterpret_cast<device::metax::Handle *>(handle)->internal()},
         handle->device,
         handle->device_id);
 
@@ -141,4 +141,4 @@ infiniStatus_t Descriptor::calculate(
 #undef ROPE_TYPE
 #undef CALCULATE_ROPE
 
-} // namespace op::rope::maca
+} // namespace op::rope::metax

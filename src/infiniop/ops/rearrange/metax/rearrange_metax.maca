@@ -10,7 +10,7 @@
 namespace op::rearrange::metax {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::maca::Handle::Internal> internal;
+    std::shared_ptr<device::metax::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -47,7 +47,7 @@ infiniStatus_t Descriptor::create(
 
     *desc_ptr = new Descriptor(
         std::move(*meta),
-        new Opaque{reinterpret_cast<device::maca::Handle *>(handle)->internal()},
+        new Opaque{reinterpret_cast<device::metax::Handle *>(handle)->internal()},
         handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
 }
@@ -429,18 +429,18 @@ infiniStatus_t launchKernel(
 infiniStatus_t Descriptor::calculate(
     void *y,
     const void *x,
-    void *stream) const {
+    void *stream_) const {
 
-    auto maca_stream = reinterpret_cast<hcStream_t>(stream);
+    auto stream = reinterpret_cast<hcStream_t>(stream_);
 
     // 如果没有维度，直接进行内存拷贝
     if (_meta.ndim() == 0) {
-        auto err = hcMemcpyAsync(y, x, _meta.unit(), hcMemcpyDeviceToDevice, maca_stream);
+        auto err = hcMemcpyAsync(y, x, _meta.unit(), hcMemcpyDeviceToDevice, stream);
         if (err != hcSuccess) {
             return INFINI_STATUS_INTERNAL_ERROR;
         }
 
-        CHECK_OR_RETURN(hcMemcpyAsync(y, x, _meta.unit(), hcMemcpyDeviceToDevice, maca_stream) == hcSuccess,
+        CHECK_OR_RETURN(hcMemcpyAsync(y, x, _meta.unit(), hcMemcpyDeviceToDevice, stream) == hcSuccess,
                         INFINI_STATUS_INTERNAL_ERROR);
         return INFINI_STATUS_SUCCESS;
     }
@@ -449,7 +449,7 @@ infiniStatus_t Descriptor::calculate(
     int max_threads = _opaque->internal->maxThreadsPerBlock();
 
     // 准备参数
-    auto params_result = prepareRearrangeParams(_meta, std::min(MACA_BLOCK_SIZE_1024, max_threads));
+    auto params_result = prepareRearrangeParams(_meta, std::min(METAX_BLOCK_SIZE_1024, max_threads));
     CHECK_RESULT(params_result);
     auto params = params_result.take();
 
@@ -469,10 +469,10 @@ infiniStatus_t Descriptor::calculate(
 
     size_t block_size = params.block_len_total;
 
-    if (block_size <= MACA_BLOCK_SIZE_512) {
-        status = launchKernel<MACA_BLOCK_SIZE_512>(y, x, grid_size, params, _meta.unit(), maca_stream);
-    } else if (block_size <= MACA_BLOCK_SIZE_1024) {
-        status = launchKernel<MACA_BLOCK_SIZE_1024>(y, x, grid_size, params, _meta.unit(), maca_stream);
+    if (block_size <= METAX_BLOCK_SIZE_512) {
+        status = launchKernel<METAX_BLOCK_SIZE_512>(y, x, grid_size, params, _meta.unit(), stream);
+    } else if (block_size <= METAX_BLOCK_SIZE_1024) {
+        status = launchKernel<METAX_BLOCK_SIZE_1024>(y, x, grid_size, params, _meta.unit(), stream);
     } else {
         return INFINI_STATUS_DEVICE_ARCHITECTURE_NOT_SUPPORTED;
     }

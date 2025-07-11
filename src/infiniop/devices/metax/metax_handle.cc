@@ -1,6 +1,6 @@
-#include "common_maca.h"
+#include "metax_common.h"
 
-namespace device::maca {
+namespace device::metax {
 Handle::Handle(infiniDevice_t device, int device_id)
     : InfiniopHandle{device, device_id},
       _internal(std::make_shared<Handle::Internal>(device_id)) {}
@@ -83,4 +83,4 @@ infiniStatus_t Handle::create(InfiniopHandle **handle_ptr, int device_id) {
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace device::maca
+} // namespace device::metax

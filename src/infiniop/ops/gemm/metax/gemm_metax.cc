@@ -1,11 +1,11 @@
 #include "gemm_metax.h"
-#include "../../../devices/maca/common_maca.h"
-#include "../../../devices/maca/maca_handle.h"
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
 
 namespace op::gemm::metax {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::maca::Handle::Internal> internal;
+    std::shared_ptr<device::metax::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -18,7 +18,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t c_desc,
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
-    auto handle = reinterpret_cast<device::maca::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
     auto dtype = c_desc->dtype();
 
     CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_BF16);

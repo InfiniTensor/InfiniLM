@@ -5,7 +5,7 @@
 #include "cpu/infinirt_cpu.h"
 #include "cuda/infinirt_cuda.cuh"
 #include "kunlun/infinirt_kunlun.h"
-#include "maca/infinirt_maca.h"
+#include "metax/infinirt_metax.h"
 #include "musa/infinirt_musa.h"
 
 thread_local infiniDevice_t CURRENT_DEVICE_TYPE = INFINI_DEVICE_CPU;
@@ -62,7 +62,7 @@ __C infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_
             _status = infinirt::ascend::API PARAMS;                    \
             break;                                                     \
         case INFINI_DEVICE_METAX:                                      \
-            _status = infinirt::maca::API PARAMS;                      \
+            _status = infinirt::metax::API PARAMS;                     \
             break;                                                     \
         case INFINI_DEVICE_MOORE:                                      \
             _status = infinirt::musa::API PARAMS;                      \

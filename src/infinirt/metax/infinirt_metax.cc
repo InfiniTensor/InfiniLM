@@ -1,11 +1,11 @@
-#include "infinirt_maca.h"
+#include "infinirt_metax.h"
 #include "../../utils.h"
 #include <hcr/hc_runtime.h>
 #include <hcr/hc_runtime_api.h>
 
 #define CHECK_MACART(RT_API) CHECK_INTERNAL(RT_API, hcSuccess)
 
-namespace infinirt::maca {
+namespace infinirt::metax {
 infiniStatus_t getDeviceCount(int *count) {
     CHECK_MACART(hcGetDeviceCount(count));
     return INFINI_STATUS_SUCCESS;
@@ -124,4 +124,4 @@ infiniStatus_t freeAsync(void *ptr, infinirtStream_t stream) {
     CHECK_MACART(hcFreeAsync(ptr, (hcStream_t)stream));
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace infinirt::maca
+} // namespace infinirt::metax

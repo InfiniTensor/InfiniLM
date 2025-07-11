@@ -1,5 +1,5 @@
-#include "../../../devices/maca/common_maca.h"
-#include "../../../devices/maca/maca_handle.h"
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
 #include "../info.h"
 #include "random_sample_kernel.h"
 #include "random_sample_metax.h"
@@ -7,7 +7,7 @@
 namespace op::random_sample::metax {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::maca::Handle::Internal> internal;
+    std::shared_ptr<device::metax::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -19,7 +19,7 @@ infiniStatus_t Descriptor::create(
     Descriptor **desc_ptr,
     infiniopTensorDescriptor_t result_desc,
     infiniopTensorDescriptor_t probs_desc) {
-    auto handle = reinterpret_cast<device::maca::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
 
     auto result = RandomSampleInfo::create(result_desc, probs_desc);
     CHECK_RESULT(result);
@@ -100,4 +100,4 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::random_sample::maca
+} // namespace op::random_sample::metax
