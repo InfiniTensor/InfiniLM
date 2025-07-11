@@ -1,5 +1,5 @@
-#include "add_nvidia.cuh"
 #include "../cuda/kernel.cuh"
+#include "add_nvidia.cuh"
 
 namespace op::add::nvidia {
 
@@ -56,4 +56,4 @@ infiniStatus_t Descriptor::calculate(
 
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace op::add::cuda
+} // namespace op::add::nvidia

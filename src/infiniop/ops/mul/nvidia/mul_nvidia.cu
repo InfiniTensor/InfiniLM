@@ -1,5 +1,5 @@
-#include "mul_nvidia.cuh"
 #include "../cuda/kernel.cuh"
+#include "mul_nvidia.cuh"
 
 namespace op::mul::nvidia {
 

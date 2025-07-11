@@ -2,9 +2,9 @@
 #include "../../../devices/maca/maca_handle.h"
 #include "../info.h"
 #include "random_sample_kernel.h"
-#include "random_sample_maca.h"
+#include "random_sample_metax.h"
 
-namespace op::random_sample::maca {
+namespace op::random_sample::metax {
 
 struct Descriptor::Opaque {
     std::shared_ptr<device::maca::Handle::Internal> internal;

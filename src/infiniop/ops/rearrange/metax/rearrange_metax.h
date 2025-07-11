@@ -3,6 +3,6 @@
 
 #include "../rearrange.h"
 
-DESCRIPTOR(maca)
+DESCRIPTOR(metax)
 
 #endif // __REARRANGE_MACA_H__

@@ -13,7 +13,7 @@
 #include "cuda/rearrange_cuda.cuh"
 #endif
 #ifdef ENABLE_METAX_API
-#include "maca/rearrange_maca.h"
+#include "metax/rearrange_metax.h"
 #endif
 
 __C infiniStatus_t infiniopCreateRearrangeDescriptor(
@@ -43,7 +43,7 @@ __C infiniStatus_t infiniopCreateRearrangeDescriptor(
         CREATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API
-        CREATE(INFINI_DEVICE_METAX, maca);
+        CREATE(INFINI_DEVICE_METAX, metax);
 #endif
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -76,7 +76,7 @@ __C infiniStatus_t infiniopRearrange(
         CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API
-        CALCULATE(INFINI_DEVICE_METAX, maca);
+        CALCULATE(INFINI_DEVICE_METAX, metax);
 #endif
 
     default:
@@ -107,7 +107,7 @@ __C infiniStatus_t infiniopDestroyRearrangeDescriptor(
         DELETE(INFINI_DEVICE_NVIDIA, cuda);
 #endif
 #ifdef ENABLE_METAX_API
-        DELETE(INFINI_DEVICE_METAX, maca);
+        DELETE(INFINI_DEVICE_METAX, metax);
 #endif
 
     default:

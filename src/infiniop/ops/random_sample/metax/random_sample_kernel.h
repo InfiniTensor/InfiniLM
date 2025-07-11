@@ -4,7 +4,7 @@
 #include <hccub/device/device_reduce.cuh>
 #include <hccub/device/device_scan.cuh>
 
-namespace op::random_sample::maca {
+namespace op::random_sample::metax {
 
 // ↓↓↓ 重新封装 cub api，减少模板参数，方便调用
 
@@ -256,4 +256,4 @@ struct Algo {
     }
 };
 
-} // namespace op::random_sample::maca
+} // namespace op::random_sample::metax

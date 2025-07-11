@@ -3,6 +3,6 @@
 
 #include "../gemm.h"
 
-DESCRIPTOR(maca)
+DESCRIPTOR(metax)
 
 #endif // __GEMM_MACA_H__

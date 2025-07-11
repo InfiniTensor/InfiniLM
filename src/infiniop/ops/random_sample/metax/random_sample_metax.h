@@ -3,6 +3,6 @@
 
 #include "../random_sample.h"
 
-DESCRIPTOR(maca)
+DESCRIPTOR(metax)
 
 #endif // __RANDOM_SAMPLE_MACA_H__
