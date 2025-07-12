@@ -1,9 +1,9 @@
-#include "../../../elementwise/cuda/elementwise_cuda.cuh"
+#include "../../../elementwise/metax/elementwise_metax.h"
 
 #include "../cuda/kernel.cuh"
-#include "clip_nvidia.cuh"
+#include "clip_metax.h"
 
-namespace op::clip::nvidia {
+namespace op::clip::metax {
 
 Descriptor::~Descriptor() = default;
 
@@ -13,7 +13,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t out_desc,
     std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
 
-    auto handle = reinterpret_cast<device::cuda::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
     auto dtype = out_desc->dtype();
 
     const auto &in_desc = input_desc_vec.at(0);
@@ -29,7 +29,7 @@ infiniStatus_t Descriptor::create(
     CHECK_SAME_SHAPE(out_shape, min_shape);
     CHECK_SAME_SHAPE(out_shape, max_shape);
 
-    CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec);
+    CREATE_ELEMENTWISE_METAX_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec);
 
     return INFINI_STATUS_SUCCESS;
 }
@@ -60,4 +60,4 @@ infiniStatus_t Descriptor::calculate(
 
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace op::clip::nvidia
+} // namespace op::clip::metax

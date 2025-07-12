@@ -1,9 +1,10 @@
-#include "../../../elementwise/cuda/elementwise_cuda.cuh"
+#include "add_metax.h"
+
+#include "../../../elementwise/metax/elementwise_metax.h"
 
 #include "../cuda/kernel.cuh"
-#include "add_nvidia.cuh"
 
-namespace op::add::nvidia {
+namespace op::add::metax {
 
 Descriptor::~Descriptor() = default;
 
@@ -13,7 +14,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t out_desc,
     std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
 
-    auto handle = reinterpret_cast<device::cuda::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
     auto dtype = out_desc->dtype();
 
     const auto &a_desc = input_desc_vec.at(0);
@@ -27,7 +28,7 @@ infiniStatus_t Descriptor::create(
     CHECK_SAME_SHAPE(c_shape, a_shape, b_shape);
 
     // create CUDA elementwise descriptor
-    CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
+    CREATE_ELEMENTWISE_METAX_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
 
     return INFINI_STATUS_SUCCESS;
 }
@@ -58,4 +59,4 @@ infiniStatus_t Descriptor::calculate(
 
     return INFINI_STATUS_SUCCESS;
 }
-} // namespace op::add::nvidia
+} // namespace op::add::metax

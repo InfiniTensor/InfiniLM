@@ -1,3 +1,5 @@
+#include "../../../elementwise/cuda/elementwise_cuda.cuh"
+
 #include "../cuda/kernel.cuh"
 #include "sub_nvidia.cuh"
 
@@ -49,7 +51,7 @@ infiniStatus_t Descriptor::calculate(
     case INFINI_DTYPE_F64:
         return _device_info->calculate<256, cuda::SubOp, double>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_BF16:
-        return _device_info->calculate<256, cuda::SubOp, __nv_bfloat16>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<256, cuda::SubOp, cuda_bfloat16>(_info, workspace, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
