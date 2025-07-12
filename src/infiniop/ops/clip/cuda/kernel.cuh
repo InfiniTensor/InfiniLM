@@ -1,10 +1,6 @@
 #ifndef __CLIP_CUDA_H__
 #define __CLIP_CUDA_H__
 
-#include "../../../elementwise/cuda/elementwise_cuda.cuh"
-#include <cuda_bf16.h>
-#include <cuda_fp16.h>
-
 namespace op::clip::cuda {
 
 typedef struct ClipOp {
@@ -13,7 +9,7 @@ public:
 
     template <typename T>
     __device__ __forceinline__ T operator()(const T &x, const T &min_val, const T &max_val) const {
-        if constexpr (std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) {
+        if constexpr (std::is_same_v<T, half2> || std::is_same_v<T, cuda_bfloat162>) {
 #ifndef ENABLE_ILUVATAR_CUDA_API
             return __hmax2(__hmin2(x, max_val), min_val);
 #else
