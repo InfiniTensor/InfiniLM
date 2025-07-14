@@ -6,7 +6,7 @@
 #include "cpu/conv_cpu.h"
 #endif
 #ifdef ENABLE_NVIDIA_API
-#include "cuda/conv_cuda.cuh"
+#include "nvidia/conv_nvidia.cuh"
 #endif
 
 __C __export infiniStatus_t infiniopCreateConvDescriptor(infiniopHandle_t handle,
@@ -37,7 +37,7 @@ __C __export infiniStatus_t infiniopCreateConvDescriptor(infiniopHandle_t handle
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CREATE(INFINI_DEVICE_NVIDIA, cuda);
+        CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -61,7 +61,7 @@ infiniopGetConvWorkspaceSize(
         GET(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        GET(INFINI_DEVICE_NVIDIA, cuda);
+        GET(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -93,7 +93,7 @@ __C infiniStatus_t infiniopConv(
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+        CALCULATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 
     default:
@@ -114,7 +114,7 @@ infiniopDestroyConvDescriptor(infiniopConvDescriptor_t desc) {
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        DELETE(INFINI_DEVICE_NVIDIA, cuda);
+        DELETE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;

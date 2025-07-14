@@ -3,6 +3,6 @@
 
 #include "../rearrange.h"
 
-DESCRIPTOR(cuda)
+DESCRIPTOR(nvidia)
 
 #endif // __REARRANGE_CUDA_H__

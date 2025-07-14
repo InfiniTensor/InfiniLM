@@ -1,10 +1,10 @@
-﻿#include "../../../devices/cuda/cuda_kernel_common.cuh"
+﻿#include "../../../devices/nvidia/nvidia_kernel_common.cuh"
 #include "infinicore.h"
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
 
-namespace op::random_sample::cuda {
+namespace op::random_sample::nvidia {
 
 // ↓↓↓ 重新封装 cub api，减少模板参数，方便调用
 
@@ -256,4 +256,4 @@ struct Algo {
     }
 };
 
-} // namespace op::random_sample::cuda
+} // namespace op::random_sample::nvidia

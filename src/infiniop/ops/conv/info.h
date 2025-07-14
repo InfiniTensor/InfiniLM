@@ -6,7 +6,7 @@
 #include "../../tensor.h"
 
 #ifdef ENABLE_CUDA_API
-#include "../../devices/cuda/cuda_handle.cuh"
+#include "../../devices/nvidia/nvidia_handle.cuh"
 #endif
 
 namespace op::conv {

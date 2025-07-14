@@ -1,12 +1,12 @@
-﻿#include "../../../devices/cuda/cuda_handle.cuh"
+﻿#include "../../../devices/nvidia/nvidia_handle.cuh"
 #include "../info.h"
-#include "random_sample_cuda.cuh"
 #include "random_sample_kernel.cuh"
+#include "random_sample_nvidia.cuh"
 
-namespace op::random_sample::cuda {
+namespace op::random_sample::nvidia {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::cuda::Handle::Internal> internal;
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -18,7 +18,7 @@ infiniStatus_t Descriptor::create(
     Descriptor **desc_ptr,
     infiniopTensorDescriptor_t result_desc,
     infiniopTensorDescriptor_t probs_desc) {
-    auto handle = reinterpret_cast<device::cuda::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
 
     auto result = RandomSampleInfo::create(result_desc, probs_desc);
     CHECK_RESULT(result);
@@ -99,4 +99,4 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::random_sample::cuda
+} // namespace op::random_sample::nvidia

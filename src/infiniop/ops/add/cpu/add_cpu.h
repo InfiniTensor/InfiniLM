@@ -3,7 +3,7 @@
 
 #include "../../../elementwise/cpu/elementwise_cpu.h"
 
-ELEMENTWISE_DESCRIPTOR(add, cpu, cpu)
+ELEMENTWISE_DESCRIPTOR(add, cpu)
 
 namespace op::add::cpu {
 typedef struct AddOp {

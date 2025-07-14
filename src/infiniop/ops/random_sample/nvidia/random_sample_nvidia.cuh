@@ -3,6 +3,6 @@
 
 #include "../random_sample.h"
 
-DESCRIPTOR(cuda)
+DESCRIPTOR(nvidia)
 
 #endif // __RANDOM_SAMPLE_CUDA_CUH__

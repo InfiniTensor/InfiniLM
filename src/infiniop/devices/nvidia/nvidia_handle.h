@@ -4,30 +4,20 @@
 #include "../../handle.h"
 #include <memory>
 
-namespace device::cuda {
+namespace device::nvidia {
 
 struct Handle : public InfiniopHandle {
+    Handle(int device_id);
     class Internal;
     auto internal() const -> const std::shared_ptr<Internal> &;
 
-protected:
-    Handle(infiniDevice_t device, int device_id);
+public:
+    static infiniStatus_t create(InfiniopHandle **handle_ptr, int device_id);
 
 private:
     std::shared_ptr<Internal> _internal;
 };
 
-namespace nvidia {
-
-class Handle : public cuda::Handle {
-    Handle(int device_id);
-
-public:
-    static infiniStatus_t create(InfiniopHandle **handle_ptr, int device_id);
-};
-
-} // namespace nvidia
-
-} // namespace device::cuda
+} // namespace device::nvidia
 
 #endif // __INFINIOP_CUDA_HANDLE_H__

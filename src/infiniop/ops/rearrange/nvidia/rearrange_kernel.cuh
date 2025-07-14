@@ -1,7 +1,7 @@
 #ifndef __REARRANGE_CUDA_KERNEL_H__
 #define __REARRANGE_CUDA_KERNEL_H__
 
-#include "../../../devices/cuda/cuda_common.cuh"
+#include "../../../devices/nvidia/nvidia_common.cuh"
 
 #define ARRAY_TYPE_STRIDE ptrdiff_t
 #define ARRAY_TYPE_SIZE size_t

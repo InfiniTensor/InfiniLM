@@ -1,7 +1,7 @@
-#include "../../../devices/cuda/cuda_common.cuh"
+#include "../../../devices/nvidia/nvidia_common.cuh"
 #include "rms_norm_nvidia.cuh"
 
-#include "../../../devices/cuda/cuda_kernel_common.cuh"
+#include "../../../devices/nvidia/nvidia_kernel_common.cuh"
 #include <cub/block/block_reduce.cuh>
 
 #include "../../../reduce/cuda/reduce.cuh"
@@ -23,7 +23,7 @@ INFINIOP_CUDA_KERNEL rmsnormKernel(
 namespace op::rms_norm::nvidia {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::cuda::Handle::Internal> internal;
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -47,7 +47,7 @@ infiniStatus_t Descriptor::create(
     }
 
     *desc_ptr = new Descriptor(
-        new Opaque{reinterpret_cast<device::cuda::Handle *>(handle)->internal()},
+        new Opaque{reinterpret_cast<device::nvidia::Handle *>(handle)->internal()},
         std::move(info),
         0,
         handle->device, handle->device_id);

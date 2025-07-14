@@ -1,10 +1,10 @@
-#include "../../../devices/cuda/cuda_handle.cuh"
-#include "gemm_cuda.cuh"
+#include "../../../devices/nvidia/nvidia_handle.cuh"
+#include "gemm_nvidia.cuh"
 
-namespace op::gemm::cuda {
+namespace op::gemm::nvidia {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::cuda::Handle::Internal> internal;
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -17,7 +17,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t c_desc,
     infiniopTensorDescriptor_t a_desc,
     infiniopTensorDescriptor_t b_desc) {
-    auto handle = reinterpret_cast<device::cuda::nvidia::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
     auto dtype = c_desc->dtype();
 
     CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_BF16);
@@ -121,4 +121,4 @@ infiniStatus_t Descriptor::calculate(
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::gemm::cuda
+} // namespace op::gemm::nvidia

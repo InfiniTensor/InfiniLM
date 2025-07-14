@@ -18,7 +18,7 @@
 using cuda_bfloat16 = nv_bfloat16;
 using cuda_bfloat162 = nv_bfloat162;
 
-namespace device::cuda {
+namespace device::nvidia {
 // return the memory offset of original tensor, given the flattened index of broadcasted tensor
 __forceinline__ __device__ __host__ size_t
 indexToReducedOffset(
@@ -48,7 +48,7 @@ indexToOffset(
     }
     return res;
 }
-} // namespace device::cuda
+} // namespace device::nvidia
 
 __forceinline__ __device__ float
 exp_(const float val) {

@@ -1,8 +1,8 @@
 #ifndef __MUL_CUDA_API_H__
 #define __MUL_CUDA_API_H__
 
-#include "../../../elementwise/cuda/elementwise_cuda_api.cuh"
+#include "../../../elementwise/nvidia/elementwise_nvidia_api.cuh"
 
-ELEMENTWISE_DESCRIPTOR(mul, nvidia, cuda)
+ELEMENTWISE_DESCRIPTOR(mul, nvidia)
 
 #endif // __MUL_CUDA_API_H__

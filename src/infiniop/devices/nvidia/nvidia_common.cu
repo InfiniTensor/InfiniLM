@@ -1,9 +1,9 @@
-#include "cuda_handle.cuh"
+#include "nvidia_handle.cuh"
 
-namespace device::cuda {
+namespace device::nvidia {
 
-Handle::Handle(infiniDevice_t device, int device_id)
-    : InfiniopHandle{device, device_id},
+Handle::Handle(int device_id)
+    : InfiniopHandle{INFINI_DEVICE_NVIDIA, device_id},
       _internal(std::make_shared<Handle::Internal>(device_id)) {}
 
 auto Handle::internal() const -> const std::shared_ptr<Internal> & {
@@ -83,16 +83,9 @@ cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
 }
 #endif
 
-namespace nvidia {
-
-Handle::Handle(int device_id)
-    : cuda::Handle(INFINI_DEVICE_NVIDIA, device_id) {}
-
 infiniStatus_t Handle::create(InfiniopHandle **handle_ptr, int device_id) {
     *handle_ptr = new Handle(device_id);
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace nvidia
-
-} // namespace device::cuda
+} // namespace device::nvidia

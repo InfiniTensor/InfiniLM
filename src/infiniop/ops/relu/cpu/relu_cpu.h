@@ -5,7 +5,7 @@
 
 #include "../../../elementwise/cpu/elementwise_cpu.h"
 
-ELEMENTWISE_DESCRIPTOR(relu, cpu, cpu)
+ELEMENTWISE_DESCRIPTOR(relu, cpu)
 
 namespace op::relu::cpu {
 typedef struct ReluOp {

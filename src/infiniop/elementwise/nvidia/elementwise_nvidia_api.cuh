@@ -3,7 +3,7 @@
 
 #include "../elementwise.h"
 
-namespace op::elementwise::cuda {
+namespace op::elementwise::nvidia {
 
 /**
  * @brief Define the methods and info needed by CUDA to perform elementwise operation
@@ -77,7 +77,7 @@ public:
         void *stream,
         Args &&...args);
 };
-} // namespace op::elementwise::cuda
+} // namespace op::elementwise::nvidia
 
 /**
  * @brief Define the process for initializing a Descriptor of an elementwise operation
@@ -88,22 +88,22 @@ public:
  * @param OUT_DESC       The output tensor descriptor.
  * @param INPUT_DESC_VEC A vector containing input tensor descriptors.
  */
-#define CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(HANDLE, DTYPE, OUT_DESC, INPUT_DESC_VEC)          \
-                                                                                             \
-    auto info_result = op::elementwise::ElementwiseInfo::create(OUT_DESC, INPUT_DESC_VEC);   \
-    CHECK_RESULT(info_result);                                                               \
-    auto info = info_result.take();                                                          \
-    auto workspace_size = info.getMetaMemSize() + info.getInputSize() * sizeof(void *);      \
-                                                                                             \
-    auto device_impl_result = op::elementwise::cuda::DeviceImpl::create(HANDLE->internal()); \
-    CHECK_RESULT(device_impl_result);                                                        \
-                                                                                             \
-    *desc_ptr = new Descriptor(                                                              \
-        DTYPE,                                                                               \
-        std::move(info),                                                                     \
-        std::move(device_impl_result.take()),                                                \
-        workspace_size,                                                                      \
-        HANDLE->device,                                                                      \
+#define CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(HANDLE, DTYPE, OUT_DESC, INPUT_DESC_VEC)            \
+                                                                                               \
+    auto info_result = op::elementwise::ElementwiseInfo::create(OUT_DESC, INPUT_DESC_VEC);     \
+    CHECK_RESULT(info_result);                                                                 \
+    auto info = info_result.take();                                                            \
+    auto workspace_size = info.getMetaMemSize() + info.getInputSize() * sizeof(void *);        \
+                                                                                               \
+    auto device_impl_result = op::elementwise::nvidia::DeviceImpl::create(HANDLE->internal()); \
+    CHECK_RESULT(device_impl_result);                                                          \
+                                                                                               \
+    *desc_ptr = new Descriptor(                                                                \
+        DTYPE,                                                                                 \
+        std::move(info),                                                                       \
+        std::move(device_impl_result.take()),                                                  \
+        workspace_size,                                                                        \
+        HANDLE->device,                                                                        \
         HANDLE->device_id);
 
 #endif // __INFINIOP_ELEMENTWISE_CUDA_API_H__
