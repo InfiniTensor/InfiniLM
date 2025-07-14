@@ -345,7 +345,7 @@ public:
         }
         return utils::Result<Opaque>(std::move(opaque));
 #else
-        return INFINI_STATUS_SUCCESS;
+        return INFINI_STATUS_NOT_IMPLEMENTED;
 #endif
     }
 };
@@ -380,7 +380,7 @@ infiniStatus_t Descriptor::create(
     auto conv_info = result.take();
     auto opaque_result = Opaque::create(handle->internal(), conv_info, dtype);
     CHECK_RESULT(opaque_result);
-    auto opaque = new Opaque(std::move(opaque_result.take()));
+    auto opaque = new Opaque(opaque_result.take());
 
     *desc_ptr = new Descriptor(
         dtype,
@@ -391,7 +391,7 @@ infiniStatus_t Descriptor::create(
         handle->device_id);
     return INFINI_STATUS_SUCCESS;
 #else
-    return INFINI_STATUS_SUCCESS;
+    return INFINI_STATUS_NOT_IMPLEMENTED;
 #endif
 }
 
@@ -450,7 +450,7 @@ infiniStatus_t Descriptor::calculate(
 
     return INFINI_STATUS_SUCCESS;
 #else
-    return INFINI_STATUS_SUCCESS;
+    return INFINI_STATUS_NOT_IMPLEMENTED;
 #endif
 }
 } // namespace op::conv::nvidia

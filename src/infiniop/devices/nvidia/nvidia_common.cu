@@ -1,9 +1,11 @@
 #include "nvidia_handle.cuh"
 
-namespace device::nvidia {
+namespace device {
 
-Handle::Handle(int device_id)
-    : InfiniopHandle{INFINI_DEVICE_NVIDIA, device_id},
+namespace nvidia {
+
+Handle::Handle(infiniDevice_t device, int device_id)
+    : InfiniopHandle{device, device_id},
       _internal(std::make_shared<Handle::Internal>(device_id)) {}
 
 auto Handle::internal() const -> const std::shared_ptr<Internal> & {
@@ -71,7 +73,7 @@ cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
         return CUDNN_DATA_INT8;
     case INFINI_DTYPE_I32:
         return CUDNN_DATA_INT32;
-#ifndef ENABLE_ILUVATAR_CUDA_API
+#ifndef ENABLE_ILUVATAR_API
     case INFINI_DTYPE_I64:
         return CUDNN_DATA_INT64;
 #endif
@@ -84,8 +86,22 @@ cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
 #endif
 
 infiniStatus_t Handle::create(InfiniopHandle **handle_ptr, int device_id) {
+    *handle_ptr = new Handle(INFINI_DEVICE_NVIDIA, device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace nvidia
+
+namespace iluvatar {
+
+Handle::Handle(int device_id)
+    : nvidia::Handle(INFINI_DEVICE_ILUVATAR, device_id) {}
+
+infiniStatus_t Handle::create(InfiniopHandle **handle_ptr, int device_id) {
     *handle_ptr = new Handle(device_id);
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace device::nvidia
+} // namespace iluvatar
+
+} // namespace device

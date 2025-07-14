@@ -263,6 +263,11 @@ def get_args():
         help="Run NVIDIA GPU test",
     )
     parser.add_argument(
+        "--iluvatar",
+        action="store_true",
+        help="Run Iluvatar GPU test",
+    )
+    parser.add_argument(
         "--cambricon",
         action="store_true",
         help="Run Cambricon MLU test",
@@ -566,6 +571,8 @@ def get_test_devices(args):
         devices_to_test.append(InfiniDeviceEnum.CPU)
     if args.nvidia:
         devices_to_test.append(InfiniDeviceEnum.NVIDIA)
+    if args.iluvatar:
+        devices_to_test.append(InfiniDeviceEnum.ILUVATAR)
     if args.cambricon:
         import torch_mlu
 

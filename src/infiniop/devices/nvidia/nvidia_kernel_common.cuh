@@ -55,7 +55,7 @@ exp_(const float val) {
     return expf(val);
 }
 
-#ifndef ENABLE_ILUVATAR_CUDA_API
+#ifndef ENABLE_ILUVATAR_API
 __forceinline__ __device__ long double
 exp_(const long double val) {
     return expl(val);

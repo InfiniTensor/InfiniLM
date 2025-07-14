@@ -38,7 +38,7 @@ infiniStatus_t streamSynchronize(infinirtStream_t stream) {
 }
 
 infiniStatus_t streamWaitEvent(infinirtStream_t stream, infinirtEvent_t event) {
-#ifdef ENABLE_ILUVATAR_CUDA_API
+#ifdef ENABLE_ILUVATAR_API
     return INFINI_STATUS_NOT_IMPLEMENTED;
 #else
     CHECK_CUDART(cudaStreamWaitEvent((cudaStream_t)stream, (cudaEvent_t)event));

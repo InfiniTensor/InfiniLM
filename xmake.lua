@@ -94,8 +94,7 @@ option("iluvatar-gpu")
 option_end()
 
 if has_config("iluvatar-gpu") then
-    add_defines("ENABLE_NVIDIA_API")
-    add_defines("ENABLE_ILUVATAR_CUDA_API")
+    add_defines("ENABLE_ILUVATAR_API")
     includes("xmake/iluvatar.lua")
 end
 
