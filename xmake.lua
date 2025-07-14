@@ -94,7 +94,7 @@ option("iluvatar-gpu")
 option_end()
 
 if has_config("iluvatar-gpu") then
-    add_defines("ENABLE_CUDA_API")
+    add_defines("ENABLE_NVIDIA_API")
     add_defines("ENABLE_ILUVATAR_CUDA_API")
     includes("xmake/iluvatar.lua")
 end
@@ -148,7 +148,6 @@ end
 
 -- InfiniCCL
 option("ccl")
-set_default(false)
     set_default(false)
     set_showmenu(true)
     set_description("Wether to compile implementations for InfiniCCL")
@@ -281,6 +280,9 @@ target("infiniccl")
     end
     if has_config("metax-gpu") then
         add_deps("infiniccl-metax")
+    end
+    if has_config("iluvatar-gpu") then
+        add_deps("infiniccl-iluvatar")
     end
 
     set_languages("cxx17")
