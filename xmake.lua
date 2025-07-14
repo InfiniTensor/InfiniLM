@@ -49,7 +49,7 @@ option_end()
 
 if has_config("nv-gpu") then
     add_defines("ENABLE_NVIDIA_API")
-    includes("xmake/cuda.lua")
+    includes("xmake/nvidia.lua")
 end
 
 option("cudnn")
@@ -187,7 +187,7 @@ target("infinirt")
         add_deps("infinirt-cpu")
     end
     if has_config("nv-gpu") then
-        add_deps("infinirt-cuda")
+        add_deps("infinirt-nvidia")
     end
     if has_config("cambricon-mlu") then
         add_deps("infinirt-cambricon")
@@ -221,7 +221,7 @@ target("infiniop")
         add_deps("infiniop-cpu")
     end
     if has_config("nv-gpu") then
-        add_deps("infiniop-cuda")
+        add_deps("infiniop-nvidia")
     end
     if has_config("iluvatar-gpu") then
         add_deps("infiniop-iluvatar")
@@ -235,9 +235,9 @@ target("infiniop")
         )
         add_shflags("-s", "-shared", "-fPIC")
         add_links("cublas", "cudnn", "cudadevrt", "cudart_static", "rt", "pthread", "dl")
-        -- Using -linfiniop-cuda will fail, manually link the target using full path
+        -- Using -linfiniop-nvidia will fail, manually link the target using full path
         add_deps("nv-gpu", {inherit = false})
-        add_links(builddir.."/libinfiniop-cuda.a")
+        add_links(builddir.."/libinfiniop-nvidia.a")
         set_toolchains("sugon-dcu-linker")
     end
 
@@ -273,7 +273,7 @@ target("infiniccl")
     add_deps("infinirt")
 
     if has_config("nv-gpu") then
-        add_deps("infiniccl-cuda")
+        add_deps("infiniccl-nvidia")
     end
     if has_config("ascend-npu") then
         add_deps("infiniccl-ascend")
