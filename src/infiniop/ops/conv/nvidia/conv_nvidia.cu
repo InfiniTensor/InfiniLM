@@ -1,8 +1,6 @@
-#include "../../../devices/cuda/cuda_common.cuh"
-#include "../../../devices/cuda/cuda_handle.cuh"
-#include "conv_cuda.cuh"
-
-#ifdef ENABLE_CUDNN_API
+#include "../../../devices/nvidia/nvidia_common.cuh"
+#include "../../../devices/nvidia/nvidia_handle.cuh"
+#include "conv_nvidia.cuh"
 
 #define DESTROY_CUDNN_DESCRIPTOR(desc_ptr, destroy_func) \
     do {                                                 \
@@ -22,11 +20,13 @@
         DESTROY_CUDNN_DESCRIPTOR(conv_desc, cudnnDestroyConvolutionDescriptor); \
     } while (0)
 
-namespace op::conv::cuda {
+namespace op::conv::nvidia {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::cuda::Handle::Internal> internal;
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
+    size_t workspace_size = 0;
 
+#ifdef ENABLE_CUDNN_API
     cudnnTensorDescriptor_t x_desc = nullptr;
     cudnnTensorDescriptor_t y_desc = nullptr;
     cudnnFilterDescriptor_t w_desc = nullptr;
@@ -34,12 +34,13 @@ struct Descriptor::Opaque {
     cudnnActivationDescriptor_t act_desc = nullptr;
     cudnnConvolutionDescriptor_t conv_desc = nullptr;
     cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
-    size_t workspace_size = 0;
+#endif
 
 private:
-    Opaque(std::shared_ptr<device::cuda::Handle::Internal> internal_ptr)
+    Opaque(std::shared_ptr<device::nvidia::Handle::Internal> internal_ptr)
         : internal(internal_ptr) {}
 
+#ifdef ENABLE_CUDNN_API
     void initializeDimensionArrays(const ConvInfo &info,
                                    std::vector<int> &input_dims,
                                    std::vector<int> &output_dims,
@@ -108,11 +109,11 @@ private:
     infiniStatus_t getCudnnDataType(infiniDtype_t data_type,
                                     cudnnDataType_t &cudnn_data_type) const {
         if (data_type == INFINI_DTYPE_F16) {
-            cudnn_data_type = device::cuda::getCudnnDtype(data_type);
+            cudnn_data_type = device::nvidia::getCudnnDtype(data_type);
         } else if (data_type == INFINI_DTYPE_F32) {
-            cudnn_data_type = device::cuda::getCudnnDtype(data_type);
+            cudnn_data_type = device::nvidia::getCudnnDtype(data_type);
         } else if (data_type == INFINI_DTYPE_BF16) {
-            cudnn_data_type = device::cuda::getCudnnDtype(data_type);
+            cudnn_data_type = device::nvidia::getCudnnDtype(data_type);
         } else {
             return INFINI_STATUS_BAD_TENSOR_DTYPE;
         }
@@ -253,32 +254,42 @@ private:
 
         return INFINI_STATUS_SUCCESS;
     }
+#endif
 
 public:
     Opaque(Opaque &&other) noexcept
         : internal(std::move(other.internal)),
-          x_desc(other.x_desc),
-          y_desc(other.y_desc),
-          w_desc(other.w_desc),
-          b_desc(other.b_desc),
-          act_desc(other.act_desc),
-          conv_desc(other.conv_desc),
-          algo(other.algo),
-          workspace_size(other.workspace_size) {
-
+          workspace_size(other.workspace_size)
+    // clang-format off
+#ifdef ENABLE_CUDNN_API
+          , x_desc(other.x_desc),
+          , y_desc(other.y_desc),
+          , w_desc(other.w_desc),
+          , b_desc(other.b_desc),
+          , act_desc(other.act_desc),
+          , conv_desc(other.conv_desc),
+          , algo(other.algo)
+#endif
+    // clang-format on
+    {
+#ifdef ENABLE_CUDNN_API
         other.x_desc = nullptr;
         other.y_desc = nullptr;
         other.w_desc = nullptr;
         other.b_desc = nullptr;
         other.act_desc = nullptr;
         other.conv_desc = nullptr;
+#endif
         other.workspace_size = 0;
     }
 
     ~Opaque() {
+#ifdef ENABLE_CUDNN_API
         CLEANUP_CUDNN_DESCRIPTORS();
+#endif
     }
 
+#ifdef ENABLE_CUDNN_API
     infiniStatus_t initializeCudnnContext(ConvInfo &info,
                                           infiniDtype_t data_type,
                                           cudnnDataType_t compute_type) {
@@ -320,17 +331,22 @@ public:
 
         return INFINI_STATUS_SUCCESS;
     }
+#endif
 
     static inline utils::Result<Opaque> create(
-        std::shared_ptr<device::cuda::Handle::Internal> internal_ptr,
+        std::shared_ptr<device::nvidia::Handle::Internal> internal_ptr,
         ConvInfo &info,
         infiniDtype_t data_type) {
+#ifdef ENABLE_CUDNN_API
         Opaque opaque(internal_ptr);
         auto status = opaque.initializeCudnnContext(info, data_type, CUDNN_DATA_FLOAT);
         if (status != INFINI_STATUS_SUCCESS) {
             return status;
         }
         return utils::Result<Opaque>(std::move(opaque));
+#else
+        return INFINI_STATUS_SUCCESS;
+#endif
     }
 };
 
@@ -351,7 +367,8 @@ infiniStatus_t Descriptor::create(
     const void *strides,
     const void *dilations,
     size_t n) {
-    auto handle = reinterpret_cast<device::cuda::nvidia::Handle *>(handle_);
+#ifdef ENABLE_CUDNN_API
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
     auto dtype = y_desc->dtype();
 
     CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_BF16);
@@ -373,6 +390,9 @@ infiniStatus_t Descriptor::create(
         handle->device,
         handle->device_id);
     return INFINI_STATUS_SUCCESS;
+#else
+    return INFINI_STATUS_SUCCESS;
+#endif
 }
 
 infiniStatus_t Descriptor::calculate(
@@ -383,6 +403,7 @@ infiniStatus_t Descriptor::calculate(
     const void *w,
     const void *bias,
     void *stream) const {
+#ifdef ENABLE_CUDNN_API
     const float alpha = 1.0f, beta = 0.0f;
     if (bias != nullptr) {
         CHECK_STATUS(_opaque->internal->useCudnn(
@@ -428,7 +449,8 @@ infiniStatus_t Descriptor::calculate(
     }
 
     return INFINI_STATUS_SUCCESS;
+#else
+    return INFINI_STATUS_SUCCESS;
+#endif
 }
-} // namespace op::conv::cuda
-
-#endif // ENABLE_CUDNN_API
+} // namespace op::conv::nvidia

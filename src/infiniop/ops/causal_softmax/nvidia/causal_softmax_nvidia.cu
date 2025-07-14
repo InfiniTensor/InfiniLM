@@ -1,7 +1,7 @@
-#include "../../../devices/cuda/cuda_common.cuh"
+#include "../../../devices/nvidia/nvidia_common.cuh"
 #include "causal_softmax_nvidia.cuh"
 
-#include "../../../devices/cuda/cuda_kernel_common.cuh"
+#include "../../../devices/nvidia/nvidia_kernel_common.cuh"
 #include <cub/block/block_reduce.cuh>
 
 #include "../../../reduce/cuda/reduce.cuh"
@@ -20,7 +20,7 @@ INFINIOP_CUDA_KERNEL causalSoftmax(
 namespace op::causal_softmax::nvidia {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::cuda::Handle::Internal> internal;
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -35,7 +35,7 @@ infiniStatus_t Descriptor::create(
     auto info = CausalSoftmaxInfo::create(y_desc, x_desc);
     CHECK_RESULT(info);
     *desc_ptr = new Descriptor(
-        new Opaque{reinterpret_cast<device::cuda::Handle *>(handle)->internal()},
+        new Opaque{reinterpret_cast<device::nvidia::Handle *>(handle)->internal()},
         info.take(), 0, handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
 }

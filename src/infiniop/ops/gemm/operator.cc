@@ -6,7 +6,7 @@
 #include "cpu/gemm_cpu.h"
 #endif
 #ifdef ENABLE_NVIDIA_API
-#include "cuda/gemm_cuda.cuh"
+#include "nvidia/gemm_nvidia.cuh"
 #endif
 #ifdef ENABLE_CAMBRICON_API
 #include "bang/gemm_bang.h"
@@ -46,7 +46,7 @@ __C infiniStatus_t infiniopCreateGemmDescriptor(
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CREATE(INFINI_DEVICE_NVIDIA, cuda);
+        CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API
         CREATE(INFINI_DEVICE_CAMBRICON, bang);
@@ -88,7 +88,7 @@ infiniopGetGemmWorkspaceSize(
         GET(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        GET(INFINI_DEVICE_NVIDIA, cuda);
+        GET(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API
         GET(INFINI_DEVICE_CAMBRICON, bang);
@@ -137,7 +137,7 @@ __C infiniStatus_t infiniopGemm(
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+        CALCULATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API
         CALCULATE(INFINI_DEVICE_CAMBRICON, bang);
@@ -176,7 +176,7 @@ infiniopDestroyGemmDescriptor(infiniopGemmDescriptor_t desc) {
         DELETE(INFINI_DEVICE_CPU, cpu);
 #endif
 #ifdef ENABLE_NVIDIA_API
-        DELETE(INFINI_DEVICE_NVIDIA, cuda);
+        DELETE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API
         DELETE(INFINI_DEVICE_CAMBRICON, bang);

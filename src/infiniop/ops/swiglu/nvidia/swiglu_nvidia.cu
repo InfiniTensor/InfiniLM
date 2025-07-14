@@ -1,6 +1,6 @@
 #include "swiglu_nvidia.cuh"
 
-#include "../../../elementwise/cuda/elementwise_cuda.cuh"
+#include "../../../elementwise/nvidia/elementwise_nvidia.cuh"
 
 #include "../cuda/kernel.cuh"
 
@@ -14,7 +14,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t out_desc,
     std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
 
-    auto handle = reinterpret_cast<device::cuda::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
     auto dtype = out_desc->dtype();
 
     const auto &up_desc = input_desc_vec.at(0);

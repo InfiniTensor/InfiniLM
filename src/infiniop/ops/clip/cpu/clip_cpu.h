@@ -4,7 +4,7 @@
 #include "../../../elementwise/cpu/elementwise_cpu.h"
 #include "infiniop/ops/clip.h"
 
-ELEMENTWISE_DESCRIPTOR(clip, cpu, cpu)
+ELEMENTWISE_DESCRIPTOR(clip, cpu)
 
 namespace op::clip::cpu {
 

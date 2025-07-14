@@ -3,7 +3,7 @@
 
 #include "../../../elementwise/cpu/elementwise_cpu.h"
 
-ELEMENTWISE_DESCRIPTOR(mul, cpu, cpu)
+ELEMENTWISE_DESCRIPTOR(mul, cpu)
 
 namespace op::mul::cpu {
 typedef struct MulOp {

@@ -1,18 +1,18 @@
-#include "../../../devices/cuda/cuda_common.cuh"
-#include "../../../devices/cuda/cuda_kernel_common.cuh"
+#include "../../../devices/nvidia/nvidia_common.cuh"
+#include "../../../devices/nvidia/nvidia_kernel_common.cuh"
 #include "../../../tensor.h"
-#include "rearrange_cuda.cuh"
 #include "rearrange_kernel.cuh"
+#include "rearrange_nvidia.cuh"
 #include <algorithm>
 #include <cmath>
 #include <memory>
 #include <stdint.h>
 #include <vector>
 
-namespace op::rearrange::cuda {
+namespace op::rearrange::nvidia {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::cuda::Handle::Internal> internal;
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -49,7 +49,7 @@ infiniStatus_t Descriptor::create(
 
     *desc_ptr = new Descriptor(
         std::move(*meta),
-        new Opaque{reinterpret_cast<device::cuda::Handle *>(handle)->internal()},
+        new Opaque{reinterpret_cast<device::nvidia::Handle *>(handle)->internal()},
         handle->device, handle->device_id);
     return INFINI_STATUS_SUCCESS;
 }
@@ -482,4 +482,4 @@ infiniStatus_t Descriptor::calculate(
     return status;
 }
 
-} // namespace op::rearrange::cuda
+} // namespace op::rearrange::nvidia

@@ -2,11 +2,11 @@
 #define __INFINIOP_ELEMENTWISE_CUDA_H__
 
 #include "../../../utils.h"
-#include "../../devices/cuda/cuda_common.cuh"
-#include "../../devices/cuda/cuda_kernel_common.cuh"
-#include "elementwise_cuda_api.cuh"
+#include "../../devices/nvidia/nvidia_common.cuh"
+#include "../../devices/nvidia/nvidia_kernel_common.cuh"
+#include "elementwise_nvidia_api.cuh"
 
-namespace op::elementwise::cuda {
+namespace op::elementwise::nvidia {
 
 /**
  * @brief Casts an untyped device pointer to a typed pointer of type T.
@@ -33,7 +33,7 @@ __device__ __forceinline__ const T *typedInputPtr(const void *ptr) {
  */
 __device__ __forceinline__ size_t getOutputIndex(size_t idx, bool is_contiguous, size_t ndim,
                                                  const size_t *shape, const ptrdiff_t *strides) {
-    return is_contiguous ? idx : device::cuda::indexToOffset(idx, ndim, shape, strides);
+    return is_contiguous ? idx : device::nvidia::indexToOffset(idx, ndim, shape, strides);
 }
 
 /**
@@ -61,8 +61,8 @@ struct InputIndexer {
         return input_contiguous[input_id]
                  ? idx
                  : (input_broadcasted[input_id]
-                        ? device::cuda::indexToReducedOffset(idx, ndim, output_strides, input_strides + input_id * ndim)
-                        : device::cuda::indexToOffset(idx, ndim, input_shapes + input_id * ndim, input_strides + input_id * ndim));
+                        ? device::nvidia::indexToReducedOffset(idx, ndim, output_strides, input_strides + input_id * ndim)
+                        : device::nvidia::indexToOffset(idx, ndim, input_shapes + input_id * ndim, input_strides + input_id * ndim));
     }
 };
 
@@ -186,9 +186,9 @@ INFINIOP_CUDA_KERNEL elementwiseKernel(
 }
 
 struct DeviceImpl::Opaque {
-    std::shared_ptr<device::cuda::Handle::Internal> internal;
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
 
-    Opaque(const std::shared_ptr<device::cuda::Handle::Internal> &internal)
+    Opaque(const std::shared_ptr<device::nvidia::Handle::Internal> &internal)
         : internal(internal) {}
 
     /**
@@ -414,6 +414,6 @@ infiniStatus_t DeviceImpl::calculate(const op::elementwise::ElementwiseInfo &inf
         std::forward<Args>(args)...);
 }
 
-} // namespace op::elementwise::cuda
+} // namespace op::elementwise::nvidia
 
 #endif // __INFINIOP_ELEMENTWISE_CUDA_H__

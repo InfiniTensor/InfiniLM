@@ -3,6 +3,6 @@
 
 #include "../gemm.h"
 
-DESCRIPTOR(cuda)
+DESCRIPTOR(nvidia)
 
 #endif // __GEMM_CUDA_CUH__

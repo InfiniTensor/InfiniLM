@@ -1,7 +1,7 @@
-#include "../../../devices/cuda/cuda_common.cuh"
+#include "../../../devices/nvidia/nvidia_common.cuh"
 #include "rope_nvidia.cuh"
 
-#include "../../../devices/cuda/cuda_kernel_common.cuh"
+#include "../../../devices/nvidia/nvidia_kernel_common.cuh"
 
 #include "../cuda/kernel.cuh"
 
@@ -28,7 +28,7 @@ INFINIOP_CUDA_KERNEL ropeThreadPerItemKernel(
 namespace op::rope::nvidia {
 
 struct Descriptor::Opaque {
-    std::shared_ptr<device::cuda::Handle::Internal> internal;
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
 };
 
 Descriptor::~Descriptor() {
@@ -44,7 +44,7 @@ infiniStatus_t Descriptor::create(
     infiniopTensorDescriptor_t sin_desc,
     infiniopTensorDescriptor_t cos_desc) {
 
-    auto handle = reinterpret_cast<device::cuda::Handle *>(handle_);
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
 
     auto info = RoPEInfo::createRoPEInfo(y_desc, x_desc, pos_desc, sin_desc, cos_desc);
     CHECK_RESULT(info);
@@ -53,7 +53,7 @@ infiniStatus_t Descriptor::create(
     *desc_ptr = new Descriptor(
         info.take(),
         0,
-        new Opaque{reinterpret_cast<device::cuda::Handle *>(handle)->internal()},
+        new Opaque{reinterpret_cast<device::nvidia::Handle *>(handle)->internal()},
         handle->device,
         handle->device_id);
 
