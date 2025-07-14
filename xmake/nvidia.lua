@@ -3,7 +3,7 @@ if CUDNN_ROOT ~= nil then
     add_includedirs(CUDNN_ROOT .. "/include")
 end
 
-target("infiniop-cuda")
+target("infiniop-nvidia")
     set_kind("static")
     add_deps("infini-utils")
     on_install(function (target) end)
@@ -46,10 +46,10 @@ target("infiniop-cuda")
     add_cuflags("-Xcompiler=-Wno-error=deprecated-declarations")
 
     set_languages("cxx17")
-    add_files("../src/infiniop/devices/nvidia/*.cu", "../src/infiniop/ops/*/cuda/*.cu", "../src/infiniop/ops/*/nvidia/*.cu", "../build/ninetoothed/*.c")
+    add_files("../src/infiniop/devices/nvidia/*.cu", "../src/infiniop/ops/*/nvidia/*.cu", "../build/ninetoothed/*.c")
 target_end()
 
-target("infinirt-cuda")
+target("infinirt-nvidia")
     set_kind("static")
     add_deps("infini-utils")
     on_install(function (target) end)
@@ -71,7 +71,7 @@ target("infinirt-cuda")
     add_files("../src/infinirt/cuda/*.cu")
 target_end()
 
-target("infiniccl-cuda")
+target("infiniccl-nvidia")
     set_kind("static")
     add_deps("infinirt")
     on_install(function (target) end)
