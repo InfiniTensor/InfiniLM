@@ -262,12 +262,12 @@ public:
           workspace_size(other.workspace_size)
     // clang-format off
 #ifdef ENABLE_CUDNN_API
-          , x_desc(other.x_desc),
-          , y_desc(other.y_desc),
-          , w_desc(other.w_desc),
-          , b_desc(other.b_desc),
-          , act_desc(other.act_desc),
-          , conv_desc(other.conv_desc),
+          , x_desc(other.x_desc)
+          , y_desc(other.y_desc)
+          , w_desc(other.w_desc)
+          , b_desc(other.b_desc)
+          , act_desc(other.act_desc)
+          , conv_desc(other.conv_desc)
           , algo(other.algo)
 #endif
     // clang-format on
