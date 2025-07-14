@@ -71,7 +71,7 @@ cudnnDataType_t getCudnnDtype(infiniDtype_t dt) {
         return CUDNN_DATA_INT8;
     case INFINI_DTYPE_I32:
         return CUDNN_DATA_INT32;
-#ifndef ENABLE_ILUVATAR_CUDA_API
+#ifndef ENABLE_ILUVATAR_API
     case INFINI_DTYPE_I64:
         return CUDNN_DATA_INT64;
 #endif

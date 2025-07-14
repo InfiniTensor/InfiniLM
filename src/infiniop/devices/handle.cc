@@ -5,7 +5,7 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/cpu_handle.h"
 #endif
-#ifdef ENABLE_NVIDIA_API
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
 #include "nvidia/nvidia_handle.h"
 #endif
 #ifdef ENABLE_CAMBRICON_API
@@ -44,6 +44,9 @@ __C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr) {
 #ifdef ENABLE_NVIDIA_API
         CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
+#ifdef ENABLE_ILUVATAR_API
+        CREATE(INFINI_DEVICE_ILUVATAR, nvidia);
+#endif
 #ifdef ENABLE_CAMBRICON_API
         CREATE(INFINI_DEVICE_CAMBRICON, bang::cambricon);
 #endif
@@ -80,6 +83,9 @@ __C infiniStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
 #endif
 #ifdef ENABLE_NVIDIA_API
         DELETE(INFINI_DEVICE_NVIDIA, nvidia);
+#endif
+#ifdef ENABLE_ILUVATAR_API
+        DELETE(INFINI_DEVICE_ILUVATAR, nvidia);
 #endif
 #ifdef ENABLE_CAMBRICON_API
         DELETE(INFINI_DEVICE_CAMBRICON, bang::cambricon);

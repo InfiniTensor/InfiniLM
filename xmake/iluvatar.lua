@@ -42,12 +42,13 @@ target("infiniop-iluvatar")
     add_links("cudart", "cublas", "cudnn")
 
     set_warnings("all", "error")
+    add_cuflags("-Wno-error=unused-private-field")
     add_cuflags("-fPIC", "-x", "ivcore", "-std=c++17", {force = true})
     add_culdflags("-fPIC")
     add_cxflags("-fPIC")
 
     -- set_languages("cxx17") 天数似乎不能用这个配置
-    add_files("../src/infiniop/devices/cuda/*.cu", "../src/infiniop/ops/*/cuda/*.cu")
+    add_files("../src/infiniop/devices/nvidia/*.cu", "../src/infiniop/ops/*/nvidia/*.cu")
 target_end()
 
 target("infinirt-iluvatar")
