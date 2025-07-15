@@ -24,7 +24,7 @@ def build(premake, constexpr_param_grid, caller, op_name, output_dir):
         for param_name, param_value in combination.items():
             if isinstance(param_value, str):
                 combination[param_name] = (
-                    f"INFINI_DTYPE_{combination[param_name].replace('fp', 'F')}"
+                    f"INFINI_DTYPE_{combination[param_name].replace('fp', 'F').upper()}"
                 )
 
         combination = {f"{name}_": value for name, value in combination.items()}
@@ -77,9 +77,11 @@ def build(premake, constexpr_param_grid, caller, op_name, output_dir):
 
     func_sig = f"NineToothedResult launch_{op_name}({param_decls})"
 
+    joined_launches = "\n".join(launches)
+
     op_decl = f'#ifdef __cplusplus\nextern "C" {func_sig};\n#else\n{func_sig};\n#endif'
     op_def = f"""{func_sig} {{
-{"\n".join(launches)}
+{joined_launches}
     return INFINI_STATUS_NOT_IMPLEMENTED;
 }}"""
 

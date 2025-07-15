@@ -23,6 +23,11 @@ rule("maca")
             table.insert(args, "-I" .. includedir)
         end
 
+        local defines = target:get("defines")
+        for _, define in ipairs(defines) do
+            table.insert(args, "-D" .. define)
+        end
+
         os.execv(htcc, args)
         table.insert(target:objectfiles(), objectfile)
     end)
@@ -36,6 +41,10 @@ target("infiniop-metax")
     add_cxflags("-lstdc++", "-fPIC", "-Wno-defaulted-function-deleted", "-Wno-strict-aliasing")
     add_files("../src/infiniop/devices/metax/*.cc", "../src/infiniop/ops/*/metax/*.cc")
     add_files("../src/infiniop/ops/*/metax/*.maca", {rule = "maca"})
+
+    if has_config("ninetoothed") then
+        add_files("../build/ninetoothed/*.c", {cxflags = {"-include stdlib.h", "-Wno-return-type"}})
+    end
 target_end()
 
 target("infinirt-metax")

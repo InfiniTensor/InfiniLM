@@ -145,6 +145,17 @@ if has_config("kunlun-xpu") then
     includes("xmake/kunlun.lua")
 end
 
+-- 九齿
+option("ninetoothed")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to complie NineToothed implementations")
+option_end()
+
+if has_config("ninetoothed") then
+    add_defines("ENABLE_NINETOOTHED")
+end
+
 -- InfiniCCL
 option("ccl")
     set_default(false)

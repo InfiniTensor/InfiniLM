@@ -24,6 +24,6 @@ def _find_and_build_ops():
 
 
 if __name__ == "__main__":
-    BUILD_DIRECTORY_PATH.mkdir(exist_ok=True)
+    BUILD_DIRECTORY_PATH.mkdir(parents=True, exist_ok=True)
 
     _find_and_build_ops()

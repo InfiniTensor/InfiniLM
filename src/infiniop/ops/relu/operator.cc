@@ -5,6 +5,16 @@
 #ifdef ENABLE_CPU_API
 #include "cpu/relu_cpu.h"
 #endif
+#ifdef ENABLE_NVIDIA_API
+#ifdef ENABLE_NINETOOTHED
+#include "nvidia/relu_nvidia.cuh"
+#endif
+#endif
+#ifdef ENABLE_METAX_API
+#ifdef ENABLE_NINETOOTHED
+#include "metax/relu_metax.h"
+#endif
+#endif
 
 __C infiniStatus_t infiniopCreateReluDescriptor(
     infiniopHandle_t handle,
@@ -25,6 +35,16 @@ __C infiniStatus_t infiniopCreateReluDescriptor(
 #ifdef ENABLE_CPU_API
         CREATE(INFINI_DEVICE_CPU, cpu);
 #endif
+#ifdef ENABLE_NVIDIA_API
+#ifdef ENABLE_NINETOOTHED
+        CREATE(INFINI_DEVICE_NVIDIA, nvidia);
+#endif
+#endif
+#ifdef ENABLE_METAX_API
+#ifdef ENABLE_NINETOOTHED
+        CREATE(INFINI_DEVICE_METAX, metax);
+#endif
+#endif
 
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -43,6 +63,16 @@ __C infiniStatus_t infiniopGetReluWorkspaceSize(infiniopReluDescriptor_t desc, s
     switch (desc->device_type) {
 #ifdef ENABLE_CPU_API
         GET(INFINI_DEVICE_CPU, cpu)
+#endif
+#ifdef ENABLE_NVIDIA_API
+#ifdef ENABLE_NINETOOTHED
+        GET(INFINI_DEVICE_NVIDIA, nvidia)
+#endif
+#endif
+#ifdef ENABLE_METAX_API
+#ifdef ENABLE_NINETOOTHED
+        GET(INFINI_DEVICE_METAX, metax)
+#endif
 #endif
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -70,6 +100,16 @@ __C infiniStatus_t infiniopRelu(
 #ifdef ENABLE_CPU_API
         CALCULATE(INFINI_DEVICE_CPU, cpu);
 #endif
+#ifdef ENABLE_NVIDIA_API
+#ifdef ENABLE_NINETOOTHED
+        CALCULATE(INFINI_DEVICE_NVIDIA, nvidia);
+#endif
+#endif
+#ifdef ENABLE_METAX_API
+#ifdef ENABLE_NINETOOTHED
+        CALCULATE(INFINI_DEVICE_METAX, metax);
+#endif
+#endif
 
     default:
         return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
@@ -90,6 +130,16 @@ infiniopDestroyReluDescriptor(infiniopReluDescriptor_t desc) {
 
 #ifdef ENABLE_CPU_API
         DELETE(INFINI_DEVICE_CPU, cpu);
+#endif
+#ifdef ENABLE_NVIDIA_API
+#ifdef ENABLE_NINETOOTHED
+        DELETE(INFINI_DEVICE_NVIDIA, nvidia);
+#endif
+#endif
+#ifdef ENABLE_METAX_API
+#ifdef ENABLE_NINETOOTHED
+        DELETE(INFINI_DEVICE_METAX, metax);
+#endif
 #endif
 
     default:

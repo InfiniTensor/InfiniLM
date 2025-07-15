@@ -52,9 +52,14 @@ python scripts/install.py [XMAKE_CONFIG_FLAGS]
 | `--iluvatar-gpu=[y\|n]`  | 是否编译沐曦 GPU 接口实现         | n
 | `--sugon-dcu=[y\|n]`     | 是否编译曙光 DCU 接口实现         | n
 | `--kunlun-xpu=[y\|n]`    | 是否编译昆仑 XPU 接口实现         | n
+| `--ninetoothed=[y\|n]`   | 是否编译九齿实现                 | n
 | `--ccl=[y\|n]`           | 是否编译 InfiniCCL 通信库接口实现 | n
 
 ### 手动安装
+
+0. 生成九齿算子（可选）
+
+    参见[使用九齿](#使用九齿)章节。
 
 1. 项目配置
 
@@ -130,6 +135,32 @@ xmake build infiniccl-test
 ```shell
 infiniccl-test --nvidia
 ```
+
+### 使用九齿
+
+[九齿](https://github.com/InfiniTensor/ninetoothed)是一门基于 Triton 但提供更高层抽象的领域特定语言（DSL）。使用九齿可以降低算子的开发门槛，并且提高开发效率。
+
+InfiniCore 目前已经可以接入使用九齿实现的算子，但是这部分实现的编译是默认关闭的。如果选择编译库中的九齿实现，需要使用 `--ninetoothed=y`，并在运行一键安装脚本前完成以下准备工作：
+
+1. 安装九齿与[九齿算子库](https://github.com/InfiniTensor/ntops)：
+
+```shell
+git clone https://github.com/InfiniTensor/ntops.git
+cd ntops
+pip install -e .
+```
+
+注：安装 `ntops` 时，`ninetoothed` 会被当成依赖也一并安装进来。
+
+2. 在 `InfiniCore` 文件夹下运行以下命令 AOT 编译库中的九齿算子：
+
+```shell
+PYTHONPATH=src/ python scripts/build_ntops.py
+```
+
+注：如果对九齿相关文件有修改，需要重新构建 InfiniCore 时，也需要同时运行以上命令进行重新生成。
+
+3. 按照上面的指引进行[一键安装](#一键安装)或者[手动安装](#手动安装)。
 
 ## 如何开源贡献
 
