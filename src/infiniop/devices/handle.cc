@@ -45,7 +45,7 @@ __C infiniStatus_t infiniopCreateHandle(infiniopHandle_t *handle_ptr) {
         CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 #ifdef ENABLE_ILUVATAR_API
-        CREATE(INFINI_DEVICE_ILUVATAR, nvidia);
+        CREATE(INFINI_DEVICE_ILUVATAR, iluvatar);
 #endif
 #ifdef ENABLE_CAMBRICON_API
         CREATE(INFINI_DEVICE_CAMBRICON, bang::cambricon);
@@ -85,7 +85,7 @@ __C infiniStatus_t infiniopDestroyHandle(infiniopHandle_t handle) {
         DELETE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 #ifdef ENABLE_ILUVATAR_API
-        DELETE(INFINI_DEVICE_ILUVATAR, nvidia);
+        DELETE(INFINI_DEVICE_ILUVATAR, iluvatar);
 #endif
 #ifdef ENABLE_CAMBRICON_API
         DELETE(INFINI_DEVICE_CAMBRICON, bang::cambricon);
