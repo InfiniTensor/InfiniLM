@@ -33,6 +33,7 @@ class DeviceType(ctypes.c_int):
     DEVICE_TYPE_ASCEND = 3
     DEVICE_TYPE_METAX = 4
     DEVICE_TYPE_MOORE = 5
+    DEVICE_TYPE_ILUVATAR = 6
 
 
 class JiugeMetaCStruct(ctypes.Structure):
