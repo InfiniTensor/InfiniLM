@@ -70,6 +70,9 @@ __C infiniStatus_t infinirtGetDevice(infiniDevice_t *device_ptr, int *device_id_
         case INFINI_DEVICE_KUNLUN:                                     \
             _status = infinirt::kunlun::API PARAMS;                    \
             break;                                                     \
+        case INFINI_DEVICE_ILUVATAR:                                   \
+            _status = infinirt::cuda::API PARAMS;                      \
+            break;                                                     \
         default:                                                       \
             _status = INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;         \
         }                                                              \
