@@ -20,7 +20,13 @@ target("infiniop-nvidia")
         import("lib.detect.find_tool")
         local nvcc = find_tool("nvcc")
         if nvcc ~= nil then
-            target:add("linkdirs", path.directory(path.directory(nvcc.program)) .. "/lib64/stubs")
+            if is_plat("windows") then
+                nvcc_path = os.iorun("where nvcc"):match("(.-)\r?\n")
+            else
+                nvcc_path = nvcc.program
+            end
+
+            target:add("linkdirs", path.directory(path.directory(nvcc_path)) .. "/lib64/stubs")
             target:add("links", "cuda")
         end
     end)

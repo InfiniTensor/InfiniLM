@@ -172,7 +172,7 @@ private:
 
         CHECK_CUDNN(cudnnCreateTensorDescriptor(&b_desc));
         CHECK_CUDNN(cudnnSetTensorNdDescriptor(
-            b_desc, cudnn_data_type, bias_dims_arr.size(),
+            b_desc, cudnn_data_type, static_cast<int>(bias_dims_arr.size()),
             bias_dims_arr.data(), bias_strides_arr.data()));
         CHECK_CUDNN(cudnnCreateActivationDescriptor(&act_desc));
         CHECK_CUDNN(cudnnSetActivationDescriptor(
