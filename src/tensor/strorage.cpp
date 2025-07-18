@@ -42,7 +42,7 @@ std::shared_ptr<Storage> Storage::createHost(size_t size) {
 
 Storage::~Storage() {
     if (_memory_pool) {
-        _memory_pool->release(_memory); 
+        _memory_pool->release(_memory);
     } else {
         if (_device_type == INFINI_DEVICE_CPU) {
             RUN_INFINI(infinirtFreeHost(_memory));

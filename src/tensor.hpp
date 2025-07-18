@@ -120,6 +120,7 @@ public:
     infiniDtype_t dtype() const;
     bool isContigous() const;
     infiniopTensorDescriptor_t desc() const;
+    std::shared_ptr<TensorDesc> tdesc() const;
     ptrdiff_t dataOffset() const;
     infiniDevice_t deviceType() const;
     int deviceId() const;

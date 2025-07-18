@@ -108,6 +108,7 @@ ptrdiff_t Tensor::dataOffset() const {
 }
 
 infiniopTensorDescriptor_t Tensor::desc() const { return _desc->desc(); }
+std::shared_ptr<TensorDesc> Tensor::tdesc() const { return _desc; }
 
 std::shared_ptr<Tensor> Tensor::buffer(infiniDtype_t dtype,
                                        const std::vector<size_t> &shape,
