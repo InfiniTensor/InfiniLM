@@ -155,7 +155,7 @@ pip install -e .
 2. 在 `InfiniCore` 文件夹下运行以下命令 AOT 编译库中的九齿算子：
 
 ```shell
-PYTHONPATH=src/ python scripts/build_ntops.py
+PYTHONPATH=${PYTHONPATH}:src python scripts/build_ntops.py
 ```
 
 注：如果对九齿相关文件有修改，需要重新构建 InfiniCore 时，也需要同时运行以上命令进行重新生成。

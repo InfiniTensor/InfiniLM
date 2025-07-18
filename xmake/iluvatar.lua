@@ -49,6 +49,10 @@ target("infiniop-iluvatar")
 
     -- set_languages("cxx17") 天数似乎不能用这个配置
     add_files("../src/infiniop/devices/nvidia/*.cu", "../src/infiniop/ops/*/nvidia/*.cu")
+
+    if has_config("ninetoothed") then
+        add_files("../build/ninetoothed/*.c", {cxflags = {"-Wno-return-type"}})
+    end
 target_end()
 
 target("infinirt-iluvatar")
