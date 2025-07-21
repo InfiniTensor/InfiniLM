@@ -6,7 +6,7 @@ InferenceContext::InferenceContext(DeviceResource *rsrc, CacheManager *cache_man
     : rsrc(rsrc), cache_manager(cache_manager), stream(stream) {}
 
 void InferenceContext::ensure_workspace(size_t required_size) {
-    if (required_size > current_workspace_size) {
+    if (required_size > current_workspace_size || !workspace_storage) {
         workspace_storage = Storage::createFromPool(required_size, rsrc->memory_pool);
         current_workspace_size = required_size;
     }
