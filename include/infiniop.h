@@ -16,6 +16,7 @@
 #include "infiniop/ops/rope.h"
 #include "infiniop/ops/sub.h"
 #include "infiniop/ops/swiglu.h"
+#include "infiniop/ops/topk.h"
 #include "infiniop/tensor_descriptor.h"
 
 #endif // __INFINIOP_API_H__

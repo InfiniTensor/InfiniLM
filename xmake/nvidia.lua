@@ -54,6 +54,8 @@ target("infiniop-nvidia")
 
     set_languages("cxx17")
     add_files("../src/infiniop/devices/nvidia/*.cu", "../src/infiniop/ops/*/nvidia/*.cu")
+    add_files("../src/infiniop/ops/topk/*.cpp")
+    add_files("../src/infiniop/ops/topk/*.cu")
 
     if has_config("ninetoothed") then
         add_files("../build/ninetoothed/*.c")
