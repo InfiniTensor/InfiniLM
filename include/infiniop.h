@@ -17,6 +17,9 @@
 #include "infiniop/ops/sub.h"
 #include "infiniop/ops/swiglu.h"
 #include "infiniop/ops/topk.h"
+#include "infiniop/ops/moe_dispatch.h"
+#include "infiniop/ops/moe_combine.h"
 #include "infiniop/tensor_descriptor.h"
 
+#ifdef __cplusplus
 #endif // __INFINIOP_API_H__
