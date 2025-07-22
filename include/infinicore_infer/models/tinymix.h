@@ -4,15 +4,18 @@
 #include <infiniccl.h>
 #include <infiniop.h>
 #include <infinirt.h>
+#include <infinicore.h>
 
 #include <stdint.h>
+
+typedef infiniDtype_t DataType;
 
 struct TinyMixModel;
 struct KVCache;
 
 typedef struct
 {
-    uint32_t nlayer, nh, nkvh, d, di, dvoc;
+    uint32_t nlayer, nh, nkvh, d, di, dvoc, dh;
     uint32_t nexpert, topk;
     DataType dt_logits, dt_mat, dt_norm;
     float epsilon, theta;

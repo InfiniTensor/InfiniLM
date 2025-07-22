@@ -1,5 +1,6 @@
 #include "tinymix_impl.hpp"
 #include "tinymix_weight.hpp"
+#include "infiniccl.h"
 
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
@@ -78,7 +79,8 @@ void createDeviceResource(DeviceResource *rsrc, const TinyMixMeta *meta,
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
-void releaseDeviceResource(DeviceResource &res) {
+// Define as static to limit scope to this file and prevent linker errors.
+static void releaseDeviceResource(DeviceResource &res) {
     // Similar to jiuge's implementation
     infinirtDeviceSynchronize();
     res.w_in_embd.reset();
@@ -113,13 +115,15 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
     auto ngroup = nh / nkvh;
-    auto dh = meta.dh;
+    (void)ngroup;
+    auto dh = meta.d / meta.nh;
     auto d = meta.d;
     auto dt_logits = meta.dt_logits;
     auto di = meta.di / ndev;
     auto dvoc = meta.dvoc;
     auto stream = rsrc.stream;
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
+    (void)has_qkv_bias;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -153,6 +157,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 
     // Prepare operators and workspace
     size_t workspace_size = 0;
+    (void)workspace_size;
     // ... (Attention descriptor creation logic will be added here later) ...
 
     // For now, let's focus on the FFN descriptors.
@@ -172,9 +177,16 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu, gate_buf->desc(), up_buf->desc(), gate_buf->desc()));
     RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down, logits_in->desc(), gate_buf->desc(), rsrc.w_ffn_down[0][0]->desc()));
 
-    // ... (Workspace size calculation for all operators) ...
-    // Allocate a single workspace for all ops.
-    // void* workspace = ...;
+    // The output projection GEMM descriptor, which also handles the residual addition
+    infiniopGemmDescriptor_t desc_attn_out;
+    RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_attn_out, logits_in->desc(), o_buf->desc(), rsrc.w_attn_out[0]->desc()));
+
+    // Dummy Add descriptor for validation
+    infiniopAddDescriptor_t desc_add_dummy;
+    RUN_INFINI(infiniopCreateAddDescriptor(rsrc.handle, &desc_add_dummy, o_buf->slice(0, 0, 1)->desc(), qkv_buf->slice(0, 0, 1)->desc(), qkv_buf->slice(0, 0, 1)->desc()));
+
+
+    // ... FFN descriptors are already created ...
 
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
@@ -237,6 +249,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             auto up_buf_expert = gate_up_buf_expert->slice(1, di, di);
             
             size_t current_offset = 0;
+            (void)current_offset;
             for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
                 // int num_tokens_for_expert = expert_counts[expert_id];
                 // if (num_tokens_for_expert == 0) continue;
@@ -276,8 +289,14 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             RUN_INFINI(infiniopSwiGLU(desc_swiglu, nullptr, 0, gate_buf->data(), up_buf->data(), gate_buf->data(), stream));
             RUN_INFINI(infiniopGemm(desc_ffn_down, nullptr, 0, logits_in->data(), gate_buf->data(), rsrc.w_ffn_down[layer][0]->data(), 1.0, 1.0, stream)); // Add residual
         }
+
+        // AllReduce across devices
+        if (ndev > 1) {
+            RUN_INFINI(infinicclAllReduce(logits_in->data(), logits_in->data(),
+                                        std::accumulate(logits_in->shape().begin(), logits_in->shape().end(), size_t{1}, std::multiplies<size_t>()), meta.dt_logits,
+                                        INFINICCL_SUM, rsrc.comm, stream));
+        }
         
-        // ... (AllReduce) ...
     }
 
     // ... (Sampling logic) ...

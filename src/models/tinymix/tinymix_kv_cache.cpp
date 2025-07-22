@@ -5,8 +5,8 @@ __C struct KVCache *createTinyMixKVCache(const TinyMixModel *model) {
     auto ndev = model->dev_resources.size();
     auto nkvh = model->meta.nkvh / ndev;
     auto max_len = model->meta.dctx;
-    auto dh = model->meta.dh;
-    auto shape = std::vector<size_t>{max_len, nkvh, dh};
+    auto dh = model->meta.d / model->meta.nh;
+    auto shape = std::vector<size_t>{(size_t)max_len, (size_t)nkvh, (size_t)dh};
     for (unsigned int idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
         auto kcache = std::vector<std::shared_ptr<Tensor>>();
@@ -28,7 +28,7 @@ __C struct KVCache *duplicateTinyMixKVCache(const TinyMixModel *model,
     auto new_kv_cache = createTinyMixKVCache(model);
     auto ndev = model->dev_resources.size();
     auto nkvh = model->meta.nkvh / ndev;
-    auto dh = model->meta.dh;
+    auto dh = model->meta.d / model->meta.nh;
     auto dt_size = dsize(model->meta.dt_logits);
     for (unsigned int idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
