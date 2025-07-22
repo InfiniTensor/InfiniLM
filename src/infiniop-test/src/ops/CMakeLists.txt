@@ -1,0 +1,14 @@
+set(OPS
+    add.cpp
+    causal_softmax.cpp
+    clip.cpp
+    gemm.cpp
+    mul.cpp
+    random_sample.cpp
+    rearrange.cpp
+    rms_norm.cpp
+    rope.cpp
+    sub.cpp
+    swiglu.cpp
+    topk.cpp
+) 

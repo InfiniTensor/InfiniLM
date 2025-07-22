@@ -22,4 +22,33 @@
 #include "infiniop/tensor_descriptor.h"
 
 #ifdef __cplusplus
+extern "C" {
+#endif
+
+#define INFINIOP_TOPK_STRATEGY_DEEPSEEK_V3 0
+#define INFINIOP_TOPK_STRATEGY_STANDARD_SOFTMAX 1
+
+__C infiniStatus_t
+infiniopCreateTopKDescriptor(infiniopHandle_t handle,
+                             infiniopTopKDescriptor_t *desc_ptr,
+                             infiniopTensorDescriptor_t input_desc,
+                             infiniopTensorDescriptor_t output_val_desc,
+                             infiniopTensorDescriptor_t output_ind_desc,
+                             infiniopTensorDescriptor_t bias_desc, int k,
+                             int strategy, int n_group,
+                             int topk_group);
+
+__C infiniStatus_t infiniopDestroyTopKDescriptor(infiniopTopKDescriptor_t desc);
+
+__C size_t infiniopGetTopKWorkspaceSize(infiniopTopKDescriptor_t desc);
+
+__C infiniStatus_t infiniopTopKCalculate(infiniopTopKDescriptor_t desc,
+                                       const void *input, void *output_val,
+                                       void *output_ind, const void *bias,
+                                       void *workspace, void *stream);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif // __INFINIOP_API_H__
