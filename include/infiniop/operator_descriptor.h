@@ -1,6 +1,7 @@
 #ifndef __INFINIOP_OPERATOR_DESCRIPTOR_API_H__
 #define __INFINIOP_OPERATOR_DESCRIPTOR_API_H__
 
+#include "infinirt.h"
 #include "handle.h"
 #include "tensor_descriptor.h"
 
