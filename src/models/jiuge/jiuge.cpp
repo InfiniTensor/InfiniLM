@@ -166,15 +166,10 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     }
 
     // Attention
-    auto qkv_desc = TensorDesc::create(dt_logits, qkv_buf->shape(), qkv_buf->strides());
-    auto b_attn_qkv_desc = TensorDesc::create(dt_logits, {ntok, (nh + nkvh * 2) * dh}, {0, 1});
-    auto o_desc = TensorDesc::create(dt_logits, o_buf->shape(), o_buf->strides());
-
     qkv_buf->dimSplit(1, {nh + nkvh * 2, dh}); // (ntok, nh + 2 * nkvh, dh)
     // attention inner
     size_t max_qk_size = 0;
     size_t max_seq_len = 0;
-    o_buf->dimSplit(1, {nh, dh});
 
     for (uint32_t req = 0; req < nreq; req++) {
         auto past_len = req_pos[req];
@@ -193,24 +188,19 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
 
-    // Output and sample
-    auto result_desc = TensorDesc::create(INFINI_DTYPE_I64, {}, {});
-    auto prob_desc = TensorDesc::create(dt_logits, {dvoc}, {1});
-
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
         ctx.rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
         // qkv_proj
+        qkv_buf->dimMerge(1, 2);
         if (has_qkv_bias) {
-            ctx.rearrange(qkv_buf, qkv_desc, rsrc.b_attn_qkv[layer], b_attn_qkv_desc);
+            ctx.rearrange(qkv_buf, rsrc.b_attn_qkv[layer]->reDesc({ntok, (nh + nkvh * 2) * dh}, {0, 1}));
         }
-        ctx.gemm(qkv_buf, qkv_desc,
-                 logits_out, nullptr,
-                 rsrc.w_attn_qkv[layer], nullptr,
-                 1.0, has_qkv_bias ? 1.0 : 0.0);
+        ctx.gemm(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, has_qkv_bias ? 1.0 : 0.0);
         // rope
+        qkv_buf->dimSplit(1, {nh + nkvh * 2, dh});
         ctx.rope(qkv_buf->slice(1, 0, nh), qkv_buf->slice(1, 0, nh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
         ctx.rope(qkv_buf->slice(1, nh, nkvh), qkv_buf->slice(1, nh, nkvh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
 
@@ -219,43 +209,41 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             auto past_len = req_pos[req];
             auto seq_len = req_lens[req];
             auto total_len = past_len + seq_len;
-            auto o = o_buf->slice({{0, token_offset, seq_len}});
+            auto o = o_buf->dimSplit(1, {nh, dh})->slice({{0, token_offset, seq_len}});
             auto q = qkv_buf->slice({{0, token_offset, seq_len}, {1, 0, nh}});
             auto k = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
             auto v = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
 
-            auto qt_rearrange_desc = TensorDesc::create(dt_logits, {nkvh, ngroup, seq_len, dh});
-            auto qt_gemm_desc = TensorDesc::create(dt_logits, {nkvh, ngroup * seq_len, dh});
-            auto qk_gemm_desc = TensorDesc::create(dt_logits, {nkvh, ngroup * seq_len, total_len});
             // self attention
             // concat
-            ctx.rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), nullptr, k, nullptr);
-            ctx.rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), nullptr, v, nullptr);
+            ctx.rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
+            ctx.rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
             // qk
-            ctx.rearrange(rearrange_q_buf, qt_rearrange_desc,
-                          q->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3}), nullptr);
-            ctx.gemm(qk_buf, qk_gemm_desc,
-                     rearrange_q_buf, qt_gemm_desc,
-                     kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0}), nullptr,
-                     1. / sqrt(dh), 0.0);
+            ctx.rearrange(rearrange_q_buf->dimSplit(1, {ngroup, seq_len}),
+                          q->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3}));
+            qk_buf->dimSplit(1, {seq_len, total_len});
+            qk_buf->dimSplit(0, {nkvh, ngroup});
+            qk_buf->dimMerge(1, 2);
+            ctx.gemm(qk_buf, rearrange_q_buf->dimMerge(1, 2), kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0}), 1. / sqrt(dh), 0.0);
             // softmax
-            auto qk_desc = TensorDesc::create(dt_logits, {nkvh * ngroup, seq_len, total_len});
-            ctx.causalSoftmax(qk_buf, qk_desc, qk_buf, qk_desc);
-            ctx.gemm(attn_val_buf, qt_gemm_desc,
-                     qk_buf, qk_gemm_desc,
-                     kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2}), nullptr,
-                     1.0, 0.0);
+            qk_buf->dimSplit(1, {ngroup, seq_len});
+            qk_buf->dimMerge(0, 1);
+            ctx.causalSoftmax(qk_buf, qk_buf);
+            qk_buf->dimSplit(0, {nkvh, ngroup});
+            qk_buf->dimMerge(1, 2);
+            ctx.gemm(attn_val_buf, qk_buf, kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2}), 1.0, 0.0);
+            qk_buf->dimSplit(1, {ngroup, seq_len});
+            qk_buf->dimMerge(2, 3);
+            qk_buf->dimMerge(0, 1);
             // rearrange attn val
-            ctx.rearrange(o, TensorDesc::createWithOrder(dt_logits, {nkvh, ngroup, seq_len, dh}, {1, 2, 0, 3}),
-                          attn_val_buf, qt_rearrange_desc);
+            attn_val_buf->dimSplit(0, {nkvh, ngroup});
+            ctx.rearrange(o->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3}), attn_val_buf);
+            attn_val_buf->dimMerge(0, 1);
 
             token_offset += seq_len;
         }
         // o_proj
-        ctx.gemm(logits_in, nullptr,
-                 o_buf, o_desc,
-                 rsrc.w_attn_out[layer], nullptr,
-                 1.0, idev == 0 ? 1.0 : 0.0); // only rank 0 adds residual
+        ctx.gemm(logits_in, o_buf->dimMerge(1, 2), rsrc.w_attn_out[layer], 1.0, idev == 0 ? 1.0 : 0.0); // only rank 0 adds residual
 
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
@@ -267,15 +255,9 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         // 2. FFN
         // rms_norm
         ctx.rmsnorm(logits_out, logits_in, rsrc.w_ffn_norm[layer], meta.epsilon);
-        ctx.gemm(gate_up_buf, nullptr,
-                 logits_out, nullptr,
-                 rsrc.w_ffn_gate_up[layer], nullptr,
-                 1.0, 0.0);
+        ctx.gemm(gate_up_buf, logits_out, rsrc.w_ffn_gate_up[layer], 1.0, 0.0);
         ctx.swiglu(gate_buf, up_buf, gate_buf);
-        ctx.gemm(logits_in, nullptr,
-                 gate_buf, nullptr,
-                 rsrc.w_ffn_down[layer], nullptr,
-                 1.0, idev == 0 ? 1.0 : 0.0); // only rank 0 adds residual
+        ctx.gemm(logits_in, gate_buf, rsrc.w_ffn_down[layer], 1.0, idev == 0 ? 1.0 : 0.0); // only rank 0 adds residual
 
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
@@ -296,18 +278,15 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                         rsrc.w_out_norm,
                         meta.epsilon);
         }
-        ctx.gemm(prob_buf, nullptr,
-                 logits_out->slice(0, 0, nreq), nullptr,
-                 rsrc.w_out_embd, nullptr,
-                 1.0, 0.0);
+        ctx.gemm(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0);
         std::random_device _rd;
         std::mt19937 gen(_rd());
         token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
             auto seq_len = req_lens[req];
             float random_val = std::uniform_real_distribution<float>(0, 1)(gen);
-            ctx.randomSample(result_buf->slice(0, req, 1), result_desc,
-                             prob_buf->slice(0, req, 1), prob_desc,
+            ctx.randomSample(result_buf->reDesc({}, {}),
+                             prob_buf->reDesc({dvoc}, {1}),
                              random_val, topp[req], topk[req], temperature[req]);
             token_offset += seq_len;
         }
@@ -354,7 +333,7 @@ inferBatch(struct JiugeModel *model,
 
 void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, DeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
-    CacheManager cache_manager(100);
+    CacheManager cache_manager(256);
     InferenceContext ctx(rsrc, &cache_manager, rsrc->stream);
 
     // Create Device Resource

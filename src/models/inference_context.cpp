@@ -16,7 +16,7 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
                                std::shared_ptr<Tensor> x,
                                std::shared_ptr<Tensor> w,
                                float epsilon) {
-    size_t key = CacheManager::createDescriptorKey(y->tdesc(), x->tdesc(), w->tdesc(), nullptr, nullptr);
+    size_t key = CacheManager::createDescriptorKey(y, x, w, nullptr, nullptr);
 
     infiniopRMSNormDescriptor_t desc;
     if (!cache_manager->getRMSNormDescriptor(key, desc)) {
@@ -35,23 +35,16 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
         y->data(), x->data(), w->data(), stream));
 }
 
-void InferenceContext::gemm(std::shared_ptr<Tensor> c, std::shared_ptr<TensorDesc> c_desc_overwrite,
-                            std::shared_ptr<Tensor> a, std::shared_ptr<TensorDesc> a_desc_overwrite,
-                            std::shared_ptr<Tensor> b, std::shared_ptr<TensorDesc> b_desc_overwrite,
+void InferenceContext::gemm(std::shared_ptr<Tensor> c,
+                            std::shared_ptr<Tensor> a,
+                            std::shared_ptr<Tensor> b,
                             float alpha, float beta) {
-    size_t key = CacheManager::createDescriptorKey(
-        c_desc_overwrite ? c_desc_overwrite : c->tdesc(),
-        a_desc_overwrite ? a_desc_overwrite : a->tdesc(),
-        b_desc_overwrite ? b_desc_overwrite : b->tdesc(),
-        nullptr, nullptr);
+    size_t key = CacheManager::createDescriptorKey(c, a, b,
+                                                   nullptr, nullptr);
 
     infiniopGemmDescriptor_t desc;
     if (!cache_manager->getGemmDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateGemmDescriptor(
-            rsrc->handle, &desc,
-            c_desc_overwrite ? c_desc_overwrite->desc() : c->desc(),
-            a_desc_overwrite ? a_desc_overwrite->desc() : a->desc(),
-            b_desc_overwrite ? b_desc_overwrite->desc() : b->desc()));
+        RUN_INFINI(infiniopCreateGemmDescriptor(rsrc->handle, &desc, c->desc(), a->desc(), b->desc()));
         cache_manager->putGemmDescriptor(key, desc);
     }
 
@@ -65,19 +58,13 @@ void InferenceContext::gemm(std::shared_ptr<Tensor> c, std::shared_ptr<TensorDes
         c->data(), a->data(), b->data(), alpha, beta, stream));
 }
 
-void InferenceContext::rearrange(std::shared_ptr<Tensor> dst, std::shared_ptr<TensorDesc> dst_desc_overwrite,
-                                 std::shared_ptr<Tensor> src, std::shared_ptr<TensorDesc> src_desc_overwrite) {
-    size_t key = CacheManager::createDescriptorKey(
-        dst_desc_overwrite ? dst_desc_overwrite : dst->tdesc(),
-        src_desc_overwrite ? src_desc_overwrite : src->tdesc(),
-        nullptr, nullptr, nullptr);
+void InferenceContext::rearrange(std::shared_ptr<Tensor> dst,
+                                 std::shared_ptr<Tensor> src) {
+    size_t key = CacheManager::createDescriptorKey(dst, src, nullptr, nullptr, nullptr);
 
     infiniopRearrangeDescriptor_t desc;
     if (!cache_manager->getRearrangeDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateRearrangeDescriptor(
-            rsrc->handle, &desc,
-            dst_desc_overwrite ? dst_desc_overwrite->desc() : dst->desc(),
-            src_desc_overwrite ? src_desc_overwrite->desc() : src->desc()));
+        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc->handle, &desc, dst->desc(), src->desc()));
         cache_manager->putRearrangeDescriptor(key, desc);
     }
 
@@ -93,7 +80,7 @@ void InferenceContext::rope(std::shared_ptr<Tensor> q,
                             std::shared_ptr<Tensor> pos,
                             std::shared_ptr<Tensor> sin,
                             std::shared_ptr<Tensor> cos) {
-    size_t key = CacheManager::createDescriptorKey(q->tdesc(), k->tdesc(), pos->tdesc(), sin->tdesc(), cos->tdesc());
+    size_t key = CacheManager::createDescriptorKey(q, k, pos, sin, cos);
 
     infiniopRoPEDescriptor_t desc;
     if (!cache_manager->getRoPEDescriptor(key, desc)) {
@@ -114,19 +101,14 @@ void InferenceContext::rope(std::shared_ptr<Tensor> q,
         sin->data(), cos->data(), stream));
 }
 
-void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<TensorDesc> y_desc_overwrite,
-                                     std::shared_ptr<Tensor> x, std::shared_ptr<TensorDesc> x_desc_overwrite) {
-    size_t key = CacheManager::createDescriptorKey(
-        y_desc_overwrite ? y_desc_overwrite : y->tdesc(),
-        x_desc_overwrite ? x_desc_overwrite : x->tdesc(),
-        nullptr, nullptr, nullptr);
+void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
+                                     std::shared_ptr<Tensor> x) {
+    size_t key = CacheManager::createDescriptorKey(y, x, nullptr, nullptr, nullptr);
 
     infiniopCausalSoftmaxDescriptor_t desc;
     if (!cache_manager->getCausalSoftmaxDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateCausalSoftmaxDescriptor(
-            rsrc->handle, &desc,
-            y_desc_overwrite ? y_desc_overwrite->desc() : y->desc(),
-            x_desc_overwrite ? x_desc_overwrite->desc() : x->desc()));
+            rsrc->handle, &desc, y->desc(), x->desc()));
         cache_manager->putCausalSoftmaxDescriptor(key, desc);
     }
 
@@ -139,8 +121,10 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<
                                      y->data(), x->data(), stream));
 }
 
-void InferenceContext::swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up, std::shared_ptr<Tensor> gate) {
-    size_t key = CacheManager::createDescriptorKey(out->tdesc(), up->tdesc(), gate->tdesc(), nullptr, nullptr);
+void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
+                              std::shared_ptr<Tensor> up,
+                              std::shared_ptr<Tensor> gate) {
+    size_t key = CacheManager::createDescriptorKey(out, up, gate, nullptr, nullptr);
 
     infiniopSwiGLUDescriptor_t desc;
     if (!cache_manager->getSwiGLUDescriptor(key, desc)) {
@@ -158,20 +142,15 @@ void InferenceContext::swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tenso
                               out->data(), up->data(), gate->data(), stream));
 }
 
-void InferenceContext::randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<TensorDesc> out_desc_overwrite,
-                                    std::shared_ptr<Tensor> prob, std::shared_ptr<TensorDesc> prob_desc_overwrite,
+void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
+                                    std::shared_ptr<Tensor> prob,
                                     float random_val, float top_p, uint32_t top_k, float temperature) {
-    size_t key = CacheManager::createDescriptorKey(
-        out_desc_overwrite ? out_desc_overwrite : out->tdesc(),
-        prob_desc_overwrite ? prob_desc_overwrite : prob->tdesc(),
-        nullptr, nullptr, nullptr);
+    size_t key = CacheManager::createDescriptorKey(out, prob, nullptr, nullptr, nullptr);
 
     infiniopRandomSampleDescriptor_t desc;
     if (!cache_manager->getRandomSampleDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateRandomSampleDescriptor(
-            rsrc->handle, &desc,
-            out_desc_overwrite ? out_desc_overwrite->desc() : out->desc(),
-            prob_desc_overwrite ? prob_desc_overwrite->desc() : prob->desc()));
+            rsrc->handle, &desc, out->desc(), prob->desc()));
         cache_manager->putRandomSampleDescriptor(key, desc);
     }
 

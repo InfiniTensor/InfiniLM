@@ -78,6 +78,7 @@ public:
     void dimMerge(size_t dim_start, size_t dim_end);
     void dimSplit(size_t dim, const std::vector<size_t> &dims);
     void permute(const std::vector<size_t> &order);
+    void reDesc(const std::vector<size_t> new_shape, const std::vector<ptrdiff_t> new_strides);
 };
 
 class Tensor : public std::enable_shared_from_this<Tensor> {
@@ -110,6 +111,7 @@ public:
     std::shared_ptr<Tensor> dimSplit(size_t dim,
                                      const std::vector<size_t> &dims);
     std::shared_ptr<Tensor> permute(const std::vector<size_t> &order);
+    std::shared_ptr<Tensor> reDesc(const std::vector<size_t> new_shape, const std::vector<ptrdiff_t> new_strides);
     void *data(ptrdiff_t offset = 0);
     void const *data(ptrdiff_t offset = 0) const;
     void copyFrom(std::shared_ptr<Tensor const> src, infiniopHandle_t handle,
@@ -120,7 +122,6 @@ public:
     infiniDtype_t dtype() const;
     bool isContigous() const;
     infiniopTensorDescriptor_t desc() const;
-    std::shared_ptr<TensorDesc> tdesc() const;
     ptrdiff_t dataOffset() const;
     infiniDevice_t deviceType() const;
     int deviceId() const;

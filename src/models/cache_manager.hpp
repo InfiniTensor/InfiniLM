@@ -21,23 +21,14 @@ inline void hash_combine(size_t &seed, T value, typename std::enable_if<std::is_
     hash_combine(seed, static_cast<size_t>(value));
 }
 
-// Specialization for float to handle potential precision issues
-inline void hash_combine(size_t &seed, float value) {
-    // Treat float bits as uint32_t for consistent hashing
-    uint32_t int_value;
-    static_assert(sizeof(value) == sizeof(int_value), "Size mismatch");
-    std::memcpy(&int_value, &value, sizeof(value));
-    hash_combine(seed, static_cast<size_t>(int_value));
-}
-
 // Helper function to compute hash for tensor descriptors
-inline size_t computeTensorDescHash(std::shared_ptr<TensorDesc> desc) {
+inline size_t computeTensorDescHash(std::shared_ptr<Tensor> tensor) {
     size_t seed = 0;
-    hash_combine(seed, desc->dtype());
-    for (auto dim : desc->shape()) {
+    hash_combine(seed, tensor->dtype());
+    for (auto dim : tensor->shape()) {
         hash_combine(seed, dim);
     }
-    for (auto stride : desc->strides()) {
+    for (auto stride : tensor->strides()) {
         hash_combine(seed, static_cast<size_t>(stride));
     }
     return seed;
@@ -185,7 +176,7 @@ public:
 
 class CacheManager {
 private:
-    const size_t DEFAULT_CACHE_CAPACITY = 100;
+    const size_t DEFAULT_CACHE_CAPACITY = 128;
 
     LRUDescriptorCache<infiniopRMSNormDescriptor_t> rms_norm_cache;
     LRUDescriptorCache<infiniopGemmDescriptor_t> gemm_cache;
@@ -267,11 +258,11 @@ public:
         random_sample_cache.put(key, desc);
     }
 
-    static size_t createDescriptorKey(std::shared_ptr<TensorDesc> desc0,
-                                      std::shared_ptr<TensorDesc> desc1,
-                                      std::shared_ptr<TensorDesc> desc2,
-                                      std::shared_ptr<TensorDesc> desc3,
-                                      std::shared_ptr<TensorDesc> desc4) {
+    static size_t createDescriptorKey(std::shared_ptr<Tensor> desc0,
+                                      std::shared_ptr<Tensor> desc1,
+                                      std::shared_ptr<Tensor> desc2,
+                                      std::shared_ptr<Tensor> desc3,
+                                      std::shared_ptr<Tensor> desc4) {
         size_t seed = 0;
         if (desc0) {
             hash_combine(seed, computeTensorDescHash(desc0));
