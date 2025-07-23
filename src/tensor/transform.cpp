@@ -114,14 +114,3 @@ std::shared_ptr<Tensor> Tensor::permute(const std::vector<size_t> &order) {
     this->_desc->permute(order);
     return shared_from_this();
 }
-
-void TensorDesc::reDesc(const std::vector<size_t> new_shape, const std::vector<ptrdiff_t> new_strides) {
-    this->_shape = new_shape;
-    this->_strides = new_strides;
-    this->resetDesc();
-}
-
-std::shared_ptr<Tensor> Tensor::reDesc(const std::vector<size_t> new_shape, const std::vector<ptrdiff_t> new_strides) {
-    this->_desc->reDesc(new_shape, new_strides);
-    return shared_from_this();
-}

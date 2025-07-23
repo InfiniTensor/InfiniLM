@@ -12,6 +12,28 @@ void InferenceContext::ensure_workspace(size_t required_size) {
     }
 }
 
+void InferenceContext::add(std::shared_ptr<Tensor> c,
+                           std::shared_ptr<Tensor> a,
+                           std::shared_ptr<Tensor> b) {
+    size_t key = CacheManager::createDescriptorKey(c, a, b,
+                                                   nullptr, nullptr);
+
+    infiniopAddDescriptor_t desc;
+    if (!cache_manager->getAddDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateAddDescriptor(rsrc->handle, &desc, c->desc(), a->desc(), b->desc()));
+        cache_manager->putAddDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetAddWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopAdd(
+        desc, workspace, workspace_size,
+        c->data(), a->data(), b->data(), stream));
+}
+
 void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
                                std::shared_ptr<Tensor> x,
                                std::shared_ptr<Tensor> w,
@@ -164,4 +186,28 @@ void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
         out->data(), prob->data(),
         random_val, top_p, top_k, temperature,
         stream));
+}
+
+void InferenceContext::linear(std::shared_ptr<Tensor> c,
+                              std::shared_ptr<Tensor> a,
+                              std::shared_ptr<Tensor> b,
+                              float alpha, float beta,
+                              std::shared_ptr<Tensor> residual) {
+    if (residual) {
+        if (residual->data() == c->data()) {
+            if (beta == 0.0) {
+                gemm(c, a, b, alpha, 1.0);
+            } else {
+                auto c_copy = Tensor::buffer(c->dtype(), c->shape(), rsrc->memory_pool);
+                c_copy->copyFrom(c, rsrc->handle, stream);
+                gemm(c, a, b, alpha, beta);
+                add(c, c, c_copy);
+            }
+        } else {
+            gemm(c, a, b, alpha, beta);
+            add(c, c, residual);
+        }
+    } else {
+        gemm(c, a, b, alpha, beta);
+    }
 }

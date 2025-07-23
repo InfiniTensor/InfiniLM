@@ -35,6 +35,7 @@ inline size_t computeTensorDescHash(std::shared_ptr<Tensor> tensor) {
 }
 
 enum class OperatorType {
+    ADD,
     RMS_NORM,
     GEMM,
     ROPE,
@@ -66,6 +67,9 @@ private:
 
     void destroyDescriptor(DescriptorType &desc) {
         switch (opType) {
+        case OperatorType::ADD:
+            infiniopDestroyAddDescriptor(desc);
+            break;
         case OperatorType::RMS_NORM:
             infiniopDestroyRMSNormDescriptor(desc);
             break;
@@ -178,6 +182,7 @@ class CacheManager {
 private:
     const size_t DEFAULT_CACHE_CAPACITY = 128;
 
+    LRUDescriptorCache<infiniopAddDescriptor_t> add_cache;
     LRUDescriptorCache<infiniopRMSNormDescriptor_t> rms_norm_cache;
     LRUDescriptorCache<infiniopGemmDescriptor_t> gemm_cache;
     LRUDescriptorCache<infiniopRoPEDescriptor_t> rope_cache;
@@ -187,13 +192,23 @@ private:
     LRUDescriptorCache<infiniopRandomSampleDescriptor_t> random_sample_cache;
 
 public:
-    CacheManager(size_t capacity = 100) : rms_norm_cache(capacity, OperatorType::RMS_NORM),
+    CacheManager(size_t capacity = 100) : add_cache(capacity, OperatorType::ADD),
+                                          rms_norm_cache(capacity, OperatorType::RMS_NORM),
                                           gemm_cache(capacity, OperatorType::GEMM),
                                           rope_cache(capacity, OperatorType::ROPE),
                                           rearrange_cache(capacity, OperatorType::REARRANGE),
                                           causal_softmax_cache(capacity, OperatorType::CAUSAL_SOFTMAX),
                                           swiglu_cache(capacity, OperatorType::SWIGLU),
                                           random_sample_cache(capacity, OperatorType::RANDOM_SAMPLE) {}
+
+    // Add operations
+    bool getAddDescriptor(size_t key, infiniopAddDescriptor_t &desc) {
+        return add_cache.get(key, desc);
+    }
+
+    void putAddDescriptor(size_t key, const infiniopAddDescriptor_t &desc) {
+        add_cache.put(key, desc);
+    }
 
     // RMSNorm operations
     bool getRMSNormDescriptor(size_t key, infiniopRMSNormDescriptor_t &desc) {

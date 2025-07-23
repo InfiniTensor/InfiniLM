@@ -258,6 +258,49 @@ std::string Tensor::info() const {
     return this->_desc->info();
 }
 
+std::shared_ptr<Tensor> Tensor::view() const {
+    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
+    tensor->_storage = this->_storage;
+    tensor->_desc = TensorDesc::create(this->dtype(), this->shape(), this->strides());
+    tensor->_offset = this->_offset;
+    return tensor;
+}
+
+std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> new_shape, const std::vector<ptrdiff_t> new_strides) const {
+    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
+    tensor->_storage = this->_storage;
+    tensor->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
+    tensor->_offset = this->_offset;
+    return tensor;
+}
+
+std::shared_ptr<Tensor> Tensor::viewReshaped(const std::vector<size_t> new_shape) const {
+    // First validate that the total number of elements matches
+    size_t current_elements = std::accumulate(_desc->shape().begin(), _desc->shape().end(),
+                                              1, std::multiplies<size_t>());
+    size_t new_elements = std::accumulate(new_shape.begin(), new_shape.end(),
+                                          1, std::multiplies<size_t>());
+    ASSERT_EQ(current_elements, new_elements);
+
+    // Create a copy of the current shape and strides
+    auto current_shape = _desc->shape();
+
+    // Start with the current tensor
+    auto result = this->view();
+
+    // Step 1: Merge all dimensions (if there are more than 1)
+    if (current_shape.size() > 1) {
+        result = result->dimMerge(0, current_shape.size() - 1);
+    }
+
+    // Step 2: Split into the new shape
+    if (new_shape.size() > 1) {
+        result = result->dimSplit(0, new_shape);
+    }
+
+    return result;
+}
+
 void Tensor::debug(const std::string &filename) const {
     RUN_INFINI(infinirtDeviceSynchronize());
 

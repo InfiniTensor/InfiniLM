@@ -166,7 +166,6 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     }
 
     // Attention
-    qkv_buf->dimSplit(1, {nh + nkvh * 2, dh}); // (ntok, nh + 2 * nkvh, dh)
     // attention inner
     size_t max_qk_size = 0;
     size_t max_seq_len = 0;
@@ -194,56 +193,49 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         // rms norm
         ctx.rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
         // qkv_proj
-        qkv_buf->dimMerge(1, 2);
         if (has_qkv_bias) {
-            ctx.rearrange(qkv_buf, rsrc.b_attn_qkv[layer]->reDesc({ntok, (nh + nkvh * 2) * dh}, {0, 1}));
+            ctx.rearrange(qkv_buf, rsrc.b_attn_qkv[layer]->view({ntok, (nh + nkvh * 2) * dh}, {0, 1}));
         }
-        ctx.gemm(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, has_qkv_bias ? 1.0 : 0.0);
+        ctx.linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, has_qkv_bias ? qkv_buf : nullptr);
         // rope
-        qkv_buf->dimSplit(1, {nh + nkvh * 2, dh});
-        ctx.rope(qkv_buf->slice(1, 0, nh), qkv_buf->slice(1, 0, nh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-        ctx.rope(qkv_buf->slice(1, nh, nkvh), qkv_buf->slice(1, nh, nkvh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+        auto qkv_rope = qkv_buf->viewReshaped({ntok, nh + nkvh * 2, dh});
+        ctx.rope(qkv_rope->slice(1, 0, nh), qkv_rope->slice(1, 0, nh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+        ctx.rope(qkv_rope->slice(1, nh, nkvh), qkv_rope->slice(1, nh, nkvh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
 
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
             auto past_len = req_pos[req];
             auto seq_len = req_lens[req];
             auto total_len = past_len + seq_len;
-            auto o = o_buf->dimSplit(1, {nh, dh})->slice({{0, token_offset, seq_len}});
-            auto q = qkv_buf->slice({{0, token_offset, seq_len}, {1, 0, nh}});
-            auto k = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
-            auto v = qkv_buf->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
+            auto o = o_buf->viewReshaped({ntok, nh, dh})->slice({{0, token_offset, seq_len}})->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3});
+            auto q = qkv_rope->slice({{0, token_offset, seq_len}, {1, 0, nh}})->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3});
+            auto k = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
+            auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
 
             // self attention
             // concat
             ctx.rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
             ctx.rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
             // qk
-            ctx.rearrange(rearrange_q_buf->dimSplit(1, {ngroup, seq_len}),
-                          q->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3}));
-            qk_buf->dimSplit(1, {seq_len, total_len});
-            qk_buf->dimSplit(0, {nkvh, ngroup});
-            qk_buf->dimMerge(1, 2);
-            ctx.gemm(qk_buf, rearrange_q_buf->dimMerge(1, 2), kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0}), 1. / sqrt(dh), 0.0);
+            auto q_rearrange = rearrange_q_buf->viewReshaped({nkvh, ngroup, seq_len, dh});
+            ctx.rearrange(q_rearrange, q);
+            auto qk_gemm = qk_buf->viewReshaped({nkvh, ngroup * seq_len, total_len});
+            auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
+            ctx.linear(qk_gemm, rearrange_q_buf, k_gemm, 1. / sqrt(dh), 0.0, nullptr);
             // softmax
-            qk_buf->dimSplit(1, {ngroup, seq_len});
-            qk_buf->dimMerge(0, 1);
-            ctx.causalSoftmax(qk_buf, qk_buf);
-            qk_buf->dimSplit(0, {nkvh, ngroup});
-            qk_buf->dimMerge(1, 2);
-            ctx.gemm(attn_val_buf, qk_buf, kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2}), 1.0, 0.0);
-            qk_buf->dimSplit(1, {ngroup, seq_len});
-            qk_buf->dimMerge(2, 3);
-            qk_buf->dimMerge(0, 1);
+            auto qk_softmax = qk_buf->viewReshaped({nh, seq_len, total_len});
+            ctx.causalSoftmax(qk_softmax, qk_softmax);
+            auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
+            ctx.linear(attn_val_buf, qk_gemm, v_gemm, 1.0, 0.0, nullptr);
             // rearrange attn val
-            attn_val_buf->dimSplit(0, {nkvh, ngroup});
-            ctx.rearrange(o->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3}), attn_val_buf);
-            attn_val_buf->dimMerge(0, 1);
+            auto attn_val_gemm = attn_val_buf->viewReshaped({nkvh, ngroup, max_seq_len, dh});
+            ctx.rearrange(o, attn_val_gemm);
 
             token_offset += seq_len;
         }
+
         // o_proj
-        ctx.gemm(logits_in, o_buf->dimMerge(1, 2), rsrc.w_attn_out[layer], 1.0, idev == 0 ? 1.0 : 0.0); // only rank 0 adds residual
+        ctx.linear(logits_in, o_buf, rsrc.w_attn_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr); // only rank 0 adds residual
 
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
@@ -253,11 +245,10 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             RUN_INFINI(infinirtStreamSynchronize(stream));
         }
         // 2. FFN
-        // rms_norm
         ctx.rmsnorm(logits_out, logits_in, rsrc.w_ffn_norm[layer], meta.epsilon);
-        ctx.gemm(gate_up_buf, logits_out, rsrc.w_ffn_gate_up[layer], 1.0, 0.0);
+        ctx.linear(gate_up_buf, logits_out, rsrc.w_ffn_gate_up[layer], 1.0, 0.0, nullptr);
         ctx.swiglu(gate_buf, up_buf, gate_buf);
-        ctx.gemm(logits_in, gate_buf, rsrc.w_ffn_down[layer], 1.0, idev == 0 ? 1.0 : 0.0); // only rank 0 adds residual
+        ctx.linear(logits_in, gate_buf, rsrc.w_ffn_down[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr); // only rank 0 adds residual
 
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
@@ -278,15 +269,15 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                         rsrc.w_out_norm,
                         meta.epsilon);
         }
-        ctx.gemm(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0);
+        ctx.linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0, nullptr);
         std::random_device _rd;
         std::mt19937 gen(_rd());
         token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
             auto seq_len = req_lens[req];
             float random_val = std::uniform_real_distribution<float>(0, 1)(gen);
-            ctx.randomSample(result_buf->reDesc({}, {}),
-                             prob_buf->reDesc({dvoc}, {1}),
+            ctx.randomSample(result_buf->view({}, {}),
+                             prob_buf->view({dvoc}, {1}),
                              random_val, topp[req], topk[req], temperature[req]);
             token_offset += seq_len;
         }

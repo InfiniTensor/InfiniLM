@@ -16,6 +16,9 @@ struct InferenceContext {
 
     void ensure_workspace(size_t required_size);
 
+    void add(std::shared_ptr<Tensor> c,
+             std::shared_ptr<Tensor> a,
+             std::shared_ptr<Tensor> b);
     void rmsnorm(std::shared_ptr<Tensor> y,
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
@@ -39,4 +42,10 @@ struct InferenceContext {
     void randomSample(std::shared_ptr<Tensor> out,
                       std::shared_ptr<Tensor> prob,
                       float random_val, float top_p, uint32_t top_k, float temperature);
+
+    void linear(std::shared_ptr<Tensor> c,
+                std::shared_ptr<Tensor> a,
+                std::shared_ptr<Tensor> b,
+                float alpha, float beta,
+                std::shared_ptr<Tensor> residual);
 };
