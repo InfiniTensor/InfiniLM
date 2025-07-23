@@ -273,27 +273,10 @@ public:
         random_sample_cache.put(key, desc);
     }
 
-    static size_t createDescriptorKey(std::shared_ptr<Tensor> desc0,
-                                      std::shared_ptr<Tensor> desc1,
-                                      std::shared_ptr<Tensor> desc2,
-                                      std::shared_ptr<Tensor> desc3,
-                                      std::shared_ptr<Tensor> desc4) {
+    template <typename... Tensors>
+    static size_t createDescriptorKey(Tensors... tensors) {
         size_t seed = 0;
-        if (desc0) {
-            hash_combine(seed, computeTensorDescHash(desc0));
-        }
-        if (desc1) {
-            hash_combine(seed, computeTensorDescHash(desc1));
-        }
-        if (desc2) {
-            hash_combine(seed, computeTensorDescHash(desc2));
-        }
-        if (desc3) {
-            hash_combine(seed, computeTensorDescHash(desc3));
-        }
-        if (desc4) {
-            hash_combine(seed, computeTensorDescHash(desc4));
-        }
+        (..., (tensors ? hash_combine(seed, computeTensorDescHash(tensors)) : (void)0));
         return seed;
     }
 };
