@@ -15,11 +15,11 @@ __C infiniStatus_t infiniopCreateMoECombineDescriptor(
     infiniopTensorDescriptor_t aux_info_desc,
     infiniopTensorDescriptor_t output_desc) {
 
-#define CREATE(CASE, NAMESPACE)                                                   \\
-    case CASE:                                                                    \\
-        return op::moe_combine::NAMESPACE::Descriptor::create(                     \\
-            handle,                                                               \\
-            reinterpret_cast<op::moe_combine::NAMESPACE::Descriptor **>(desc_ptr), \\
+#define CREATE(CASE, NAMESPACE)                                                  \
+    case CASE:                                                                    \
+        return op::moe_combine::NAMESPACE::Descriptor::create(                    \
+            handle,                                                               \
+            reinterpret_cast<op::moe_combine::NAMESPACE::Descriptor **>(desc_ptr), \
             permuted_input_desc, gating_weights_desc, aux_info_desc, output_desc)
 
     switch (handle->device) {
@@ -38,9 +38,9 @@ __C infiniStatus_t infiniopCreateMoECombineDescriptor(
 __C infiniStatus_t
 infiniopDestroyMoECombineDescriptor(infiniopMoECombineDescriptor_t desc) {
 
-#define DELETE(CASE, NAMESPACE)                                                           \\
-    case CASE:                                                                            \\
-        delete reinterpret_cast<const op::moe_combine::NAMESPACE::Descriptor *>(desc); \\
+#define DELETE(CASE, NAMESPACE)                                                          \
+    case CASE:                                                                           \
+        delete reinterpret_cast<const op::moe_combine::NAMESPACE::Descriptor *>(desc); \
         return INFINI_STATUS_SUCCESS;
 
     switch (desc->device_type) {
@@ -60,10 +60,10 @@ __C infiniStatus_t infiniopMoECombine(
     const void *permuted_input, const void *gating_weights,
     const void *aux_info, void *stream) {
 
-#define CALCULATE(CASE, NAMESPACE)                                                \\
-    case CASE:                                                                    \\
-        return reinterpret_cast<const op::moe_combine::NAMESPACE::Descriptor *>( \\
-                   desc)                                                          \\
+#define CALCULATE(CASE, NAMESPACE)                                               \
+    case CASE:                                                                    \
+        return reinterpret_cast<const op::moe_combine::NAMESPACE::Descriptor *>( \
+                   desc)                                                          \
             ->calculate(permuted_input, gating_weights, aux_info, output, stream)
 
     switch (desc->device_type) {

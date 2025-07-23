@@ -39,7 +39,7 @@ infiniStatus_t Descriptor::create(
         permuted_input_desc, gating_weights_desc, aux_info_desc, output_desc);
     CHECK_RESULT(result);
 
-    *desc_ptr = new Descriptor(result.take(), nullptr, INFINI_DEVICE_NVIDIA,
+    *desc_ptr = new Descriptor(permuted_input_desc->dtype, result.take(), 0, nullptr, INFINI_DEVICE_NVIDIA,
                                handle_->device_id);
     return INFINI_STATUS_SUCCESS;
 }

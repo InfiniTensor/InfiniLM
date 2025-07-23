@@ -15,13 +15,13 @@ __C infiniStatus_t infiniopCreateMoEDispatchDescriptor(
     infiniopTensorDescriptor_t permuted_output_desc,
     infiniopTensorDescriptor_t aux_info_desc) {
 
-#define CREATE(CASE, NAMESPACE)                                                   \\
-    case CASE:                                                                    \\
-        return op::moe_dispatch::NAMESPACE::Descriptor::create(                    \\
-            handle,                                                               \\
-            reinterpret_cast<op::moe_dispatch::NAMESPACE::Descriptor **>(         \\
-                desc_ptr),                                                        \\
-            num_experts, input_desc, indices_desc, permuted_output_desc,          \\
+#define CREATE(CASE, NAMESPACE)                                                  \
+    case CASE:                                                                    \
+        return op::moe_dispatch::NAMESPACE::Descriptor::create(                    \
+            handle,                                                               \
+            reinterpret_cast<op::moe_dispatch::NAMESPACE::Descriptor **>(         \
+                desc_ptr),                                                        \
+            num_experts, input_desc, indices_desc, permuted_output_desc,          \
             aux_info_desc)
 
     switch (handle->device) {
@@ -40,10 +40,10 @@ __C infiniStatus_t infiniopCreateMoEDispatchDescriptor(
 __C infiniStatus_t
 infiniopDestroyMoEDispatchDescriptor(infiniopMoEDispatchDescriptor_t desc) {
 
-#define DELETE(CASE, NAMESPACE)                                                     \\
-    case CASE:                                                                      \\
-        delete reinterpret_cast<const op::moe_dispatch::NAMESPACE::Descriptor *>( \\
-            desc);                                                                  \\
+#define DELETE(CASE, NAMESPACE)                                                     \
+    case CASE:                                                                      \
+        delete reinterpret_cast<const op::moe_dispatch::NAMESPACE::Descriptor *>( \
+            desc);                                                                  \
         return INFINI_STATUS_SUCCESS;
 
     switch (desc->device_type) {
@@ -63,10 +63,10 @@ __C infiniStatus_t infiniopMoEDispatch(
     void *aux_info, const void *input, const void *indices,
     void *stream) {
 
-#define CALCULATE(CASE, NAMESPACE)                                                  \\
-    case CASE:                                                                      \\
-        return reinterpret_cast<const op::moe_dispatch::NAMESPACE::Descriptor *>( \\
-                   desc)                                                            \\
+#define CALCULATE(CASE, NAMESPACE)                                                  \
+    case CASE:                                                                      \
+        return reinterpret_cast<const op::moe_dispatch::NAMESPACE::Descriptor *>( \
+                   desc)                                                            \
             ->calculate(input, indices, permuted_output, aux_info, stream)
 
     switch (desc->device_type) {

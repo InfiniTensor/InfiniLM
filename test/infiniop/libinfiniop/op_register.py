@@ -454,6 +454,42 @@ def swiglu_(lib):
         infiniopOperatorDescriptor_t,
     ]
 
+
+@OpRegister.operator
+def topk_(lib):
+    lib.infiniopCreateTopKDescriptor.restype = c_int32
+    lib.infiniopCreateTopKDescriptor.argtypes = [
+        infiniopHandle_t,
+        POINTER(infiniopOperatorDescriptor_t),
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        c_int32,
+        c_int32,
+        c_int32,
+        c_int32,
+    ]
+    lib.infiniopGetTopKWorkspaceSize.restype = c_int32
+    lib.infiniopGetTopKWorkspaceSize.argtypes = [
+        infiniopOperatorDescriptor_t,
+        POINTER(c_size_t),
+    ]
+    lib.infiniopTopK.restype = c_int32
+    lib.infiniopTopK.argtypes = [
+        infiniopOperatorDescriptor_t,
+        c_void_p,
+        c_size_t,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+    ]
+    lib.infiniopDestroyTopKDescriptor.restype = c_int32
+    lib.infiniopDestroyTopKDescriptor.argtypes = [
+        infiniopOperatorDescriptor_t,
+    ]
+
+
 @OpRegister.operator
 def conv_(lib):
     lib.infiniopCreateConvDescriptor.restype = c_int32

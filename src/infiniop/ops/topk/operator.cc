@@ -20,12 +20,12 @@ infiniopCreateTopKDescriptor(infiniopHandle_t handle,
                              int strategy, int n_group,
                              int topk_group) {
 
-#define CREATE(CASE, NAMESPACE)                                                \\
-    case CASE:                                                                 \\
-        return op::topk::NAMESPACE::Descriptor::create(                        \\
-            handle,                                                            \\
-            reinterpret_cast<op::topk::NAMESPACE::Descriptor **>(desc_ptr),     \\
-            input_desc, output_val_desc, output_ind_desc, bias_desc, k,         \\
+#define CREATE(CASE, NAMESPACE)                                                \
+    case CASE:                                                                 \
+        return op::topk::NAMESPACE::Descriptor::create(                        \
+            handle,                                                            \
+            reinterpret_cast<op::topk::NAMESPACE::Descriptor **>(desc_ptr),     \
+            input_desc, output_val_desc, output_ind_desc, bias_desc, k,         \
             strategy, n_group, topk_group)
 
     switch (handle->device) {
