@@ -69,10 +69,10 @@ exp_(const double val) {
 
 __forceinline__ __device__ __half
 exp_(const __half x) {
-    return hexp(x);
+    return __float2half(expf(__half2float(x)));
 }
 
 __forceinline__ __device__ __nv_bfloat16
 exp_(const __nv_bfloat16 x) {
-    return hexp(x);
+    return __float2bfloat16(expf(__bfloat162float(x)));
 }

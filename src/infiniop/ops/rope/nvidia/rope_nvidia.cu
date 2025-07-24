@@ -1,6 +1,5 @@
 #include "../../../devices/nvidia/nvidia_common.cuh"
 #include "rope_nvidia.cuh"
-
 #include "../../../devices/nvidia/nvidia_kernel_common.cuh"
 
 #include "../cuda/kernel.cuh"
