@@ -30,7 +30,7 @@
             infiniopTensorDescriptor_t output_val_desc,                        \
             infiniopTensorDescriptor_t output_ind_desc,                        \
             infiniopTensorDescriptor_t bias_desc, int k,                       \
-            int strategy, int n_group, int topk_group);                        \
+            TopKStrategy strategy, int n_group, int topk_group);               \
                                                                                \
         infiniStatus_t calculate(const void *input, void *output_val,          \
                                  void *output_ind, const void *bias,           \

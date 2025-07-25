@@ -20,7 +20,7 @@ __C __export size_t
 infiniopGetTopKWorkspaceSize(infiniopTopKDescriptor_t desc);
 
 __C __export infiniStatus_t
-infiniopTopK(infiniopTopKDescriptor_t desc, const void *input, void *output_val,
+infiniopTopKCalculate(infiniopTopKDescriptor_t desc, const void *input, void *output_val,
            void *output_ind, const void *bias, void *workspace, void *stream);
 
 #endif 

@@ -19,11 +19,11 @@ infiniStatus_t Descriptor::create(
 	infiniopTensorDescriptor_t input_desc,
 	infiniopTensorDescriptor_t output_val_desc,
 	infiniopTensorDescriptor_t output_ind_desc,
-	infiniopTensorDescriptor_t bias_desc, int k, int strategy,
+	infiniopTensorDescriptor_t bias_desc, int k, TopKStrategy strategy,
 	int n_group, int topk_group) {
 	auto result =
 		TopKInfo::create(input_desc, output_val_desc, output_ind_desc,
-							bias_desc, k, static_cast<TopKStrategy>(strategy), n_group, topk_group);
+							bias_desc, k, strategy, n_group, topk_group);
 	CHECK_RESULT(result);
 
 	*desc_ptr = new Descriptor(result. take(), nullptr, INFINI_DEVICE_NVIDIA,
@@ -31,7 +31,7 @@ infiniStatus_t Descriptor::create(
 	return INFINI_STATUS_SUCCESS;
 }
 
-size_t Descriptor::getWorkspaceSize() const { return _info.workspace_size(); }
+size_t Descriptor::getWorkspaceSize() const { return _info.workspace_size; }
 
 template <typename T>
 __global__ void add_bias_kernel(T *data, const T *bias, int num_tokens,
@@ -215,14 +215,14 @@ void deepseek_v3_topk_router(const void *input, void *output_val,
                              void *workspace, const TopKInfo &info,
                              cudaStream_t stream) {
 
-    const int num_tokens = info.num_tokens();
-    const int num_experts = info.num_experts();
-    const int k = info.k();
+    const int num_tokens = info.num_tokens;
+    const int num_experts = info.num_experts;
+    const int k = info.k;
 
     get_topk_indices_kernel<T, IndType>(
         static_cast<const T *>(input), static_cast<const T *>(bias),
-        static_cast<IndType *>(output_ind), info.num_tokens(),
-        info.num_experts(), info.n_group(), info.topk_group(), info.k(),
+        static_cast<IndType *>(output_ind), info.num_tokens,
+        info.num_experts, info.n_group, info.topk_group, info.k,
         workspace, stream);
 
     float *scores_for_choice = static_cast<float *>(workspace);
@@ -301,9 +301,9 @@ template <typename T, typename IndType>
 void standard_topk_router(const void *input, void *output_val,
                           void *output_ind, const void *bias, void *workspace,
                           const TopKInfo &info, cudaStream_t stream) {
-    const int num_tokens = info.num_tokens();
-    const int num_experts = info.num_experts();
-    const int k = info.k();
+    const int num_tokens = info.num_tokens;
+    const int num_experts = info.num_experts;
+    const int k = info.k;
 
     cudaMemcpyAsync(workspace, input, num_tokens * num_experts * sizeof(T),
                     cudaMemcpyDeviceToDevice, stream);
@@ -330,20 +330,20 @@ void standard_topk_router(const void *input, void *output_val,
 infiniStatus_t Descriptor::calculate(const void *input, void *output_val,
                                      void *output_ind, const void *bias,
                                      void *workspace, void *stream) const {
-    if (_info.workspace_size() > 0 && workspace == nullptr) {
+    if (_info.workspace_size > 0 && workspace == nullptr) {
         return INFINI_STATUS_NULL_POINTER;
     }
 
-    if (_info.strategy() == DEEPSEEK_V3) {
-        if (_info.data_type() == INFINI_DTYPE_F32) {
+    if (_info.strategy == DEEPSEEK_V3) {
+        if (_info.data_type == INFINI_DTYPE_F32) {
             deepseek_v3_topk_router<float, int>(input, output_val, output_ind,
                                                 bias, workspace, _info,
                                                 (cudaStream_t)stream);
-        } else if (_info.data_type() == INFINI_DTYPE_F16) {
+        } else if (_info.data_type == INFINI_DTYPE_F16) {
             deepseek_v3_topk_router<half, int>(
                 input, output_val, output_ind, bias, workspace, _info,
                 (cudaStream_t)stream);
-        } else if (_info.data_type() == INFINI_DTYPE_BF16) {
+        } else if (_info.data_type == INFINI_DTYPE_BF16) {
             deepseek_v3_topk_router<__nv_bfloat16, int>(
                 input, output_val, output_ind, bias, workspace, _info,
                 (cudaStream_t)stream);
@@ -352,15 +352,15 @@ infiniStatus_t Descriptor::calculate(const void *input, void *output_val,
             return INFINI_STATUS_INTERNAL_ERROR;
         }
     } else { // STANDARD_SOFTMAX
-        if (_info.data_type() == INFINI_DTYPE_F32) {
+        if (_info.data_type == INFINI_DTYPE_F32) {
             standard_topk_router<float, int>(input, output_val, output_ind,
                                              bias, workspace, _info,
                                              (cudaStream_t)stream);
-        } else if (_info.data_type() == INFINI_DTYPE_F16) {
+        } else if (_info.data_type == INFINI_DTYPE_F16) {
             standard_topk_router<half, int>(input, output_val, output_ind,
                                             bias, workspace, _info,
                                             (cudaStream_t)stream);
-        } else if (_info.data_type() == INFINI_DTYPE_BF16) {
+        } else if (_info.data_type == INFINI_DTYPE_BF16) {
             standard_topk_router<__nv_bfloat16, int>(
                 input, output_val, output_ind, bias, workspace, _info,
                 (cudaStream_t)stream);

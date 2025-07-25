@@ -1,6 +1,7 @@
 #include "ops.hpp"
 #include "utils.hpp"
 #include <infinirt.h>
+#include "infiniop/ops/topk.h"
 #include <iomanip>
 #include <iostream>
 

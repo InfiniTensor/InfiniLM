@@ -1,5 +1,4 @@
 add_rules("mode.debug", "mode.release")
-set_policy("build.pic", true)
 -- Define color codes
 local GREEN = '\27[0;32m'
 local YELLOW = '\27[1;33m'
@@ -43,7 +42,7 @@ end
 
 -- 英伟达
 option("nv-gpu")
-    set_default(true)
+    set_default(false)
     set_showmenu(true)
     set_description("Whether to compile implementations for Nvidia GPU")
 option_end()
@@ -195,34 +194,32 @@ target("infinirt")
     set_kind("shared")
 
     if has_config("cpu") then
-        add_deps("infinirt-cpu", {inherit = false})
+        add_deps("infinirt-cpu")
     end
     if has_config("nv-gpu") then
-        add_deps("infinirt-nvidia", {inherit = false})
+        add_deps("infinirt-nvidia")
     end
     if has_config("cambricon-mlu") then
-        add_deps("infinirt-cambricon", {inherit = false})
+        add_deps("infinirt-cambricon")
     end
     if has_config("ascend-npu") then
-        add_deps("infinirt-ascend", {inherit = false})
+        add_deps("infinirt-ascend")
     end
     if has_config("metax-gpu") then
-        add_deps("infinirt-metax", {inherit = false})
+        add_deps("infinirt-metax")
     end
     if has_config("moore-gpu") then
-        add_deps("infinirt-moore", {inherit = false})
+        add_deps("infinirt-moore")
     end
     if has_config("iluvatar-gpu") then
-        add_deps("infinirt-iluvatar", {inherit = false})
+        add_deps("infinirt-iluvatar")
     end
     if has_config("kunlun-xpu") then
-        add_deps("infinirt-kunlun", {inherit = false})
+        add_deps("infinirt-kunlun")
     end
     set_languages("cxx17")
     set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
     add_files("src/infinirt/*.cc")
-	add_files("src/infinirt/cpu/*.cc")
-	add_files("src/infinirt/cuda/*.cu")
     add_installfiles("include/infinirt.h", {prefixdir = "include"})
 target_end()
 
@@ -231,13 +228,13 @@ target("infiniop")
     add_deps("infinirt")
 
     if has_config("cpu") then
-        add_deps("infiniop-cpu", {inherit = false})
+        add_deps("infiniop-cpu")
     end
     if has_config("nv-gpu") then
-        add_deps("infiniop-nvidia", {inherit = false})
+        add_deps("infiniop-nvidia")
     end
     if has_config("iluvatar-gpu") then
-        add_deps("infiniop-iluvatar", {inherit = false})
+        add_deps("infiniop-iluvatar")
     end
     if has_config("sugon-dcu") then
         local builddir = string.format(
@@ -255,19 +252,19 @@ target("infiniop")
     end
 
     if has_config("cambricon-mlu") then
-        add_deps("infiniop-cambricon", {inherit = false})
+        add_deps("infiniop-cambricon")
     end
     if has_config("ascend-npu") then
-        add_deps("infiniop-ascend", {inherit = false})
+        add_deps("infiniop-ascend")
     end
     if has_config("metax-gpu") then
-        add_deps("infiniop-metax", {inherit = false})
+        add_deps("infiniop-metax")
     end
     if has_config("moore-gpu") then
-        add_deps("infiniop-moore", {inherit = false})
+        add_deps("infiniop-moore")
     end
     if has_config("kunlun-xpu") then
-        add_deps("infiniop-kunlun", {inherit = false})
+        add_deps("infiniop-kunlun")
     end
     set_languages("cxx17")
     add_files("src/infiniop/devices/handle.cc")

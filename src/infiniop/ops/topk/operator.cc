@@ -26,7 +26,7 @@ infiniopCreateTopKDescriptor(infiniopHandle_t handle,
             handle,                                                            \
             reinterpret_cast<op::topk::NAMESPACE::Descriptor **>(desc_ptr),     \
             input_desc, output_val_desc, output_ind_desc, bias_desc, k,         \
-            strategy, n_group, topk_group)
+            static_cast<op::topk::TopKStrategy>(strategy), n_group, topk_group)
 
     switch (handle->device) {
 
@@ -69,7 +69,7 @@ __C size_t infiniopGetTopKWorkspaceSize(infiniopTopKDescriptor_t desc) {
     }
 }
 
-__C infiniStatus_t infiniopTopK(infiniopTopKDescriptor_t desc,
+__C infiniStatus_t infiniopTopKCalculate(infiniopTopKDescriptor_t desc,
                                 const void *input, void *output_val,
                                 void *output_ind, const void *bias,
                                 void *workspace, void *stream) {
