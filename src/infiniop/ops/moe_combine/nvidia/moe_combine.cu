@@ -60,22 +60,22 @@ __global__ void kernel(const T *permuted_input, const T *gating_weights,
 infiniStatus_t
 Descriptor::calculate(const void *permuted_input, const void *gating_weights,
                     const void *aux_info, void *output, void *stream) const {
-    if (_info.data_type() != INFINI_DTYPE_F32) {
+    if (_info.data_type != INFINI_DTYPE_F32) {
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
     cudaMemsetAsync(output, 0,
-                    _info.num_tokens() * _info.hidden_dim() * sizeof(float),
+                    _info.num_tokens * _info.hidden_dim * sizeof(float),
                     (cudaStream_t)stream);
 
     dim3 grid(256);
     dim3 block(32, 32);
     kernel<float><<<grid, block, 0, (cudaStream_t)stream>>>(
         (const float *)permuted_input, (const float *)gating_weights,
-        (const int *)aux_info, (float *)output, _info.num_tokens(), _info.k(),
-        _info.hidden_dim());
+        (const int *)aux_info, (float *)output, _info.num_tokens, _info.k,
+        _info.hidden_dim);
 
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::moe_combine::cuda 
+} // namespace op::moe_combine::nvidia 
