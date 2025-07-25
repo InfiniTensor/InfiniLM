@@ -3,6 +3,8 @@ set(OPS
     causal_softmax.cpp
     clip.cpp
     gemm.cpp
+    moe_combine.cpp
+    moe_dispatch.cpp
     mul.cpp
     random_sample.cpp
     rearrange.cpp
