@@ -3,7 +3,7 @@
 #include "infiniop/ops/moe_combine.h"
 
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
-#include "cuda/moe_combine.cuh"
+#include "nvidia/moe_combine.cuh"
 #endif
 
 // ... (Add other backends like cpu, ascend, etc. here if they are implemented)
@@ -25,7 +25,7 @@ __C infiniStatus_t infiniopCreateMoECombineDescriptor(
     switch (handle->device) {
 
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
-        CREATE(INFINI_DEVICE_NVIDIA, cuda);
+        CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
     // ... (Add cases for other devices)
     default:
@@ -46,7 +46,7 @@ infiniopDestroyMoECombineDescriptor(infiniopMoECombineDescriptor_t desc) {
     switch (desc->device_type) {
 
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
-        DELETE(INFINI_DEVICE_NVIDIA, cuda);
+        DELETE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
     // ... (Add cases for other devices)
     default:
@@ -69,7 +69,7 @@ __C infiniStatus_t infiniopMoECombine(
     switch (desc->device_type) {
 
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
-        CALCULATE(INFINI_DEVICE_NVIDIA, cuda);
+        CALCULATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
     // ... (Add cases for other devices)
     default:

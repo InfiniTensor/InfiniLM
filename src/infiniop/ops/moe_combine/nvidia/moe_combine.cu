@@ -1,11 +1,41 @@
 #include "../../../devices/nvidia/nvidia_handle.cuh"
 #include "moe_combine.cuh"
 
-namespace op::moe_combine::cuda {
+namespace op::moe_combine::nvidia {
 
-struct Descriptor::Opaque {};
+struct Descriptor::Opaque {
+    std::shared_ptr<device::nvidia::Handle::Internal> internal;
+};
 
-Descriptor::~Descriptor() {}
+Descriptor::~Descriptor() {
+    delete _opaque;
+}
+
+
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_, Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t permuted_input_desc,
+    infiniopTensorDescriptor_t gating_weights_desc,
+    infiniopTensorDescriptor_t aux_info_desc,
+    infiniopTensorDescriptor_t output_desc) {
+
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
+    auto dtype = permuted_input_desc->dtype();
+
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_BF16);
+
+    auto result = MoECombineInfo::create(
+        permuted_input_desc, gating_weights_desc, aux_info_desc, output_desc);
+    CHECK_RESULT(result);
+
+
+	*desc_ptr = new Descriptor(dtype, result.take(), 0,
+	 new Opaque{handle->internal()}, handle->device,
+                               handle_->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
 
 template <typename T>
 __global__ void kernel(const T *permuted_input, const T *gating_weights,
@@ -27,23 +57,6 @@ __global__ void kernel(const T *permuted_input, const T *gating_weights,
                   data * weight);
     }
 }
-
-infiniStatus_t Descriptor::create(
-    infiniopHandle_t handle_, Descriptor **desc_ptr,
-    infiniopTensorDescriptor_t permuted_input_desc,
-    infiniopTensorDescriptor_t gating_weights_desc,
-    infiniopTensorDescriptor_t aux_info_desc,
-    infiniopTensorDescriptor_t output_desc) {
-
-    auto result = MoECombineInfo::create(
-        permuted_input_desc, gating_weights_desc, aux_info_desc, output_desc);
-    CHECK_RESULT(result);
-
-    *desc_ptr = new Descriptor(permuted_input_desc->dtype, result.take(), 0, nullptr, INFINI_DEVICE_NVIDIA,
-                               handle_->device_id);
-    return INFINI_STATUS_SUCCESS;
-}
-
 infiniStatus_t
 Descriptor::calculate(const void *permuted_input, const void *gating_weights,
                     const void *aux_info, void *output, void *stream) const {

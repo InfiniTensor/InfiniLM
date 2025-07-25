@@ -3,6 +3,6 @@
 
 #include "../moe_combine.h"
 
-DESCRIPTOR(cuda)
+DESCRIPTOR(nvidia)
 
 #endif // __MOE_COMBINE_CUDA_CUH__ 

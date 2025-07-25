@@ -1,59 +1,37 @@
 #include "../../../devices/nvidia/nvidia_handle.cuh"
 #include "topk.cuh"
-// #include "deepseek_v3_kernels.cuh" // No longer needed
-#include "../info.h"
 #include <cub/util_type.cuh>
 #include <cub/cub.cuh>
 #include <cfloat>
 
-namespace op::topk {
+namespace op::topk::nvidia {
 
-utils::Result<TopKInfo> TopKInfo::create(
-    infiniopTensorDescriptor_t input_desc,
-    infiniopTensorDescriptor_t output_val_desc,
-    infiniopTensorDescriptor_t output_ind_desc,
-    infiniopTensorDescriptor_t bias_desc, int k_val, TopKStrategy strategy,
-    int n_group, int topk_group) {
-    auto [dtype, dims] = input_desc->getDtypeAndDims();
-    if (dims.size() != 2) {
-        return utils::Result<TopKInfo>(
-            INFINI_STATUS_TENSOR_DIM_NOT_SUPPORT,
-            "TopK input tensor must be 2-dimensional.");
-    }
+struct Descriptor::Opaque {
+	std::shared_ptr<device::nvidia::Handle::Internal> internal;
+};
 
-    if (bias_desc != nullptr) {
-        auto [bias_dtype, bias_dims] = bias_desc->getDtypeAndDims();
-        if (bias_dims.size() != 1 || bias_dims[0] != dims[1]) {
-            return utils::Result<TopKInfo>(
-                INFINI_STATUS_TENSOR_DIM_NOT_SUPPORT,
-                "Bias tensor must be 1-dimensional and have size num_experts.");
-        }
-    }
-
-    int num_tokens = dims[0];
-    int num_experts = dims[1];
-    size_t workspace_size = 0;
-
-    if (strategy == DEEPSEEK_V3) {
-        // Workspace for Deepseek V3 TopK logic
-        workspace_size = (num_tokens * num_experts *
-                          sizeof(float)) + // for scores_for_choice
-                         (num_tokens * n_group * sizeof(float)) + // for group_scores
-                         (num_tokens * topk_group * sizeof(int)) + // for group_idx
-                         (num_tokens * num_experts * sizeof(char)); // for score_mask
-    } else { // STANDARD_SOFTMAX
-        // Workspace for standard softmax + top-k.
-        // We need a buffer for the softmax output.
-        workspace_size = num_tokens * num_experts * infiniop_dtype_size(dtype);
-    }
-
-    return TopKInfo(num_tokens, num_experts, k_val, dtype, workspace_size,
-                    strategy, n_group, topk_group);
+Descriptor::~Descriptor() {
+	delete _opaque;
 }
 
-} // namespace op::topk
+infiniStatus_t Descriptor::create(
+	infiniopHandle_t handle, Descriptor **desc_ptr,
+	infiniopTensorDescriptor_t input_desc,
+	infiniopTensorDescriptor_t output_val_desc,
+	infiniopTensorDescriptor_t output_ind_desc,
+	infiniopTensorDescriptor_t bias_desc, int k, int strategy,
+	int n_group, int topk_group) {
+	auto result =
+		TopKInfo::create(input_desc, output_val_desc, output_ind_desc,
+							bias_desc, k, static_cast<TopKStrategy>(strategy), n_group, topk_group);
+	CHECK_RESULT(result);
 
-namespace op::topk::cuda {
+	*desc_ptr = new Descriptor(result. take(), nullptr, INFINI_DEVICE_NVIDIA,
+								handle->device_id);
+	return INFINI_STATUS_SUCCESS;
+}
+
+size_t Descriptor::getWorkspaceSize() const { return _info.workspace_size(); }
 
 template <typename T>
 __global__ void add_bias_kernel(T *data, const T *bias, int num_tokens,
@@ -229,28 +207,7 @@ __global__ void normalize_topk_weights_kernel(T *topk_weights, int num_tokens,
     }
 }
 
-struct Descriptor::Opaque {};
 
-Descriptor::~Descriptor() {}
-
-infiniStatus_t Descriptor::create(
-    infiniopHandle_t handle, Descriptor **desc_ptr,
-    infiniopTensorDescriptor_t input_desc,
-    infiniopTensorDescriptor_t output_val_desc,
-    infiniopTensorDescriptor_t output_ind_desc,
-    infiniopTensorDescriptor_t bias_desc, int k, TopKStrategy strategy,
-    int n_group, int topk_group) {
-    auto result =
-        TopKInfo::create(input_desc, output_val_desc, output_ind_desc,
-                         bias_desc, k, strategy, n_group, topk_group);
-    CHECK_RESULT(result);
-
-    *desc_ptr = new Descriptor(result.take(), nullptr, INFINI_DEVICE_NVIDIA,
-                               handle->device_id);
-    return INFINI_STATUS_SUCCESS;
-}
-
-size_t Descriptor::getWorkspaceSize() const { return _info.workspace_size(); }
 
 template <typename T, typename IndType>
 void deepseek_v3_topk_router(const void *input, void *output_val,
@@ -374,7 +331,7 @@ infiniStatus_t Descriptor::calculate(const void *input, void *output_val,
                                      void *output_ind, const void *bias,
                                      void *workspace, void *stream) const {
     if (_info.workspace_size() > 0 && workspace == nullptr) {
-        return INFINI_STATUS_WORKSPACE_NOT_SET;
+        return INFINI_STATUS_NULL_POINTER;
     }
 
     if (_info.strategy() == DEEPSEEK_V3) {
@@ -391,7 +348,8 @@ infiniStatus_t Descriptor::calculate(const void *input, void *output_val,
                 input, output_val, output_ind, bias, workspace, _info,
                 (cudaStream_t)stream);
         } else {
-            IT_TODO_HALT_MSG("Unsupported data type for TopK");
+			printf("Unsupported data type for TopK\n");
+            return INFINI_STATUS_INTERNAL_ERROR;
         }
     } else { // STANDARD_SOFTMAX
         if (_info.data_type() == INFINI_DTYPE_F32) {
@@ -407,11 +365,12 @@ infiniStatus_t Descriptor::calculate(const void *input, void *output_val,
                 input, output_val, output_ind, bias, workspace, _info,
                 (cudaStream_t)stream);
         } else {
-            IT_TODO_HALT_MSG("Unsupported data type for TopK");
+            printf("Unsupported data type for TopK\n");
+            return INFINI_STATUS_INTERNAL_ERROR;
         }
     }
 
     return INFINI_STATUS_SUCCESS;
 }
 
-} // namespace op::topk::cuda 
+} // namespace op::topk::nvidia 

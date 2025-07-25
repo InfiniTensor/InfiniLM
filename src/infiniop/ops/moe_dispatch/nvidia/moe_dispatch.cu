@@ -5,11 +5,39 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
-namespace op::moe_dispatch::cuda {
+namespace op::moe_dispatch::nvidia {
 
-struct Descriptor::Opaque {};
+struct Descriptor::Opaque {
+	std::shared_ptr<device::nvidia::Handle::Internal> internal;
+};
 
-Descriptor::~Descriptor() {}
+Descriptor::~Descriptor() {
+	delete _opaque;
+}
+
+
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_, Descriptor **desc_ptr, int num_experts,
+    infiniopTensorDescriptor_t input_desc,
+    infiniopTensorDescriptor_t indices_desc,
+    infiniopTensorDescriptor_t permuted_output_desc,
+    infiniopTensorDescriptor_t aux_info_desc) {
+
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
+    auto dtype = input_desc->dtype();
+
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_BF16);
+
+    auto result = MoEDispatchInfo::create(input_desc, indices_desc,
+                                          permuted_output_desc, aux_info_desc,
+                                          num_experts);
+    CHECK_RESULT(result);
+
+    *desc_ptr = new Descriptor(result.take(), new Opaque{handle->internal()},
+                               handle->device, handle_->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
 
 // Kernel to count how many tokens are assigned to each expert.
 __global__ void count_experts_kernel(const int *indices, int *expert_counts,
@@ -50,29 +78,12 @@ __global__ void dispatch_kernel(const T *input, const IndT *indices,
     }
 }
 
-infiniStatus_t Descriptor::create(
-    infiniopHandle_t handle_, Descriptor **desc_ptr, int num_experts,
-    infiniopTensorDescriptor_t input_desc,
-    infiniopTensorDescriptor_t indices_desc,
-    infiniopTensorDescriptor_t permuted_output_desc,
-    infiniopTensorDescriptor_t aux_info_desc) {
-
-    auto result = MoEDispatchInfo::create(input_desc, indices_desc,
-                                          permuted_output_desc, aux_info_desc,
-                                          num_experts);
-    CHECK_RESULT(result);
-
-    *desc_ptr = new Descriptor(result.take(), nullptr, INFINI_DEVICE_NVIDIA,
-                               handle_->device_id);
-    return INFINI_STATUS_SUCCESS;
-}
-
 infiniStatus_t Descriptor::calculate(const void *input, const void *indices,
                                      void *permuted_output, void *aux_info,
                                      void *stream) const {
     if (_info.data_type() != INFINI_DTYPE_F32 ||
         _info.index_type() != INFINI_DTYPE_I32) {
-        IT_TODO_HALT_MSG("Unsupported data type for MoE Dispatch");
+			return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
     int *expert_counts, *expert_offsets;

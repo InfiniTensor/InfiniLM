@@ -3,6 +3,6 @@
 
 #include "../moe_dispatch.h"
 
-DESCRIPTOR(cuda)
+DESCRIPTOR(nvidia)
 
 #endif // __MOE_DISPATCH_CUDA_CUH__ 

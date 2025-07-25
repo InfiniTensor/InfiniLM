@@ -3,6 +3,6 @@
 
 #include "../topk.h"
 
-DESCRIPTOR(cuda)
+DESCRIPTOR(nvidia)
 
 #endif // __TOPK_CUDA_CUH__ 

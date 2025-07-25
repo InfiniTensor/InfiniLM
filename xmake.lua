@@ -43,7 +43,7 @@ end
 
 -- 英伟达
 option("nv-gpu")
-    set_default(false)
+    set_default(true)
     set_showmenu(true)
     set_description("Whether to compile implementations for Nvidia GPU")
 option_end()
@@ -222,6 +222,7 @@ target("infinirt")
     set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
     add_files("src/infinirt/*.cc")
 	add_files("src/infinirt/cpu/*.cc")
+	add_files("src/infinirt/cuda/*.cu")
     add_installfiles("include/infinirt.h", {prefixdir = "include"})
 target_end()
 

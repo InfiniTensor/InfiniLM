@@ -5,7 +5,7 @@
 #include "topk.h"
 
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
-#include "cuda/topk.cuh"
+#include "nvidia/topk.cuh"
 #endif
 
 // ... (Add other backends like cpu, ascend, etc. here if they are implemented)
@@ -31,7 +31,7 @@ infiniopCreateTopKDescriptor(infiniopHandle_t handle,
     switch (handle->device) {
 
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
-    CREATE(INFINI_DEVICE_NVIDIA, cuda);
+    CREATE(INFINI_DEVICE_NVIDIA, nvidia);
 #endif
 #ifdef ENABLE_BANG_API
     CREATE(INFINI_DEVICE_BANG, bang);
@@ -61,7 +61,7 @@ __C size_t infiniopGetTopKWorkspaceSize(infiniopTopKDescriptor_t desc) {
     switch (desc->device_type) {
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
     case INFINI_DEVICE_NVIDIA:
-        return reinterpret_cast<op::topk::cuda::Descriptor *>(desc)
+        return reinterpret_cast<op::topk::nvidia::Descriptor *>(desc)
             ->getWorkspaceSize();
 #endif
     default:
@@ -80,7 +80,7 @@ __C infiniStatus_t infiniopTopK(infiniopTopKDescriptor_t desc,
     switch (desc->device_type) {
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_ILUVATAR_API)
     case INFINI_DEVICE_NVIDIA:
-        return reinterpret_cast<op::topk::cuda::Descriptor *>(desc)
+        return reinterpret_cast<op::topk::nvidia::Descriptor *>(desc)
             ->calculate(input, output_val, output_ind, bias, workspace, stream);
 #endif
     default:
