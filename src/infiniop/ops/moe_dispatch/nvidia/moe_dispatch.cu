@@ -81,47 +81,47 @@ __global__ void dispatch_kernel(const T *input, const IndT *indices,
 infiniStatus_t Descriptor::calculate(const void *input, const void *indices,
                                      void *permuted_output, void *aux_info,
                                      void *stream) const {
-    if (_info.data_type() != INFINI_DTYPE_F32 ||
-        _info.index_type() != INFINI_DTYPE_I32) {
+    if (_info.data_type != INFINI_DTYPE_F32 ||
+        _info.index_type != INFINI_DTYPE_I32) {
 			return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
 
     int *expert_counts, *expert_offsets;
-    size_t count_size = _info.num_experts() * sizeof(int);
+    size_t count_size = _info.num_experts * sizeof(int);
     cudaMalloc(&expert_counts, count_size);
     cudaMalloc(&expert_offsets, count_size);
     cudaMemsetAsync(expert_counts, 0, count_size, (cudaStream_t)stream);
 
-    dim3 count_grid((_info.num_tokens() * _info.k() + 255) / 256);
+    dim3 count_grid((_info.num_tokens * _info.k + 255) / 256);
     dim3 count_block(256);
     count_experts_kernel<<<count_grid, count_block, 0, (cudaStream_t)stream>>>(
-        (const int *)indices, expert_counts, _info.num_tokens(), _info.k());
+        (const int *)indices, expert_counts, _info.num_tokens, _info.k);
 
     void *d_temp_storage = nullptr;
     size_t temp_storage_bytes = 0;
     cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes,
                                   expert_counts, expert_offsets,
-                                  _info.num_experts());
+                                  _info.num_experts);
     cudaMalloc(&d_temp_storage, temp_storage_bytes);
     cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes,
                                   expert_counts, expert_offsets,
-                                  _info.num_experts(), (cudaStream_t)stream);
+                                  _info.num_experts, (cudaStream_t)stream);
 
     int *dispatch_offsets;
     cudaMalloc(&dispatch_offsets, count_size);
     cudaMemcpyAsync(dispatch_offsets, expert_offsets, count_size,
                     cudaMemcpyDeviceToDevice, (cudaStream_t)stream);
 
-    dim3 dispatch_grid(_info.num_tokens());
-    dim3 dispatch_block(_info.hidden_dim());
-    if (_info.hidden_dim() > 1024)
+    dim3 dispatch_grid(_info.num_tokens);
+    dim3 dispatch_block(_info.hidden_dim);
+    if (_info.hidden_dim > 1024)
         dispatch_block.x = 1024;
 
     dispatch_kernel<float, int><<<dispatch_grid, dispatch_block, 0,
                                  (cudaStream_t)stream>>>(
         (const float *)input, (const int *)indices, (float *)permuted_output,
-        dispatch_offsets, (int *)aux_info, _info.num_tokens(), _info.k(),
-        _info.hidden_dim());
+        dispatch_offsets, (int *)aux_info, _info.num_tokens, _info.k,
+        _info.hidden_dim);
 
     cudaFree(d_temp_storage);
     cudaFree(expert_counts);
