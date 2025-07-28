@@ -6,6 +6,23 @@
 #include <iostream>
 
 namespace infiniop_test::topk {
+
+namespace {
+std::string strategy_to_string(int strategy) {
+    // This mapping is based on the internal op::topk::TopKStrategy enum.
+    // 0: DEEPSEEK_V3
+    // 1: STANDARD_SOFTMAX
+    switch (strategy) {
+    case 0:
+        return "DEEPSEEK_V3";
+    case 1:
+        return "STANDARD_SOFTMAX";
+    default:
+        return "UNKNOWN";
+    }
+}
+} // namespace
+
 struct Test::Attributes {
     int k;
     int n_group;
@@ -120,7 +137,9 @@ std::string Test::toString() const {
     std::ostringstream oss;
     oss << op_name() << std::endl;
     oss << "- k=" << _attributes->k << ", n_group=" << _attributes->n_group
-        << ", topk_group=" << _attributes->topk_group << ", strategy=" << _attributes->strategy << std::endl;
+        << ", topk_group=" << _attributes->topk_group
+        << ", strategy=" << strategy_to_string(_attributes->strategy)
+        << std::endl;
     oss << "- input: " << _attributes->input->info() << std::endl;
     oss << "- bias: " << _attributes->bias->info() << std::endl;
     oss << "- output_val: " << _attributes->output_val->info() << std::endl;
