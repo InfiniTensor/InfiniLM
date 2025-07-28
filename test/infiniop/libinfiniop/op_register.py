@@ -168,6 +168,34 @@ def conv_(lib):
 
 
 @OpRegister.operator
+def moe_combine_(lib):
+    lib.infiniopCreateMoECombineDescriptor.restype = c_int32
+    lib.infiniopCreateMoECombineDescriptor.argtypes = [
+        infiniopHandle_t,
+        POINTER(infiniopOperatorDescriptor_t),
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+    ]
+
+    lib.infiniopMoECombine.restype = c_int32
+    lib.infiniopMoECombine.argtypes = [
+        infiniopOperatorDescriptor_t,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+    ]
+
+    lib.infiniopDestroyMoECombineDescriptor.restype = c_int32
+    lib.infiniopDestroyMoECombineDescriptor.argtypes = [
+        infiniopOperatorDescriptor_t,
+    ]
+
+
+@OpRegister.operator
 def gemm_(lib):
     lib.infiniopCreateGemmDescriptor.restype = c_int32
     lib.infiniopCreateGemmDescriptor.argtypes = [
