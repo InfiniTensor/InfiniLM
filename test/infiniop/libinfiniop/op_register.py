@@ -474,15 +474,12 @@ def topk_(lib):
         infiniopOperatorDescriptor_t,
         POINTER(c_size_t),
     ]
-    lib.infiniopTopK.restype = c_int32
-    lib.infiniopTopK.argtypes = [
+    lib.infiniopTopKCalculate.restype = c_int32
+    lib.infiniopTopKCalculate.argtypes = [
         infiniopOperatorDescriptor_t,
         c_void_p,
-        c_size_t,
         c_void_p,
-        c_void_p,
-        c_void_p,
-        c_void_p,
+        POINTER(c_size_t),
     ]
     lib.infiniopDestroyTopKDescriptor.restype = c_int32
     lib.infiniopDestroyTopKDescriptor.argtypes = [

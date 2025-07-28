@@ -15,6 +15,7 @@ from libinfiniop import (
     InfiniDtype,
     InfiniDtypeNames,
     InfiniDeviceNames,
+    InfiniDeviceEnum,
     infiniopOperatorDescriptor_t,
 )
 
@@ -154,8 +155,10 @@ if __name__ == "__main__":
     NUM_PRERUN = args.num_prerun
     NUM_ITERATIONS = args.num_iterations
 
-    # Execute tests
-    for device in get_test_devices(args):
-        test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
 
+    # only support nvidia now
+    for device in get_test_devices(args):
+        if device == InfiniDeviceEnum.NVIDIA:
+            test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
+    
     print("\033[92mTest passed!\033[0m") 

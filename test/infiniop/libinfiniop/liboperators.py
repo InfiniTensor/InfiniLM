@@ -42,8 +42,8 @@ def open_lib():
         libop_path = find_library_in_ld_path("bin", "infiniop.dll")
         librt_path = find_library_in_ld_path("bin", "infinirt.dll")
     elif system_name == "Linux":
-        libop_path = find_library_in_ld_path("lib", "libinfiniop.so")
-        librt_path = find_library_in_ld_path("lib", "libinfinirt.so")
+        libop_path = os.path.join(INFINI_ROOT, "lib", "libinfiniop.so")
+        librt_path = os.path.join(INFINI_ROOT, "lib", "libinfinirt.so")
 
     assert (
         libop_path is not None
@@ -52,7 +52,7 @@ def open_lib():
         librt_path is not None
     ), f"Cannot find infinirt.dll or libinfinirt.so. Check if INFINI_ROOT is set correctly."
 
-    librt = ctypes.CDLL(librt_path)
+    librt = ctypes.CDLL(librt_path, mode=ctypes.RTLD_GLOBAL)
     libop = ctypes.CDLL(libop_path)
     lib = InfiniLib(librt, libop)
     lib.infiniopCreateTensorDescriptor.argtypes = [
