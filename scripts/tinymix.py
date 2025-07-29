@@ -323,8 +323,8 @@ class TinyMixForCauslLM:
         state_dict = {}
         for file in sorted(Path(model_dir_path).glob("*.safetensors")):
             with safetensors.safe_open(file, "pt") as data:
-            for name in data.keys():
-                state_dict[name] = data.get_tensor(name)
+                for name in data.keys():
+                    state_dict[name] = data.get_tensor(name)
 
         naming = TinyMixWeightsNaming()
         self.meta = TinyMixMetaFromConfig(config, max_tokens=max_tokens)
