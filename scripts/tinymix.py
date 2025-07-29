@@ -1,3 +1,4 @@
+import os
 from typing import List
 from libinfinicore_infer import (
     TinyMixMetaCStruct,
@@ -14,7 +15,6 @@ from libinfinicore_infer import (
 from infer_task import InferTask, KVCache
 
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
-import os
 from pathlib import Path
 import safetensors
 import sys
