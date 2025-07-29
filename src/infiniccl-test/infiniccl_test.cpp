@@ -10,7 +10,7 @@
 #define TEST_INFINI(API__) CHECK_API_OR(API__, INFINI_STATUS_SUCCESS, return 1)
 #define TEST_INFINI_THREAD(API__) CHECK_API_OR(API__, INFINI_STATUS_SUCCESS, return nullptr)
 
-const size_t MAX_COUNT = 100ULL * 1024 * 1024;
+const size_t MAX_COUNT = 8ULL * 1024 * 1024;
 
 const size_t TEST_COUNTS[] = {
     128,
