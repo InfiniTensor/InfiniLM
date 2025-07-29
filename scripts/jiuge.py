@@ -95,7 +95,12 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
         self.scale_output = 1.0
         self.scale_o = 1.0
         self.scale_down = 1.0
-        if "fm9g" == config["model_type"]:
+        if (
+            "fm9g" == config["model_type"]
+            and "scale_emb" in config
+            and "scale_depth" in config
+            and "dim_model_base" in config
+        ):
             self.scale_input = config["scale_emb"]
             self.scale_output = config["hidden_size"] // config["dim_model_base"]
             self.scale_o = config["scale_depth"] / math.sqrt(
