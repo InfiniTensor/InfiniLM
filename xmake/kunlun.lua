@@ -1,10 +1,16 @@
 add_defines("ENABLE_KUNLUN_API")
 local KUNLUN_HOME = os.getenv("KUNLUN_HOME")
-local XTDK_DIR = path.join(KUNLUN_HOME, "XTDK")
+local XRE_DIR = path.join(KUNLUN_HOME, "xre")
+local XTDK_DIR = path.join(KUNLUN_HOME, "xtdk")
+local XDNN_DIR = path.join(KUNLUN_HOME, "xhpc", "xdnn")
 
 -- Add include dirs
-add_includedirs(path.join(KUNLUN_HOME, "include"), {public=true})
-add_linkdirs(path.join(KUNLUN_HOME, "lib64"))
+add_includedirs(path.join(XRE_DIR, "include"), {public=true})
+add_includedirs(path.join(XTDK_DIR, "include"), {public=true})
+add_includedirs(path.join(XDNN_DIR, "include"), {public=true})
+
+add_linkdirs(path.join(XRE_DIR, "so"))
+add_linkdirs(path.join(XDNN_DIR, "so"))
 add_links("xpurt")
 add_links("xpuapi")
 
@@ -18,7 +24,8 @@ rule("xpu")
     on_build_file(function (target, sourcefile)
 
         local objectfile = target:objectfile(sourcefile)
-        local basename = objectfile:gsub("%.o$", "")
+        print("Compiling:", sourcefile, "->", objectfile)
+        -- local basename = objectfile:gsub("%.o$", "")
         os.mkdir(path.directory(objectfile))
         local cc = path.join(XTDK_DIR, "bin/clang++")
         local includedirs = table.concat(target:get("includedirs"), " ")
@@ -27,20 +34,20 @@ rule("xpu")
             ["arm64"] = "aarch64-linux-gnu"
         }
 
-
         local args = {
-            "--sysroot=/",
+            -- "--sysroot=/",
             "--target=" .. arch_map[os.arch()],
             "-fPIC",
-            "-pie",
-            "--xpu-arch=xpu2",
-            "--basename", basename,
-            "-std=c++11",
+            -- "-pie",
+            "--xpu-arch=xpu3",
+            -- "--basename", basename,
+            "-std=c++17",
             "-O2",
             "-fno-builtin",
-            "-g",
+            -- "-g",
             "-c", sourcefile,
-            "-v"
+            "-o", objectfile
+            -- "-v"
         }
         
         for _, includedir in ipairs(target:get("includedirs")) do
@@ -48,10 +55,12 @@ rule("xpu")
         end
 
         -- print(args)
-        os.execv(cc, args)
+        local ok, code = os.execv(cc, args)
+        assert(ok == 0, "Compile failed: " .. sourcefile)
+
         table.insert(target:objectfiles(), objectfile)
-        table.insert(target:objectfiles(), basename .. ".device.bin.o")
-        print(target:objectfiles())
+        -- table.insert(target:objectfiles(), basename .. ".device.bin.o")
+        -- print(target:objectfiles())
     end)
 rule_end()
 
@@ -62,7 +71,7 @@ target("infiniop-kunlun")
     add_deps("infini-utils")
     on_install(function (target) end)
 
-    add_cxflags("-lstdc++ -fPIC")
+    add_cxflags("-lstdc++ -fPIC -Wno-error=unused-function")
     set_warnings("all", "error")
 
     set_languages("cxx17")
