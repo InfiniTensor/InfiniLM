@@ -14,7 +14,7 @@ target("infiniop-nvidia")
     if has_config("cudnn") then
         add_links("cudnn")
     end
-    add_cugencodes("native")
+    add_cugencodes("sm_80")
 
     on_load(function (target)
         import("lib.detect.find_tool")
@@ -91,6 +91,7 @@ target("infiniccl-nvidia")
         set_policy("build.cuda.devlink", true)
         set_toolchains("cuda")
         add_links("cudart")
+        add_cugencodes("sm_80")
 
         if not is_plat("windows") then
             add_cuflags("-Xcompiler=-fPIC")
