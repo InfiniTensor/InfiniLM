@@ -385,11 +385,6 @@ class MixtralForCauslLM:
         return list(output)
 
     def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
-        input_content = self.tokenizer.apply_chat_template(
-            conversation=[{"role": "user", "content": input_content}],
-            add_generation_prompt=True,
-            tokenize=False,
-        )
         print(input_content, end="", flush=True)
         tokens = self.tokenizer.encode(input_content)
         infer_task = InferTask(

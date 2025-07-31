@@ -2,10 +2,17 @@
 #include "mixtral_weight.hpp"
 #include "infiniccl.h"
 
+#include <iostream>
+#include <random>
+#include <cassert>
+#include <thread>
+#include <vector>
+
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
 #include "infinicore_infer/models/mixtral.h"
 
+#include <iostream>
 #include <random>
 #include <thread>
 #include <vector>
@@ -15,6 +22,7 @@ void createDeviceResource(DeviceResource *rsrc, const MixtralMeta *meta,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
+    std::cerr << "[DEBUG] Device " << idev << ": Entering createDeviceResource." << std::endl;
     RUN_INFINI(infinirtSetDevice(device, dev_id));
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
@@ -81,6 +89,18 @@ void createDeviceResource(DeviceResource *rsrc, const MixtralMeta *meta,
         memory_pool,
     };
     RUN_INFINI(infinirtDeviceSynchronize());
+    // 检查分配
+    assert(w_ffn_gate_up.size() == meta->nlayer);
+    for (size_t layer = 0; layer < meta->nlayer; ++layer) {
+        if (meta->nexpert > 0) {
+            assert(w_ffn_gate_up[layer].size() == meta->nexpert);
+            assert(w_ffn_down[layer].size() == meta->nexpert);
+        } else {
+            assert(w_ffn_gate_up[layer].size() == 1);
+            assert(w_ffn_down[layer].size() == 1);
+        }
+    }
+    std::cerr << "[DEBUG] Device " << idev << ": Exiting createDeviceResource." << std::endl;
 }
 
 // Define as static to limit scope to this file and prevent linker errors.
@@ -115,6 +135,8 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output) {
+    std::cerr << "[DEBUG] Device " << idev << ": Entering inferDeviceBatch." << std::endl;
+    std::cout << "[DEBUG] inferDeviceBatch: nlayer=" << meta.nlayer << ", nexpert=" << meta.nexpert << ", idev=" << idev << ", ndev=" << ndev << std::endl;
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
@@ -130,12 +152,23 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
     (void)has_qkv_bias;
 
     // Allocate buffers
+    std::cerr << "[DEBUG] Device " << idev << ": Allocating buffers." << std::endl;
+    std::cerr << "[DEBUG] Device " << idev << ": ntok=" << ntok << ", d=" << d
+              << ", memory_pool valid? " << (rsrc.memory_pool ? "yes" : "no")
+              << ", dt_logits=" << dt_logits << std::endl;
+    std::cerr << "[DEBUG] Device " << idev << ": Allocating logits_in." << std::endl;
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+    std::cerr << "[DEBUG] Device " << idev << ": Allocating logits_out." << std::endl;
     auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+    std::cerr << "[DEBUG] Device " << idev << ": Allocating qkv_buf." << std::endl;
     auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
+    std::cerr << "[DEBUG] Device " << idev << ": Allocating o_buf." << std::endl;
     auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
+    std::cerr << "[DEBUG] Device " << idev << ": Allocating prob_buf." << std::endl;
     auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
+    std::cerr << "[DEBUG] Device " << idev << ": Allocating result_buf." << std::endl;
     auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
+    std::cerr << "[DEBUG] Device " << idev << ": Buffers allocated." << std::endl;
  
     // Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
@@ -159,6 +192,7 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
     }
 
     // Prepare operators and workspace
+    std::cerr << "[DEBUG] Device " << idev << ": Preparing operators." << std::endl;
     infiniopRMSNormDescriptor_t desc_norm_attn;
     RUN_INFINI(infiniopCreateRMSNormDescriptor(rsrc.handle, &desc_norm_attn, logits_in->desc(), logits_out->desc(), rsrc.w_attn_norm[0]->desc(), meta.epsilon));
     infiniopGemmDescriptor_t desc_attn_qkv;
@@ -166,6 +200,7 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
     infiniopAddDescriptor_t desc_add_qkv_bias;
     if (has_qkv_bias)
         RUN_INFINI(infiniopCreateAddDescriptor(rsrc.handle, &desc_add_qkv_bias, qkv_buf->desc(), qkv_buf->desc(), rsrc.b_attn_qkv[0]->desc()));
+    std::cerr << "[DEBUG] Device " << idev << ": Operators prepared up to RoPE." << std::endl;
     
     infiniopRoPEDescriptor_t desc_rope;
     RUN_INFINI(infiniopCreateRoPEDescriptor(rsrc.handle, &desc_rope, qkv_buf->desc(), qkv_buf->desc(), rsrc.sin_table->desc(), rsrc.cos_table->desc(), pos_ids_buf->desc()));
@@ -249,6 +284,8 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
  
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
+        std::cerr << "[DEBUG] Device " << idev << ": Layer " << layer << " start." << std::endl;
+        std::cout << "[DEBUG] Device " << idev << ": Layer " << layer << " - Attention" << std::endl;
         // 1. Attention
         RUN_INFINI(infiniopRMSNorm(desc_norm_attn, nullptr, 0, logits_out->data(), logits_in->data(), rsrc.w_attn_norm[layer]->data(), stream));
 
@@ -312,9 +349,11 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
         RUN_INFINI(infiniopGemm(desc_attn_out, nullptr, 0, logits_in->data(), o_buf->data(), rsrc.w_attn_out[layer]->data(), 1.0, 1.0, stream)); // Add residual
 
         // 2. FFN / MoE
+        std::cout << "[DEBUG] Device " << idev << ": Layer " << layer << " - FFN/MoE" << std::endl;
         RUN_INFINI(infiniopRMSNorm(desc_norm_ffn, nullptr, 0, logits_out->data(), logits_in->data(), rsrc.w_ffn_norm[layer]->data(), stream));
         
         if (meta.nexpert > 1) {
+            std::cout << "[DEBUG] Device " << idev << ": Layer " << layer << " - MoE path, experts=" << meta.nexpert << std::endl;
             // MOE LOGIC
             auto gate_up_buf_expert = Tensor::buffer(dt_logits, {ntok * meta.topk, 2 * di}, rsrc.memory_pool);
             auto expert_output = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
@@ -350,31 +389,67 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
             RUN_INFINI(infiniopMoEDispatch(desc_dispatch, permuted_output->data(), aux_info->data(), logits_out->data(), topk_ind->data(), stream));
             infiniopDestroyMoEDispatchDescriptor(desc_dispatch);
 
-            // Step 4: Run expert FFNs
-            auto gate_buf_expert = gate_up_buf_expert->slice(1, 0, di);
-            auto up_buf_expert = gate_up_buf_expert->slice(1, di, di);
+            // Step 3.5: Use the new operator to get expert counts and offsets
+            auto expert_counts_gpu = Tensor::buffer(INFINI_DTYPE_I32, {meta.nexpert}, rsrc.memory_pool);
+            auto expert_offsets_gpu = Tensor::buffer(INFINI_DTYPE_I32, {meta.nexpert}, rsrc.memory_pool);
+
+            infiniopMoEExpertInfoDescriptor_t desc_expert_info;
+            RUN_INFINI(infiniopCreateMoEExpertInfoDescriptor(rsrc.handle, &desc_expert_info,
+                                                             topk_ind->desc(),
+                                                             expert_counts_gpu->desc(),
+                                                             expert_offsets_gpu->desc()));
+            RUN_INFINI(infiniopMoEExpertInfoCalculate(rsrc.handle, desc_expert_info,
+                                                      topk_ind->data(),
+                                                      expert_counts_gpu->data(),
+                                                      expert_offsets_gpu->data(),
+                                                      stream));
+            infiniopDestroyMoEExpertInfoDescriptor(desc_expert_info);
+
+            // Copy counts and offsets to CPU to control the loop.
+            // NOTE: This D2H copy is a performance bottleneck. A fully optimized solution
+            // would use a single "Grouped GEMM" kernel to avoid this.
+            std::vector<int> expert_counts_cpu(meta.nexpert);
+            std::vector<int> expert_offsets_cpu(meta.nexpert);
+            RUN_INFINI(infinirtMemcpy(expert_counts_cpu.data(), expert_counts_gpu->data(), sizeof(int) * meta.nexpert, INFINIRT_MEMCPY_D2H));
+            RUN_INFINI(infinirtMemcpy(expert_offsets_cpu.data(), expert_offsets_gpu->data(), sizeof(int) * meta.nexpert, INFINIRT_MEMCPY_D2H));
+
+            // Step 4: Run expert FFNs on sliced data
+            auto expert_gate_up_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, 2 * di}, rsrc.memory_pool);
+            auto expert_output_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
+
+            auto expert_gate_buf = expert_gate_up_buf->slice(1, 0, di);
             
-            // Create temporary descriptors for expert GEMMs since weights change per expert
-            infiniopGemmDescriptor_t desc_ffn_gate_up_expert, desc_ffn_down_expert;
             infiniopSwiGLUDescriptor_t desc_swiglu_expert;
-            RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu_expert, gate_buf_expert->desc(), up_buf_expert->desc(), gate_buf_expert->desc()));
+            RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu_expert, expert_gate_buf->desc(), expert_gate_buf->desc(), expert_gate_buf->desc()));
 
             for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
-                // The permuted_output from dispatch is now the input for all experts, laid out contiguously.
-                // We apply the FFN for each expert on the entire permuted_output buffer.
-                // The dispatch/combine logic ensures the right tokens go to the right experts.
-                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_gate_up_expert, gate_up_buf_expert->desc(), permuted_output->desc(), rsrc.w_ffn_gate_up[layer][expert_id]->desc()));
-                RUN_INFINI(infiniopGemm(desc_ffn_gate_up_expert, nullptr, 0, gate_up_buf_expert->data(), permuted_output->data(), rsrc.w_ffn_gate_up[layer][expert_id]->data(), 1.0, 0.0, stream));
-                RUN_INFINI(infiniopDestroyGemmDescriptor(desc_ffn_gate_up_expert));
+                int num_tokens_for_expert = expert_counts_cpu[expert_id];
+                if (num_tokens_for_expert == 0) {
+                    continue; // Skip experts with no tokens
+                }
+                int offset = expert_offsets_cpu[expert_id];
 
-                RUN_INFINI(infiniopSwiGLU(desc_swiglu_expert, nullptr, 0, gate_buf_expert->data(), up_buf_expert->data(), gate_buf_expert->data(), stream));
+                // Define slices of the permuted buffers for the current expert
+                auto input_slice = permuted_input->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+                auto gate_up_slice = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+                auto gate_slice = expert_gate_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+                auto output_slice = expert_output_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
 
-                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down_expert, expert_output->desc(), gate_buf_expert->desc(), rsrc.w_ffn_down[layer][expert_id]->desc()));
-                RUN_INFINI(infiniopGemm(desc_ffn_down_expert, nullptr, 0, expert_output->data(), gate_buf_expert->data(), rsrc.w_ffn_down[layer][expert_id]->data(), 1.0, 0.0, stream));
-                RUN_INFINI(infiniopDestroyGemmDescriptor(desc_ffn_down_expert));
+                // Create temporary descriptors for the specific slice shape
+                infiniopGemmDescriptor_t desc_ffn_gate_up_expert, desc_ffn_down_expert;
+                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_gate_up_expert, gate_up_slice->desc(), input_slice->desc(), rsrc.w_ffn_gate_up[layer][expert_id]->desc()));
+                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down_expert, output_slice->desc(), gate_slice->desc(), rsrc.w_ffn_down[layer][expert_id]->desc()));
+
+                // Execute FFN for the current expert on its slice of data
+                RUN_INFINI(infiniopGemm(desc_ffn_gate_up_expert, nullptr, 0, gate_up_slice->data(), input_slice->data(), rsrc.w_ffn_gate_up[layer][expert_id]->data(), 1.0, 0.0, stream));
+                RUN_INFINI(infiniopSwiGLU(desc_swiglu_expert, nullptr, 0, gate_slice->slice(1,0,di)->data(), gate_slice->slice(1,di,di)->data(), gate_slice->data(), stream));
+                RUN_INFINI(infiniopGemm(desc_ffn_down_expert, nullptr, 0, output_slice->data(), gate_slice->data(), rsrc.w_ffn_down[layer][expert_id]->data(), 1.0, 0.0, stream));
+
+                // Destroy temporary descriptors
+                infiniopDestroyGemmDescriptor(desc_ffn_gate_up_expert);
+                infiniopDestroyGemmDescriptor(desc_ffn_down_expert);
             }
             infiniopDestroySwiGLUDescriptor(desc_swiglu_expert);
-
 
             // Step 5: Combine expert outputs
             infiniopMoECombineDescriptor_t desc_combine;
@@ -384,6 +459,7 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
             infiniopDestroyMoECombineDescriptor(desc_combine);
 
         } else {
+            std::cout << "[DEBUG] Device " << idev << ": Layer " << layer << " - Standard FFN path" << std::endl;
             // Standard FFN Logic
             RUN_INFINI(infiniopGemm(desc_ffn_gate_up, nullptr, 0, gate_up_buf->data(), logits_out->data(), rsrc.w_ffn_gate_up[layer][0]->data(), 1.0, 0.0, stream));
             RUN_INFINI(infiniopSwiGLU(desc_swiglu, nullptr, 0, gate_buf->data(), up_buf->data(), gate_buf->data(), stream));
@@ -392,10 +468,13 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
 
         // AllReduce across devices
         if (ndev > 1) {
+            std::cout << "Device " << idev << ": Layer " << layer << " - Before AllReduce" << std::endl;
             RUN_INFINI(infinicclAllReduce(logits_in->data(), logits_in->data(),
                                         std::accumulate(logits_in->shape().begin(), logits_in->shape().end(), size_t{1}, std::multiplies<size_t>()), meta.dt_logits,
                                         INFINICCL_SUM, rsrc.comm, stream));
+            std::cout << "Device " << idev << ": Layer " << layer << " - After AllReduce" << std::endl;
         }
+        std::cerr << "[DEBUG] Device " << idev << ": Layer " << layer << " end." << std::endl;
         
     }
 
@@ -458,6 +537,7 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
     infiniopDestroyGemmDescriptor(desc_ffn_gate_up);
     infiniopDestroySwiGLUDescriptor(desc_swiglu);
     infiniopDestroyGemmDescriptor(desc_ffn_down);
+    std::cout << "Device " << idev << ": Inference finished." << std::endl;
 }
 
 // Boilerplate code for model creation, destruction, and thread management
@@ -506,6 +586,7 @@ MixtralModel::MixtralModel(const MixtralMeta *_meta, const MixtralWeights *weigh
     RUN_INFINI(infinirtInit());
     auto comms = std::vector<infinicclComm_t>(ndev, nullptr);
     if (ndev > 1) {
+        std::cout << "Device type passed to infinicclCommInitAll: " << device << std::endl;
         RUN_INFINI(infinicclCommInitAll(device, comms.data(), ndev, dev_ids.data()));
     }
 
