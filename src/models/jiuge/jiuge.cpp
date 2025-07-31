@@ -181,7 +181,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
     auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, rsrc.memory_pool);
     auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-    auto attn_val_buf = Tensor::buffer(dt_logits, {nh, max_seq_len, dh}, rsrc.memory_pool);
+    auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
 
     // MLP buffers
     auto gate_buf = gate_up_buf->slice(1, 0, di);
