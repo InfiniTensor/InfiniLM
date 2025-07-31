@@ -40,3 +40,13 @@ jobs:
 
     - name: Python Test
       run: python scripts/python_test.py --cpu
+
+    - name: run infinirt-test --cpu on Linux
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        ./build/linux/x86_64/release/infinirt-test --cpu
+
+    - name: run infinirt-test --cpu on Windows
+      if: matrix.os == 'windows-latest'
+      run: |
+        .\build\windows\x64\release\infinirt-test.exe --cpu

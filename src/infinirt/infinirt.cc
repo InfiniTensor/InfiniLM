@@ -23,6 +23,10 @@ __C infiniStatus_t infinirtGetAllDeviceCount(int *count_array) {
         return INFINI_STATUS_NULL_POINTER;
     }
     for (size_t i = 0; i < INFINI_DEVICE_TYPE_COUNT; i++) {
+        if (i == INFINI_DEVICE_ILUVATAR || i == INFINI_DEVICE_KUNLUN || i == INFINI_DEVICE_SUGON) {
+            count_array[i] = 0;
+            continue;
+        }
         auto status = infinirtGetDeviceCount(static_cast<infiniDevice_t>(i), &count_array[i]);
         if (status != INFINI_STATUS_SUCCESS) {
             return status;
