@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 struct MixtralModel;
-struct KVCache;
+
 
 typedef struct
 {

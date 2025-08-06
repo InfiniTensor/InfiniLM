@@ -1,7 +1,7 @@
 #ifndef MIXTRAL_IMPL_H
 #define MIXTRAL_IMPL_H
 
-#include "infinicore_infer/models/mixtral.h"
+#include "infinicore_infer.h"
 
 #include "../../allocator.hpp"
 #include "../../tensor.hpp"

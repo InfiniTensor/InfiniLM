@@ -1,21 +1,16 @@
 #include "mixtral_impl.hpp"
 #include "mixtral_weight.hpp"
-#include "infiniccl.h"
-
-#include <iostream>
-#include <random>
-#include <cassert>
-#include <thread>
-#include <vector>
 
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
-#include "infinicore_infer/models/mixtral.h"
+#include "infinicore_infer.h"
 
 #include <iostream>
 #include <random>
 #include <thread>
 #include <vector>
+#include <random>
+#include <cassert>
 
 void createDeviceResource(DeviceResource *rsrc, const MixtralMeta *meta,
                           const MixtralWeights *weights,
@@ -430,7 +425,7 @@ void inferDeviceBatch(const MixtralMeta &meta, DeviceResource &rsrc,
                 int offset = expert_offsets_cpu[expert_id];
 
                 // Define slices of the permuted buffers for the current expert
-                auto input_slice = permuted_input->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+                auto input_slice = permuted_output->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
                 auto gate_up_slice = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
                 auto gate_slice = expert_gate_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
                 auto output_slice = expert_output_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
