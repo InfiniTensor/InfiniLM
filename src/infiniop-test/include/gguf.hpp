@@ -141,10 +141,8 @@ typedef enum {
 
 inline size_t ggmlTypeSize(GGML_TYPE ggml_type) {
     switch (ggml_type) {
-    case GGML_TYPE_F32:
-        return 4;
-    case GGML_TYPE_F16:
-        return 2;
+    case GGML_TYPE_Q8_K:
+        return 1;
     case GGML_TYPE_I8:
         return 1;
     case GGML_TYPE_I16:
@@ -153,10 +151,14 @@ inline size_t ggmlTypeSize(GGML_TYPE ggml_type) {
         return 4;
     case GGML_TYPE_I64:
         return 8;
-    case GGML_TYPE_F64:
-        return 8;
     case GGML_TYPE_BF16:
         return 2;
+    case GGML_TYPE_F16:
+        return 2;
+    case GGML_TYPE_F32:
+        return 4;
+    case GGML_TYPE_F64:
+        return 8;
     default:
         throw std::runtime_error("GGML_TYPE_SIZE: Unsupported GGML_TYPE");
     }

@@ -1,4 +1,5 @@
 #include "tensor.hpp"
+#include "gguf.hpp"
 #include "utils.hpp"
 #include <cstring>
 #include <infinirt.h>
@@ -19,6 +20,40 @@ void printData(const T *data, const std::vector<size_t> &shape, const std::vecto
     }
 }
 
+// The type int8_t is represented by signed char, with a range of –128 to 127.
+// It may contain non-printable characters and thus cannot be printed directly.
+template <>
+void printData(const int8_t *data, const std::vector<size_t> &shape,
+               const std::vector<ptrdiff_t> &strides, size_t dim) {
+    if (dim == shape.size() - 1) {
+        for (size_t i = 0; i < shape[dim]; i++) {
+            std::cout << static_cast<int>(*(data + i * strides[dim])) << " ";
+        }
+        std::cout << std::endl;
+    } else if (dim < shape.size() - 1) {
+        for (size_t i = 0; i < shape[dim]; i++) {
+            printData(data + i * strides[dim], shape, strides, dim + 1);
+            std::cout << std::endl;
+        }
+    }
+}
+
+template <>
+void printData(const bf16_t *data, const std::vector<size_t> &shape,
+               const std::vector<ptrdiff_t> &strides, size_t dim) {
+    if (dim == shape.size() - 1) {
+        for (size_t i = 0; i < shape[dim]; i++) {
+            std::cout << utils::cast<float>(*(data + i * strides[dim])) << " ";
+        }
+        std::cout << std::endl;
+    } else if (dim < shape.size() - 1) {
+        for (size_t i = 0; i < shape[dim]; i++) {
+            printData(data + i * strides[dim], shape, strides, dim + 1);
+            std::cout << std::endl;
+        }
+    }
+}
+
 template <>
 void printData(const fp16_t *data, const std::vector<size_t> &shape,
                const std::vector<ptrdiff_t> &strides, size_t dim) {
@@ -26,6 +61,7 @@ void printData(const fp16_t *data, const std::vector<size_t> &shape,
         for (size_t i = 0; i < shape[dim]; i++) {
             std::cout << utils::cast<float>(*(data + i * strides[dim])) << " ";
         }
+        std::cout << std::endl;
     } else if (dim < shape.size() - 1) {
         for (size_t i = 0; i < shape[dim]; i++) {
             printData(data + i * strides[dim], shape, strides, dim + 1);
@@ -227,6 +263,8 @@ void Tensor::debug() const {
     auto tensor = to(INFINI_DEVICE_CPU, 0);
     std::cout << "Tensor: " << tensor->info() << std::endl;
     switch (_ggml_type) {
+    case GGML_TYPE_BF16:
+        printData((bf16_t *)(tensor->data()), _shape, _strides, 0);
     case GGML_TYPE_F16:
         printData((fp16_t *)(tensor->data()), _shape, _strides, 0);
         break;
@@ -236,6 +274,9 @@ void Tensor::debug() const {
     case GGML_TYPE_F64:
         printData((double *)(tensor->data()), _shape, _strides, 0);
         break;
+    case GGML_TYPE_Q8_K:
+        printData((bool *)(tensor->data()), _shape, _strides, 0);
+        break;
     case GGML_TYPE_I8:
         printData((int8_t *)(tensor->data()), _shape, _strides, 0);
         break;
@@ -244,6 +285,9 @@ void Tensor::debug() const {
         break;
     case GGML_TYPE_I32:
         printData((int32_t *)(tensor->data()), _shape, _strides, 0);
+        break;
+    case GGML_TYPE_I64:
+        printData((int64_t *)(tensor->data()), _shape, _strides, 0);
         break;
     default:
         std::cout << "Unsupported GGML type" << std::endl;
