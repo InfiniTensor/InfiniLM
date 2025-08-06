@@ -4,7 +4,6 @@
 // This header file will only be include by .xpu file
 #include "xpu/runtime.h"
 #include <xpu/kernel/xtdk.h>
-#include <xpu/kernel/xtdk_io.h>
 #include <xpu/kernel/xtdk_math.h>
 #include <xpu/kernel/xtdk_simd.h>
 
