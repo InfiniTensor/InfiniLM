@@ -1,18 +1,32 @@
+#include "../../../elementwise/kunlun/elementwise_kunlun.h"
 #include "swiglu_kunlun.h"
 
-// Op interface declare
-LAUNCH_ELEMENTWISE_KERNEL(SwiGLU)
+namespace op::elementwise::kunlun {
 
-namespace op::swiglu::kunlun {
-
+/// @brief SwiGLU op kernel
 typedef struct SwiGLUOp {
-    static constexpr size_t num_inputs = 2;
-    template <typename Tdata, typename... Args>
-    static infiniStatus_t launch(Args... args) {
-        launchSwiGLUKernel<Tdata>(args...);
-        return INFINI_STATUS_SUCCESS;
+private:
+    template <typename T>
+    inline __device__ T sigmoid(T x) const {
+        return 1.0f / (1.0f + exp(-x));
+    }
+
+public:
+    // This static number must be set in other Ops
+    static constexpr int num_inputs = 2;
+    template <typename T>
+    inline __device__ T operator()(const T *inputs) const {
+        T up = inputs[0];
+        T gate = inputs[1];
+        T out = gate * sigmoid(gate) * up;
+        return out;
     }
 } SwiGLUOp;
+
+INSTANTIATE_ELEMENTWISE_KERNEL(SwiGLUOp::num_inputs, SwiGLUOp, float);
+} // namespace op::elementwise::kunlun
+
+namespace op::swiglu::kunlun {
 
 Descriptor::~Descriptor() = default;
 
@@ -53,7 +67,7 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F32:
-        return _device_info->calculate<SwiGLUOp, float>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<8, op::elementwise::kunlun::SwiGLUOp, float>(_info, workspace, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
