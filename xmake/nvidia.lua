@@ -91,7 +91,7 @@ target("infiniccl-nvidia")
         set_policy("build.cuda.devlink", true)
         set_toolchains("cuda")
         add_links("cudart")
-        add_cugencodes("sm_80")
+        add_cugencodes("sm_80", "sm_86", "sm_89", "compute_89")
 
         if not is_plat("windows") then
             add_cuflags("-Xcompiler=-fPIC")

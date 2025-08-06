@@ -19,6 +19,8 @@
 #include "infiniop/ops/topk.h"
 #include "infiniop/ops/moe_dispatch.h"
 #include "infiniop/ops/moe_combine.h"
+#include "infiniop/ops/moe_expert_info.h"
 #include "infiniop/tensor_descriptor.h"
+
 
 #endif // __INFINIOP_API_H__
