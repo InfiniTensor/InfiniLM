@@ -11,14 +11,14 @@
 namespace device::kunlun::kernel {
 
 typedef struct _ptrdiff_t {
-    ptrdiff_t value;   // 32 bit
-    ptrdiff_t padding; // 32 bit
+    int32_t value;   // 32 bit
+    int32_t padding; // 32 bit
 } _ptrdiff_t;
 
 // same as ptrdiff
 typedef struct _size_t {
-    size_t value;
-    size_t padding;
+    uint32_t value;
+    uint32_t padding;
 } _size_t;
 
 // Get mask for kunlun xpu 512bit register calculation
