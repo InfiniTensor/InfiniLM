@@ -1,24 +1,10 @@
 #include "../../../elementwise/kunlun/elementwise_kunlun.h"
 #include "add_kunlun.h"
+#include "kernel.h"
 
 namespace op::elementwise::kunlun {
 
-typedef struct AddOp {
-public:
-    static constexpr int num_inputs = 2;
-    template <typename T>
-    inline __device__ T operator()(const T *inputs) const {
-        T a = inputs[0];
-        T b = inputs[1];
-        return a + b;
-    }
-    // bfloat16 特化版本（使用 float 计算精度）
-    inline __device__ bfloat16_t operator()(const bfloat16_t *inputs) const {
-        float a_f = __bfloat162float(inputs[0]);
-        float b_f = __bfloat162float(inputs[1]);
-        return __float2bfloat16(a_f + b_f);
-    }
-} AddOp;
+using AddOp = op::add::kunlun::AddOp;
 
 INSTANTIATE_ELEMENTWISE_KERNEL(AddOp::num_inputs, AddOp, float);
 INSTANTIATE_ELEMENTWISE_KERNEL(AddOp::num_inputs, AddOp, half);
@@ -67,11 +53,11 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F16:
-        return _device_info->calculate<8, op::elementwise::kunlun::AddOp, half>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<8, AddOp, half>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_BF16:
-        return _device_info->calculate<8, op::elementwise::kunlun::AddOp, bfloat16_t>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<8, AddOp, bfloat16_t>(_info, workspace, output, inputs, stream);
     case INFINI_DTYPE_F32:
-        return _device_info->calculate<8, op::elementwise::kunlun::AddOp, float>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<8, AddOp, float>(_info, workspace, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }
