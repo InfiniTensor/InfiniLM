@@ -192,6 +192,18 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
                               float alpha, float beta,
                               std::shared_ptr<Tensor> residual,
                               std::shared_ptr<Tensor> bias) {
+    bool residual_flag = residual != nullptr;
+
+    if (bias && !residual) {
+        int ndim_diff = c->ndim() - 1;
+        ASSERT_EQ(bias->ndim(), 1);
+        ASSERT_EQ(bias->shape()[0], c->shape()[ndim_diff]);
+        std::vector<ptrdiff_t> strides(ndim_diff, 0);
+        strides.push_back(bias->strides()[0]);
+        rearrange(c, bias->view_as(c->shape(), strides));
+        residual = c;
+    }
+
     if (residual) {
         if (residual->data() == c->data()) {
             if (beta == 0.0) {
@@ -210,7 +222,7 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
         gemm(c, a, b, alpha, beta);
     }
 
-    if (bias) {
+    if (bias && residual_flag) {
         int ndim_diff = c->ndim() - 1;
         ASSERT_EQ(bias->ndim(), 1);
         ASSERT_EQ(bias->shape()[0], c->shape()[ndim_diff]);

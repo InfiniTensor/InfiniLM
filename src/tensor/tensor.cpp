@@ -259,75 +259,142 @@ std::string Tensor::info() const {
 }
 
 std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> &new_shape) const {
-    // Calculate total elements in current and new shape
-    size_t current_elements = std::accumulate(
-        _desc->shape().begin(), _desc->shape().end(),
-        1, std::multiplies<size_t>());
-    size_t new_elements = std::accumulate(
-        new_shape.begin(), new_shape.end(),
-        1, std::multiplies<size_t>());
-
-    ASSERT_EQ(current_elements, new_elements);
-
-    const auto &old_shape = _desc->shape();
-    const auto &old_strides = _desc->strides();
-
-    // Special case: empty tensor
-    if (current_elements == 0) {
-        auto result = std::make_shared<Tensor>();
-        result->_storage = this->_storage;
-        result->_desc = TensorDesc::create(this->dtype(), new_shape, {});
-        result->_offset = this->_offset;
-        return result;
+    // Calculate total number of elements
+    size_t numel = 1;
+    for (auto s : shape()) {
+        numel *= s;
     }
 
-    // Special case: scalar to scalar
-    if (old_shape.empty() && new_shape.empty()) {
-        auto result = std::make_shared<Tensor>();
-        result->_storage = this->_storage;
-        result->_desc = this->_desc;
-        result->_offset = this->_offset;
-        return result;
+    size_t new_numel = 1;
+    for (auto s : new_shape) {
+        new_numel *= s;
     }
 
-    // Compute new strides
-    std::vector<ptrdiff_t> new_strides;
-    if (!new_shape.empty()) {
-        new_strides.resize(new_shape.size());
+    ASSERT(numel == new_numel);
 
-        // Compute strides for the new shape while preserving memory layout
-        // Start from the rightmost dimension
-        new_strides.back() = old_strides.back();
-        for (int i = new_shape.size() - 2; i >= 0; --i) {
-            new_strides[i] = new_strides[i + 1] * new_shape[i + 1];
-        }
-
-        // Verify the new strides are compatible with the old memory layout
-        size_t offset = 0;
-        for (size_t i = 0; i < old_shape.size(); ++i) {
-            offset += (old_shape[i] - 1) * old_strides[i];
-        }
-
-        size_t new_offset = 0;
-        for (size_t i = 0; i < new_shape.size(); ++i) {
-            new_offset += (new_shape[i] - 1) * new_strides[i];
-        }
-
-        ASSERT_EQ(offset, new_offset);
+    // Handle empty tensors
+    if (numel == 0) {
+        return this->view_as(new_shape, {});
     }
 
-    // Create and return the reshaped tensor
-    auto result = std::make_shared<Tensor>();
-    result->_storage = this->_storage;
-    result->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
-    result->_offset = this->_offset;
-    return result;
+    // Special case: view(-1) flattens the tensor
+    if (new_shape.size() == 1 && new_shape[0] == static_cast<size_t>(-1)) {
+        std::vector<size_t> flat_shape = {numel};
+        return this->view_as(flat_shape, {});
+    }
+
+    // Check for -1 in new_shape (infer dimension)
+    std::vector<size_t> inferred_shape = new_shape;
+    size_t infer_index = static_cast<size_t>(-1);
+    size_t known_elements = 1;
+
+    for (size_t i = 0; i < new_shape.size(); ++i) {
+        if (new_shape[i] == static_cast<size_t>(-1)) {
+            ASSERT(infer_index == static_cast<size_t>(-1)); // Only one -1 allowed
+            infer_index = i;
+        } else {
+            known_elements *= new_shape[i];
+        }
+    }
+
+    if (infer_index != static_cast<size_t>(-1)) {
+        ASSERT(numel % known_elements == 0);
+        inferred_shape[infer_index] = numel / known_elements;
+    }
+
+    // For contiguous tensors, compute standard row-major strides
+    if (this->isContigous()) {
+        std::vector<ptrdiff_t> new_strides(inferred_shape.size());
+        if (!inferred_shape.empty()) {
+            new_strides.back() = 1;
+            for (int i = static_cast<int>(inferred_shape.size()) - 2; i >= 0; --i) {
+                new_strides[i] = new_strides[i + 1] * static_cast<ptrdiff_t>(inferred_shape[i + 1]);
+            }
+        }
+        return this->view_as(inferred_shape, new_strides);
+    }
+
+    // For non-contiguous tensors
+    std::vector<size_t> old_shape = shape();
+    std::vector<ptrdiff_t> old_strides = strides();
+    std::vector<ptrdiff_t> new_strides(inferred_shape.size(), 0);
+
+    size_t old_idx = old_shape.size() - 1;
+    size_t new_idx = inferred_shape.size() - 1;
+
+    if (new_idx != static_cast<size_t>(-1)) {
+        new_strides[new_idx] = 1;
+    }
+
+    while (old_idx != static_cast<size_t>(-1) && new_idx != static_cast<size_t>(-1)) {
+        size_t old_size = old_shape[old_idx];
+        size_t new_size = inferred_shape[new_idx];
+
+        if (old_size == 1) {
+            old_idx--;
+        } else if (new_size == 1) {
+            new_strides[new_idx] = (new_idx == inferred_shape.size() - 1) ? 1 : new_strides[new_idx + 1];
+            new_idx--;
+        } else if (old_size == new_size) {
+            new_strides[new_idx] = old_strides[old_idx];
+            old_idx--;
+            new_idx--;
+        } else if (old_size < new_size) {
+            size_t combined_size = old_size;
+            ptrdiff_t combined_stride = old_strides[old_idx];
+            old_idx--;
+
+            while (old_idx != static_cast<size_t>(-1) && combined_size < new_size) {
+                ASSERT(static_cast<size_t>(old_strides[old_idx]) == old_shape[old_idx + 1] * static_cast<size_t>(old_strides[old_idx + 1]));
+                combined_size *= old_shape[old_idx];
+                combined_stride = old_strides[old_idx];
+                old_idx--;
+            }
+
+            ASSERT(combined_size == new_size);
+            new_strides[new_idx] = combined_stride;
+            new_idx--;
+        } else {
+            size_t remaining_size = old_size / new_size;
+            ASSERT(old_size % new_size == 0);
+            new_strides[new_idx] = old_strides[old_idx] * static_cast<ptrdiff_t>(remaining_size);
+            new_idx--;
+
+            if (remaining_size != 1) {
+                if (new_idx != static_cast<size_t>(-1)) {
+                    inferred_shape[new_idx] = remaining_size;
+                    new_strides[new_idx] = old_strides[old_idx];
+                    new_idx--;
+                } else {
+                    ASSERT(false);
+                }
+            }
+            old_idx--;
+        }
+    }
+
+    // Fill remaining dimensions (must be size 1)
+    while (new_idx != static_cast<size_t>(-1)) {
+        ASSERT(inferred_shape[new_idx] == 1);
+        new_strides[new_idx] = new_strides[new_idx + 1];
+        new_idx--;
+    }
+
+    return this->view_as(inferred_shape, new_strides);
 }
 
 std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const {
     std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
     tensor->_storage = this->_storage;
     tensor->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
+    tensor->_offset = this->_offset;
+    return tensor;
+}
+
+std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape) const {
+    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
+    tensor->_storage = this->_storage;
+    tensor->_desc = TensorDesc::create(this->dtype(), new_shape);
     tensor->_offset = this->_offset;
     return tensor;
 }
