@@ -51,10 +51,12 @@ private:
     std::vector<size_t> _shape;
     std::vector<ptrdiff_t> _strides;
     infiniopTensorDescriptor_t _desc;
+    size_t _seed;
 
     TensorDesc(infiniDtype_t dtype, const std::vector<size_t> &shape,
-               const std::vector<ptrdiff_t> &strides) : _dtype(dtype), _shape(shape), _strides(strides), _desc(nullptr) {}
+               const std::vector<ptrdiff_t> &strides) : _dtype(dtype), _shape(shape), _strides(strides), _desc(nullptr) { computeTensorDesHash(); }
     void resetDesc();
+    void computeTensorDesHash();
 
 public:
     ~TensorDesc();
@@ -74,6 +76,7 @@ public:
     infiniopTensorDescriptor_t desc() const;
     bool isContigous() const;
     std::string info() const;
+    size_t seed() const { return _seed; }
 
     void dimMerge(size_t dim_start, size_t dim_end);
     void dimSplit(size_t dim, const std::vector<size_t> &dims);
@@ -127,10 +130,11 @@ public:
     void debug(const std::string &filename) const;
     void debug() const;
     std::string info() const;
+    size_t seed() const;
 
     std::shared_ptr<Tensor> view(const std::vector<size_t> &new_shape) const;
-    std::shared_ptr<Tensor> view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const;
     std::shared_ptr<Tensor> view_as(const std::vector<size_t> &new_shape) const;
+    std::shared_ptr<Tensor> view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const;
 
     ~Tensor();
 };

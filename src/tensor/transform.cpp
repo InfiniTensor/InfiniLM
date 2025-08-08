@@ -63,6 +63,7 @@ void TensorDesc::dimMerge(size_t dim_start, size_t dim_end) {
     this->_shape = new_shape;
     this->_strides = new_strides;
     this->resetDesc();
+    this->computeTensorDesHash();
 }
 
 std::shared_ptr<Tensor> Tensor::dimMerge(size_t dim_start, size_t dim_end) {
@@ -89,6 +90,7 @@ void TensorDesc::dimSplit(size_t dim, const std::vector<size_t> &dims) {
     this->_shape = new_shape;
     this->_strides = new_strides;
     this->resetDesc();
+    this->computeTensorDesHash();
 }
 
 std::shared_ptr<Tensor> Tensor::dimSplit(size_t dim, const std::vector<size_t> &dims) {
@@ -108,6 +110,7 @@ void TensorDesc::permute(const std::vector<size_t> &order) {
     this->_shape = new_shape;
     this->_strides = new_strides;
     this->resetDesc();
+    this->computeTensorDesHash();
 }
 
 std::shared_ptr<Tensor> Tensor::permute(const std::vector<size_t> &order) {

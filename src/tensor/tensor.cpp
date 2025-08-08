@@ -62,6 +62,16 @@ void TensorDesc::resetDesc() {
     }
 }
 
+void TensorDesc::computeTensorDesHash() {
+    _seed = 0;
+    for (auto dim : this->shape()) {
+        hash_combine(_seed, dim);
+    }
+    for (auto stride : this->strides()) {
+        hash_combine(_seed, static_cast<size_t>(stride));
+    }
+}
+
 bool TensorDesc::isContigous() const {
     auto ndim = this->ndim();
     auto shape = this->shape();
@@ -258,6 +268,10 @@ std::string Tensor::info() const {
     return this->_desc->info();
 }
 
+size_t Tensor::seed() const {
+    return this->_desc->seed();
+}
+
 std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> &new_shape) const {
     // Calculate total number of elements
     size_t numel = 1;
@@ -383,18 +397,18 @@ std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> &new_shape) const
     return this->view_as(inferred_shape, new_strides);
 }
 
-std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const {
-    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
-    tensor->_storage = this->_storage;
-    tensor->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
-    tensor->_offset = this->_offset;
-    return tensor;
-}
-
 std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape) const {
     std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
     tensor->_storage = this->_storage;
     tensor->_desc = TensorDesc::create(this->dtype(), new_shape);
+    tensor->_offset = this->_offset;
+    return tensor;
+}
+
+std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const {
+    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
+    tensor->_storage = this->_storage;
+    tensor->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
     tensor->_offset = this->_offset;
     return tensor;
 }

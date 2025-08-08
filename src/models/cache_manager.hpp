@@ -10,30 +10,6 @@
 #include "../utils.hpp"
 #include "infinicore_infer.h"
 
-// Hash combine utility (similar to boost::hash_combine)
-inline void hash_combine(size_t &seed, size_t value) {
-    seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-}
-
-// Specialization for enum types
-template <typename T>
-inline void hash_combine(size_t &seed, T value, typename std::enable_if<std::is_enum<T>::value>::type * = 0) {
-    hash_combine(seed, static_cast<size_t>(value));
-}
-
-// Helper function to compute hash for tensor descriptors
-inline size_t computeTensorDescHash(std::shared_ptr<Tensor> &tensor) {
-    size_t seed = 0;
-    hash_combine(seed, tensor->dtype());
-    for (auto dim : tensor->shape()) {
-        hash_combine(seed, dim);
-    }
-    for (auto stride : tensor->strides()) {
-        hash_combine(seed, static_cast<size_t>(stride));
-    }
-    return seed;
-}
-
 class IDescriptorDestroyer {
 public:
     virtual ~IDescriptorDestroyer() = default;
@@ -260,7 +236,7 @@ public:
     template <typename... Tensors>
     static size_t createDescriptorKey(Tensors... tensors) {
         size_t seed = 0;
-        (..., (tensors ? hash_combine(seed, computeTensorDescHash(tensors)) : (void)0));
+        (..., (tensors ? hash_combine(seed, tensors->seed()) : (void)0));
         return seed;
     }
 };
