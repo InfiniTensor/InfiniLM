@@ -275,13 +275,6 @@ std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> new_shape, const 
 }
 
 std::shared_ptr<Tensor> Tensor::viewReshaped(const std::vector<size_t> new_shape) const {
-    // First validate that the total number of elements matches
-    size_t current_elements = std::accumulate(_desc->shape().begin(), _desc->shape().end(),
-                                              1, std::multiplies<size_t>());
-    size_t new_elements = std::accumulate(new_shape.begin(), new_shape.end(),
-                                          1, std::multiplies<size_t>());
-    ASSERT_EQ(current_elements, new_elements);
-
     // Create a copy of the current shape and strides
     auto current_shape = _desc->shape();
 
