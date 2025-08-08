@@ -130,7 +130,7 @@ public:
 
     std::shared_ptr<Tensor> view() const;
     std::shared_ptr<Tensor> view(const std::vector<size_t> new_shape, const std::vector<ptrdiff_t> new_strides) const;
-    std::shared_ptr<Tensor> viewReshaped(const std::vector<size_t> new_shape) const;
+    std::shared_ptr<Tensor> viewReshaped(const std::vector<size_t> &new_shape) const;
 
     ~Tensor();
 };

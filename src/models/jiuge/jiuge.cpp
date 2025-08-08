@@ -141,6 +141,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
     auto result_cpu = std::vector<int64_t>(nreq);
 
+    auto qkv_rope = qkv_buf->viewReshaped({ntok, nh + nkvh * 2, dh});
+
     // Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
     size_t req_start = 0;
@@ -181,7 +183,9 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
     auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, rsrc.memory_pool);
     auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
+    auto q_rearrange = rearrange_q_buf->viewReshaped({nkvh, ngroup, max_seq_len, dh});
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
+    auto attn_val_gemm = attn_val_buf->viewReshaped({nkvh, ngroup, max_seq_len, dh});
 
     // MLP buffers
     auto gate_buf = gate_up_buf->slice(1, 0, di);
@@ -198,7 +202,6 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         }
         linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, has_qkv_bias ? qkv_buf : nullptr);
         // rope
-        auto qkv_rope = qkv_buf->viewReshaped({ntok, nh + nkvh * 2, dh});
         rope(qkv_rope->slice(1, 0, nh), qkv_rope->slice(1, 0, nh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
         rope(qkv_rope->slice(1, nh, nkvh), qkv_rope->slice(1, nh, nkvh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
 
@@ -217,7 +220,6 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
             rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
             // qk
-            auto q_rearrange = rearrange_q_buf->viewReshaped({nkvh, ngroup, seq_len, dh});
             rearrange(q_rearrange, q);
             auto qk_gemm = qk_buf->viewReshaped({nkvh, ngroup * seq_len, total_len});
             auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
@@ -228,7 +230,6 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
             linear(attn_val_buf, qk_gemm, v_gemm, 1.0, 0.0, nullptr);
             // rearrange attn val
-            auto attn_val_gemm = attn_val_buf->viewReshaped({nkvh, ngroup, max_seq_len, dh});
             rearrange(o, attn_val_gemm);
 
             token_offset += seq_len;

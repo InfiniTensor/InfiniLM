@@ -274,23 +274,69 @@ std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> new_shape, const 
     return tensor;
 }
 
-std::shared_ptr<Tensor> Tensor::viewReshaped(const std::vector<size_t> new_shape) const {
-    // Create a copy of the current shape and strides
-    auto current_shape = _desc->shape();
+std::shared_ptr<Tensor> Tensor::viewReshaped(const std::vector<size_t> &new_shape) const {
+    // Calculate total elements in current and new shape
+    size_t current_elements = std::accumulate(
+        _desc->shape().begin(), _desc->shape().end(),
+        1, std::multiplies<size_t>());
+    size_t new_elements = std::accumulate(
+        new_shape.begin(), new_shape.end(),
+        1, std::multiplies<size_t>());
 
-    // Start with the current tensor
-    auto result = this->view();
+    ASSERT_EQ(current_elements, new_elements);
 
-    // Step 1: Merge all dimensions (if there are more than 1)
-    if (current_shape.size() > 1) {
-        result = result->dimMerge(0, current_shape.size() - 1);
+    const auto &old_shape = _desc->shape();
+    const auto &old_strides = _desc->strides();
+
+    // Special case: empty tensor
+    if (current_elements == 0) {
+        auto result = std::make_shared<Tensor>();
+        result->_storage = this->_storage;
+        result->_desc = TensorDesc::create(this->dtype(), new_shape, {});
+        result->_offset = this->_offset;
+        return result;
     }
 
-    // Step 2: Split into the new shape
-    if (new_shape.size() > 1) {
-        result = result->dimSplit(0, new_shape);
+    // Special case: scalar to scalar
+    if (old_shape.empty() && new_shape.empty()) {
+        auto result = std::make_shared<Tensor>();
+        result->_storage = this->_storage;
+        result->_desc = this->_desc;
+        result->_offset = this->_offset;
+        return result;
     }
 
+    // Compute new strides
+    std::vector<ptrdiff_t> new_strides;
+    if (!new_shape.empty()) {
+        new_strides.resize(new_shape.size());
+
+        // Compute strides for the new shape while preserving memory layout
+        // Start from the rightmost dimension
+        new_strides.back() = old_strides.back();
+        for (int i = new_shape.size() - 2; i >= 0; --i) {
+            new_strides[i] = new_strides[i + 1] * new_shape[i + 1];
+        }
+
+        // Verify the new strides are compatible with the old memory layout
+        size_t offset = 0;
+        for (size_t i = 0; i < old_shape.size(); ++i) {
+            offset += (old_shape[i] - 1) * old_strides[i];
+        }
+
+        size_t new_offset = 0;
+        for (size_t i = 0; i < new_shape.size(); ++i) {
+            new_offset += (new_shape[i] - 1) * new_strides[i];
+        }
+
+        ASSERT_EQ(offset, new_offset);
+    }
+
+    // Create and return the reshaped tensor
+    auto result = std::make_shared<Tensor>();
+    result->_storage = this->_storage;
+    result->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
+    result->_offset = this->_offset;
     return result;
 }
 
