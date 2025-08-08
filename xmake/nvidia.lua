@@ -14,7 +14,8 @@ target("infiniop-nvidia")
     if has_config("cudnn") then
         add_links("cudnn")
     end
-    add_cugencodes("sm_80")
+    add_cugencodes("sm_80", "sm_86", "sm_89", "compute_89")
+
 
     on_load(function (target)
         import("lib.detect.find_tool")
@@ -69,6 +70,8 @@ target("infinirt-nvidia")
     set_policy("build.cuda.devlink", true)
     set_toolchains("cuda")
     add_links("cudart")
+	add_cugencodes("sm_80", "sm_86", "sm_89", "compute_89")
+
 
     if is_plat("windows") then
         add_cuflags("-Xcompiler=/utf-8", "--expt-relaxed-constexpr", "--allow-unsupported-compiler")
