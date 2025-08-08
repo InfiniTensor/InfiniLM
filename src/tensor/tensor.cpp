@@ -258,23 +258,7 @@ std::string Tensor::info() const {
     return this->_desc->info();
 }
 
-std::shared_ptr<Tensor> Tensor::view() const {
-    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
-    tensor->_storage = this->_storage;
-    tensor->_desc = TensorDesc::create(this->dtype(), this->shape(), this->strides());
-    tensor->_offset = this->_offset;
-    return tensor;
-}
-
-std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> new_shape, const std::vector<ptrdiff_t> new_strides) const {
-    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
-    tensor->_storage = this->_storage;
-    tensor->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
-    tensor->_offset = this->_offset;
-    return tensor;
-}
-
-std::shared_ptr<Tensor> Tensor::viewReshaped(const std::vector<size_t> &new_shape) const {
+std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> &new_shape) const {
     // Calculate total elements in current and new shape
     size_t current_elements = std::accumulate(
         _desc->shape().begin(), _desc->shape().end(),
@@ -338,6 +322,14 @@ std::shared_ptr<Tensor> Tensor::viewReshaped(const std::vector<size_t> &new_shap
     result->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
     result->_offset = this->_offset;
     return result;
+}
+
+std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const {
+    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
+    tensor->_storage = this->_storage;
+    tensor->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
+    tensor->_offset = this->_offset;
+    return tensor;
 }
 
 void Tensor::debug(const std::string &filename) const {

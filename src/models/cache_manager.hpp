@@ -22,7 +22,7 @@ inline void hash_combine(size_t &seed, T value, typename std::enable_if<std::is_
 }
 
 // Helper function to compute hash for tensor descriptors
-inline size_t computeTensorDescHash(std::shared_ptr<Tensor> tensor) {
+inline size_t computeTensorDescHash(std::shared_ptr<Tensor> &tensor) {
     size_t seed = 0;
     hash_combine(seed, tensor->dtype());
     for (auto dim : tensor->shape()) {

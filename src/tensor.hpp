@@ -128,9 +128,8 @@ public:
     void debug() const;
     std::string info() const;
 
-    std::shared_ptr<Tensor> view() const;
-    std::shared_ptr<Tensor> view(const std::vector<size_t> new_shape, const std::vector<ptrdiff_t> new_strides) const;
-    std::shared_ptr<Tensor> viewReshaped(const std::vector<size_t> &new_shape) const;
+    std::shared_ptr<Tensor> view(const std::vector<size_t> &new_shape) const;
+    std::shared_ptr<Tensor> view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const;
 
     ~Tensor();
 };

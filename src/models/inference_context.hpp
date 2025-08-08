@@ -47,7 +47,8 @@ struct InferenceContext {
                 std::shared_ptr<Tensor> a,
                 std::shared_ptr<Tensor> b,
                 float alpha, float beta,
-                std::shared_ptr<Tensor> residual);
+                std::shared_ptr<Tensor> residual,
+                std::shared_ptr<Tensor> bias);
 };
 
 namespace {
@@ -103,6 +104,6 @@ inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> pr
 
 inline void linear(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
                    std::shared_ptr<Tensor> b, float alpha, float beta,
-                   std::shared_ptr<Tensor> residual) {
-    getInferenceContext().linear(c, a, b, alpha, beta, residual);
+                   std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> bias) {
+    getInferenceContext().linear(c, a, b, alpha, beta, residual, bias);
 }
