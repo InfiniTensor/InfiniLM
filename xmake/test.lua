@@ -51,3 +51,15 @@ target("infiniccl-test")
 
     set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
 target_end()
+
+target("infinirt-test")
+    set_kind("binary")
+    add_deps("infinirt")
+    on_install(function (target) end)
+
+    set_languages("cxx17")
+    set_warnings("all", "error")
+
+    add_files(os.projectdir().."/src/infinirt-test/*.cc")
+    set_installdir(os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini"))
+target_end()
