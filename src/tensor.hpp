@@ -86,7 +86,7 @@ public:
 class Tensor : public std::enable_shared_from_this<Tensor> {
 private:
     std::shared_ptr<Storage> _storage;
-    std::shared_ptr<TensorDesc> _desc;
+    std::shared_ptr<const TensorDesc> _desc;
 
     ptrdiff_t _offset;
 

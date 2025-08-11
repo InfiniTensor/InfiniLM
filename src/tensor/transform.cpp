@@ -67,8 +67,14 @@ void TensorDesc::dimMerge(size_t dim_start, size_t dim_end) {
 }
 
 std::shared_ptr<Tensor> Tensor::dimMerge(size_t dim_start, size_t dim_end) {
-    this->_desc->dimMerge(dim_start, dim_end);
-    return shared_from_this();
+    auto new_desc = TensorDesc::create(_desc->dtype(), _desc->shape(), _desc->strides());
+    new_desc->dimMerge(dim_start, dim_end);
+
+    auto tensor = std::make_shared<Tensor>();
+    tensor->_storage = _storage;
+    tensor->_desc = new_desc;
+    tensor->_offset = _offset;
+    return tensor;
 }
 
 void TensorDesc::dimSplit(size_t dim, const std::vector<size_t> &dims) {
@@ -94,8 +100,14 @@ void TensorDesc::dimSplit(size_t dim, const std::vector<size_t> &dims) {
 }
 
 std::shared_ptr<Tensor> Tensor::dimSplit(size_t dim, const std::vector<size_t> &dims) {
-    this->_desc->dimSplit(dim, dims);
-    return shared_from_this();
+    auto new_desc = TensorDesc::create(_desc->dtype(), _desc->shape(), _desc->strides());
+    new_desc->dimSplit(dim, dims);
+
+    auto tensor = std::make_shared<Tensor>();
+    tensor->_storage = _storage;
+    tensor->_desc = new_desc;
+    tensor->_offset = _offset;
+    return tensor;
 }
 
 void TensorDesc::permute(const std::vector<size_t> &order) {
@@ -114,6 +126,12 @@ void TensorDesc::permute(const std::vector<size_t> &order) {
 }
 
 std::shared_ptr<Tensor> Tensor::permute(const std::vector<size_t> &order) {
-    this->_desc->permute(order);
-    return shared_from_this();
+    auto new_desc = TensorDesc::create(_desc->dtype(), _desc->shape(), _desc->strides());
+    new_desc->permute(order);
+
+    auto tensor = std::make_shared<Tensor>();
+    tensor->_storage = _storage;
+    tensor->_desc = new_desc;
+    tensor->_offset = _offset;
+    return tensor;
 }
