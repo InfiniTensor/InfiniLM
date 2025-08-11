@@ -62,6 +62,16 @@ void TensorDesc::resetDesc() {
     }
 }
 
+void TensorDesc::computeTensorDesHash() {
+    _seed = 0;
+    for (auto dim : this->shape()) {
+        hash_combine(_seed, dim);
+    }
+    for (auto stride : this->strides()) {
+        hash_combine(_seed, static_cast<size_t>(stride));
+    }
+}
+
 bool TensorDesc::isContigous() const {
     auto ndim = this->ndim();
     auto shape = this->shape();
@@ -256,6 +266,86 @@ std::string Tensor::info() const {
        << " device=" << this->deviceType()
        << " device_id=" << this->deviceId();
     return this->_desc->info();
+}
+
+size_t Tensor::seed() const {
+    return this->_desc->seed();
+}
+
+std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> &new_shape) const {
+    // Step 1: Validate total size
+    size_t numel = 1;
+    for (size_t dim : this->_desc->shape()) {
+        numel *= dim;
+    }
+
+    size_t new_numel = 1;
+    for (size_t dim : new_shape) {
+        new_numel *= dim;
+    }
+
+    ASSERT_EQ(numel, new_numel);
+
+    // Step 2: Get current shape and strides
+    const std::vector<size_t> &old_shape = this->_desc->shape();
+    const std::vector<ptrdiff_t> &old_strides = this->_desc->strides();
+
+    // Step 3: Create merged shape and strides
+    std::vector<size_t> merged_shape;
+    std::vector<ptrdiff_t> merged_strides;
+
+    if (!old_shape.empty()) {
+        merged_shape.push_back(old_shape[0]);
+        merged_strides.push_back(old_strides[0]);
+
+        for (size_t i = 1; i < old_shape.size(); ++i) {
+            if (old_strides[i] * static_cast<ptrdiff_t>(old_shape[i]) == merged_strides.back()) {
+                merged_shape.back() *= old_shape[i];
+                merged_strides.back() = old_strides[i];
+            } else {
+                merged_shape.push_back(old_shape[i]);
+                merged_strides.push_back(old_strides[i]);
+            }
+        }
+    }
+
+    // Step 4: Compute new strides by splitting merged dimensions
+    std::vector<ptrdiff_t> new_strides(new_shape.size());
+    size_t merged_idx = 0;
+    ptrdiff_t current_stride = merged_strides[0];
+    size_t remaining_size = merged_shape[0];
+
+    for (size_t i = 0; i < new_shape.size(); ++i) {
+        // Find which merged dimension contains this new dimension
+        while (new_shape[i] > remaining_size) {
+            ASSERT(++merged_idx < merged_shape.size());
+            current_stride = merged_strides[merged_idx];
+            remaining_size = merged_shape[merged_idx];
+        }
+
+        ASSERT_EQ(remaining_size % new_shape[i], 0);
+
+        new_strides[i] = current_stride * (remaining_size / new_shape[i]);
+        remaining_size /= new_shape[i];
+    }
+
+    return this->view_as(new_shape, new_strides);
+}
+
+std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape) const {
+    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
+    tensor->_storage = this->_storage;
+    tensor->_desc = TensorDesc::create(this->dtype(), new_shape);
+    tensor->_offset = this->_offset;
+    return tensor;
+}
+
+std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const {
+    std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
+    tensor->_storage = this->_storage;
+    tensor->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
+    tensor->_offset = this->_offset;
+    return tensor;
 }
 
 void Tensor::debug(const std::string &filename) const {

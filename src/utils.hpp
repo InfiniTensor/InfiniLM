@@ -119,4 +119,9 @@ inline uint16_t f32_to_bf16(float val) {
     return bf16_bits;
 }
 
+// Hash combine utility (similar to boost::hash_combine)
+inline void hash_combine(size_t &seed, size_t value) {
+    seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
 #endif

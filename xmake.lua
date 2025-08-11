@@ -12,6 +12,7 @@ target("infinicore_infer")
     set_languages("cxx17")
     set_warnings("all", "error")
 
+    add_files("src/models/*.cpp")
     add_files("src/models/*/*.cpp")
     add_files("src/tensor/*.cpp")
     add_files("src/allocator/*.cpp")
