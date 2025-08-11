@@ -141,7 +141,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
     auto result_cpu = std::vector<int64_t>(nreq);
 
-    auto qkv_rope = qkv_buf->view_as({ntok, nh + nkvh * 2, dh});
+    auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
 
     // Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
@@ -183,9 +183,9 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
     auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, rsrc.memory_pool);
     auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-    auto q_rearrange = rearrange_q_buf->view_as({nkvh, ngroup, max_seq_len, dh});
+    auto q_rearrange = rearrange_q_buf->view({nkvh, ngroup, max_seq_len, dh});
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-    auto attn_val_gemm = attn_val_buf->view_as({nkvh, ngroup, max_seq_len, dh});
+    auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
     // MLP buffers
     auto gate_buf = gate_up_buf->slice(1, 0, di);
@@ -207,7 +207,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             auto past_len = req_pos[req];
             auto seq_len = req_lens[req];
             auto total_len = past_len + seq_len;
-            auto o = o_buf->slice({{0, token_offset, seq_len}})->view_as({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+            auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
             auto q = qkv_rope->slice({{0, token_offset, seq_len}, {1, 0, nh}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
             auto k = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
             auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
@@ -218,11 +218,11 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
             // qk
             rearrange(q_rearrange, q);
-            auto qk_gemm = qk_buf->view_as({nkvh, ngroup * seq_len, total_len});
+            auto qk_gemm = qk_buf->view({nkvh, ngroup * seq_len, total_len});
             auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
             linear(qk_gemm, rearrange_q_buf, k_gemm, 1. / sqrt(dh), 0.0, nullptr, nullptr);
             // softmax
-            auto qk_softmax = qk_buf->view_as({nh, seq_len, total_len});
+            auto qk_softmax = qk_buf->view({nh, seq_len, total_len});
             causalSoftmax(qk_softmax, qk_softmax);
             auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
             linear(attn_val_buf, qk_gemm, v_gemm, 1.0, 0.0, nullptr, nullptr);
