@@ -311,80 +311,95 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
         RUN_INFINI(infiniopRMSNorm(desc_norm_ffn, nullptr, 0, logits_out->data(), logits_in->data(), rsrc.w_ffn_norm[layer]->data(), stream));
         
         if (meta.nexpert > 1) {
-            // MOE LOGIC
-            auto gate_up_buf_expert = Tensor::buffer(dt_logits, {ntok * meta.topk, 2 * di}, rsrc.memory_pool);
-            auto expert_output = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
-            auto gating_scores = Tensor::buffer(dt_logits, {ntok, meta.nexpert}, rsrc.memory_pool);
-            
-            // Step 1: Gating GEMM
-            infiniopGemmDescriptor_t desc_gating_gemm;
-            RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_gating_gemm, gating_scores->desc(), logits_out->desc(), rsrc.w_ffn_gate[layer]->desc()));
-            RUN_INFINI(infiniopGemm(desc_gating_gemm, nullptr, 0, gating_scores->data(), logits_out->data(), rsrc.w_ffn_gate[layer]->data(), 1.0, 0.0, stream));
-            // Remember to destroy the descriptor after use
-            infiniopDestroyGemmDescriptor(desc_gating_gemm);
-
-            // Step 2: Softmax is fused in our TopK operator, so we call TopK directly.
-            auto topk_val = Tensor::buffer(dt_logits, {ntok, meta.topk}, rsrc.memory_pool);
-            auto topk_ind = Tensor::buffer(INFINI_DTYPE_I32, {ntok, meta.topk}, rsrc.memory_pool);
-
-            infiniopTopKDescriptor_t desc_topk;
-            RUN_INFINI(infiniopCreateTopKDescriptor(rsrc.handle, &desc_topk, gating_scores->desc(), topk_val->desc(), topk_ind->desc(), nullptr, meta.topk, 1, 1, 1));
-            
-            size_t workspace_size = infiniopGetTopKWorkspaceSize(desc_topk);
-            auto workspace = Tensor::buffer(INFINI_DTYPE_U8, {workspace_size}, rsrc.memory_pool);
-
-            RUN_INFINI(infiniopTopKCalculate(desc_topk, gating_scores->data(), topk_val->data(), topk_ind->data(), nullptr, workspace->data(), stream));
-            
-            infiniopDestroyTopKDescriptor(desc_topk);
-
-            // Step 3: Dispatch tokens to experts
-            auto permuted_output = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool); // Dispatch permutes d-dim vectors
-            auto aux_info = Tensor::buffer(INFINI_DTYPE_I32, {ntok, meta.topk, 4}, rsrc.memory_pool); // (orig_pos, expert_id, expert_offset, inter_offset)
-
-            infiniopMoEDispatchDescriptor_t desc_dispatch;
-            RUN_INFINI(infiniopCreateMoEDispatchDescriptor(rsrc.handle, &desc_dispatch, meta.nexpert, logits_out->desc(), topk_ind->desc(), permuted_output->desc(), aux_info->desc()));
-            RUN_INFINI(infiniopMoEDispatch(desc_dispatch, permuted_output->data(), aux_info->data(), logits_out->data(), topk_ind->data(), stream));
-            infiniopDestroyMoEDispatchDescriptor(desc_dispatch);
-
-            // Step 4: Run expert FFNs
-            auto gate_buf_expert = gate_up_buf_expert->slice(1, 0, di);
-            auto up_buf_expert = gate_up_buf_expert->slice(1, di, di);
-            
-            // Create temporary descriptors for expert GEMMs since weights change per expert
-            infiniopGemmDescriptor_t desc_ffn_gate_up_expert, desc_ffn_down_expert;
-            infiniopSwiGLUDescriptor_t desc_swiglu_expert;
-            RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu_expert, gate_buf_expert->desc(), up_buf_expert->desc(), gate_buf_expert->desc()));
-
-            for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
-                // The permuted_output from dispatch is now the input for all experts, laid out contiguously.
-                // We apply the FFN for each expert on the entire permuted_output buffer.
-                // The dispatch/combine logic ensures the right tokens go to the right experts.
-                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_gate_up_expert, gate_up_buf_expert->desc(), permuted_output->desc(), rsrc.w_ffn_gate_up[layer][expert_id]->desc()));
-                RUN_INFINI(infiniopGemm(desc_ffn_gate_up_expert, nullptr, 0, gate_up_buf_expert->data(), permuted_output->data(), rsrc.w_ffn_gate_up[layer][expert_id]->data(), 1.0, 0.0, stream));
-                RUN_INFINI(infiniopDestroyGemmDescriptor(desc_ffn_gate_up_expert));
-
-                RUN_INFINI(infiniopSwiGLU(desc_swiglu_expert, nullptr, 0, gate_buf_expert->data(), up_buf_expert->data(), gate_buf_expert->data(), stream));
-
-                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down_expert, expert_output->desc(), gate_buf_expert->desc(), rsrc.w_ffn_down[layer][expert_id]->desc()));
-                RUN_INFINI(infiniopGemm(desc_ffn_down_expert, nullptr, 0, expert_output->data(), gate_buf_expert->data(), rsrc.w_ffn_down[layer][expert_id]->data(), 1.0, 0.0, stream));
-                RUN_INFINI(infiniopDestroyGemmDescriptor(desc_ffn_down_expert));
-            }
-            infiniopDestroySwiGLUDescriptor(desc_swiglu_expert);
-
-
-            // Step 5: Combine expert outputs
-            infiniopMoECombineDescriptor_t desc_combine;
-            RUN_INFINI(infiniopCreateMoECombineDescriptor(rsrc.handle, &desc_combine, expert_output->desc(), topk_val->desc(), aux_info->desc(), logits_in->desc()));
-            // MoE combine also performs residual addition: output = input + combined_expert_output
-            RUN_INFINI(infiniopMoECombine(desc_combine, logits_in->data(), expert_output->data(), topk_val->data(), aux_info->data(), stream));
-            infiniopDestroyMoECombineDescriptor(desc_combine);
-
-        } else {
-            // Standard FFN Logic
-            RUN_INFINI(infiniopGemm(desc_ffn_gate_up, nullptr, 0, gate_up_buf->data(), logits_out->data(), rsrc.w_ffn_gate_up[layer][0]->data(), 1.0, 0.0, stream));
-            RUN_INFINI(infiniopSwiGLU(desc_swiglu, nullptr, 0, gate_buf->data(), up_buf->data(), gate_buf->data(), stream));
-            RUN_INFINI(infiniopGemm(desc_ffn_down, nullptr, 0, logits_in->data(), gate_buf->data(), rsrc.w_ffn_down[layer][0]->data(), 1.0, 1.0, stream)); // Add residual
-        }
+			// MOE LOGIC
+			// 步骤 1: Gating GEMM - 计算每个令牌对于每个专家的分数
+			auto gating_scores = Tensor::buffer(dt_logits, {ntok, meta.nexpert}, rsrc.memory_pool);
+			infiniopGemmDescriptor_t desc_gating_gemm;
+			RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_gating_gemm, gating_scores->desc(), logits_out->desc(), rsrc.w_ffn_gate[layer]->desc()));
+			RUN_INFINI(infiniopGemm(desc_gating_gemm, nullptr, 0, gating_scores->data(), logits_out->data(), rsrc.w_ffn_gate[layer]->data(), 1.0, 0.0, stream));
+			infiniopDestroyGemmDescriptor(desc_gating_gemm);
+  
+			// 步骤 2: TopK - 找出分数最高的 k (topk) 个专家
+			auto topk_val = Tensor::buffer(dt_logits, {ntok, meta.topk}, rsrc.memory_pool);
+			auto topk_ind = Tensor::buffer(INFINI_DTYPE_I32, {ntok, meta.topk}, rsrc.memory_pool);
+			infiniopTopKDescriptor_t desc_topk;
+			RUN_INFINI(infiniopCreateTopKDescriptor(rsrc.handle, &desc_topk, gating_scores->desc(), topk_val->desc(), topk_ind->desc(), nullptr, meta.topk, 1, 1, 1));
+			size_t workspace_size = infiniopGetTopKWorkspaceSize(desc_topk);
+			auto workspace = Tensor::buffer(INFINI_DTYPE_U8, {workspace_size}, rsrc.memory_pool);
+			RUN_INFINI(infiniopTopKCalculate(desc_topk, gating_scores->data(), topk_val->data(), topk_ind->data(), nullptr, workspace->data(), stream));
+			infiniopDestroyTopKDescriptor(desc_topk);
+  
+			// 步骤 3: Dispatch - 根据 TopK 结果，将令牌的输入数据重新排列，发往对应专家
+			auto permuted_output = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
+			auto aux_info = Tensor::buffer(INFINI_DTYPE_I32, {ntok, meta.topk, 4}, rsrc.memory_pool);
+			infiniopMoEDispatchDescriptor_t desc_dispatch;
+			RUN_INFINI(infiniopCreateMoEDispatchDescriptor(rsrc.handle, &desc_dispatch, meta.nexpert, logits_out->desc(), topk_ind->desc(), permuted_output->desc(), aux_info->desc()));
+			RUN_INFINI(infiniopMoEDispatch(desc_dispatch, permuted_output->data(), aux_info->data(), logits_out->data(), topk_ind->data(), stream));
+			infiniopDestroyMoEDispatchDescriptor(desc_dispatch);
+  
+			// 步骤 3.5: 【关键修复】计算每个专家需要处理的令牌数和数据偏移量
+			// 这部分逻辑在您原来的代码中是缺失的
+			auto expert_counts_gpu = Tensor::buffer(INFINI_DTYPE_I32, {meta.nexpert}, rsrc.memory_pool);
+			auto expert_offsets_gpu = Tensor::buffer(INFINI_DTYPE_I32, {meta.nexpert}, rsrc.memory_pool);
+			infiniopMoEExpertInfoDescriptor_t desc_expert_info;
+			RUN_INFINI(infiniopCreateMoEExpertInfoDescriptor(rsrc.handle, &desc_expert_info, topk_ind->desc(), expert_counts_gpu->desc(), expert_offsets_gpu->desc()));
+			RUN_INFINI(infiniopMoEExpertInfoCalculate(rsrc.handle, desc_expert_info, topk_ind->data(), expert_counts_gpu->data(), expert_offsets_gpu->data(), stream));
+			infiniopDestroyMoEExpertInfoDescriptor(desc_expert_info);
+  
+			// 将计数和偏移量从 GPU 拷贝到 CPU，用于控制循环
+			std::vector<int> expert_counts_cpu(meta.nexpert);
+			std::vector<int> expert_offsets_cpu(meta.nexpert);
+			RUN_INFINI(infinirtMemcpy(expert_counts_cpu.data(), expert_counts_gpu->data(), sizeof(int) * meta.nexpert, INFINIRT_MEMCPY_D2H));
+			RUN_INFINI(infinirtMemcpy(expert_offsets_cpu.data(), expert_offsets_gpu->data(), sizeof(int) * meta.nexpert, INFINIRT_MEMCPY_D2H));
+  
+			// 步骤 4: 【关键修复】在数据切片上运行专家 FFN
+			auto expert_gate_up_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, 2 * di}, rsrc.memory_pool);
+			auto expert_output_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
+  
+			for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
+				int num_tokens_for_expert = expert_counts_cpu[expert_id];
+				if (num_tokens_for_expert == 0) {
+					continue; // 如果没有令牌分配给这个专家，则跳过
+				}
+				int offset = expert_offsets_cpu[expert_id];
+  
+				// 为当前专家的数据定义缓冲区切片
+				auto input_slice = permuted_output->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+				auto gate_up_slice = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+				auto gate_slice = gate_up_slice->slice(1, 0, di);
+				auto up_slice = gate_up_slice->slice(1, di, di);
+				auto output_slice = expert_output_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+  
+				// 为切片创建临时的算子描述符
+				infiniopGemmDescriptor_t desc_ffn_gate_up_expert, desc_ffn_down_expert;
+				infiniopSwiGLUDescriptor_t desc_swiglu_expert;
+				RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_gate_up_expert, gate_up_slice->desc(), input_slice->desc(), rsrc.w_ffn_gate_up[layer][expert_id]->desc()));
+				RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu_expert, gate_slice->desc(), gate_slice->desc(), up_slice->desc()));
+				RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down_expert, output_slice->desc(), gate_slice->desc(), rsrc.w_ffn_down[layer][expert_id]->desc()));
+  
+				// 在数据切片上为当前专家执行 FFN 计算
+				RUN_INFINI(infiniopGemm(desc_ffn_gate_up_expert, nullptr, 0, gate_up_slice->data(), input_slice->data(), rsrc.w_ffn_gate_up[layer][expert_id]->data(), 1.0, 0.0, stream));
+				RUN_INFINI(infiniopSwiGLU(desc_swiglu_expert, nullptr, 0, gate_slice->data(), gate_slice->data(), up_slice->data(), stream));
+				RUN_INFINI(infiniopGemm(desc_ffn_down_expert, nullptr, 0, output_slice->data(), gate_slice->data(), rsrc.w_ffn_down[layer][expert_id]->data(), 1.0, 0.0, stream));
+  
+				// 销毁临时描述符
+				infiniopDestroyGemmDescriptor(desc_ffn_gate_up_expert);
+				infiniopDestroySwiGLUDescriptor(desc_swiglu_expert);
+				infiniopDestroyGemmDescriptor(desc_ffn_down_expert);
+			}
+  
+			// 步骤 5: Combine - 将所有专家的输出与门控分数结合，并加上残差连接
+			infiniopMoECombineDescriptor_t desc_combine;
+			RUN_INFINI(infiniopCreateMoECombineDescriptor(rsrc.handle, &desc_combine, expert_output_buf->desc(), topk_val->desc(), aux_info->desc(), logits_in->desc()));
+			RUN_INFINI(infiniopMoECombine(desc_combine, logits_in->data(), expert_output_buf->data(), topk_val->data(), aux_info->data(), stream));
+			infiniopDestroyMoECombineDescriptor(desc_combine);
+  
+		} else {
+			// Standard FFN Logic (这部分保持不变)
+			RUN_INFINI(infiniopGemm(desc_ffn_gate_up, nullptr, 0, gate_up_buf->data(), logits_out->data(), rsrc.w_ffn_gate_up[layer][0]->data(), 1.0, 0.0, stream));
+			RUN_INFINI(infiniopSwiGLU(desc_swiglu, nullptr, 0, gate_buf->data(), up_buf->data(), gate_buf->data(), stream));
+			RUN_INFINI(infiniopGemm(desc_ffn_down, nullptr, 0, logits_in->data(), gate_buf->data(), rsrc.w_ffn_down[layer][0]->data(), 1.0, 1.0, stream)); // Add residual
+		}
 
         // AllReduce across devices
         if (ndev > 1) {

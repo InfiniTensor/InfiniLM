@@ -583,6 +583,7 @@ MixtralModel::MixtralModel(const MixtralMeta *_meta, const MixtralWeights *weigh
     if (ndev > 1) {
         std::cout << "Device type passed to infinicclCommInitAll: " << device << std::endl;
         RUN_INFINI(infinicclCommInitAll(device, comms.data(), ndev, dev_ids.data()));
+		std::cout << "ccl init finished "<< std::endl;
     }
 
     for (int i = 0; i < ndev; i++) {

@@ -24,7 +24,7 @@ import math
 import torch
 import transformers
 
-torch.set_default_device("cpu")
+torch.set_default_device("cuda")
 
 
 class MixtralWeightsNaming:

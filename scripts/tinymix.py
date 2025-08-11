@@ -233,14 +233,25 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
         self.ffn_gate_up_tensors = []
         self.ffn_down_tensors = []
         
+        # Loop for FFN weights
         for i in range(meta.nlayer):
             gate_up_experts = []
             down_experts = []
             for j in range(meta.nexpert):
+                # w1, a.k.a. gate_proj
                 gate = state_dict[naming.ffn_gate_up(i, j)].to(torch_dt_mat)
-                up = state_dict[naming.ffn_up(i, j)].to(torch_dt_mat)
+                
+                # w3, a.k.a. up_proj. This has a compatible shape with w1.
+                up = state_dict[naming.ffn_down(i, j)].to(torch_dt_mat) 
+                
+                # w2, a.k.a. down_proj
+                down = state_dict[naming.ffn_up(i, j)].to(torch_dt_mat)
+
+                # Concatenate w1 and w3
                 gate_up_experts.append(torch.cat([gate, up], dim=0))
-                down_experts.append(state_dict[naming.ffn_down(i, j)].to(torch_dt_mat))
+                
+                # Append w2 to the down_experts list
+                down_experts.append(down)
 
             self.ffn_gate_up_tensors.append(gate_up_experts)
             self.ffn_down_tensors.append(down_experts)
@@ -257,7 +268,7 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
             for layer_tensors in self.ffn_down_tensors
         ]
         self.ffn_down = (POINTER(c_void_p) * meta.nlayer)(*self.ffn_down_expert_ptrs)
-
+	
 
 class TinyMixBatchedTask:
     def __init__(self, tasks: List[InferTask]):
