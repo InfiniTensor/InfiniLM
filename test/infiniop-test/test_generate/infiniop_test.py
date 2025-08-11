@@ -1,16 +1,22 @@
-import gguf
 from typing import List
+
+import gguf
 import numpy as np
 from gguf import GGMLQuantizationType
+from ml_dtypes import bfloat16
 
 
 def np_dtype_to_ggml(tensor_dtype: np.dtype):
-    if tensor_dtype == np.float16:
+    if tensor_dtype == bfloat16:
+        return GGMLQuantizationType.BF16
+    elif tensor_dtype == np.float16:
         return GGMLQuantizationType.F16
     elif tensor_dtype == np.float32:
         return GGMLQuantizationType.F32
     elif tensor_dtype == np.float64:
         return GGMLQuantizationType.F64
+    elif tensor_dtype == np.bool:
+        return GGMLQuantizationType.Q8_K
     elif tensor_dtype == np.int8:
         return GGMLQuantizationType.I8
     elif tensor_dtype == np.int16:
@@ -21,7 +27,7 @@ def np_dtype_to_ggml(tensor_dtype: np.dtype):
         return GGMLQuantizationType.I64
     else:
         raise ValueError(
-            "Only F16, F32, F64, I8, I16, I32, I64 tensors are supported for now"
+            "Only BF16, F16, F32, F64, BOOL, I8, I16, I32, I64 tensors are supported for now"
         )
 
 
@@ -37,12 +43,14 @@ def contiguous_gguf_strides(shape: tuple[int, ...]) -> list[int]:
         acc *= size
     return strides[::-1]
 
+
 def process_zero_stride_tensor(tensor, stride=None):
     if stride:
         slices = tuple(slice(0, 1) if s == 0 else slice(None) for s in stride)
         return tensor[slices]
     else:
         return tensor
+
 
 class InfiniopTestCase:
     op_name: str

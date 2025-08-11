@@ -1,24 +1,26 @@
 add_defines("ENABLE_KUNLUN_API")
 local KUNLUN_HOME = os.getenv("KUNLUN_HOME")
-local XTDK_DIR = path.join(KUNLUN_HOME, "XTDK")
+local XRE_DIR = path.join(KUNLUN_HOME, "xre")
+local XTDK_DIR = path.join(KUNLUN_HOME, "xtdk")
+local XDNN_DIR = path.join(KUNLUN_HOME, "xhpc", "xdnn")
 
 -- Add include dirs
-add_includedirs(path.join(KUNLUN_HOME, "include"), {public=true})
-add_linkdirs(path.join(KUNLUN_HOME, "lib64"))
-add_links("xpurt")
-add_links("xpuapi")
+add_includedirs(path.join(XRE_DIR, "include"))
+add_includedirs(path.join(XDNN_DIR, "include"))
+add_includedirs(path.join(XTDK_DIR, "include"))
+add_linkdirs(path.join(XRE_DIR, "so"))
+add_linkdirs(path.join(XDNN_DIR, "so"))
+add_links("xpurt", "xpuapi")
 
 rule("xpu")
     set_extensions(".xpu")
     
-    on_load(function (target)
-        target:add("includedirs", path.join(os.projectdir(), "include"))
-    end)
-
     on_build_file(function (target, sourcefile)
 
+        local sourcefile_config = target:fileconfig(sourcefile) or {}
+        local includedirs = sourcefile_config.includedirs or {}
+
         local objectfile = target:objectfile(sourcefile)
-        local basename = objectfile:gsub("%.o$", "")
         os.mkdir(path.directory(objectfile))
         local cc = path.join(XTDK_DIR, "bin/clang++")
         local includedirs = table.concat(target:get("includedirs"), " ")
@@ -27,20 +29,16 @@ rule("xpu")
             ["arm64"] = "aarch64-linux-gnu"
         }
 
-
         local args = {
             "--sysroot=/",
             "--target=" .. arch_map[os.arch()],
             "-fPIC",
-            "-pie",
-            "--xpu-arch=xpu2",
-            "--basename", basename,
-            "-std=c++11",
+            "--xpu-arch=xpu3",
+            "-std=c++17",
             "-O2",
             "-fno-builtin",
-            "-g",
             "-c", sourcefile,
-            "-v"
+            "-o", objectfile
         }
         
         for _, includedir in ipairs(target:get("includedirs")) do
@@ -48,9 +46,10 @@ rule("xpu")
         end
 
         -- print(args)
-        os.execv(cc, args)
+        local ok, code = os.execv(cc, args)
+        assert(ok == 0, "Compile failed: " .. sourcefile)
+
         table.insert(target:objectfiles(), objectfile)
-        table.insert(target:objectfiles(), basename .. ".device.bin.o")
         print(target:objectfiles())
     end)
 rule_end()
@@ -62,7 +61,7 @@ target("infiniop-kunlun")
     add_deps("infini-utils")
     on_install(function (target) end)
 
-    add_cxflags("-lstdc++ -fPIC")
+    add_cxflags("-lstdc++ -fPIC -Wno-error=unused-function")
     set_warnings("all", "error")
 
     set_languages("cxx17")
@@ -70,7 +69,15 @@ target("infiniop-kunlun")
     -- compile handwriting kernel
     local xpu_files = os.files(src_dir .. "/ops/*/kunlun/*.xpu")
     if #xpu_files > 0 then
-        add_files(xpu_files, {rule = "xpu"})
+        add_files(xpu_files, {
+            rule = "xpu",
+            includedirs = {
+                path.join(os.projectdir, "include"),
+                path.join(XRE_DIR, "include"),
+                path.join(XDNN_DIR, "include"),
+                path.join(XTDK_DIR, "include")
+            }
+        })
     end
 target_end()
 
@@ -80,7 +87,7 @@ target("infinirt-kunlun")
     set_languages("cxx17")
     on_install(function (target) end)
     -- Add include dirs
-    add_files("../src/infinirt/kunlun/*.cc")
+    add_files("$(projectdir)/src/infinirt/kunlun/*.cc")
     add_cxflags("-lstdc++ -Wall -Werror -fPIC")
 
 target_end()

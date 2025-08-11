@@ -2,13 +2,25 @@
 #define __INFINIOP_KUNLUN_KERNEL_COMMON_H__
 
 // This header file will only be include by .xpu file
-#include "kunlun_kernel_dtype.h"
-#include "xpu/kernel/xtdk.h"
-#include "xpu/kernel/xtdk_math.h"
-#include "xpu/kernel/xtdk_simd.h"
 #include "xpu/runtime.h"
+#include <xpu/kernel/xtdk.h>
+#include <xpu/kernel/xtdk_bf16.h>
+#include <xpu/kernel/xtdk_math.h>
+#include <xpu/kernel/xtdk_simd.h>
 
 namespace device::kunlun::kernel {
+
+typedef struct _ptrdiff_t {
+    int32_t value;   // 32 bit
+    int32_t padding; // 32 bit
+} _ptrdiff_t;
+
+// same as ptrdiff
+typedef struct _size_t {
+    uint32_t value;
+    uint32_t padding;
+} _size_t;
+
 // Get mask for kunlun xpu 512bit register calculation
 // if data is not enough to 512bit, padding zero and use
 // mask to identify real data
@@ -28,37 +40,50 @@ inline __device__ void atomicAddF32(__shared_ptr__ float *ptr, float value) {
     }
 }
 
-inline __device__ size_t indexToReducedOffset(
-    size_t flat_index,
-    size_t ndim,
-    const _ptrdiff_t *broadcasted_strides,
-    const _ptrdiff_t *target_strides) {
+/**
+ * @brief Get index of broadcasted input
+ * flat_index: flatten index of output tensor
+ * ndim: dim of output tensor
+ * broadcasted_strides: strides of output tensor
+ * target_strides: strides of input tensor
+ */
+inline __device__ int indexToReducedOffset(
+    int flat_index,                        // output flatten index
+    int ndim,                              // output dims
+    const _ptrdiff_t *broadcasted_strides, // output strides
+    const _ptrdiff_t *target_strides) {    // strides of inputs
 
-    size_t res = 0;
-    for (size_t i = 0; i < ndim; ++i) {
+    int res = 0;
+    for (int i = 0; i < ndim; ++i) {
         res += flat_index / broadcasted_strides[i].value * target_strides[i].value;
         flat_index %= broadcasted_strides[i].value;
-        mfence();
     }
     return res;
 }
 
-inline __device__ size_t indexToOffset(
-    size_t flat_index,
-    size_t ndim,
+/**
+ * @brief Get real offset of input index
+ * flat_index: flatten index input
+ * ndim: dim of input tensor
+ * shape: shape of input tensor
+ * strides: strides of input tensor
+ */
+inline __device__ int indexToOffset(
+    int flat_index,
+    int ndim,
     const _size_t *shape,
     const _ptrdiff_t *strides) {
 
-    size_t res = 0;
-    for (size_t i = ndim; i-- > 0;) {
+    int res = 0;
+    for (int i = ndim; i-- > 0;) {
         res += (flat_index % shape[i].value) * strides[i].value;
         flat_index /= shape[i].value;
-        mfence();
     }
     return res;
 }
 
 } // namespace device::kunlun::kernel
+
+#endif // __INFINIOP_KUNLUN_KERNEL_COMMON_H__
 // TODO: atomicAddF16
 // TODO: atomicAddI8
-#endif
