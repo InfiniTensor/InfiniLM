@@ -94,7 +94,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
         self.scale_o = 1.0
         self.scale_down = 1.0
         if (
-            "fm9g" == config["model_type"]
+            config["model_type"] in ["fm9g", "minicpm"]
             and "scale_emb" in config
             and "scale_depth" in config
             and "dim_model_base" in config
@@ -425,7 +425,7 @@ class JiugeForCauslLM:
                 ndev=ndev,
                 transpose_weight=transpose_weight,
             )
-        elif "fm9g" == config["model_type"]:
+        elif "fm9g" == config["model_type"] or "minicpm" == config["model_type"]:
             if any(
                 file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()
             ):
