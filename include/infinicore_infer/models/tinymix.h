@@ -22,7 +22,7 @@ typedef struct
     uint32_t dctx;
 } TinyMixMeta;
 
-typedef struct
+typedef struct //此处数据应该和python libinfinicore_infer.py中的接口对应 修改请同时修改
 {
     size_t nlayer;
     infiniDtype_t dt_norm, dt_mat;

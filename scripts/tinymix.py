@@ -72,13 +72,37 @@ class TinyMixWeightsNaming:
 
 
 class TinyMixMetaFromConfig(TinyMixMetaCStruct):
-    def __init__(self, config, dtype=torch.float16, max_tokens=None):
-        dt_ = DataType.INFINI_DTYPE_F16
-        if dtype == torch.float32:
+    def __init__(self, config, dtype=None, max_tokens=None):
+        """
+        修正后的构造函数：
+        - 优先从 config['torch_dtype'] 推断数据类型。
+        - 仍然允许通过 dtype 参数进行手动覆盖。
+        """
+        
+        # 1. 确定最终要使用的数据类型
+        final_dtype = dtype
+        if final_dtype is None:
+            # 当调用时未提供 dtype 参数时（这是现在的默认行为），
+            # 从 config 文件中读取类型字符串。
+            # 使用 .get() 方法，如果 config 中没有 "torch_dtype"，则安全地默认为 "float16"。
+            dtype_str = config.get("torch_dtype", "float16")
+            
+            # 将字符串映射到实际的 torch.dtype 对象
+            if dtype_str == "bfloat16":
+                final_dtype = torch.bfloat16
+            elif dtype_str == "float32":
+                final_dtype = torch.float32
+            else:  # "float16" 或其他情况
+                final_dtype = torch.float16
+        
+        # 2. 将最终确定的 torch.dtype 映射到 C++ 使用的内部枚举类型
+        dt_ = DataType.INFINI_DTYPE_F16  # 默认值
+        if final_dtype == torch.float32:
             dt_ = DataType.INFINI_DTYPE_F32
-        elif dtype == torch.bfloat16:
+        elif final_dtype == torch.bfloat16:
             dt_ = DataType.INFINI_DTYPE_BF16
 
+        # 3. 调用父类构造函数，传递正确的数据类型
         super().__init__(
             dt_logits=dt_,
             nlayer=config["num_hidden_layers"],
@@ -95,7 +119,9 @@ class TinyMixMetaFromConfig(TinyMixMetaCStruct):
             theta=config.get("rope_theta", 10000.0),
             end_token=config["eos_token_id"],
         )
-        self.torch_dtype_logits = dtype
+        
+        # 保存最终确定的 torch 数据类型，以备后用
+        self.torch_dtype_logits = final_dtype
 
 
 class TinyMixWeightsImpl(TinyMixWeightsCStruct):

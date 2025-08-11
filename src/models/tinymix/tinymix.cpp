@@ -9,12 +9,31 @@
 #include <random>
 #include <thread>
 #include <vector>
+#include <iostream>
+#include <numeric>
+
+// --- Debugging Macro ---
+// Set to 0 to disable all debug logs
+#define DEBUG 1
+
+#if DEBUG
+#define DEBUG_LOG(...)                                                         \
+    do {                                                                       \
+        printf("DEBUG: ");                                                     \
+        printf(__VA_ARGS__);                                                   \
+        printf("\n");                                                          \
+    } while (0)
+#else
+#define DEBUG_LOG(...)
+#endif
+// -----------------------
 
 void createDeviceResource(DeviceResource *rsrc, const TinyMixMeta *meta,
                           const TinyMixWeights *weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
+    DEBUG_LOG("Enter createDeviceResource for idev: %d, dev_id: %d", idev, dev_id);
     RUN_INFINI(infinirtSetDevice(device, dev_id));
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
@@ -26,34 +45,59 @@ void createDeviceResource(DeviceResource *rsrc, const TinyMixMeta *meta,
     std::vector<std::vector<std::shared_ptr<Tensor>>> w_ffn_gate_up, w_ffn_down;
     
     for (size_t layer = 0; layer < meta->nlayer; layer++) {
-        w_attn_norm.push_back(
-            getAttnNorm(meta, weights, layer));
-        w_attn_qkv.push_back(
-            getAttnQKV(meta, weights, layer, idev, ndev));
-        if (weights->attn_qkv_b != nullptr) {
-            b_attn_qkv.push_back(
-                getAttnQKVBias(meta, weights, layer, idev, ndev));
-        }
-        w_attn_out.push_back(
-            getAttnO(meta, weights, layer, idev, ndev));
-        w_ffn_norm.push_back(
-            getFFNNorm(meta, weights, layer));
-        
-        if (meta->nexpert > 1) {
-            w_ffn_gate.push_back(getFFNGate(meta, weights, layer));
-            std::vector<std::shared_ptr<Tensor>> gate_up_experts, down_experts;
-            for (size_t expert = 0; expert < meta->nexpert; ++expert) {
-                gate_up_experts.push_back(getFFNGateUp(meta, weights, layer, expert, idev, ndev));
-                down_experts.push_back(getFFNDown(meta, weights, layer, expert, idev, ndev));
-            }
-            w_ffn_gate_up.push_back(gate_up_experts);
-            w_ffn_down.push_back(down_experts);
-        } else {
-            // Placeholder for non-MoE FFN weights if needed
-        }
-    }
-
+		//DEBUG_LOG("L%zu: --- Starting weight loading ---", layer);
+	
+		//DEBUG_LOG("L%zu: Loading w_attn_norm", layer);
+		w_attn_norm.push_back(getAttnNorm(meta, weights, layer));
+	
+		//DEBUG_LOG("L%zu: Loading w_attn_qkv", layer);
+		w_attn_qkv.push_back(getAttnQKV(meta, weights, layer, idev, ndev));
+	
+		if (weights->attn_qkv_b != nullptr) {
+			//DEBUG_LOG("L%zu: Loading b_attn_qkv (bias)", layer);
+			b_attn_qkv.push_back(getAttnQKVBias(meta, weights, layer, idev, ndev));
+		}
+	
+		//DEBUG_LOG("L%zu: Loading w_attn_out", layer);
+		w_attn_out.push_back(getAttnO(meta, weights, layer, idev, ndev));
+	
+		//DEBUG_LOG("L%zu: Loading w_ffn_norm", layer);
+		w_ffn_norm.push_back(getFFNNorm(meta, weights, layer));
+	
+		if (meta->nexpert > 1) {
+			//DEBUG_LOG("L%zu: MoE model detected with %zu experts", layer, (size_t)meta->nexpert);
+			//DEBUG_LOG("L%zu: Loading w_ffn_gate", layer);
+			w_ffn_gate.push_back(getFFNGate(meta, weights, layer));
+			
+			std::vector<std::shared_ptr<Tensor>> gate_up_experts, down_experts;
+			for (size_t expert = 0; expert < meta->nexpert; ++expert) {
+				//DEBUG_LOG("L%zu E%zu: Loading gate_up tensor", layer, expert);
+				gate_up_experts.push_back(getFFNGateUp(meta, weights, layer, expert, idev, ndev));
+				
+				//DEBUG_LOG("L%zu E%zu: Loading down tensor", layer, expert);
+				down_experts.push_back(getFFNDown(meta, weights, layer, expert, idev, ndev));
+			}
+			w_ffn_gate_up.push_back(gate_up_experts);
+			w_ffn_down.push_back(down_experts);
+		} else {
+			//DEBUG_LOG("L%zu: Standard FFN model detected", layer);
+			std::vector<std::shared_ptr<Tensor>> gate_up, down;
+			
+			//DEBUG_LOG("L%zu: Loading FFN gate_up tensor", layer);
+			gate_up.push_back(getFFNGateUp(meta, weights, layer, 0, idev, ndev));
+			
+			//DEBUG_LOG("L%zu: Loading FFN down tensor", layer);
+			down.push_back(getFFNDown(meta, weights, layer, 0, idev, ndev));
+			
+			w_ffn_gate_up.push_back(gate_up);
+			w_ffn_down.push_back(down);
+		}
+		//DEBUG_LOG("L%zu: --- Weight loading complete ---", layer);
+	}
+	//printf("enter memory pool\n");
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
+	//printf("memory pool created\n");
+	//printf("Model's expected data type (enum value): %d\n", meta->dt_logits);
 
     *rsrc = DeviceResource{
         device,
@@ -76,11 +120,14 @@ void createDeviceResource(DeviceResource *rsrc, const TinyMixMeta *meta,
         comm,
         memory_pool,
     };
+	printf("device resource created\n");
     RUN_INFINI(infinirtDeviceSynchronize());
+    DEBUG_LOG("Exit createDeviceResource for idev: %d", idev);
 }
 
 // Define as static to limit scope to this file and prevent linker errors.
-static void releaseDeviceResource(DeviceResource &res) {
+static void releaseDeviceResource(DeviceResource &res, int dev_id) {
+    DEBUG_LOG("Releasing device resources for dev_id: %d", dev_id);
     // Similar to jiuge's implementation
     infinirtDeviceSynchronize();
     res.w_in_embd.reset();
@@ -102,6 +149,7 @@ static void releaseDeviceResource(DeviceResource &res) {
     res.stream = nullptr;
     infinicclCommDestroy(res.comm);
     res.comm = nullptr;
+    DEBUG_LOG("Finished releasing resources for dev_id: %d", dev_id);
 }
 
 void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
@@ -111,6 +159,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output) {
+    DEBUG_LOG("Enter inferDeviceBatch on idev %u. ntok: %u, nreq: %u", idev, ntok, nreq);
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
@@ -146,13 +195,14 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     std::shared_ptr<Tensor> pos_ids_buf;
     pos_ids_buf = Tensor::buffer(INFINI_DTYPE_U32, {ntok}, rsrc.memory_pool);
     RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
-                                    INFINIRT_MEMCPY_H2D, stream));
+                                   INFINIRT_MEMCPY_H2D, stream));
 
     for (uint32_t i = 0; i < ntok; i++) {
         RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
                                        rsrc.w_in_embd->data(tokens[i] * d),
                                        dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
     }
+    DEBUG_LOG("Input embeddings prepared. logits_in shape: {%u, %u}", ntok, d);
 
     // Prepare operators and workspace
     infiniopRMSNormDescriptor_t desc_norm_attn;
@@ -245,8 +295,11 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
  
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
+        DEBUG_LOG("Starting layer %u", layer);
         // 1. Attention
+        DEBUG_LOG("  (1) Attention");
         RUN_INFINI(infiniopRMSNorm(desc_norm_attn, nullptr, 0, logits_out->data(), logits_in->data(), rsrc.w_attn_norm[layer]->data(), stream));
+        DEBUG_LOG("    - RMSNorm for attention done.");
 
         if (has_qkv_bias) {
             RUN_INFINI(infiniopGemm(desc_attn_qkv, nullptr, 0, qkv_buf->data(), logits_out->data(), rsrc.w_attn_qkv[layer]->data(), 1.0, 0.0, stream));
@@ -254,6 +307,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
         } else {
             RUN_INFINI(infiniopGemm(desc_attn_qkv, nullptr, 0, qkv_buf->data(), logits_out->data(), rsrc.w_attn_qkv[layer]->data(), 1.0, 0.0, stream));
         }
+        DEBUG_LOG("    - QKV GEMM done. qkv_buf shape: {%u, %u}", ntok, (nh + nkvh * 2) * dh);
         
         qkv_buf->dimSplit(1, {nh + 2 * nkvh, dh});
         auto q_buf = qkv_buf->slice(1, 0, nh);
@@ -261,12 +315,14 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
         auto v_buf = qkv_buf->slice(1, nh + nkvh, nkvh);
 
         RUN_INFINI(infiniopRoPE(desc_rope, nullptr, 0, q_buf->data(), k_buf->data(), rsrc.sin_table->data(), rsrc.cos_table->data(), pos_ids_buf->data(), stream));
+        DEBUG_LOG("    - RoPE done.");
         
         size_t token_offset = 0;
         o_buf->dimSplit(1, {nh, dh});
         for (uint32_t req = 0; req < nreq; req++) {
             auto past_len = req_pos[req];
             auto seq_len = req_lens[req];
+            DEBUG_LOG("    - Processing attention for req %u, seq_len: %u, past_len: %u", req, seq_len, past_len);
             auto o = o_buf->slice({{0, token_offset, seq_len}});
             auto q = q_buf->slice({{0, token_offset, seq_len}});
             auto k = k_buf->slice({{0, token_offset, seq_len}});
@@ -304,113 +360,136 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
         }
         o_buf->dimMerge(1, 2);
         qkv_buf->dimMerge(1, 2);
+        DEBUG_LOG("    - Per-request attention calculation done.");
 
         RUN_INFINI(infiniopGemm(desc_attn_out, nullptr, 0, logits_in->data(), o_buf->data(), rsrc.w_attn_out[layer]->data(), 1.0, 1.0, stream)); // Add residual
+        DEBUG_LOG("    - Output projection and residual add done.");
 
         // 2. FFN / MoE
+        DEBUG_LOG("  (2) FFN/MoE");
         RUN_INFINI(infiniopRMSNorm(desc_norm_ffn, nullptr, 0, logits_out->data(), logits_in->data(), rsrc.w_ffn_norm[layer]->data(), stream));
+        DEBUG_LOG("    - RMSNorm for FFN done.");
         
         if (meta.nexpert > 1) {
-			// MOE LOGIC
-			// 步骤 1: Gating GEMM - 计算每个令牌对于每个专家的分数
-			auto gating_scores = Tensor::buffer(dt_logits, {ntok, meta.nexpert}, rsrc.memory_pool);
-			infiniopGemmDescriptor_t desc_gating_gemm;
-			RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_gating_gemm, gating_scores->desc(), logits_out->desc(), rsrc.w_ffn_gate[layer]->desc()));
-			RUN_INFINI(infiniopGemm(desc_gating_gemm, nullptr, 0, gating_scores->data(), logits_out->data(), rsrc.w_ffn_gate[layer]->data(), 1.0, 0.0, stream));
-			infiniopDestroyGemmDescriptor(desc_gating_gemm);
-  
-			// 步骤 2: TopK - 找出分数最高的 k (topk) 个专家
-			auto topk_val = Tensor::buffer(dt_logits, {ntok, meta.topk}, rsrc.memory_pool);
-			auto topk_ind = Tensor::buffer(INFINI_DTYPE_I32, {ntok, meta.topk}, rsrc.memory_pool);
-			infiniopTopKDescriptor_t desc_topk;
-			RUN_INFINI(infiniopCreateTopKDescriptor(rsrc.handle, &desc_topk, gating_scores->desc(), topk_val->desc(), topk_ind->desc(), nullptr, meta.topk, 1, 1, 1));
-			size_t workspace_size = infiniopGetTopKWorkspaceSize(desc_topk);
-			auto workspace = Tensor::buffer(INFINI_DTYPE_U8, {workspace_size}, rsrc.memory_pool);
-			RUN_INFINI(infiniopTopKCalculate(desc_topk, gating_scores->data(), topk_val->data(), topk_ind->data(), nullptr, workspace->data(), stream));
-			infiniopDestroyTopKDescriptor(desc_topk);
-  
-			// 步骤 3: Dispatch - 根据 TopK 结果，将令牌的输入数据重新排列，发往对应专家
-			auto permuted_output = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
-			auto aux_info = Tensor::buffer(INFINI_DTYPE_I32, {ntok, meta.topk, 4}, rsrc.memory_pool);
-			infiniopMoEDispatchDescriptor_t desc_dispatch;
-			RUN_INFINI(infiniopCreateMoEDispatchDescriptor(rsrc.handle, &desc_dispatch, meta.nexpert, logits_out->desc(), topk_ind->desc(), permuted_output->desc(), aux_info->desc()));
-			RUN_INFINI(infiniopMoEDispatch(desc_dispatch, permuted_output->data(), aux_info->data(), logits_out->data(), topk_ind->data(), stream));
-			infiniopDestroyMoEDispatchDescriptor(desc_dispatch);
-  
-			// 步骤 3.5: 【关键修复】计算每个专家需要处理的令牌数和数据偏移量
-			// 这部分逻辑在您原来的代码中是缺失的
-			auto expert_counts_gpu = Tensor::buffer(INFINI_DTYPE_I32, {meta.nexpert}, rsrc.memory_pool);
-			auto expert_offsets_gpu = Tensor::buffer(INFINI_DTYPE_I32, {meta.nexpert}, rsrc.memory_pool);
-			infiniopMoEExpertInfoDescriptor_t desc_expert_info;
-			RUN_INFINI(infiniopCreateMoEExpertInfoDescriptor(rsrc.handle, &desc_expert_info, topk_ind->desc(), expert_counts_gpu->desc(), expert_offsets_gpu->desc()));
-			RUN_INFINI(infiniopMoEExpertInfoCalculate(rsrc.handle, desc_expert_info, topk_ind->data(), expert_counts_gpu->data(), expert_offsets_gpu->data(), stream));
-			infiniopDestroyMoEExpertInfoDescriptor(desc_expert_info);
-  
-			// 将计数和偏移量从 GPU 拷贝到 CPU，用于控制循环
-			std::vector<int> expert_counts_cpu(meta.nexpert);
-			std::vector<int> expert_offsets_cpu(meta.nexpert);
-			RUN_INFINI(infinirtMemcpy(expert_counts_cpu.data(), expert_counts_gpu->data(), sizeof(int) * meta.nexpert, INFINIRT_MEMCPY_D2H));
-			RUN_INFINI(infinirtMemcpy(expert_offsets_cpu.data(), expert_offsets_gpu->data(), sizeof(int) * meta.nexpert, INFINIRT_MEMCPY_D2H));
-  
-			// 步骤 4: 【关键修复】在数据切片上运行专家 FFN
-			auto expert_gate_up_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, 2 * di}, rsrc.memory_pool);
-			auto expert_output_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
-  
-			for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
-				int num_tokens_for_expert = expert_counts_cpu[expert_id];
-				if (num_tokens_for_expert == 0) {
-					continue; // 如果没有令牌分配给这个专家，则跳过
-				}
-				int offset = expert_offsets_cpu[expert_id];
-  
-				// 为当前专家的数据定义缓冲区切片
-				auto input_slice = permuted_output->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
-				auto gate_up_slice = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
-				auto gate_slice = gate_up_slice->slice(1, 0, di);
-				auto up_slice = gate_up_slice->slice(1, di, di);
-				auto output_slice = expert_output_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
-  
-				// 为切片创建临时的算子描述符
-				infiniopGemmDescriptor_t desc_ffn_gate_up_expert, desc_ffn_down_expert;
-				infiniopSwiGLUDescriptor_t desc_swiglu_expert;
-				RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_gate_up_expert, gate_up_slice->desc(), input_slice->desc(), rsrc.w_ffn_gate_up[layer][expert_id]->desc()));
-				RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu_expert, gate_slice->desc(), gate_slice->desc(), up_slice->desc()));
-				RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down_expert, output_slice->desc(), gate_slice->desc(), rsrc.w_ffn_down[layer][expert_id]->desc()));
-  
-				// 在数据切片上为当前专家执行 FFN 计算
-				RUN_INFINI(infiniopGemm(desc_ffn_gate_up_expert, nullptr, 0, gate_up_slice->data(), input_slice->data(), rsrc.w_ffn_gate_up[layer][expert_id]->data(), 1.0, 0.0, stream));
-				RUN_INFINI(infiniopSwiGLU(desc_swiglu_expert, nullptr, 0, gate_slice->data(), gate_slice->data(), up_slice->data(), stream));
-				RUN_INFINI(infiniopGemm(desc_ffn_down_expert, nullptr, 0, output_slice->data(), gate_slice->data(), rsrc.w_ffn_down[layer][expert_id]->data(), 1.0, 0.0, stream));
-  
-				// 销毁临时描述符
-				infiniopDestroyGemmDescriptor(desc_ffn_gate_up_expert);
-				infiniopDestroySwiGLUDescriptor(desc_swiglu_expert);
-				infiniopDestroyGemmDescriptor(desc_ffn_down_expert);
-			}
-  
-			// 步骤 5: Combine - 将所有专家的输出与门控分数结合，并加上残差连接
-			infiniopMoECombineDescriptor_t desc_combine;
-			RUN_INFINI(infiniopCreateMoECombineDescriptor(rsrc.handle, &desc_combine, expert_output_buf->desc(), topk_val->desc(), aux_info->desc(), logits_in->desc()));
-			RUN_INFINI(infiniopMoECombine(desc_combine, logits_in->data(), expert_output_buf->data(), topk_val->data(), aux_info->data(), stream));
-			infiniopDestroyMoECombineDescriptor(desc_combine);
-  
-		} else {
-			// Standard FFN Logic (这部分保持不变)
-			RUN_INFINI(infiniopGemm(desc_ffn_gate_up, nullptr, 0, gate_up_buf->data(), logits_out->data(), rsrc.w_ffn_gate_up[layer][0]->data(), 1.0, 0.0, stream));
-			RUN_INFINI(infiniopSwiGLU(desc_swiglu, nullptr, 0, gate_buf->data(), up_buf->data(), gate_buf->data(), stream));
-			RUN_INFINI(infiniopGemm(desc_ffn_down, nullptr, 0, logits_in->data(), gate_buf->data(), rsrc.w_ffn_down[layer][0]->data(), 1.0, 1.0, stream)); // Add residual
-		}
+            DEBUG_LOG("    - Taking MoE path with %u experts.", meta.nexpert);
+            // MOE LOGIC
+            // 步骤 1: Gating GEMM - 计算每个令牌对于每个专家的分数
+            auto gating_scores = Tensor::buffer(dt_logits, {ntok, meta.nexpert}, rsrc.memory_pool);
+            infiniopGemmDescriptor_t desc_gating_gemm;
+            RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_gating_gemm, gating_scores->desc(), logits_out->desc(), rsrc.w_ffn_gate[layer]->desc()));
+            RUN_INFINI(infiniopGemm(desc_gating_gemm, nullptr, 0, gating_scores->data(), logits_out->data(), rsrc.w_ffn_gate[layer]->data(), 1.0, 0.0, stream));
+            infiniopDestroyGemmDescriptor(desc_gating_gemm);
+            DEBUG_LOG("    - MoE: Gating GEMM done. gating_scores shape: {%u, %u}", ntok, meta.nexpert);
+ 
+            // 步骤 2: TopK - 找出分数最高的 k (topk) 个专家
+            auto topk_val = Tensor::buffer(dt_logits, {ntok, meta.topk}, rsrc.memory_pool);
+            auto topk_ind = Tensor::buffer(INFINI_DTYPE_I32, {ntok, meta.topk}, rsrc.memory_pool);
+            infiniopTopKDescriptor_t desc_topk;
+            RUN_INFINI(infiniopCreateTopKDescriptor(rsrc.handle, &desc_topk, gating_scores->desc(), topk_val->desc(), topk_ind->desc(), nullptr, meta.topk, 1, 1, 1));
+            size_t workspace_size = infiniopGetTopKWorkspaceSize(desc_topk);
+            auto workspace = Tensor::buffer(INFINI_DTYPE_U8, {workspace_size}, rsrc.memory_pool);
+            RUN_INFINI(infiniopTopKCalculate(desc_topk, gating_scores->data(), topk_val->data(), topk_ind->data(), nullptr, workspace->data(), stream));
+            infiniopDestroyTopKDescriptor(desc_topk);
+            DEBUG_LOG("    - MoE: TopK done. topk_ind shape: {%u, %u}", ntok, meta.topk);
+ 
+            // 步骤 3: Dispatch - 根据 TopK 结果，将令牌的输入数据重新排列，发往对应专家
+            auto permuted_output = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
+            auto aux_info = Tensor::buffer(INFINI_DTYPE_I32, {ntok, meta.topk, 4}, rsrc.memory_pool);
+            infiniopMoEDispatchDescriptor_t desc_dispatch;
+            RUN_INFINI(infiniopCreateMoEDispatchDescriptor(rsrc.handle, &desc_dispatch, meta.nexpert, logits_out->desc(), topk_ind->desc(), permuted_output->desc(), aux_info->desc()));
+            RUN_INFINI(infiniopMoEDispatch(desc_dispatch, permuted_output->data(), aux_info->data(), logits_out->data(), topk_ind->data(), stream));
+            infiniopDestroyMoEDispatchDescriptor(desc_dispatch);
+            DEBUG_LOG("    - MoE: Dispatch done.");
+ 
+            // 步骤 3.5: 【关键修复】计算每个专家需要处理的令牌数和数据偏移量
+            // 这部分逻辑在您原来的代码中是缺失的
+            auto expert_counts_gpu = Tensor::buffer(INFINI_DTYPE_I32, {meta.nexpert}, rsrc.memory_pool);
+            auto expert_offsets_gpu = Tensor::buffer(INFINI_DTYPE_I32, {meta.nexpert}, rsrc.memory_pool);
+            infiniopMoEExpertInfoDescriptor_t desc_expert_info;
+            RUN_INFINI(infiniopCreateMoEExpertInfoDescriptor(rsrc.handle, &desc_expert_info, topk_ind->desc(), expert_counts_gpu->desc(), expert_offsets_gpu->desc()));
+            RUN_INFINI(infiniopMoEExpertInfoCalculate(rsrc.handle, desc_expert_info, topk_ind->data(), expert_counts_gpu->data(), expert_offsets_gpu->data(), stream));
+            infiniopDestroyMoEExpertInfoDescriptor(desc_expert_info);
+ 
+            // 将计数和偏移量从 GPU 拷贝到 CPU，用于控制循环
+            std::vector<int> expert_counts_cpu(meta.nexpert);
+            std::vector<int> expert_offsets_cpu(meta.nexpert);
+            RUN_INFINI(infinirtMemcpy(expert_counts_cpu.data(), expert_counts_gpu->data(), sizeof(int) * meta.nexpert, INFINIRT_MEMCPY_D2H));
+            RUN_INFINI(infinirtMemcpy(expert_offsets_cpu.data(), expert_offsets_gpu->data(), sizeof(int) * meta.nexpert, INFINIRT_MEMCPY_D2H));
+            DEBUG_LOG("    - MoE: Expert counts calculated.");
+#if DEBUG
+            for(size_t i = 0; i < meta.nexpert; ++i) {
+                if (expert_counts_cpu[i] > 0) {
+                    DEBUG_LOG("      - Expert %zu has %d tokens.", i, expert_counts_cpu[i]);
+                }
+            }
+#endif
+ 
+            // 步骤 4: 【关键修复】在数据切片上运行专家 FFN
+            auto expert_gate_up_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, 2 * di}, rsrc.memory_pool);
+            auto expert_output_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
+ 
+            for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
+                int num_tokens_for_expert = expert_counts_cpu[expert_id];
+                if (num_tokens_for_expert == 0) {
+                    continue; // 如果没有令牌分配给这个专家，则跳过
+                }
+                int offset = expert_offsets_cpu[expert_id];
+                DEBUG_LOG("    - MoE: Running FFN for expert %zu on %d tokens.", expert_id, num_tokens_for_expert);
+ 
+                // 为当前专家的数据定义缓冲区切片
+                auto input_slice = permuted_output->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+                auto gate_up_slice = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+                auto gate_slice = gate_up_slice->slice(1, 0, di);
+                auto up_slice = gate_up_slice->slice(1, di, di);
+                auto output_slice = expert_output_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens_for_expert}});
+ 
+                // 为切片创建临时的算子描述符
+                infiniopGemmDescriptor_t desc_ffn_gate_up_expert, desc_ffn_down_expert;
+                infiniopSwiGLUDescriptor_t desc_swiglu_expert;
+                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_gate_up_expert, gate_up_slice->desc(), input_slice->desc(), rsrc.w_ffn_gate_up[layer][expert_id]->desc()));
+                RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu_expert, gate_slice->desc(), gate_slice->desc(), up_slice->desc()));
+                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down_expert, output_slice->desc(), gate_slice->desc(), rsrc.w_ffn_down[layer][expert_id]->desc()));
+ 
+                // 在数据切片上为当前专家执行 FFN 计算
+                RUN_INFINI(infiniopGemm(desc_ffn_gate_up_expert, nullptr, 0, gate_up_slice->data(), input_slice->data(), rsrc.w_ffn_gate_up[layer][expert_id]->data(), 1.0, 0.0, stream));
+                RUN_INFINI(infiniopSwiGLU(desc_swiglu_expert, nullptr, 0, gate_slice->data(), gate_slice->data(), up_slice->data(), stream));
+                RUN_INFINI(infiniopGemm(desc_ffn_down_expert, nullptr, 0, output_slice->data(), gate_slice->data(), rsrc.w_ffn_down[layer][expert_id]->data(), 1.0, 0.0, stream));
+ 
+                // 销毁临时描述符
+                infiniopDestroyGemmDescriptor(desc_ffn_gate_up_expert);
+                infiniopDestroySwiGLUDescriptor(desc_swiglu_expert);
+                infiniopDestroyGemmDescriptor(desc_ffn_down_expert);
+            }
+ 
+            // 步骤 5: Combine - 将所有专家的输出与门控分数结合，并加上残差连接
+            infiniopMoECombineDescriptor_t desc_combine;
+            RUN_INFINI(infiniopCreateMoECombineDescriptor(rsrc.handle, &desc_combine, expert_output_buf->desc(), topk_val->desc(), aux_info->desc(), logits_in->desc()));
+            RUN_INFINI(infiniopMoECombine(desc_combine, logits_in->data(), expert_output_buf->data(), topk_val->data(), aux_info->data(), stream));
+            infiniopDestroyMoECombineDescriptor(desc_combine);
+            DEBUG_LOG("    - MoE: Combine done.");
+ 
+        } else {
+            DEBUG_LOG("    - Taking standard FFN path.");
+            // Standard FFN Logic (这部分保持不变)
+            RUN_INFINI(infiniopGemm(desc_ffn_gate_up, nullptr, 0, gate_up_buf->data(), logits_out->data(), rsrc.w_ffn_gate_up[layer][0]->data(), 1.0, 0.0, stream));
+            RUN_INFINI(infiniopSwiGLU(desc_swiglu, nullptr, 0, gate_buf->data(), up_buf->data(), gate_buf->data(), stream));
+            RUN_INFINI(infiniopGemm(desc_ffn_down, nullptr, 0, logits_in->data(), gate_buf->data(), rsrc.w_ffn_down[layer][0]->data(), 1.0, 1.0, stream)); // Add residual
+            DEBUG_LOG("    - Standard FFN computation done.");
+        }
 
         // AllReduce across devices
         if (ndev > 1) {
+            DEBUG_LOG("  (3) AllReduce");
             RUN_INFINI(infinicclAllReduce(logits_in->data(), logits_in->data(),
-                                        std::accumulate(logits_in->shape().begin(), logits_in->shape().end(), size_t{1}, std::multiplies<size_t>()), meta.dt_logits,
-                                        INFINICCL_SUM, rsrc.comm, stream));
+                                          std::accumulate(logits_in->shape().begin(), logits_in->shape().end(), size_t{1}, std::multiplies<size_t>()), meta.dt_logits,
+                                          INFINICCL_SUM, rsrc.comm, stream));
+            DEBUG_LOG("    - AllReduce done.");
         }
-        
+        DEBUG_LOG("Finished layer %u", layer);
     }
 
     // Final RMSNorm
+    DEBUG_LOG("Starting final operations.");
     infiniopRMSNormDescriptor_t desc_norm_out;
     RUN_INFINI(infiniopCreateRMSNormDescriptor(rsrc.handle, &desc_norm_out, logits_in->slice(0, 0, 1)->desc(), logits_out->slice(0, 0, 1)->desc(), rsrc.w_out_norm->desc(), meta.epsilon));
 
@@ -421,12 +500,14 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
         cum_pos += req_lens[i];
         RUN_INFINI(infiniopRMSNorm(desc_norm_out, nullptr, 0, final_logits->data(i * d), logits_in->data((cum_pos - 1) * d), rsrc.w_out_norm->data(), stream));
     }
+    DEBUG_LOG("Final RMSNorm done. final_logits shape: {%u, %u}", nreq, d);
 
     // Multiply by output embedding
     infiniopGemmDescriptor_t desc_output_gemm;
     RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_output_gemm, prob_buf->desc(), final_logits->desc(), rsrc.w_out_embd->desc()));
     RUN_INFINI(infiniopGemm(desc_output_gemm, nullptr, 0, prob_buf->data(), final_logits->data(), rsrc.w_out_embd->data(), 1.0, 0.0, stream));
     infiniopDestroyGemmDescriptor(desc_output_gemm);
+    DEBUG_LOG("Output embedding GEMM done. prob_buf shape: {%u, %u}", nreq, dvoc);
  
     // Argmax sampling
     infiniopRandomSampleDescriptor_t desc_sample;
@@ -445,10 +526,12 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             stream));
     }
     infiniopDestroyRandomSampleDescriptor(desc_sample);
+    DEBUG_LOG("Sampling done.");
 
     // Copy result to output
     RUN_INFINI(infinirtMemcpyAsync(output, result_buf->data(), sizeof(uint32_t) * nreq, INFINIRT_MEMCPY_D2H, stream));
     RUN_INFINI(infinirtDeviceSynchronize());
+    DEBUG_LOG("Result copied to host. Exiting inferDeviceBatch.");
  
     // Clean up descriptors
     infiniopDestroyRMSNormDescriptor(desc_norm_attn);
@@ -494,21 +577,25 @@ void launchDevice(const TinyMixMeta &meta, const TinyMixWeights *weights, Device
         std::unique_lock<std::mutex> lock(state.mtx);
         state.cv_start.wait(lock, [&] { return state.proceed || state.exit_flag; });
         if (state.exit_flag) {
+            DEBUG_LOG("Exit flag received in launchDevice for dev_id: %d. Exiting thread.", dev_id);
             break;
         }
 
+        DEBUG_LOG("Starting inference on dev_id: %d.", dev_id);
         inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok, req.req_lens, req.nreq, req.req_pos, req.kv_caches, req.temperature, req.topk, req.topp, req.output);
+        DEBUG_LOG("Finished inference on dev_id: %d.", dev_id);
 
         state.proceed = false;
         lock.unlock();
         state.cv_done.notify_one();
     }
 
-    releaseDeviceResource(*rsrc);
+    releaseDeviceResource(*rsrc, dev_id);
 }
 
 TinyMixModel::TinyMixModel(const TinyMixMeta *_meta, const TinyMixWeights *weights, infiniDevice_t device_, std::vector<int> device_ids) : meta(*_meta) {
     int ndev = int(device_ids.size());
+    DEBUG_LOG("Creating TinyMixModel with %d devices.", ndev);
     device = device_;
     dev_ids = device_ids;
     dev_resources = std::vector<DeviceResource>(ndev);
@@ -517,6 +604,7 @@ TinyMixModel::TinyMixModel(const TinyMixMeta *_meta, const TinyMixWeights *weigh
     RUN_INFINI(infinirtInit());
     auto comms = std::vector<infinicclComm_t>(ndev, nullptr);
     if (ndev > 1) {
+        DEBUG_LOG("Initializing NCCL communicators.");
         RUN_INFINI(infinicclCommInitAll(device, comms.data(), ndev, dev_ids.data()));
     }
 
@@ -528,14 +616,15 @@ TinyMixModel::TinyMixModel(const TinyMixMeta *_meta, const TinyMixWeights *weigh
         states[i].cv_load.wait(lock, [&] { return states[i].loaded; });
         lock.unlock();
     }
+    DEBUG_LOG("All device threads launched and resources loaded.");
 }
 
 __C struct TinyMixModel *
 createTinyMixModel(const TinyMixMeta *meta,
-                 const TinyMixWeights *weights,
-                 infiniDevice_t device,
-                 int ndev,
-                 const int *dev_ids) {
+                   const TinyMixWeights *weights,
+                   infiniDevice_t device,
+                   int ndev,
+                   const int *dev_ids) {
     std::vector<int> device_ids(ndev);
     std::copy(dev_ids, dev_ids + ndev, device_ids.begin());
     TinyMixModel *model = new TinyMixModel(meta, weights, device, device_ids);
@@ -543,6 +632,7 @@ createTinyMixModel(const TinyMixMeta *meta,
 }
 
 __C void destroyTinyMixModel(struct TinyMixModel *model) {
+    DEBUG_LOG("Destroying TinyMixModel.");
     auto ndev = model->dev_resources.size();
 
     for (size_t idev = 0; idev < ndev; idev++) {
@@ -554,18 +644,21 @@ __C void destroyTinyMixModel(struct TinyMixModel *model) {
 
     for (size_t idev = 0; idev < ndev; idev++) {
         model->threads[idev].join();
+        DEBUG_LOG("Thread for device %zu joined.", idev);
     }
 
     delete model;
+    DEBUG_LOG("TinyMixModel destroyed successfully.");
 }
 
 __C void
 inferBatchTinyMix(struct TinyMixModel *model,
-           const uint32_t *tokens, uint32_t ntok,
-           const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-           struct KVCache **kv_caches,
-           const float *temperature, const uint32_t *topk, const float *topp,
-           uint32_t *output) {
+                  const uint32_t *tokens, uint32_t ntok,
+                  const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                  struct KVCache **kv_caches,
+                  const float *temperature, const uint32_t *topk, const float *topp,
+                  uint32_t *output) {
+    DEBUG_LOG("Enter inferBatchTinyMix. ntok: %u, nreq: %u", ntok, nreq);
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -583,10 +676,12 @@ inferBatchTinyMix(struct TinyMixModel *model,
         lock.unlock();
         model->states[idev].cv_start.notify_one();
     }
+    DEBUG_LOG("Notified all device threads to start inference.");
     for (size_t i = model->dev_ids.size(); i > 0; i--) {
         auto idev = i - 1;
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
         model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
         lock.unlock();
     }
+    DEBUG_LOG("All device threads finished inference. Exiting inferBatchTinyMix.");
 }

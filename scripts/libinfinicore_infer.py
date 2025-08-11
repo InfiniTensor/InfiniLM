@@ -83,20 +83,28 @@ class KVCacheCStruct(ctypes.Structure):
 
 class TinyMixMetaCStruct(ctypes.Structure):
     _fields_ = [
-        ("dt_logits", DataType),
-        ("nlayer", c_size_t),
-        ("d", c_size_t),
-        ("nh", c_size_t),
-        ("nkvh", c_size_t),
-        ("dh", c_size_t),
-        ("di", c_size_t),
-        ("dctx", c_size_t),
-        ("dvoc", c_size_t),
-        ("nexpert", c_size_t),
-        ("n_expert_activate", c_size_t),
+        # --- 9个32位无符号整数参数 ---
+        ("nlayer", c_uint),
+        ("nh", c_uint),
+        ("nkvh", c_uint),
+        ("d", c_uint),
+        ("di", c_uint),
+        ("dvoc", c_uint),
+        ("dh", c_uint),
+        ("nexpert", c_uint),
+        ("topk", c_uint),
+
+        # --- 3个数据类型枚举 (在C中为int) ---
+        ("dt_logits", c_int),
+        ("dt_mat", c_int),
+        ("dt_norm", c_int),
+
+        # --- 2个浮点数参数 ---
         ("epsilon", c_float),
         ("theta", c_float),
-        ("end_token", c_uint),
+        
+        # --- 最后的1个32位无符号整数参数 ---
+        ("dctx", c_uint),
     ]
 
 class TinyMixWeightsCStruct(ctypes.Structure):

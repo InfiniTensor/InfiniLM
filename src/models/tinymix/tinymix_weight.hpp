@@ -161,7 +161,7 @@ inline std::shared_ptr<Tensor> getSinTable(TinyMixMeta const *meta) {
             } else if (meta->dt_logits == INFINI_DTYPE_F32) {
                 ((float *)table)[i * half_dh + j] = _sin;
             } else {
-                std::cout << "unsupported data type" << std::endl;
+                std::cout << "unsupported data type from getSinTable" << std::endl;
                 exit(1);
             }
         }
@@ -188,7 +188,7 @@ inline std::shared_ptr<Tensor> getCosTable(TinyMixMeta const *meta) {
             } else if (meta->dt_logits == INFINI_DTYPE_F32) {
                 ((float *)table)[i * half_dh + j] = _cos;
             } else {
-                std::cout << "unsupported data type" << std::endl;
+                std::cout << "unsupported data type from getCosTable" << std::endl;
                 exit(1);
             }
         }
