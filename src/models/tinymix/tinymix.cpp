@@ -176,7 +176,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     auto stream = rsrc.stream;
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
     (void)has_qkv_bias;
-
+	rsrc.memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
     // Allocate buffers
 	//printf("Allocate buffers\n");
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -495,12 +495,16 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             // 步骤 4: 【关键修复】在数据切片上运行专家 FFN
             auto expert_gate_up_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, 2 * di}, rsrc.memory_pool);
             auto expert_output_buf = Tensor::buffer(dt_logits, {ntok * meta.topk, d}, rsrc.memory_pool);
- 
+			// Allocate workspace
+			workspace_size = 0;
+			size_t temp_size = 0;
+			
             for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
                 int num_tokens_for_expert = expert_counts_cpu[expert_id];
                 if (num_tokens_for_expert == 0) {
                     continue; // 如果没有令牌分配给这个专家，则跳过
                 }
+				
                 int offset = expert_offsets_cpu[expert_id];
                 DEBUG_LOG("    - MoE: Running FFN for expert %zu on %d tokens.", expert_id, num_tokens_for_expert);
  
@@ -515,13 +519,23 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
                 infiniopGemmDescriptor_t desc_ffn_gate_up_expert, desc_ffn_down_expert;
                 infiniopSwiGLUDescriptor_t desc_swiglu_expert;
                 RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_gate_up_expert, gate_up_slice->desc(), input_slice->desc(), rsrc.w_ffn_gate_up[layer][expert_id]->desc()));
-                RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu_expert, gate_slice->desc(), gate_slice->desc(), up_slice->desc()));
-                RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down_expert, output_slice->desc(), gate_slice->desc(), rsrc.w_ffn_down[layer][expert_id]->desc()));
- 
+                RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_ffn_gate_up_expert, &temp_size));
+				workspace_size = std::max(workspace_size, temp_size);
+
+				RUN_INFINI(infiniopCreateSwiGLUDescriptor(rsrc.handle, &desc_swiglu_expert, gate_slice->desc(), gate_slice->desc(), up_slice->desc()));
+                RUN_INFINI(infiniopGetSwiGLUWorkspaceSize(desc_swiglu_expert, &temp_size));
+				workspace_size = std::max(workspace_size, temp_size);
+
+				RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_ffn_down_expert, output_slice->desc(), gate_slice->desc(), rsrc.w_ffn_down[layer][expert_id]->desc()));
+				RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_ffn_down_expert, &temp_size));
+				workspace_size = std::max(workspace_size, temp_size);
+
+				std::shared_ptr<Storage> workspace_storage = Storage::createFromPool(workspace_size, rsrc.memory_pool);
+				void *workspace_swiglu = workspace_storage->memory();
                 // 在数据切片上为当前专家执行 FFN 计算
-                RUN_INFINI(infiniopGemm(desc_ffn_gate_up_expert, nullptr, 0, gate_up_slice->data(), input_slice->data(), rsrc.w_ffn_gate_up[layer][expert_id]->data(), 1.0, 0.0, stream));
-                RUN_INFINI(infiniopSwiGLU(desc_swiglu_expert, nullptr, 0, gate_slice->data(), gate_slice->data(), up_slice->data(), stream));
-                RUN_INFINI(infiniopGemm(desc_ffn_down_expert, nullptr, 0, output_slice->data(), gate_slice->data(), rsrc.w_ffn_down[layer][expert_id]->data(), 1.0, 0.0, stream));
+                RUN_INFINI(infiniopGemm(desc_ffn_gate_up_expert, workspace_swiglu, workspace_size, gate_up_slice->data(), input_slice->data(), rsrc.w_ffn_gate_up[layer][expert_id]->data(), 1.0, 0.0, stream));
+                RUN_INFINI(infiniopSwiGLU(desc_swiglu_expert, workspace_swiglu, workspace_size, gate_slice->data(), gate_slice->data(), up_slice->data(), stream));
+                RUN_INFINI(infiniopGemm(desc_ffn_down_expert, workspace_swiglu, workspace_size, output_slice->data(), gate_slice->data(), rsrc.w_ffn_down[layer][expert_id]->data(), 1.0, 0.0, stream));
  
                 // 销毁临时描述符
                 infiniopDestroyGemmDescriptor(desc_ffn_gate_up_expert);
@@ -532,7 +546,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             // 步骤 5: Combine - 将所有专家的输出与门控分数结合，并加上残差连接
             infiniopMoECombineDescriptor_t desc_combine;
             RUN_INFINI(infiniopCreateMoECombineDescriptor(rsrc.handle, &desc_combine, expert_output_buf->desc(), topk_val->desc(), aux_info->desc(), logits_in->desc()));
-            RUN_INFINI(infiniopMoECombine(desc_combine, logits_in->data(), expert_output_buf->data(), topk_val->data(), aux_info->data(), stream));
+            RUN_INFINI(infiniopMoECombine(desc_combine, logits_in->data(), topk_val->data(), aux_info->data(), expert_output_buf->data(), stream));
             infiniopDestroyMoECombineDescriptor(desc_combine);
             DEBUG_LOG("    - MoE: Combine done.");
  
@@ -578,15 +592,26 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     DEBUG_LOG("Output embedding GEMM done. prob_buf shape: {%u, %u}", nreq, dvoc);
  
     // Argmax sampling
+	size_t workspace_size = 0;
+	size_t temp_size = 0;
     infiniopRandomSampleDescriptor_t desc_sample;
-    RUN_INFINI(infiniopCreateRandomSampleDescriptor(rsrc.handle, &desc_sample, result_buf->desc(), prob_buf->desc()));
-    
+    RUN_INFINI(infiniopCreateRandomSampleDescriptor(
+        rsrc.handle, &desc_sample,
+        TensorDesc::create(INFINI_DTYPE_I64, {}, {})->desc(),
+        TensorDesc::create(dt_logits, {dvoc}, {1})->desc()));
+
+	RUN_INFINI(infiniopGetRandomSampleWorkspaceSize(desc_sample, &temp_size));
+	workspace_size = std::max(workspace_size, temp_size);
+
     std::random_device _rd;
     std::mt19937 gen(_rd());
+	
+	std::shared_ptr<Storage> workspace_storage = Storage::createFromPool(workspace_size, rsrc.memory_pool);
+	void *workspace_random_sample = workspace_storage->memory();
     for (uint32_t req = 0; req < nreq; req++) {
         float random_val = std::uniform_real_distribution<float>(0, 1)(gen);
         RUN_INFINI(infiniopRandomSample(
-            desc_sample, nullptr, 0,
+            desc_sample, workspace_random_sample, workspace_size,
             result_buf->data(req),
             prob_buf->data(req * dvoc),
             random_val,
