@@ -90,7 +90,7 @@ if __name__ == "__main__":
     dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
 
     texts = dataset["text"]
-    texts = [t for t in texts if len(t.strip()) > 0]
+    texts = [t.strip() for t in texts if len(t.strip()) > 0]
 
     input_ids_list = []
     for text in texts:

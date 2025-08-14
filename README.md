@@ -15,13 +15,23 @@ xmake && xmake install
 - 运行模型推理测试
 
 ```bash
-python jiuge.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]
+python scripts/jiuge.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore] path/to/model_dir [n_device]
 ```
 
 - 部署模型推理服务
 
 ```bash
-launch_server.py [-h] [--dev {cpu,nvidia,cambricon,ascend,metax,moore}]
-                        [--model-path MODEL_PATH] [--ndev NDEV] [--max-batch MAX_BATCH]
-                        [--max-tokens MAX_TOKENS]
+python scripts/launch_server.py --model-path MODEL_PATH [-h] [--dev {cpu,nvidia,cambricon,ascend,metax,moore}] [--ndev NDEV] [--max-batch MAX_BATCH] [--max-tokens MAX_TOKENS]
+```
+
+- 测试模型推理服务性能
+
+```bash
+python scripts/test_perf.py 
+```
+
+- 使用推理服务测试模型困惑度（Perplexity）
+
+```bash
+python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MAX_BATCH] [--max-tokens MAX_TOKENS]
 ```
