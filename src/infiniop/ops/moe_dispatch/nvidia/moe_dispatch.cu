@@ -71,18 +71,41 @@ __global__ void dispatch_kernel(const T *input, const IndT *indices,
                                 T *permuted_output, int *expert_offsets,
                                 int *aux_info, int num_tokens, int k,
                                 int hidden_dim) {
-    int token_idx = blockIdx.x;
-    int data_idx = threadIdx.x;
+    // 使用 extern 动态分配 shared memory
+    // 需要在 kernel 启动时指定大小：k * sizeof(int)
+    extern __shared__ int shared_dispatch_pos[];
 
-    if (token_idx >= num_tokens || data_idx >= hidden_dim)
+    int token_idx = blockIdx.x;
+    int data_idx = threadIdx.x; // threadIdx.x is the index within the hidden_dim
+
+    // 步骤 1: 让每个块的前 k 个线程为这个 token 的 k 个专家目标获取 dispatch 位置
+    if (data_idx < k) {
+        int expert_idx = indices[token_idx * k + data_idx];
+        if (expert_idx >= 0) {
+            shared_dispatch_pos[data_idx] = atomicAdd(&expert_offsets[expert_idx], 1);
+        } else {
+            shared_dispatch_pos[data_idx] = -1; // 标记为无效
+        }
+    }
+
+    // 步骤 2: 同步块内的所有线程，确保所有线程都能看到 shared_dispatch_pos 的值
+    __syncthreads();
+
+    // 步骤 3: 所有线程并行执行数据拷贝
+    if (token_idx >= num_tokens || data_idx >= hidden_dim) {
         return;
+    }
 
     for (int i = 0; i < k; ++i) {
         int expert_idx = indices[token_idx * k + i];
         if (expert_idx >= 0) {
-            int dispatch_pos = atomicAdd(&expert_offsets[expert_idx], 1);
+            int dispatch_pos = shared_dispatch_pos[i];
+            
+            // 执行数据拷贝
             permuted_output[dispatch_pos * hidden_dim + data_idx] =
                 input[token_idx * hidden_dim + data_idx];
+
+            // 仍然只让一个线程写 aux_info，避免竞争
             if (data_idx == 0) {
                 aux_info[dispatch_pos * 2 + 0] = token_idx;
                 aux_info[dispatch_pos * 2 + 1] = token_idx * k + i;
@@ -132,28 +155,34 @@ infiniStatus_t Descriptor::calculate(const void *input, const void *indices,
         dispatch_block.x = 1024;
 
     // NEW: 使用 switch 语句根据数据类型分发不同模板的 Kernel
+    size_t shared_mem_size = _info.k * sizeof(int);
+
+    // NEW: 使用 switch 语句根据数据类型分发不同模板的 Kernel
     switch (_info.data_type) {
     case INFINI_DTYPE_F32:
-        dispatch_kernel<float, int><<<dispatch_grid, dispatch_block, 0, (cudaStream_t)stream>>>(
+        dispatch_kernel<float, int><<<dispatch_grid, dispatch_block, shared_mem_size, (cudaStream_t)stream>>>(
             (const float *)input, (const int *)indices, (float *)permuted_output,
-            dispatch_offsets, (int *)aux_info, _info.num_tokens, _info.k,
+            expert_offsets, // <<<--- 次要优化：直接使用 expert_offsets
+            (int *)aux_info, _info.num_tokens, _info.k,
             _info.hidden_dim);
         break;
 
     case INFINI_DTYPE_F16:
-        dispatch_kernel<__half, int><<<dispatch_grid, dispatch_block, 0, (cudaStream_t)stream>>>(
+        dispatch_kernel<__half, int><<<dispatch_grid, dispatch_block, shared_mem_size, (cudaStream_t)stream>>>(
             (const __half *)input, (const int *)indices, (__half *)permuted_output,
-            dispatch_offsets, (int *)aux_info, _info.num_tokens, _info.k,
+            expert_offsets, // <<<--- 次要优化：直接使用 expert_offsets
+            (int *)aux_info, _info.num_tokens, _info.k,
             _info.hidden_dim);
         break;
 
     case INFINI_DTYPE_BF16:
-        dispatch_kernel<__nv_bfloat16, int><<<dispatch_grid, dispatch_block, 0, (cudaStream_t)stream>>>(
+        dispatch_kernel<__nv_bfloat16, int><<<dispatch_grid, dispatch_block, shared_mem_size, (cudaStream_t)stream>>>(
             (const __nv_bfloat16 *)input, (const int *)indices, (__nv_bfloat16 *)permuted_output,
-            dispatch_offsets, (int *)aux_info, _info.num_tokens, _info.k,
+            expert_offsets, // <<<--- 次要优化：直接使用 expert_offsets
+            (int *)aux_info, _info.num_tokens, _info.k,
             _info.hidden_dim);
         break;
-
+    
     default:
         // 释放已分配的内存
         cudaFree(d_temp_storage);
