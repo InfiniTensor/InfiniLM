@@ -3,6 +3,13 @@ local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") an
 target("infinicore_infer")
     set_kind("shared")
 
+    -- [[--- 使用旧版语法来支持调试 ---]]
+    -- 这会为你的目标应用 "debug" 和 "release" 模式
+    -- "debug" 模式会自动设置 -g 和 -O0
+    -- "release" 模式会自动设置 -O2/O3 和剥离符号
+    add_rules("mode.debug", "mode.release")
+    -- [[-----------------------------------]]
+
     add_includedirs("include", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })
 

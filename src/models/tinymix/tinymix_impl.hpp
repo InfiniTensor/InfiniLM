@@ -56,7 +56,7 @@ struct TinyMixModel {
     TinyMixMeta meta;
     infiniDevice_t device;
     std::vector<int> dev_ids;
-    std::vector<DeviceResource> dev_resources;
+    std::vector<std::unique_ptr<DeviceResource>> dev_resources;
     std::vector<InferState> states;
     std::vector<std::thread> threads;
     InferRequest req;

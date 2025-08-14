@@ -168,7 +168,9 @@ inline std::shared_ptr<Tensor> getSinTable(TinyMixMeta const *meta) {
     }
     auto shape = std::vector<size_t>({meta->dctx, half_dh});
     auto tensor = Tensor::weight(table, meta->dt_logits, shape);
-    std::free(table);
+
+    // std::free(table); // <-- REMOVE THIS LINE
+
     return tensor;
 }
 
@@ -195,8 +197,9 @@ inline std::shared_ptr<Tensor> getCosTable(TinyMixMeta const *meta) {
     }
     auto shape = std::vector<size_t>({meta->dctx, half_dh});
     auto tensor = Tensor::weight(table, meta->dt_logits, shape);
-    std::free(table);
+
+    // std::free(table); // <-- REMOVE THIS LINE
+
     return tensor;
 }
-
 #endif

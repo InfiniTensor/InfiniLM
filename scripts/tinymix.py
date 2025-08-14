@@ -114,7 +114,7 @@ class TinyMixMetaFromConfig(TinyMixMetaCStruct):
             dctx=config.get("max_position_embeddings", max_tokens),
             dvoc=config["vocab_size"],
             nexpert=config.get("num_local_experts", 1),
-            n_expert_activate=config.get("num_experts_per_tok", 1),
+            topk=config.get("num_experts_per_tok", 1),
             epsilon=config["rms_norm_eps"],
             theta=config.get("rope_theta", 10000.0),
             end_token=config["eos_token_id"],
