@@ -1,4 +1,6 @@
-from typing import List
+from typing import List, Sequence
+
+from sympy import true
 from libinfinicore_infer import (
     JiugeMetaCStruct,
     JiugeWeightsCStruct,
@@ -10,6 +12,7 @@ from libinfinicore_infer import (
     create_kv_cache,
     drop_kv_cache,
     infer_batch,
+    forward_batch,
 )
 from infer_task import InferTask, KVCache
 
@@ -581,6 +584,59 @@ class JiugeForCauslLM:
 
         infer_task._kv_cache.drop(self)
         return output_content, avg_time
+
+    def perplexity(self, test_sequences: List[Sequence[int]], batch_size=10):
+        tasks = [
+            InferTask(i, [], self.max_context_len(), 1.0, 1, 1.0, self.eos_token_id)
+            for i in range(batch_size)
+        ]
+        kv_caches = [KVCache(self) for _ in range(batch_size)]
+
+        nll = 0.0
+        total_len = 0
+
+        for i in range(0, len(test_sequences), batch_size):
+            batch_id = 0
+            true_tokens = []
+            while batch_id < batch_size and batch_id + i < len(test_sequences):
+                input_tokens = test_sequences[i + batch_id][:-1]
+                true_tokens.extend(test_sequences[i + batch_id][1:])
+                tasks[batch_id].tokens = input_tokens
+                tasks[batch_id].bind_kvcache(kv_caches[batch_id])
+                batch_id += 1
+
+            batch_inputs = JiugeBatchedTask(tasks[:batch_id])
+            logits = torch.zeros(
+                (batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits
+            )
+            forward_batch(
+                self.model_instance,
+                batch_inputs.tokens,
+                batch_inputs.ntok,
+                batch_inputs.req_lens,
+                batch_inputs.nreq,
+                batch_inputs.req_pos,
+                batch_inputs.kv_caches,
+                logits.data_ptr(),
+            )
+
+            logits = logits.float()
+            token_ids = torch.tensor(true_tokens, dtype=torch.int64)  # [ntok,]
+            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # (ntok, vocab)
+            token_logprobs = log_probs[
+                torch.arange(batch_inputs.ntok), token_ids
+            ]  # (ntok,)
+
+            start = 0
+            for l in batch_inputs.req_lens_list:
+                nll += -token_logprobs[start : start + l].sum().item()
+                start += l
+            total_len += token_logprobs.numel()
+
+        for task in tasks:
+            task.release_kvcache()
+
+        return math.exp(nll / total_len)
 
     def destroy_model_instance(self):
         destroy_jiuge_model(self.model_instance)
