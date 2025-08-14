@@ -59,8 +59,11 @@ infiniopDestroyMoEDispatchDescriptor(infiniopMoEDispatchDescriptor_t desc) {
 }
 
 __C infiniStatus_t infiniopMoEDispatch(
-    infiniopMoEDispatchDescriptor_t desc, void *permuted_output,
-    void *aux_info, const void *input, const void *indices,
+    infiniopMoEDispatchDescriptor_t desc, 
+	const void *input, 
+	const void *indices,
+	void *permuted_output,
+    void *aux_info, 
     void *stream) {
 
 #define CALCULATE(CASE, NAMESPACE)                                                  \

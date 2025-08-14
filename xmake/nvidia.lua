@@ -16,7 +16,6 @@ target("infiniop-nvidia")
     end
     add_cugencodes("sm_80", "sm_86", "sm_89", "compute_89")
 
-
     on_load(function (target)
         import("lib.detect.find_tool")
         local nvcc = find_tool("nvcc")
@@ -26,7 +25,6 @@ target("infiniop-nvidia")
             else
                 nvcc_path = nvcc.program
             end
-
             target:add("linkdirs", path.directory(path.directory(nvcc_path)) .. "/lib64/stubs")
             target:add("links", "cuda")
         end
@@ -52,10 +50,8 @@ target("infiniop-nvidia")
     end
 
     add_cuflags("-Xcompiler=-Wno-error=deprecated-declarations")
-
     set_languages("cxx17")
     add_files("../src/infiniop/devices/nvidia/*.cu", "../src/infiniop/ops/*/nvidia/*.cu")
-    
 
     if has_config("ninetoothed") then
         add_files("../build/ninetoothed/*.c")
@@ -70,8 +66,7 @@ target("infinirt-nvidia")
     set_policy("build.cuda.devlink", true)
     set_toolchains("cuda")
     add_links("cudart")
-	add_cugencodes("sm_80", "sm_86", "sm_89", "compute_89")
-
+    add_cugencodes("sm_80", "sm_86", "sm_89", "compute_89")
 
     if is_plat("windows") then
         add_cuflags("-Xcompiler=/utf-8", "--expt-relaxed-constexpr", "--allow-unsupported-compiler")
@@ -94,19 +89,35 @@ target("infiniccl-nvidia")
         set_policy("build.cuda.devlink", true)
         set_toolchains("cuda")
         add_links("cudart")
-        add_cugencodes("sm_80", "sm_86", "sm_89", "compute_89")
+
+        -- Force NCCL to build with sm_80 support
+        add_cugencodes("sm_80", "compute_80")
 
         if not is_plat("windows") then
             add_cuflags("-Xcompiler=-fPIC")
             add_culdflags("-Xcompiler=-fPIC")
             add_cxxflags("-fPIC")
 
-            local nccl_root = os.getenv("NCCL_ROOT")
-            if nccl_root then
-                add_includedirs(nccl_root .. "/include")
-                add_links(nccl_root .. "/lib/libnccl.so")
+            -- 自定义 NCCL 路径
+            local local_nccl_lib = "/home/hot_wind/.infini/lib"
+            local local_nccl_include = "/home/hot_wind/.infini/include"
+
+            if os.isfile(path.join(local_nccl_lib, "libnccl.so.2")) then
+                print("[Info] Using local NCCL from " .. local_nccl_lib)
+                add_includedirs(local_nccl_include)
+                add_linkdirs(local_nccl_lib)
+                add_rpathdirs(local_nccl_lib)  -- 关键: 运行时搜索路径
+                add_links("nccl")
             else
-                add_links("nccl") -- Fall back to default nccl linking
+                local nccl_root = os.getenv("NCCL_ROOT")
+                if nccl_root then
+                    add_includedirs(nccl_root .. "/include")
+                    add_linkdirs(nccl_root .. "/lib")
+                    add_rpathdirs(nccl_root .. "/lib")
+                    add_links("nccl")
+                else
+                    add_links("nccl") -- Fall back to default nccl linking
+                end
             end
 
             add_files("../src/infiniccl/cuda/*.cu")
@@ -115,5 +126,5 @@ target("infiniccl-nvidia")
         end
     end
     set_languages("cxx17")
-
 target_end()
+

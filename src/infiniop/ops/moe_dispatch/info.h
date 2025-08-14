@@ -16,10 +16,12 @@ class MoEDispatchInfo {
     infiniDtype_t index_type;
 
     static utils::Result<MoEDispatchInfo>
-    create(infiniopTensorDescriptor_t input_desc,
-           infiniopTensorDescriptor_t indices_desc,
-           infiniopTensorDescriptor_t permuted_output_desc,
-           infiniopTensorDescriptor_t aux_info_desc, int num_experts) {
+    create(
+		int num_experts,
+		infiniopTensorDescriptor_t input_desc,
+		infiniopTensorDescriptor_t indices_desc,
+		infiniopTensorDescriptor_t permuted_output_desc,
+		infiniopTensorDescriptor_t aux_info_desc) {
 
         auto data_type = input_desc->dtype();
         if (permuted_output_desc->dtype() != data_type) {

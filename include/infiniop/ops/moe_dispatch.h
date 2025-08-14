@@ -17,10 +17,10 @@ __C __export infiniStatus_t infiniopCreateMoEDispatchDescriptor(
 __C __export infiniStatus_t infiniopDestroyMoEDispatchDescriptor(infiniopMoEDispatchDescriptor_t desc);
 
 __C __export infiniStatus_t infiniopMoEDispatch(infiniopMoEDispatchDescriptor_t desc,
+					   const void *input,
+                       const void *indices,
                        void *permuted_output,
                        void *aux_info,
-                       const void *input,
-                       const void *indices,
                        void *stream);
 
 #endif 
