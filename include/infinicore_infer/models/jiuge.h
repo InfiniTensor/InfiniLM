@@ -75,7 +75,7 @@ __C __export void
 dropKVCache(const struct JiugeModel *,
             struct KVCache *);
 
-/// @brief 批次推理一轮
+/// @brief 批次推理一轮，并采样出新的 token
 /// @param tokens 输入 token 地址
 /// @param ntok 输入 token 数量
 /// @param nreq 请求数量
@@ -93,5 +93,20 @@ inferBatch(struct JiugeModel *,
            struct KVCache **kv_caches,
            const float *temperature, const uint32_t *topk, const float *topp,
            uint32_t *output);
+
+/// @brief 批次推理一轮，输出 output embedding 后的 logits
+/// @param tokens 输入 token 地址
+/// @param ntok 输入 token 数量
+/// @param nreq 请求数量
+/// @param req_lens 每个请求的 token 数量
+/// @param req_pos 每个请求的起始位置
+/// @param kv_caches 每个请求的 KV Cache
+/// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
+__C __export void
+forwardBatch(struct JiugeModel *,
+             const uint32_t *tokens, uint32_t ntok,
+             const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+             struct KVCache **kv_caches,
+             void *logits);
 
 #endif

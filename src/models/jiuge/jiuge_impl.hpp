@@ -49,6 +49,7 @@ struct InferRequest {
     const uint32_t *topk;
     const float *topp;
     uint32_t *output;
+    void *logits;
 };
 
 struct JiugeModel {
