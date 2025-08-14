@@ -9,12 +9,16 @@
 
 inline double getVal(void *ptr, GGML_TYPE ggml_type) {
     switch (ggml_type) {
+    case GGML_TYPE_BF16:
+        return utils::cast<float>(*(bf16_t *)ptr);
     case GGML_TYPE_F16:
-        return utils::cast<double>(*(fp16_t *)ptr);
+        return utils::cast<float>(*(fp16_t *)ptr);
     case GGML_TYPE_F32:
         return *(float *)ptr;
     case GGML_TYPE_F64:
         return *(double *)ptr;
+    case GGML_TYPE_Q8_K:
+        return *(bool *)ptr;
     case GGML_TYPE_I8:
         return *(int8_t *)ptr;
     case GGML_TYPE_I16:
@@ -30,12 +34,16 @@ inline double getVal(void *ptr, GGML_TYPE ggml_type) {
 
 inline size_t ggmlSizeOf(GGML_TYPE ggml_type) {
     switch (ggml_type) {
+    case GGML_TYPE_BF16:
+        return sizeof(bf16_t);
     case GGML_TYPE_F16:
         return sizeof(fp16_t);
     case GGML_TYPE_F32:
         return sizeof(float);
     case GGML_TYPE_F64:
         return sizeof(double);
+    case GGML_TYPE_Q8_K:
+        return sizeof(bool);
     case GGML_TYPE_I8:
         return sizeof(int8_t);
     case GGML_TYPE_I16:

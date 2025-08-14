@@ -1,18 +1,18 @@
+#include "../../../elementwise/kunlun/elementwise_kunlun.h"
+#include "kernel.h"
 #include "swiglu_kunlun.h"
 
-// Op interface declare
-LAUNCH_ELEMENTWISE_KERNEL(SwiGLU)
+namespace op::elementwise::kunlun {
+
+using SwiGLUOp = op::swiglu::kunlun::SwiGLUOp;
+
+// __global__ template function instantiation
+INSTANTIATE_ELEMENTWISE_KERNEL(SwiGLUOp::num_inputs, SwiGLUOp, float);
+INSTANTIATE_ELEMENTWISE_KERNEL(SwiGLUOp::num_inputs, SwiGLUOp, half);
+INSTANTIATE_ELEMENTWISE_KERNEL(SwiGLUOp::num_inputs, SwiGLUOp, bfloat16_t);
+} // namespace op::elementwise::kunlun
 
 namespace op::swiglu::kunlun {
-
-typedef struct SwiGLUOp {
-    static constexpr size_t num_inputs = 2;
-    template <typename Tdata, typename... Args>
-    static infiniStatus_t launch(Args... args) {
-        launchSwiGLUKernel<Tdata>(args...);
-        return INFINI_STATUS_SUCCESS;
-    }
-} SwiGLUOp;
 
 Descriptor::~Descriptor() = default;
 
@@ -31,7 +31,7 @@ infiniStatus_t Descriptor::create(
     const auto &up_shape = up_desc->shape();
     const auto &gate_shape = gate_desc->shape();
 
-    CHECK_DTYPE(dtype, INFINI_DTYPE_F32);
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F32, INFINI_DTYPE_F16, INFINI_DTYPE_BF16);
     CHECK_SAME_SHAPE(out_shape, up_shape, gate_shape);
 
     // create KUNLUN elementwise descriptor
@@ -53,7 +53,11 @@ infiniStatus_t Descriptor::calculate(
 
     switch (_dtype) {
     case INFINI_DTYPE_F32:
-        return _device_info->calculate<SwiGLUOp, float>(_info, workspace, output, inputs, stream);
+        return _device_info->calculate<8, SwiGLUOp, float>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F16:
+        return _device_info->calculate<8, SwiGLUOp, half>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<8, SwiGLUOp, bfloat16_t>(_info, workspace, output, inputs, stream);
     default:
         return INFINI_STATUS_BAD_TENSOR_DTYPE;
     }

@@ -17,7 +17,10 @@ public:
     template <typename... Args>
     static utils::Result<DeviceImpl *> create(Args &&...args);
 
-    template <typename Op, typename Tdata, typename... Args>
+    /**
+     * @brief Launches elementwise operation. Operands have same types.
+     */
+    template <unsigned int BLOCK_SIZE, typename Op, typename Tdata, typename... Args>
     infiniStatus_t calculate(
         const op::elementwise::ElementwiseInfo &info,
         void *workspace,
@@ -25,6 +28,20 @@ public:
         const std::vector<const void *> &inputs,
         void *stream,
         Args &&...args);
+
+    //     /**
+    //      * @brief Launches elementwise operation where operands' types differ
+    //      */
+    //     template <unsigned int BLOCK_SIZE, typename Op, typename Tout, typename... Tin,
+    //               typename... Args,
+    //               std::enable_if_t<(sizeof...(Tin) == Op::num_inputs), int> = 0>
+    //     infiniStatus_t calculate(
+    //         const op::elementwise::ElementwiseInfo &info,
+    //         void *workspace,
+    //         void *output,
+    //         const std::vector<const void *> &inputs,
+    //         void *stream,
+    //         Args &&...args);
 };
 
 } // namespace op::elementwise::kunlun

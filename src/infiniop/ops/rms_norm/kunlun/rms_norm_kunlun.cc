@@ -1,5 +1,5 @@
 #include "rms_norm_kunlun.h"
-#include "../../../devices/kunlun/kunlun_handle.h"
+#include "../../../devices/kunlun/kunlun_common.h"
 #include <memory>
 #include <stdint.h>
 
