@@ -403,7 +403,7 @@ class TinyMixForCauslLM:
         )
         return list(output)
 
-    def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
+    def generate(self, input_content, max_steps, topp_=1.0, topk_=2, temperature_=1.0):
         input_content = self.tokenizer.apply_chat_template(
             conversation=[{"role": "user", "content": input_content}],
             add_generation_prompt=True,
@@ -485,7 +485,7 @@ def test():
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     model = TinyMixForCauslLM(model_path, device_type, ndev)
-    model.generate("Once upon a time", 100)
+    model.generate("Once upon a time", 100, topp_=0.9, temperature_=0.7, topk_=50)
     model.destroy_model_instance()
 
 
