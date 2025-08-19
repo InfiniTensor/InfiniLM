@@ -63,7 +63,7 @@ class TinyMixWeightsNaming:
 
     def ffn_down(self, i, expert_idx):
         return f"model.layers.{i}.block_sparse_moe.experts.{expert_idx}.w3.weight"
-    
+
     def ffn_up(self, i, expert_idx):
         return f"model.layers.{i}.block_sparse_moe.experts.{expert_idx}.w2.weight"
 
@@ -78,7 +78,7 @@ class TinyMixMetaFromConfig(TinyMixMetaCStruct):
         - 优先从 config['torch_dtype'] 推断数据类型。
         - 仍然允许通过 dtype 参数进行手动覆盖。
         """
-        
+
         # 1. 确定最终要使用的数据类型
         final_dtype = dtype
         if final_dtype is None:
@@ -86,7 +86,7 @@ class TinyMixMetaFromConfig(TinyMixMetaCStruct):
             # 从 config 文件中读取类型字符串。
             # 使用 .get() 方法，如果 config 中没有 "torch_dtype"，则安全地默认为 "float16"。
             dtype_str = config.get("torch_dtype", "float16")
-            
+
             # 将字符串映射到实际的 torch.dtype 对象
             if dtype_str == "bfloat16":
                 final_dtype = torch.bfloat16
@@ -94,7 +94,7 @@ class TinyMixMetaFromConfig(TinyMixMetaCStruct):
                 final_dtype = torch.float32
             else:  # "float16" 或其他情况
                 final_dtype = torch.float16
-        
+
         # 2. 将最终确定的 torch.dtype 映射到 C++ 使用的内部枚举类型
         dt_ = DataType.INFINI_DTYPE_F16  # 默认值
         if final_dtype == torch.float32:
@@ -119,7 +119,7 @@ class TinyMixMetaFromConfig(TinyMixMetaCStruct):
             theta=config.get("rope_theta", 10000.0),
             end_token=config["eos_token_id"],
         )
-        
+
         # 保存最终确定的 torch 数据类型，以备后用
         self.torch_dtype_logits = final_dtype
 
@@ -141,7 +141,7 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
         dh = meta.dh
         d = meta.d
         di = meta.di
-        
+
         torch_dt_logits = meta.torch_dtype_logits
         if torch_dt_mat == torch.float16:
             self.dt_mat = DataType.INFINI_DTYPE_F16
@@ -163,13 +163,9 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
 
         self.transpose_linear_weights = 1 if transpose_weight else 0
         self.nlayer = nlayer
-        self.input_embd_tensor = (
-            state_dict[naming.input_embd()].to(torch_dt_logits)
-        )
+        self.input_embd_tensor = state_dict[naming.input_embd()].to(torch_dt_logits)
         self.input_embd = self.input_embd_tensor.data_ptr()
-        self.output_norm_tensor = (
-            state_dict[naming.output_norm()].to(torch_dt_norm)
-        )
+        self.output_norm_tensor = state_dict[naming.output_norm()].to(torch_dt_norm)
         self.output_norm = self.output_norm_tensor.data_ptr()
         self.output_embd_tensor = state_dict[naming.output_embd()].to(torch_dt_mat)
         if not transpose_weight:
@@ -191,11 +187,13 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
                 state_dict[naming.attn_q(_i)]
                 .reshape([nh, 2, dh // 2, d])
                 .transpose(1, 2)
+                .contiguous()  # <-- Add this
             )
             _K = (
                 state_dict[naming.attn_k(_i)]
                 .reshape([nkvh, 2, dh // 2, d])
                 .transpose(1, 2)
+                .contiguous()  # <-- Add this
             )
             _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
             _result = []
@@ -250,32 +248,32 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
         self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
 
         self.ffn_gate_tensors = [
-            state_dict[naming.ffn_gate(i)].to(torch_dt_mat)
-            for i in range(meta.nlayer)
+            state_dict[naming.ffn_gate(i)].to(torch_dt_mat) for i in range(meta.nlayer)
         ]
         self.ffn_gate_ptrs = [t.data_ptr() for t in self.ffn_gate_tensors]
         self.ffn_gate = (c_void_p * meta.nlayer)(*self.ffn_gate_ptrs)
 
         self.ffn_gate_up_tensors = []
         self.ffn_down_tensors = []
-        
+
         # Loop for FFN weights
         for i in range(meta.nlayer):
             gate_up_experts = []
             down_experts = []
             for j in range(meta.nexpert):
                 # w1, a.k.a. gate_proj
+                # w1, a.k.a. gate_proj
                 gate = state_dict[naming.ffn_gate_up(i, j)].to(torch_dt_mat)
-                
-                # w3, a.k.a. up_proj. This has a compatible shape with w1.
-                up = state_dict[naming.ffn_down(i, j)].to(torch_dt_mat) 
-                
+
+                # w3, a.k.a. up_proj.
+                up = state_dict[naming.ffn_up(i, j)].to(torch_dt_mat)  # Corrected
+
                 # w2, a.k.a. down_proj
-                down = state_dict[naming.ffn_up(i, j)].to(torch_dt_mat)
+                down = state_dict[naming.ffn_down(i, j)].to(torch_dt_mat)  # Corrected
 
                 # Concatenate w1 and w3
                 gate_up_experts.append(torch.cat([gate, up], dim=0))
-                
+
                 # Append w2 to the down_experts list
                 down_experts.append(down)
 
@@ -287,14 +285,16 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
             (c_void_p * meta.nexpert)(*[t.data_ptr() for t in layer_tensors])
             for layer_tensors in self.ffn_gate_up_tensors
         ]
-        self.ffn_gate_up = (POINTER(c_void_p) * meta.nlayer)(*self.ffn_gate_up_expert_ptrs)
+        self.ffn_gate_up = (POINTER(c_void_p) * meta.nlayer)(
+            *self.ffn_gate_up_expert_ptrs
+        )
 
         self.ffn_down_expert_ptrs = [
             (c_void_p * meta.nexpert)(*[t.data_ptr() for t in layer_tensors])
             for layer_tensors in self.ffn_down_tensors
         ]
         self.ffn_down = (POINTER(c_void_p) * meta.nlayer)(*self.ffn_down_expert_ptrs)
-	
+
 
 class TinyMixBatchedTask:
     def __init__(self, tasks: List[InferTask]):
@@ -336,11 +336,13 @@ class TinyMixBatchedTask:
             self.topps,
         )
 
+
 # Rest of the implementation will be similar to jiuge.py, but using the TinyMix classes
 # and C functions. For brevity, this part is omitted but would include:
 # - JiugeBatchedTask (can be reused)
 # - A TinyMixForCauslLM class
 # - A test() function to run inference from the command line
+
 
 class TinyMixForCauslLM:
     def __init__(
@@ -348,7 +350,7 @@ class TinyMixForCauslLM:
     ):
         print("Loading model weights to host...")
         load_start_time = time.time()
-        
+
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             config = json.load(f)
         self.config = config
@@ -356,7 +358,7 @@ class TinyMixForCauslLM:
         self.eos_token_id = (
             [eos_token_id] if type(eos_token_id) == int else eos_token_id
         )
-        
+
         state_dict = {}
         for file in sorted(Path(model_dir_path).glob("*.safetensors")):
             with safetensors.safe_open(file, "pt") as data:
@@ -370,7 +372,7 @@ class TinyMixForCauslLM:
 
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
-        
+
         print(f"Creating model on {ndev} devices...")
         create_start_time = time.time()
         dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
@@ -395,7 +397,7 @@ class TinyMixForCauslLM:
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
-        batch_inputs = TinyMixBatchedTask(tasks) 
+        batch_inputs = TinyMixBatchedTask(tasks)
         infer_batch_tinymix(
             self.model_instance,
             *(batch_inputs.input_args()),
@@ -431,11 +433,8 @@ class TinyMixForCauslLM:
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
             steps += 1
-            output_str = (
-                self.tokenizer._tokenizer.id_to_token(output_tokens[0])
-                .replace(" ", " ")
-                .replace("<0x0A>", "\n")
-            )
+            print(f" [RAW TOKEN ID: {output_tokens[0]}] ", end="")
+            output_str = self.tokenizer.decode(output_tokens)
             output_content += output_str
             print(output_str, end="", flush=True)
             if output_tokens[0] in self.eos_token_id:
@@ -489,5 +488,41 @@ def test():
     model.destroy_model_instance()
 
 
+def test_tokenizer(model_path):
+    """A simple function to verify the tokenizer."""
+    print("\n--- Running Tokenizer Sanity Check ---")
+    try:
+        from transformers import AutoTokenizer
+
+        # Load the tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        print(f"Tokenizer loaded successfully. Vocab size: {tokenizer.vocab_size}")
+
+        # Test sentence
+        test_sentence = "Once upon a time, in a land far away"
+        print(f"Original sentence: '{test_sentence}'")
+
+        # Encode
+        encoded_ids = tokenizer.encode(test_sentence)
+        print(f"Encoded IDs: {encoded_ids}")
+
+        # Decode
+        decoded_sentence = tokenizer.decode(encoded_ids)
+        print(f"Decoded sentence: '{decoded_sentence}'")
+
+        if test_sentence in decoded_sentence:
+            print("✅ Tokenizer test PASSED!")
+        else:
+            print("❌ Tokenizer test FAILED! The tokenizer is not decoding correctly.")
+    except Exception as e:
+        print(f"❌ An error occurred during the tokenizer test: {e}")
+    print("--- End of Tokenizer Sanity Check ---\n")
+
+
 if __name__ == "__main__":
     test()
+    # model_path = "/home/shared/models/tinymix-8x1b-chat/" # Assuming model path is the second argument
+    # test_tokenizer(model_path) # <--- ADD THIS LINE
+
+    # You can comment out the rest of the test() function for now to only run this check
+    # test()

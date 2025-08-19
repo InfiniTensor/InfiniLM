@@ -152,6 +152,7 @@ static void releaseDeviceResource(DeviceResource &res, int dev_id) {
     res.stream = nullptr;
     infinicclCommDestroy(res.comm);
     res.comm = nullptr;
+	res.memory_pool.reset();
     DEBUG_LOG("Finished releasing resources for dev_id: %d", dev_id);
 }
 
@@ -176,7 +177,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     auto stream = rsrc.stream;
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
     (void)has_qkv_bias;
-	rsrc.memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
+	rsrc.memory_pool->reset();
     // Allocate buffers
 	//printf("Allocate buffers\n");
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -475,16 +476,22 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 			// == NEW WORKSPACE LOGIC START ==
 			// First, calculate the MAX workspace size needed by any expert FFN operation
 			size_t max_expert_workspace_size = 0;
-			for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
+			for (size_t expert_id = 0; expert_id < meta.nexpert ; ++expert_id) {
 				if (expert_counts_cpu[expert_id] == 0) continue;
 				int offset = expert_offsets_cpu[expert_id];
 				int num_tokens = expert_counts_cpu[expert_id];
 				
-				auto input_slice_desc = permuted_input->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}})->desc();
-				auto gate_up_slice_desc = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}})->desc();
-				auto gate_slice_desc = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}, {1, 0, di}})->desc();
-				auto up_slice_desc = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}, {1, di, di}})->desc();
-				auto output_slice_desc = expert_output_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}})->desc();
+				auto input_slice = permuted_input->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}});
+				auto gate_up_slice = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}});
+				auto gate_slice = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}, {1, 0, di}});
+				auto up_slice = expert_gate_up_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}, {1, di, di}});
+				auto output_slice = expert_output_buf->slice({{0, (uint32_t)offset, (uint32_t)num_tokens}});
+
+                auto input_slice_desc = input_slice->desc();
+				auto gate_up_slice_desc = gate_up_slice->desc();
+				auto gate_slice_desc = gate_slice->desc();
+				auto up_slice_desc = up_slice->desc();
+				auto output_slice_desc = output_slice->desc();
   
 				size_t temp_size = 0;
 				infiniopGemmDescriptor_t desc_gate_up, desc_down;
@@ -501,15 +508,16 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 				RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_down, output_slice_desc, gate_slice_desc, rsrc.w_ffn_down[layer][expert_id]->desc()));
 				RUN_INFINI(infiniopGetGemmWorkspaceSize(desc_down, &temp_size));
 				max_expert_workspace_size = std::max(max_expert_workspace_size, temp_size);
-				
+
 				infiniopDestroyGemmDescriptor(desc_gate_up);
 				infiniopDestroySwiGLUDescriptor(desc_swiglu);
 				infiniopDestroyGemmDescriptor(desc_down);
+				
 			}
   
 			// Now, allocate one workspace buffer that is large enough for all experts
 			auto expert_workspace = Storage::createFromPool(max_expert_workspace_size, rsrc.memory_pool);
-  
+			
 			// Second, execute the FFN for each expert using the single workspace
 			for (size_t expert_id = 0; expert_id < meta.nexpert; ++expert_id) {
 				int num_tokens_for_expert = expert_counts_cpu[expert_id];

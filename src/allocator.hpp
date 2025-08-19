@@ -23,7 +23,7 @@ public:
 
     void *alloc(size_t size) override;
     void release(void *ptr) override;
-
+	void reset();
     size_t getAlignment() const { return _alignment; }
 
 private:

@@ -9,7 +9,7 @@ target("infinicore_infer")
     -- "release" 模式会自动设置 -O2/O3 和剥离符号
     add_rules("mode.debug", "mode.release")
     -- [[-----------------------------------]]
-
+	add_cxflags("-Wno-error")
     add_includedirs("include", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })
 
@@ -27,4 +27,6 @@ target("infinicore_infer")
     set_installdir(INFINI_ROOT)
     add_installfiles("include/infinicore_infer.h", {prefixdir = "include"})
     add_installfiles("include/infinicore_infer/models/*.h", {prefixdir = "include/infinicore_infer/models"})
+	--add_cxflags("-fsanitize=address", "-fno-omit-frame-pointer", "-g")
+    --add_ldflags("-fsanitize=address")
 target_end()
