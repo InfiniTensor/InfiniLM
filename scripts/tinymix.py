@@ -73,36 +73,22 @@ class TinyMixWeightsNaming:
 
 class TinyMixMetaFromConfig(TinyMixMetaCStruct):
     def __init__(self, config, dtype=None, max_tokens=None):
-        """
-        修正后的构造函数：
-        - 优先从 config['torch_dtype'] 推断数据类型。
-        - 仍然允许通过 dtype 参数进行手动覆盖。
-        """
-
-        # 1. 确定最终要使用的数据类型
         final_dtype = dtype
         if final_dtype is None:
-            # 当调用时未提供 dtype 参数时（这是现在的默认行为），
-            # 从 config 文件中读取类型字符串。
-            # 使用 .get() 方法，如果 config 中没有 "torch_dtype"，则安全地默认为 "float16"。
             dtype_str = config.get("torch_dtype", "float16")
-
-            # 将字符串映射到实际的 torch.dtype 对象
             if dtype_str == "bfloat16":
                 final_dtype = torch.bfloat16
             elif dtype_str == "float32":
                 final_dtype = torch.float32
-            else:  # "float16" 或其他情况
+            else:
                 final_dtype = torch.float16
 
-        # 2. 将最终确定的 torch.dtype 映射到 C++ 使用的内部枚举类型
-        dt_ = DataType.INFINI_DTYPE_F16  # 默认值
+        dt_ = DataType.INFINI_DTYPE_F16
         if final_dtype == torch.float32:
             dt_ = DataType.INFINI_DTYPE_F32
         elif final_dtype == torch.bfloat16:
             dt_ = DataType.INFINI_DTYPE_BF16
 
-        # 3. 调用父类构造函数，传递正确的数据类型
         super().__init__(
             dt_logits=dt_,
             nlayer=config["num_hidden_layers"],
@@ -119,8 +105,6 @@ class TinyMixMetaFromConfig(TinyMixMetaCStruct):
             theta=config.get("rope_theta", 10000.0),
             end_token=config["eos_token_id"],
         )
-
-        # 保存最终确定的 torch 数据类型，以备后用
         self.torch_dtype_logits = final_dtype
 
 
@@ -169,9 +153,7 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
         self.output_norm = self.output_norm_tensor.data_ptr()
         self.output_embd_tensor = state_dict[naming.output_embd()].to(torch_dt_mat)
         if not transpose_weight:
-            self.output_embd_tensor = self.output_embd_tensor.transpose(
-                0, 1
-            ).contiguous()
+            self.output_embd_tensor = self.output_embd_tensor.transpose(0, 1).contiguous()
         self.output_embd = self.output_embd_tensor.data_ptr()
 
         self.attn_norm_tensors = [
@@ -187,13 +169,13 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
                 state_dict[naming.attn_q(_i)]
                 .reshape([nh, 2, dh // 2, d])
                 .transpose(1, 2)
-                .contiguous()  # <-- Add this
+                .contiguous()
             )
             _K = (
                 state_dict[naming.attn_k(_i)]
                 .reshape([nkvh, 2, dh // 2, d])
                 .transpose(1, 2)
-                .contiguous()  # <-- Add this
+                .contiguous()
             )
             _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
             _result = []
@@ -248,7 +230,8 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
         self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
 
         self.ffn_gate_tensors = [
-            state_dict[naming.ffn_gate(i)].to(torch_dt_mat) for i in range(meta.nlayer)
+            state_dict[naming.ffn_gate(i)].to(torch_dt_mat)
+            for i in range(meta.nlayer)
         ]
         self.ffn_gate_ptrs = [t.data_ptr() for t in self.ffn_gate_tensors]
         self.ffn_gate = (c_void_p * meta.nlayer)(*self.ffn_gate_ptrs)
@@ -256,31 +239,18 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
         self.ffn_gate_up_tensors = []
         self.ffn_down_tensors = []
 
-        # Loop for FFN weights
         for i in range(meta.nlayer):
             gate_up_experts = []
             down_experts = []
             for j in range(meta.nexpert):
-                # w1, a.k.a. gate_proj
-                # w1, a.k.a. gate_proj
                 gate = state_dict[naming.ffn_gate_up(i, j)].to(torch_dt_mat)
-
-                # w3, a.k.a. up_proj.
-                up = state_dict[naming.ffn_up(i, j)].to(torch_dt_mat)  # Corrected
-
-                # w2, a.k.a. down_proj
-                down = state_dict[naming.ffn_down(i, j)].to(torch_dt_mat)  # Corrected
-
-                # Concatenate w1 and w3
+                up = state_dict[naming.ffn_down(i, j)].to(torch_dt_mat)
+                down = state_dict[naming.ffn_up(i, j)].to(torch_dt_mat)
                 gate_up_experts.append(torch.cat([gate, up], dim=0))
-
-                # Append w2 to the down_experts list
                 down_experts.append(down)
-
             self.ffn_gate_up_tensors.append(gate_up_experts)
             self.ffn_down_tensors.append(down_experts)
 
-        # Create nested pointers for C API
         self.ffn_gate_up_expert_ptrs = [
             (c_void_p * meta.nexpert)(*[t.data_ptr() for t in layer_tensors])
             for layer_tensors in self.ffn_gate_up_tensors
@@ -295,13 +265,11 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
         ]
         self.ffn_down = (POINTER(c_void_p) * meta.nlayer)(*self.ffn_down_expert_ptrs)
 
-
 class TinyMixBatchedTask:
     def __init__(self, tasks: List[InferTask]):
         self.tasks = tasks
         self.nreq = len(tasks)
 
-        # Precompute fields
         token_lists = [t.tokens for t in tasks]
         self.req_lens_list = [len(toks) for toks in token_lists]
         self.req_pos_list = [t.pos for t in tasks]
@@ -310,11 +278,9 @@ class TinyMixBatchedTask:
         self.topks_list = [t.topk for t in tasks]
         self.topps_list = [t.topp for t in tasks]
 
-        # Flatten token lists
         flat_tokens = [tok for toks in token_lists for tok in toks]
         self.ntok = len(flat_tokens)
 
-        # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * self.ntok)(*flat_tokens)
         self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
         self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
@@ -335,13 +301,6 @@ class TinyMixBatchedTask:
             self.topks,
             self.topps,
         )
-
-
-# Rest of the implementation will be similar to jiuge.py, but using the TinyMix classes
-# and C functions. For brevity, this part is omitted but would include:
-# - JiugeBatchedTask (can be reused)
-# - A TinyMixForCauslLM class
-# - A test() function to run inference from the command line
 
 
 class TinyMixForCauslLM:
@@ -433,10 +392,11 @@ class TinyMixForCauslLM:
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
             steps += 1
-            print(f" [RAW TOKEN ID: {output_tokens[0]}] ", end="")
+            
             output_str = self.tokenizer.decode(output_tokens)
             output_content += output_str
             print(output_str, end="", flush=True)
+            
             if output_tokens[0] in self.eos_token_id:
                 break
             infer_task.next(output_tokens[0])
@@ -488,41 +448,5 @@ def test():
     model.destroy_model_instance()
 
 
-def test_tokenizer(model_path):
-    """A simple function to verify the tokenizer."""
-    print("\n--- Running Tokenizer Sanity Check ---")
-    try:
-        from transformers import AutoTokenizer
-
-        # Load the tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        print(f"Tokenizer loaded successfully. Vocab size: {tokenizer.vocab_size}")
-
-        # Test sentence
-        test_sentence = "Once upon a time, in a land far away"
-        print(f"Original sentence: '{test_sentence}'")
-
-        # Encode
-        encoded_ids = tokenizer.encode(test_sentence)
-        print(f"Encoded IDs: {encoded_ids}")
-
-        # Decode
-        decoded_sentence = tokenizer.decode(encoded_ids)
-        print(f"Decoded sentence: '{decoded_sentence}'")
-
-        if test_sentence in decoded_sentence:
-            print("✅ Tokenizer test PASSED!")
-        else:
-            print("❌ Tokenizer test FAILED! The tokenizer is not decoding correctly.")
-    except Exception as e:
-        print(f"❌ An error occurred during the tokenizer test: {e}")
-    print("--- End of Tokenizer Sanity Check ---\n")
-
-
 if __name__ == "__main__":
     test()
-    # model_path = "/home/shared/models/tinymix-8x1b-chat/" # Assuming model path is the second argument
-    # test_tokenizer(model_path) # <--- ADD THIS LINE
-
-    # You can comment out the rest of the test() function for now to only run this check
-    # test()
