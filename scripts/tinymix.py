@@ -338,7 +338,6 @@ class TinyMixForCauslLM:
 
             if step_i > 0:
                 total_time += end_time - start_time
-            infer_task.next(output_tokens[0])
 
         print("\n")
         avg_time = total_time * 1000 / (steps - 1) if steps > 1 else 0

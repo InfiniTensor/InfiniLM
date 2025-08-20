@@ -179,7 +179,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     auto stream = rsrc.stream;
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
     (void)has_qkv_bias;
-	rsrc.memory_pool->reset();
+	//rsrc.memory_pool->reset();
     // Allocate buffers
 	//printf("Allocate buffers\n");
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -402,14 +402,23 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             auto k = k_buf->slice({{0, token_offset, seq_len}});
             auto v = v_buf->slice({{0, token_offset, seq_len}});
             
-            RUN_INFINI(infiniopRearrange(
-                desc_kv_rearranges[req],
-                kv_caches[req]->k[idev][layer]->data(past_len * nkvh * dh),
-                k->data(), stream));
-            RUN_INFINI(infiniopRearrange(
-                desc_kv_rearranges[req],
-                kv_caches[req]->v[idev][layer]->data(past_len * nkvh * dh),
-                v->data(), stream));
+            size_t data_size_to_copy = seq_len * nkvh * dh * dsize(dt_logits);
+
+			// Correctly copy the new K-vector into the cache at the right position
+			RUN_INFINI(infinirtMemcpyAsync(
+				kv_caches[req]->k[idev][layer]->data(past_len * nkvh * dh), // DESTINATION
+				k->data(),                                                 // SOURCE
+				data_size_to_copy,                                         // SIZE in bytes
+				INFINIRT_MEMCPY_D2D,                                       // DIRECTION (Device to Device)
+				stream));
+
+			// Correctly copy the new V-vector into the cache at the right position
+			RUN_INFINI(infinirtMemcpyAsync(
+				kv_caches[req]->v[idev][layer]->data(past_len * nkvh * dh), // DESTINATION
+				v->data(),                                                 // SOURCE
+				data_size_to_copy,                                         // SIZE in bytes
+				INFINIRT_MEMCPY_D2D,                                       // DIRECTION
+				stream));
             
             RUN_INFINI(infiniopRearrange(desc_q_rearranges[req], rearrange_q_buf->data(), q->data(), stream));
             
