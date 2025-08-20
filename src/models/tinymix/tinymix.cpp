@@ -12,6 +12,7 @@
 #include <iostream>
 #include <numeric>
 #include <mutex>
+#include <fstream>
 static std::mutex g_init_mutex;
 
 // --- Debugging Macro ---
@@ -29,6 +30,7 @@ static std::mutex g_init_mutex;
 #define DEBUG_LOG(...)
 #endif
 // -----------------------
+
 
 void createDeviceResource(DeviceResource *rsrc, const TinyMixMeta *meta,
                           const TinyMixWeights *weights,
@@ -212,7 +214,6 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
                                        dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
     }
     //DEBUG_LOG("Input embeddings prepared. logits_in shape: {%u, %u}", ntok, d);
-
     // Prepare operators and workspace
     infiniopRMSNormDescriptor_t desc_norm_attn;
     RUN_INFINI(infiniopCreateRMSNormDescriptor(rsrc.handle, &desc_norm_attn, logits_in->desc(), logits_out->desc(), rsrc.w_attn_norm[0]->desc(), meta.epsilon));
@@ -228,28 +229,41 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     if(has_qkv_bias){
         RUN_INFINI(infiniopCreateAddDescriptor(rsrc.handle, &desc_add_qkv_bias, qkv_buf->desc(), qkv_buf->desc(), rsrc.b_attn_qkv[0]->desc()));
 	}
-	infiniopRoPEDescriptor_t desc_rope;
-    qkv_buf->dimSplit(1, {nh + 2 * nkvh, dh});
-    auto qkv_buf_q = qkv_buf->slice(1, 0, nh);
-    // auto qkv_buf_k = qkv_buf->slice(1, nh, nkvh); // 我们不再需要这个变量
+	// --- RoPE 描述符创建 (已修正 GQA 的 API 限制) ---
 
-    // 【最终极简方案】
-    // 为了绕过RoPE算子对Key的头数量的错误检查，我们直接传递一个形状正确的描述符来“欺骗”它。
-    // o_buf (attention输出) 的形状是 [ntok, nh * dh]，与qkv_buf_q的要求一致。
-    // 注意：这只是为了通过创建时的检查。后续实际计算时，我们仍然传入正确的k_buf数据指针。
-    o_buf->dimSplit(1, {nh, dh}); // 将o_buf逻辑拆分以匹配形状
-    RUN_INFINI(infiniopCreateRoPEDescriptor(rsrc.handle, &desc_rope, 
-                                            qkv_buf_q->desc(), 
-                                            o_buf->desc(), // <-- 使用 o_buf->desc() 进行欺骗
-                                            pos_ids_buf->desc(), 
-                                            rsrc.sin_table->desc(), 
-                                            rsrc.cos_table->desc()));
-	RUN_INFINI(infiniopGetRoPEWorkspaceSize(desc_rope,&temp_size));
+	// 1. 为 Q 和 K 声明独立的 RoPE 描述符句柄
+	infiniopRoPEDescriptor_t desc_rope_q;
+	infiniopRoPEDescriptor_t desc_rope_k;
+
+	// 2. 为了获取 Q 和 K 各自的描述符，我们临时拆分 qkv_buf
+	qkv_buf->dimSplit(1, {nh + 2 * nkvh, dh});
+	auto q_buf_desc_slice = qkv_buf->slice(1, 0, nh);
+	auto k_buf_desc_slice = qkv_buf->slice(1, nh, nkvh);
+	qkv_buf->dimMerge(1, 2); // 立即合并回去，我们只为了获取描述符
+
+	// 3. 为 Q 创建描述符。
+	// 为了满足API要求，我们将 Q 自己的描述符作为两个输入参数传入。
+	RUN_INFINI(infiniopCreateRoPEDescriptor(rsrc.handle, &desc_rope_q,
+										q_buf_desc_slice->desc(),
+										q_buf_desc_slice->desc(),
+										pos_ids_buf->desc(),
+										rsrc.sin_table->desc(),
+										rsrc.cos_table->desc()));
+
+	// 4. 为 K 创建描述符。
+	// 同样地，我们将 K 自己的描述符作为两个输入参数传入。
+	RUN_INFINI(infiniopCreateRoPEDescriptor(rsrc.handle, &desc_rope_k,
+										k_buf_desc_slice->desc(),
+										k_buf_desc_slice->desc(),
+										pos_ids_buf->desc(),
+										rsrc.sin_table->desc(),
+										rsrc.cos_table->desc()));
+
+	// 5. 获取两次 RoPE 操作可能需要的最大工作空间
+	RUN_INFINI(infiniopGetRoPEWorkspaceSize(desc_rope_q, &temp_size));
 	workspace_size = std::max(workspace_size, temp_size);
-    o_buf->dimMerge(1, 2); // 恢复 o_buf 的形状
-
-    // 恢复qkv_buf的形状，以便后续代码可以正确地切分V
-    qkv_buf->dimMerge(1, 2);
+	RUN_INFINI(infiniopGetRoPEWorkspaceSize(desc_rope_k, &temp_size));
+	workspace_size = std::max(workspace_size, temp_size);
 
     auto desc_kv_rearranges = std::vector<infiniopRearrangeDescriptor_t>(nreq);
     auto desc_q_rearranges = std::vector<infiniopRearrangeDescriptor_t>(nreq);
@@ -362,7 +376,19 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
         auto k_buf = qkv_buf->slice(1, nh, nkvh);
         auto v_buf = qkv_buf->slice(1, nh + nkvh, nkvh);
 
-        RUN_INFINI(infiniopRoPE(desc_rope, workspace, workspace_size, q_buf->data(), k_buf->data(), pos_ids_buf->data(), rsrc.sin_table->data(), rsrc.cos_table->data(), stream));
+        // 调用 1: 使用为 Q 创建的描述符 (desc_rope_q) 对 Q 进行原地位置编码
+		// 注意：我们将 q_buf->data() 同时作为 y (输出) 和 x (输入) 参数传入
+		RUN_INFINI(infiniopRoPE(desc_rope_q, workspace, workspace_size,
+			q_buf->data(), q_buf->data(),
+			pos_ids_buf->data(), rsrc.sin_table->data(), rsrc.cos_table->data(),
+			stream));
+
+		// 调用 2: 使用为 K 创建的描述符 (desc_rope_k) 对 K 进行原地位置编码
+		// 同样地，我们将 k_buf->data() 同时作为 y (输出) 和 x (输入) 参数传入
+		RUN_INFINI(infiniopRoPE(desc_rope_k, workspace, workspace_size,
+			k_buf->data(), k_buf->data(),
+			pos_ids_buf->data(), rsrc.sin_table->data(), rsrc.cos_table->data(),
+			stream));
         //DEBUG_LOG("    - RoPE done.");
         
         size_t token_offset = 0;
@@ -648,7 +674,8 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     infiniopDestroyRMSNormDescriptor(desc_norm_attn);
     infiniopDestroyGemmDescriptor(desc_attn_qkv);
     if(has_qkv_bias) infiniopDestroyAddDescriptor(desc_add_qkv_bias);
-    infiniopDestroyRoPEDescriptor(desc_rope);
+    infiniopDestroyRoPEDescriptor(desc_rope_k);
+	infiniopDestroyRoPEDescriptor(desc_rope_q);
     for (uint32_t req = 0; req < nreq; req++) {
         infiniopDestroyRearrangeDescriptor(desc_kv_rearranges[req]);
         infiniopDestroyRearrangeDescriptor(desc_q_rearranges[req]);
@@ -663,7 +690,8 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     infiniopDestroyGemmDescriptor(desc_ffn_gate_up);
     infiniopDestroySwiGLUDescriptor(desc_swiglu);
     infiniopDestroyGemmDescriptor(desc_ffn_down);
-}
+	
+} //end of infer
 
 // Boilerplate code for model creation, destruction, and thread management
 // This part is very similar to jiuge.cpp and can be adapted directly.
@@ -702,6 +730,7 @@ void launchDevice(const TinyMixMeta &meta, const TinyMixWeights *weights, Device
     }
 
     releaseDeviceResource(*rsrc, dev_id);
+	
 }
 
 TinyMixModel::TinyMixModel(const TinyMixMeta *_meta, const TinyMixWeights *weights, infiniDevice_t device_, std::vector<int> device_ids) : meta(*_meta) {
@@ -729,6 +758,7 @@ TinyMixModel::TinyMixModel(const TinyMixMeta *_meta, const TinyMixWeights *weigh
         lock.unlock();
     }
     //DEBUG_LOG("All device threads launched and resources loaded.");
+	
 }
 
 __C struct TinyMixModel *
@@ -763,6 +793,7 @@ __C void destroyTinyMixModel(struct TinyMixModel *model) {
 
     delete model;
     //DEBUG_LOG("TinyMixModel destroyed successfully.");
+	
 }
 
 __C void

@@ -23,7 +23,7 @@ import json
 import math
 import torch
 import transformers
-
+from transformers import AutoModelForCausalLM
 torch.set_default_device("cpu")
 
 
@@ -441,8 +441,30 @@ def test():
             "Usage: python tinymix.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
-
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    model = TinyMixForCauslLM(model_path, device_type, ndev)
+    tokenizer = model.tokenizer # Get the tokenizer from your class
+
+    # --- Golden Reference Check ---
+    print("\n--- Verifying with Golden Reference ---")
+    from transformers import AutoModelForCausalLM
+    import torch
+
+    # Load the reference model
+    print("Loading golden reference model...")
+    golden_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16)
+    golden_model.eval()
+
+    # Prepare identical input
+    input_text = "<|user|>\nOnce upon a time</s>\n<|assistant|>"
+    input_ids = tokenizer.encode(input_text, return_tensors="pt")
+
+    # 1. Get the correct embedding output from the golden model
+    with torch.no_grad():
+        golden_embeddings = golden_model.model.embed_tokens(input_ids)
+        print("Golden embedding tensor shape:", golden_embeddings.shape)
+
+    
     model = TinyMixForCauslLM(model_path, device_type, ndev)
     model.generate("Once upon a time", 100, topp_=0.9, temperature_=0.7, topk_=50)
     model.destroy_model_instance()
