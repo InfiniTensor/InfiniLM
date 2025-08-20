@@ -282,8 +282,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             for (uint32_t req = 0; req < nreq; req++) {
                 auto seq_len = req_lens[req];
                 float random_val = std::uniform_real_distribution<float>(0, 1)(gen);
-                randomSample(result_buf->memShare({}, result_buf->dtype()),
-                             prob_buf->view_as({dvoc}, {1}),
+                randomSample(result_buf->slice(0, req, 1)->view_as({}, {}),
+                             prob_buf->slice(0, req, 1)->view_as({dvoc}, {1}),
                              random_val, topp[req], topk[req], temperature[req]);
                 token_offset += seq_len;
             }
