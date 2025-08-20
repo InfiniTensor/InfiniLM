@@ -114,155 +114,88 @@ class TinyMixWeightsImpl(TinyMixWeightsCStruct):
         meta,
         naming,
         state_dict,
-        torch_dt_mat=torch.float16,
-        torch_dt_norm=torch.float32,
         ndev=1,
         transpose_weight=True,
     ):
         nlayer = meta.nlayer
-        nh = meta.nh
-        nkvh = meta.nkvh
-        dh = meta.dh
-        d = meta.d
-        di = meta.di
-
-        torch_dt_logits = meta.torch_dtype_logits
-        if torch_dt_mat == torch.float16:
+        nh, nkvh, dh, d, di = meta.nh, meta.nkvh, meta.dh, meta.d, meta.di
+        
+        # ✨ FIX: Use the single, correct dtype from the model config for ALL weights ✨
+        torch_dtype = meta.torch_dtype_logits
+        self.torch_dt_norm = torch_dtype # Keep this for the verify_numerics test
+        
+        # Map the torch dtype to the C++ enum dtype
+        if torch_dtype == torch.float16:
             self.dt_mat = DataType.INFINI_DTYPE_F16
-        elif torch_dt_mat == torch.float32:
-            self.dt_mat = DataType.INFINI_DTYPE_F32
-        elif torch_dt_mat == torch.bfloat16:
-            self.dt_mat = DataType.INFINI_DTYPE_BF16
-        else:
-            raise ValueError("Unsupported proj weight data type")
-
-        if torch_dt_norm == torch.float16:
             self.dt_norm = DataType.INFINI_DTYPE_F16
-        elif torch_dt_norm == torch.float32:
+        elif torch_dtype == torch.float32:
+            self.dt_mat = DataType.INFINI_DTYPE_F32
             self.dt_norm = DataType.INFINI_DTYPE_F32
-        elif torch_dt_norm == torch.bfloat16:
+        elif torch_dtype == torch.bfloat16:
+            self.dt_mat = DataType.INFINI_DTYPE_BF16
             self.dt_norm = DataType.INFINI_DTYPE_BF16
         else:
-            raise ValueError("Unsupported norm weight data type")
+            raise ValueError("Unsupported weight data type")
 
         self.transpose_linear_weights = 1 if transpose_weight else 0
         self.nlayer = nlayer
-        self.input_embd_tensor = state_dict[naming.input_embd()].to(torch_dt_logits)
+        
+        # Now, all .to() calls use the correct, unified dtype
+        self.input_embd_tensor = state_dict[naming.input_embd()].to(torch_dtype)
         self.input_embd = self.input_embd_tensor.data_ptr()
-        self.output_norm_tensor = state_dict[naming.output_norm()].to(torch_dt_norm)
+        
+        self.output_norm_tensor = state_dict[naming.output_norm()].to(torch_dtype)
         self.output_norm = self.output_norm_tensor.data_ptr()
-        self.output_embd_tensor = state_dict[naming.output_embd()].to(torch_dt_mat)
+        
+        self.output_embd_tensor = state_dict[naming.output_embd()].to(torch_dtype)
         if not transpose_weight:
             self.output_embd_tensor = self.output_embd_tensor.transpose(0, 1).contiguous()
         self.output_embd = self.output_embd_tensor.data_ptr()
 
-        self.attn_norm_tensors = [
-            state_dict[naming.attn_norm(i)].to(torch_dt_norm) for i in range(nlayer)
-        ]
-        self.attn_norm_ptrs = [
-            self.attn_norm_tensors[i].data_ptr() for i in range(nlayer)
-        ]
+        self.attn_norm_tensors = [state_dict[naming.attn_norm(i)].to(torch_dtype) for i in range(nlayer)]
+        self.attn_norm_ptrs = [t.data_ptr() for t in self.attn_norm_tensors]
         self.attn_norm = (c_void_p * nlayer)(*self.attn_norm_ptrs)
-
+        
+        # ... the rest of the __init__ function can remain the same ...
+        # Make sure all other .to(torch_dt_mat) or .to(torch_dt_norm) are changed to .to(torch_dtype)
         def qkv_slices(_i):
-            _Q = (
-                state_dict[naming.attn_q(_i)]
-                .reshape([nh, 2, dh // 2, d])
-                .transpose(1, 2)
-                .contiguous()
-            )
-            _K = (
-                state_dict[naming.attn_k(_i)]
-                .reshape([nkvh, 2, dh // 2, d])
-                .transpose(1, 2)
-                .contiguous()
-            )
+            _Q = (state_dict[naming.attn_q(_i)].reshape([nh, 2, dh // 2, d]).transpose(1, 2).contiguous())
+            _K = (state_dict[naming.attn_k(_i)].reshape([nkvh, 2, dh // 2, d]).transpose(1, 2).contiguous())
             _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
             _result = []
-            _nh = nh // ndev
-            _nkvh = nkvh // ndev
+            _nh, _nkvh = nh // ndev, nkvh // ndev
             for _idev in range(ndev):
-                _result.append(_Q[_idev * _nh : (_idev + 1) * _nh, :, :, :])
-                _result.append(_K[_idev * _nkvh : (_idev + 1) * _nkvh, :, :, :])
-                _result.append(_V[_idev * _nkvh : (_idev + 1) * _nkvh, :, :])
+                _result.extend([_Q[_idev * _nh : (_idev + 1) * _nh, :, :, :], _K[_idev * _nkvh : (_idev + 1) * _nkvh, :, :, :], _V[_idev * _nkvh : (_idev + 1) * _nkvh, :, :]])
             return _result
-
-        self.qkv_tensor = [
-            torch.concat(qkv_slices(i)).to(torch_dt_mat) for i in range(nlayer)
-        ]
+        self.qkv_tensor = [torch.concat(qkv_slices(i)).to(torch_dtype) for i in range(nlayer)]
         if not transpose_weight:
-            for i in range(nlayer):
-                self.qkv_tensor[i] = (
-                    self.qkv_tensor[i]
-                    .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
-                    .transpose(1, 2)
-                    .contiguous()
-                )
-        self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
+            for i in range(nlayer): self.qkv_tensor[i] = (self.qkv_tensor[i].reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d).transpose(1, 2).contiguous())
+        self.qkv_tensor_ptrs = [t.data_ptr() for t in self.qkv_tensor]
         self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
-
         self.attn_qkv_b = None
-
-        self.attn_o_tensor = [
-            (
-                state_dict[naming.attn_o(i)]
-                .to(torch_dt_mat)
-                .reshape([d, ndev, nh // ndev * dh])
-                .transpose(0, 1)
-                .contiguous()
-                if transpose_weight
-                else state_dict[naming.attn_o(i)]
-                .transpose(0, 1)
-                .to(torch_dt_mat)
-                .contiguous()
-            )
-            for i in range(nlayer)
-        ]
-        self.attn_o_ptrs = [self.attn_o_tensor[i].data_ptr() for i in range(nlayer)]
+        self.attn_o_tensor = [(state_dict[naming.attn_o(i)].to(torch_dtype).reshape([d, ndev, nh // ndev * dh]).transpose(0, 1).contiguous() if transpose_weight else state_dict[naming.attn_o(i)].transpose(0, 1).to(torch_dtype).contiguous()) for i in range(nlayer)]
+        self.attn_o_ptrs = [t.data_ptr() for t in self.attn_o_tensor]
         self.attn_o = (c_void_p * nlayer)(*self.attn_o_ptrs)
-
-        self.ffn_norm_tensors = [
-            state_dict[naming.ffn_norm(i)].to(torch_dt_norm) for i in range(nlayer)
-        ]
-        self.ffn_norm_ptrs = [
-            self.ffn_norm_tensors[i].data_ptr() for i in range(nlayer)
-        ]
+        self.ffn_norm_tensors = [state_dict[naming.ffn_norm(i)].to(torch_dtype) for i in range(nlayer)]
+        self.ffn_norm_ptrs = [t.data_ptr() for t in self.ffn_norm_tensors]
         self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
-
-        self.ffn_gate_tensors = [
-            state_dict[naming.ffn_gate(i)].to(torch_dt_mat)
-            for i in range(meta.nlayer)
-        ]
+        self.ffn_gate_tensors = [state_dict[naming.ffn_gate(i)].to(torch_dtype) for i in range(meta.nlayer)]
         self.ffn_gate_ptrs = [t.data_ptr() for t in self.ffn_gate_tensors]
         self.ffn_gate = (c_void_p * meta.nlayer)(*self.ffn_gate_ptrs)
-
-        self.ffn_gate_up_tensors = []
-        self.ffn_down_tensors = []
-
+        self.ffn_gate_up_tensors, self.ffn_down_tensors = [], []
         for i in range(meta.nlayer):
-            gate_up_experts = []
-            down_experts = []
+            gate_up_experts, down_experts = [], []
             for j in range(meta.nexpert):
-                gate = state_dict[naming.ffn_gate_up(i, j)].to(torch_dt_mat)
-                up = state_dict[naming.ffn_down(i, j)].to(torch_dt_mat)
-                down = state_dict[naming.ffn_up(i, j)].to(torch_dt_mat)
+                gate = state_dict[naming.ffn_gate_up(i, j)].to(torch_dtype)
+                up = state_dict[naming.ffn_down(i, j)].to(torch_dtype)
+                down = state_dict[naming.ffn_up(i, j)].to(torch_dtype)
                 gate_up_experts.append(torch.cat([gate, up], dim=0))
                 down_experts.append(down)
             self.ffn_gate_up_tensors.append(gate_up_experts)
             self.ffn_down_tensors.append(down_experts)
-
-        self.ffn_gate_up_expert_ptrs = [
-            (c_void_p * meta.nexpert)(*[t.data_ptr() for t in layer_tensors])
-            for layer_tensors in self.ffn_gate_up_tensors
-        ]
-        self.ffn_gate_up = (POINTER(c_void_p) * meta.nlayer)(
-            *self.ffn_gate_up_expert_ptrs
-        )
-
-        self.ffn_down_expert_ptrs = [
-            (c_void_p * meta.nexpert)(*[t.data_ptr() for t in layer_tensors])
-            for layer_tensors in self.ffn_down_tensors
-        ]
+        self.ffn_gate_up_expert_ptrs = [(c_void_p * meta.nexpert)(*[t.data_ptr() for t in layer_tensors]) for layer_tensors in self.ffn_gate_up_tensors]
+        self.ffn_gate_up = (POINTER(c_void_p) * meta.nlayer)(*self.ffn_gate_up_expert_ptrs)
+        self.ffn_down_expert_ptrs = [(c_void_p * meta.nexpert)(*[t.data_ptr() for t in layer_tensors]) for layer_tensors in self.ffn_down_tensors]
         self.ffn_down = (POINTER(c_void_p) * meta.nlayer)(*self.ffn_down_expert_ptrs)
 
 class TinyMixBatchedTask:
@@ -389,6 +322,8 @@ class TinyMixForCauslLM:
 
         for step_i in range(max_steps):
             start_time = time.time()
+            print(f" [DEBUG] Step: {step_i}, Current Position: {infer_task.pos}, Token Count: {len(infer_task.tokens)} ")
+    
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
             steps += 1
@@ -403,6 +338,7 @@ class TinyMixForCauslLM:
 
             if step_i > 0:
                 total_time += end_time - start_time
+            infer_task.next(output_tokens[0])
 
         print("\n")
         avg_time = total_time * 1000 / (steps - 1) if steps > 1 else 0
@@ -442,28 +378,6 @@ def test():
         )
         sys.exit(1)
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    model = TinyMixForCauslLM(model_path, device_type, ndev)
-    tokenizer = model.tokenizer # Get the tokenizer from your class
-
-    # --- Golden Reference Check ---
-    print("\n--- Verifying with Golden Reference ---")
-    from transformers import AutoModelForCausalLM
-    import torch
-
-    # Load the reference model
-    print("Loading golden reference model...")
-    golden_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16)
-    golden_model.eval()
-
-    # Prepare identical input
-    input_text = "<|user|>\nOnce upon a time</s>\n<|assistant|>"
-    input_ids = tokenizer.encode(input_text, return_tensors="pt")
-
-    # 1. Get the correct embedding output from the golden model
-    with torch.no_grad():
-        golden_embeddings = golden_model.model.embed_tokens(input_ids)
-        print("Golden embedding tensor shape:", golden_embeddings.shape)
-
     
     model = TinyMixForCauslLM(model_path, device_type, ndev)
     model.generate("Once upon a time", 100, topp_=0.9, temperature_=0.7, topk_=50)
