@@ -231,3 +231,9 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
         add(c, c, bias->view_as(c->shape(), strides));
     }
 }
+
+
+
+
+
+

@@ -217,17 +217,24 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
             rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
             // qk
-            rearrange(q_rearrange, q);
-            auto qk_gemm = qk_buf->view({nkvh, ngroup * seq_len, total_len});
+            // std::cout << "rearrange q" << std::endl;
+            // std::cout << "q shape: " << q->info() << std::endl;
+            rearrange(q_rearrange->slice(2, 0, seq_len), q);
+            // std::cout << "qk_gemm" << std::endl;
+            // std::cout << "qk_buf: " << qk_buf->info() << std::endl;
+            auto qk_gemm = qk_buf->slice(1, 0, seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
             auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
-            linear(qk_gemm, rearrange_q_buf, k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+            linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
             // softmax
-            auto qk_softmax = qk_buf->view({nh, seq_len, total_len});
+            // std::cout << "qk_softmax" << std::endl;
+            auto qk_softmax = qk_buf->slice(1, 0, seq_len * total_len)->view({nh, seq_len, total_len});
             causalSoftmax(qk_softmax, qk_softmax);
+            // std::cout << "v_gemm" << std::endl;
             auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
-            linear(attn_val_buf, qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+            // std::cout << "attn_val_buf" << std::endl;
+            linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
             // rearrange attn val
-            rearrange(o, attn_val_gemm);
+            rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
 
             token_offset += seq_len;
         }
@@ -282,8 +289,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             for (uint32_t req = 0; req < nreq; req++) {
                 auto seq_len = req_lens[req];
                 float random_val = std::uniform_real_distribution<float>(0, 1)(gen);
-                randomSample(result_buf->memShare({}, result_buf->dtype()),
-                             prob_buf->view_as({dvoc}, {1}),
+                randomSample(result_buf->slice(0, req, 1)->view_as({}, {}),
+                             prob_buf->slice(0, req, 1)->view_as({dvoc}, {1}),
                              random_val, topp[req], topk[req], temperature[req]);
                 token_offset += seq_len;
             }

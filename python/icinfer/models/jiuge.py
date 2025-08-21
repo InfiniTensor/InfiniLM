@@ -1,7 +1,19 @@
 from typing import List, Sequence
 
 from sympy import true
-from libinfinicore_infer import (
+
+from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import os
+from pathlib import Path
+import safetensors
+import sys
+import time
+import json
+import math
+import torch
+import transformers
+
+from icinfer.engine.libinfinicore_infer import (
     JiugeMetaCStruct,
     JiugeWeightsCStruct,
     KVCacheCStruct,
@@ -14,18 +26,7 @@ from libinfinicore_infer import (
     infer_batch,
     forward_batch,
 )
-from infer_task import InferTask, KVCache
-
-from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
-import os
-from pathlib import Path
-import safetensors
-import sys
-import time
-import json
-import math
-import torch
-import transformers
+from icinfer.engine.infer_task import InferTask, KVCache
 
 import logging
 logging.basicConfig(
@@ -386,6 +387,7 @@ class JiugeBatchedTask:
         self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
         self.topks = (c_uint * self.nreq)(*self.topks_list)
         self.topps = (c_float * self.nreq)(*self.topps_list)
+        print(list(self.tokens))
 
     def input_args(self):
         return (
@@ -530,9 +532,61 @@ class JiugeForCausalLM:
         )
         return list(output)
 
+    # def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
+    #     input_content = self.tokenizer.apply_chat_template(
+    #         conversation=[{"role": "user", "content": input_content}],
+    #         add_generation_prompt=True,
+    #         tokenize=False,
+    #     )
+    #     print(input_content, end="", flush=True)
+    #     tokens = self.tokenizer.encode(input_content)
+    #     infer_task = InferTask(
+    #         0,
+    #         tokens,
+    #         self.max_context_len(),
+    #         temperature_,
+    #         topk_,
+    #         topp_,
+    #         self.eos_token_id,
+    #     )
+    #     infer_task.bind_kvcache(KVCache(self))
+
+    #     steps = 0
+    #     total_time = 0
+    #     output_content = ""
+
+    #     for step_i in range(max_steps):
+    #         start_time = time.time()
+    #         output_tokens = self.batch_infer_one_round([infer_task])
+    #         end_time = time.time()
+    #         steps += 1
+    #         output_str = (
+    #             self.tokenizer._tokenizer.id_to_token(output_tokens[0])
+    #             .replace("▁", " ")
+    #             .replace("<0x0A>", "\n")
+    #         )
+    #         output_content += output_str
+    #         print(output_str, end="", flush=True)
+    #         if output_tokens[0] in self.eos_token_id:
+    #             break
+    #         infer_task.next(output_tokens[0])
+
+    #         if step_i > 0:
+    #             total_time += end_time - start_time
+
+    #     print("\n")
+    #     avg_time = total_time * 1000 / (steps - 1)
+    #     print(f"Time per step: {avg_time:.3f}ms")
+
+    #     # infer_task._kv_cache.drop(self)
+    #     # infer_task.release_kvcache().drop(self)
+    #     infer_task.release_kvcache().drop(self)
+
+    #     return output_content, avg_time
+    
     def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
         input_content = self.tokenizer.apply_chat_template(
-            conversation=[{"role": "user", "content": input_content}],
+            conversation=[{"role": "user", "content": "山东最高的山是？"}],
             add_generation_prompt=True,
             tokenize=False,
         )
@@ -548,6 +602,24 @@ class JiugeForCausalLM:
             self.eos_token_id,
         )
         infer_task.bind_kvcache(KVCache(self))
+        
+        input_content1 = self.tokenizer.apply_chat_template(
+                    conversation=[{"role": "user", "content": "中国最高的山和最长的河是？"}],
+                    add_generation_prompt=True,
+                    tokenize=False,
+                )
+        tokens1 = self.tokenizer.encode(input_content1)
+        infer_task1 = InferTask(
+            1,
+            tokens1,
+            self.max_context_len(),
+            temperature_,
+            topk_,
+            topp_,
+            self.eos_token_id,
+        )
+        infer_task1.bind_kvcache(KVCache(self))
+
 
         steps = 0
         total_time = 0
@@ -555,7 +627,7 @@ class JiugeForCausalLM:
 
         for step_i in range(max_steps):
             start_time = time.time()
-            output_tokens = self.batch_infer_one_round([infer_task])
+            output_tokens = self.batch_infer_one_round([infer_task, infer_task1])
             end_time = time.time()
             steps += 1
             output_str = (
@@ -568,6 +640,7 @@ class JiugeForCausalLM:
             if output_tokens[0] in self.eos_token_id:
                 break
             infer_task.next(output_tokens[0])
+            infer_task1.next(output_tokens[1])
 
             if step_i > 0:
                 total_time += end_time - start_time
@@ -576,7 +649,11 @@ class JiugeForCausalLM:
         avg_time = total_time * 1000 / (steps - 1)
         print(f"Time per step: {avg_time:.3f}ms")
 
-        infer_task._kv_cache.drop(self)
+        # infer_task._kv_cache.drop(self)
+        # infer_task.release_kvcache().drop(self)
+        infer_task.release_kvcache().drop(self)
+        infer_task1.release_kvcache().drop(self)
+
         return output_content, avg_time
 
     def perplexity(self, test_sequences: List[Sequence[int]], batch_size=10):
