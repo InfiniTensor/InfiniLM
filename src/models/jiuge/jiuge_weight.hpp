@@ -185,4 +185,216 @@ inline std::shared_ptr<Tensor> getCosTable(JiugeMeta const *meta) {
     return tensor;
 }
 
+inline std::shared_ptr<Tensor> getAttnQKVQWeight(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto nkvh = meta->nkvh;
+    auto nh = meta->nh;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * d * dsize(w->dt_qweight);
+    auto shape = std::vector<size_t>({d, (nh + 2 * nkvh) / ndev * dh});
+    return Tensor::weight((char *)(w->attn_qkv_qweight[layer]) + offset, w->dt_qweight, shape);
+}
+
+inline std::shared_ptr<Tensor> getAttnQKVScales(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto nkvh = meta->nkvh;
+    auto nh = meta->nh;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (d + group_size - 1) / group_size;
+    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * num_groups * dsize(w->dt_scales);
+    auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->attn_qkv_scales[layer]) + offset, w->dt_scales, shape);
+}
+
+inline std::shared_ptr<Tensor> getAttnQKVQZeros(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto nkvh = meta->nkvh;
+    auto nh = meta->nh;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (d + group_size - 1) / group_size;
+    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * num_groups * dsize(w->dt_qzeros);
+    auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->attn_qkv_qzeros[layer]) + offset, w->dt_qzeros, shape);
+}
+
+inline std::shared_ptr<Tensor> getAttnQKVGIdx(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto nkvh = meta->nkvh;
+    auto nh = meta->nh;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (d + group_size - 1) / group_size;
+    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * num_groups * dsize(w->dt_g_idx);
+    auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->attn_qkv_g_idx[layer]) + offset, w->dt_g_idx, shape);
+}
+
+inline std::shared_ptr<Tensor> getAttnOQWeight(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto nh = meta->nh;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    size_t offset = idev * d * (nh / ndev * dh) * dsize(w->dt_qweight);
+    auto shape = std::vector<size_t>({nh / ndev * dh, d});
+    return Tensor::weight((char *)(w->attn_o_qweight[layer]) + offset, w->dt_qweight, shape);
+}
+
+inline std::shared_ptr<Tensor> getAttnOScales(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto nh = meta->nh;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (nh / ndev * dh + group_size - 1) / group_size;
+    size_t offset = idev * d * num_groups * dsize(w->dt_scales);
+    auto shape = std::vector<size_t>({d, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->attn_o_scales[layer]) + offset, w->dt_scales, shape);
+}
+
+inline std::shared_ptr<Tensor> getAttnOQZeros(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto nh = meta->nh;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (nh / ndev * dh + group_size - 1) / group_size;
+    size_t offset = idev * d * num_groups * dsize(w->dt_qzeros);
+    auto shape = std::vector<size_t>({d, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->attn_o_qzeros[layer]) + offset, w->dt_qzeros, shape);
+}
+
+inline std::shared_ptr<Tensor> getAttnOGIdx(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto nh = meta->nh;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (nh / ndev * dh + group_size - 1) / group_size;
+    size_t offset = idev * d * num_groups * dsize(w->dt_g_idx);
+    auto shape = std::vector<size_t>({d, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->attn_o_g_idx[layer]) + offset, w->dt_g_idx, shape);
+}
+
+inline std::shared_ptr<Tensor> getFFNGateUpQWeight(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto di = meta->di;
+    auto d = meta->d;
+    size_t offset = idev * (2 * di / ndev) * d * dsize(w->dt_qweight);
+    auto shape = std::vector<size_t>({d, 2 * di / ndev});
+    return Tensor::weight((char *)(w->ffn_gate_up_qweight[layer]) + offset, w->dt_qweight, shape);
+}
+
+inline std::shared_ptr<Tensor> getFFNGateUpScales(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto di = meta->di;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (d + group_size - 1) / group_size;
+    size_t offset = idev * (2 * di / ndev) * num_groups * dsize(w->dt_scales);
+    auto shape = std::vector<size_t>({2 * di / ndev, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->ffn_gate_up_scales[layer]) + offset, w->dt_scales, shape);
+}
+
+inline std::shared_ptr<Tensor> getFFNGateUpQZeros(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto di = meta->di;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (d + group_size - 1) / group_size;
+    size_t offset = idev * (2 * di / ndev) * num_groups * dsize(w->dt_qzeros);
+    auto shape = std::vector<size_t>({2 * di / ndev, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->ffn_gate_up_qzeros[layer]) + offset, w->dt_qzeros, shape);
+}
+
+inline std::shared_ptr<Tensor> getFFNGateUpGIdx(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto di = meta->di;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (d + group_size - 1) / group_size;
+    size_t offset = idev * (2 * di / ndev) * num_groups * dsize(w->dt_g_idx);
+    auto shape = std::vector<size_t>({2 * di / ndev, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->ffn_gate_up_g_idx[layer]) + offset, w->dt_g_idx, shape);
+}
+
+inline std::shared_ptr<Tensor> getFFNDownQWeight(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto di = meta->di;
+    auto d = meta->d;
+    size_t offset = idev * d * (di / ndev) * dsize(w->dt_qweight);
+    auto shape = std::vector<size_t>({di / ndev, d});
+    return Tensor::weight((char *)(w->ffn_down_qweight[layer]) + offset, w->dt_qweight, shape);
+}
+
+inline std::shared_ptr<Tensor> getFFNDownScales(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto di = meta->di;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (di / ndev + group_size - 1) / group_size;
+    size_t offset = idev * d * num_groups * dsize(w->dt_scales);
+    auto shape = std::vector<size_t>({d, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->ffn_down_scales[layer]) + offset, w->dt_scales, shape);
+}
+
+inline std::shared_ptr<Tensor> getFFNDownQZeros(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto di = meta->di;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (di / ndev + group_size - 1) / group_size;
+    size_t offset = idev * d * num_groups * dsize(w->dt_qzeros);
+    auto shape = std::vector<size_t>({d, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->ffn_down_qzeros[layer]) + offset, w->dt_qzeros, shape);
+}
+
+inline std::shared_ptr<Tensor> getFFNDownGIdx(
+    JiugeMeta const *meta,
+    JiugeWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto di = meta->di;
+    auto d = meta->d;
+    int group_size = w->group_size;
+    int num_groups = (di / ndev + group_size - 1) / group_size;
+    size_t offset = idev * d * num_groups * dsize(w->dt_g_idx);
+    auto shape = std::vector<size_t>({d, static_cast<size_t>(num_groups)});
+    return Tensor::weight((char *)(w->ffn_down_g_idx[layer]) + offset, w->dt_g_idx, shape);
+}
+
 #endif

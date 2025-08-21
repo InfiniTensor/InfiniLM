@@ -23,23 +23,66 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
 
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_out,
         w_ffn_norm, w_ffn_gate_up, w_ffn_down;
+
+    // Quantization tensors
+    std::vector<std::shared_ptr<Tensor>> w_attn_qkv_qweight, w_attn_qkv_scales, w_attn_qkv_qzeros, w_attn_qkv_g_idx;
+    std::vector<std::shared_ptr<Tensor>> w_attn_o_qweight, w_attn_o_scales, w_attn_o_qzeros, w_attn_o_g_idx;
+    std::vector<std::shared_ptr<Tensor>> w_ffn_gate_up_qweight, w_ffn_gate_up_scales, w_ffn_gate_up_qzeros, w_ffn_gate_up_g_idx;
+    std::vector<std::shared_ptr<Tensor>> w_ffn_down_qweight, w_ffn_down_scales, w_ffn_down_qzeros, w_ffn_down_g_idx;
+
+    bool is_quantized = weights->is_quantized;
+
     for (size_t layer = 0; layer < meta->nlayer; layer++) {
-        w_attn_norm.push_back(
-            getAttnNorm(meta, weights, layer));
-        w_attn_qkv.push_back(
-            getAttnQKV(meta, weights, layer, idev, ndev));
-        if (weights->attn_qkv_b != nullptr) {
-            b_attn_qkv.push_back(
-                getAttnQKVBias(meta, weights, layer, idev, ndev));
+        w_attn_norm.push_back(getAttnNorm(meta, weights, layer));
+
+        if (is_quantized) {
+            // Load quantized attention QKV weights
+            w_attn_qkv_qweight.push_back(getAttnQKVQWeight(meta, weights, layer, idev, ndev));
+            w_attn_qkv_scales.push_back(getAttnQKVScales(meta, weights, layer, idev, ndev));
+            w_attn_qkv_qzeros.push_back(getAttnQKVQZeros(meta, weights, layer, idev, ndev));
+            w_attn_qkv_g_idx.push_back(getAttnQKVGIdx(meta, weights, layer, idev, ndev));
+        } else {
+            // Load full precision attention QKV weights
+            w_attn_qkv.push_back(getAttnQKV(meta, weights, layer, idev, ndev));
+            if (weights->attn_qkv_b != nullptr) {
+                b_attn_qkv.push_back(getAttnQKVBias(meta, weights, layer, idev, ndev));
+            }
         }
-        w_attn_out.push_back(
-            getAttnO(meta, weights, layer, idev, ndev));
-        w_ffn_norm.push_back(
-            getFFNNorm(meta, weights, layer));
-        w_ffn_gate_up.push_back(
-            getFFNGateUp(meta, weights, layer, idev, ndev));
-        w_ffn_down.push_back(
-            getFFNDown(meta, weights, layer, idev, ndev));
+
+        if (is_quantized) {
+            // Load quantized attention output weights
+            w_attn_o_qweight.push_back(getAttnOQWeight(meta, weights, layer, idev, ndev));
+            w_attn_o_scales.push_back(getAttnOScales(meta, weights, layer, idev, ndev));
+            w_attn_o_qzeros.push_back(getAttnOQZeros(meta, weights, layer, idev, ndev));
+            w_attn_o_g_idx.push_back(getAttnOGIdx(meta, weights, layer, idev, ndev));
+        } else {
+            // Load full precision attention output weights
+            w_attn_out.push_back(getAttnO(meta, weights, layer, idev, ndev));
+        }
+
+        w_ffn_norm.push_back(getFFNNorm(meta, weights, layer));
+
+        if (is_quantized) {
+            // Load quantized FFN gate/up weights
+            w_ffn_gate_up_qweight.push_back(getFFNGateUpQWeight(meta, weights, layer, idev, ndev));
+            w_ffn_gate_up_scales.push_back(getFFNGateUpScales(meta, weights, layer, idev, ndev));
+            w_ffn_gate_up_qzeros.push_back(getFFNGateUpQZeros(meta, weights, layer, idev, ndev));
+            w_ffn_gate_up_g_idx.push_back(getFFNGateUpGIdx(meta, weights, layer, idev, ndev));
+        } else {
+            // Load full precision FFN gate/up weights
+            w_ffn_gate_up.push_back(getFFNGateUp(meta, weights, layer, idev, ndev));
+        }
+
+        if (is_quantized) {
+            // Load quantized FFN down weights
+            w_ffn_down_qweight.push_back(getFFNDownQWeight(meta, weights, layer, idev, ndev));
+            w_ffn_down_scales.push_back(getFFNDownScales(meta, weights, layer, idev, ndev));
+            w_ffn_down_qzeros.push_back(getFFNDownQZeros(meta, weights, layer, idev, ndev));
+            w_ffn_down_g_idx.push_back(getFFNDownGIdx(meta, weights, layer, idev, ndev));
+        } else {
+            // Load full precision FFN down weights
+            w_ffn_down.push_back(getFFNDown(meta, weights, layer, idev, ndev));
+        }
     }
 
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
@@ -62,6 +105,26 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
         w_ffn_down,
         stream,
         comm,
+        is_quantized,
+        weights->symmetric,
+        weights->bits,
+        weights->group_size,
+        w_attn_qkv_qweight,
+        w_attn_qkv_scales,
+        w_attn_qkv_qzeros,
+        w_attn_qkv_g_idx,
+        w_attn_o_qweight,
+        w_attn_o_scales,
+        w_attn_o_qzeros,
+        w_attn_o_g_idx,
+        w_ffn_gate_up_qweight,
+        w_ffn_gate_up_scales,
+        w_ffn_gate_up_qzeros,
+        w_ffn_gate_up_g_idx,
+        w_ffn_down_qweight,
+        w_ffn_down_scales,
+        w_ffn_down_qzeros,
+        w_ffn_down_g_idx,
         memory_pool,
     };
     RUN_INFINI(infinirtDeviceSynchronize());
@@ -69,46 +132,141 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
 
 void releaseDeviceResource(DeviceResource &res) {
     infinirtDeviceSynchronize();
+
     // Release individual Tensors
     res.w_in_embd.reset();
     res.w_out_norm.reset();
     res.w_out_embd.reset();
     res.sin_table.reset();
     res.cos_table.reset();
+
+    // Release full precision tensors
     for (auto &t : res.w_attn_norm) {
         t.reset();
     }
     res.w_attn_norm.clear();
+
     for (auto &t : res.w_attn_qkv) {
         t.reset();
     }
     res.w_attn_qkv.clear();
+
     for (auto &t : res.b_attn_qkv) {
         t.reset();
     }
     res.b_attn_qkv.clear();
+
     for (auto &t : res.w_attn_out) {
         t.reset();
     }
     res.w_attn_out.clear();
+
     for (auto &t : res.w_ffn_norm) {
         t.reset();
     }
     res.w_ffn_norm.clear();
+
     for (auto &t : res.w_ffn_gate_up) {
         t.reset();
     }
     res.w_ffn_gate_up.clear();
+
     for (auto &t : res.w_ffn_down) {
         t.reset();
     }
     res.w_ffn_down.clear();
+
+    // Release quantized tensors
+    for (auto &t : res.w_attn_qkv_qweight) {
+        t.reset();
+    }
+    res.w_attn_qkv_qweight.clear();
+
+    for (auto &t : res.w_attn_qkv_scales) {
+        t.reset();
+    }
+    res.w_attn_qkv_scales.clear();
+
+    for (auto &t : res.w_attn_qkv_qzeros) {
+        t.reset();
+    }
+    res.w_attn_qkv_qzeros.clear();
+
+    for (auto &t : res.w_attn_qkv_g_idx) {
+        t.reset();
+    }
+    res.w_attn_qkv_g_idx.clear();
+
+    for (auto &t : res.w_attn_o_qweight) {
+        t.reset();
+    }
+    res.w_attn_o_qweight.clear();
+
+    for (auto &t : res.w_attn_o_scales) {
+        t.reset();
+    }
+    res.w_attn_o_scales.clear();
+
+    for (auto &t : res.w_attn_o_qzeros) {
+        t.reset();
+    }
+    res.w_attn_o_qzeros.clear();
+
+    for (auto &t : res.w_attn_o_g_idx) {
+        t.reset();
+    }
+    res.w_attn_o_g_idx.clear();
+
+    for (auto &t : res.w_ffn_gate_up_qweight) {
+        t.reset();
+    }
+    res.w_ffn_gate_up_qweight.clear();
+
+    for (auto &t : res.w_ffn_gate_up_scales) {
+        t.reset();
+    }
+    res.w_ffn_gate_up_scales.clear();
+
+    for (auto &t : res.w_ffn_gate_up_qzeros) {
+        t.reset();
+    }
+    res.w_ffn_gate_up_qzeros.clear();
+
+    for (auto &t : res.w_ffn_gate_up_g_idx) {
+        t.reset();
+    }
+    res.w_ffn_gate_up_g_idx.clear();
+
+    for (auto &t : res.w_ffn_down_qweight) {
+        t.reset();
+    }
+    res.w_ffn_down_qweight.clear();
+
+    for (auto &t : res.w_ffn_down_scales) {
+        t.reset();
+    }
+    res.w_ffn_down_scales.clear();
+
+    for (auto &t : res.w_ffn_down_qzeros) {
+        t.reset();
+    }
+    res.w_ffn_down_qzeros.clear();
+
+    for (auto &t : res.w_ffn_down_g_idx) {
+        t.reset();
+    }
+    res.w_ffn_down_g_idx.clear();
+
+    // Release other resources
     infiniopDestroyHandle(res.handle);
     res.handle = nullptr;
     infinirtStreamDestroy(res.stream);
     res.stream = nullptr;
     infinicclCommDestroy(res.comm);
     res.comm = nullptr;
+}
+
+void inferDeviceBatchGPTQ() {
 }
 
 void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,

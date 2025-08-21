@@ -27,6 +27,15 @@ struct DeviceResource {
     // Communicator
     infinicclComm_t comm;
 
+    bool is_quantized = false;
+    bool symmetric = true;
+    int bits = 8;
+    int group_size = 128;
+    std::vector<std::shared_ptr<Tensor>> w_attn_qkv_qweight, w_attn_qkv_scales, w_attn_qkv_qzeros, w_attn_qkv_g_idx;
+    std::vector<std::shared_ptr<Tensor>> w_attn_o_qweight, w_attn_o_scales, w_attn_o_qzeros, w_attn_o_g_idx;
+    std::vector<std::shared_ptr<Tensor>> w_ffn_gate_up_qweight, w_ffn_gate_up_scales, w_ffn_gate_up_qzeros, w_ffn_gate_up_g_idx;
+    std::vector<std::shared_ptr<Tensor>> w_ffn_down_qweight, w_ffn_down_scales, w_ffn_down_qzeros, w_ffn_down_g_idx;
+
     std::shared_ptr<MemoryPool> memory_pool;
 };
 

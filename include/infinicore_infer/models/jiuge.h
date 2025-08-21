@@ -43,6 +43,47 @@ typedef struct
     const void *const *ffn_gate_up;
     // nlayer * [ndev, d, di / ndev]
     const void *const *ffn_down;
+
+    bool is_quantized, symmetric;
+    int bits, group_size;
+    infiniDtype_t dt_qweight, dt_qzeros, dt_scales, dt_g_idx;
+
+    // Quantized weight pointers (only used when is_quantized = true)
+    // nlayer * [ndev, d, (nh + 2 * nkvh) / ndev * dh]
+    const void *const *attn_qkv_qweight;
+    // nlayer * [ndev, (nh + 2 * nkvh) / ndev * dh, num_groups]
+    const void *const *attn_qkv_scales;
+    // nlayer * [ndev, (nh + 2 * nkvh) / ndev * dh, num_groups]
+    const void *const *attn_qkv_qzeros;
+
+    const void *const *attn_qkv_g_idx;
+
+    // nlayer * [ndev, nh / ndev * dh, d]
+    const void *const *attn_o_qweight;
+    // nlayer * [ndev, d, num_groups]
+    const void *const *attn_o_scales;
+    // nlayer * [ndev, d, num_groups]
+    const void *const *attn_o_qzeros;
+
+    const void *const *attn_o_g_idx;
+
+    // nlayer * [ndev, d, 2 * di / ndev]
+    const void *const *ffn_gate_up_qweight;
+    // nlayer * [ndev, 2 * di / ndev, num_groups]
+    const void *const *ffn_gate_up_scales;
+    // nlayer * [ndev, 2 * di / ndev, num_groups]
+    const void *const *ffn_gate_up_qzeros;
+
+    const void *const *ffn_gate_up_g_idx;
+
+    // nlayer * [ndev, di / ndev, d]
+    const void *const *ffn_down_qweight;
+    // nlayer * [ndev, d, num_groups]
+    const void *const *ffn_down_scales;
+    // nlayer * [ndev, d, num_groups]
+    const void *const *ffn_down_qzeros;
+
+    const void *const *ffn_down_g_idx;
 } JiugeWeights;
 
 //////////////////// APIs ///////////////////////
