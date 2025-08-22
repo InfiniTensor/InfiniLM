@@ -56,9 +56,9 @@ infiniopDestroyMoECombineDescriptor(infiniopMoECombineDescriptor_t desc) {
 }
 
 __C infiniStatus_t infiniopMoECombine(
-    infiniopMoECombineDescriptor_t desc, void *output,
+    infiniopMoECombineDescriptor_t desc, 
     const void *permuted_input, const void *gating_weights,
-    const void *aux_info, void *stream) {
+    const void *aux_info,void *output, void *stream) {
 
 #define CALCULATE(CASE, NAMESPACE)                                               \
     case CASE:                                                                    \

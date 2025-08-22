@@ -20,6 +20,7 @@
 #include "infiniop/ops/moe_dispatch.h"
 #include "infiniop/ops/moe_combine.h"
 #include "infiniop/ops/moe_expert_info.h"
+#include "infiniop/ops/gqa.h"
 #include "infiniop/tensor_descriptor.h"
 
 

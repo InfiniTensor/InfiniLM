@@ -16,10 +16,10 @@ __C __export infiniStatus_t infiniopCreateMoECombineDescriptor(
 __C __export infiniStatus_t infiniopDestroyMoECombineDescriptor(infiniopMoECombineDescriptor_t desc);
 
 __C __export infiniStatus_t infiniopMoECombine(infiniopMoECombineDescriptor_t desc,
-                        void *output,
                         const void *permuted_input,
                         const void *gating_weights,
                         const void *aux_info,
+						void *output,
                         void *stream);
 
 #endif 
