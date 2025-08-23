@@ -415,15 +415,6 @@ destroyDeepSeekV3Model(struct DeepSeekV3Model *model) {
     delete model;
 }
 
-__C struct DeepSeekV3Cache *
-createDeepSeekV3Cache(const struct DeepSeekV3Model *) {
-    return nullptr;
-}
-
-__C void
-dropDeepSeekV3Cache(const struct DeepSeekV3Model *,
-                    struct DeepSeekV3Cache *) {
-}
 
 __C void
 inferBatchDeepSeekV3(struct DeepSeekV3Model *model,
