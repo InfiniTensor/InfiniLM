@@ -266,17 +266,17 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 	workspace_size = std::max(workspace_size, temp_size);
 
     auto desc_gqas = std::vector<infiniopGQADescriptor_t>(nreq);
-
+	size_t total_len;
     for (uint32_t req = 0; req < nreq; req++) {
         auto past_len = req_pos[req];
         auto seq_len = req_lens[req];
-        auto total_len = past_len + seq_len;
+        total_len = past_len + seq_len;
 
         // 为创建描述符准备 tensor descriptor
-        auto q_desc = TensorDesc::create(dt_logits, {seq_len, nh, dh});
-        auto k_cache_desc = TensorDesc::create(dt_logits, {total_len, nkvh, dh});
-        auto v_cache_desc = TensorDesc::create(dt_logits, {total_len, nkvh, dh});
-        auto output_desc = TensorDesc::create(dt_logits, {seq_len, nh, dh});
+		auto q_desc = TensorDesc::create(dt_logits, {1, (uint32_t)nh, seq_len, (uint32_t)dh});
+		auto k_cache_desc = TensorDesc::create(dt_logits, {1, (uint32_t)nkvh, total_len, (uint32_t)dh});
+		auto v_cache_desc = TensorDesc::create(dt_logits, {1, (uint32_t)nkvh, total_len, (uint32_t)dh});
+		auto output_desc = TensorDesc::create(dt_logits, {1, (uint32_t)nh, seq_len, (uint32_t)dh});
 
         // 3. 创建 GQA 描述符
         RUN_INFINI(infiniopCreateGQADescriptor(rsrc.handle, &desc_gqas[req],
@@ -333,6 +333,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
         //DEBUG_LOG("    - QKV GEMM done. qkv_buf shape: {%u, %u}", ntok, (nh + nkvh * 2) * dh);
         
         qkv_buf->dimSplit(1, {nh + 2 * nkvh, dh});
+		o_buf->dimSplit(1, {nh, dh});
         auto q_buf = qkv_buf->slice(1, 0, nh);
         auto k_buf = qkv_buf->slice(1, nh, nkvh);
         auto v_buf = qkv_buf->slice(1, nh + nkvh, nkvh);
@@ -369,19 +370,39 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             RUN_INFINI(infinirtMemcpyAsync(kv_caches[req]->k[idev][layer]->data(past_len * nkvh * dh), k->data(), data_size_to_copy, INFINIRT_MEMCPY_D2D, stream));
             RUN_INFINI(infinirtMemcpyAsync(kv_caches[req]->v[idev][layer]->data(past_len * nkvh * dh), v->data(), data_size_to_copy, INFINIRT_MEMCPY_D2D, stream));
 
-            // 5. 调用单一的 infiniopGQA 算子，替换掉所有手动的 gemm, softmax, rearrange
+            auto q_view = q_buf->slice({{0, token_offset, seq_len}})
+                               ->dimSplit(0, {1, seq_len})
+                               ->permute({0, 2, 1, 3});
+
+            // 2. K Cache: {max_len, nkvh, dh} -> {1, nkvh, total_len, dh}
+            auto k_cache_view = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)
+                                                      ->dimSplit(0, {1, total_len})
+                                                      ->permute({0, 2, 1, 3});
+
+            // 3. V Cache: {max_len, nkvh, dh} -> {1, nkvh, total_len, dh}
+            auto v_cache_view = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)
+                                                      ->dimSplit(0, {1, total_len})
+                                                      ->permute({0, 2, 1, 3});
+
+            // 4. Output: {seq_len, nh, dh} -> {1, nh, seq_len, dh}
+            auto o_view = o_buf->slice({{0, token_offset, seq_len}}) // o_buf 现在是 3D，所以 o_view 也是 3D
+                           ->dimSplit(0, {1, seq_len})         // 3D -> 4D
+                           ->permute({0, 2, 1, 3});
+            
+            // 调用 GQA，传入新创建的逻辑视图的数据指针
             RUN_INFINI(infiniopGQA(
                 desc_gqas[req],
-                q->data(),                                   // 当前请求的 Q
-                kv_caches[req]->k[idev][layer]->data(),      // 完整的 K Cache
-                kv_caches[req]->v[idev][layer]->data(),      // 完整的 V Cache
-                o->data(),                                   // 输出 buffer
+                q_view->data(),
+                k_cache_view->data(),
+                v_cache_view->data(),
+                o_view->data(), // GQA 的输出会写入 o_buf 的对应内存区域
                 stream
             ));
 
             token_offset += seq_len;
         }
         qkv_buf->dimMerge(1, 2);
+		o_buf->dimMerge(1, 2);
         //DEBUG_LOG("    - Per-request attention calculation done.");
 
         RUN_INFINI(infiniopGemm(desc_attn_out, workspace, workspace_size, logits_in->data(), o_buf->data(), rsrc.w_attn_out[layer]->data(), 1.0, 1.0, stream)); // Add residual
