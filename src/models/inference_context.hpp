@@ -1,18 +1,18 @@
 #pragma once
 
 #include "cache_manager.hpp"
-#include "jiuge/jiuge_impl.hpp"
-#include "jiuge/jiuge_weight.hpp"
+
 #include <cassert>
 
 struct InferenceContext {
-    DeviceResource *rsrc;
+    infiniopHandle_t op_handle;
+    std::shared_ptr<MemoryPool> memory_pool;
     CacheManager *cache_manager;
     infinirtStream_t stream;
     std::shared_ptr<Storage> workspace_storage;
     size_t current_workspace_size = 0;
 
-    InferenceContext(DeviceResource *rsrc, CacheManager *cache_manager, infinirtStream_t stream);
+    InferenceContext(infiniopHandle_t op_handle, std::shared_ptr<MemoryPool> memory_pool, CacheManager *cache_manager, infinirtStream_t stream);
 
     void ensure_workspace(size_t required_size);
 

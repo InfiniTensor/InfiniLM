@@ -2,12 +2,12 @@
 #include "../tensor.hpp"
 #include "../utils.hpp"
 
-InferenceContext::InferenceContext(DeviceResource *rsrc, CacheManager *cache_manager, infinirtStream_t stream)
-    : rsrc(rsrc), cache_manager(cache_manager), stream(stream) {}
+InferenceContext::InferenceContext(infiniopHandle_t op_handle_, std::shared_ptr<MemoryPool> memory_pool_, CacheManager *cache_manager, infinirtStream_t stream)
+    : op_handle(op_handle_), memory_pool(memory_pool_), cache_manager(cache_manager), stream(stream) {}
 
 void InferenceContext::ensure_workspace(size_t required_size) {
     if (required_size > current_workspace_size || !workspace_storage) {
-        workspace_storage = Storage::createFromPool(required_size, rsrc->memory_pool);
+        workspace_storage = Storage::createFromPool(required_size, memory_pool);
         current_workspace_size = required_size;
     }
 }
@@ -19,7 +19,7 @@ void InferenceContext::add(std::shared_ptr<Tensor> c,
 
     infiniopAddDescriptor_t desc;
     if (!cache_manager->getAddDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateAddDescriptor(rsrc->handle, &desc, c->desc(), a->desc(), b->desc()));
+        RUN_INFINI(infiniopCreateAddDescriptor(op_handle, &desc, c->desc(), a->desc(), b->desc()));
         cache_manager->putAddDescriptor(key, desc);
     }
 
@@ -42,7 +42,7 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
     infiniopRMSNormDescriptor_t desc;
     if (!cache_manager->getRMSNormDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateRMSNormDescriptor(
-            rsrc->handle, &desc, y->desc(), x->desc(), w->desc(), epsilon));
+            op_handle, &desc, y->desc(), x->desc(), w->desc(), epsilon));
         cache_manager->putRMSNormDescriptor(key, desc);
     }
 
@@ -64,7 +64,7 @@ void InferenceContext::gemm(std::shared_ptr<Tensor> c,
 
     infiniopGemmDescriptor_t desc;
     if (!cache_manager->getGemmDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateGemmDescriptor(rsrc->handle, &desc, c->desc(), a->desc(), b->desc()));
+        RUN_INFINI(infiniopCreateGemmDescriptor(op_handle, &desc, c->desc(), a->desc(), b->desc()));
         cache_manager->putGemmDescriptor(key, desc);
     }
 
@@ -84,7 +84,7 @@ void InferenceContext::rearrange(std::shared_ptr<Tensor> dst,
 
     infiniopRearrangeDescriptor_t desc;
     if (!cache_manager->getRearrangeDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc->handle, &desc, dst->desc(), src->desc()));
+        RUN_INFINI(infiniopCreateRearrangeDescriptor(op_handle, &desc, dst->desc(), src->desc()));
         cache_manager->putRearrangeDescriptor(key, desc);
     }
 
@@ -105,7 +105,7 @@ void InferenceContext::rope(std::shared_ptr<Tensor> q,
     infiniopRoPEDescriptor_t desc;
     if (!cache_manager->getRoPEDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateRoPEDescriptor(
-            rsrc->handle, &desc, q->desc(), k->desc(),
+            op_handle, &desc, q->desc(), k->desc(),
             pos->desc(), sin->desc(), cos->desc()));
         cache_manager->putRoPEDescriptor(key, desc);
     }
@@ -128,7 +128,7 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
     infiniopCausalSoftmaxDescriptor_t desc;
     if (!cache_manager->getCausalSoftmaxDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateCausalSoftmaxDescriptor(
-            rsrc->handle, &desc, y->desc(), x->desc()));
+            op_handle, &desc, y->desc(), x->desc()));
         cache_manager->putCausalSoftmaxDescriptor(key, desc);
     }
 
@@ -149,7 +149,7 @@ void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
     infiniopSwiGLUDescriptor_t desc;
     if (!cache_manager->getSwiGLUDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateSwiGLUDescriptor(
-            rsrc->handle, &desc, out->desc(), up->desc(), gate->desc()));
+            op_handle, &desc, out->desc(), up->desc(), gate->desc()));
         cache_manager->putSwiGLUDescriptor(key, desc);
     }
 
@@ -170,7 +170,7 @@ void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
     infiniopRandomSampleDescriptor_t desc;
     if (!cache_manager->getRandomSampleDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateRandomSampleDescriptor(
-            rsrc->handle, &desc, out->desc(), prob->desc()));
+            op_handle, &desc, out->desc(), prob->desc()));
         cache_manager->putRandomSampleDescriptor(key, desc);
     }
 
@@ -209,8 +209,8 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
             if (beta == 0.0) {
                 gemm(c, a, b, alpha, 1.0);
             } else {
-                auto c_copy = Tensor::buffer(c->dtype(), c->shape(), rsrc->memory_pool);
-                c_copy->copyFrom(c, rsrc->handle, stream);
+                auto c_copy = Tensor::buffer(c->dtype(), c->shape(), memory_pool);
+                c_copy->copyFrom(c, op_handle, stream);
                 gemm(c, a, b, alpha, beta);
                 add(c, c, c_copy);
             }

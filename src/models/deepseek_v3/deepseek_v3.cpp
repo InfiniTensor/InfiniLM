@@ -1,5 +1,4 @@
-#include "jiuge_impl.hpp"
-#include "jiuge_weight.hpp"
+#include "deepseek_v3_impl.hpp"
 
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
@@ -10,8 +9,8 @@
 #include <thread>
 #include <vector>
 
-void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
-                          const JiugeWeights *weights,
+void createDeviceResource(DeviceResource *rsrc, const DeepSeekV3Meta *meta,
+                          const DeepSeekV3Weights *weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
@@ -21,45 +20,13 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
     infinirtStream_t stream;
     infinirtStreamCreate(&stream);
 
-    std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_out,
-        w_ffn_norm, w_ffn_gate_up, w_ffn_down;
-    for (size_t layer = 0; layer < meta->nlayer; layer++) {
-        w_attn_norm.push_back(
-            getAttnNorm(meta, weights, layer));
-        w_attn_qkv.push_back(
-            getAttnQKV(meta, weights, layer, idev, ndev));
-        if (weights->attn_qkv_b != nullptr) {
-            b_attn_qkv.push_back(
-                getAttnQKVBias(meta, weights, layer, idev, ndev));
-        }
-        w_attn_out.push_back(
-            getAttnO(meta, weights, layer, idev, ndev));
-        w_ffn_norm.push_back(
-            getFFNNorm(meta, weights, layer));
-        w_ffn_gate_up.push_back(
-            getFFNGateUp(meta, weights, layer, idev, ndev));
-        w_ffn_down.push_back(
-            getFFNDown(meta, weights, layer, idev, ndev));
-    }
-
-    auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
+    auto memory_pool = std::make_shared<MemoryPool>();
 
     *rsrc = DeviceResource{
         device,
         dev_id,
         handle,
-        getInEmbd(meta, weights),
-        getOutNorm(meta, weights),
-        getOutEmbd(meta, weights),
-        getSinTable(meta),
-        getCosTable(meta),
-        w_attn_norm,
-        w_attn_qkv,
-        b_attn_qkv,
-        w_attn_out,
-        w_ffn_norm,
-        w_ffn_gate_up,
-        w_ffn_down,
+        weights->device_weights[idev],
         stream,
         comm,
         memory_pool,
@@ -69,40 +36,9 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
 
 void releaseDeviceResource(DeviceResource &res) {
     infinirtDeviceSynchronize();
-    // Release individual Tensors
-    res.w_in_embd.reset();
-    res.w_out_norm.reset();
-    res.w_out_embd.reset();
-    res.sin_table.reset();
-    res.cos_table.reset();
-    for (auto &t : res.w_attn_norm) {
-        t.reset();
-    }
-    res.w_attn_norm.clear();
-    for (auto &t : res.w_attn_qkv) {
-        t.reset();
-    }
-    res.w_attn_qkv.clear();
-    for (auto &t : res.b_attn_qkv) {
-        t.reset();
-    }
-    res.b_attn_qkv.clear();
-    for (auto &t : res.w_attn_out) {
-        t.reset();
-    }
-    res.w_attn_out.clear();
-    for (auto &t : res.w_ffn_norm) {
-        t.reset();
-    }
-    res.w_ffn_norm.clear();
-    for (auto &t : res.w_ffn_gate_up) {
-        t.reset();
-    }
-    res.w_ffn_gate_up.clear();
-    for (auto &t : res.w_ffn_down) {
-        t.reset();
-    }
-    res.w_ffn_down.clear();
+
+    res.weights.reset();
+
     infiniopDestroyHandle(res.handle);
     res.handle = nullptr;
     infinirtStreamDestroy(res.stream);
@@ -111,14 +47,15 @@ void releaseDeviceResource(DeviceResource &res) {
     res.comm = nullptr;
 }
 
-void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
+void inferDeviceBatch(const DeepSeekV3Meta &meta, DeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                      struct KVCache **kv_caches,
+                      struct DeepSeekV3Cache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits) {
-    auto nlayer = meta.nlayer;
+    auto n_dense_layer = meta.n_dense_layer;
+    auto n_sparse_layer = meta.n_sparse_layer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
     auto ngroup = nh / nkvh;
@@ -129,7 +66,6 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto di = meta.di / ndev;
     auto dvoc = meta.dvoc;
     auto stream = rsrc.stream;
-    bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -197,7 +133,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         // rms norm
         rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
         // qkv_proj
-        linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? rsrc.b_attn_qkv[layer] : nullptr);
+        linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, nullptr);
         // rope
         rope(qkv_rope->slice(1, 0, nh), qkv_rope->slice(1, 0, nh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
         rope(qkv_rope->slice(1, nh, nkvh), qkv_rope->slice(1, nh, nkvh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
@@ -298,12 +234,12 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 }
 
 __C void
-inferBatch(struct JiugeModel *model,
-           const uint32_t *tokens, uint32_t ntok,
-           const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-           struct KVCache **kv_caches,
-           const float *temperature, const uint32_t *topk, const float *topp,
-           uint32_t *output) {
+inferBatchDeepSeekV3(struct DeepSeekV3Model *model,
+                     const uint32_t *tokens, uint32_t ntok,
+                     const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                     struct DeepSeekV3Cache **kv_caches,
+                     const float *temperature, const uint32_t *topk, const float *topp,
+                     uint32_t *output) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -331,11 +267,11 @@ inferBatch(struct JiugeModel *model,
 }
 
 __C void
-forwardBatch(struct JiugeModel *model,
-             const uint32_t *tokens, uint32_t ntok,
-             const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-             struct KVCache **kv_caches,
-             void *logits) {
+forwardBatchDeepSeekV3(struct DeepSeekV3Model *model,
+                       const uint32_t *tokens, uint32_t ntok,
+                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                       struct DeepSeekV3Cache **kv_caches,
+                       void *logits) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -362,7 +298,7 @@ forwardBatch(struct JiugeModel *model,
     }
 }
 
-void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, DeviceResource *rsrc, InferState &state, InferRequest &req,
+void launchDevice(const DeepSeekV3Meta &meta, const DeepSeekV3Weights *weights, DeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
     CacheManager cache_manager(100);
     InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
@@ -402,10 +338,13 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, DeviceReso
     setInferenceContext(nullptr); // Clear the context when done
 }
 
-JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infiniDevice_t device_, std::vector<int> device_ids) : meta(*_meta) {
-    int ndev = int(device_ids.size());
-    device = device_;
-    dev_ids = device_ids;
+DeepSeekV3Model::DeepSeekV3Model(const DeepSeekV3Meta *_meta, const DeepSeekV3Weights *weights) : meta(*_meta) {
+    int ndev = weights->device_weights.size();
+    device = weights->device_weights[0]->device;
+    dev_ids.resize(ndev);
+    for (int i = 0; i < ndev; i++) {
+        dev_ids[i] = weights->device_weights[i]->dev_id;
+    }
     dev_resources = std::vector<DeviceResource>(ndev);
     states = std::vector<InferState>(ndev);
     threads.resize(ndev);
@@ -425,19 +364,15 @@ JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infi
     }
 }
 
-__C struct JiugeModel *
-createJiugeModel(const JiugeMeta *meta,
-                 const JiugeWeights *weights,
-                 infiniDevice_t device,
-                 int ndev,
-                 const int *dev_ids) {
-    std::vector<int> device_ids(ndev);
-    std::copy(dev_ids, dev_ids + ndev, device_ids.begin());
-    JiugeModel *model = new JiugeModel(meta, weights, device, device_ids);
+__C struct DeepSeekV3Model *
+createDeepSeekV3Model(const DeepSeekV3Meta *_meta,
+                      const DeepSeekV3Weights *weights) {
+    DeepSeekV3Model *model = new DeepSeekV3Model(_meta, weights);
     return model;
 }
 
-__C void destroyJiugeModel(struct JiugeModel *model) {
+__C void
+destroyDeepSeekV3Model(struct DeepSeekV3Model *model) {
     auto ndev = model->dev_resources.size();
 
     for (size_t idev = 0; idev < ndev; idev++) {
@@ -452,4 +387,55 @@ __C void destroyJiugeModel(struct JiugeModel *model) {
     }
 
     delete model;
+}
+
+__C struct DeepSeekV3Cache *
+createDeepSeekV3Cache(const struct DeepSeekV3Model *) {
+    return nullptr;
+}
+
+__C void
+dropDeepSeekV3Cache(const struct DeepSeekV3Model *,
+                    struct DeepSeekV3Cache *) {
+}
+
+__C void
+inferBatchDeepSeekV3(struct DeepSeekV3Model *model,
+                     const uint32_t *tokens, uint32_t ntok,
+                     const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                     struct DeepSeekV3Cache **kv_caches,
+                     const float *temperature, const uint32_t *topk, const float *topp,
+                     uint32_t *output) {
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.output = output;
+    model->req.logits = nullptr;
+    model->req.temperature = temperature;
+    model->req.topk = topk;
+    model->req.topp = topp;
+
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
+forwardBatchDeepSeekV3(struct DeepSeekV3Model *,
+                       const uint32_t *tokens, uint32_t ntok,
+                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                       struct KVCache **kv_caches,
+                       void *logits) {
 }
