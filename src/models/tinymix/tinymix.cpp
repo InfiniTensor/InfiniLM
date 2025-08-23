@@ -266,6 +266,8 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 	workspace_size = std::max(workspace_size, temp_size);
 
     auto desc_gqas = std::vector<infiniopGQADescriptor_t>(nreq);
+	auto desc_rearranges_out = std::vector<infiniopRearrangeDescriptor_t>(nreq);
+
 	size_t total_len;
     for (uint32_t req = 0; req < nreq; req++) {
         auto past_len = req_pos[req];
@@ -277,12 +279,22 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 		auto k_cache_desc = TensorDesc::create(dt_logits, {1, (uint32_t)nkvh, total_len, (uint32_t)dh});
 		auto v_cache_desc = TensorDesc::create(dt_logits, {1, (uint32_t)nkvh, total_len, (uint32_t)dh});
 		auto output_desc = TensorDesc::create(dt_logits, {1, (uint32_t)nh, seq_len, (uint32_t)dh});
-
+		
         // 3. 创建 GQA 描述符
         RUN_INFINI(infiniopCreateGQADescriptor(rsrc.handle, &desc_gqas[req],
                                                q_desc->desc(), k_cache_desc->desc(),
-                                               v_cache_desc->desc(), output_desc->desc()));        
+                                               v_cache_desc->desc(), output_desc->desc()));  
+
+		// 源 (Source): GQA 输出的 permute 后的 4D 视图
+		auto gqa_output_permuted_desc = TensorDesc::createWithOrder(dt_logits, {1, (uint32_t)nh, seq_len, (uint32_t)dh}, {0, 2, 1, 3});
+		// 目标 (Destination): 一个标准的、内存连续的 4D 张量
+		auto contiguous_4d_desc = TensorDesc::create(dt_logits, {1, (uint32_t)nh, seq_len, (uint32_t)dh});
+		RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_rearranges_out[req],
+													contiguous_4d_desc->desc(), // Destination
+													gqa_output_permuted_desc->desc())); // Source
     }
+
+	auto o_contiguous_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
     // The output projection GEMM descriptor, which also handles the residual addition
     infiniopGemmDescriptor_t desc_attn_out;
     RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_attn_out, logits_in->desc(), o_buf->desc(), rsrc.w_attn_out[0]->desc()));
@@ -398,6 +410,17 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
                 o_view->data(), // GQA 的输出会写入 o_buf 的对应内存区域
                 stream
             ));
+			// 1. 创建指向 o_contiguous_buf 对应分片的 4D 逻辑视图作为目标
+            auto o_contiguous_slice_view = o_contiguous_buf->slice({{0, token_offset, req_lens[req]}})
+                                                               ->dimSplit(1, {nh, dh})
+                                                               ->dimSplit(0, {1, req_lens[req]})
+                                                               ->permute({0, 2, 1, 3});
+
+            // 2. 执行同形重排
+            RUN_INFINI(infiniopRearrange(desc_rearranges_out[req],
+                                         o_contiguous_slice_view->data(), // 目标：连续内存的4D视图
+                                         o_view->data(),                  // 源：permuted内存的4D视图
+                                         stream));
 
             token_offset += seq_len;
         }
@@ -405,7 +428,10 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 		o_buf->dimMerge(1, 2);
         //DEBUG_LOG("    - Per-request attention calculation done.");
 
-        RUN_INFINI(infiniopGemm(desc_attn_out, workspace, workspace_size, logits_in->data(), o_buf->data(), rsrc.w_attn_out[layer]->data(), 1.0, 1.0, stream)); // Add residual
+        RUN_INFINI(infiniopGemm(desc_attn_out, workspace, workspace_size,
+			logits_in->data(),
+			o_contiguous_buf->data(), // <--- 使用这个缓冲区！
+			rsrc.w_attn_out[layer]->data(), 1.0, 1.0, stream));
         //DEBUG_LOG("    - Output projection and residual add done.");
 
         // 2. FFN / MoE
@@ -647,6 +673,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 	infiniopDestroyRoPEDescriptor(desc_rope_q);
     for (uint32_t req = 0; req < nreq; req++) {
         infiniopDestroyGQADescriptor(desc_gqas[req]);
+		infiniopDestroyRearrangeDescriptor(desc_rearranges_out[req]);
     }
     infiniopDestroyGemmDescriptor(desc_attn_out);
     infiniopDestroyRMSNormDescriptor(desc_norm_ffn);
