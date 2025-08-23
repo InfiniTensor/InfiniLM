@@ -14,7 +14,7 @@
  * This function acts as a dispatcher, calling the appropriate backend's
  * `create` method based on the device specified in the handle.
  */
-__C infiniStatus_t infiniopCreateGQADescriptor(
+ __C __export infiniStatus_t infiniopCreateGQADescriptor(
     infiniopHandle_t handle, infiniopGQADescriptor_t *desc_ptr,
     infiniopTensorDescriptor_t q_desc,
     infiniopTensorDescriptor_t k_desc,

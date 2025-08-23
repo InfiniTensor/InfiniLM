@@ -64,7 +64,14 @@ public:
         int seq_len = q_desc->shape()[2];
         int head_size = q_desc->shape()[3];
         int num_kv_heads = k_desc->shape()[1];
-		
+		std::cout << "--- C++ side: Received k_desc shape ---" << std::endl;
+		const auto& k_shape_vec = k_desc->shape();
+		std::cout << "k_desc->shape() has " << k_shape_vec.size() << " dimensions: [";
+		for (size_t i = 0; i < k_shape_vec.size(); ++i) {
+			std::cout << k_shape_vec[i] << (i == k_shape_vec.size() - 1 ? "" : ", ");
+		}
+		std::cout << "]" << std::endl;
+		std::cout << "-----------------------------------------" << std::endl;
         // GQA constraint: num_q_heads must be a multiple of num_kv_heads
         if (num_q_heads % num_kv_heads != 0) {
             return INFINI_STATUS_BAD_TENSOR_SHAPE;

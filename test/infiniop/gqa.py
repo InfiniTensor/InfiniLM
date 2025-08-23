@@ -3,10 +3,10 @@ import ctypes
 from ctypes import c_uint64
 import math
 from torch.nn import functional as F
-import sys # 导入 sys 模块
+import sys
 
 # --- 诊断打印 #1: 检查脚本是否开始执行 ---
-print("--- Python script started ---", flush=True)
+print("--- Python script started (Causal Test) ---", flush=True)
 
 try:
     from libinfiniop import (
@@ -56,14 +56,25 @@ NUM_PRERUN = 10
 NUM_ITERATIONS = 1000
 
 
-def gqa_pytorch(q, k, v, y_tensor):
+def gqa_pytorch_causal(q, k, v, y_tensor):
+    """
+    Computes GQA with causal masking using PyTorch's scaled_dot_product_attention.
+    This serves as the ground truth for LLM decode kernels.
+    """
     num_q_heads = q.shape[1]
     num_kv_heads = k.shape[1]
+    
+    # Expand K and V heads to match Q heads for GQA
     if num_q_heads != num_kv_heads:
         repeats = num_q_heads // num_kv_heads
+        # Unsqueeze to add a new dimension for repeating, then reshape back
         k = k.unsqueeze(2).repeat(1, 1, repeats, 1, 1).reshape(q.shape)
         v = v.unsqueeze(2).repeat(1, 1, repeats, 1, 1).reshape(q.shape)
-    output = F.scaled_dot_product_attention(q, k, v, is_causal=False)
+    
+    # =================================================================
+    # 关键修复: 将 is_causal 设置为 True 以匹配 LLM 解码场景
+    # =================================================================
+    output = F.scaled_dot_product_attention(q, k, v, is_causal=True)
     y_tensor.copy_(output)
 
 
@@ -81,9 +92,8 @@ def test(
     k_stride=None,
     v_stride=None
 ):
-    # 添加 flush=True 确保立即输出
     print(
-        f"Testing GQA on {InfiniDeviceNames[device]} with B={batch_size}, S={seq_len}, H_q={num_q_heads}, H_kv={num_kv_heads}, D'={head_size}, dtype={InfiniDtypeNames[tensor_dtype]}",
+        f"Testing Causal GQA on {InfiniDeviceNames[device]} with B={batch_size}, S={seq_len}, H_q={num_q_heads}, H_kv={num_kv_heads}, D'={head_size}, dtype={InfiniDtypeNames[tensor_dtype]}",
         flush=True
     )
 
@@ -92,13 +102,14 @@ def test(
     v_shape = (batch_size, num_kv_heads, seq_len, head_size)
     y_shape = q_shape
 
-    q = TestTensor(q_shape, q_stride,dt=tensor_dtype, device=device)
-    k = TestTensor(k_shape, k_stride,dt=tensor_dtype, device=device)
-    v = TestTensor(v_shape, v_stride,dt=tensor_dtype, device=device)
-    y_ground_truth = TestTensor(y_shape, None,dt=tensor_dtype, device=device)
-    y_actual = TestTensor(y_shape, None,dt=tensor_dtype, device=device)
+    q = TestTensor(q_shape, q_stride, dt=tensor_dtype, device=device)
+    k = TestTensor(k_shape, k_stride, dt=tensor_dtype, device=device)
+    v = TestTensor(v_shape, v_stride, dt=tensor_dtype, device=device)
+    y_ground_truth = TestTensor(y_shape, None, dt=tensor_dtype, device=device)
+    y_actual = TestTensor(y_shape, None, dt=tensor_dtype, device=device)
 
-    gqa_pytorch(q.torch_tensor(), k.torch_tensor(), v.torch_tensor(), y_ground_truth.torch_tensor())
+    # Generate ground truth using the corrected causal function
+    gqa_pytorch_causal(q.torch_tensor(), k.torch_tensor(), v.torch_tensor(), y_ground_truth.torch_tensor())
     if sync is not None:
         sync()
 
@@ -126,15 +137,18 @@ def test(
             )
         )
 
+    # Run the custom kernel
     lib_gqa()
 
     atol, rtol = get_tolerance(_TOLERANCE_MAP, tensor_dtype)
     if DEBUG:
         debug(y_actual.torch_tensor(), y_ground_truth.torch_tensor(), atol=atol, rtol=rtol)
+    
+    # Perform the comparison
     assert torch.allclose(y_actual.torch_tensor(), y_ground_truth.torch_tensor(), atol=atol, rtol=rtol)
 
     if PROFILE:
-        profile_operation("PyTorch", lambda: gqa_pytorch(q.torch_tensor(), k.torch_tensor(), v.torch_tensor(), y_ground_truth.torch_tensor()), device, NUM_PRERUN, NUM_ITERATIONS)
+        profile_operation("PyTorch", lambda: gqa_pytorch_causal(q.torch_tensor(), k.torch_tensor(), v.torch_tensor(), y_ground_truth.torch_tensor()), device, NUM_PRERUN, NUM_ITERATIONS)
         profile_operation("    lib", lib_gqa, device, NUM_PRERUN, NUM_ITERATIONS)
 
     check_error(LIBINFINIOP.infiniopDestroyGQADescriptor(descriptor))
@@ -151,7 +165,6 @@ if __name__ == "__main__":
         NUM_ITERATIONS = args.num_iterations
 
         devices_to_test = get_test_devices(args)
-        # --- 诊断打印 #3: 检查找到了哪些设备 ---
         print(f"--- Devices found by get_test_devices: {devices_to_test} ---", flush=True)
         
         if not devices_to_test:
@@ -162,10 +175,9 @@ if __name__ == "__main__":
             if device == InfiniDeviceEnum.NVIDIA:
                 test_operator(device, test, _TEST_CASES, _TENSOR_DTYPES)
 
-        print("\033[92mAll GQA tests passed!\033[0m", flush=True)
+        print("\033[92mAll Causal GQA tests passed!\033[0m", flush=True)
 
     except Exception as e:
-        # --- 诊断打印 #4: 捕获任何未预料到的错误 ---
         print(f"\n--- An unexpected error occurred: {e} ---", flush=True)
         import traceback
         traceback.print_exc()

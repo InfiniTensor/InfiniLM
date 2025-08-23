@@ -550,3 +550,28 @@ def conv_(lib):
     lib.infiniopDestroyConvDescriptor.argtypes = [
         infiniopOperatorDescriptor_t,
     ]
+
+@OpRegister.operator
+def gqa_(lib):
+    lib.infiniopCreateGQADescriptor.restype = c_int32
+    lib.infiniopCreateGQADescriptor.argtypes = [
+        infiniopHandle_t,
+        POINTER(infiniopOperatorDescriptor_t),
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+        infiniopTensorDescriptor_t,
+    ]
+    lib.infiniopGQA.restype = c_int32
+    lib.infiniopGQA.argtypes = [
+        infiniopOperatorDescriptor_t,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+        c_void_p,
+    ]
+    lib.infiniopDestroyGQADescriptor.restype = c_int32
+    lib.infiniopDestroyGQADescriptor.argtypes = [
+        infiniopOperatorDescriptor_t,
+    ]
