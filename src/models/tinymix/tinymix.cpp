@@ -383,23 +383,19 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             RUN_INFINI(infinirtMemcpyAsync(kv_caches[req]->v[idev][layer]->data(past_len * nkvh * dh), v->data(), data_size_to_copy, INFINIRT_MEMCPY_D2D, stream));
 
             auto q_view = q_buf->slice({{0, token_offset, seq_len}})
-                               ->dimSplit(0, {1, seq_len})
-                               ->permute({0, 2, 1, 3});
+                               ->dimSplit(0, {1, seq_len});
 
-            // 2. K Cache: {max_len, nkvh, dh} -> {1, nkvh, total_len, dh}
+            // 2. K Cache: {max_len, nkvh, dh} -> {1, total_len, nkvh, dh}
             auto k_cache_view = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)
-                                                      ->dimSplit(0, {1, total_len})
-                                                      ->permute({0, 2, 1, 3});
+                                                      ->dimSplit(0, {1, total_len});
 
-            // 3. V Cache: {max_len, nkvh, dh} -> {1, nkvh, total_len, dh}
+            // 3. V Cache: {max_len, nkvh, dh} -> {1, total_len, nkvh, dh}
             auto v_cache_view = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)
-                                                      ->dimSplit(0, {1, total_len})
-                                                      ->permute({0, 2, 1, 3});
+                                                      ->dimSplit(0, {1, total_len});
 
-            // 4. Output: {seq_len, nh, dh} -> {1, nh, seq_len, dh}
-            auto o_view = o_buf->slice({{0, token_offset, seq_len}}) // o_buf 现在是 3D，所以 o_view 也是 3D
-                           ->dimSplit(0, {1, seq_len})         // 3D -> 4D
-                           ->permute({0, 2, 1, 3});
+            // 4. Output: {seq_len, nh, dh} -> {1, seq_len, nh, dh}
+            auto o_view = o_buf->slice({{0, token_offset, seq_len}})
+                               ->dimSplit(0, {1, seq_len});
             
             // 调用 GQA，传入新创建的逻辑视图的数据指针
             RUN_INFINI(infiniopGQA(
