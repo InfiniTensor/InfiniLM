@@ -1,4 +1,4 @@
-﻿---
+---
 BasedOnStyle: LLVM
 IndentWidth: 4                        # 缩进宽度，LLVM 默认值为 2，改为 4
 AccessModifierOffset: -4              # public/protected/private 访问控制符相对成员的偏移，与 IndentWidth 配合，LLVM 默认值为 -2
