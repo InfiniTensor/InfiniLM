@@ -30,3 +30,20 @@ target("infinicore_infer")
 	--add_cxflags("-fsanitize=address", "-fno-omit-frame-pointer", "-g")
     --add_ldflags("-fsanitize=address")
 target_end()
+
+target("gemm_test_runner")
+    -- Set the kind to a runnable program ("binary" means executable)
+    set_kind("binary")
+	add_linkdirs(INFINI_ROOT.."/lib")
+    add_links("infiniop", "infinirt", "infiniccl")
+
+    -- Add ONLY the C++ source file for our test.
+    -- IMPORTANT: Make sure this path is correct for your ge.cpp file.
+    add_files("src/models/tinymix/ge.cpp")
+	
+    -- This is the crucial step: Link our executable against your main library.
+    -- This allows ge.cpp to use all the classes (Tensor, etc.) and functions
+    -- from your `infinicore_infer` library.
+    add_deps("infinicore_infer")
+	set_installdir(INFINI_ROOT)
+target_end()

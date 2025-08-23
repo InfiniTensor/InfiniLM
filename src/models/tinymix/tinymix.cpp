@@ -265,63 +265,24 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
 	RUN_INFINI(infiniopGetRoPEWorkspaceSize(desc_rope_k, &temp_size));
 	workspace_size = std::max(workspace_size, temp_size);
 
-    auto desc_kv_rearranges = std::vector<infiniopRearrangeDescriptor_t>(nreq);
-    auto desc_q_rearranges = std::vector<infiniopRearrangeDescriptor_t>(nreq);
-    auto desc_qk_gemms = std::vector<infiniopGemmDescriptor_t>(nreq);
-    auto desc_qk_softmaxs = std::vector<infiniopCausalSoftmaxDescriptor_t>(nreq);
-    auto desc_attn_v_gemms = std::vector<infiniopGemmDescriptor_t>(nreq);
-    auto desc_attn_v_rearranges = std::vector<infiniopRearrangeDescriptor_t>(nreq);
-    size_t token_offset_desc = 0;
-    size_t max_qk_size = 0;
-    size_t max_seq_len = 0;
-    o_buf->dimSplit(1, {nh, dh});
-    auto temp_qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
-    temp_qkv_buf->dimSplit(1, {nh + 2 * nkvh, dh});
+    auto desc_gqas = std::vector<infiniopGQADescriptor_t>(nreq);
 
     for (uint32_t req = 0; req < nreq; req++) {
         auto past_len = req_pos[req];
         auto seq_len = req_lens[req];
         auto total_len = past_len + seq_len;
-        auto q = temp_qkv_buf->slice({{0, token_offset_desc, seq_len}, {1, 0, nh}});
-        auto k = temp_qkv_buf->slice({{0, token_offset_desc, seq_len}, {1, nh, nkvh}});
 
-        auto full_kv = kv_caches[req]->k[idev][0]->slice(0, 0, total_len)->permute({1, 2, 0});
-        auto cache_kv = kv_caches[req]->k[idev][0]->slice(0, past_len, seq_len);
+        // 为创建描述符准备 tensor descriptor
+        auto q_desc = TensorDesc::create(dt_logits, {seq_len, nh, dh});
+        auto k_cache_desc = TensorDesc::create(dt_logits, {total_len, nkvh, dh});
+        auto v_cache_desc = TensorDesc::create(dt_logits, {total_len, nkvh, dh});
+        auto output_desc = TensorDesc::create(dt_logits, {seq_len, nh, dh});
 
-        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_kv_rearranges[req],
-                                                     cache_kv->desc(), k->desc()));
-
-        q->dimSplit(1, {nkvh, ngroup})->permute({1, 2, 0, 3});
-        auto q_t = TensorDesc::create(dt_logits, {nkvh, ngroup, seq_len, dh});
-        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_q_rearranges[req],
-                                                     q_t->desc(), q->desc()));
-
-        auto attn_v = TensorDesc::createWithOrder(dt_logits, {nkvh, ngroup, seq_len, dh}, {1, 2, 0, 3});
-        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc.handle, &desc_attn_v_rearranges[req],
-                                                     attn_v->desc(), q_t->desc()));
-        q_t = TensorDesc::create(dt_logits, {nkvh, ngroup * seq_len, dh});
-        auto qk = TensorDesc::create(dt_logits, {nkvh, ngroup * seq_len, total_len});
-        max_qk_size = std::max(max_qk_size, size_t(seq_len * total_len));
-        max_seq_len = std::max(max_seq_len, size_t(seq_len));
-        RUN_INFINI(infiniopCreateGemmDescriptor(
-            rsrc.handle, &desc_qk_gemms[req], qk->desc(), q_t->desc(), full_kv->desc()));
-		
-        auto full_v = kv_caches[req]->v[idev][0]->slice(0, 0, total_len)->permute({1, 0, 2});
-        RUN_INFINI(infiniopCreateGemmDescriptor(
-            rsrc.handle, &desc_attn_v_gemms[req], q_t->desc(), qk->desc(), full_v->desc()));
-		
-        qk = TensorDesc::create(dt_logits, {nkvh * ngroup, seq_len, total_len});
-        RUN_INFINI(infiniopCreateCausalSoftmaxDescriptor(
-            rsrc.handle, &desc_qk_softmaxs[req], qk->desc(), qk->desc()));
-		
-        token_offset_desc += seq_len;
+        // 3. 创建 GQA 描述符
+        RUN_INFINI(infiniopCreateGQADescriptor(rsrc.handle, &desc_gqas[req],
+                                               q_desc->desc(), k_cache_desc->desc(),
+                                               v_cache_desc->desc(), output_desc->desc()));        
     }
-    temp_qkv_buf->dimMerge(1, 2);
-    o_buf->dimMerge(1, 2);
-    auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, rsrc.memory_pool);
-    auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-    auto attn_val_buf = Tensor::buffer(dt_logits, {nh, max_seq_len, dh}, rsrc.memory_pool);
-	
     // The output projection GEMM descriptor, which also handles the residual addition
     infiniopGemmDescriptor_t desc_attn_out;
     RUN_INFINI(infiniopCreateGemmDescriptor(rsrc.handle, &desc_attn_out, logits_in->desc(), o_buf->desc(), rsrc.w_attn_out[0]->desc()));
@@ -392,11 +353,11 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
         //DEBUG_LOG("    - RoPE done.");
         
         size_t token_offset = 0;
-        o_buf->dimSplit(1, {nh, dh});
         for (uint32_t req = 0; req < nreq; req++) {
             auto past_len = req_pos[req];
             auto seq_len = req_lens[req];
-            //DEBUG_LOG("    - Processing attention for req %u, seq_len: %u, past_len: %u", req, seq_len, past_len);
+            
+            // 获取当前请求对应的 Q, K, V 和输出 O 的切片
             auto o = o_buf->slice({{0, token_offset, seq_len}});
             auto q = q_buf->slice({{0, token_offset, seq_len}});
             auto k = k_buf->slice({{0, token_offset, seq_len}});
@@ -404,44 +365,22 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
             
             size_t data_size_to_copy = seq_len * nkvh * dh * dsize(dt_logits);
 
-			// Correctly copy the new K-vector into the cache at the right position
-			RUN_INFINI(infinirtMemcpyAsync(
-				kv_caches[req]->k[idev][layer]->data(past_len * nkvh * dh), // DESTINATION
-				k->data(),                                                 // SOURCE
-				data_size_to_copy,                                         // SIZE in bytes
-				INFINIRT_MEMCPY_D2D,                                       // DIRECTION (Device to Device)
-				stream));
+            // 更新 KVCache (这部分逻辑必须保留)
+            RUN_INFINI(infinirtMemcpyAsync(kv_caches[req]->k[idev][layer]->data(past_len * nkvh * dh), k->data(), data_size_to_copy, INFINIRT_MEMCPY_D2D, stream));
+            RUN_INFINI(infinirtMemcpyAsync(kv_caches[req]->v[idev][layer]->data(past_len * nkvh * dh), v->data(), data_size_to_copy, INFINIRT_MEMCPY_D2D, stream));
 
-			// Correctly copy the new V-vector into the cache at the right position
-			RUN_INFINI(infinirtMemcpyAsync(
-				kv_caches[req]->v[idev][layer]->data(past_len * nkvh * dh), // DESTINATION
-				v->data(),                                                 // SOURCE
-				data_size_to_copy,                                         // SIZE in bytes
-				INFINIRT_MEMCPY_D2D,                                       // DIRECTION
-				stream));
-            
-            RUN_INFINI(infiniopRearrange(desc_q_rearranges[req], rearrange_q_buf->data(), q->data(), stream));
-            
-            RUN_INFINI(infiniopGemm(
-                desc_qk_gemms[req], workspace, workspace_size,
-                qk_buf->data(), rearrange_q_buf->data(), kv_caches[req]->k[idev][layer]->data(), 1. / sqrt(dh), 0.0, stream));
-            
-            RUN_INFINI(infiniopCausalSoftmax(
-                desc_qk_softmaxs[req], workspace, workspace_size,
-                qk_buf->data(), qk_buf->data(), stream));
-            
-            RUN_INFINI(infiniopGemm(
-                desc_attn_v_gemms[req], workspace, workspace_size,
-                attn_val_buf->data(), qk_buf->data(), kv_caches[req]->v[idev][layer]->data(), 1.0, 0.0, stream));
-            
-            RUN_INFINI(infiniopRearrange(
-                desc_attn_v_rearranges[req],
-                o->data(),
-                attn_val_buf->data(), stream));
+            // 5. 调用单一的 infiniopGQA 算子，替换掉所有手动的 gemm, softmax, rearrange
+            RUN_INFINI(infiniopGQA(
+                desc_gqas[req],
+                q->data(),                                   // 当前请求的 Q
+                kv_caches[req]->k[idev][layer]->data(),      // 完整的 K Cache
+                kv_caches[req]->v[idev][layer]->data(),      // 完整的 V Cache
+                o->data(),                                   // 输出 buffer
+                stream
+            ));
 
             token_offset += seq_len;
         }
-        o_buf->dimMerge(1, 2);
         qkv_buf->dimMerge(1, 2);
         //DEBUG_LOG("    - Per-request attention calculation done.");
 
@@ -686,12 +625,7 @@ void inferDeviceBatch(const TinyMixMeta &meta, DeviceResource &rsrc,
     infiniopDestroyRoPEDescriptor(desc_rope_k);
 	infiniopDestroyRoPEDescriptor(desc_rope_q);
     for (uint32_t req = 0; req < nreq; req++) {
-        infiniopDestroyRearrangeDescriptor(desc_kv_rearranges[req]);
-        infiniopDestroyRearrangeDescriptor(desc_q_rearranges[req]);
-        infiniopDestroyGemmDescriptor(desc_qk_gemms[req]);
-        infiniopDestroyCausalSoftmaxDescriptor(desc_qk_softmaxs[req]);
-        infiniopDestroyGemmDescriptor(desc_attn_v_gemms[req]);
-        infiniopDestroyRearrangeDescriptor(desc_attn_v_rearranges[req]);
+        infiniopDestroyGQADescriptor(desc_gqas[req]);
     }
     infiniopDestroyGemmDescriptor(desc_attn_out);
     infiniopDestroyRMSNormDescriptor(desc_norm_ffn);
