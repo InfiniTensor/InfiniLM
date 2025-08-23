@@ -231,3 +231,9 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
         add(c, c, bias->view_as(c->shape(), strides));
     }
 }
+
+void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
+                               std::shared_ptr<Tensor> in_w,
+                               std::shared_ptr<Tensor> in_s,
+                               std::shared_ptr<Tensor> in_z) {
+}

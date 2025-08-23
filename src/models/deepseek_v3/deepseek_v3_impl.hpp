@@ -110,7 +110,7 @@ struct DeepSeekV3Model {
 };
 
 struct DeepSeekV3Cache {
-    std::vector<std::vector<std::shared_ptr<Tensor>>> k, v;
+    std::vector<std::vector<std::shared_ptr<Tensor>>> k, c;
 };
 
 #endif

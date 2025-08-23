@@ -49,6 +49,10 @@ struct InferenceContext {
                 float alpha, float beta,
                 std::shared_ptr<Tensor> residual,
                 std::shared_ptr<Tensor> bias);
+    void dequant(std::shared_ptr<Tensor> weight,
+                 std::shared_ptr<Tensor> in_w,
+                 std::shared_ptr<Tensor> in_s,
+                 std::shared_ptr<Tensor> in_z);
 };
 
 namespace {
@@ -106,4 +110,12 @@ inline void linear(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
                    std::shared_ptr<Tensor> b, float alpha, float beta,
                    std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> bias) {
     getInferenceContext().linear(c, a, b, alpha, beta, residual, bias);
+}
+
+inline void dequant_linear(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> x,
+                           std::shared_ptr<Tensor> w_w, std::shared_ptr<Tensor> w_s, std::shared_ptr<Tensor> w_z,
+                           float alpha, float beta, std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> bias) {
+    auto w = Tensor::buffer(x->dtype(), {out->shape()[1], x->shape()[1]}, getInferenceContext().memory_pool);
+    getInferenceContext().dequant(w, w_w, w_s, w_z);
+    getInferenceContext().linear(out, x, w->permute({1, 0}), alpha, beta, residual, bias);
 }

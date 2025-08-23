@@ -54,30 +54,54 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeviceResource &rsrc,
                       struct DeepSeekV3Cache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits) {
+
+    auto dt_logits = meta.dt_logits;
+    auto dt_norm = meta.dt_norm;
+    auto dt_quant_weight = meta.dt_quant_weight;
+    auto dt_quant_scale = meta.dt_quant_scale;
+    auto dt_quant_zero = meta.dt_quant_zero;
+    auto dt_gate_weight = meta.dt_gate_weight;
+    auto dt_gate_bias = meta.dt_gate_bias;
+    auto nlayer = meta.n_dense_layer + meta.n_sparse_layer;
     auto n_dense_layer = meta.n_dense_layer;
     auto n_sparse_layer = meta.n_sparse_layer;
-    auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
-    auto ngroup = nh / nkvh;
-    // auto dctx = meta.dctx;
-    auto dh = meta.dh;
+
     auto d = meta.d;
-    auto dt_logits = meta.dt_logits;
+    auto d_rope = meta.d_rope;
+    auto d_nope = meta.d_nope;
+    auto r_q = meta.r_q;
+    auto r_kv = meta.r_kv;
+    auto d_qk = meta.d_qk;
+    auto d_v = meta.d_v;
+    auto routed_scale = meta.routed_scale;
+    auto nexperts = meta.nexperts;
+    auto kexperts = meta.kexperts;
+
     auto di = meta.di / ndev;
     auto dvoc = meta.dvoc;
+
     auto stream = rsrc.stream;
+
+    auto weights = rsrc.weights;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
-    auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
-    auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di}, rsrc.memory_pool);
-    auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
+
+    auto q_buf = Tensor::buffer(dt_logits, {ntok, nh * d_qk}, rsrc.memory_pool);
+    auto k_buf = Tensor::buffer(dt_logits, {ntok, nh * d_qk}, rsrc.memory_pool);
+    auto v_buf = Tensor::buffer(dt_logits, {ntok, nh * d_v}, rsrc.memory_pool);
+    auto q_a_buf = Tensor::buffer(dt_logits, {ntok, r_q}, rsrc.memory_pool);
+    auto kv_a_buf = Tensor::buffer(dt_logits, {ntok, r_kv + d_rope}, rsrc.memory_pool);
+    auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * d_v}, rsrc.memory_pool);
+
+    auto gate_buf = Tensor::buffer(dt_logits, {ntok, di}, rsrc.memory_pool);
+    auto up_buf = Tensor::buffer(dt_logits, {ntok, di}, rsrc.memory_pool);
+
     auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
     auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
     auto result_cpu = std::vector<int64_t>(nreq);
-
-    auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
 
     // Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
@@ -99,7 +123,7 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeviceResource &rsrc,
     }
     for (uint32_t i = 0; i < ntok; i++) {
         RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
-                                       rsrc.w_in_embd->data(tokens[i] * d),
+                                       weights->w_in_embd->data(tokens[i] * d),
                                        dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
     }
 
@@ -116,52 +140,51 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeviceResource &rsrc,
         max_qk_size = std::max(max_qk_size, size_t(seq_len * total_len));
         max_seq_len = std::max(max_seq_len, size_t(seq_len));
     }
-
     auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, rsrc.memory_pool);
-    auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-    auto q_rearrange = rearrange_q_buf->view({nkvh, ngroup, max_seq_len, dh});
-    auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-    auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
-
-    // MLP buffers
-    auto gate_buf = gate_up_buf->slice(1, 0, di);
-    auto up_buf = gate_up_buf->slice(1, di, di);
-
+    auto attn_val_buf = Tensor::buffer(dt_logits, {nh, max_seq_len, d_v}, rsrc.memory_pool);
+    auto attn_val_gemm = attn_val_buf->view({nh, max_seq_len, d_v});
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
-        rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
+        rmsnorm(logits_out, logits_in, weights->w_layers[layer].mla_norm, meta.epsilon);
         // qkv_proj
-        linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, nullptr);
-        // rope
-        rope(qkv_rope->slice(1, 0, nh), qkv_rope->slice(1, 0, nh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-        rope(qkv_rope->slice(1, nh, nkvh), qkv_rope->slice(1, nh, nkvh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+        dequant_linear(q_buf, logits_out,
+                       weights->w_layers[layer].mla->q_a_proj->w,
+                       weights->w_layers[layer].mla->q_a_proj->s,
+                       weights->w_layers[layer].mla->q_a_proj->z,
+                       1.0, 0.0, nullptr, nullptr);
+        dequant_linear(kv_a_buf, logits_out,
+                       weights->w_layers[layer].mla->kv_a_proj->w,
+                       weights->w_layers[layer].mla->kv_a_proj->s,
+                       weights->w_layers[layer].mla->kv_a_proj->z,
+                       1.0, 0.0, nullptr, nullptr);
+        // rope ...
 
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
             auto past_len = req_pos[req];
             auto seq_len = req_lens[req];
             auto total_len = past_len + seq_len;
-            auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-            auto q = qkv_rope->slice({{0, token_offset, seq_len}, {1, 0, nh}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-            auto k = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
-            auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
+            auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nh, d_v});
+            auto q = q_buf->slice({{0, token_offset, seq_len}, {1, 0, nh}})->view({seq_len, nh, d_qk});
+            auto k = k_buf->slice({{0, token_offset, seq_len}, {1, nh, nh}});
+            auto v = v_buf->slice({{0, token_offset, seq_len}, {1, nh + nh, nh}});
 
             // self attention
             // concat
             rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
             rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
             // qk
-            rearrange(q_rearrange->slice(2, 0, seq_len), q);
-            auto qk_gemm = qk_buf->slice(1, 0, seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
-            auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
-            linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+
+            auto qk_gemm = qk_buf->slice(1, 0, seq_len * total_len)->view({nh, seq_len, total_len});
+
+            linear(qk_gemm, q, k, 1.f / float(sqrt(d_qk)), 0.f, nullptr, nullptr);
             // softmax
             auto qk_softmax = qk_buf->slice(1, 0, seq_len * total_len)->view({nh, seq_len, total_len});
             causalSoftmax(qk_softmax, qk_softmax);
             auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
-            linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+            linear(attn_val_buf->slice(1, 0, seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
             // rearrange attn val
             rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
 
@@ -169,7 +192,7 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeviceResource &rsrc,
         }
 
         // o_proj
-        linear(logits_in, o_buf, rsrc.w_attn_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+        linear(logits_in, o_buf, weights->w_layers[layer].mla->o_proj->w, 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
 
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
@@ -178,11 +201,14 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeviceResource &rsrc,
                 INFINICCL_SUM, rsrc.comm, stream));
             RUN_INFINI(infinirtStreamSynchronize(stream));
         }
-        // 2. FFN
-        rmsnorm(logits_out, logits_in, rsrc.w_ffn_norm[layer], meta.epsilon);
-        linear(gate_up_buf, logits_out, rsrc.w_ffn_gate_up[layer], 1.0, 0.0, nullptr, nullptr);
-        swiglu(gate_buf, up_buf, gate_buf);
-        linear(logits_in, gate_buf, rsrc.w_ffn_down[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+        // 2. MLP
+        rmsnorm(logits_out, logits_in, weights->w_layers[layer].mlp_norm, meta.epsilon);
+
+        if (layer < n_dense_layer) {
+            linear(gate_up_buf, logits_out, weights->w_layers[layer].dense_mlp->gate->w, 1.0, 0.0, nullptr, nullptr);
+            swiglu(gate_buf, up_buf, gate_buf);
+            linear(logits_in, gate_buf, rsrc.w_ffn_down[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+        }
 
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
@@ -195,9 +221,9 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeviceResource &rsrc,
     // Sample and Output
     if (idev == 0) {
         if (last_logits != nullptr) {
-            rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
+            rmsnorm(logits_out, logits_in, weights->w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
-            linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            linear(last_logits_buf, logits_out, weights->w_out_embd, 1.0, 0.0, nullptr, nullptr);
             RUN_INFINI(infinirtStreamSynchronize(stream));
             RUN_INFINI(infinirtMemcpy(last_logits, last_logits_buf->data(), dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
         }
@@ -208,10 +234,10 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeviceResource &rsrc,
                 token_offset += seq_len;
                 rmsnorm(logits_out->slice(0, req, 1),
                         logits_in->slice(0, token_offset - 1, 1),
-                        rsrc.w_out_norm,
+                        weights->w_out_norm,
                         meta.epsilon);
             }
-            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            linear(prob_buf, logits_out->slice(0, 0, nreq), weights->w_out_embd, 1.0, 0.0, nullptr, nullptr);
             std::random_device _rd;
             std::mt19937 gen(_rd());
             token_offset = 0;
