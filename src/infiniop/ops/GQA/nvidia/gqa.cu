@@ -84,121 +84,128 @@
 	  * ... (kernel documentation) ...
 	  */
 	  template <typename T, int BLOCK_SIZE, int HEAD_SIZE>
-__global__ void kernel_gqa_one_pass(
-    const T* query, const T* key, const T* value, T* output,
-    const int batch_size, const int seq_len,
-    const int num_q_heads, const int num_kv_heads) {
-
-		extern __shared__ char shared_mem_char_array[];
-		T* k_tile = reinterpret_cast<T*>(shared_mem_char_array);
-		T* v_tile = k_tile + BLOCK_SIZE * HEAD_SIZE;
-	
-		const int block_idx = blockIdx.x;
-		const int batch_idx = block_idx / num_q_heads;
-		const int q_head_idx = block_idx % num_q_heads;
-	
-		const int t_q = threadIdx.x;
-		if (t_q >= seq_len) return;
-	
-		const int gqa_group_size = num_q_heads / num_kv_heads;
-		const int kv_head_idx = q_head_idx / gqa_group_size;
-	
-		const size_t q_offset = (size_t)(batch_idx * num_q_heads + q_head_idx) * seq_len * HEAD_SIZE;
-		const size_t k_offset = (size_t)(batch_idx * num_kv_heads + kv_head_idx) * seq_len * HEAD_SIZE;
-		const size_t v_offset = (size_t)(batch_idx * num_kv_heads + kv_head_idx) * seq_len * HEAD_SIZE;
-	
-		const T* q_vec = query + q_offset + (size_t)t_q * HEAD_SIZE;
-		const T* k_cache = key + k_offset;
-		const T* v_cache = value + v_offset;
-	
-		float output_acc[HEAD_SIZE];
-		#pragma unroll
-		for (int i = 0; i < HEAD_SIZE; ++i) {
-			output_acc[i] = 0.0f;
-		}
-	
-		float max_score = -FLT_MAX;
-		float score_sum = 0.0f;
-		const float scale = rsqrtf(static_cast<float>(HEAD_SIZE));
-	
-		// =================================================================
-		// 关键修复: 统一循环边界以保证线程协作的正确性
-		// 之前的问题是：每个线程根据自己的 t_q 决定循环次数 (for kv_base <= t_q)。
-		// 这导致低 t_q 的线程提前退出循环，不再参与后续 K/V 块的共享内存加载，
-		// 从而破坏了高 t_q 线程的数据一致性，导致 __syncthreads() 行为未定义。
-		//
-		// 现在的修复是：块内的所有线程都必须执行相同的循环次数，以确保它们
-		// 始终一起协作加载数据。循环的上界应该是这个块需要处理的最大 token 索引。
-		// =================================================================
-		const int max_seq_len_for_block = min(seq_len, (int)blockDim.x);
-		for (int kv_base = 0; kv_base < max_seq_len_for_block; kv_base += BLOCK_SIZE) {
-			__syncthreads(); // 在加载新 tile 前同步
-			for (int i = threadIdx.x; i < BLOCK_SIZE * HEAD_SIZE; i += blockDim.x) {
-				const int vec_idx_in_tile = i / HEAD_SIZE;
-				const int elem_idx_in_vec = i % HEAD_SIZE;
-				const int global_vec_idx = kv_base + vec_idx_in_tile;
-	
-				// 只有在全局索引有效时才从全局内存加载
-				if (global_vec_idx < seq_len) {
-					const size_t cache_offset = (size_t)global_vec_idx * HEAD_SIZE + elem_idx_in_vec;
-					k_tile[i] = k_cache[cache_offset];
-					v_tile[i] = v_cache[cache_offset];
-				} else {
-					// 否则用 0 填充，防止使用陈旧数据
-					k_tile[i] = static_cast<T>(0.0f);
-					v_tile[i] = static_cast<T>(0.0f);
-				}
-			}
-			__syncthreads(); // 确保所有数据都已加载到共享内存
-	
-			// 现在所有线程都拥有一个有效的 K/V tile，每个线程根据自己的 t_q 进行计算
-			for (int k_idx_in_tile = 0; k_idx_in_tile < BLOCK_SIZE; ++k_idx_in_tile) {
-				const int global_k_idx = kv_base + k_idx_in_tile;
-	
-				// 每个线程依然只处理自己能看到的数据（因果掩码）
-				if (global_k_idx <= t_q) {
-					const T* k_vec = &k_tile[k_idx_in_tile * HEAD_SIZE];
-					
-					float score = 0.0f;
-					#pragma unroll
-					for (int i = 0; i < HEAD_SIZE; ++i) {
-						score += static_cast<float>(q_vec[i]) * static_cast<float>(k_vec[i]);
-					}
-					score *= scale;
-	
-					if (score > max_score) {
-						const float old_max_score = max_score;
-						max_score = score;
-						
-						if (old_max_score != -FLT_MAX) {
-							const float rescale_factor = expf(old_max_score - max_score);
-							score_sum *= rescale_factor;
-							#pragma unroll
-							for (int i = 0; i < HEAD_SIZE; ++i) {
-								output_acc[i] *= rescale_factor;
-							}
-						}
-					}
-	
-					const float attention_weight = expf(score - max_score);
-					score_sum += attention_weight;
-	
-					const T* v_vec = &v_tile[k_idx_in_tile * HEAD_SIZE];
-					#pragma unroll
-					for (int i = 0; i < HEAD_SIZE; ++i) {
-						output_acc[i] += attention_weight * static_cast<float>(v_vec[i]);
-					}
-				}
-			}
-		}
-	
-		const float inv_sum = (score_sum > 1e-6f) ? 1.0f / score_sum : 0.0f;
-		T* output_vec = output + q_offset + (size_t)t_q * HEAD_SIZE;
-		#pragma unroll
-		for (int i = 0; i < HEAD_SIZE; ++i) {
-			output_vec[i] = static_cast<T>(output_acc[i] * inv_sum);
-		}
-}
+	  __global__ void kernel_gqa_one_pass(
+		  const T* query, const T* key, const T* value, T* output,
+		  const int batch_size, const int seq_len,
+		  const int num_q_heads, const int num_kv_heads) {
+	  
+		  // --- 共享内存设置 ---
+		  // 启动此内核的主机代码必须提供正确的大小: 2 * BLOCK_SIZE * HEAD_SIZE * sizeof(T)
+		  extern __shared__ char shared_mem_char_array[];
+		  T* k_tile = reinterpret_cast<T*>(shared_mem_char_array);
+		  T* v_tile = k_tile + BLOCK_SIZE * HEAD_SIZE;
+	  
+		  // --- 块与头映射 ---
+		  const int block_idx = blockIdx.x;
+		  const int batch_idx = block_idx / num_q_heads;
+		  const int q_head_idx = block_idx % num_q_heads;
+	  
+		  // --- GQA 头映射 ---
+		  const int gqa_group_size = num_q_heads / num_kv_heads;
+		  const int kv_head_idx = q_head_idx / gqa_group_size;
+	  
+		  // --- 全局内存基地址指针 ---
+		  const size_t q_head_offset = (size_t)(batch_idx * num_q_heads + q_head_idx) * seq_len * HEAD_SIZE;
+		  const size_t k_head_offset = (size_t)(batch_idx * num_kv_heads + kv_head_idx) * seq_len * HEAD_SIZE;
+		  const size_t v_head_offset = (size_t)(batch_idx * num_kv_heads + kv_head_idx) * seq_len * HEAD_SIZE;
+		  
+		  const T* k_cache = key + k_head_offset;
+		  const T* v_cache = value + v_head_offset;
+		  
+		  const float scale = rsqrtf(static_cast<float>(HEAD_SIZE));
+	  
+		  // =================================================================
+		  // 关键架构升级: 引入外层查询循环 (Query Tiling)
+		  // 这个循环使得一个线程块可以处理任意长度的序列。
+		  // 块内的线程会协同处理一个大小为 BLOCK_SIZE 的查询块，然后继续处理下一个。
+		  // =================================================================
+		  for (int q_base = 0; q_base < seq_len; q_base += BLOCK_SIZE) {
+			  // --- 动态计算当前线程负责的查询索引 t_q ---
+			  const int t_q = q_base + threadIdx.x;
+	  
+			  // 如果当前查询索引超出了序列实际长度，则此线程在本轮及后续轮次无任务。
+			  if (t_q >= seq_len) {
+				  break; 
+			  }
+	  
+			  // --- 为当前查询 t_q 初始化累加器 ---
+			  // 这些变量必须在查询循环内部，因为每个线程会处理多个不同的查询。
+			  float output_acc[HEAD_SIZE];
+			  #pragma unroll
+			  for (int i = 0; i < HEAD_SIZE; ++i) { output_acc[i] = 0.0f; }
+			  float max_score = -FLT_MAX;
+			  float score_sum = 0.0f;
+			  
+			  const T* q_vec = query + q_head_offset + (size_t)t_q * HEAD_SIZE;
+	  
+			  // --- 内层循环: 迭代处理 K/V 块 ---
+			  // 对于当前的查询 t_q，遍历其因果历史中的所有 K/V 块。
+			  for (int kv_base = 0; kv_base <= t_q; kv_base += BLOCK_SIZE) {
+				  // 协同加载 K/V tile
+				  for (int i = threadIdx.x; i < BLOCK_SIZE * HEAD_SIZE; i += blockDim.x) {
+					  const int vec_idx_in_tile = i / HEAD_SIZE;
+					  const int elem_idx_in_vec = i % HEAD_SIZE;
+					  const int global_vec_idx = kv_base + vec_idx_in_tile;
+	  
+					  if (global_vec_idx < seq_len) {
+						  const size_t cache_offset = (size_t)global_vec_idx * HEAD_SIZE + elem_idx_in_vec;
+						  k_tile[i] = k_cache[cache_offset];
+						  v_tile[i] = v_cache[cache_offset];
+					  } else {
+						  k_tile[i] = static_cast<T>(0.0f);
+						  v_tile[i] = static_cast<T>(0.0f);
+					  }
+				  }
+				  __syncthreads(); // 等待 tile 加载完成
+	  
+				  // 遍历 tile 内的 K/V 向量进行计算
+				  for (int k_idx_in_tile = 0; k_idx_in_tile < BLOCK_SIZE; ++k_idx_in_tile) {
+					  const int global_k_idx = kv_base + k_idx_in_tile;
+	  
+					  // 应用因果掩码
+					  if (global_k_idx <= t_q) {
+						  const T* k_vec = &k_tile[k_idx_in_tile * HEAD_SIZE];
+						  
+						  float score = 0.0f;
+						  #pragma unroll
+						  for (int i = 0; i < HEAD_SIZE; ++i) {
+							  score += static_cast<float>(q_vec[i]) * static_cast<float>(k_vec[i]);
+						  }
+						  score *= scale;
+	  
+						  if (score > max_score) {
+							  float old_max_score = max_score;
+							  max_score = score;
+							  if (old_max_score != -FLT_MAX) {
+								  const float rescale_factor = expf(old_max_score - max_score);
+								  score_sum *= rescale_factor;
+								  #pragma unroll
+								  for (int i = 0; i < HEAD_SIZE; ++i) {
+									  output_acc[i] *= rescale_factor;
+								  }
+							  }
+						  }
+						  const float attention_weight = expf(score - max_score);
+						  score_sum += attention_weight;
+	  
+						  const T* v_vec = &v_tile[k_idx_in_tile * HEAD_SIZE];
+						  #pragma unroll
+						  for (int i = 0; i < HEAD_SIZE; ++i) {
+							  output_acc[i] += attention_weight * static_cast<float>(v_vec[i]);
+						  }
+					  }
+				  }
+			  }
+	  
+			  // --- 最终归一化并写回当前 t_q 的结果 ---
+			  const float inv_sum = (score_sum > 1e-6f) ? 1.0f / score_sum : 0.0f;
+			  T* output_vec = output + q_head_offset + (size_t)t_q * HEAD_SIZE;
+			  #pragma unroll
+			  for (int i = 0; i < HEAD_SIZE; ++i) {
+				  output_vec[i] = static_cast<T>(output_acc[i] * inv_sum);
+			  }
+		  }
+	  }
  
 	 // Helper function to launch the templated kernel
 	 template <typename T, int HEAD_SIZE>

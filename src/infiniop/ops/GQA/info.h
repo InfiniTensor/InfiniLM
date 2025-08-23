@@ -74,6 +74,7 @@ public:
 		std::cout << "-----------------------------------------" << std::endl;
         // GQA constraint: num_q_heads must be a multiple of num_kv_heads
         if (num_q_heads % num_kv_heads != 0) {
+			
             return INFINI_STATUS_BAD_TENSOR_SHAPE;
         }
 
@@ -82,6 +83,7 @@ public:
             v_desc->shape()[0] != (size_t)batch_size || v_desc->shape()[1] != (size_t)num_kv_heads || v_desc->shape()[2] != (size_t)seq_len || v_desc->shape()[3] != (size_t)head_size ||
             output_desc->shape()[0] != (size_t)batch_size || output_desc->shape()[1] != (size_t)num_q_heads || output_desc->shape()[2] != (size_t)seq_len || output_desc->shape()[3] != (size_t)head_size)
         {
+			
             return INFINI_STATUS_BAD_TENSOR_SHAPE;
         }
 
