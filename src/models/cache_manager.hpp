@@ -147,6 +147,7 @@ private:
     LRUDescriptorCache<infiniopRoPEDescriptor_t> rope_cache;
     LRUDescriptorCache<infiniopRearrangeDescriptor_t> rearrange_cache;
     LRUDescriptorCache<infiniopCausalSoftmaxDescriptor_t> causal_softmax_cache;
+    LRUDescriptorCache<infiniopTopkrouterDescriptor_t> causal_topkrouter_cache;
     LRUDescriptorCache<infiniopSwiGLUDescriptor_t> swiglu_cache;
     LRUDescriptorCache<infiniopRandomSampleDescriptor_t> random_sample_cache;
 
@@ -158,6 +159,7 @@ public:
           rope_cache(capacity, infiniopDestroyRoPEDescriptor),
           rearrange_cache(capacity, infiniopDestroyRearrangeDescriptor),
           causal_softmax_cache(capacity, infiniopDestroyCausalSoftmaxDescriptor),
+          causal_topkrouter_cache(capacity, infiniopDestroyTopkrouterDescriptor),
           swiglu_cache(capacity, infiniopDestroySwiGLUDescriptor),
           random_sample_cache(capacity, infiniopDestroyRandomSampleDescriptor) {}
 
@@ -213,6 +215,15 @@ public:
 
     void putCausalSoftmaxDescriptor(size_t key, const infiniopCausalSoftmaxDescriptor_t &desc) {
         causal_softmax_cache.put(key, desc);
+    }
+
+    // Topkrouter operations
+    bool getTopkrouterDescriptor(size_t key, infiniopTopkrouterDescriptor_t &desc) {
+        return causal_topkrouter_cache.get(key, desc);
+    }
+
+    void putTopkrouterDescriptor(size_t key, const infiniopTopkrouterDescriptor_t &desc) {
+        causal_topkrouter_cache.put(key, desc);
     }
 
     // SwiGLU operations

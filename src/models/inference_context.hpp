@@ -36,6 +36,14 @@ struct InferenceContext {
               std::shared_ptr<Tensor> cos);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
+
+    void topkrouter(std::shared_ptr<Tensor> values,  // F32
+                    std::shared_ptr<Tensor> indices, // I32
+                    std::shared_ptr<Tensor> x,
+                    std::shared_ptr<Tensor> correction_bias, // F32
+                    float routed_scaling_factor,
+                    size_t topk);
+
     void swiglu(std::shared_ptr<Tensor> out,
                 std::shared_ptr<Tensor> up,
                 std::shared_ptr<Tensor> gate);
@@ -94,6 +102,21 @@ inline void rope(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
 
 inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
     getInferenceContext().causalSoftmax(y, x);
+}
+
+inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
+                       std::shared_ptr<Tensor> indices, // I32
+                       std::shared_ptr<Tensor> x,
+                       std::shared_ptr<Tensor> correction_bias, // F32
+                       float routed_scaling_factor,
+                       size_t topk) {
+
+    getInferenceContext().topkrouter(values,  // F32
+                                     indices, // I32
+                                     x,
+                                     correction_bias, // F32
+                                     routed_scaling_factor,
+                                     topk);
 }
 
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,

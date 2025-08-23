@@ -141,6 +141,31 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
                                      y->data(), x->data(), stream));
 }
 
+void InferenceContext::topkrouter(std::shared_ptr<Tensor> values,  // F32
+                                  std::shared_ptr<Tensor> indices, // I32
+                                  std::shared_ptr<Tensor> x,
+                                  std::shared_ptr<Tensor> correction_bias, // F32
+                                  float routed_scaling_factor,
+                                  size_t topk) {
+    size_t key = CacheManager::createDescriptorKey(values, indices, x, correction_bias);
+
+    infiniopTopkrouterDescriptor_t desc;
+    if (!cache_manager->getTopkrouterDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateTopkrouterDescriptor(
+            op_handle, &desc, x->desc(), correction_bias->desc()));
+        cache_manager->putTopkrouterDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetTopkrouterWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopTopkrouter(desc, workspace, workspace_size,
+                                  values->data(), indices->data(), x->data(), correction_bias->data(),
+                                  routed_scaling_factor, topk, stream));
+}
+
 void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
                               std::shared_ptr<Tensor> up,
                               std::shared_ptr<Tensor> gate) {
