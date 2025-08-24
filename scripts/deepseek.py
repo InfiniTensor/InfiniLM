@@ -238,13 +238,13 @@ class DeepSeekV3Meta(DeepSeekV3MetaCStruct):
 
         super().__init__(
             # dtypes
-            dt_logits=dt_,
-            dt_norm=dt_,
-            dt_quant_weight=dt_,
-            dt_quant_scale=dt_,
-            dt_quant_zero=dt_,
-            dt_gate_weight=dt_,
-            dt_gate_bias=dt_,
+            dt_logits=DataType.INFINI_DTYPE_F16,
+            dt_norm=DataType.INFINI_DTYPE_BF16,
+            dt_quant_weight=DataType.INFINI_DTYPE_I32,
+            dt_quant_scale=DataType.INFINI_DTYPE_F16,
+            dt_quant_zero=DataType.INFINI_DTYPE_I32,
+            dt_gate_weight=DataType.INFINI_DTYPE_BF16,
+            dt_gate_bias=DataType.INFINI_DTYPE_BF16,
             # sizes
             n_sparse_layer=config["num_hidden_layers"],
             n_dense_layer=config.get("first_k_dense_replace", 0),
@@ -604,7 +604,9 @@ class DeepSeekV3ForCauslLM:
             ndev,
             dev_ids,
         )
-        load_deepseek_weights(self.meta, weights, model_dir_path, ndev)
+        # Load weights from host
+        # load_deepseek_weights(self.meta, weights, model_dir_path, ndev)
+        # Create model instance
         self.model_instance = create_deepseek_v3_model(
             byref(self.meta),
             weights,
@@ -637,7 +639,7 @@ class DeepSeekV3ForCauslLM:
             add_generation_prompt=True,
             tokenize=False,
         )
-        print(input_content, end="", flush=True)
+        
         tokens = self.tokenizer.encode(input_content)
         infer_task = InferTask(
             0,
@@ -649,7 +651,7 @@ class DeepSeekV3ForCauslLM:
             self.eos_token_id,
         )
         infer_task.bind_kvcache(KVCache(self))
-
+        print(input_content, end="", flush=True)
         steps = 0
         total_time = 0
         output_content = ""
@@ -767,7 +769,7 @@ def test():
         sys.exit(1)
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    model = DeepSeekV3ForCauslLM(model_path, device_type, ndev)
+    model = DeepSeekV3ForCauslLM(model_path, device_type, ndev, max_tokens=1024)
     model.generate("山东最高的山是？", 500)
     model.destroy_model_instance()
 

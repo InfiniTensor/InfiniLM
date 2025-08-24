@@ -10,11 +10,12 @@
 #include <vector>
 
 void createDeviceResource(DeepSeekV3DeviceResource *rsrc, const DeepSeekV3Meta *meta,
-                          const DeepSeekV3Weights *weights,
+                          std::shared_ptr<DeepSeekV3DeviceWeights> weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
     RUN_INFINI(infinirtSetDevice(device, dev_id));
+    RUN_INFINI(infinirtStreamSynchronize(weights->load_stream));
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
     infinirtStream_t stream;
@@ -26,7 +27,7 @@ void createDeviceResource(DeepSeekV3DeviceResource *rsrc, const DeepSeekV3Meta *
         device,
         dev_id,
         handle,
-        weights->device_weights[idev],
+        weights,
         stream,
         comm,
         memory_pool,
@@ -493,16 +494,17 @@ forwardBatchDeepSeekV3(struct DeepSeekV3Model *model,
     }
 }
 
-void launchDevice(const DeepSeekV3Meta &meta, const DeepSeekV3Weights *weights, DeepSeekV3DeviceResource *rsrc, InferState &state, InferRequest &req,
+void launchDevice(const DeepSeekV3Meta &meta, std::shared_ptr<DeepSeekV3DeviceWeights> weights, DeepSeekV3DeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
+    // Create Device Resource
+    createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
+
     CacheManager cache_manager(100);
     InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
 
     // Set the inference context for this thread
     setInferenceContext(&ctx);
 
-    // Create Device Resource
-    createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
     {
         std::unique_lock<std::mutex> lock(state.mtx);
         state.loaded = true;
@@ -534,11 +536,12 @@ void launchDevice(const DeepSeekV3Meta &meta, const DeepSeekV3Weights *weights, 
 }
 
 DeepSeekV3Model::DeepSeekV3Model(const DeepSeekV3Meta *_meta, const DeepSeekV3Weights *weights) : meta(*_meta) {
-    int ndev = weights->device_weights.size();
-    device = weights->device_weights[0]->device;
+    auto device_weights = weights->device_weights;
+    int ndev = device_weights.size();
+    device = device_weights[0]->device;
     dev_ids.resize(ndev);
     for (int i = 0; i < ndev; i++) {
-        dev_ids[i] = weights->device_weights[i]->dev_id;
+        dev_ids[i] = device_weights[i]->dev_id;
     }
     dev_resources = std::vector<DeepSeekV3DeviceResource>(ndev);
     states = std::vector<InferState>(ndev);
@@ -548,9 +551,8 @@ DeepSeekV3Model::DeepSeekV3Model(const DeepSeekV3Meta *_meta, const DeepSeekV3We
     if (ndev > 1) {
         RUN_INFINI(infinicclCommInitAll(device, comms.data(), ndev, dev_ids.data()));
     }
-
     for (int i = 0; i < ndev; i++) {
-        threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+        threads[i] = std::thread(launchDevice, std::cref(meta), device_weights[i], &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
     for (int i = 0; i < ndev; i++) {
         std::unique_lock<std::mutex> lock(states[i].mtx);
