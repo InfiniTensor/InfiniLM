@@ -49,6 +49,21 @@ struct InferenceContext {
                 float alpha, float beta,
                 std::shared_ptr<Tensor> residual,
                 std::shared_ptr<Tensor> bias);
+
+    void pagedCaching(std::shared_ptr<Tensor> k,
+                      std::shared_ptr<Tensor> v,
+                      std::shared_ptr<Tensor> k_cache,
+                      std::shared_ptr<Tensor> v_cache,
+                      std::shared_ptr<Tensor> slot_mapping);
+    
+    void pagedAttention(std::shared_ptr<Tensor> out,
+                        std::shared_ptr<Tensor> q,
+                        std::shared_ptr<Tensor> k_cache,
+                        std::shared_ptr<Tensor> v_cache,
+                        std::shared_ptr<Tensor> block_tables,
+                        std::shared_ptr<Tensor> seq_lens,
+                        std::shared_ptr<Tensor> alibi_slopes, // can be nullptr
+                        float scale);
 };
 
 namespace {
@@ -106,10 +121,21 @@ inline void linear(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
                    std::shared_ptr<Tensor> b, float alpha, float beta,
                    std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> bias) {
     getInferenceContext().linear(c, a, b, alpha, beta, residual, bias);
+
 }
 
+inline void pagedCaching(std::shared_ptr<Tensor> k, std::shared_ptr<Tensor> v,
+                         std::shared_ptr<Tensor> k_cache, std::shared_ptr<Tensor> v_cache,
+                         std::shared_ptr<Tensor> slot_mapping) {
+    getInferenceContext().pagedCaching(k, v, k_cache, v_cache, slot_mapping);
+}
 
-
+inline void pagedAttention(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> q,
+                           std::shared_ptr<Tensor> k_cache, std::shared_ptr<Tensor> v_cache,
+                           std::shared_ptr<Tensor> block_tables, std::shared_ptr<Tensor> seq_lens,
+                           std::shared_ptr<Tensor> alibi_slopes, float scale) {
+    getInferenceContext().pagedAttention(out, q, k_cache, v_cache, block_tables, seq_lens, alibi_slopes, scale);
+}
 
 
 

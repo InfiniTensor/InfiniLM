@@ -23,11 +23,12 @@ class Scheduler:
     def add(self, seq: Sequence):
         self.waiting.append(seq)
 
-    def schedule(self) -> tuple[list[Sequence], bool]:
+    def schedule(self) -> tuple[list[Sequence], int]:
         # prefill
         scheduled_seqs = []
         num_seqs = 0
         num_batched_tokens = 0
+        is_prefill = 0
         while self.waiting and num_seqs < self.max_num_seqs:
             seq = self.waiting[0]
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
@@ -40,7 +41,8 @@ class Scheduler:
             self.running.append(seq)
             scheduled_seqs.append(seq)
         if scheduled_seqs:
-            return scheduled_seqs, True
+            is_prefill = 1
+            return scheduled_seqs, is_prefill
 
         # decode
         while self.running and num_seqs < self.max_num_seqs:
@@ -57,7 +59,7 @@ class Scheduler:
                 scheduled_seqs.append(seq)
         assert scheduled_seqs
         self.running.extendleft(reversed(scheduled_seqs))
-        return scheduled_seqs, False
+        return scheduled_seqs, is_prefill
 
     def preempt(self, seq: Sequence):
         seq.status = SequenceStatus.WAITING

@@ -1,5 +1,5 @@
 import ctypes
-from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER
+from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, c_bool, POINTER
 import os
 
 
@@ -47,6 +47,7 @@ class JiugeMetaCStruct(ctypes.Structure):
         ("di", c_size_t),
         ("dctx", c_size_t),
         ("dvoc", c_size_t),
+        ("kvcache_block_size", c_size_t),
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
@@ -97,6 +98,8 @@ def __open_library__():
     lib.destroyJiugeModel.argtypes = [POINTER(JiugeModelCSruct)]
     lib.createKVCache.argtypes = [POINTER(JiugeModelCSruct)]
     lib.createKVCache.restype = POINTER(KVCacheCStruct)
+    lib.createPagedKVCache.argtypes = [POINTER(JiugeModelCSruct), c_uint]
+    lib.createPagedKVCache.restype = POINTER(KVCacheCStruct)
     lib.dropKVCache.argtypes = [POINTER(JiugeModelCSruct), POINTER(KVCacheCStruct)]
     lib.inferBatch.restype = None
     lib.inferBatch.argtypes = [
@@ -107,9 +110,13 @@ def __open_library__():
         c_uint,  # unsigned int nreq
         POINTER(c_uint),  # unsigned int const *req_pos
         POINTER(POINTER(KVCacheCStruct)),  # struct KVCache **kv_caches
+        POINTER(c_uint),  # unsigned int const *block_tables
+        POINTER(c_uint),  # unsigned int const *slot_mapping
         POINTER(c_float),  # float temperature
         POINTER(c_uint),  # unsigned int topk
         POINTER(c_float),  # float topp
+        c_uint,  # unsigned int is_prefill
+        c_bool,  # bool enable_paged_attn
         POINTER(c_uint),  # unsigned int *output
     ]
     lib.forwardBatch.restype = None
@@ -132,6 +139,7 @@ LIB = __open_library__()
 create_jiuge_model = LIB.createJiugeModel
 destroy_jiuge_model = LIB.destroyJiugeModel
 create_kv_cache = LIB.createKVCache
+create_paged_kv_cache = LIB.createPagedKVCache
 drop_kv_cache = LIB.dropKVCache
 infer_batch = LIB.inferBatch
 forward_batch = LIB.forwardBatch

@@ -1,5 +1,6 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 
 import sys
 from transformers import AutoTokenizer
@@ -18,12 +19,14 @@ def parse_args():
     parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/9G7B_MHA/")
     parser.add_argument("--device-type", type=str, default="nvidia")
     parser.add_argument("--ndev", type=int, default=4)
+    parser.add_argument("--max-kvcache-tokens", type=int, default=65536)
     args = parser.parse_args()
     return args
 
 def main():
     args = parse_args()
     model_path = args.model_path
+    max_kvcache_tokens = args.max_kvcache_tokens
     device_type = DeviceType.DEVICE_TYPE_CPU
     if args.device_type == "cpu":
         device_type = DeviceType.DEVICE_TYPE_CPU
@@ -51,7 +54,9 @@ def main():
     # llm = LLM(path, enforce_eager=True, tensor_parallel_size=1, trust_remote_code=True)
     path = os.path.expanduser("/home/wanghaojie/vllm/huggingface/9G7B_MHA/")
     tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
-    llm = LLM(path, device=device_type, enforce_eager=True, tensor_parallel_size=args.ndev, trust_remote_code=True, attention_bias=True)
+    llm = LLM(path, device=device_type, enforce_eager=True, 
+              tensor_parallel_size=args.ndev, trust_remote_code=True, 
+              attention_bias=True, enable_paged_attn=True, max_kvcache_tokens=max_kvcache_tokens)
 
     sampling_params = SamplingParams(temperature=0.6, max_tokens=128)
     prompts = [

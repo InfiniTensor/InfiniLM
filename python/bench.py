@@ -1,20 +1,68 @@
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 import time
+import sys
 from random import randint, seed
-from nanovllm import LLM, SamplingParams
+# from nanovllm import LLM, SamplingParams
 # from vllm import LLM, SamplingParams
 
+from icinfer import LLM, SamplingParams
+from icinfer.engine.libinfinicore_infer import DeviceType
+
+import logging
+logger = logging.getLogger(__name__)
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    # parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/Llama-2-7b-chat-hf")
+    # parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/FM9G_70B_SFT_MHA/")
+    parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/9G7B_MHA/")
+    parser.add_argument("--device-type", type=str, default="nvidia")
+    parser.add_argument("--ndev", type=int, default=4)
+    parser.add_argument("--max-kvcache-tokens", type=int, default=65536)
+    args = parser.parse_args()
+    return args
 
 def main():
+    args = parse_args()
+    model_path = args.model_path
+    max_kvcache_tokens = args.max_kvcache_tokens
+    device_type = DeviceType.DEVICE_TYPE_CPU
+    if args.device_type == "cpu":
+        device_type = DeviceType.DEVICE_TYPE_CPU
+    elif args.device_type == "nvidia":
+        device_type = DeviceType.DEVICE_TYPE_NVIDIA
+    elif args.device_type == "cambricon":
+        device_type = DeviceType.DEVICE_TYPE_CAMBRICON
+    elif args.device_type == "ascend":
+        device_type = DeviceType.DEVICE_TYPE_ASCEND
+    elif args.device_type == "metax":
+        device_type = DeviceType.DEVICE_TYPE_METAX
+    elif args.device_type == "moore":
+        device_type = DeviceType.DEVICE_TYPE_MOORE
+    elif args.device_type == "iluvatar":
+        device_type = DeviceType.DEVICE_TYPE_ILUVATAR
+    else:
+        logger.info(
+            # "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+            "Usage: python jiuge.py [cpu | nvidia| cambricon | ascend | metax | moore] <path/to/model_dir> [n_device]"
+        )
+        sys.exit(1)
+
     seed(0)
     num_seqs = 256
     max_input_len = 1024
     max_ouput_len = 1024
 
-    path = os.path.expanduser("~/vllm/huggingface/Qwen3-0.6B/")
-    llm = LLM(path, enforce_eager=False, max_model_len=4096)
+    path = os.path.expanduser("/home/wanghaojie/vllm/huggingface/9G7B_MHA/")
+    llm = LLM(path, device=device_type, enforce_eager=True, 
+              tensor_parallel_size=args.ndev, trust_remote_code=True, 
+              attention_bias=True, enable_paged_attn=True, max_kvcache_tokens=max_kvcache_tokens)
+
 
     prompt_token_ids = [[randint(0, 10000) for _ in range(randint(100, max_input_len))] for _ in range(num_seqs)]
+    
     sampling_params = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(100, max_ouput_len)) for _ in range(num_seqs)]
     # uncomment the following line for vllm
     # prompt_token_ids = [dict(prompt_token_ids=p) for p in prompt_token_ids]

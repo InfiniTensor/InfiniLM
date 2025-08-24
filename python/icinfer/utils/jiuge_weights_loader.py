@@ -132,6 +132,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 config.max_position_embeddings if max_tokens is None else max_tokens
             ),
             dvoc=config.vocab_size,
+            kvcache_block_size=config.kvcache_block_size,
             epsilon=config.rms_norm_eps,
             theta=(config.rope_theta if hasattr(config, "rope_theta") else 100000.0),
             end_token=2,

@@ -138,6 +138,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 config["max_position_embeddings"] if max_tokens is None else max_tokens
             ),
             dvoc=config["vocab_size"],
+            block_size=config["block_size"],
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             end_token=2,
@@ -365,6 +366,7 @@ class JiugeBatchedTask:
     def __init__(self, tasks: List[InferTask]):
         self.tasks = tasks
         self.nreq = len(tasks)
+        self.is_prefill = 1
 
         # Precompute fields
         token_lists = [t.tokens for t in tasks]
@@ -400,6 +402,7 @@ class JiugeBatchedTask:
             self.temperaturas,
             self.topks,
             self.topps,
+            self.is_prefill,
         )
 
 
@@ -654,7 +657,7 @@ class JiugeForCausalLM:
         infer_task.release_kvcache().drop(self)
         infer_task1.release_kvcache().drop(self)
 
-        return output_content, avg_time
+        return output_content, avg_time   
 
     def perplexity(self, test_sequences: List[Sequence[int]], batch_size=10):
         tasks = [

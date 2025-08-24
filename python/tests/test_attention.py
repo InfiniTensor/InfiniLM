@@ -197,7 +197,7 @@ def test_paged_attention(
     # Call the paged attention kernel.
     output = torch.empty_like(query)
     if version == "v1":
-        ops.paged_attention_v1(
+        ops.paged_attention(
             output,
             query,
             key_cache,
@@ -214,7 +214,7 @@ def test_paged_attention(
             v_scale,
         )
 
-        opcheck(torch.ops._C.paged_attention_v1,
+        opcheck(torch.ops._C.paged_attention,
                 (output, query, key_cache, value_cache, num_kv_heads, scale,
                  block_tables, seq_lens, block_size, max_seq_len, alibi_slopes,
                  kv_cache_dtype, k_scale, v_scale, 0, 0, 0, 64, 0),

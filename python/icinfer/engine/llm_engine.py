@@ -51,7 +51,10 @@ class InfiniEngine:
             prompt = self.tokenizer.encode(prompt)
         seq = Sequence(prompt, sampling_params)
         infer_task = InferTask(seq.seq_id, prompt, self.max_context_len, sampling_params.temperature, sampling_params.topk, sampling_params.topp, self.eos_token_id)
-        infer_task.bind_kvcache(KVCache(self.model_runner))
+        if self.model_runner.enable_paged_attn:
+            pass
+        else:
+            infer_task.bind_kvcache(KVCache(self.model_runner))
         seq.bind_infer_task(infer_task)
         self.scheduler.add(seq)
 
@@ -59,8 +62,11 @@ class InfiniEngine:
         seqs, is_prefill = self.scheduler.schedule()
         token_ids = self.model_runner.call("run", seqs, is_prefill)
         drop_kvcache_list = self.scheduler.postprocess(seqs, token_ids)
-        for kv_cache in drop_kvcache_list:
-            kv_cache.drop(self.model_runner)
+        if self.model_runner.enable_paged_attn:
+            pass
+        else:
+            for kv_cache in drop_kvcache_list:
+                kv_cache.drop(self.model_runner)
         outputs = [(seq.seq_id, seq.completion_token_ids) for seq in seqs if seq.is_finished]
         num_tokens = sum(len(seq) for seq in seqs) if is_prefill else -len(seqs)
         return outputs, num_tokens

@@ -149,6 +149,8 @@ private:
     LRUDescriptorCache<infiniopCausalSoftmaxDescriptor_t> causal_softmax_cache;
     LRUDescriptorCache<infiniopSwiGLUDescriptor_t> swiglu_cache;
     LRUDescriptorCache<infiniopRandomSampleDescriptor_t> random_sample_cache;
+    LRUDescriptorCache<infiniopPagedCachingDescriptor_t> paged_caching_cache;
+    LRUDescriptorCache<infiniopPagedAttentionDescriptor_t> paged_attention_cache;
 
 public:
     CacheManager(size_t capacity = 100)
@@ -159,7 +161,9 @@ public:
           rearrange_cache(capacity, infiniopDestroyRearrangeDescriptor),
           causal_softmax_cache(capacity, infiniopDestroyCausalSoftmaxDescriptor),
           swiglu_cache(capacity, infiniopDestroySwiGLUDescriptor),
-          random_sample_cache(capacity, infiniopDestroyRandomSampleDescriptor) {}
+          random_sample_cache(capacity, infiniopDestroyRandomSampleDescriptor),
+          paged_caching_cache(capacity, infiniopDestroyPagedCachingDescriptor),
+          paged_attention_cache(capacity, infiniopDestroyPagedAttentionDescriptor) {}
 
     // Add operations
     bool getAddDescriptor(size_t key, infiniopAddDescriptor_t &desc) {
@@ -231,6 +235,24 @@ public:
 
     void putRandomSampleDescriptor(size_t key, const infiniopRandomSampleDescriptor_t &desc) {
         random_sample_cache.put(key, desc);
+    }
+
+    // Paged Caching operations
+    bool getPagedCachingDescriptor(size_t key, infiniopPagedCachingDescriptor_t &desc) {
+        return paged_caching_cache.get(key, desc);
+    }
+
+    void putPagedCachingDescriptor(size_t key, const infiniopPagedCachingDescriptor_t &desc) {
+        paged_caching_cache.put(key, desc);
+    }
+
+    // Paged Attention operations
+    bool getPagedAttentionDescriptor(size_t key, infiniopPagedAttentionDescriptor_t &desc) {
+        return paged_attention_cache.get(key, desc);
+    }
+
+    void putPagedAttentionDescriptor(size_t key, const infiniopPagedAttentionDescriptor_t &desc) {
+        paged_attention_cache.put(key, desc);
     }
 
     template <typename... Tensors>
