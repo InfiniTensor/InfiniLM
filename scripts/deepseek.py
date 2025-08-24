@@ -308,7 +308,7 @@ def load_deepseek_weights(
 ):
     weight_loader = create_deepseek_v3_weight_loader()
     names = DeepseekR1WeightsNaming()
-    input_embd = load_specific_tensor(model_path, names.input_embd())
+    input_embd = load_specific_tensor(model_path, names.input_embd()).to(meta.torch_dtype_logits)
     weight_loader.contents.load_input_embd(weights, input_embd.data_ptr())
     del input_embd
 
@@ -590,7 +590,7 @@ class DeepSeekV3ForCauslLM:
         print(model_dir_path)
 
         if "deepseek_v3" == config["model_type"]:
-            self.meta = DeepSeekV3Meta(config, max_tokens=max_tokens)
+            self.meta = DeepSeekV3Meta(config, max_tokens=max_tokens, dtype=torch.float16)
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
         else:
             raise ValueError("Unsupported model architecture")

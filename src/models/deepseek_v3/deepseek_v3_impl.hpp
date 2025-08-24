@@ -60,7 +60,7 @@ struct DeepSeekV3Weights {
                       const int *dev_ids);
 };
 
-struct DeviceResource {
+struct DeepSeekV3DeviceResource {
     // Device
     infiniDevice_t device;
     int device_id;
@@ -101,7 +101,7 @@ struct DeepSeekV3Model {
     DeepSeekV3Meta meta;
     infiniDevice_t device;
     std::vector<int> dev_ids;
-    std::vector<DeviceResource> dev_resources;
+    std::vector<DeepSeekV3DeviceResource> dev_resources;
     std::vector<InferState> states;
     std::vector<std::thread> threads;
     InferRequest req;
@@ -110,7 +110,7 @@ struct DeepSeekV3Model {
 };
 
 struct DeepSeekV3Cache {
-    std::vector<std::vector<std::shared_ptr<Tensor>>> k, c;
+    std::vector<std::vector<std::shared_ptr<Tensor>>> kv_pass, k_rot;
 };
 
 #endif

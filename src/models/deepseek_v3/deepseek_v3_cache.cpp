@@ -10,18 +10,18 @@ createDeepSeekV3Cache(const struct DeepSeekV3Model *model) {
     auto d_nope = model->meta.d_nope;
     auto d_v = model->meta.d_v;
     auto nh = model->meta.nh;
-    auto kshape = std::vector<size_t>{max_len, d_rope};
-    auto cshape = std::vector<size_t>{max_len, nh * (d_nope + d_v)};
+    auto kv_pass_shape = std::vector<size_t>{max_len, nh * (d_nope + d_v)};
+    auto k_rot_shape = std::vector<size_t>{max_len, d_rope};
     for (size_t idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
-        auto kcache = std::vector<std::shared_ptr<Tensor>>();
-        auto ccache = std::vector<std::shared_ptr<Tensor>>();
+        auto kv_pass_cache = std::vector<std::shared_ptr<Tensor>>();
+        auto k_rot_cache = std::vector<std::shared_ptr<Tensor>>();
         for (size_t layer = 0; layer < nlayer; layer++) {
-            kcache.push_back(std::move(Tensor::buffer(model->meta.dt_logits, kshape)));
-            ccache.push_back(std::move(Tensor::buffer(model->meta.dt_logits, cshape)));
+            kv_pass_cache.push_back(std::move(Tensor::buffer(model->meta.dt_logits, kv_pass_shape)));
+            k_rot_cache.push_back(std::move(Tensor::buffer(model->meta.dt_logits, k_rot_shape)));
         }
-        cache->k.push_back(kcache);
-        cache->c.push_back(ccache);
+        cache->kv_pass.push_back(kv_pass_cache);
+        cache->k_rot.push_back(k_rot_cache);
     }
 
     return cache;
@@ -35,8 +35,8 @@ dropDeepSeekV3Cache(const struct DeepSeekV3Model *model,
     for (size_t idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
         for (size_t layer = 0; layer < nlayer; layer++) {
-            cache->k[idev][layer].reset();
-            cache->c[idev][layer].reset();
+            cache->kv_pass[idev][layer].reset();
+            cache->k_rot[idev][layer].reset();
         }
     }
     delete cache;

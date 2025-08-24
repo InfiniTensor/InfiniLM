@@ -109,9 +109,9 @@ createDeepSeekV3Model(const DeepSeekV3Meta *,
 
 __C DeepSeekV3Weights *
 createDeepSeekV3Weights(const DeepSeekV3Meta *meta,
-                       infiniDevice_t device,
-                       int ndev,
-                       const int *dev_ids);
+                        infiniDevice_t device,
+                        int ndev,
+                        const int *dev_ids);
 
 __C __export DeepSeekV3WeightLoader *
 createDeepSeekV3WeightLoader();
@@ -141,7 +141,7 @@ __C __export void
 inferBatchDeepSeekV3(struct DeepSeekV3Model *,
                      const uint32_t *tokens, uint32_t ntok,
                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                     struct KVCache **kv_caches,
+                     struct DeepSeekV3Cache **caches,
                      const float *temperature, const uint32_t *topk, const float *topp,
                      uint32_t *output);
 
@@ -157,7 +157,7 @@ __C __export void
 forwardBatchDeepSeekV3(struct DeepSeekV3Model *,
                        const uint32_t *tokens, uint32_t ntok,
                        const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                       struct KVCache **kv_caches,
+                       struct DeepSeekV3Cache **caches,
                        void *logits);
 
 #endif // DEEPSEEK_V3_WEIGHTS_H
