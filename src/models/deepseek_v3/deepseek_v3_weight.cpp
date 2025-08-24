@@ -168,6 +168,7 @@ DeepSeekV3Weights::DeepSeekV3Weights(
         device_weights[dev]->cos_table = getCosTable(meta);
 
         device_weights[dev]->w_layers = std::vector<LayerWeight>(meta->n_dense_layer + meta->n_sparse_layer);
+
         for (size_t layer = 0; layer < meta->n_dense_layer + meta->n_sparse_layer; layer++) {
             device_weights[dev]->w_layers[layer].mla_norm = getMLANorm(meta);
             device_weights[dev]->w_layers[layer].mla = getMLA(meta, ndev);

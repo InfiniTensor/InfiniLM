@@ -770,7 +770,7 @@ def test():
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     model = DeepSeekV3ForCauslLM(model_path, device_type, ndev, max_tokens=1024)
-    model.generate("山东最高的山是？", 500)
+    model.generate("山东最高的山是？", 50)
     model.destroy_model_instance()
 
 

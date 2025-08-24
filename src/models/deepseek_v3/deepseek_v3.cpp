@@ -321,8 +321,10 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
             // 输出: router_states_sum
             for (size_t itok = 0; itok < ntok; ++itok) { // 先遍历每一个token，再遍历该toekn经过对应的专家
 
-                std::shared_ptr<Tensor> hidden_states_i = hidden_states->slice(0, itok, itok + 1);
-                std::shared_ptr<Tensor> router_states_sum_i = router_states_sum->slice(0, itok, itok + 1);
+                std::shared_ptr<Tensor> hidden_states_i = hidden_states->slice(0, itok, 1);
+                std::shared_ptr<Tensor> router_states_sum_i = router_states_sum->slice(0, itok, 1);
+                std::shared_ptr<Tensor> moe_gate_buf_i = moe_gate_buf->slice(0, itok, 1);
+                std::shared_ptr<Tensor> moe_up_buf_i = moe_up_buf->slice(0, itok, 1);
 
                 // 经过第一个专家 : C = alpha * AB
                 {
@@ -331,18 +333,18 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
                     int index = indices_cpu[itok * topk];
                     float alpha = values_cpu[itok * topk];
 
-                    dequant_linear(moe_gate_buf, hidden_states,
+                    dequant_linear(moe_gate_buf_i, hidden_states_i,
                                    weights->w_layers[layer].experts[index]->gate->w,
                                    weights->w_layers[layer].experts[index]->gate->s,
                                    weights->w_layers[layer].experts[index]->gate->z, 1.0, 0.0, nullptr, nullptr);
-                    dequant_linear(moe_up_buf, hidden_states,
+                    dequant_linear(moe_up_buf_i, hidden_states_i,
                                    weights->w_layers[layer].experts[index]->up->w,
                                    weights->w_layers[layer].experts[index]->up->s,
                                    weights->w_layers[layer].experts[index]->up->z, 1.0, 0.0, nullptr, nullptr);
 
-                    swiglu(moe_gate_buf, moe_up_buf, moe_gate_buf);
+                    swiglu(moe_gate_buf_i, moe_up_buf_i, moe_gate_buf_i);
 
-                    dequant_linear(router_states_sum_i, moe_gate_buf,
+                    dequant_linear(router_states_sum_i, moe_gate_buf_i,
                                    weights->w_layers[layer].experts[index]->down->w,
                                    weights->w_layers[layer].experts[index]->down->s,
                                    weights->w_layers[layer].experts[index]->down->z, alpha, 0.0, nullptr, nullptr); // only rank 0 adds residual
@@ -353,18 +355,18 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
                     int index = indices_cpu[itok * topk + k];
                     float alpha = values_cpu[itok * topk + k];
 
-                    dequant_linear(moe_gate_buf, hidden_states,
+                    dequant_linear(moe_gate_buf_i, hidden_states_i,
                                    weights->w_layers[layer].experts[index]->gate->w,
                                    weights->w_layers[layer].experts[index]->gate->s,
                                    weights->w_layers[layer].experts[index]->gate->z, 1.0, 0.0, nullptr, nullptr);
-                    dequant_linear(moe_up_buf, hidden_states,
+                    dequant_linear(moe_up_buf_i, hidden_states_i,
                                    weights->w_layers[layer].experts[index]->up->w,
                                    weights->w_layers[layer].experts[index]->up->s,
                                    weights->w_layers[layer].experts[index]->up->z, 1.0, 0.0, nullptr, nullptr);
 
-                    swiglu(moe_gate_buf, moe_up_buf, moe_gate_buf);
+                    swiglu(moe_gate_buf_i, moe_up_buf_i, moe_gate_buf_i);
 
-                    dequant_linear(router_states_sum_i, moe_gate_buf,
+                    dequant_linear(router_states_sum_i, moe_gate_buf_i,
                                    weights->w_layers[layer].experts[index]->down->w,
                                    weights->w_layers[layer].experts[index]->down->s,
                                    weights->w_layers[layer].experts[index]->down->z, alpha, 0.0, router_states_sum_i, nullptr); // only rank 0 adds residual
