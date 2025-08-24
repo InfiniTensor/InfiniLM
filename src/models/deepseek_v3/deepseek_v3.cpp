@@ -252,6 +252,131 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
                            weights->w_layers[layer].dense_mlp->down->s,
                            weights->w_layers[layer].dense_mlp->down->z,
                            1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+        } else {
+
+            // ------------------------------------------------------------------------ //
+            //                     后面几层，用的 稀疏MLP                                  //
+            // ------------------------------------------------------------------------ //
+            // 需要提前申请的缓存，给每个MLP使用
+            auto moe_gate_buf = Tensor::buffer(dt_logits, {ntok, meta.di_moe}, rsrc.memory_pool);
+            auto moe_up_buf = Tensor::buffer(dt_logits, {ntok, meta.di_moe}, rsrc.memory_pool);
+
+            // 需要提前申请的缓存
+            std::shared_ptr<Tensor> shared_states = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);     // 用于存储共享专家的输出
+            std::shared_ptr<Tensor> router_states_sum = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool); // 用于存储路由专家的加权输出
+
+            // 需要提前申请的缓存
+            std::shared_ptr<Tensor> router_logits = Tensor::buffer(dt_logits, {ntok, meta.nexperts}, rsrc.memory_pool); // nx256，路由专家的权重
+
+            std::shared_ptr<Tensor> values_gpu = Tensor::buffer(infiniDtype_t::INFINI_DTYPE_F32, {ntok * 8}, rsrc.memory_pool);  // 用于存储topkrouter的输出，每个expert对应的加权权重。
+            std::shared_ptr<Tensor> indices_gpu = Tensor::buffer(infiniDtype_t::INFINI_DTYPE_I32, {ntok * 8}, rsrc.memory_pool); // 用于存储topkrouter的输出，要经过哪些专家id（从256个中选8个）
+            std::vector<float> values_cpu(ntok * 8, 0.f);                                                                        // 用于存储topkrouter的输出，每个expert对应的加权权重。（从256个中选8个）
+            std::vector<int> indices_cpu(ntok * 8, 0);                                                                           // 用于存储topkrouter的输出，要经过哪些专家的索引。
+
+            // config 参数
+            float routed_scaling_factor = meta.routed_scale; // config.json的超参"routed_scaling_factor"，是固定值 2.5
+            size_t topk = 8;                                 // config.json的超参"num_experts_per_tok",  是固定值 8
+
+            // 明确输入输出变量
+            std::shared_ptr<Tensor> hidden_states = logits_out; // logits_out 是整个 MoE的输入，重新起名字为 hidden_states
+
+            // ------------------------------------------------------------------------ //
+            //                            开始计算                                       //
+            // ------------------------------------------------------------------------ //
+            // (1) 共享专家： hidden_states 经过一个共享专家
+            {
+                // 输入: hidden_states
+                // 输出: shared_states
+                dequant_linear(moe_gate_buf, hidden_states,
+                               weights->w_layers[layer].share_expert->gate->w,
+                               weights->w_layers[layer].share_expert->gate->s,
+                               weights->w_layers[layer].share_expert->gate->z, 1.0, 0.0, nullptr, nullptr);
+                dequant_linear(moe_up_buf, hidden_states,
+                               weights->w_layers[layer].share_expert->up->w,
+                               weights->w_layers[layer].share_expert->up->s,
+                               weights->w_layers[layer].share_expert->up->z, 1.0, 0.0, nullptr, nullptr);
+                swiglu(moe_gate_buf, moe_up_buf, moe_gate_buf);
+                dequant_linear(shared_states, moe_gate_buf,
+                               weights->w_layers[layer].share_expert->down->w,
+                               weights->w_layers[layer].share_expert->down->s,
+                               weights->w_layers[layer].share_expert->down->z, 1.0, 0.0, nullptr, nullptr); // only rank 0 adds residual
+            }
+
+            // (2) topk操作： hidden_states 经过 topkrouter
+            {
+                // 输入: hidden_states
+                // 输出: values_cpu，indices_cpu
+                auto gate_weight = weights->w_layers[layer].route->w;
+                gemm(router_logits, hidden_states, gate_weight, 1.0, 0.0); // 非量化的版本
+
+                auto gate_correction_bias = weights->w_layers[layer].route->b;
+                topkrouter(values_gpu, indices_gpu, router_logits, gate_correction_bias, routed_scaling_factor, topk);
+                RUN_INFINI(infinirtMemcpy((void *)values_cpu.data(), values_gpu->data(), values_cpu.size() * sizeof(float), INFINIRT_MEMCPY_D2H));
+                RUN_INFINI(infinirtMemcpy((void *)indices_cpu.data(), indices_gpu->data(), indices_cpu.size() * sizeof(int), INFINIRT_MEMCPY_D2H));
+            }
+
+            // (3) MoE操作：  hidden_states经过一个8个路由专家
+            // 输入: hidden_states, values_cpu，indices_cpu
+            // 输出: router_states_sum
+            for (size_t itok = 0; itok < ntok; ++itok) { // 先遍历每一个token，再遍历该toekn经过对应的专家
+
+                std::shared_ptr<Tensor> hidden_states_i = hidden_states->slice(0, itok, itok + 1);
+                std::shared_ptr<Tensor> router_states_sum_i = router_states_sum->slice(0, itok, itok + 1);
+
+                // 经过第一个专家 : C = alpha * AB
+                {
+                    // 输入: hidden_states
+                    // 输出: router_states_sum_i
+                    int index = indices_cpu[itok * topk];
+                    float alpha = values_cpu[itok * topk];
+
+                    dequant_linear(moe_gate_buf, hidden_states,
+                                   weights->w_layers[layer].experts[index]->gate->w,
+                                   weights->w_layers[layer].experts[index]->gate->s,
+                                   weights->w_layers[layer].experts[index]->gate->z, 1.0, 0.0, nullptr, nullptr);
+                    dequant_linear(moe_up_buf, hidden_states,
+                                   weights->w_layers[layer].experts[index]->up->w,
+                                   weights->w_layers[layer].experts[index]->up->s,
+                                   weights->w_layers[layer].experts[index]->up->z, 1.0, 0.0, nullptr, nullptr);
+
+                    swiglu(moe_gate_buf, moe_up_buf, moe_gate_buf);
+
+                    dequant_linear(router_states_sum_i, moe_gate_buf,
+                                   weights->w_layers[layer].experts[index]->down->w,
+                                   weights->w_layers[layer].experts[index]->down->s,
+                                   weights->w_layers[layer].experts[index]->down->z, alpha, 0.0, nullptr, nullptr); // only rank 0 adds residual
+                }
+
+                // 经过后续的专家 : C  = alpha * AB + C_last
+                for (size_t k = 1; k < topk; ++k) {
+                    int index = indices_cpu[itok * topk + k];
+                    float alpha = values_cpu[itok * topk + k];
+
+                    dequant_linear(moe_gate_buf, hidden_states,
+                                   weights->w_layers[layer].experts[index]->gate->w,
+                                   weights->w_layers[layer].experts[index]->gate->s,
+                                   weights->w_layers[layer].experts[index]->gate->z, 1.0, 0.0, nullptr, nullptr);
+                    dequant_linear(moe_up_buf, hidden_states,
+                                   weights->w_layers[layer].experts[index]->up->w,
+                                   weights->w_layers[layer].experts[index]->up->s,
+                                   weights->w_layers[layer].experts[index]->up->z, 1.0, 0.0, nullptr, nullptr);
+
+                    swiglu(moe_gate_buf, moe_up_buf, moe_gate_buf);
+
+                    dequant_linear(router_states_sum_i, moe_gate_buf,
+                                   weights->w_layers[layer].experts[index]->down->w,
+                                   weights->w_layers[layer].experts[index]->down->s,
+                                   weights->w_layers[layer].experts[index]->down->z, alpha, 0.0, router_states_sum_i, nullptr); // only rank 0 adds residual
+                }
+            }
+
+            // (4) 最后两个类型的专家求和
+            // 输入: 共享专家结果shared_states， 路由专家结果router_states_sum
+            // 输出: logits_out
+            add(shared_states, shared_states, router_states_sum);
+
+            // (5) 最后的残差连接
+            add(logits_in, shared_states, logits_in);
         }
 
         // All_reduce if distributed
