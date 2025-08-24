@@ -27,3 +27,5 @@ cache/
 *.txt
 
 *.http
+.DS_Store
+**/.DS_Store
