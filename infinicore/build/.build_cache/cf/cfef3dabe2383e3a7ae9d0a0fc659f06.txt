@@ -1,0 +1,44 @@
+{
+    errdata = "\27[1msrc/infiniop/ops/causal_softmax/operator.cc:32:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+   32 |     \27[0;34mswitch\27[0m (handle->device) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/causal_softmax/operator.cc:32:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+   32 |     \27[0;34mswitch\27[0m (handle->device) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m   33 | \27[0m\
+   34 |         \27[0;34mcase\27[0m INFINI_DEVICE_CPU: \27[0;34mreturn\27[0m op::causal_softmax::cpu::Descriptor::create( handle, \27[0;34mreinterpret_cast\27[0m<op::causal_softmax::cpu::Descriptor **>(desc_ptr), y_desc, x_desc);\27[0m\
+   35 | # \27[0;32m59\27[0m \27[0;32m\"src/infiniop/ops/causal_softmax/operator.cc\"\27[0m\
+   36 |     }\27[0m\
+\27[1msrc/infiniop/ops/causal_softmax/operator.cc:70:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+   70 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/causal_softmax/operator.cc:70:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+   70 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m   71 | \27[0m\
+   72 |         \27[0;34mcase\27[0m INFINI_DEVICE_CPU: *size = \27[0;34mreinterpret_cast\27[0m<op::causal_softmax::cpu::Descriptor *>(desc)->workspaceSize(); \27[0;34mreturn\27[0m INFINI_STATUS_SUCCESS;\27[0m\
+   73 | # \27[0;32m98\27[0m \27[0;32m\"src/infiniop/ops/causal_softmax/operator.cc\"\27[0m\
+   74 |     }\27[0m\
+\27[1msrc/infiniop/ops/causal_softmax/operator.cc:114:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+  114 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/causal_softmax/operator.cc:114:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+  114 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m  115 | \27[0m\
+  116 |         \27[0;34mcase\27[0m INFINI_DEVICE_CPU: \27[0;34mreturn\27[0m \27[0;34mreinterpret_cast\27[0m<op::causal_softmax::cpu::Descriptor *>(desc)->calculate( workspace, workspace_size, y, x, stream);\27[0m\
+  117 | # \27[0;32m141\27[0m \27[0;32m\"src/infiniop/ops/causal_softmax/operator.cc\"\27[0m\
+  118 |     }\27[0m\
+\27[1msrc/infiniop/ops/causal_softmax/operator.cc:152:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+  152 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/causal_softmax/operator.cc:152:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+  152 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m  153 | \27[0m\
+  154 |         \27[0;34mcase\27[0m INFINI_DEVICE_CPU: \27[0;34mdelete\27[0m \27[0;34mreinterpret_cast\27[0m<op::causal_softmax::cpu::Descriptor *>(desc); \27[0;34mreturn\27[0m INFINI_STATUS_SUCCESS;\27[0m\
+  155 | # \27[0;32m178\27[0m \27[0;32m\"src/infiniop/ops/causal_softmax/operator.cc\"\27[0m\
+  156 |     }\27[0m\
+4 warnings generated.\
+"
+}

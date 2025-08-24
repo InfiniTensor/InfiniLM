@@ -1,0 +1,10 @@
+{
+    errdata = "\27[1msrc/infiniop/ops/swiglu/operator.cc:91:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+   91 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/swiglu/operator.cc:91:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+   91 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m1 warning generated.\
+"
+}

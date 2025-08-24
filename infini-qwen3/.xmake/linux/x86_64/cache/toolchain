@@ -1,0 +1,22 @@
+{
+    tool_target_infinicore_infer_linux_x86_64_cxx = {
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "gcc",
+            cachekey = "gcc_arch_x86_64_plat_linux"
+        },
+        program = "/usr/bin/gcc",
+        toolname = "gcc"
+    },
+    tool_target_infinicore_infer_linux_x86_64_sh = {
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "gcc",
+            cachekey = "gcc_arch_x86_64_plat_linux"
+        },
+        program = "/usr/bin/g++",
+        toolname = "gxx"
+    }
+}

@@ -1,0 +1,44 @@
+{
+    errdata = "\27[1msrc/infiniop/ops/rms_norm/operator.cc:42:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+   42 |     \27[0;34mswitch\27[0m (handle->device) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/rms_norm/operator.cc:42:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+   42 |     \27[0;34mswitch\27[0m (handle->device) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m   43 | \27[0m\
+   44 |         \27[0;34mcase\27[0m INFINI_DEVICE_CPU: \27[0;34mreturn\27[0m op::rms_norm::cpu::Descriptor::create( handle, \27[0;34mreinterpret_cast\27[0m<op::rms_norm::cpu::Descriptor **>(desc_ptr), y_desc, x_desc, w_desc, epsilon);\27[0m\
+   45 | # \27[0;32m69\27[0m \27[0;32m\"src/infiniop/ops/rms_norm/operator.cc\"\27[0m\
+   46 |     }\27[0m\
+\27[1msrc/infiniop/ops/rms_norm/operator.cc:83:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+   83 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/rms_norm/operator.cc:83:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+   83 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m   84 | \27[0m\
+   85 |         \27[0;34mcase\27[0m INFINI_DEVICE_CPU: *size = \27[0;34mreinterpret_cast\27[0m<op::rms_norm::cpu::Descriptor *>(desc)->workspaceSize(); \27[0;34mreturn\27[0m INFINI_STATUS_SUCCESS;\27[0m\
+   86 | # \27[0;32m110\27[0m \27[0;32m\"src/infiniop/ops/rms_norm/operator.cc\"\27[0m\
+   87 |     }\27[0m\
+\27[1msrc/infiniop/ops/rms_norm/operator.cc:125:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+  125 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/rms_norm/operator.cc:125:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+  125 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m  126 | \27[0m\
+  127 |         \27[0;34mcase\27[0m INFINI_DEVICE_CPU: \27[0;34mreturn\27[0m \27[0;34mreinterpret_cast\27[0m<op::rms_norm::cpu::Descriptor *>(desc)->calculate( workspace, workspace_size, y, x, w, stream);\27[0m\
+  128 | # \27[0;32m152\27[0m \27[0;32m\"src/infiniop/ops/rms_norm/operator.cc\"\27[0m\
+  129 |     }\27[0m\
+\27[1msrc/infiniop/ops/rms_norm/operator.cc:166:13: \27[0m\27[0;1;35mwarning: \27[0m\27[1m9 enumeration values not handled in switch: 'INFINI_DEVICE_NVIDIA', 'INFINI_DEVICE_CAMBRICON', 'INFINI_DEVICE_ASCEND'... [-Wswitch]\27[0m\
+  166 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^~~~~~~~~~~~~~~~~\
+\27[0m\27[1msrc/infiniop/ops/rms_norm/operator.cc:166:13: \27[0m\27[0;1;36mnote: \27[0madd missing switch cases\27[0m\
+  166 |     \27[0;34mswitch\27[0m (desc->device_type) {\27[0m\
+      | \27[0;1;32m            ^\
+\27[0m  167 | \27[0m\
+  168 |         \27[0;34mcase\27[0m INFINI_DEVICE_CPU: \27[0;34mdelete\27[0m \27[0;34mreinterpret_cast\27[0m<op::rms_norm::cpu::Descriptor *>(desc); \27[0;34mreturn\27[0m INFINI_STATUS_SUCCESS;\27[0m\
+  169 | # \27[0;32m193\27[0m \27[0;32m\"src/infiniop/ops/rms_norm/operator.cc\"\27[0m\
+  170 |     }\27[0m\
+4 warnings generated.\
+"
+}
