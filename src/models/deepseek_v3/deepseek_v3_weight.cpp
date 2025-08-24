@@ -34,7 +34,7 @@ inline std::shared_ptr<QuantLinearWeight> getQuantLinear(
     auto shape_w = std::vector<size_t>({in_dim, out_dim / 8});
     qw->w = Tensor::weight(nullptr, INFINI_DTYPE_I32, shape_w);
     qw->s = Tensor::weight(nullptr, meta->dt_quant_scale, {in_dim / 64, out_dim});
-    qw->z = Tensor::weight(nullptr, INFINI_DTYPE_I32, {in_dim / 64, out_dim / 64});
+    qw->z = Tensor::weight(nullptr, INFINI_DTYPE_I32, {in_dim / 64, out_dim / 8});
     return qw;
 }
 
@@ -238,7 +238,7 @@ void load_attn_q_a_layernorm(DeepSeekV3Weights *weights, void *cpu_ptr, size_t l
     for (int dev = 0; dev < int(weights->device_weights.size()); dev++) {
         auto weight = weights->device_weights[dev];
         RUN_INFINI(infinirtSetDevice(weight->device, weight->dev_id));
-        weight->w_layers[layer].mla_norm->load(cpu_ptr, weight->load_stream);
+        weight->w_layers[layer].mla->q_a_norm->load(cpu_ptr, weight->load_stream);
     }
 }
 
@@ -281,7 +281,7 @@ void load_attn_kv_a_layernorm(DeepSeekV3Weights *weights, void *cpu_ptr, size_t 
     for (int dev = 0; dev < int(weights->device_weights.size()); dev++) {
         auto weight = weights->device_weights[dev];
         RUN_INFINI(infinirtSetDevice(weight->device, weight->dev_id));
-        weight->w_layers[layer].mla_norm->load(cpu_ptr, weight->load_stream);
+        weight->w_layers[layer].mla->kv_a_norm->load(cpu_ptr, weight->load_stream);
     }
 }
 

@@ -143,6 +143,7 @@ load_layer_mlp_fn = ctypes.CFUNCTYPE(
     c_void_p,
     c_void_p,
     c_void_p,
+    c_void_p,
     c_size_t,
 )
 
@@ -150,6 +151,7 @@ load_layer_mlp_fn = ctypes.CFUNCTYPE(
 load_layer_expert_mlp_fn = ctypes.CFUNCTYPE(
     None,
     POINTER(DeepSeekV3WeightsCStruct),
+    c_void_p,
     c_void_p,
     c_void_p,
     c_void_p,
