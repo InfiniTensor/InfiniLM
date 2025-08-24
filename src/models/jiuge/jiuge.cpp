@@ -187,7 +187,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
         slot_mapping_buf = Tensor::buffer(INFINI_DTYPE_I32, {ntok}, rsrc.memory_pool);
         block_tables_buf = Tensor::buffer(INFINI_DTYPE_I32, {(uint32_t)nreq, (uint32_t)max_blocks_per_seq}, rsrc.memory_pool);
-        seq_lens_buf = Tensor::buffer(INFINI_DTYPE_U32, {nreq}, rsrc.memory_pool);
+        seq_lens_buf = Tensor::buffer(INFINI_DTYPE_I32, {nreq}, rsrc.memory_pool);
 
         RUN_INFINI(infinirtMemcpyAsync(slot_mapping_buf->data(), slot_mapping, sizeof(uint32_t) * ntok, INFINIRT_MEMCPY_H2D, stream));
         RUN_INFINI(infinirtMemcpyAsync(block_tables_buf->data(), block_tables, sizeof(uint32_t) * nreq * max_blocks_per_seq, INFINIRT_MEMCPY_H2D, stream));

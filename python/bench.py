@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/9G7B_MHA/")
     parser.add_argument("--device-type", type=str, default="nvidia")
     parser.add_argument("--ndev", type=int, default=4)
-    parser.add_argument("--max-kvcache-tokens", type=int, default=65536)
+    parser.add_argument("--max-kvcache-tokens", type=int, default=131072)
     args = parser.parse_args()
     return args
 
@@ -51,7 +51,8 @@ def main():
         sys.exit(1)
 
     seed(0)
-    num_seqs = 256
+    # num_seqs = 128
+    num_seqs = 8
     max_input_len = 1024
     max_ouput_len = 1024
 
@@ -64,12 +65,14 @@ def main():
     prompt_token_ids = [[randint(0, 10000) for _ in range(randint(100, max_input_len))] for _ in range(num_seqs)]
     
     sampling_params = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(100, max_ouput_len)) for _ in range(num_seqs)]
+    # sampling_params = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(100, max_ouput_len)) for _ in range(num_seqs)]
     # uncomment the following line for vllm
     # prompt_token_ids = [dict(prompt_token_ids=p) for p in prompt_token_ids]
 
     llm.generate(["Benchmark: "], SamplingParams())
     t = time.time()
-    llm.generate(prompt_token_ids, sampling_params, use_tqdm=False)
+    # llm.generate(prompt_token_ids, sampling_params, use_tqdm=False)
+    outputs = llm.generate(prompt_token_ids, sampling_params)
     t = (time.time() - t)
     total_tokens = sum(sp.max_tokens for sp in sampling_params)
     throughput = total_tokens / t

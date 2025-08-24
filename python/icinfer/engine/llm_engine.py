@@ -89,14 +89,34 @@ class InfiniEngine:
         outputs = {}    
         prefill_throughput = decode_throughput = 0.
         logger.info("start generating")
+        # perfile
+        avg_prefill_throughput = 0
+        prefill_time = 0
+        avg_decode_throughput = 0
+        decode_time = 0
+        ttft = 0
+        ttft_count = 0
+        tbt = 0
+        tbt_count = 0
+
         while not self.is_finished():
             t = perf_counter()
             output, num_tokens = self.step()
             if use_tqdm:
                 if num_tokens > 0:
-                    prefill_throughput = num_tokens / (perf_counter() - t)
+                    check_time = perf_counter()
+                    prefill_throughput = num_tokens / (check_time - t)
+                    ttft += (check_time - t)
+                    ttft_count += 1
+                    avg_prefill_throughput = (avg_prefill_throughput * prefill_time + num_tokens)/(prefill_time+(check_time - t))
+                    prefill_time += (check_time - t)
                 else:
-                    decode_throughput = -num_tokens / (perf_counter() - t)
+                    check_time = perf_counter()
+                    decode_throughput = -num_tokens / (check_time - t)
+                    tbt += (check_time - t)
+                    tbt_count += 1
+                    avg_decode_throughput = (avg_decode_throughput * decode_time - num_tokens)/(decode_time+(check_time - t))
+                    decode_time += (check_time - t)
                 pbar.set_postfix({
                     "Prefill": f"{int(prefill_throughput)}tok/s",
                     "Decode": f"{int(decode_throughput)}tok/s",
@@ -107,6 +127,8 @@ class InfiniEngine:
                     pbar.update(1)
         outputs = [outputs[seq_id] for seq_id in sorted(outputs)]
         outputs = [{"text": self.tokenizer.decode(token_ids), "token_ids": token_ids} for token_ids in outputs]
+        avg_ttft = ttft / ttft_count
+        avg_tbt = tbt / tbt_count
         if use_tqdm:
             pbar.close()
-        return outputs
+        return outputs, avg_prefill_throughput, avg_decode_throughput, avg_ttft, avg_tbt
