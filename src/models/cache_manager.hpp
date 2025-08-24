@@ -145,6 +145,7 @@ private:
     LRUDescriptorCache<infiniopRMSNormDescriptor_t> rms_norm_cache;
     LRUDescriptorCache<infiniopGemmDescriptor_t> gemm_cache;
     LRUDescriptorCache<infiniopRoPEDescriptor_t> rope_cache;
+    LRUDescriptorCache<infiniopRoPEv2Descriptor_t> rope_v2_cache;
     LRUDescriptorCache<infiniopRearrangeDescriptor_t> rearrange_cache;
     LRUDescriptorCache<infiniopCausalSoftmaxDescriptor_t> causal_softmax_cache;
     LRUDescriptorCache<infiniopTopkrouterDescriptor_t> causal_topkrouter_cache;
@@ -158,6 +159,7 @@ public:
           rms_norm_cache(capacity, infiniopDestroyRMSNormDescriptor),
           gemm_cache(capacity, infiniopDestroyGemmDescriptor),
           rope_cache(capacity, infiniopDestroyRoPEDescriptor),
+          rope_v2_cache(capacity, infiniopDestroyRoPEv2Descriptor),
           rearrange_cache(capacity, infiniopDestroyRearrangeDescriptor),
           causal_softmax_cache(capacity, infiniopDestroyCausalSoftmaxDescriptor),
           causal_topkrouter_cache(capacity, infiniopDestroyTopkrouterDescriptor),
@@ -199,6 +201,14 @@ public:
 
     void putRoPEDescriptor(size_t key, const infiniopRoPEDescriptor_t &desc) {
         rope_cache.put(key, desc);
+    }
+
+    bool getRoPEv2Descriptor(size_t key, infiniopRoPEv2Descriptor_t &desc) {
+        return rope_v2_cache.get(key, desc);
+    }
+
+    void putRoPEv2Descriptor(size_t key, const infiniopRoPEv2Descriptor_t &desc) {
+        rope_v2_cache.put(key, desc);
     }
 
     // Rearrange operations

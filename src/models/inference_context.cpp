@@ -121,6 +121,32 @@ void InferenceContext::rope(std::shared_ptr<Tensor> q,
         sin->data(), cos->data(), stream));
 }
 
+void InferenceContext::rope_v2(std::shared_ptr<Tensor> q,
+                               std::shared_ptr<Tensor> k,
+                               std::shared_ptr<Tensor> pos,
+                               std::shared_ptr<Tensor> sin,
+                               std::shared_ptr<Tensor> cos) {
+    size_t key = CacheManager::createDescriptorKey(q, k, pos, sin, cos);
+
+    infiniopRoPEv2Descriptor_t desc;
+    if (!cache_manager->getRoPEv2Descriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateRoPEv2Descriptor(
+            op_handle, &desc, q->desc(), k->desc(),
+            pos->desc(), sin->desc(), cos->desc()));
+        cache_manager->putRoPEv2Descriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetRoPEv2WorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopRoPEv2(
+        desc, workspace, workspace_size,
+        q->data(), k->data(), pos->data(),
+        sin->data(), cos->data(), stream));
+}
+
 void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
                                      std::shared_ptr<Tensor> x) {
     size_t key = CacheManager::createDescriptorKey(y, x);

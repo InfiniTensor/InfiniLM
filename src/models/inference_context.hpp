@@ -34,6 +34,11 @@ struct InferenceContext {
               std::shared_ptr<Tensor> pos,
               std::shared_ptr<Tensor> sin,
               std::shared_ptr<Tensor> cos);
+    void rope_v2(std::shared_ptr<Tensor> q,
+                 std::shared_ptr<Tensor> k,
+                 std::shared_ptr<Tensor> pos,
+                 std::shared_ptr<Tensor> sin,
+                 std::shared_ptr<Tensor> cos);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
 
@@ -98,6 +103,12 @@ inline void rope(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
                  std::shared_ptr<Tensor> pos, std::shared_ptr<Tensor> sin,
                  std::shared_ptr<Tensor> cos) {
     getInferenceContext().rope(q, k, pos, sin, cos);
+}
+
+inline void rope_v2(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
+                    std::shared_ptr<Tensor> pos, std::shared_ptr<Tensor> sin,
+                    std::shared_ptr<Tensor> cos) {
+    getInferenceContext().rope_v2(q, k, pos, sin, cos);
 }
 
 inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {

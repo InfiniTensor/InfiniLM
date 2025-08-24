@@ -161,7 +161,7 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
                        weights->w_layers[layer].mla->q_b_proj->z,
                        1.0, 0.0, nullptr, nullptr);
         auto q_rot = q_buf->view({ntok, nh, d_qk})->slice(2, d_nope, d_rope);
-        rope(q_rot, q_rot, pos_ids_buf, weights->sin_table, weights->cos_table);
+        rope_v2(q_rot, q_rot, pos_ids_buf, weights->sin_table, weights->cos_table);
         // kv_proj
         dequant_linear(kv_a_buf, logits_out,
                        weights->w_layers[layer].mla->kv_a_proj->w,
@@ -171,7 +171,7 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
         auto kv_pass = kv_a_buf->slice(1, 0, r_kv);
         rmsnorm(kv_pass, kv_pass, weights->w_layers[layer].mla->kv_a_norm, meta.epsilon);
         auto k_rot = kv_a_buf->slice(1, r_kv, d_rope)->view({ntok, 1, d_rope});
-        rope(k_rot, k_rot, pos_ids_buf, weights->sin_table, weights->cos_table);
+        rope_v2(k_rot, k_rot, pos_ids_buf, weights->sin_table, weights->cos_table);
 
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
