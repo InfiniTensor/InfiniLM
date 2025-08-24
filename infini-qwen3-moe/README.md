@@ -1,0 +1,8 @@
+你需要参考reference中的qwen3_moe python代码
+和src\models\jiuge 中的jiuge模型c++实现的代码
+使用inifini-core框架来实现qwen3_moe的推理
+jiuge模型的推理代码参考\scripts\jiuge.py
+除此之外，你可以参考qwen模型，那是对qwen3基础模型的实现
+所以，你的任务是在src\models\建立qwen3_moe的c++代码，来支持基础推理
+在scripts下增加python推理代码，来支持qwen3_moe的推理。所有的模型结构细节都在reference中，你可以参考。
+编写完成后，你需要在对应的scripts下增加qwen3-moe_infer.md说明如何运行moe模型

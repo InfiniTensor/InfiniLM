@@ -1,0 +1,9 @@
+{
+    openmp = {
+        __enabled = true,
+        __requirestr = "openmp",
+        cxxflags = "/openmp",
+        cflags = "/openmp",
+        installdir = [[C:\Users\WINDOWS\AppData\Local\.xmake\packages\o\openmp\latest\8cce5a7005cb44a6911aadcda03cec79]]
+    }
+}

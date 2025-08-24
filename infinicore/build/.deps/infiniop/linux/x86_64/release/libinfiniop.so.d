@@ -1,0 +1,41 @@
+{
+    files = {
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/devices/handle.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/add/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/attention/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/causal_softmax/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/clip/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/conv/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/gemm/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/linear/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/linear_backwards/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/mul/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/rearrange/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/relu/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/random_sample/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/rope/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/sub/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/rms_norm/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/ops/swiglu/operator.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/operator_descriptor.cc.o",
+        "build/.objs/infiniop/linux/x86_64/release/src/infiniop/tensor_descriptor.cc.o",
+        "build/linux/x86_64/release/libinfini-utils.a",
+        "build/linux/x86_64/release/libinfiniop-cpu.a",
+        "build/linux/x86_64/release/libinfinirt-cpu.a"
+    },
+    values = {
+        "/usr/bin/g++",
+        {
+            "-shared",
+            "-fPIC",
+            "-m64",
+            "-Lbuild/linux/x86_64/release",
+            "-s",
+            "-linfinirt",
+            "-linfinirt-cpu",
+            "-linfiniop-cpu",
+            "-linfini-utils",
+            "-fopenmp"
+        }
+    }
+}
