@@ -140,5 +140,5 @@ inline void dequant_linear(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> 
                            float alpha, float beta, std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> bias) {
     auto w = Tensor::buffer(x->dtype(), {out->shape()[1], x->shape()[1]}, getInferenceContext().memory_pool);
     getInferenceContext().dequant(w, w_w, w_s, w_z);
-    getInferenceContext().linear(out, x, w->permute({1, 0}), alpha, beta, residual, bias);
+    getInferenceContext().linear(out, x, w, alpha, beta, residual, bias);
 }

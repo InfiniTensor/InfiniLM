@@ -31,10 +31,10 @@ inline std::shared_ptr<Tensor> getMLANorm(
 inline std::shared_ptr<QuantLinearWeight> getQuantLinear(
     const DeepSeekV3Meta *meta, size_t in_dim, size_t out_dim) {
     auto qw = std::make_shared<QuantLinearWeight>();
-    auto shape_w = std::vector<size_t>({out_dim, in_dim / 8});
+    auto shape_w = std::vector<size_t>({in_dim, out_dim / 8});
     qw->w = Tensor::weight(nullptr, INFINI_DTYPE_I32, shape_w);
-    qw->s = Tensor::weight(nullptr, meta->dt_quant_scale, {out_dim});
-    qw->z = Tensor::weight(nullptr, meta->dt_quant_zero, {out_dim});
+    qw->s = Tensor::weight(nullptr, meta->dt_quant_scale, {in_dim / 64, out_dim});
+    qw->z = Tensor::weight(nullptr, INFINI_DTYPE_I32, {in_dim / 64, out_dim / 64});
     return qw;
 }
 

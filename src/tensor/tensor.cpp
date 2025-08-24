@@ -163,6 +163,7 @@ std::shared_ptr<Tensor> Tensor::weight(void *data, infiniDtype_t dtype,
 }
 
 void Tensor::load(void *data, infinirtStream_t stream) {
+    std::cout << "Tensor::load " << this->info() << std::endl;
     if (stream) {
         RUN_INFINI(infinirtMemcpyAsync(this->_storage->memory(), data, this->_storage->size(), INFINIRT_MEMCPY_H2D, stream));
         return;
