@@ -194,7 +194,7 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
                            weights->w_layers[layer].mla->kv_b_proj->s,
                            weights->w_layers[layer].mla->kv_b_proj->z,
                            1.0, 0.0, nullptr, nullptr);
-            auto full_v_req = kv_b_req->slice(1, nh * d_qk, nh * d_v);
+            auto full_v_req = kv_b_req->slice(1, nh * d_nope, nh * d_v);
             // concat k
             auto full_k_req = full_k_buf->slice(0, 0, total_len);
             auto full_k_pass_req = full_k_req->slice(1, 0, nh * d_nope);
