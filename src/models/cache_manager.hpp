@@ -150,6 +150,7 @@ private:
     LRUDescriptorCache<infiniopTopkrouterDescriptor_t> causal_topkrouter_cache;
     LRUDescriptorCache<infiniopSwiGLUDescriptor_t> swiglu_cache;
     LRUDescriptorCache<infiniopRandomSampleDescriptor_t> random_sample_cache;
+    LRUDescriptorCache<infiniopDequantizeDescriptor_t> dequantize_cache;
 
 public:
     CacheManager(size_t capacity = 100)
@@ -161,7 +162,8 @@ public:
           causal_softmax_cache(capacity, infiniopDestroyCausalSoftmaxDescriptor),
           causal_topkrouter_cache(capacity, infiniopDestroyTopkrouterDescriptor),
           swiglu_cache(capacity, infiniopDestroySwiGLUDescriptor),
-          random_sample_cache(capacity, infiniopDestroyRandomSampleDescriptor) {}
+          random_sample_cache(capacity, infiniopDestroyRandomSampleDescriptor),
+          dequantize_cache(capacity, infiniopDestroyDequantizeDescriptor) {}
 
     // Add operations
     bool getAddDescriptor(size_t key, infiniopAddDescriptor_t &desc) {
@@ -242,6 +244,15 @@ public:
 
     void putRandomSampleDescriptor(size_t key, const infiniopRandomSampleDescriptor_t &desc) {
         random_sample_cache.put(key, desc);
+    }
+
+    // Dequantize operations
+    bool getDequantizeDescriptor(size_t key, infiniopDequantizeDescriptor_t &desc) {
+        return dequantize_cache.get(key, desc);
+    }
+
+    void putDequantizeDescriptor(size_t key, const infiniopDequantizeDescriptor_t &desc) {
+        dequantize_cache.put(key, desc);
     }
 
     template <typename... Tensors>
