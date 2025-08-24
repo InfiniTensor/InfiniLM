@@ -170,7 +170,7 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
                        1.0, 0.0, nullptr, nullptr);
         auto kv_pass = kv_a_buf->slice(1, 0, r_kv);
         rmsnorm(kv_pass, kv_pass, weights->w_layers[layer].mla->kv_a_norm, meta.epsilon);
-        auto k_rot = kv_a_buf->slice(1, r_kv, d_rope);
+        auto k_rot = kv_a_buf->slice(1, r_kv, d_rope)->view({ntok, 1, d_rope});
         rope(k_rot, k_rot, pos_ids_buf, weights->sin_table, weights->cos_table);
 
         size_t token_offset = 0;
