@@ -7,10 +7,8 @@ createDeepSeekV3Cache(const struct DeepSeekV3Model *model) {
     auto nlayer = model->meta.n_dense_layer + model->meta.n_sparse_layer;
     auto max_len = model->meta.dctx;
     auto d_rope = model->meta.d_rope;
-    auto d_nope = model->meta.d_nope;
-    auto d_v = model->meta.d_v;
-    auto nh = model->meta.nh;
-    auto kv_pass_shape = std::vector<size_t>{max_len, nh * (d_nope + d_v)};
+    auto r_kv = model->meta.r_kv;
+    auto kv_pass_shape = std::vector<size_t>{max_len, r_kv};
     auto k_rot_shape = std::vector<size_t>{max_len, d_rope};
     for (size_t idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
