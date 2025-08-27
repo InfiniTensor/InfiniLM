@@ -28,6 +28,8 @@ class Sequence:
         # self.block_table = None
         self.block_table = []
         self.infer_task = None
+
+        self.true_tokens = None # for perplexity
         self.temperature = sampling_params.temperature
         self.max_tokens = sampling_params.max_tokens
         self.ignore_eos = sampling_params.ignore_eos

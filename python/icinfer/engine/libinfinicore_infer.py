@@ -128,6 +128,10 @@ def __open_library__():
         c_uint,  # unsigned int nreq
         POINTER(c_uint),  # unsigned int const *req_pos
         POINTER(POINTER(KVCacheCStruct)),  # struct KVCache **kv_caches
+        POINTER(c_int),  # unsigned int const *block_tables
+        POINTER(c_int),  # unsigned int const *slot_mapping
+        c_uint,  # unsigned int is_prefill
+        c_bool,  # bool enable_paged_attn
         c_void_p,  # void *logits
     ]
 

@@ -141,6 +141,20 @@ class InferPagedBatchedTask:
             self.topps,
             self.is_prefill,
             )
+    
+    def input_args_for_logits(self):
+        return (
+            self.tokens,
+            self.ntok,
+            self.req_lens,
+            self.nreq,
+            self.req_pos,
+            self.kv_caches,
+            self.block_tables,
+            self.slot_mapping,
+            self.is_prefill,
+            )
+
 
 
 class KVCache:
