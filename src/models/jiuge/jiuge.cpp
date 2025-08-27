@@ -438,6 +438,9 @@ forwardBatch(struct JiugeModel *model,
              const uint32_t *tokens, uint32_t ntok,
              const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
              struct KVCache **kv_caches,
+             const int32_t *block_tables,
+             const int32_t *slot_mapping,
+             const uint32_t is_prefill, const bool enable_paged_attn,
              void *logits) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
@@ -445,11 +448,15 @@ forwardBatch(struct JiugeModel *model,
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
     model->req.kv_caches = kv_caches;
+    model->req.block_tables = block_tables;
+    model->req.slot_mapping = slot_mapping;
     model->req.output = nullptr;
     model->req.logits = logits;
     model->req.temperature = nullptr;
     model->req.topk = nullptr;
     model->req.topp = nullptr;
+    model->req.is_prefill = is_prefill;
+    model->req.enable_paged_attn = enable_paged_attn;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);

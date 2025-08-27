@@ -90,6 +90,7 @@ dropKVCache(const struct JiugeModel *,
 /// @param topk 采样 topk（1 表示贪心采样）
 /// @param topp 采样 topp
 /// @param is_prefill 是否按 prefill 流程处理，0 表示 decode，1 表示 prefill
+/// @param enable_paged_attn 是否启用 paged attention
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 inferBatch(struct JiugeModel *,
@@ -109,12 +110,19 @@ inferBatch(struct JiugeModel *,
 /// @param req_lens 每个请求的 token 数量
 /// @param req_pos 每个请求的起始位置
 /// @param kv_caches 每个请求的 KV Cache
+/// @param block_tables 每个请求的 block 表
+/// @param slot_mapping 每个请求的 slot 映射
+/// @param is_prefill 是否按 prefill 流程处理，0 表示 decode，1 表示 prefill
+/// @param enable_paged_attn 是否启用 paged attention
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 forwardBatch(struct JiugeModel *,
              const uint32_t *tokens, uint32_t ntok,
              const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
              struct KVCache **kv_caches,
+             const int32_t *block_tables,
+             const int32_t *slot_mapping,
+             const uint32_t is_prefill, const bool enable_paged_attn,
              void *logits);
 
 #endif

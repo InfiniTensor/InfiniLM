@@ -1,8 +1,12 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
-from jiuge import JiugeForCausalLM
-from libinfinicore_infer import DeviceType
+import sys
+
+
+from icinfer import LLM, SamplingParams
+# from icinfer.engine.llm_engine import InfiniEngine
+from icinfer.engine.libinfinicore_infer import DeviceType
 
 DEVICE_TYPE_MAP = {
     "cpu": DeviceType.DEVICE_TYPE_CPU,
@@ -56,14 +60,20 @@ def test_torch(input_ids_list, device_):
     return perplexity
 
 
-def test_infinicore(input_ids_list, device_, ndev_):
+
+def test_infinicore(input_ids_list, model_path, device_, ndev_, enable_paged_attn, max_kvcache_tokens):
     device = DEVICE_TYPE_MAP[device_]
 
-    model = JiugeForCausalLM(
-        model_path, device, max_tokens=len(input_ids_list[0]), ndev=ndev_
-    )
-    perplexity = model.perplexity(input_ids_list)
-    model.destroy_model_instance()
+    # model = JiugeForCauslLM(
+    #     model_path, device, max_tokens=len(input_ids_list[0]), ndev=ndev_
+    # )
+    llm = LLM(model_path, device=device, enforce_eager=True, 
+              tensor_parallel_size=ndev_, trust_remote_code=True, 
+              attention_bias=True, enable_paged_attn=enable_paged_attn, max_kvcache_tokens=max_kvcache_tokens)
+
+    perplexity = llm.perplexity(input_ids_list)
+    # model.destroy_model_instance()
+    llm.model_runner.exit()
     return perplexity
 
 
@@ -73,7 +83,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument(
-        "--dev", type=str, default="cpu", choices=DEVICE_TYPE_MAP.keys()
+        "--dev", type=str, default="nvidia", choices=DEVICE_TYPE_MAP.keys()
     )
     parser.add_argument(
         "--ndev",
@@ -81,13 +91,45 @@ if __name__ == "__main__":
         default=1,
         help="Number of devices to use (default: 1)",
     )
+    parser.add_argument("--max-kvcache-tokens", type=int, default=4096)
+    # parser.add_argument("--max-kvcache-tokens", type=int, default=65536)
+    parser.add_argument("--enable-paged-attn", action="store_true")
+
+    
     args = parser.parse_args()
+    max_kvcache_tokens = args.max_kvcache_tokens
+    # device_type = DeviceType.DEVICE_TYPE_CPU
+    # if args.device_type == "cpu":
+    #     device_type = DeviceType.DEVICE_TYPE_CPU
+    # elif args.device_type == "nvidia":
+    #     device_type = DeviceType.DEVICE_TYPE_NVIDIA
+    # elif args.device_type == "cambricon":
+    #     device_type = DeviceType.DEVICE_TYPE_CAMBRICON
+    # elif args.device_type == "ascend":
+    #     device_type = DeviceType.DEVICE_TYPE_ASCEND
+    # elif args.device_type == "metax":
+    #     device_type = DeviceType.DEVICE_TYPE_METAX
+    # elif args.device_type == "moore":
+    #     device_type = DeviceType.DEVICE_TYPE_MOORE
+    # elif args.device_type == "iluvatar":
+    #     device_type = DeviceType.DEVICE_TYPE_ILUVATAR
+    # else:
+    #     print(
+    #         # "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+    #         "Usage: python jiuge.py [cpu | nvidia| cambricon | ascend | metax | moore] <path/to/model_dir> [n_device]"
+    #     )
+    #     sys.exit(1)
 
     seq_len = 512
 
     model_path = args.model_path
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
+    local_file_paths = {
+        # "train": "/home/wanghaojie/vllm/huggingface/wikitext/wikitext_local_parquet/train.parquet",
+        # "validation": "/home/wanghaojie/vllm/huggingface/wikitext/wikitext_local_parquet/validation.parquet",
+        "test": "/home/wanghaojie/vllm/huggingface/wikitext/wikitext-2-raw-v1/test-00000-of-00001.parquet"
+    }
+    dataset = load_dataset("parquet", data_files=local_file_paths, split="test")
 
     texts = dataset["text"]
     texts = [t.strip() for t in texts if len(t.strip()) > 0]
@@ -98,10 +140,12 @@ if __name__ == "__main__":
         # split long sequences into chunks
         for i in range(0, len(ids) - seq_len + 1, seq_len):
             input_ids_list.append(ids[i : i + seq_len])
+    
+    print(f"model: {args.model_path}, device: {args.dev}, ndev: {args.ndev}")
 
-    perplexity = test_infinicore(input_ids_list, args.dev, args.ndev)
-    print(f"InfiniCore Perplexity: {perplexity:.2f}")
+    perplexity = test_infinicore(input_ids_list, model_path, args.dev, args.ndev, args.enable_paged_attn, max_kvcache_tokens)
+    print(f"InfiniCore Paged Attn Perplexity: {perplexity:.2f}")
 
-    if args.ndev == 1:  # Todo: support multi-device testing with torch
-        perplexity = test_torch(input_ids_list, args.dev)
-        print(f"Torch Perplexity: {perplexity.item():.2f}")
+    # if args.ndev == 1:  # Todo: support multi-device testing with torch
+    perplexity = test_torch(input_ids_list, args.dev)
+    print(f"Torch Perplexity: {perplexity.item():.2f}")
