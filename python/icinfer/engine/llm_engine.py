@@ -49,7 +49,7 @@ class InfiniEngine:
     def add_request(self, prompt: str | list[int], sampling_params: SamplingParams):
         if isinstance(prompt, str):
             prompt = self.tokenizer.encode(prompt)
-        seq = Sequence(prompt, sampling_params)
+        seq = Sequence(prompt, sampling_params, block_size=self.scheduler.block_size)
         infer_task = InferTask(seq.seq_id, prompt, self.max_context_len, sampling_params.temperature, sampling_params.topk, sampling_params.topp, self.eos_token_id)
         if self.model_runner.enable_paged_attn:
             pass
@@ -57,6 +57,7 @@ class InfiniEngine:
             infer_task.bind_kvcache(KVCache(self.model_runner))
         seq.bind_infer_task(infer_task)
         self.scheduler.add(seq)
+        return prompt
 
     def step(self):
         seqs, is_prefill = self.scheduler.schedule()
@@ -84,8 +85,9 @@ class InfiniEngine:
             pbar = tqdm(total=len(prompts), desc="Generating", dynamic_ncols=True)
         if not isinstance(sampling_params, list):
             sampling_params = [sampling_params] * len(prompts)
+        prompts_list = []
         for prompt, sp in zip(prompts, sampling_params):
-            self.add_request(prompt, sp)
+            prompts_list.append(self.add_request(prompt, sp))
         outputs = {}    
         prefill_throughput = decode_throughput = 0.
         logger.info("start generating")
@@ -129,6 +131,20 @@ class InfiniEngine:
         outputs = [{"text": self.tokenizer.decode(token_ids), "token_ids": token_ids} for token_ids in outputs]
         avg_ttft = ttft / ttft_count
         avg_tbt = tbt / tbt_count
+        if not self.model_runner.enable_paged_attn:
+            max_model_len = self.model_runner.config.max_model_len
+            num_seqs = len(outputs)
+            used_tokens = [len(prompts_list[i])+len(outputs[i]) for i in range(num_seqs)]
+            used_tokens_count = sum(used_tokens)
+            cache_efficiency = used_tokens_count / (num_seqs * max_model_len)
+        else:
+            max_model_len = self.model_runner.config.max_model_len
+            num_seqs = len(outputs)
+            used_tokens = [len(prompts_list[i])+len(outputs[i]) for i in range(num_seqs)]
+            block_size = self.model_runner.config.kvcache_block_size
+            cache_memory = [(i_tokens + block_size - 1) // block_size * block_size for i_tokens in used_tokens]
+            cache_efficiency = sum(used_tokens) / sum(cache_memory)
+        
         if use_tqdm:
             pbar.close()
-        return outputs, avg_prefill_throughput, avg_decode_throughput, avg_ttft, avg_tbt
+        return outputs, avg_prefill_throughput, avg_decode_throughput, avg_ttft, avg_tbt, cache_efficiency

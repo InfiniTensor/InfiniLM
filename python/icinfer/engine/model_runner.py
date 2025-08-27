@@ -204,7 +204,7 @@ class ModelRunner:
     def prepare_block_tables(self, seqs: list[Sequence]):
         max_len = max(len(seq.block_table) for seq in seqs)
         padded_lists_generator = (
-            seq.block_table + [-1] * (max_len - len(seq.block_table)) 
+            (seq.block_table + [0] * (max_len - len(seq.block_table))) 
             for seq in seqs
         )
         block_tables_flat = list(itertools.chain.from_iterable(padded_lists_generator))
@@ -240,8 +240,8 @@ class ModelRunner:
                 else:
                     end = start + seq.last_block_num_tokens 
                 slot_mapping.extend(list(range(start, end)))
-        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:    # prefix cache
-            block_tables = self.prepare_block_tables(seqs)
+        # if cu_seqlens_k[-1] > cu_seqlens_q[-1]:    # prefix cache
+        block_tables = self.prepare_block_tables(seqs)
         # input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         # positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         # cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
@@ -427,10 +427,6 @@ class ModelRunner:
         # token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
         # reset_context()
         batch_block_tables, slot_mapping = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
-        # print("batch_block_tables", batch_block_tables)
-        # for seq in seqs:
-        #     print("seq.block_table", seq.block_table)
-        # print("slot_mapping", slot_mapping)
         tasks = [seq.infer_task for seq in seqs]
         token_ids = self.batch_infer_one_round(tasks, is_prefill, batch_block_tables, slot_mapping)
 

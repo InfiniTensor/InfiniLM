@@ -19,6 +19,9 @@ struct InferenceContext {
     void add(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
+    void mul(std::shared_ptr<Tensor> c,
+             std::shared_ptr<Tensor> a,
+             std::shared_ptr<Tensor> b);
     void rmsnorm(std::shared_ptr<Tensor> y,
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
@@ -82,6 +85,11 @@ inline void setInferenceContext(InferenceContext *ctx) {
 inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
     getInferenceContext().add(c, a, b);
 }
+
+inline void mul(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
+    getInferenceContext().mul(c, a, b);
+}
+
 
 inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
                     std::shared_ptr<Tensor> w, float epsilon) {

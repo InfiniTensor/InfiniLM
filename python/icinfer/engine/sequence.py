@@ -13,10 +13,10 @@ class SequenceStatus(Enum):
 
 
 class Sequence:
-    block_size = 256
+    # block_size = 256
     counter = count()
 
-    def __init__(self, token_ids: list[int], sampling_params = SamplingParams()):
+    def __init__(self, token_ids: list[int], sampling_params = SamplingParams(), block_size = 256):
         self.seq_id = next(Sequence.counter)
         self.status = SequenceStatus.WAITING
         self.token_ids = copy(token_ids)
@@ -24,6 +24,8 @@ class Sequence:
         self.num_tokens = len(self.token_ids)
         self.num_prompt_tokens = len(token_ids)
         self.num_cached_tokens = 0
+        self.block_size = block_size
+        # self.block_table = None
         self.block_table = []
         self.infer_task = None
         self.temperature = sampling_params.temperature

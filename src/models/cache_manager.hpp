@@ -142,6 +142,7 @@ private:
     const size_t DEFAULT_CACHE_CAPACITY = 128;
 
     LRUDescriptorCache<infiniopAddDescriptor_t> add_cache;
+    LRUDescriptorCache<infiniopMulDescriptor_t> mul_cache;
     LRUDescriptorCache<infiniopRMSNormDescriptor_t> rms_norm_cache;
     LRUDescriptorCache<infiniopGemmDescriptor_t> gemm_cache;
     LRUDescriptorCache<infiniopRoPEDescriptor_t> rope_cache;
@@ -155,6 +156,7 @@ private:
 public:
     CacheManager(size_t capacity = 100)
         : add_cache(capacity, infiniopDestroyAddDescriptor),
+          mul_cache(capacity, infiniopDestroyMulDescriptor),
           rms_norm_cache(capacity, infiniopDestroyRMSNormDescriptor),
           gemm_cache(capacity, infiniopDestroyGemmDescriptor),
           rope_cache(capacity, infiniopDestroyRoPEDescriptor),
@@ -172,6 +174,15 @@ public:
 
     void putAddDescriptor(size_t key, const infiniopAddDescriptor_t &desc) {
         add_cache.put(key, desc);
+    }
+
+    // Mul operations
+    bool getMulDescriptor(size_t key, infiniopMulDescriptor_t &desc) {
+        return mul_cache.get(key, desc);
+    }
+
+    void putMulDescriptor(size_t key, const infiniopMulDescriptor_t &desc) {
+        mul_cache.put(key, desc);
     }
 
     // RMSNorm operations

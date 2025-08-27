@@ -59,6 +59,7 @@ class Scheduler:
                 scheduled_seqs.append(seq)
         assert scheduled_seqs
         self.running.extendleft(reversed(scheduled_seqs))
+        # print(f"is_prefill: {is_prefill}, schedule over.\n")
         return scheduled_seqs, is_prefill
 
     def preempt(self, seq: Sequence):
@@ -85,3 +86,6 @@ class Scheduler:
                 self.running.remove(seq)
         return drop_kvcache_list
 
+    @property
+    def block_size(self):
+        return self.block_manager.block_size

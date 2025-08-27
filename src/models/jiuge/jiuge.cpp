@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 #include <iostream>
+#include <algorithm>
 
 void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
                           const JiugeWeights *weights,
@@ -117,8 +118,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                       struct KVCache **kv_caches,
-                      const uint32_t *block_tables,
-                      const uint32_t *slot_mapping,
+                      const int32_t *block_tables,
+                      const int32_t *slot_mapping,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       const uint32_t is_prefill, const bool enable_paged_attn,
                       uint32_t *output, void *last_logits) {
@@ -140,6 +141,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
     auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di}, rsrc.memory_pool);
     auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
+    auto q_buf = Tensor::buffer(dt_logits, {ntok, nh , dh}, rsrc.memory_pool);
     auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
     auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
     auto result_cpu = std::vector<int64_t>(nreq);
@@ -148,11 +150,14 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
     // Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
+    auto batch_seq_lens = std::vector<int32_t>(nreq);
+
     size_t req_start = 0;
     for (uint32_t req = 0; req < nreq; req++) {
         for (uint32_t i = 0; i < req_lens[req]; i++) {
             batch_pos_ids[req_start + i] = req_pos[req] + i;
         }
+        batch_seq_lens[req] = req_lens[req] + req_pos[req];
         req_start += req_lens[req];
     }
 
@@ -173,27 +178,23 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     std::shared_ptr<Tensor> slot_mapping_buf, block_tables_buf, seq_lens_buf;
     size_t max_seq_len_in_batch = 0;
     if (enable_paged_attn) {
-        // Find max sequence length in this batch for block_tables shape
-        for(uint32_t i = 0; i < nreq; ++i) {
-            max_seq_len_in_batch = std::max(max_seq_len_in_batch, (size_t)req_pos[i] + req_lens[i]);
-        }
+        max_seq_len_in_batch = *std::max_element(batch_seq_lens.begin(), batch_seq_lens.end());
         // Assuming block_size is a known constant, e.g., 16. The max_blocks_per_seq can be calculated.
         // Let's assume a reasonable upper bound for simplicity. This might need to be passed in.
         // TODO: get block_size from meta
-        size_t block_size = 16;
+        size_t block_size = meta.kvcache_block_size;
         size_t max_blocks_per_seq = (max_seq_len_in_batch + block_size - 1) / block_size;
-        // printf("max_blocks_per_seq: %u, %zu\n,", nreq, max_blocks_per_seq);
 
 
         slot_mapping_buf = Tensor::buffer(INFINI_DTYPE_I32, {ntok}, rsrc.memory_pool);
         block_tables_buf = Tensor::buffer(INFINI_DTYPE_I32, {(uint32_t)nreq, (uint32_t)max_blocks_per_seq}, rsrc.memory_pool);
         seq_lens_buf = Tensor::buffer(INFINI_DTYPE_I32, {nreq}, rsrc.memory_pool);
 
-        RUN_INFINI(infinirtMemcpyAsync(slot_mapping_buf->data(), slot_mapping, sizeof(uint32_t) * ntok, INFINIRT_MEMCPY_H2D, stream));
-        RUN_INFINI(infinirtMemcpyAsync(block_tables_buf->data(), block_tables, sizeof(uint32_t) * nreq * max_blocks_per_seq, INFINIRT_MEMCPY_H2D, stream));
-        RUN_INFINI(infinirtMemcpyAsync(seq_lens_buf->data(), req_lens, sizeof(uint32_t) * nreq, INFINIRT_MEMCPY_H2D, stream));
+        RUN_INFINI(infinirtMemcpyAsync(slot_mapping_buf->data(), slot_mapping, sizeof(int32_t) * ntok, INFINIRT_MEMCPY_H2D, stream));
+        RUN_INFINI(infinirtMemcpyAsync(block_tables_buf->data(), block_tables, sizeof(int32_t) * (nreq * max_blocks_per_seq), INFINIRT_MEMCPY_H2D, stream));
+        RUN_INFINI(infinirtMemcpyAsync(seq_lens_buf->data(), batch_seq_lens.data(), sizeof(int32_t) * nreq, INFINIRT_MEMCPY_H2D, stream));
+
     }
-    // printf("max_seq_len_in_batch: %zu\n", max_seq_len_in_batch);
 
     // Attention
     // attention inner
@@ -215,9 +216,12 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
+    
     // MLP buffers
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
+
+
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
@@ -237,6 +241,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             auto k_cache_pool = kv_caches[0]->k[idev][layer]; 
             auto v_cache_pool = kv_caches[0]->v[idev][layer];
             pagedCaching(k, v, k_cache_pool, v_cache_pool, slot_mapping_buf);
+            // printf("o_buf: pass pagedCaching\n");
 
 
             if (is_prefill) {
@@ -272,11 +277,13 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                     token_offset += seq_len;
                 }
             } else {
-                auto q_batch = qkv_rope->slice({ {0, 0, ntok}, {1, 0, nh} });
+                auto o = o_buf->slice({{0, 0, ntok}})->view({ntok, nh, dh});
+                auto q_batch = qkv_rope->slice({ {0, 0, ntok}, {1, 0, nh} })->view({ntok, nh, dh});
+                q_buf->copyFrom(q_batch, rsrc.handle, stream);
                 float scale = 1.f / float(sqrt(dh));
-
-                pagedAttention(o_buf, q_batch, k_cache_pool, v_cache_pool, 
+                pagedAttention(o, q_buf, k_cache_pool, v_cache_pool, 
                                block_tables_buf, seq_lens_buf, nullptr /* alibi_slopes */, scale);
+                
             }
 
         } else {
@@ -341,7 +348,9 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                 INFINICCL_SUM, rsrc.comm, stream));
             RUN_INFINI(infinirtStreamSynchronize(stream));
         }
+        // printf("o_buf: pass layer %d\n", layer);
     }
+    // printf("o_buf: pass all layers\n");
 
     // Sample and Output
     if (idev == 0) {
@@ -389,8 +398,8 @@ inferBatch(struct JiugeModel *model,
            const uint32_t *tokens, uint32_t ntok,
            const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
            struct KVCache **kv_caches, 
-           const uint32_t *block_tables,
-           const uint32_t *slot_mapping,
+           const int32_t *block_tables,
+           const int32_t *slot_mapping,
            const float *temperature, const uint32_t *topk, const float *topp,
            const uint32_t is_prefill, const bool enable_paged_attn,
            uint32_t *output) {

@@ -1,7 +1,7 @@
-from jiuge import JiugeForCausalLM
-from libinfinicore_infer import DeviceType
-from infer_task import InferTask
-from kvcache_pool import KVCachePool
+from icinfer.models.jiuge import JiugeForCausalLM
+from icinfer.engine.libinfinicore_infer import DeviceType
+from icinfer.engine.infer_task import InferTask
+from icinfer.engine.kvcache_pool import KVCachePool
 
 import argparse
 import queue

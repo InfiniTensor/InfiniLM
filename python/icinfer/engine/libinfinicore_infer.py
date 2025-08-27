@@ -110,8 +110,8 @@ def __open_library__():
         c_uint,  # unsigned int nreq
         POINTER(c_uint),  # unsigned int const *req_pos
         POINTER(POINTER(KVCacheCStruct)),  # struct KVCache **kv_caches
-        POINTER(c_uint),  # unsigned int const *block_tables
-        POINTER(c_uint),  # unsigned int const *slot_mapping
+        POINTER(c_int),  # unsigned int const *block_tables
+        POINTER(c_int),  # unsigned int const *slot_mapping
         POINTER(c_float),  # float temperature
         POINTER(c_uint),  # unsigned int topk
         POINTER(c_float),  # float topp

@@ -14,12 +14,14 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/FM9G_70B_SFT_MHA/")
-    # parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/9G7B_MHA/")
+    # parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/FM9G_70B_SFT_MHA/")
+    parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/9G7B_MHA/")
     parser.add_argument("--device-type", type=str, default="nvidia")
-    parser.add_argument("--ndev", type=int, default=4)
-    parser.add_argument("--max-kvcache-tokens", type=int, default=1024)
+    parser.add_argument("--ndev", type=int, default=1)
+    parser.add_argument("--max-kvcache-tokens", type=int, default=4096)
+    # parser.add_argument("--max-kvcache-tokens", type=int, default=65536)
     parser.add_argument("--enable-paged-attn", action="store_true")
+    # parser.add_argument("--enable-paged-attn", type=bool, default=True)
     args = parser.parse_args()
     return args
 
@@ -86,14 +88,37 @@ def main():
     #     "想象一下，如果每个人都能读懂他人的思想。"
     # ] * 2
     prompts = [
-        "描述一个由糖果构成的城市。",
-        "如果时间旅行成为可能，你最想去哪个时代？",
+        # "描述一个由糖果构成的城市。",
+        # "如果时间旅行成为可能，你最想去哪个时代？",
+        # "如果时间旅行成为可能，你最想去哪个时代？",
         # "想象一下，如果地球上只有蓝色，其他颜色都消失了。",
         # "如果动物能上网，它们会浏览什么网站？",
         # "描述一个由糖果构成的城市。",
         # "如果时间旅行成为可能，你最想去哪个时代？",
         # "想象一下，如果地球上只有蓝色，其他颜色都消失了。",
         # "如果动物能上网，它们会浏览什么网站？",
+        
+        "如果人类可以与植物沟通，世界会变成什么样？",
+        "描述一个由糖果构成的城市。",
+        "如果时间旅行成为可能，你最想去哪个时代？",
+        "想象一下，如果地球上只有蓝色，其他颜色都消失了。",
+        "如果动物能上网，它们会浏览什么网站？",
+        "描述一个没有声音的世界。",
+        "如果人类可以在水下呼吸，城市会如何变化？",
+        "想象一下，如果天空是绿色的，云是紫色的。",
+        # "如果你能与任何历史人物共进晚餐，你会选择谁？",
+        # "描述一个没有夜晚的星球。",
+        # "如果地球上只有一种语言，世界会如何运作？",
+        # "想象一下，如果所有的书都变成了音乐。",
+        # "如果你可以变成任何一种动物，你会选择什么？",
+        # "描述一个由机器人统治的未来世界。",
+        # "如果你能与任何虚构角色成为朋友，你会选择谁？",
+        # "想象一下，如果每个人都能读懂他人的思想。"
+
+        # "如果人类可以与植物沟通，世界会变成什么样？",
+        # "描述一个由糖果构成的城市。",
+        # "如果人类可以与植物沟通，世界会变成什么样？",
+
     ] 
     prompts = [
         tokenizer.apply_chat_template(
@@ -104,17 +129,21 @@ def main():
         )
         for prompt in prompts
     ]
-    outputs, avg_prefill_throughput, avg_decode_throughput,  avg_ttft, avg_tbt = llm.generate(prompts, sampling_params)
+    outputs, avg_prefill_throughput, avg_decode_throughput,  avg_ttft, avg_tbt, cache_efficiency = llm.generate(prompts, sampling_params)
 
-    # for prompt, output in zip(prompts, outputs):
-    #     print("\n")
-    #     print(f"Prompt: {prompt!r}")
-    #     print(f"Completion: {output['text']!r}")
+    for prompt, output in zip(prompts, outputs):
+        print("\n")
+        print(f"Prompt: {prompt!r}")
+        print(f"Completion: {output['text']!r}")
+    # print("\n")
+    # print(f"Prompt: {prompts[0]!r}")
+    # print(f"Completion: {outputs[0]['text']!r}")
     print(f"batch_size: {len(prompts)}, n_dev: {args.ndev}, is_paged_attn: {args.enable_paged_attn}")
     print(f"Avg Prefill Throughput: {avg_prefill_throughput:.2f} tok/s")
     print(f"Avg Decode Throughput: {avg_decode_throughput:.2f} tok/s")
     print(f"Avg TTFT: {avg_ttft*1000:.2f} ms")
     print(f"Avg TBT: {avg_tbt*1000:.2f} ms")
+    print(f"Cache Efficiency: {cache_efficiency*100:.2f}%")
 
 if __name__ == "__main__":
     main()
