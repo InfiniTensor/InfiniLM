@@ -113,6 +113,10 @@ infiniDevice_t Tensor::deviceType() const { return this->_storage->deviceType();
 int Tensor::deviceId() const { return this->_storage->deviceId(); }
 Tensor::~Tensor() {}
 
+size_t Tensor::numel() const {
+    return std::accumulate(this->shape().begin(), this->shape().end(), size_t(1), std::multiplies<size_t>());
+}
+
 ptrdiff_t Tensor::dataOffset() const {
     return _offset;
 }
@@ -162,8 +166,7 @@ std::shared_ptr<Tensor> Tensor::weight(void *data, infiniDtype_t dtype,
     return tensor;
 }
 
-void Tensor::load(void *data, infinirtStream_t stream) {
-    std::cout << "Tensor::load " << this->info() << std::endl;
+void Tensor::load(const void *data, infinirtStream_t stream) {
     if (stream) {
         RUN_INFINI(infinirtMemcpyAsync(this->_storage->memory(), data, this->_storage->size(), INFINIRT_MEMCPY_H2D, stream));
         return;

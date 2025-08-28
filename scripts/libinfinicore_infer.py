@@ -1,5 +1,5 @@
 import ctypes
-from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER
+from ctypes import c_char, c_char_p, c_size_t, c_uint, c_int, c_float, c_void_p, POINTER
 import os
 
 
@@ -209,11 +209,56 @@ class DeepSeekV3CacheCStruct(ctypes.Structure):
     pass
 
 
+class JiugeAWQMetaCStruct(ctypes.Structure):
+    _fields_ = [
+        ("dt_logits", DataType),
+        ("dt_linear_w", DataType),
+        ("dt_norm_w", DataType),
+        ("nlayer", c_size_t),
+        ("d", c_size_t),
+        ("nh", c_size_t),
+        ("nkvh", c_size_t),
+        ("dh", c_size_t),
+        ("di", c_size_t),
+        ("dctx", c_size_t),
+        ("dvoc", c_size_t),
+        ("epsilon", c_float),
+        ("theta", c_float),
+        ("end_token", c_uint),
+        ("nbit", c_size_t),
+        ("quant_group_size", c_size_t),
+        ("has_qkv_bias", c_char),
+    ]
+
+
+class ModelWeightsCStruct(ctypes.Structure):
+    pass
+
+
+class JiugeAWQModelCStruct(ctypes.Structure):
+    pass  # opaque struct
+
+
 def __open_library__():
     lib_path = os.path.join(
         os.environ.get("INFINI_ROOT"), "lib", "libinfinicore_infer.so"
     )
     lib = ctypes.CDLL(lib_path)
+
+    lib.createKVCache.argtypes = [
+        c_size_t,  # nlayers
+        c_size_t,  # max_len
+        c_size_t,  # nkvh_
+        c_size_t,  # dk
+        c_size_t,  # dv
+        DataType,  # dtype
+        DeviceType,  # device
+        POINTER(c_int),  # dev_ids
+        c_size_t,  # ndev
+    ]
+    lib.createKVCache.restype = POINTER(KVCacheCStruct)
+    lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
+
     lib.createJiugeModel.restype = POINTER(JiugeModelCSruct)
     lib.createJiugeModel.argtypes = [
         POINTER(JiugeMetaCStruct),  # JiugeMeta const *
@@ -223,11 +268,9 @@ def __open_library__():
         POINTER(c_int),  # int const *dev_ids
     ]
     lib.destroyJiugeModel.argtypes = [POINTER(JiugeModelCSruct)]
-    lib.createKVCache.argtypes = [POINTER(JiugeModelCSruct)]
-    lib.createKVCache.restype = POINTER(KVCacheCStruct)
-    lib.dropKVCache.argtypes = [POINTER(JiugeModelCSruct), POINTER(KVCacheCStruct)]
-    lib.inferBatch.restype = None
-    lib.inferBatch.argtypes = [
+
+    lib.inferBatchJiuge.restype = None
+    lib.inferBatchJiuge.argtypes = [
         POINTER(JiugeModelCSruct),  # struct JiugeModel const *
         POINTER(c_uint),  # unsigned int const *tokens
         c_uint,  # unsigned int ntok
@@ -240,8 +283,8 @@ def __open_library__():
         POINTER(c_float),  # float topp
         POINTER(c_uint),  # unsigned int *output
     ]
-    lib.forwardBatch.restype = None
-    lib.forwardBatch.argtypes = [
+    lib.forwardBatchJiuge.restype = None
+    lib.forwardBatchJiuge.argtypes = [
         POINTER(JiugeModelCSruct),  # struct JiugeModel const *
         POINTER(c_uint),  # unsigned int const *tokens
         c_uint,  # unsigned int ntok
@@ -314,17 +357,97 @@ def __open_library__():
     ]
     lib.forwardBatchDeepSeekV3.restype = None
 
+    lib.createJiugeAWQWeights.restype = POINTER(ModelWeightsCStruct)
+    lib.createJiugeAWQWeights.argtypes = [
+        POINTER(JiugeAWQMetaCStruct),  # const JiugeAWQMeta*
+        DeviceType,  # infiniDevice_t
+        c_int,  # int ndev
+        POINTER(c_int),  # const int* dev_ids
+    ]
+
+    # createJiugeAWQModel
+    lib.createJiugeAWQModel.restype = POINTER(JiugeAWQModelCStruct)
+    lib.createJiugeAWQModel.argtypes = [
+        POINTER(JiugeAWQMetaCStruct),  # const JiugeAWQMeta*
+        POINTER(ModelWeightsCStruct),  # const ModelWeights*
+    ]
+
+    # destroyJiugeAWQModel
+    lib.destroyJiugeAWQModel.argtypes = [POINTER(JiugeAWQModelCStruct)]
+    lib.destroyJiugeAWQModel.restype = None
+
+    # inferBatchJiugeAWQ
+    lib.inferBatchJiugeAWQ.argtypes = [
+        POINTER(JiugeAWQModelCStruct),  # JiugeAWQModel*
+        POINTER(c_uint),  # const uint32_t* tokens
+        c_uint,  # uint32_t ntok
+        POINTER(c_uint),  # const uint32_t* req_lens
+        c_uint,  # uint32_t nreq
+        POINTER(c_uint),  # const uint32_t* req_pos
+        POINTER(POINTER(KVCacheCStruct)),  # struct KVCache** kv_caches
+        POINTER(c_float),  # const float* temperature
+        POINTER(c_uint),  # const uint32_t* topk
+        POINTER(c_float),  # const float* topp
+        POINTER(c_uint),  # uint32_t* output
+    ]
+    lib.inferBatchJiugeAWQ.restype = None
+
+    # forwardBatchJiugeAWQ
+    lib.forwardBatchJiugeAWQ.argtypes = [
+        POINTER(JiugeAWQModelCStruct),  # JiugeAWQModel*
+        POINTER(c_uint),  # const uint32_t* tokens
+        c_uint,  # uint32_t ntok
+        POINTER(c_uint),  # const uint32_t* req_lens
+        c_uint,  # uint32_t nreq
+        POINTER(c_uint),  # const uint32_t* req_pos
+        POINTER(POINTER(KVCacheCStruct)),  # struct KVCache** kv_caches
+        c_void_p,  # void* logits
+    ]
+    lib.forwardBatchJiugeAWQ.restype = None
+
+    lib.loadModelWeight.argtypes = [
+        POINTER(ModelWeightsCStruct),  # struct ModelWeights*
+        c_char_p,  # const char* name
+        c_void_p,  # void* data
+    ]
+    lib.loadModelWeight.restype = None
+
+    # loadModelWeightDistributed
+    lib.loadModelWeightDistributed.argtypes = [
+        POINTER(ModelWeightsCStruct),  # struct ModelWeights*
+        c_char_p,  # const char* name
+        c_void_p,  # void* data
+        POINTER(c_int),  # int* ranks
+        c_int,  # int nrank
+    ]
+    lib.loadModelWeightDistributed.restype = None
+
     return lib
 
 
 LIB = __open_library__()
 
+
+def load_model_weight(weights, name, data):
+    LIB.loadModelWeight(weights, name.encode("utf-8"), data)
+
+
+def load_model_weight_distributed(weights, name, data, ranks, nrank):
+    LIB.loadModelWeightDistributed(weights, name.encode("utf-8"), data, ranks, nrank)
+
+
 create_jiuge_model = LIB.createJiugeModel
 destroy_jiuge_model = LIB.destroyJiugeModel
 create_kv_cache = LIB.createKVCache
 drop_kv_cache = LIB.dropKVCache
-infer_batch = LIB.inferBatch
-forward_batch = LIB.forwardBatch
+infer_batch_jiuge = LIB.inferBatchJiuge
+forward_batch_jiuge = LIB.forwardBatchJiuge
+
+create_jiuge_awq_weights = LIB.createJiugeAWQWeights
+create_jiuge_awq_model = LIB.createJiugeAWQModel
+destroy_jiuge_awq_model = LIB.destroyJiugeAWQModel
+infer_batch_jiuge_awq = LIB.inferBatchJiugeAWQ
+forward_batch_jiuge_awq = LIB.forwardBatchJiugeAWQ
 
 create_deepseek_v3_model = LIB.createDeepSeekV3Model
 destroy_deepseek_v3_model = LIB.destroyDeepSeekV3Model
