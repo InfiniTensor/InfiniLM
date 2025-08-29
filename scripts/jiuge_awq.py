@@ -101,7 +101,7 @@ class JiugeAWQMetaFromConfig(JiugeAWQMetaCStruct):
         self.torch_dtype_logits = dtype
 
 
-class JiugeBatchedTask:
+class JiugeAWQBatchedTask:
     def __init__(self, tasks: List[InferTask]):
         self.tasks = tasks
         self.nreq = len(tasks)
@@ -142,7 +142,7 @@ class JiugeBatchedTask:
         )
 
 
-class JiugeForCauslLM:
+class JiugeAWQForCausalLM:
     def __init__(
         self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
     ):
@@ -250,7 +250,7 @@ class JiugeForCauslLM:
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
-        batch_inputs = JiugeBatchedTask(tasks)
+        batch_inputs = JiugeAWQBatchedTask(tasks)
         infer_batch_jiuge_awq(
             self.model_instance,
             *(batch_inputs.input_args()),
@@ -328,7 +328,7 @@ class JiugeForCauslLM:
                 tasks[batch_id].bind_kvcache(kv_caches[batch_id])
                 batch_id += 1
 
-            batch_inputs = JiugeBatchedTask(tasks[:batch_id])
+            batch_inputs = JiugeAWQBatchedTask(tasks[:batch_id])
             logits = torch.zeros(
                 (batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits
             )
@@ -395,7 +395,7 @@ def test():
         sys.exit(1)
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    model = JiugeForCauslLM(model_path, device_type, ndev)
+    model = JiugeAWQForCausalLM(model_path, device_type, ndev)
     model.generate("山东最高的山是？", 500)
     model.destroy_model_instance()
 
