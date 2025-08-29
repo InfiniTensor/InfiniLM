@@ -27,7 +27,14 @@ class InferTask:
     def next(self, out_token):
         self._kv_cache.update_tokens(self.tokens, self.pos)
 
-        self.pos += len(self.tokens)
+        if self.pos == 0:  # prefill phase
+            self.pos += len(self.tokens)
+        else:  # decode phase
+            ratio = 0.2
+            attentionSinkWindow = 4
+            recentWindow = int((len(self.tokens) - attentionSinkWindow) * ratio)
+            nSaveKVs= attentionSinkWindow + recentWindow
+            self.pos += nSaveKVs
         if out_token == None or out_token in self.end_tokens:
             self.finish_reason = "stop"
         elif self.pos >= self.max_tokens:

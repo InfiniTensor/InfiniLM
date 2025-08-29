@@ -131,6 +131,10 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     auto stream = rsrc.stream;
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
 
+    // sparse attention
+    auto ratio = 0.2;
+    int attentionSinkWindow = 4;
+
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -213,19 +217,40 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
 
             // self attention
-            // concat
-            rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
-            rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
-            // qk
-            rearrange(q_rearrange->slice(2, 0, seq_len), q);
-            auto qk_gemm = qk_buf->slice(1, 0, seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
-            auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
-            linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
-            // softmax
-            auto qk_softmax = qk_buf->slice(1, 0, seq_len * total_len)->view({nh, seq_len, total_len});
-            causalSoftmax(qk_softmax, qk_softmax);
-            auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
-            linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+            int recentWindow = (int) ((seq_len - attentionSinkWindow) * ratio);
+            bool prune = (past_len == 0) && layer >= 2 && sparseOn && recentWindow > 1;
+            if (prune) { // streamingLLM
+                // concat attentionSinkWindow + recentWindow to kv cache
+                rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, attentionSinkWindow), k->slice(0,0,attentionSinkWindow));
+                rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len + attentionSinkWindow, recentWindow), k->slice(0,seq_len - recentWindow,recentWindow));
+                rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, attentionSinkWindow), v->slice(0,0,attentionSinkWindow));
+                rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len + attentionSinkWindow, recentWindow), v->slice(0,seq_len - recentWindow,recentWindow));
+                // qk
+                rearrange(q_rearrange->slice(2, 0, seq_len), q);
+                auto qk_gemm = qk_buf->slice(1, 0, seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
+                auto k_gemm = k->permute({1, 2, 0}); //K^T
+                linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+                // softmax
+                auto qk_softmax = qk_buf->slice(1, 0, seq_len * total_len)->view({nh, seq_len, total_len});
+                causalSoftmax(qk_softmax, qk_softmax);
+                auto v_gemm = v->permute({1, 0, 2});
+                linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+            } else { // baseline
+                // concat full kv to kv cache
+                rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
+                rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
+                // qk
+                rearrange(q_rearrange->slice(2, 0, seq_len), q);
+                auto qk_gemm = qk_buf->slice(1, 0, seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
+                auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0}); //^T
+                linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+                // softmax
+                auto qk_softmax = qk_buf->slice(1, 0, seq_len * total_len)->view({nh, seq_len, total_len});
+                causalSoftmax(qk_softmax, qk_softmax);
+                auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
+                linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+            }
+
             // rearrange attn val
             rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
 
