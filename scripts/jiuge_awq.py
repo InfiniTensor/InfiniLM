@@ -67,8 +67,14 @@ class JiugeAWQMetaFromConfig(JiugeAWQMetaCStruct):
         if config["model_type"] in ["qwen2", "qwen3"]:
             has_qkv_bias = 1
 
+        eos_token_id = (
+            config["eos_token_id"][0]
+            if type(config["eos_token_id"]) == list
+            else config["eos_token_id"]
+        )
+
         super().__init__(
-            dt_logits=DataType.INFINI_DTYPE_F16,
+            dt_logits=dt_,
             dt_linear_w=DataType.INFINI_DTYPE_I32,
             dt_norm_w=dt_,
             nlayer=config["num_hidden_layers"],
@@ -87,9 +93,9 @@ class JiugeAWQMetaFromConfig(JiugeAWQMetaCStruct):
             dvoc=config["vocab_size"],
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
-            end_token=2,
-            nbit=4,
-            quant_group_size=128,
+            end_token=eos_token_id,
+            nbit=config["quantization_config"]["bits"],
+            quant_group_size=config["quantization_config"]["group_size"],
             has_qkv_bias=has_qkv_bias,
         )
         self.torch_dtype_logits = dtype
