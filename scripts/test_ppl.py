@@ -10,7 +10,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, required=True)
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=8010)
     parser.add_argument("--endpoint", type=str, default="/completions")
     parser.add_argument("--chunk", type=int, default=512)
     args = parser.parse_args()
