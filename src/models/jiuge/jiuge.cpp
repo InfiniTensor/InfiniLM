@@ -134,6 +134,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     // sparse attention
     auto ratio = 0.2;
     int attentionSinkWindow = 4;
+    bool sparseOn = true
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -218,7 +219,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
 
             // self attention
             int recentWindow = (int) ((seq_len - attentionSinkWindow) * ratio);
-            bool prune = (past_len == 0) && layer >= 2 && sparseOn && recentWindow > 1;
+            bool prune = (past_len == 0) && sparseOn && recentWindow >= 1;
             if (prune) { // streamingLLM
                 // concat attentionSinkWindow + recentWindow to kv cache
                 rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, attentionSinkWindow), k->slice(0,0,attentionSinkWindow));
