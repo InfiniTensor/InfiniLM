@@ -1,6 +1,0 @@
-{
-    cmdlines = {
-        "xmake lua /tmp/.xmake1041/3.0.0+HEAD.0db4fe6/modules/private/utils/statistics.lua",
-        "xmake install"
-    }
-}
