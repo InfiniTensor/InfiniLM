@@ -134,7 +134,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
     // sparse attention
     auto ratio = 0.2;
     int attentionSinkWindow = 4;
-    bool sparseOn = true
+    bool sparseOn = true;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
