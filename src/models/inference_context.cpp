@@ -1,6 +1,8 @@
 #include "inference_context.hpp"
 #include "../tensor.hpp"
 #include "../utils.hpp"
+#include <numeric>
+#include <functional>
 
 InferenceContext::InferenceContext(DeviceResource *rsrc, CacheManager *cache_manager, infinirtStream_t stream)
     : rsrc(rsrc), cache_manager(cache_manager), stream(stream) {}
@@ -230,4 +232,195 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
         strides.push_back(bias->strides()[0]);
         add(c, c, bias->view_as(c->shape(), strides));
     }
+}
+
+void InferenceContext::gather(std::shared_ptr<Tensor> output,
+                              std::shared_ptr<Tensor> input,
+                              const std::vector<uint32_t> &indices,
+                              int dim) {
+    // 1. 准备索引张量：将 CPU 上的 vector 索引上传到 GPU
+    auto index_tensor = Tensor::buffer(INFINI_DTYPE_I32, output->shape(), rsrc->memory_pool);
+    RUN_INFINI(infinirtMemcpyAsync(index_tensor->data(), indices.data(), indices.size() * sizeof(uint32_t),
+                                   INFINIRT_MEMCPY_H2D, stream));
+
+    // 2. 创建描述符 (并利用缓存)
+    size_t key = CacheManager::createDescriptorKey(output, input, index_tensor);
+    infiniopGatherDescriptor_t desc;
+    if (!cache_manager->getGatherDescriptor(key, desc)) {
+    RUN_INFINI(infiniopCreateGatherDescriptor(
+        rsrc->handle, &desc, output->desc(), input->desc(), dim, index_tensor->desc()));
+        cache_manager->putGatherDescriptor(key, desc);
+    }
+
+    // 3. 准备工作空间
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetGatherWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    // 4. 执行 Gather 操作
+    RUN_INFINI(infiniopGather(
+        desc, workspace, workspace_size,
+        output->data(), input->data(), index_tensor->data(), stream));
+}
+
+void InferenceContext::scatter_add(std::shared_ptr<Tensor> target,
+                                   std::shared_ptr<Tensor> source,
+                                   const std::vector<uint32_t> &indices,
+                                   int dim) {
+
+    // 使用 Gather-Add-Scatter 模式实现
+    
+    // 1. 准备索引张量 (与 gather 共享)
+    auto index_tensor = Tensor::buffer(INFINI_DTYPE_I32, source->shape(), rsrc->memory_pool);
+    RUN_INFINI(infinirtMemcpyAsync(index_tensor->data(), indices.data(), indices.size() * sizeof(uint32_t),
+                                   INFINIRT_MEMCPY_H2D, stream));
+
+    // 2. Gather: 从 target 中取出需要更新的原始值
+    auto original_values = Tensor::buffer(source->dtype(), source->shape(), rsrc->memory_pool);
+    gather(original_values, target, indices, dim);
+
+    // 3. Add: 将 source (新值) 和 original_values (原始值) 相加
+    auto updated_values = Tensor::buffer(source->dtype(), source->shape(), rsrc->memory_pool);
+    add(updated_values, original_values, source);
+
+    // 4. Scatter: 将相加后的结果写回 target 的原始位置
+    // 创建描述符
+    size_t key = CacheManager::createDescriptorKey(target, updated_values, index_tensor);
+    infiniopScatterDescriptor_t desc;
+    if (!cache_manager->getScatterDescriptor(key, desc)) {
+RUN_INFINI(infiniopCreateScatterDescriptor(
+    rsrc->handle, &desc, target->desc(), target->desc(), updated_values->desc(), index_tensor->desc(), dim));
+        cache_manager->putScatterDescriptor(key, desc);
+    }
+
+    // 准备工作空间
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetScatterWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    // 执行 Scatter 操作
+    RUN_INFINI(infiniopScatter(
+        desc, workspace, workspace_size,
+        target->data(), updated_values->data(), index_tensor->data(), source->data(), stream));
+}
+
+
+void InferenceContext::scale(std::shared_ptr<Tensor> y,
+                               std::shared_ptr<Tensor> x,
+                               float alpha) {
+    // 使用gemm实现标量缩放: y = alpha * x
+    if (y.get() != x.get()) {
+        size_t x_nelem = std::accumulate(x->shape().begin(), x->shape().end(), 1ULL, std::multiplies<size_t>());
+        RUN_INFINI(infinirtMemcpyAsync(y->data(), x->data(), 
+                                       x_nelem * dsize(x->dtype()), 
+                                       INFINIRT_MEMCPY_D2D, stream));
+    }
+    
+    // 使用gemm实现缩放: y = alpha * y + 0 * y
+    auto ones = Tensor::buffer(x->dtype(), {1, 1}, rsrc->memory_pool);
+    float one_value = 1.0f;
+    RUN_INFINI(infinirtMemcpyAsync(ones->data(), &one_value, sizeof(float), INFINIRT_MEMCPY_H2D, stream));
+    
+    size_t total_elements = std::accumulate(x->shape().begin(), x->shape().end(), 1ULL, std::multiplies<size_t>());
+    auto y_flat = y->view({total_elements, 1});
+    gemm(y_flat, y_flat, ones, alpha, 0.0f);
+}
+
+void InferenceContext::scale(std::shared_ptr<Tensor> y,
+                               std::shared_ptr<Tensor> x,
+                               const std::vector<float> &weights) {
+    // 先复制数据
+    if (y.get() != x.get()) {
+        size_t x_nelem = std::accumulate(x->shape().begin(), x->shape().end(), 1ULL, std::multiplies<size_t>());
+        RUN_INFINI(infinirtMemcpyAsync(y->data(), x->data(), 
+                                       x_nelem * dsize(x->dtype()), 
+                                       INFINIRT_MEMCPY_D2D, stream));
+    }
+    
+    // 为每个token应用对应的权重
+    size_t num_tokens = weights.size();
+    size_t d = y->shape()[1]; // hidden dimension
+    
+    for (size_t i = 0; i < num_tokens; ++i) {
+        auto token_output = y->slice(0, i, 1); // 取出第i个token的输出
+        auto ones = Tensor::buffer(y->dtype(), {1, 1}, rsrc->memory_pool);
+        float one_value = 1.0f;
+        RUN_INFINI(infinirtMemcpyAsync(ones->data(), &one_value, sizeof(float), INFINIRT_MEMCPY_H2D, stream));
+        
+        auto token_flat = token_output->view({d, 1});
+        gemm(token_flat, token_flat, ones, weights[i], 0.0f);
+    }
+}
+
+void InferenceContext::zeros(std::shared_ptr<Tensor> t) {
+    // 暂时使用简单的临时实现，将tensor的所有值设为0
+    // 创建一个同样大小的零值tensor，然后复制过去
+    size_t nelem = std::accumulate(t->shape().begin(), t->shape().end(), 1ULL, std::multiplies<size_t>());
+    std::vector<float> zero_data(nelem, 0.0f);
+    
+    if (t->dtype() == INFINI_DTYPE_F32) {
+        RUN_INFINI(infinirtMemcpyAsync(t->data(), zero_data.data(), 
+                                       nelem * sizeof(float), 
+                                       INFINIRT_MEMCPY_H2D, stream));
+    } else {
+        // 对于其他数据类型，暂时跳过实现
+        // 在实际使用中可能需要根据dtype进行转换
+    }
+}
+
+void InferenceContext::normalize(std::shared_ptr<Tensor> y,
+                                   std::shared_ptr<Tensor> x,
+                                   int dim,
+                                   float epsilon) {
+    // normalize算子是就地操作，先复制x到y
+    if (y.get() != x.get()) {
+        size_t x_nelem = std::accumulate(x->shape().begin(), x->shape().end(), 1ULL, std::multiplies<size_t>());
+        RUN_INFINI(infinirtMemcpyAsync(y->data(), x->data(), 
+                                       x_nelem * dsize(x->dtype()), 
+                                       INFINIRT_MEMCPY_D2D, stream));
+    }
+    
+    size_t key = CacheManager::createDescriptorKey(y);
+
+    infiniopNormalizeDescriptor_t desc;
+    if (!cache_manager->getNormalizeDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateNormalizeDescriptor(
+            rsrc->handle, &desc, y->desc()));
+        cache_manager->putNormalizeDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetNormalizeWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopNormalize(
+        desc, workspace, workspace_size,
+        y->data(), stream));
+}
+
+void InferenceContext::topk_fun(std::shared_ptr<Tensor> values,
+                              std::shared_ptr<Tensor> indices,
+                              std::shared_ptr<Tensor> input,
+                              uint32_t k,
+                              int dim) {
+    size_t key = CacheManager::createDescriptorKey(values, indices, input);
+
+    infiniopTopKDescriptor_t desc;
+    if (!cache_manager->getTopKDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateTopKDescriptor(
+            rsrc->handle, &desc, input->desc(), values->desc(), indices->desc(), k, dim, true, true));
+        cache_manager->putTopKDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetTopKWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopTopK(
+        desc, workspace, workspace_size,
+        input->data(), values->data(), indices->data(), stream));
 }

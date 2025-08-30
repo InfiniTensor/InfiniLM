@@ -15,7 +15,7 @@ xmake && xmake install
 - 运行模型推理测试
 
 ```bash
-python scripts/jiuge.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore] path/to/model_dir [n_device]
+python scripts/qwen.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore] path/to/model_dir [n_device]
 ```
 
 - 部署模型推理服务

@@ -1,4 +1,6 @@
 from jiuge import JiugeForCauslLM
+from qwen import QwenForCauslLM
+from qwen_moe import QwenMoeForCauslLM
 from libinfinicore_infer import DeviceType
 from infer_task import InferTask
 from kvcache_pool import KVCachePool
@@ -207,11 +209,7 @@ async def chat_stream(id_, request_data, request: Request):
                 break
 
             token = await infer_task.output_queue.async_q.get()
-            content = (
-                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
+            content = request.app.state.model.tokenizer.decode(token)
             chunk = json.dumps(chunk_json(id_, content=content), ensure_ascii=False)
             yield f"data: {chunk}\n\n"
 
@@ -236,11 +234,7 @@ async def chat(id_, request_data, request: Request):
                 break
 
             token = await infer_task.output_queue.async_q.get()
-            content = (
-                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
+            content = request.app.state.model.tokenizer.decode(token)
             output.append(content)
 
         output_text = "".join(output).strip()
@@ -284,7 +278,7 @@ if __name__ == "__main__":
 curl -N -H "Content-Type: application/json" \
      -X POST http://127.0.0.1:8000/chat/completions \
      -d '{
-       "model": "jiuge",
+       "model": "Qwen1.7B",
        "messages": [
          {"role": "user", "content": "山东最高的山是？"}
        ],

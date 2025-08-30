@@ -149,6 +149,10 @@ private:
     LRUDescriptorCache<infiniopCausalSoftmaxDescriptor_t> causal_softmax_cache;
     LRUDescriptorCache<infiniopSwiGLUDescriptor_t> swiglu_cache;
     LRUDescriptorCache<infiniopRandomSampleDescriptor_t> random_sample_cache;
+    LRUDescriptorCache<infiniopGatherDescriptor_t> gather_cache;
+    LRUDescriptorCache<infiniopScatterDescriptor_t> scatter_cache;
+    LRUDescriptorCache<infiniopTopKDescriptor_t> topk_cache;
+    LRUDescriptorCache<infiniopNormalizeDescriptor_t> normalize_cache; 
 
 public:
     CacheManager(size_t capacity = 100)
@@ -159,7 +163,11 @@ public:
           rearrange_cache(capacity, infiniopDestroyRearrangeDescriptor),
           causal_softmax_cache(capacity, infiniopDestroyCausalSoftmaxDescriptor),
           swiglu_cache(capacity, infiniopDestroySwiGLUDescriptor),
-          random_sample_cache(capacity, infiniopDestroyRandomSampleDescriptor) {}
+          random_sample_cache(capacity, infiniopDestroyRandomSampleDescriptor),
+          gather_cache(capacity, infiniopDestroyGatherDescriptor),
+          scatter_cache(capacity, infiniopDestroyScatterDescriptor),
+          topk_cache(capacity, infiniopDestroyTopKDescriptor),
+          normalize_cache(capacity, infiniopDestroyNormalizeDescriptor) {}
 
     // Add operations
     bool getAddDescriptor(size_t key, infiniopAddDescriptor_t &desc) {
@@ -231,6 +239,41 @@ public:
 
     void putRandomSampleDescriptor(size_t key, const infiniopRandomSampleDescriptor_t &desc) {
         random_sample_cache.put(key, desc);
+    }
+
+    // Gather operations
+    bool getGatherDescriptor(size_t key, infiniopGatherDescriptor_t &desc) {
+        return gather_cache.get(key, desc);
+    }
+
+    void putGatherDescriptor(size_t key, const infiniopGatherDescriptor_t &desc) {
+        gather_cache.put(key, desc);
+    }
+
+    bool getScatterDescriptor(size_t key, infiniopScatterDescriptor_t &desc) {
+        return scatter_cache.get(key, desc);
+    }
+
+    void putScatterDescriptor(size_t key, const infiniopScatterDescriptor_t &desc) {
+        scatter_cache.put(key, desc);
+    }
+
+    // TopK operations
+    bool getTopKDescriptor(size_t key, infiniopTopKDescriptor_t &desc) {
+        return topk_cache.get(key, desc);
+    }
+
+    void putTopKDescriptor(size_t key, const infiniopTopKDescriptor_t &desc) {
+        topk_cache.put(key, desc);
+    }
+
+    // Normalize operations
+    bool getNormalizeDescriptor(size_t key, infiniopNormalizeDescriptor_t &desc) {
+        return normalize_cache.get(key, desc);
+    }
+
+    void putNormalizeDescriptor(size_t key, const infiniopNormalizeDescriptor_t &desc) {
+        normalize_cache.put(key, desc);
     }
 
     template <typename... Tensors>
