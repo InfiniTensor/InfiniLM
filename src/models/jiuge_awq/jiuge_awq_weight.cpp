@@ -43,7 +43,7 @@ inline std::shared_ptr<Tensor> getCosTable(size_t dctx, size_t dh, float theta) 
 JiugeAWQWeights::JiugeAWQWeights(
     const JiugeAWQMeta *meta,
     infiniDevice_t device,
-    const std::vector<int> &dev_ids) : infinicore::WeightsLoader(device, dev_ids) {
+    const std::vector<int> &dev_ids) : infinicore::weights::Loader(device, dev_ids) {
     auto ndev = dev_ids.size();
     _device_weights.resize(ndev);
     infiniDtype_t dt_logits = meta->dt_logits;
@@ -82,35 +82,35 @@ JiugeAWQWeights::JiugeAWQWeights(
 
         for (size_t layer = 0; layer < nlayer; layer++) {
 
-#define RIGISTER_LAYER_WEIGHT(W_NAME, W_VAR, W_SHAPE, W_DTYPE) \
-    auto W_VAR = Tensor::weight(nullptr, W_DTYPE, W_SHAPE);    \
-    this->resigter(W_NAME, W_VAR, i);                          \
+#define RIGISTER_LAYER_WEIGHT(W_NAME, W_VAR, W_SHAPE, W_DTYPE, W_DIST_TYPE)               \
+    auto W_VAR = Tensor::weight(nullptr, W_DTYPE, W_SHAPE);                               \
+    this->resigter(W_NAME, W_VAR, i, infinicore::weights::DistributionType::W_DIST_TYPE); \
     weight->W_VAR.push_back(W_VAR);
 
-            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".input_layernorm.weight", w_attn_norm, {d}, dt_norm_w);
+            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".input_layernorm.weight", w_attn_norm, {d}, dt_norm_w, FULL);
 
-#define REGISTER_LAYER_QUANT_WEIGHT(W_NAME, W_VAR, W_IN, W_OUT)                                           \
+#define REGISTER_LAYER_QUANT_WEIGHT(W_NAME, W_VAR, W_IN, W_OUT, W_DIST_TYPE)                              \
     auto W_VAR = std::make_shared<QuantInt4Weight>();                                                     \
     W_VAR->w = Tensor::weight(nullptr, INFINI_DTYPE_I32, {W_IN, (W_OUT)*nbit / 32});                      \
-    this->resigter(W_NAME + ".qweight", W_VAR->w, i);                                                     \
+    this->resigter(W_NAME + ".qweight", W_VAR->w, i, infinicore::weights::DistributionType::W_DIST_TYPE); \
     W_VAR->s = Tensor::weight(nullptr, INFINI_DTYPE_F16, {(W_IN) / quant_group_size, (W_OUT)});           \
-    this->resigter(W_NAME + ".scales", W_VAR->s, i);                                                      \
+    this->resigter(W_NAME + ".scales", W_VAR->s, i, infinicore::weights::DistributionType::W_DIST_TYPE);  \
     W_VAR->z = Tensor::weight(nullptr, INFINI_DTYPE_I32, {(W_IN) / quant_group_size, (W_OUT)*nbit / 32}); \
-    this->resigter(W_NAME + ".qzeros", W_VAR->z, i);                                                      \
+    this->resigter(W_NAME + ".qzeros", W_VAR->z, i, infinicore::weights::DistributionType::W_DIST_TYPE);  \
     weight->W_VAR.push_back(W_VAR);
 
-            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.q_proj", w_attn_q, d, nh * dh);
-            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.k_proj", w_attn_k, d, nkvh * dh);
-            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.v_proj", w_attn_v, d, nkvh * dh);
-            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.q_proj.bias", b_attn_q, {nh * dh}, INFINI_DTYPE_F16);
-            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.k_proj.bias", b_attn_k, {nkvh * dh}, INFINI_DTYPE_F16);
-            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.v_proj.bias", b_attn_v, {nkvh * dh}, INFINI_DTYPE_F16);
-            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.o_proj", w_attn_out, nh * dh, d);
+            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.q_proj", w_attn_q, d, nh * dh, COLUMN);
+            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.k_proj", w_attn_k, d, nkvh * dh, COLUMN);
+            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.v_proj", w_attn_v, d, nkvh * dh, COLUMN);
+            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.q_proj.bias", b_attn_q, {nh * dh}, INFINI_DTYPE_F16, COLUMN);
+            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.k_proj.bias", b_attn_k, {nkvh * dh}, INFINI_DTYPE_F16, COLUMN);
+            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.v_proj.bias", b_attn_v, {nkvh * dh}, INFINI_DTYPE_F16, COLUMN);
+            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.o_proj", w_attn_out, nh * dh, d, ROW);
 
-            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".post_attention_layernorm.weight", w_ffn_norm, {d}, dt_norm_w);
-            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".mlp.gate_proj", w_ffn_gate, d, di);
-            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".mlp.up_proj", w_ffn_up, d, di);
-            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".mlp.down_proj", w_ffn_down, di, d);
+            RIGISTER_LAYER_WEIGHT("model.layers." + std::to_string(layer) + ".post_attention_layernorm.weight", w_ffn_norm, {d}, dt_norm_w, FULL);
+            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".mlp.gate_proj", w_ffn_gate, d, di, COLUMN);
+            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".mlp.up_proj", w_ffn_up, d, di, COLUMN);
+            REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".mlp.down_proj", w_ffn_down, di, d, ROW);
         }
     }
 

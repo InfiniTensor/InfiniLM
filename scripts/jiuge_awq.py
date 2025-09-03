@@ -6,7 +6,6 @@ from libinfinicore_infer import (
     DataType,
     DeviceType,
     load_model_weight,
-    load_model_weight_distributed,
     create_jiuge_awq_weights,
     create_jiuge_awq_model,
     destroy_jiuge_awq_model,
@@ -196,38 +195,15 @@ class JiugeAWQForCausalLM:
                 for key in f.keys():
                     # print(key)
                     tensor = f.get_tensor(key)
-                    if "proj" in key and "bias" not in key:
-                        if "o_proj" in key or "down_proj" in key:
-                            tensor = (
-                                tensor.reshape(tensor.shape[0], self.ndev, -1)
-                                .permute(1, 0, 2)
-                                .contiguous()
-                            )
-                            if "o_proj.scales" in key:
-                                tensor = tensor * self.meta.scale_o
-                            elif "down_proj.scales" in key:
-                                tensor = tensor * self.meta.scale_down
-                            load_model_weight_distributed(
-                                self.weights,
-                                key,
-                                tensor.data_ptr(),
-                                self.dev_ids,
-                                self.ndev,
-                            )
-                        else:
-                            load_model_weight_distributed(
-                                self.weights,
-                                key,
-                                tensor.data_ptr(),
-                                self.dev_ids,
-                                self.ndev,
-                            )
-                    else:
-                        if "embed_tokens.weight" in key:
-                            tensor = tensor * self.meta.scale_input
-                        elif "lm_head.weight" in key:
-                            tensor = tensor * self.meta.scale_output
-                        load_model_weight(self.weights, key, tensor.data_ptr())
+                    if "o_proj.scales" in key:
+                        tensor = tensor * self.meta.scale_o
+                    elif "down_proj.scales" in key:
+                        tensor = tensor * self.meta.scale_down
+                    elif "embed_tokens.weight" in key:
+                        tensor = tensor * self.meta.scale_input
+                    elif "lm_head.weight" in key:
+                        tensor = tensor * self.meta.scale_output
+                    load_model_weight(self.weights, key, tensor.data_ptr())
 
     def max_context_len(self):
         return self.meta.dctx

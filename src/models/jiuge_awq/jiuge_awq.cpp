@@ -351,7 +351,7 @@ void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight
 JiugeAWQModel::JiugeAWQModel(const JiugeAWQMeta *meta, const ModelWeights *weights_) {
     auto weights = (JiugeAWQWeights *)(weights_);
     device = weights->device();
-    dev_ids = weights->dev_ids();
+    dev_ids = weights->devIds();
     int ndev = int(dev_ids.size());
     dev_resources = std::vector<DeviceResource>(ndev);
     states = std::vector<InferState>(ndev);

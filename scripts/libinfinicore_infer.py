@@ -412,16 +412,6 @@ def __open_library__():
     ]
     lib.loadModelWeight.restype = None
 
-    # loadModelWeightDistributed
-    lib.loadModelWeightDistributed.argtypes = [
-        POINTER(ModelWeightsCStruct),  # struct ModelWeights*
-        c_char_p,  # const char* name
-        c_void_p,  # void* data
-        POINTER(c_int),  # int* ranks
-        c_int,  # int nrank
-    ]
-    lib.loadModelWeightDistributed.restype = None
-
     return lib
 
 
@@ -430,10 +420,6 @@ LIB = __open_library__()
 
 def load_model_weight(weights, name, data):
     LIB.loadModelWeight(weights, name.encode("utf-8"), data)
-
-
-def load_model_weight_distributed(weights, name, data, ranks, nrank):
-    LIB.loadModelWeightDistributed(weights, name.encode("utf-8"), data, ranks, nrank)
 
 
 create_jiuge_model = LIB.createJiugeModel

@@ -19,7 +19,7 @@ struct JiugeAWQDeviceWeight {
     std::vector<std::shared_ptr<QuantInt4Weight>> w_attn_q, w_attn_k, w_attn_v, w_attn_out, w_ffn_gate, w_ffn_up, w_ffn_down;
 };
 
-class JiugeAWQWeights : public infinicore::WeightsLoader {
+class JiugeAWQWeights : public infinicore::weights::Loader {
 private:
     std::vector<std::shared_ptr<JiugeAWQDeviceWeight>> _device_weights;
 
