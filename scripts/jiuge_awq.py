@@ -1,31 +1,24 @@
 from typing import List, Sequence
-
-from libinfinicore_infer import (
-    JiugeAWQMetaCStruct,
-    KVCacheCStruct,
-    DataType,
-    DeviceType,
-    load_model_weight,
-    create_jiuge_awq_weights,
-    create_jiuge_awq_model,
-    destroy_jiuge_awq_model,
-    create_kv_cache,
-    drop_kv_cache,
-    infer_batch_jiuge_awq,
-    forward_batch_jiuge_awq,
-)
-from infer_task import InferTask, KVCache
-
-from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import math
 import os
 from pathlib import Path
 import safetensors
 import sys
 import time
 import json
-import math
 import torch
 import transformers
+
+from libs import (
+    JiugeAWQModel,
+    JiugeAWQMetaCStruct,
+    DataType,
+    DeviceType,
+    KVCacheCStruct,
+)
+from infer_task import InferTask, KVCache
+
+from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 
 torch.set_default_device("cpu")
 
@@ -160,8 +153,10 @@ class JiugeAWQForCausalLM:
         self.device = device
         self.meta = JiugeAWQMetaFromConfig(config, max_tokens=max_tokens)
 
-        self.weights = create_jiuge_awq_weights(
-            self.meta,
+        self.jiuge_awq_model = JiugeAWQModel()
+
+        self.weights = self.jiuge_awq_model.create_weights(
+            byref(self.meta),
             self.device,
             ndev,
             self.dev_ids,
@@ -178,12 +173,9 @@ class JiugeAWQForCausalLM:
 
         self.load_all_safetensors_from_dir(os.path.join(model_dir_path))
 
-        self.model_instance = create_jiuge_awq_model(
-            self.meta,
+        self.model_instance = self.jiuge_awq_model.create_model(
+            byref(self.meta),
             self.weights,
-            device,
-            ndev,
-            self.dev_ids,
         )
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
@@ -203,13 +195,15 @@ class JiugeAWQForCausalLM:
                         tensor = tensor * self.meta.scale_input
                     elif "lm_head.weight" in key:
                         tensor = tensor * self.meta.scale_output
-                    load_model_weight(self.weights, key, tensor.data_ptr())
+                    self.jiuge_awq_model.load_weight(
+                        self.weights, key, tensor.data_ptr()
+                    )
 
     def max_context_len(self):
         return self.meta.dctx
 
     def create_kv_cache(self):
-        return create_kv_cache(
+        return self.jiuge_awq_model.create_kv_cache(
             self.meta.nlayer,
             self.meta.dctx,
             self.meta.nkvh,
@@ -222,12 +216,12 @@ class JiugeAWQForCausalLM:
         )
 
     def drop_kv_cache(self, kv_cache):
-        drop_kv_cache(kv_cache)
+        self.jiuge_awq_model.drop_kv_cache(kv_cache)
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
         batch_inputs = JiugeAWQBatchedTask(tasks)
-        infer_batch_jiuge_awq(
+        self.jiuge_awq_model.infer_batch(
             self.model_instance,
             *(batch_inputs.input_args()),
             output,
@@ -308,7 +302,7 @@ class JiugeAWQForCausalLM:
             logits = torch.zeros(
                 (batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits
             )
-            forward_batch_jiuge_awq(
+            self.jiuge_awq_model.forward_batch(
                 self.model_instance,
                 batch_inputs.tokens,
                 batch_inputs.ntok,
@@ -338,14 +332,14 @@ class JiugeAWQForCausalLM:
         return math.exp(nll / total_len)
 
     def destroy_model_instance(self):
-        destroy_jiuge_awq_model(self.model_instance)
+        self.jiuge_awq_model.destroy_model(self.model_instance)
         print("Model destroyed")
 
 
 def test():
     if len(sys.argv) < 3:
         print(
-            "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+            "Usage: python jiuge_awq.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
     model_path = sys.argv[2]
@@ -366,7 +360,7 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_ILUVATAR
     else:
         print(
-            "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+            "Usage: python main_jiuge_awq.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
 
