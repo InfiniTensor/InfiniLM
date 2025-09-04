@@ -9,7 +9,7 @@ import json
 import torch
 import transformers
 
-from libs import (
+from libinfinicore_infer import (
     JiugeModel,
     JiugeMetaCStruct,
     JiugeWeightsCStruct,

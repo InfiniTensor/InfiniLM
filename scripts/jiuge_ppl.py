@@ -2,7 +2,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from jiuge import JiugeForCauslLM
-from libs.base import DeviceType
+from libinfinicore_infer import DeviceType
 
 DEVICE_TYPE_MAP = {
     "cpu": DeviceType.DEVICE_TYPE_CPU,
