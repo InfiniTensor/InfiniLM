@@ -1,4 +1,5 @@
 from .base import BaseModel, DataType, DeviceType, KVCacheCStruct
+from .model_register import ModelRegister
 from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER, Structure, byref
 
 
@@ -42,14 +43,14 @@ class JiugeModelCStruct(Structure):
     pass
 
 
+@ModelRegister.model
 class JiugeModel(BaseModel):
     def __init__(self):
         super().__init__()
-        self._setup_library_functions()
 
-    def _setup_library_functions(self):
-        lib = self.lib
-
+    @classmethod
+    def register_lib(cls, lib):
+        """Register Jiuge model functions with the library"""
         lib.createJiugeModel.restype = POINTER(JiugeModelCStruct)
         lib.createJiugeModel.argtypes = [
             POINTER(JiugeMetaCStruct),

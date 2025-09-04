@@ -1,4 +1,5 @@
 from .base import BaseModel, DataType, DeviceType, KVCacheCStruct
+from .model_register import ModelRegister
 from ctypes import (
     c_size_t,
     c_uint,
@@ -114,14 +115,14 @@ class DeepSeekV3WeightLoaderCStruct(Structure):
     ]
 
 
+@ModelRegister.model
 class DeepSeekV3Model(BaseModel):
     def __init__(self):
         super().__init__()
-        self._setup_library_functions()
 
-    def _setup_library_functions(self):
-        lib = self.lib
-
+    @classmethod
+    def register_lib(cls, lib):
+        """Register DeepSeekV3 model functions with the library"""
         lib.createDeepSeekV3WeightLoader.argtypes = []
         lib.createDeepSeekV3WeightLoader.restype = POINTER(
             DeepSeekV3WeightLoaderCStruct

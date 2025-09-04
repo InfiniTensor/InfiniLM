@@ -1,6 +1,7 @@
 import ctypes
 from ctypes import c_char, c_char_p, c_size_t, c_uint, c_int, c_float, c_void_p, POINTER
 import os
+from .model_register import ModelRegister
 
 
 class DataType(ctypes.c_int):
@@ -43,6 +44,7 @@ class KVCacheCStruct(ctypes.Structure):
 class BaseModel:
     def __init__(self):
         self.lib = self._load_library()
+        ModelRegister.register_lib(self.lib)
 
     def _load_library(self):
         lib_path = os.path.join(

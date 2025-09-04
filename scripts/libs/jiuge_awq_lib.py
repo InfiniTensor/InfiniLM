@@ -1,4 +1,5 @@
 from .base import BaseModel, DataType, DeviceType, KVCacheCStruct
+from .model_register import ModelRegister
 from ctypes import (
     c_size_t,
     c_uint,
@@ -42,14 +43,14 @@ class JiugeAWQModelCStruct(Structure):
     pass
 
 
+@ModelRegister.model
 class JiugeAWQModel(BaseModel):
     def __init__(self):
         super().__init__()
-        self._setup_library_functions()
 
-    def _setup_library_functions(self):
-        lib = self.lib
-
+    @classmethod
+    def register_lib(cls, lib):
+        """Register JiugeAWQ model functions with the library"""
         lib.createJiugeAWQWeights.restype = POINTER(ModelWeightsCStruct)
         lib.createJiugeAWQWeights.argtypes = [
             POINTER(JiugeAWQMetaCStruct),
