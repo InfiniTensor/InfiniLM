@@ -1,5 +1,4 @@
-from .base import BaseModel, DataType, DeviceType, KVCacheCStruct
-from .model_register import ModelRegister
+from .base import BaseModel, DataType, DeviceType, KVCacheCStruct, register_model
 from ctypes import (
     c_size_t,
     c_uint,
@@ -43,11 +42,8 @@ class JiugeAWQModelCStruct(Structure):
     pass
 
 
-@ModelRegister.model
+@register_model
 class JiugeAWQModel(BaseModel):
-    def __init__(self):
-        super().__init__()
-
     @classmethod
     def register_lib(cls, lib):
         """Register JiugeAWQ model functions with the library"""

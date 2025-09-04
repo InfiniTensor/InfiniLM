@@ -1,7 +1,6 @@
 import ctypes
 from ctypes import c_char, c_char_p, c_size_t, c_uint, c_int, c_float, c_void_p, POINTER
 import os
-from .model_register import ModelRegister
 
 
 class DataType(ctypes.c_int):
@@ -41,10 +40,26 @@ class KVCacheCStruct(ctypes.Structure):
     pass
 
 
+# Model registration system
+_model_registry = []
+
+
+def register_model(model_class):
+    """Decorator to register a model class"""
+    _model_registry.append(model_class)
+    return model_class
+
+
+def register_lib_functions(lib):
+    """Register all model functions with the library"""
+    for model_class in _model_registry:
+        model_class.register_lib(lib)
+
+
 class BaseModel:
     def __init__(self):
         self.lib = self._load_library()
-        ModelRegister.register_lib(self.lib)
+        register_lib_functions(self.lib)
 
     def _load_library(self):
         lib_path = os.path.join(

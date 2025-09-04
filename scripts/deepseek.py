@@ -3,13 +3,12 @@ from typing import List, Sequence
 
 from tqdm import tqdm
 
-from libs import (
+from libs.deepseek_v3_lib import (
     DeepSeekV3Model,
     DeepSeekV3MetaCStruct,
-    DataType,
-    DeviceType,
     DeepSeekV3CacheCStruct,
 )
+from libs.base import DataType, DeviceType
 from infer_task import InferTask, KVCache
 
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
