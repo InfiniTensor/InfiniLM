@@ -466,20 +466,6 @@ class JiugeForCauslLM:
             )
             self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
-            backend = getattr(self.tokenizer, "backend_tokenizer", None)
-            target = getattr(backend, "_tokenizer", backend)
-            norm = getattr(target, "normalizer", None)
-            dec = getattr(target, "decoder", None)
-            sn = repr(norm)[:800] if norm is not None else ""
-            sd = repr(dec)[:800] if dec is not None else ""
-            has_prepend = "Prepend" in sn
-            has_strip = "Strip" in sd
-            if has_prepend and has_strip:
-                target.decoder = _dec.Sequence([
-                    _dec.Replace("▁", " "),
-                    _dec.ByteFallback(),
-                    _dec.Fuse(),
-                ])
             self.weights = JiugeWeightsImpl(
                 self.meta,
                 LlamaWeightsNaming(),
@@ -554,6 +540,20 @@ class JiugeForCauslLM:
         else:
             raise ValueError("Unsupported model architecture")
 
+        backend = getattr(self.tokenizer, "backend_tokenizer", None)
+        target = getattr(backend, "_tokenizer", backend)
+        norm = getattr(target, "normalizer", None)
+        dec = getattr(target, "decoder", None)
+        sn = repr(norm)[:800] if norm is not None else ""
+        sd = repr(dec)[:800] if dec is not None else ""
+        has_prepend = "Prepend" in sn
+        has_strip = "Strip" in sd
+        if has_prepend and has_strip:
+            target.decoder = _dec.Sequence([
+                _dec.Replace("▁", " "),
+                _dec.ByteFallback(),
+                _dec.Fuse(),
+            ])
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
