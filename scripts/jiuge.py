@@ -1,31 +1,25 @@
 from typing import List, Sequence
-
-from sympy import true
-from libinfinicore_infer import (
-    JiugeMetaCStruct,
-    JiugeWeightsCStruct,
-    KVCacheCStruct,
-    DataType,
-    DeviceType,
-    create_jiuge_model,
-    destroy_jiuge_model,
-    create_kv_cache,
-    drop_kv_cache,
-    infer_batch_jiuge,
-    forward_batch_jiuge,
-)
-from infer_task import InferTask, KVCache
-
-from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import math
 import os
 from pathlib import Path
 import safetensors
 import sys
 import time
 import json
-import math
 import torch
 import transformers
+
+from libinfinicore_infer import (
+    JiugeModel,
+    JiugeMetaCStruct,
+    JiugeWeightsCStruct,
+    DataType,
+    DeviceType,
+    KVCacheCStruct,
+)
+from infer_task import InferTask, KVCache
+
+from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 
 torch.set_default_device("cpu")
 
@@ -419,6 +413,9 @@ class JiugeForCauslLM:
         transpose_weight = (
             device != DeviceType.DEVICE_TYPE_ASCEND
         )  # y = xW is faster than y=xW^T on Ascend
+
+        self.jiuge_model = JiugeModel()
+
         if "llama" == config["model_type"]:
             model = (
                 transformers.LlamaForCausalLM.from_pretrained(model_dir_path)
@@ -509,7 +506,8 @@ class JiugeForCauslLM:
         self.dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
         self.ndev = ndev
         self.device = device
-        self.model_instance = create_jiuge_model(
+
+        self.model_instance = self.jiuge_model.create_model(
             byref(self.meta),
             byref(self.weights),
             device,
@@ -523,7 +521,7 @@ class JiugeForCauslLM:
         return self.meta.dctx
 
     def create_kv_cache(self):
-        return create_kv_cache(
+        return self.jiuge_model.create_kv_cache(
             self.meta.nlayer,
             self.meta.dctx,
             self.meta.nkvh,
@@ -536,12 +534,12 @@ class JiugeForCauslLM:
         )
 
     def drop_kv_cache(self, kv_cache):
-        drop_kv_cache(kv_cache)
+        self.jiuge_model.drop_kv_cache(kv_cache)
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
         batch_inputs = JiugeBatchedTask(tasks)
-        infer_batch_jiuge(
+        self.jiuge_model.infer_batch(
             self.model_instance,
             *(batch_inputs.input_args()),
             output,
@@ -621,7 +619,7 @@ class JiugeForCauslLM:
             logits = torch.zeros(
                 (batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits
             )
-            forward_batch_jiuge(
+            self.jiuge_model.forward_batch(
                 self.model_instance,
                 batch_inputs.tokens,
                 batch_inputs.ntok,
@@ -651,7 +649,7 @@ class JiugeForCauslLM:
         return math.exp(nll / total_len)
 
     def destroy_model_instance(self):
-        destroy_jiuge_model(self.model_instance)
+        self.jiuge_model.destroy_model(self.model_instance)
         print("Model destroyed")
 
 

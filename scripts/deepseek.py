@@ -4,17 +4,11 @@ from typing import List, Sequence
 from tqdm import tqdm
 
 from libinfinicore_infer import (
+    DeepSeekV3Model,
     DeepSeekV3MetaCStruct,
     DeepSeekV3CacheCStruct,
     DataType,
     DeviceType,
-    create_deepseek_v3_model,
-    create_deepseek_v3_weights,
-    create_deepseek_v3_weight_loader,
-    destroy_deepseek_v3_model,
-    create_deepseek_v3_cache,
-    drop_deepseek_v3_cache,
-    infer_batch_deepseek_v3,
 )
 from infer_task import InferTask, KVCache
 
@@ -306,9 +300,12 @@ def load_deepseek_weights(
     model_path: str,
     ndev: int,
 ):
-    weight_loader = create_deepseek_v3_weight_loader()
+    model_instance = DeepSeekV3Model()
+    weight_loader = model_instance.create_weight_loader()
     names = DeepseekR1WeightsNaming()
-    input_embd = load_specific_tensor(model_path, names.input_embd()).to(meta.torch_dtype_logits)
+    input_embd = load_specific_tensor(model_path, names.input_embd()).to(
+        meta.torch_dtype_logits
+    )
     weight_loader.contents.load_input_embd(weights, input_embd.data_ptr())
     del input_embd
 
@@ -590,7 +587,9 @@ class DeepSeekV3ForCauslLM:
         print(model_dir_path)
 
         if "deepseek_v3" == config["model_type"]:
-            self.meta = DeepSeekV3Meta(config, max_tokens=max_tokens, dtype=torch.float16)
+            self.meta = DeepSeekV3Meta(
+                config, max_tokens=max_tokens, dtype=torch.float16
+            )
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
         else:
             raise ValueError("Unsupported model architecture")
@@ -598,16 +597,18 @@ class DeepSeekV3ForCauslLM:
         print(f"Creating model on {ndev} devices...")
         load_start_time = time.time()
         dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
-        weights = create_deepseek_v3_weights(
-            self.meta,
+
+        self.model_instance = DeepSeekV3Model()
+        weights = self.model_instance.create_weights(
+            byref(self.meta),
             device,
             ndev,
             dev_ids,
         )
         # Load weights from host
-        # load_deepseek_weights(self.meta, weights, model_dir_path, ndev)
+        load_deepseek_weights(self.meta, weights, model_dir_path, ndev)
         # Create model instance
-        self.model_instance = create_deepseek_v3_model(
+        self.model_ptr = self.model_instance.create_model(
             byref(self.meta),
             weights,
         )
@@ -618,16 +619,16 @@ class DeepSeekV3ForCauslLM:
         return self.meta.dctx
 
     def create_kv_cache(self):
-        return create_deepseek_v3_cache(self.model_instance)
+        return self.model_instance.create_cache(self.model_ptr)
 
     def drop_kv_cache(self, kv_cache):
-        drop_deepseek_v3_cache(self.model_instance, kv_cache)
+        self.model_instance.drop_cache(self.model_ptr, kv_cache)
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
         batch_inputs = DeepSeekV3BatchedTask(tasks)
-        infer_batch_deepseek_v3(
-            self.model_instance,
+        self.model_instance.infer_batch(
+            self.model_ptr,
             *(batch_inputs.input_args()),
             output,
         )
@@ -639,7 +640,7 @@ class DeepSeekV3ForCauslLM:
             add_generation_prompt=True,
             tokenize=False,
         )
-        
+
         tokens = self.tokenizer.encode(input_content)
         infer_task = InferTask(
             0,
@@ -736,7 +737,7 @@ class DeepSeekV3ForCauslLM:
     #     return math.exp(nll / total_len)
 
     def destroy_model_instance(self):
-        destroy_deepseek_v3_model(self.model_instance)
+        self.model_instance.destroy_model(self.model_ptr)
         print("Model destroyed")
 
 
