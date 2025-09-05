@@ -3,7 +3,7 @@
 
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
-#include "../inference_context.hpp"
+#include "../../context/inference_context.hpp"
 #include "infinicore_infer.h"
 
 #include <random>

@@ -1,14 +1,14 @@
 #include "jiuge_awq.hpp"
 
+#include "../../context/inference_context.hpp"
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
-#include "../inference_context.hpp"
 
 #include <random>
 #include <thread>
 #include <vector>
 
-void createDeviceResource(DeviceResource *rsrc, const JiugeAWQMeta *meta,
+void createDeviceResource(JiugeAWQDeviceResource *rsrc, const JiugeAWQMeta *meta,
                           std::shared_ptr<JiugeAWQDeviceWeight> weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
@@ -21,7 +21,7 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeAWQMeta *meta,
 
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
-    *rsrc = DeviceResource{
+    *rsrc = JiugeAWQDeviceResource{
         device,
         dev_id,
         handle,
@@ -33,7 +33,7 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeAWQMeta *meta,
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
-void releaseDeviceResource(DeviceResource &res) {
+void releaseDeviceResource(JiugeAWQDeviceResource &res) {
     infinirtDeviceSynchronize();
     // Release individual Tensors
 
@@ -45,7 +45,7 @@ void releaseDeviceResource(DeviceResource &res) {
     res.comm = nullptr;
 }
 
-void inferDeviceBatch(const JiugeAWQMeta *meta, DeviceResource &rsrc,
+void inferDeviceBatch(const JiugeAWQMeta *meta, JiugeAWQDeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -307,7 +307,7 @@ forwardBatchJiugeAWQ(struct JiugeAWQModel *model,
     }
 }
 
-void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight> weights, DeviceResource *rsrc, InferState &state, InferRequest &req,
+void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight> weights, JiugeAWQDeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
     // Create Device Resource
     createDeviceResource(rsrc, meta, weights, device, idev, ndev, dev_id, comm);
@@ -353,7 +353,7 @@ JiugeAWQModel::JiugeAWQModel(const JiugeAWQMeta *meta, const ModelWeights *weigh
     device = weights->device();
     dev_ids = weights->devIds();
     int ndev = int(dev_ids.size());
-    dev_resources = std::vector<DeviceResource>(ndev);
+    dev_resources = std::vector<JiugeAWQDeviceResource>(ndev);
     states = std::vector<InferState>(ndev);
     threads.resize(ndev);
 

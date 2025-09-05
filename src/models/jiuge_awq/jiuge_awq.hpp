@@ -32,7 +32,7 @@ public:
     }
 };
 
-struct DeviceResource {
+struct JiugeAWQDeviceResource {
     // Device
     infiniDevice_t device;
     int device_id;
@@ -73,7 +73,7 @@ struct JiugeAWQModel {
     JiugeAWQMeta meta;
     infiniDevice_t device;
     std::vector<int> dev_ids;
-    std::vector<DeviceResource> dev_resources;
+    std::vector<JiugeAWQDeviceResource> dev_resources;
     std::vector<InferState> states;
     std::vector<std::thread> threads;
     InferRequest req;

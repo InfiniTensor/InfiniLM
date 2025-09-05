@@ -42,7 +42,7 @@ Loader::Loader(infiniDevice_t dev, const std::vector<int> &dev_ids) : _device(de
         RUN_INFINI(infinirtStreamCreate(&_streams[rank]));
     }
 }
-void Loader::resigter(const std::string &name, std::shared_ptr<Tensor> tensor, int rank, DistributionType dist_type) {
+void Loader::register_weight(const std::string &name, std::shared_ptr<Tensor> tensor, int rank, DistributionType dist_type) {
     _weights_maps[rank][name] = std::make_shared<Weight>(tensor, rank, _dev_ids.size(), dist_type);
 }
 void Loader::load(const std::string &name, const void *host_data) {
@@ -72,7 +72,7 @@ void Loader::finalize() {
     }
     RUN_INFINI(infinirtSetDevice(_device, dev_id));
 }
-std::shared_ptr<Tensor> Loader::get(const std::string &name, int rank) {
+Tensor *Loader::get(const std::string &name, int rank) {
     return _weights_maps[rank][name]->tensor();
 }
 

@@ -415,25 +415,25 @@ void load_mlp_experts(DeepSeekV3Weights *weights,
 
 static DeepSeekV3WeightLoader weight_loader = {
     // Global
-    .load_input_embd = load_input_embd,
-    .load_output_norm = load_output_norm,
-    .load_output_embd = load_output_embd,
+    load_input_embd,
+    load_output_norm,
+    load_output_embd,
     // Attention
-    .load_attn_norm = load_attn_norm,
-    .load_attn_q_a_proj = load_attn_q_a_proj,
-    .load_attn_q_a_layernorm = load_attn_q_a_layernorm,
-    .load_attn_q_b_proj = load_attn_q_b_proj,
-    .load_attn_kv_a_proj_with_mqa = load_attn_kv_a_proj_with_mqa,
-    .load_attn_kv_a_layernorm = load_attn_kv_a_layernorm,
-    .load_attn_kv_b_proj = load_attn_kv_b_proj,
-    .load_attn_o_proj = load_attn_o_proj,
+    load_attn_norm,
+    load_attn_q_a_proj,
+    load_attn_q_a_layernorm,
+    load_attn_q_b_proj,
+    load_attn_kv_a_proj_with_mqa,
+    load_attn_kv_a_layernorm,
+    load_attn_kv_b_proj,
+    load_attn_o_proj,
     // MLP
-    .load_mlp_norm = load_mlp_norm,
-    .load_mlp_dense = load_mlp_dense,
-    .load_mlp_gate_weight = load_mlp_gate_weight,
-    .load_mlp_gate_bias = load_mlp_gate_bias,
-    .load_mlp_shared_experts = load_mlp_shared_experts,
-    .load_mlp_experts = load_mlp_experts,
+    load_mlp_norm,
+    load_mlp_dense,
+    load_mlp_gate_weight,
+    load_mlp_gate_bias,
+    load_mlp_shared_experts,
+    load_mlp_experts,
 };
 
 __C DeepSeekV3Weights *
