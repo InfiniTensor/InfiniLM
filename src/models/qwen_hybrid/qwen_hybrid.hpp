@@ -34,7 +34,7 @@ struct InferState {
 
 struct QwenHybridLayer {
     std::shared_ptr<infinicore::nn::module::RMSNorm> input_norm;
-    std::shared_ptr<infinicore::nn::module::SelfAttention> self_attn;
+    std::shared_ptr<infinicore::nn::module::MultiHeadAttention> multi_head_attn;
     std::shared_ptr<infinicore::nn::module::RMSNorm> post_attn_norm;
     std::shared_ptr<infinicore::nn::module::MLP> mlp;
 
