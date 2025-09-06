@@ -53,7 +53,7 @@ QwenHybridLayer::QwenHybridLayer(const QwenHybridMeta *meta, size_t layer, int r
     input_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits);
     input_norm->register_weights(weights_loader, "model.layers." + std::to_string(layer) + ".input_layernorm", rank);
     multi_head_attn = infinicore::nn::module::MultiHeadAttention::init(meta->dt_logits, meta->d, meta->nh, meta->nkvh, meta->dh, meta->dh, nranks, meta->has_qkv_bias, false);
-    multi_head_attn->register_weights(weights_loader, "model.layers." + std::to_string(layer) + ".multi_head_attn", rank);
+    multi_head_attn->register_weights(weights_loader, "model.layers." + std::to_string(layer) + ".self_attn", rank);
     post_attn_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits);
     post_attn_norm->register_weights(weights_loader, "model.layers." + std::to_string(layer) + ".post_attention_layernorm", rank);
     mlp = infinicore::nn::module::MLP::init(meta->d, meta->di, meta->dt_logits, nranks);
@@ -69,9 +69,9 @@ QwenHybridDeviceModel::QwenHybridDeviceModel(const QwenHybridMeta *meta, int ran
         layers[layer] = std::make_shared<QwenHybridLayer>(meta, layer, rank, nranks, weights_loader);
     }
     output_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits);
-    output_norm->register_weights(weights_loader, "model.norm.weight", rank);
+    output_norm->register_weights(weights_loader, "model.norm", rank);
     output_embedding = infinicore::nn::module::Linear::init(meta->d, meta->dvoc, meta->dt_logits);
-    output_embedding->register_weights(weights_loader, "lm_head.weight", rank);
+    output_embedding->register_weights(weights_loader, "lm_head", rank);
 }
 
 void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {

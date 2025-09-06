@@ -18,21 +18,22 @@ std::shared_ptr<MLP> MLP::init(size_t hidden_size, size_t intermediate_size, inf
 
 void MLP::register_weights(infinicore::weights::Loader &loader, const std::string &name_prefix, int rank) {
     if (gate != nullptr) {
-        gate->register_weights(loader, name_prefix + ".gate_proj.weight", rank);
+        gate->register_weights(loader, name_prefix + ".gate_proj", rank);
     }
     if (up != nullptr) {
-        up->register_weights(loader, name_prefix + ".up_proj.weight", rank);
+        up->register_weights(loader, name_prefix + ".up_proj", rank);
     }
     if (down != nullptr) {
-        down->register_weights(loader, name_prefix + ".down_proj.weight", rank);
+        down->register_weights(loader, name_prefix + ".down_proj", rank);
     }
 }
 
 void MLP::forward(std::shared_ptr<Tensor> output, std::shared_ptr<Tensor> input, std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> gate_up_buf) {
-    gate->forward(gate_up_buf, input, nullptr);
     size_t di = gate_up_buf->shape()[0] / 2;
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
+    gate->forward(gate_buf, input, nullptr);
+    up->forward(up_buf, input, nullptr);
     getInferenceContext().swiglu(gate_buf, up_buf, gate_buf);
     down->forward(output, gate_buf, residual);
 }
