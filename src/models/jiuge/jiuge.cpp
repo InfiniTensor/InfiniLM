@@ -161,25 +161,6 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
                                        INFINIRT_MEMCPY_H2D, stream));
     }
-    {
-        // Print first 10 values of logits_in before RMSNorm
-        std::cout << "rsrc.w_in_embd first 10 values: ";
-
-        // Synchronize and copy first 10 elements to CPU
-        RUN_INFINI(infinirtStreamSynchronize(stream));
-        std::vector<float> cpu_data(10);
-        RUN_INFINI(infinirtMemcpy(cpu_data.data(), rsrc.w_in_embd->data(),
-                                  sizeof(float) * 10, INFINIRT_MEMCPY_D2H));
-
-        std::cout << "[";
-        for (int i = 0; i < 10; i++) {
-            std::cout << cpu_data[i];
-            if (i < 9) {
-                std::cout << ", ";
-            }
-        }
-        std::cout << "]" << std::endl;
-    }
     for (uint32_t i = 0; i < ntok; i++) {
         RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
                                        rsrc.w_in_embd->data(tokens[i] * d),

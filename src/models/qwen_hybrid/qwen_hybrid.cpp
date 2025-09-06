@@ -226,26 +226,6 @@ void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
         // 1. Attention
         // RMS norm
         layer_module->input_norm->forward(logits_out, logits_in);
-        // if (layer == 0) {
-        //     // Print first 10 values of logits_out after RMSNorm
-        //     std::cout << "Layer 0 - After RMSNorm - logits_out first 10 values: ";
-
-        //     // Synchronize and copy first 10 elements to CPU
-        //     RUN_INFINI(infinirtStreamSynchronize(stream));
-        //     std::vector<float> cpu_data(10);
-        //     RUN_INFINI(infinirtMemcpy(cpu_data.data(), logits_out->data(),
-        //                               sizeof(float) * 10, INFINIRT_MEMCPY_D2H));
-
-        //     std::cout << "[";
-        //     for (int i = 0; i < 10; i++) {
-        //         std::cout << cpu_data[i];
-        //         if (i < 9) {
-        //             std::cout << ", ";
-        //         }
-        //     }
-        //     std::cout << "]" << std::endl;
-        // }
-        // std::abort();
 
         // Multi-head attention
         layer_module->multi_head_attn->forward(
@@ -337,23 +317,6 @@ void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
         }
     }
 }
-
-// void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
-//     uint32_t nlayer = layers.size();
-//     auto nh = layers[0]->multi_head_attn->n_q_heads / layers[0]->multi_head_attn->q_proj->nranks;
-
-//     auto logits_out = Tensor::weight(nullptr, input_embedding->dtype(), input_embedding->shape());
-//     // auto attn_score_buf = Tensor::buffer(input_embedding->dtype(), {nh * max_qk_size}, rsrc.memory_pool);
-
-//     for (uint32_t i = 0; i < nlayer; ++i) {
-//         auto layer = layers[i];
-//         layer->input_norm->forward(logits_out, input_embedding);
-//         // layer->multi_head_attn->forward(input_embedding,
-//         //     logits_out,
-//         //     input_embedding,
-//         //     );
-//     }
-// }
 
 void launchDevice(const QwenHybridMeta *meta, InferState *state, InferRequest *req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm, infinicore::weights::Loader *weights_loader) {

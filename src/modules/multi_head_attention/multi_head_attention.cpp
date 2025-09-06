@@ -77,47 +77,11 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
     auto ngroup = n_q_heads / n_kv_heads;
     std::cout << "ntok: " << ntok << ", hidden_size: " << hidden_size << ", ngroup: " << ngroup << std::endl;
     // Project Q, K, V
-    // {
-    //     std::cout << "Before q_proj - input first 10 values: ";
-
-    //     // Synchronize and copy first 10 elements to CPU
-    //     std::vector<float> cpu_data(10);
-    //     RUN_INFINI(infinirtMemcpy(cpu_data.data(), input->data(),
-    //                               sizeof(float) * 10, INFINIRT_MEMCPY_D2H));
-
-    //     std::cout << input->info() << "[";
-    //     for (int i = 0; i < 10; i++) {
-    //         std::cout << cpu_data[i];
-    //         if (i < 9) {
-    //             std::cout << ", ";
-    //         }
-    //     }
-    //     std::cout << "]" << std::endl;
-    // }
     auto q_buf = Tensor::buffer(input->dtype(), {ntok, n_q_heads * head_dim}, context.memory_pool);
     auto k_buf = Tensor::buffer(input->dtype(), {ntok, n_kv_heads * head_dim}, context.memory_pool);
     auto v_buf = Tensor::buffer(input->dtype(), {ntok, n_kv_heads * head_dim}, context.memory_pool);
 
     q_proj->forward(q_buf, input->permute({0, 1}), nullptr);
-    // k_proj->forward(k_buf, input, nullptr);
-    // v_proj->forward(v_buf, input, nullptr);
-    // {
-    //     std::cout << "After q_proj - q_buf first 10 values: ";
-
-    //     // Synchronize and copy first 10 elements to CPU
-    //     std::vector<float> cpu_data(10);
-    //     RUN_INFINI(infinirtMemcpy(cpu_data.data(), q_buf->data(),
-    //                               sizeof(float) * 10, INFINIRT_MEMCPY_D2H));
-
-    //     std::cout << q_buf->info() << "[";
-    //     for (int i = 0; i < 10; i++) {
-    //         std::cout << cpu_data[i];
-    //         if (i < 9) {
-    //             std::cout << ", ";
-    //         }
-    //     }
-    //     std::cout << "]" << std::endl;
-    // }
 
     // Apply normalization if enabled
     if (q_norm != nullptr) {
