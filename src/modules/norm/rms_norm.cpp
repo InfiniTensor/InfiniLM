@@ -3,11 +3,18 @@
 #include "../../context/inference_context.hpp"
 
 namespace infinicore::nn::module {
-std::shared_ptr<RMSNorm> RMSNorm::init(size_t dim, infiniDtype_t dtype) {
+std::shared_ptr<RMSNorm> RMSNorm::init(size_t dim, infiniDtype_t dtype, float epsilon) {
     auto rms_norm = std::shared_ptr<RMSNorm>(new RMSNorm());
-
+    rms_norm->weight = Tensor::weight(nullptr, dtype, {dim});
+    rms_norm->epsilon = epsilon;
     return rms_norm;
 }
-void RMSNorm::register_weights(infinicore::weights::Loader &loader, const std::string &name_prefix, int rank) {}
-void RMSNorm::forward(std::shared_ptr<Tensor> output, std::shared_ptr<Tensor> input) {}
+
+void RMSNorm::register_weights(infinicore::weights::Loader &loader, const std::string &name_prefix, int rank) {
+    loader.register_weight(name_prefix + ".weight", weight, rank, weights::DistributionType::FULL);
+}
+
+void RMSNorm::forward(std::shared_ptr<Tensor> output, std::shared_ptr<Tensor> input) {
+    getInferenceContext().rmsnorm(output, input, this->weight, this->epsilon);
+}
 } // namespace infinicore::nn::module
