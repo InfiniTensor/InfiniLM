@@ -129,9 +129,9 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
 
         // Update KV caches for this request
         std::cout << "slicing kc" << std::endl;
-        context.rearrange(k_caches[req], k);
+        context.rearrange(k_caches[req]->slice(0, past_len, seq_len), k);
         std::cout << "slicing vc" << std::endl;
-        context.rearrange(v_caches[req], v);
+        context.rearrange(v_caches[req]->slice(0, past_len, seq_len), v);
         std::cout << "sliced kvc" << std::endl;
 
         // Prepare attention computation

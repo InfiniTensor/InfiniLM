@@ -116,7 +116,8 @@ inline std::shared_ptr<Tensor> getCosTable(QwenHybridMeta const *meta) {
     return tensor;
 }
 
-QwenHybridDeviceModel::QwenHybridDeviceModel(const QwenHybridMeta *meta, int rank, int nranks, infinicore::weights::Loader &weights_loader) {
+QwenHybridDeviceModel::QwenHybridDeviceModel(const QwenHybridMeta *meta, int rank_, int nranks_, infinicore::weights::Loader &weights_loader)
+    : rank(rank_), nranks(nranks_) {
     input_embedding = Tensor::weight(nullptr, meta->dt_logits, {meta->dvoc, meta->d});
     sin_table = getSinTable(meta);
     cos_table = getCosTable(meta);
@@ -139,7 +140,6 @@ void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
     auto dt_logits = input_embedding->dtype();
     auto stream = rsrc.stream;
     auto nlayer = layers.size();
-    auto idev = rsrc.device_id;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -189,12 +189,16 @@ void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
 
     // Compute max sequence length for attention
     size_t max_seq_len = 0;
+    size_t max_qk_size = 0;
     for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
-        max_seq_len = std::max(max_seq_len, size_t(req->req_lens[req_idx]));
+        size_t req_len = req->req_lens[req_idx];
+        size_t past_len = req->req_pos[req_idx];
+        max_seq_len = std::max(max_seq_len, req_len);
+        max_qk_size = std::max(max_qk_size, req_len * (past_len + req_len));
     }
 
     // Allocate attention score and value buffers
-    auto attn_score_buf = Tensor::buffer(dt_logits, {nh * max_seq_len * max_seq_len}, rsrc.memory_pool);
+    auto attn_score_buf = Tensor::buffer(dt_logits, {nh * max_qk_size}, rsrc.memory_pool);
     auto attn_val_buf = Tensor::buffer(dt_logits, {nh * max_seq_len * dh}, rsrc.memory_pool);
 
     // Prepare KV cache vectors for each layer
@@ -210,8 +214,8 @@ void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
             auto seq_len = req->req_lens[req_idx];
 
             // Extract the appropriate slices from KV cache
-            auto k_cache = req->kv_caches[req_idx]->k[idev][layer]->slice(0, past_len, past_len + seq_len);
-            auto v_cache = req->kv_caches[req_idx]->v[idev][layer]->slice(0, past_len, past_len + seq_len);
+            auto k_cache = req->kv_caches[req_idx]->k[rank][layer]->slice(0, 0, past_len + seq_len);
+            auto v_cache = req->kv_caches[req_idx]->v[rank][layer]->slice(0, 0, past_len + seq_len);
 
             k_caches_per_layer[layer].push_back(k_cache);
             v_caches_per_layer[layer].push_back(v_cache);

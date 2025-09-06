@@ -46,6 +46,7 @@ struct QwenHybridDeviceModel {
     std::vector<std::shared_ptr<QwenHybridLayer>> layers;
     std::shared_ptr<infinicore::nn::module::RMSNorm> output_norm;
     std::shared_ptr<infinicore::nn::module::Linear> output_embedding;
+    int rank, nranks;
 
     QwenHybridDeviceModel(const QwenHybridMeta *meta, int rank, int nranks, infinicore::weights::Loader &weights_loader);
 
