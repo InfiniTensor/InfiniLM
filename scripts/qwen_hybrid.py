@@ -163,7 +163,6 @@ class QwenHybridForCausalLM:
             with safetensors.safe_open(file, framework="pt", device="cpu") as f:
                 for key in f.keys():
                     tensor = f.get_tensor(key)
-                    print(key)
                     self.qwen_hybrid_model.load_weight(
                         self.weights, key, tensor.data_ptr()
                     )
