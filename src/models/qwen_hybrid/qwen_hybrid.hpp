@@ -42,7 +42,7 @@ struct QwenHybridLayer {
 };
 
 struct QwenHybridDeviceModel {
-    std::shared_ptr<Tensor> input_embedding;
+    std::shared_ptr<Tensor> input_embedding, sin_table, cos_table;
     std::vector<std::shared_ptr<QwenHybridLayer>> layers;
     std::shared_ptr<infinicore::nn::module::RMSNorm> output_norm;
     std::shared_ptr<infinicore::nn::module::Linear> output_embedding;

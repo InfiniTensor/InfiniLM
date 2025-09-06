@@ -10,7 +10,8 @@ private:
 
 public:
     std::shared_ptr<Tensor> weight;
-    static std::shared_ptr<RMSNorm> init(size_t dim, infiniDtype_t dtype);
+    float epsilon;
+    static std::shared_ptr<RMSNorm> init(size_t dim, infiniDtype_t dtype, float epsilon);
     void register_weights(infinicore::weights::Loader &loader, const std::string &name_prefix = "", int rank = 0);
     void forward(std::shared_ptr<Tensor> output, std::shared_ptr<Tensor> input);
 };

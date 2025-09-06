@@ -1,9 +1,9 @@
 #include "jiuge_impl.hpp"
 #include "jiuge_weight.hpp"
 
+#include "../../context/inference_context.hpp"
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
-#include "../../context/inference_context.hpp"
 #include "infinicore_infer.h"
 
 #include <random>
@@ -161,6 +161,25 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
                                        INFINIRT_MEMCPY_H2D, stream));
     }
+    {
+        // Print first 10 values of logits_in before RMSNorm
+        std::cout << "rsrc.w_in_embd first 10 values: ";
+
+        // Synchronize and copy first 10 elements to CPU
+        RUN_INFINI(infinirtStreamSynchronize(stream));
+        std::vector<float> cpu_data(10);
+        RUN_INFINI(infinirtMemcpy(cpu_data.data(), rsrc.w_in_embd->data(),
+                                  sizeof(float) * 10, INFINIRT_MEMCPY_D2H));
+
+        std::cout << "[";
+        for (int i = 0; i < 10; i++) {
+            std::cout << cpu_data[i];
+            if (i < 9) {
+                std::cout << ", ";
+            }
+        }
+        std::cout << "]" << std::endl;
+    }
     for (uint32_t i = 0; i < ntok; i++) {
         RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
                                        rsrc.w_in_embd->data(tokens[i] * d),
@@ -299,11 +318,11 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
 
 __C void
 inferBatchJiuge(struct JiugeModel *model,
-           const uint32_t *tokens, uint32_t ntok,
-           const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-           struct KVCache **kv_caches,
-           const float *temperature, const uint32_t *topk, const float *topp,
-           uint32_t *output) {
+                const uint32_t *tokens, uint32_t ntok,
+                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                struct KVCache **kv_caches,
+                const float *temperature, const uint32_t *topk, const float *topp,
+                uint32_t *output) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -332,10 +351,10 @@ inferBatchJiuge(struct JiugeModel *model,
 
 __C void
 forwardBatchJiuge(struct JiugeModel *model,
-             const uint32_t *tokens, uint32_t ntok,
-             const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-             struct KVCache **kv_caches,
-             void *logits) {
+                  const uint32_t *tokens, uint32_t ntok,
+                  const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                  struct KVCache **kv_caches,
+                  void *logits) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;

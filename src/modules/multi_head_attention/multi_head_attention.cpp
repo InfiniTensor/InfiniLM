@@ -14,7 +14,8 @@ std::shared_ptr<MultiHeadAttention> MultiHeadAttention::init(
     size_t v_head_dim,
     int nranks,
     bool has_qkv_bias,
-    bool has_qk_norm) {
+    bool has_qk_norm,
+    float epsilon) {
     auto result = std::shared_ptr<MultiHeadAttention>(new MultiHeadAttention());
 
     result->n_q_heads = n_q_heads;
@@ -35,8 +36,8 @@ std::shared_ptr<MultiHeadAttention> MultiHeadAttention::init(
                                   weights::DistributionType::ROW, nranks);
 
     if (has_qk_norm) {
-        result->q_norm = RMSNorm::init(qk_head_dim, dtype);
-        result->k_norm = RMSNorm::init(qk_head_dim, dtype);
+        result->q_norm = RMSNorm::init(qk_head_dim, dtype, epsilon);
+        result->k_norm = RMSNorm::init(qk_head_dim, dtype, epsilon);
     }
 
     return result;
@@ -74,15 +75,49 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
     auto ntok = input->shape()[0];
     auto hidden_size = input->shape()[1];
     auto ngroup = n_q_heads / n_kv_heads;
-
+    std::cout << "ntok: " << ntok << ", hidden_size: " << hidden_size << ", ngroup: " << ngroup << std::endl;
     // Project Q, K, V
+    // {
+    //     std::cout << "Before q_proj - input first 10 values: ";
+
+    //     // Synchronize and copy first 10 elements to CPU
+    //     std::vector<float> cpu_data(10);
+    //     RUN_INFINI(infinirtMemcpy(cpu_data.data(), input->data(),
+    //                               sizeof(float) * 10, INFINIRT_MEMCPY_D2H));
+
+    //     std::cout << input->info() << "[";
+    //     for (int i = 0; i < 10; i++) {
+    //         std::cout << cpu_data[i];
+    //         if (i < 9) {
+    //             std::cout << ", ";
+    //         }
+    //     }
+    //     std::cout << "]" << std::endl;
+    // }
     auto q_buf = Tensor::buffer(input->dtype(), {ntok, n_q_heads * head_dim}, context.memory_pool);
     auto k_buf = Tensor::buffer(input->dtype(), {ntok, n_kv_heads * head_dim}, context.memory_pool);
     auto v_buf = Tensor::buffer(input->dtype(), {ntok, n_kv_heads * head_dim}, context.memory_pool);
 
-    q_proj->forward(q_buf, input, nullptr);
-    k_proj->forward(k_buf, input, nullptr);
-    v_proj->forward(v_buf, input, nullptr);
+    q_proj->forward(q_buf, input->permute({0, 1}), nullptr);
+    // k_proj->forward(k_buf, input, nullptr);
+    // v_proj->forward(v_buf, input, nullptr);
+    // {
+    //     std::cout << "After q_proj - q_buf first 10 values: ";
+
+    //     // Synchronize and copy first 10 elements to CPU
+    //     std::vector<float> cpu_data(10);
+    //     RUN_INFINI(infinirtMemcpy(cpu_data.data(), q_buf->data(),
+    //                               sizeof(float) * 10, INFINIRT_MEMCPY_D2H));
+
+    //     std::cout << q_buf->info() << "[";
+    //     for (int i = 0; i < 10; i++) {
+    //         std::cout << cpu_data[i];
+    //         if (i < 9) {
+    //             std::cout << ", ";
+    //         }
+    //     }
+    //     std::cout << "]" << std::endl;
+    // }
 
     // Apply normalization if enabled
     if (q_norm != nullptr) {
@@ -114,28 +149,39 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
         auto past_len = req_pos[req];
         auto seq_len = req_lens[req];
         auto total_len = past_len + seq_len;
+        auto o = attn_output_buf->slice({{0, token_offset, seq_len}})->view({seq_len, n_kv_heads, ngroup, head_dim})->permute({1, 2, 0, 3});
 
+        std::cout << q->info() << std::endl;
+        std::cout << v->info() << std::endl;
+        // std::cout << k_caches[req]->slice({{past_len, past_len + seq_len}})->info() << std::endl;
         // Get slices for this request
-        auto q_req = q->slice({{token_offset, token_offset + seq_len}});
-        auto k_req = k->slice({{token_offset, token_offset + seq_len}});
-        auto v_req = v->slice({{token_offset, token_offset + seq_len}});
+        // std::cout << "slicing q" << std::endl;
+        // auto q_req = q->slice({{token_offset, token_offset + seq_len}});
+        // std::cout << "slicing k" << std::endl;
+        // auto k_req = k->slice({{token_offset, token_offset + seq_len}});
+        // std::cout << "slicing v" << std::endl;
+        // auto v_req = v->slice({{token_offset, token_offset + seq_len}});
+        // std::cout << "sliced" << std::endl;
 
         // Update KV caches for this request
-        context.rearrange(k_caches[req]->slice({{past_len, past_len + seq_len}}), k_req);
-        context.rearrange(v_caches[req]->slice({{past_len, past_len + seq_len}}), v_req);
+        std::cout << "slicing kc" << std::endl;
+        context.rearrange(k_caches[req], k);
+        std::cout << "slicing vc" << std::endl;
+        context.rearrange(v_caches[req], v);
+        std::cout << "sliced kvc" << std::endl;
 
         // Prepare attention computation
-        auto q_reshaped = q_req->view({seq_len, n_kv_heads, ngroup, head_dim})->permute({1, 2, 0, 3});
-        auto k_cached = k_caches[req]->slice({{0, total_len}})->permute({1, 2, 0});
-        auto v_cached = v_caches[req]->slice({{0, total_len}})->permute({1, 0, 2});
+        // auto q_reshaped = q->view({seq_len, n_kv_heads, ngroup, head_dim})->permute({1, 2, 0, 3});
+        // auto k_cached = k_caches[req]->slice({{0, total_len}})->permute({1, 2, 0});
+        // auto v_cached = v_caches[req]->slice({{0, total_len}})->permute({1, 0, 2});
 
         // Compute QK^T / sqrt(d)
         auto qk_scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
         auto qk_slice = attn_score_buf->slice(0, 0, n_q_heads * seq_len * total_len)
                             ->view({n_kv_heads, ngroup * seq_len, total_len});
 
-        context.linear(qk_slice, q_reshaped->view({n_kv_heads, ngroup * seq_len, head_dim}),
-                       k_cached, qk_scale, 0.0f, nullptr, nullptr);
+        context.linear(qk_slice, q->view({n_kv_heads, ngroup * seq_len, head_dim}),
+                       k_caches[req], qk_scale, 0.0f, nullptr, nullptr);
 
         // Apply causal softmax
         auto qk_softmax = qk_slice->view({n_q_heads, seq_len, total_len});
@@ -145,7 +191,7 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
         auto attn_val_slice = attn_val_buf->slice(0, 0, ngroup * seq_len)
                                   ->view({n_kv_heads, ngroup * seq_len, head_dim});
 
-        context.linear(attn_val_slice, qk_slice, v_cached, 1.0f, 0.0f, nullptr, nullptr);
+        context.linear(attn_val_slice, qk_slice, v_caches[req], 1.0f, 0.0f, nullptr, nullptr);
 
         // Store attention output (don't apply o_proj yet)
         auto attn_output_reshaped = attn_val_slice->view({n_kv_heads, ngroup, seq_len, head_dim})

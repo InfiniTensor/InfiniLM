@@ -4,6 +4,8 @@
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
 
+#include <cmath>
+
 struct DeviceResource {
 public:
     // Device
@@ -50,33 +52,308 @@ DeviceResource::~DeviceResource() {
 }
 
 QwenHybridLayer::QwenHybridLayer(const QwenHybridMeta *meta, size_t layer, int rank, int nranks, infinicore::weights::Loader &weights_loader) {
-    input_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits);
+    input_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits, meta->epsilon);
     input_norm->register_weights(weights_loader, "model.layers." + std::to_string(layer) + ".input_layernorm", rank);
     multi_head_attn = infinicore::nn::module::MultiHeadAttention::init(meta->dt_logits, meta->d, meta->nh, meta->nkvh, meta->dh, meta->dh, nranks, meta->has_qkv_bias, false);
     multi_head_attn->register_weights(weights_loader, "model.layers." + std::to_string(layer) + ".self_attn", rank);
-    post_attn_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits);
+    post_attn_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits, meta->epsilon);
     post_attn_norm->register_weights(weights_loader, "model.layers." + std::to_string(layer) + ".post_attention_layernorm", rank);
     mlp = infinicore::nn::module::MLP::init(meta->d, meta->di, meta->dt_logits, nranks);
     mlp->register_weights(weights_loader, "model.layers." + std::to_string(layer) + ".mlp", rank);
 }
 
+inline std::shared_ptr<Tensor> getSinTable(QwenHybridMeta const *meta) {
+    auto half_dh = meta->dh / 2;
+    auto unit = dsize(meta->dt_logits);
+    void *table = std::malloc(meta->dctx * half_dh * unit);
+
+    for (size_t i = 0; i < meta->dctx; i++) {
+        for (size_t j = 0; j < half_dh; j++) {
+            float _sin = std::sin(
+                static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
+            if (meta->dt_logits == INFINI_DTYPE_F16) {
+                ((uint16_t *)table)[i * half_dh + j] = f32_to_f16(_sin);
+            } else if (meta->dt_logits == INFINI_DTYPE_BF16) {
+                ((uint16_t *)table)[i * half_dh + j] = f32_to_bf16(_sin);
+            } else if (meta->dt_logits == INFINI_DTYPE_F32) {
+                ((float *)table)[i * half_dh + j] = _sin;
+            } else {
+                std::cout << "unsupported data type" << std::endl;
+                exit(1);
+            }
+        }
+    }
+    auto shape = std::vector<size_t>({meta->dctx, half_dh});
+    auto tensor = Tensor::weight(table, meta->dt_logits, shape);
+    std::free(table);
+    return tensor;
+}
+
+inline std::shared_ptr<Tensor> getCosTable(QwenHybridMeta const *meta) {
+    auto half_dh = meta->dh / 2;
+    auto unit = dsize(meta->dt_logits);
+    void *table = std::malloc(meta->dctx * half_dh * unit);
+
+    for (size_t i = 0; i < meta->dctx; i++) {
+        for (size_t j = 0; j < half_dh; j++) {
+            float _cos = std::cos(
+                static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
+            if (meta->dt_logits == INFINI_DTYPE_F16) {
+                ((uint16_t *)table)[i * half_dh + j] = f32_to_f16(_cos);
+            } else if (meta->dt_logits == INFINI_DTYPE_BF16) {
+                ((uint16_t *)table)[i * half_dh + j] = f32_to_bf16(_cos);
+            } else if (meta->dt_logits == INFINI_DTYPE_F32) {
+                ((float *)table)[i * half_dh + j] = _cos;
+            } else {
+                std::cout << "unsupported data type" << std::endl;
+                exit(1);
+            }
+        }
+    }
+    auto shape = std::vector<size_t>({meta->dctx, half_dh});
+    auto tensor = Tensor::weight(table, meta->dt_logits, shape);
+    std::free(table);
+    return tensor;
+}
+
 QwenHybridDeviceModel::QwenHybridDeviceModel(const QwenHybridMeta *meta, int rank, int nranks, infinicore::weights::Loader &weights_loader) {
     input_embedding = Tensor::weight(nullptr, meta->dt_logits, {meta->dvoc, meta->d});
+    sin_table = getSinTable(meta);
+    cos_table = getCosTable(meta);
     weights_loader.register_weight("model.embed_tokens.weight", input_embedding, rank);
 
     layers.reserve(meta->nlayer);
     for (size_t layer = 0; layer < meta->nlayer; layer++) {
-        layers[layer] = std::make_shared<QwenHybridLayer>(meta, layer, rank, nranks, weights_loader);
+        layers.emplace_back(std::make_shared<QwenHybridLayer>(meta, layer, rank, nranks, weights_loader));
     }
-    output_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits);
+    output_norm = infinicore::nn::module::RMSNorm::init(meta->d, meta->dt_logits, meta->epsilon);
     output_norm->register_weights(weights_loader, "model.norm", rank);
     output_embedding = infinicore::nn::module::Linear::init(meta->d, meta->dvoc, meta->dt_logits);
     output_embedding->register_weights(weights_loader, "lm_head", rank);
 }
 
 void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
-    // TODO
+    auto ntok = req->ntok;
+    auto nreq = req->nreq;
+    auto d = input_embedding->shape()[1];
+    auto dt_logits = input_embedding->dtype();
+    auto stream = rsrc.stream;
+    auto nlayer = layers.size();
+    auto idev = rsrc.device_id;
+
+    // Allocate buffers
+    auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+    auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+
+    // Prepare inputs
+    auto batch_pos_ids = std::vector<uint32_t>(ntok);
+    size_t req_start = 0;
+    for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+        for (uint32_t i = 0; i < req->req_lens[req_idx]; i++) {
+            batch_pos_ids[req_start + i] = req->req_pos[req_idx] + i;
+        }
+        req_start += req->req_lens[req_idx];
+    }
+
+    std::shared_ptr<Tensor> pos_ids_buf;
+    if (rsrc.device == INFINI_DEVICE_CPU) {
+        pos_ids_buf = Tensor::weight(batch_pos_ids.data(), INFINI_DTYPE_U32, {ntok});
+    } else {
+        pos_ids_buf = Tensor::buffer(INFINI_DTYPE_U32, {ntok}, rsrc.memory_pool);
+        RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
+                                       INFINIRT_MEMCPY_H2D, stream));
+    }
+
+    // Input embedding
+    for (uint32_t i = 0; i < ntok; i++) {
+        RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
+                                       input_embedding->data(req->tokens[i] * d),
+                                       dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
+    }
+
+    // Get attention parameters from the first layer
+    auto nh = layers[0]->multi_head_attn->n_q_heads;
+    auto nkvh = layers[0]->multi_head_attn->n_kv_heads;
+    auto dh = layers[0]->multi_head_attn->head_dim;
+    auto ngroup = nh / nkvh;
+
+    // Allocate attention buffers
+    auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
+    auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
+
+    // Get MLP intermediate dimension from the first layer
+    auto di = layers[0]->mlp->gate->weight->shape()[0];
+
+    // Allocate MLP buffers
+    auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di}, rsrc.memory_pool);
+
+    // Compute max sequence length for attention
+    size_t max_seq_len = 0;
+    for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+        max_seq_len = std::max(max_seq_len, size_t(req->req_lens[req_idx]));
+    }
+
+    // Allocate attention score and value buffers
+    auto attn_score_buf = Tensor::buffer(dt_logits, {nh * max_seq_len * max_seq_len}, rsrc.memory_pool);
+    auto attn_val_buf = Tensor::buffer(dt_logits, {nh * max_seq_len * dh}, rsrc.memory_pool);
+
+    // Prepare KV cache vectors for each layer
+    std::vector<std::vector<std::shared_ptr<Tensor>>> k_caches_per_layer(nlayer);
+    std::vector<std::vector<std::shared_ptr<Tensor>>> v_caches_per_layer(nlayer);
+
+    for (uint32_t layer = 0; layer < nlayer; layer++) {
+        k_caches_per_layer[layer].reserve(nreq);
+        v_caches_per_layer[layer].reserve(nreq);
+
+        for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+            auto past_len = req->req_pos[req_idx];
+            auto seq_len = req->req_lens[req_idx];
+
+            // Extract the appropriate slices from KV cache
+            auto k_cache = req->kv_caches[req_idx]->k[idev][layer]->slice(0, past_len, past_len + seq_len);
+            auto v_cache = req->kv_caches[req_idx]->v[idev][layer]->slice(0, past_len, past_len + seq_len);
+
+            k_caches_per_layer[layer].push_back(k_cache);
+            v_caches_per_layer[layer].push_back(v_cache);
+        }
+    }
+
+    std::cout << "nlayer: " << nlayer << std::endl;
+    // Layer loop
+    for (uint32_t layer = 0; layer < nlayer; layer++) {
+        auto &layer_module = layers[layer];
+
+        // 1. Attention
+        // RMS norm
+        layer_module->input_norm->forward(logits_out, logits_in);
+        // if (layer == 0) {
+        //     // Print first 10 values of logits_out after RMSNorm
+        //     std::cout << "Layer 0 - After RMSNorm - logits_out first 10 values: ";
+
+        //     // Synchronize and copy first 10 elements to CPU
+        //     RUN_INFINI(infinirtStreamSynchronize(stream));
+        //     std::vector<float> cpu_data(10);
+        //     RUN_INFINI(infinirtMemcpy(cpu_data.data(), logits_out->data(),
+        //                               sizeof(float) * 10, INFINIRT_MEMCPY_D2H));
+
+        //     std::cout << "[";
+        //     for (int i = 0; i < 10; i++) {
+        //         std::cout << cpu_data[i];
+        //         if (i < 9) {
+        //             std::cout << ", ";
+        //         }
+        //     }
+        //     std::cout << "]" << std::endl;
+        // }
+        // std::abort();
+
+        // Multi-head attention
+        layer_module->multi_head_attn->forward(
+            o_buf, logits_out, logits_in, // output, input, residual
+            attn_score_buf, attn_val_buf,
+            pos_ids_buf, sin_table, cos_table,                          // pos_ids, sin_table, cos_table
+            k_caches_per_layer[layer],                                  // k_caches for this layer
+            v_caches_per_layer[layer],                                  // v_caches for this layer
+            std::vector<uint32_t>(req->req_lens, req->req_lens + nreq), // req_lens
+            std::vector<uint32_t>(req->req_pos, req->req_pos + nreq),   // req_pos
+            nreq);
+
+        // All_reduce if distributed
+        if (rsrc.comm != nullptr) {
+            RUN_INFINI(infinicclAllReduce(
+                logits_in->data(), logits_in->data(), ntok * d, dt_logits,
+                INFINICCL_SUM, rsrc.comm, stream));
+            RUN_INFINI(infinirtStreamSynchronize(stream));
+        }
+
+        // 2. FFN
+        // RMS norm
+        layer_module->post_attn_norm->forward(logits_out, logits_in);
+
+        // MLP
+        layer_module->mlp->forward(
+            logits_in, logits_out, logits_in, // output, input, residual
+            gate_up_buf);
+
+        // All_reduce if distributed
+        if (rsrc.comm != nullptr) {
+            RUN_INFINI(infinicclAllReduce(
+                logits_in->data(), logits_in->data(), ntok * d, dt_logits,
+                INFINICCL_SUM, rsrc.comm, stream));
+            RUN_INFINI(infinirtStreamSynchronize(stream));
+        }
+    }
+
+    // Output processing
+    if (rsrc.device_id == 0) {
+        if (req->logits != nullptr) {
+            // Forward pass: output logits
+            output_norm->forward(logits_out, logits_in);
+            auto dvoc = output_embedding->weight->shape()[0];
+            auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
+            output_embedding->forward(last_logits_buf, logits_out);
+            RUN_INFINI(infinirtStreamSynchronize(stream));
+            RUN_INFINI(infinirtMemcpy(req->logits, last_logits_buf->data(),
+                                      dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
+        }
+        if (req->output != nullptr) {
+            // Inference: sample next tokens
+            auto dvoc = output_embedding->weight->shape()[0];
+            auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
+            auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
+            auto result_cpu = std::vector<int64_t>(nreq);
+
+            // Get last tokens for each request
+            size_t token_offset = 0;
+            for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+                auto seq_len = req->req_lens[req_idx];
+                output_norm->forward(
+                    logits_out->slice(0, token_offset + seq_len - 1, 1),
+                    logits_in->slice(0, token_offset + seq_len - 1, 1));
+                token_offset += seq_len;
+            }
+
+            output_embedding->forward(prob_buf, logits_out->slice(0, 0, nreq));
+
+            // Sample (using a simple argmax for now)
+            RUN_INFINI(infinirtStreamSynchronize(stream));
+
+            // Copy probabilities to CPU and do argmax
+            auto prob_cpu = std::vector<float>(nreq * dvoc);
+            RUN_INFINI(infinirtMemcpy(prob_cpu.data(), prob_buf->data(),
+                                      dsize(dt_logits) * nreq * dvoc, INFINIRT_MEMCPY_D2H));
+
+            for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+                float max_prob = -1.0f;
+                uint32_t max_idx = 0;
+                for (uint32_t i = 0; i < dvoc; i++) {
+                    if (prob_cpu[req_idx * dvoc + i] > max_prob) {
+                        max_prob = prob_cpu[req_idx * dvoc + i];
+                        max_idx = i;
+                    }
+                }
+                req->output[req_idx] = max_idx;
+            }
+        }
+    }
 }
+
+// void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
+//     uint32_t nlayer = layers.size();
+//     auto nh = layers[0]->multi_head_attn->n_q_heads / layers[0]->multi_head_attn->q_proj->nranks;
+
+//     auto logits_out = Tensor::weight(nullptr, input_embedding->dtype(), input_embedding->shape());
+//     // auto attn_score_buf = Tensor::buffer(input_embedding->dtype(), {nh * max_qk_size}, rsrc.memory_pool);
+
+//     for (uint32_t i = 0; i < nlayer; ++i) {
+//         auto layer = layers[i];
+//         layer->input_norm->forward(logits_out, input_embedding);
+//         // layer->multi_head_attn->forward(input_embedding,
+//         //     logits_out,
+//         //     input_embedding,
+//         //     );
+//     }
+// }
 
 void launchDevice(const QwenHybridMeta *meta, InferState *state, InferRequest *req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm, infinicore::weights::Loader *weights_loader) {
