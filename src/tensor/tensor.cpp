@@ -424,3 +424,133 @@ void Tensor::debug(const std::string &filename) const {
 }
 
 void Tensor::debug() const { this->debug(""); }
+
+void Tensor::debug(size_t start_index, size_t num_elements, const std::string &label) const {
+    RUN_INFINI(infinirtDeviceSynchronize());
+
+    if (!label.empty()) {
+        std::cout << "=== " << label << " ===" << std::endl;
+    }
+    std::cout << info() << std::endl;
+
+    // Validate input parameters
+    size_t total_elements = numel();
+    if (start_index >= total_elements) {
+        std::cout << "Start index " << start_index << " exceeds total elements " << total_elements << std::endl;
+        return;
+    }
+
+    size_t actual_num_elements = std::min(num_elements, total_elements - start_index);
+    std::cout << "Showing elements " << start_index << " to " << (start_index + actual_num_elements - 1)
+              << " (" << actual_num_elements << " elements)" << std::endl;
+
+    void const *cpu_data;
+    bool allocated_cpu_memory = false;
+
+    if (this->deviceType() != INFINI_DEVICE_CPU) {
+        void *cpu_memory = std::malloc(this->_storage->size());
+        RUN_INFINI(infinirtMemcpy(cpu_memory, this->_storage->memory(),
+                                  this->_storage->size(), INFINIRT_MEMCPY_D2H));
+        cpu_data = cpu_memory;
+        allocated_cpu_memory = true;
+    } else {
+        cpu_data = this->_storage->memory();
+    }
+
+    // Helper function to convert linear index to multi-dimensional coordinates
+    auto index_to_coordinates = [&](size_t linear_index) -> std::vector<size_t> {
+        std::vector<size_t> coords(ndim());
+        size_t remaining = linear_index;
+
+        for (int i = 0; i < ndim(); i++) {
+            coords[i] = remaining / strides()[i];
+            remaining %= strides()[i];
+        }
+        return coords;
+    };
+
+    // Helper function to calculate the actual memory offset for a linear index
+    auto calculate_memory_offset = [&](size_t linear_index) -> size_t {
+        const auto &shape = this->shape();
+        const auto &strides = this->strides();
+
+        size_t offset = 0;
+        size_t remaining = linear_index;
+
+        for (int i = 0; i < ndim(); i++) {
+            size_t coord = remaining / strides[i];
+            offset += coord * strides[i];
+            remaining %= strides[i];
+        }
+
+        return offset * dsize(this->dtype());
+    };
+
+    // Print the elements
+    char const *base_ptr = (char const *)cpu_data + dataOffset();
+
+    for (size_t i = start_index; i < start_index + actual_num_elements; i++) {
+        size_t memory_offset = calculate_memory_offset(i);
+        auto coords = index_to_coordinates(i);
+
+        std::cout << "Element " << i << " [";
+        for (size_t j = 0; j < coords.size(); j++) {
+            std::cout << coords[j];
+            if (j < coords.size() - 1) {
+                std::cout << ", ";
+            }
+        }
+        std::cout << "]: ";
+
+        void const *element_ptr = base_ptr + memory_offset;
+
+        switch (this->dtype()) {
+        case INFINI_DTYPE_F16:
+            std::cout << f16_to_f32(*((uint16_t const *)element_ptr));
+            break;
+        case INFINI_DTYPE_F32:
+            std::cout << *((float const *)element_ptr);
+            break;
+        case INFINI_DTYPE_U64:
+            std::cout << *((uint64_t const *)element_ptr);
+            break;
+        case INFINI_DTYPE_I64:
+            std::cout << *((int64_t const *)element_ptr);
+            break;
+        case INFINI_DTYPE_U32:
+            std::cout << *((uint32_t const *)element_ptr);
+            break;
+        case INFINI_DTYPE_I32:
+            std::cout << *((int32_t const *)element_ptr);
+            break;
+        case INFINI_DTYPE_BF16:
+            std::cout << bf16_to_f32(*((uint16_t const *)element_ptr));
+            break;
+        case INFINI_DTYPE_BOOL:
+            std::cout << (*((uint8_t const *)element_ptr) ? "true" : "false");
+            break;
+        case INFINI_DTYPE_I8:
+            std::cout << (int)*((int8_t const *)element_ptr);
+            break;
+        case INFINI_DTYPE_U8:
+            std::cout << (unsigned int)*((uint8_t const *)element_ptr);
+            break;
+        case INFINI_DTYPE_I16:
+            std::cout << *((int16_t const *)element_ptr);
+            break;
+        case INFINI_DTYPE_U16:
+            std::cout << *((uint16_t const *)element_ptr);
+            break;
+        default:
+            std::cout << "[Unsupported dtype]";
+            break;
+        }
+        std::cout << std::endl;
+    }
+
+    if (allocated_cpu_memory) {
+        std::free(const_cast<void *>(cpu_data));
+    }
+
+    std::cout << "=== End of partial debug ===" << std::endl;
+}

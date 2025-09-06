@@ -75,13 +75,15 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
     auto ntok = input->shape()[0];
     auto hidden_size = input->shape()[1];
     auto ngroup = n_q_heads / n_kv_heads;
-    std::cout << "ntok: " << ntok << ", hidden_size: " << hidden_size << ", ngroup: " << ngroup << std::endl;
+
     // Project Q, K, V
     auto q_buf = Tensor::buffer(input->dtype(), {ntok, n_q_heads * head_dim}, context.memory_pool);
     auto k_buf = Tensor::buffer(input->dtype(), {ntok, n_kv_heads * head_dim}, context.memory_pool);
     auto v_buf = Tensor::buffer(input->dtype(), {ntok, n_kv_heads * head_dim}, context.memory_pool);
 
-    q_proj->forward(q_buf, input->permute({0, 1}), nullptr);
+    q_proj->forward(q_buf, input, nullptr);
+    k_proj->forward(k_buf, input, nullptr);
+    v_proj->forward(v_buf, input, nullptr);
 
     // Apply normalization if enabled
     if (q_norm != nullptr) {
@@ -103,6 +105,7 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
     // Apply RoPE
     context.rope(q, q, pos_ids, sin_table, cos_table);
     context.rope(k, k, pos_ids, sin_table, cos_table);
+    context.rope(v, v, pos_ids, sin_table, cos_table);
 
     // Create attention output buffer
     auto attn_output_buf = Tensor::buffer(input->dtype(), {ntok, n_q_heads * head_dim}, context.memory_pool);
@@ -115,29 +118,9 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
         auto total_len = past_len + seq_len;
         auto o = attn_output_buf->slice({{0, token_offset, seq_len}})->view({seq_len, n_kv_heads, ngroup, head_dim})->permute({1, 2, 0, 3});
 
-        std::cout << q->info() << std::endl;
-        std::cout << v->info() << std::endl;
-        // std::cout << k_caches[req]->slice({{past_len, past_len + seq_len}})->info() << std::endl;
-        // Get slices for this request
-        // std::cout << "slicing q" << std::endl;
-        // auto q_req = q->slice({{token_offset, token_offset + seq_len}});
-        // std::cout << "slicing k" << std::endl;
-        // auto k_req = k->slice({{token_offset, token_offset + seq_len}});
-        // std::cout << "slicing v" << std::endl;
-        // auto v_req = v->slice({{token_offset, token_offset + seq_len}});
-        // std::cout << "sliced" << std::endl;
-
         // Update KV caches for this request
-        std::cout << "slicing kc" << std::endl;
         context.rearrange(k_caches[req]->slice(0, past_len, seq_len), k);
-        std::cout << "slicing vc" << std::endl;
         context.rearrange(v_caches[req]->slice(0, past_len, seq_len), v);
-        std::cout << "sliced kvc" << std::endl;
-
-        // Prepare attention computation
-        // auto q_reshaped = q->view({seq_len, n_kv_heads, ngroup, head_dim})->permute({1, 2, 0, 3});
-        // auto k_cached = k_caches[req]->slice({{0, total_len}})->permute({1, 2, 0});
-        // auto v_cached = v_caches[req]->slice({{0, total_len}})->permute({1, 0, 2});
 
         // Compute QK^T / sqrt(d)
         auto qk_scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
@@ -145,25 +128,20 @@ void MultiHeadAttention::forward(std::shared_ptr<Tensor> output,
                             ->view({n_kv_heads, ngroup * seq_len, total_len});
 
         context.linear(qk_slice, q->view({n_kv_heads, ngroup * seq_len, head_dim}),
-                       k_caches[req], qk_scale, 0.0f, nullptr, nullptr);
+                       k_caches[req]->permute({1, 2, 0}), qk_scale, 0.0f, nullptr, nullptr);
 
         // Apply causal softmax
         auto qk_softmax = qk_slice->view({n_q_heads, seq_len, total_len});
         context.causalSoftmax(qk_softmax, qk_softmax);
 
         // Compute attention values
-        auto attn_val_slice = attn_val_buf->slice(0, 0, ngroup * seq_len)
-                                  ->view({n_kv_heads, ngroup * seq_len, head_dim});
+        auto attn_val_slice = attn_val_buf->view({n_kv_heads, ngroup * seq_len, head_dim});
+        context.linear(attn_val_slice, qk_slice, v_caches[req]->permute({1, 0, 2}), 1.0f, 0.0f, nullptr, nullptr);
 
-        context.linear(attn_val_slice, qk_slice, v_caches[req], 1.0f, 0.0f, nullptr, nullptr);
+        // Store attention output
+        auto attn_output_reshaped = attn_val_buf->view({n_kv_heads, ngroup, seq_len, head_dim});
 
-        // Store attention output (don't apply o_proj yet)
-        auto attn_output_reshaped = attn_val_slice->view({n_kv_heads, ngroup, seq_len, head_dim})
-                                        ->permute({2, 0, 1, 3})
-                                        ->view({seq_len, n_q_heads * head_dim});
-
-        auto attn_output_slice = attn_output_buf->slice({{token_offset, token_offset + seq_len}});
-        context.rearrange(attn_output_slice, attn_output_reshaped);
+        context.rearrange(o, attn_output_reshaped);
 
         token_offset += seq_len;
     }

@@ -179,7 +179,7 @@ void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
 
     // Allocate attention buffers
     auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
-    auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
+    // auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
 
     // Get MLP intermediate dimension from the first layer
     auto di = layers[0]->mlp->gate->weight->shape()[0];
@@ -222,7 +222,6 @@ void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
         }
     }
 
-    std::cout << "nlayer: " << nlayer << std::endl;
     // Layer loop
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         auto &layer_module = layers[layer];
@@ -233,7 +232,7 @@ void QwenHybridDeviceModel::infer(InferRequest *req, DeviceResource &rsrc) {
 
         // Multi-head attention
         layer_module->multi_head_attn->forward(
-            o_buf, logits_out, logits_in, // output, input, residual
+            logits_in, logits_out, rsrc.device_id == 0 ? logits_in : nullptr, // output, input, residual
             attn_score_buf, attn_val_buf,
             pos_ids_buf, sin_table, cos_table,                          // pos_ids, sin_table, cos_table
             k_caches_per_layer[layer],                                  // k_caches for this layer
