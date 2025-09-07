@@ -16,7 +16,7 @@ class Sequence:
     # block_size = 256
     counter = count()
 
-    def __init__(self, token_ids: list[int], sampling_params = SamplingParams(), block_size = 256):
+    def __init__(self, token_ids: list[int], sampling_params = SamplingParams(), block_size = 256, req_id = None):
         self.seq_id = next(Sequence.counter)
         self.status = SequenceStatus.WAITING
         self.token_ids = copy(token_ids)
@@ -28,6 +28,9 @@ class Sequence:
         # self.block_table = None
         self.block_table = []
         self.infer_task = None
+
+        # for online serving
+        self.req_id = req_id
 
         self.true_tokens = None # for perplexity
         self.temperature = sampling_params.temperature

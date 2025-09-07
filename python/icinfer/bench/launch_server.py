@@ -14,6 +14,10 @@ import uuid
 import json
 import threading
 import janus
+import traceback
+
+from icinfer.engine.llm_engine_async import InfiniEngineAsync
+from icinfer.sampling_params import SamplingParams
 
 
 DEVICE_TYPE_MAP = {
@@ -45,31 +49,31 @@ def parse_args():
         default=1,
         help="Number of devices to use (default: 1)",
     )
-    parser.add_argument(
-        "--max-batch",
-        type=int,
-        default=3,
-        help="Maximum number of requests that can be batched together (default: 3)",
-    )
-    parser.add_argument(
-        "--max-tokens",
-        type=int,
-        required=False,
-        default=None,
-        help="Max token sequence length that model will handle (follows model config if not provided)",
-    )
+    # parser.add_argument(
+    #     "--max-batch",
+    #     type=int,
+    #     default=3,
+    #     help="Maximum number of requests that can be batched together (default: 3)",
+    # )
+
+    parser.add_argument("--max-kvcache-tokens", type=int, default=4096)
+    parser.add_argument("--enable-paged-attn", action="store_true")
+
     return parser.parse_args()
 
 args = parse_args()
 device_type = DEVICE_TYPE_MAP[args.dev]
 model_path = args.model_path
 ndev = args.ndev
-max_tokens = args.max_tokens
+max_kvcache_tokens = args.max_kvcache_tokens
+enable_paged_attn = args.enable_paged_attn
 
-MAX_BATCH = args.max_batch
-print(
-    f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
-)
+
+
+# MAX_BATCH = args.max_batch
+# print(
+#     f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
+# )
 
 def chunk_json(id_, content=None, role=None, finish_reason=None):
     delta = {}
@@ -109,155 +113,159 @@ class AsyncInferTask(InferTask):
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    app.state.model = JiugeForCausalLM(model_path, device_type, ndev, max_tokens=max_tokens)
-    app.state.kv_cache_pool = KVCachePool(app.state.model, MAX_BATCH)
-    app.state.request_queue = janus.Queue()
-    worker_thread = threading.Thread(target=worker_loop, args=(app,), daemon=True)
-    worker_thread.start()
+    # app.state.model = JiugeForCausalLM(model_path, device_type, ndev, max_tokens=max_tokens)
+    app.state.model = InfiniEngineAsync(model_path, device=device_type, enforce_eager=True, 
+              tensor_parallel_size=ndev, trust_remote_code=True, 
+              attention_bias=True, enable_paged_attn=enable_paged_attn, max_kvcache_tokens=max_kvcache_tokens)
+    # app.state.kv_cache_pool = KVCachePool(app.state.model, MAX_BATCH)
+    # app.state.request_queue = janus.Queue()
+    # worker_thread = threading.Thread(target=worker_loop, args=(app,), daemon=True)
+    # worker_thread.start()
+    engine_thread = threading.Thread(target=app.state.model.engine_loop, daemon=True)
+    engine_thread.start()
+    
+
 
     try:
         yield  # The app runs here
     finally:
         # Shutdown
-        app.state.request_queue.sync_q.put(None)
-        worker_thread.join()
-        app.state.request_queue.shutdown()
+        # app.state.request_queue.sync_q.put(None)
+        # worker_thread.join()
+        # app.state.request_queue.shutdown()
 
-        app.state.kv_cache_pool.finalize()
-        app.state.model.destroy_model_instance()
+        # app.state.kv_cache_pool.finalize()
+        # app.state.model.destroy_model_instance()
+        pass
 
 
 App = FastAPI(lifespan=lifespan)
 
 
-# App loop: take requests from the queue, do inference, and put unfinished requests back into the queue.
-def worker_loop(app):
-    while True:
-        try:
-            task = app.state.request_queue.sync_q.get(timeout=0.01)
-        except queue.Empty:
-            continue
+# # App loop: take requests from the queue, do inference, and put unfinished requests back into the queue.
+# def worker_loop(app):
+#     while True:
+#         try:
+#             task = app.state.request_queue.sync_q.get(timeout=0.01)
+#         except queue.Empty:
+#             continue
 
-        if task is None:
-            return
+#         if task is None:
+#             return
 
-        batch = [task]
-        while len(batch) < MAX_BATCH:
-            try:
-                req = app.state.request_queue.sync_q.get_nowait()
-                if req is not None:
-                    batch.append(req)
-            except queue.Empty:
-                break
-        output_tokens = app.state.model.batch_infer_one_round(batch)
-        for task, token in zip(batch, output_tokens):
-            task.output(token)
-            if task.finish_reason is None:
-                app.state.request_queue.sync_q.put(task)
-            else:
-                print(f"[INFO] Task {task.id} finished infer.")
-                app.state.kv_cache_pool.release_sync(task)
+#         batch = [task]
+#         while len(batch) < MAX_BATCH:
+#             try:
+#                 req = app.state.request_queue.sync_q.get_nowait()
+#                 if req is not None:
+#                     batch.append(req)
+#             except queue.Empty:
+#                 break
+#         output_tokens = app.state.model.batch_infer_one_round(batch)
+#         for task, token in zip(batch, output_tokens):
+#             task.output(token)
+#             if task.finish_reason is None:
+#                 app.state.request_queue.sync_q.put(task)
+#             else:
+#                 print(f"[INFO] Task {task.id} finished infer.")
+#                 app.state.kv_cache_pool.release_sync(task)
 
 
-def build_task(id_, request_data, request: Request):
-    messages = request_data.get("messages", [])
-    input_content = request.app.state.model.tokenizer.apply_chat_template(
-        conversation=messages,
-        add_generation_prompt=True,
-        tokenize=False,
-    )
-    tokens = request.app.state.model.tokenizer.encode(input_content)
-    return AsyncInferTask(
-        id_,
-        tokens,
-        request_data.get("max_tokens", request.app.state.model.max_context_len()),
-        request_data.get("temperature", 1.0),
-        request_data.get("top_k", 1),
-        request_data.get("top_p", 1.0),
-        request.app.state.model.eos_token_id,
-    )
-
+# def build_task(id_, request_data, request: Request):
+#     messages = request_data.get("messages", [])
+#     input_content = request.app.state.model.tokenizer.apply_chat_template(
+#         conversation=messages,
+#         add_generation_prompt=True,
+#         tokenize=False,
+#     )
+#     tokens = request.app.state.model.tokenizer.encode(input_content)
+#     return AsyncInferTask(
+#         id_,
+#         tokens,
+#         request_data.get("max_tokens", request.app.state.model.max_context_len()),
+#         request_data.get("temperature", 1.0),
+#         request_data.get("top_k", 1),
+#         request_data.get("top_p", 1.0),
+#         request.app.state.model.eos_token_id,
+#     )
 
 async def chat_stream(id_, request_data, request: Request):
     try:
-        infer_task = build_task(id_, request_data, request)
-        await request.app.state.kv_cache_pool.acquire(infer_task)
-
-        # Initial empty content
-        chunk = json.dumps(
-            chunk_json(id_, content="", role="assistant"), ensure_ascii=False
+        messages = request_data.get("messages", [])
+        input_content = request.app.state.model.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False
         )
-        yield f"data: {chunk}\n\n"
+        max_tokens = request_data.get("max_tokens", 512)
+        # max_tokens = request_data.get("max_tokens", request.app.state.model.max_context_len)
+        temperature = request_data.get("temperature", 1.0)
+        top_k = request_data.get("top_k", 1)
+        top_p = request_data.get("top_p", 1.0)
+        # eos_token_id = request.app.state.model.eos_token_id
+        
+        sampling_params = SamplingParams(temperature=temperature, topk=top_k, topp=top_p, max_tokens=max_tokens)
 
-        request.app.state.request_queue.sync_q.put(infer_task)
+        # 1. 提交请求到引擎，并获取结果队列
+        result_queue = await request.app.state.model.add_request(
+            input_content, sampling_params, id_
+        )
 
+        # 2. 初始响应块
+        yield f"data: {json.dumps(chunk_json(id_, content='', role='assistant'), ensure_ascii=False)}\n\n"
+
+        # 3. 从结果队列中异步读取 token 并流式返回
         while True:
-            if await request.is_disconnected():
-                print("Client disconnected. Aborting stream.")
-                break
-            if (
-                infer_task.finish_reason is not None
-                and infer_task.output_queue.async_q.empty()
-            ):
-                chunk = json.dumps(
-                    chunk_json(id_, finish_reason=infer_task.finish_reason),
-                    ensure_ascii=False,
-                )
-                yield f"data: {chunk}\n\n"
+            token = await result_queue.get()
+            
+            if token is None: # 结束信号
+                yield f"data: {json.dumps(chunk_json(id_, finish_reason='stop'), ensure_ascii=False)}\n\n"
                 break
 
-            token = await infer_task.output_queue.async_q.get()
-            content = (
-                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
-            chunk = json.dumps(chunk_json(id_, content=content), ensure_ascii=False)
-            yield f"data: {chunk}\n\n"
+            content = request.app.state.model.tokenizer._tokenizer.id_to_token(token).replace(" ", " ").replace("<0x0A>", "\n")
+            yield f"data: {json.dumps(chunk_json(id_, content=content), ensure_ascii=False)}\n\n"
 
     except Exception as e:
-        print(f"[Error] ID : {id_} Exception: {e}")
-    finally:
-        if infer_task.finish_reason is None:
-            infer_task.finish_reason = "cancel"
+        error_details = traceback.format_exc()
+        print(f"[Error] ID : {id_} Exception: {e}\n--- TRACEBACK ---\n{error_details}--- END TRACEBACK ---")
 
+# async def chat(id_, request_data, request: Request):
+#     try:
+#         infer_task = build_task(id_, request_data, request)
+#         await request.app.state.kv_cache_pool.acquire(infer_task)
+#         request.app.state.request_queue.sync_q.put(infer_task)
+#         output = []
+#         while True:
+#             if (
+#                 infer_task.finish_reason is not None
+#                 and infer_task.output_queue.async_q.empty()
+#             ):
+#                 break
 
-async def chat(id_, request_data, request: Request):
-    try:
-        infer_task = build_task(id_, request_data, request)
-        await request.app.state.kv_cache_pool.acquire(infer_task)
-        request.app.state.request_queue.sync_q.put(infer_task)
-        output = []
-        while True:
-            if (
-                infer_task.finish_reason is not None
-                and infer_task.output_queue.async_q.empty()
-            ):
-                break
+#             token = await infer_task.output_queue.async_q.get()
+#             content = (
+#                 request.app.state.model.tokenizer._tokenizer.id_to_token(token)
+#                 .replace("▁", " ")
+#                 .replace("<0x0A>", "\n")
+#             )
+#             output.append(content)
 
-            token = await infer_task.output_queue.async_q.get()
-            content = (
-                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
-            output.append(content)
+#         output_text = "".join(output).strip()
+#         response = chunk_json(
+#             id_,
+#             content=output_text,
+#             role="assistant",
+#             finish_reason=infer_task.finish_reason or "stop",
+#         )
+#         return response
 
-        output_text = "".join(output).strip()
-        response = chunk_json(
-            id_,
-            content=output_text,
-            role="assistant",
-            finish_reason=infer_task.finish_reason or "stop",
-        )
-        return response
-
-    except Exception as e:
-        print(f"[Error] ID: {id_} Exception: {e}")
-        return JSONResponse(content={"error": str(e)}, status_code=500)
-    finally:
-        if infer_task.finish_reason is None:
-            infer_task.finish_reason = "cancel"
+#     except Exception as e:
+#         print(f"[Error] ID: {id_} Exception: {e}")
+#         return JSONResponse(content={"error": str(e)}, status_code=500)
+#     finally:
+#         if infer_task.finish_reason is None:
+#             infer_task.finish_reason = "cancel"
 
 
 @App.post("/chat/completions")
@@ -274,7 +282,30 @@ async def chat_completions(request: Request):
             chat_stream(id_, data, request), media_type="text/event-stream"
         )
     else:
-        response = await chat(id_, data, request)
+        messages = data.get("messages", [])
+        input_content = request.app.state.model.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False
+        )
+        max_tokens = data.get("max_tokens", request.app.state.model.max_context_len())
+        # max_tokens = data.get("max_tokens", 128)
+        temperature = data.get("temperature", 1.0)
+        top_k = data.get("top_k", 1)
+        top_p = data.get("top_p", 1.0)
+        sampling_params = SamplingParams(temperature=temperature, topk=top_k, topp=top_p, max_tokens=max_tokens)
+        result_queue = await request.app.state.model.add_request(input_content, sampling_params, id_)
+        
+        output_tokens = []
+        while True:
+            token = await result_queue.get()
+            if token is None:
+                break
+            output_tokens.append(token)
+            
+        output_text = request.app.state.model.tokenizer.decode(output_tokens).strip()
+        response = chunk_json(id_, content=output_text, role="assistant", finish_reason="stop")
         return JSONResponse(content=response)
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument("--model-path", type=str, default="/home/wanghaojie/vllm/huggingface/9G7B_MHA/")
     parser.add_argument("--device-type", type=str, default="nvidia")
     parser.add_argument("--ndev", type=int, default=1)
-    parser.add_argument("--max-kvcache-tokens", type=int, default=4096)
+    parser.add_argument("--max-kvcache-tokens", type=int, default=10240)
     # parser.add_argument("--max-kvcache-tokens", type=int, default=65536)
     parser.add_argument("--enable-paged-attn", action="store_true")
     # parser.add_argument("--enable-paged-attn", type=bool, default=True)
@@ -150,9 +150,8 @@ if __name__ == "__main__":
 
 
 """
-
-
-
-
+CLI:
+python example.py --model-path /home/wanghaojie/vllm/huggingface/9G7B_MHA/ --device-type nvidia --ndev 4 --max-kvcache-tokens 10240 --enable-paged-attn
+python example.py --model-path /home/wanghaojie/vllm/huggingface/9G7B_MHA/ --device-type nvidia --ndev 4
 
 """

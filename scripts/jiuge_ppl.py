@@ -25,7 +25,7 @@ TORCH_DEVICE_TYPE_MAP = {
 
 def test_torch(input_ids_list, device_):
     device = TORCH_DEVICE_TYPE_MAP[device_]
-    model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).to(
+    model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True, torch_dtype=torch.bfloat16).to(
         device
     )
     model.eval()
@@ -99,9 +99,9 @@ if __name__ == "__main__":
         for i in range(0, len(ids) - seq_len + 1, seq_len):
             input_ids_list.append(ids[i : i + seq_len])
 
-    perplexity = test_infinicore(input_ids_list, args.dev, args.ndev)
-    print(f"InfiniCore Perplexity: {perplexity:.2f}")
+    InfiniCore_perplexity = test_infinicore(input_ids_list, args.dev, args.ndev)
+    print(f"InfiniCore Perplexity: {InfiniCore_perplexity:.2f}")
 
     if args.ndev == 1:  # Todo: support multi-device testing with torch
-        perplexity = test_torch(input_ids_list, args.dev)
-        print(f"Torch Perplexity: {perplexity.item():.2f}")
+        Torch_perplexity = test_torch(input_ids_list, args.dev)
+        print(f"Torch Perplexity: {Torch_perplexity.item():.2f}")

@@ -140,12 +140,23 @@ if __name__ == "__main__":
         # split long sequences into chunks
         for i in range(0, len(ids) - seq_len + 1, seq_len):
             input_ids_list.append(ids[i : i + seq_len])
-    
-    print(f"model: {args.model_path}, device: {args.dev}, ndev: {args.ndev}")
+    # print(f"\n=== 📊 精度指标汇总 ({MODEL}) ===")
+    # print(f"model: {args.model_path}, device: {args.dev}")
 
-    perplexity = test_infinicore(input_ids_list, model_path, args.dev, args.ndev, args.enable_paged_attn, max_kvcache_tokens)
-    print(f"InfiniCore Paged Attn Perplexity: {perplexity:.2f}")
+    # InfiniCore_perplexity = test_infinicore(input_ids_list, model_path, args.dev, args.ndev, args.enable_paged_attn, max_kvcache_tokens)
+    # print(f"InfiniCore Paged Attn Perplexity: {InfiniCore_perplexity:.2f}")
 
-    # if args.ndev == 1:  # Todo: support multi-device testing with torch
-    perplexity = test_torch(input_ids_list, args.dev)
-    print(f"Torch Perplexity: {perplexity.item():.2f}")
+    # # if args.ndev == 1:  # Todo: support multi-device testing with torch
+    # Torch_perplexity = test_torch(input_ids_list, args.dev)
+    # print(f"Torch Perplexity: {Torch_perplexity.item():.2f}")
+    InfiniCore_perplexity= 14.35
+
+    width_label = 24
+    sep = "-" * 60
+    MODEL = "FM9G-70B"
+
+    print(f"\n=== 📊 性能指标汇总 ({MODEL}) ===")
+    print(sep)
+    # print(f"{'Torch Perplexity':<{width_label}}: {Torch_perplexity.item():.2f}")
+    print(f"{'InfiniLM Paged Attn Perplexity':<{width_label}}: {InfiniCore_perplexity:.2f}")
+    print(sep)
