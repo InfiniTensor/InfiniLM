@@ -2,7 +2,6 @@ from .base import (
     BaseModel,
     DataType,
     DeviceType,
-    KVCacheCStruct,
     register_model,
     ModelWeightsCStruct,
 )
@@ -19,7 +18,7 @@ from ctypes import (
 )
 
 
-class JiugeAWQMetaCStruct(Structure):
+class QwenHybridMetaCStruct(Structure):
     _fields_ = [
         ("dt_logits", DataType),
         ("dt_linear_w", DataType),
@@ -41,32 +40,36 @@ class JiugeAWQMetaCStruct(Structure):
     ]
 
 
-class JiugeAWQModelCStruct(Structure):
+class QwenHybridModelCStruct(Structure):
+    pass
+
+
+class QwenHybridCacheCStruct(Structure):
     pass
 
 
 @register_model
-class JiugeAWQModel(BaseModel):
+class QwenHybridModel(BaseModel):
     @classmethod
     def register_lib(cls, lib):
-        """Register JiugeAWQ model functions with the library"""
-        lib.createJiugeAWQWeights.restype = POINTER(ModelWeightsCStruct)
-        lib.createJiugeAWQWeights.argtypes = [
-            POINTER(JiugeAWQMetaCStruct),
+        """Register QwenHybrid model functions with the library"""
+        lib.createQwenHybridWeights.restype = POINTER(ModelWeightsCStruct)
+        lib.createQwenHybridWeights.argtypes = [
+            POINTER(QwenHybridMetaCStruct),
             DeviceType,
             c_int,
             POINTER(c_int),
         ]
 
-        lib.createJiugeAWQModel.restype = POINTER(JiugeAWQModelCStruct)
-        lib.createJiugeAWQModel.argtypes = [
-            POINTER(JiugeAWQMetaCStruct),
+        lib.createQwenHybridModel.restype = POINTER(QwenHybridModelCStruct)
+        lib.createQwenHybridModel.argtypes = [
+            POINTER(QwenHybridMetaCStruct),
             POINTER(ModelWeightsCStruct),
         ]
 
-        lib.destroyJiugeAWQModel.argtypes = [POINTER(JiugeAWQModelCStruct)]
+        lib.destroyQwenHybridModel.argtypes = [POINTER(QwenHybridModelCStruct)]
 
-        lib.createKVCache.argtypes = [
+        lib.createQwenHybridCache.argtypes = [
             c_size_t,
             c_size_t,
             c_size_t,
@@ -77,32 +80,32 @@ class JiugeAWQModel(BaseModel):
             POINTER(c_int),
             c_size_t,
         ]
-        lib.createKVCache.restype = POINTER(KVCacheCStruct)
+        lib.createQwenHybridCache.restype = POINTER(QwenHybridCacheCStruct)
 
-        lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
+        lib.dropQwenHybridCache.argtypes = [POINTER(QwenHybridCacheCStruct)]
 
-        lib.inferBatchJiugeAWQ.argtypes = [
-            POINTER(JiugeAWQModelCStruct),
+        lib.inferBatchQwenHybrid.argtypes = [
+            POINTER(QwenHybridModelCStruct),
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
-            POINTER(POINTER(KVCacheCStruct)),
+            POINTER(POINTER(QwenHybridCacheCStruct)),
             POINTER(c_float),
             POINTER(c_uint),
             POINTER(c_float),
             POINTER(c_uint),
         ]
 
-        lib.forwardBatchJiugeAWQ.argtypes = [
-            POINTER(JiugeAWQModelCStruct),
+        lib.forwardBatchQwenHybrid.argtypes = [
+            POINTER(QwenHybridModelCStruct),
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
-            POINTER(POINTER(KVCacheCStruct)),
+            POINTER(POINTER(QwenHybridCacheCStruct)),
             c_void_p,
         ]
 
@@ -113,23 +116,23 @@ class JiugeAWQModel(BaseModel):
         ]
 
     def create_weights(self, meta, device_type, ndev, dev_ids):
-        return self.lib.createJiugeAWQWeights(meta, device_type, ndev, dev_ids)
+        return self.lib.createQwenHybridWeights(meta, device_type, ndev, dev_ids)
 
     def create_model(self, meta, weights):
-        return self.lib.createJiugeAWQModel(meta, weights)
+        return self.lib.createQwenHybridModel(meta, weights)
 
     def destroy_model(self, model):
-        self.lib.destroyJiugeAWQModel(model)
+        self.lib.destroyQwenHybridModel(model)
 
-    def create_kv_cache(
+    def create_qwen_hybrid_cache(
         self, nlayer, max_len, nkvh, dk, dv, dtype, device, dev_ids, ndev
     ):
-        return self.lib.createKVCache(
+        return self.lib.createQwenHybridCache(
             nlayer, max_len, nkvh, dk, dv, dtype, device, dev_ids, ndev
         )
 
-    def drop_kv_cache(self, kv_cache):
-        self.lib.dropKVCache(kv_cache)
+    def drop_qwen_hybrid_cache(self, qwen_hybrid_cache):
+        self.lib.dropQwenHybridCache(qwen_hybrid_cache)
 
     def load_weight(self, weights, name, data):
         self.lib.loadModelWeight(weights, name.encode("utf-8"), data)
@@ -148,7 +151,7 @@ class JiugeAWQModel(BaseModel):
         topp,
         output,
     ):
-        self.lib.inferBatchJiugeAWQ(
+        self.lib.inferBatchQwenHybrid(
             model,
             tokens,
             ntok,
@@ -165,6 +168,6 @@ class JiugeAWQModel(BaseModel):
     def forward_batch(
         self, model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
     ):
-        self.lib.forwardBatchJiugeAWQ(
+        self.lib.forwardBatchQwenHybrid(
             model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
         )

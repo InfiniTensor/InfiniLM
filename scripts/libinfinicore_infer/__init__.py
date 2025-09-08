@@ -1,6 +1,8 @@
-from .base import DataType, DeviceType, KVCacheCStruct
+from .base import DataType, DeviceType, KVCacheCStruct, ModelWeightsCStruct
 from .jiuge import JiugeModel, JiugeMetaCStruct, JiugeWeightsCStruct
-from .jiuge_awq import JiugeAWQModel, JiugeAWQMetaCStruct, ModelWeightsCStruct
+from .jiuge_awq import JiugeAWQModel, JiugeAWQMetaCStruct
+from .qwen_hybrid import QwenHybridModel, QwenHybridMetaCStruct, QwenHybridCacheCStruct
+
 from .deepseek_v3 import (
     DeepSeekV3Model,
     DeepSeekV3MetaCStruct,
@@ -23,5 +25,7 @@ __all__ = [
     "DeepSeekV3MetaCStruct",
     "DeepSeekV3WeightsCStruct",
     "DeepSeekV3WeightLoaderCStruct",
-    "ModelRegister",
+    "QwenHybridModel",
+    "QwenHybridMetaCStruct",
+    "QwenHybridCacheCStruct" "ModelRegister",
 ]
