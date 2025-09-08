@@ -14,13 +14,21 @@ struct QwenHybridModel;
 
 typedef struct
 {
-    infiniDtype_t dt_logits;
-    infiniDtype_t dt_linear_w;
-    infiniDtype_t dt_norm_w;
-    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc;
-    float epsilon, theta;
+    // common
+    infiniDtype_t dtype;
+    size_t nlayer, d;
+    size_t dctx, dvoc;
+    float epsilon;
     uint32_t end_token;
-    char has_qkv_bias;
+    // mha
+    size_t nh, nkvh, dh;
+    float theta;
+    // linear attention
+    size_t l_conv_dim, l_expand, l_n_k_head, l_k_dim, l_n_v_head, l_v_dim;
+    // moe
+    size_t nexperts, kexperts;
+    size_t shared_di;
+    size_t moe_di;
 } QwenHybridMeta;
 
 //////////////////// APIs ///////////////////////

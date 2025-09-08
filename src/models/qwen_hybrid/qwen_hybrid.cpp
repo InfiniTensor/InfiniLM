@@ -60,12 +60,11 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     // auto dctx = meta.dctx;
     auto dh = meta->dh;
     auto d = meta->d;
-    auto dt_logits = meta->dt_logits;
-    auto di = meta->di / ndev;
+    auto dt_logits = meta->dtype;
+    auto di = meta->moe_di / ndev;
     auto dvoc = meta->dvoc;
     auto stream = rsrc.stream;
     auto weight = rsrc.weights;
-    bool has_qkv_bias = meta->has_qkv_bias;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -133,13 +132,13 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
         // qkv_proj
         linear(q_buf, logits_out,
                weight->w_attn_q[layer],
-               1.0, 0.0, nullptr, has_qkv_bias ? weight->b_attn_q[layer] : nullptr);
+               1.0, 0.0, nullptr, nullptr);
         linear(k_buf, logits_out,
                weight->w_attn_k[layer],
-               1.0, 0.0, nullptr, has_qkv_bias ? weight->b_attn_k[layer] : nullptr);
+               1.0, 0.0, nullptr, nullptr);
         linear(v_buf, logits_out,
                weight->w_attn_v[layer],
-               1.0, 0.0, nullptr, has_qkv_bias ? weight->b_attn_v[layer] : nullptr);
+               1.0, 0.0, nullptr, nullptr);
         // rope
         rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
         rope_v2(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);

@@ -46,14 +46,14 @@ QwenHybridWeights::QwenHybridWeights(
     const std::vector<int> &dev_ids) : infinicore::weights::Loader(device, dev_ids) {
     auto ndev = dev_ids.size();
     _device_weights.resize(ndev);
-    infiniDtype_t dt_logits = meta->dt_logits;
-    infiniDtype_t dt_norm_w = meta->dt_norm_w;
+    infiniDtype_t dt_logits = meta->dtype;
+    infiniDtype_t dt_norm_w = meta->dtype;
     size_t nlayer = meta->nlayer;
     size_t d = meta->d;
     size_t nh = meta->nh / ndev;
     size_t nkvh = meta->nkvh / ndev;
     size_t dh = meta->dh;
-    size_t di = meta->di / ndev;
+    size_t di = meta->moe_di / ndev;
     size_t dctx = meta->dctx;
     size_t dvoc = meta->dvoc;
 

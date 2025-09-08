@@ -22,21 +22,31 @@ from ctypes import (
 
 class QwenHybridMetaCStruct(Structure):
     _fields_ = [
-        ("dt_logits", DataType),
-        ("dt_linear_w", DataType),
-        ("dt_norm_w", DataType),
+        # common
+        ("dtype", DataType),
         ("nlayer", c_size_t),
         ("d", c_size_t),
-        ("nh", c_size_t),
-        ("nkvh", c_size_t),
-        ("dh", c_size_t),
-        ("di", c_size_t),
         ("dctx", c_size_t),
         ("dvoc", c_size_t),
         ("epsilon", c_float),
-        ("theta", c_float),
         ("end_token", c_uint),
-        ("has_qkv_bias", c_char),
+        # mha
+        ("nh", c_size_t),
+        ("nkvh", c_size_t),
+        ("dh", c_size_t),
+        ("theta", c_float),
+        # linear attention
+        ("l_conv_dim", c_size_t),
+        ("l_expand", c_size_t),
+        ("l_n_k_head", c_size_t),
+        ("l_k_dim", c_size_t),
+        ("l_n_v_head", c_size_t),
+        ("l_v_dim", c_size_t),
+        # moe
+        ("nexperts", c_size_t),
+        ("kexperts", c_size_t),
+        ("shared_di", c_size_t),
+        ("moe_di", c_size_t),
     ]
 
 
