@@ -9,10 +9,10 @@
 #include <vector>
 
 inline void createDeviceResource(DeviceResource *rsrc, const QwenHybridMeta *meta,
-                          std::shared_ptr<QwenHybridDeviceWeight> weights,
-                          infiniDevice_t device, int idev,
-                          int ndev, int dev_id,
-                          infinicclComm_t comm) {
+                                 std::shared_ptr<QwenHybridDeviceWeight> weights,
+                                 infiniDevice_t device, int idev,
+                                 int ndev, int dev_id,
+                                 infinicclComm_t comm) {
     RUN_INFINI(infinirtSetDevice(device, dev_id));
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
@@ -49,7 +49,8 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                      struct QwenHybridCache **caches,
+                      struct KVCache **kv_caches,
+                      struct MambaCache **mamba_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits) {
     auto nlayer = meta->nlayer;
@@ -142,35 +143,35 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
         // rope
         rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
         rope_v2(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
-        // size_t token_offset = 0;
-        // for (uint32_t req = 0; req < nreq; req++) {
-        //     auto past_len = req_pos[req];
-        //     auto seq_len = req_lens[req];
-        //     auto total_len = past_len + seq_len;
-        //     auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-        //     auto q = q_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-        //     auto k = k_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, dh});
-        //     auto v = v_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, dh});
+        size_t token_offset = 0;
+        for (uint32_t req = 0; req < nreq; req++) {
+            auto past_len = req_pos[req];
+            auto seq_len = req_lens[req];
+            auto total_len = past_len + seq_len;
+            auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+            auto q = q_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+            auto k = k_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, dh});
+            auto v = v_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, dh});
 
-        //     // self attention
-        //     // concat
-        //     rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
-        //     rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
-        //     // qk
-        //     rearrange(q_rearrange->slice(2, 0, seq_len), q);
-        //     auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
-        //     auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
-        //     linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
-        //     // softmax
-        //     auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
-        //     causalSoftmax(qk_softmax, qk_softmax);
-        //     auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
-        //     linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
-        //     // rearrange attn val
-        //     rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
+            // self attention
+            // concat
+            rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
+            rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
+            // qk
+            rearrange(q_rearrange->slice(2, 0, seq_len), q);
+            auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
+            auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
+            linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+            // softmax
+            auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
+            causalSoftmax(qk_softmax, qk_softmax);
+            auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
+            linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+            // rearrange attn val
+            rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
 
-        //     token_offset += seq_len;
-        // }
+            token_offset += seq_len;
+        }
         // o_proj
         linear(logits_in, o_buf, weight->w_attn_out[layer],
                1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
@@ -246,7 +247,8 @@ __C void
 inferBatchQwenHybrid(struct QwenHybridModel *model,
                      const uint32_t *tokens, uint32_t ntok,
                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                     struct QwenHybridCache **caches,
+                     struct KVCache **kv_caches,
+                     struct MambaCache **mamba_caches,
                      const float *temperature, const uint32_t *topk, const float *topp,
                      uint32_t *output) {
     model->req.tokens = tokens;
@@ -254,44 +256,13 @@ inferBatchQwenHybrid(struct QwenHybridModel *model,
     model->req.req_lens = req_lens;
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
-    model->req.caches = caches;
+    model->req.kv_caches = kv_caches;
+    model->req.mamba_caches = mamba_caches;
     model->req.output = output;
     model->req.logits = nullptr;
     model->req.temperature = temperature;
     model->req.topk = topk;
     model->req.topp = topp;
-
-    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
-        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
-        model->states[idev].proceed = true;
-        lock.unlock();
-        model->states[idev].cv_start.notify_one();
-    }
-    for (size_t i = model->dev_ids.size(); i > 0; i--) {
-        auto idev = i - 1;
-        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
-        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
-        lock.unlock();
-    }
-}
-
-__C void
-forwardBatchQwenHybrid(struct QwenHybridModel *model,
-                       const uint32_t *tokens, uint32_t ntok,
-                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                       struct QwenHybridCache **caches,
-                       void *logits) {
-    model->req.tokens = tokens;
-    model->req.ntok = ntok;
-    model->req.req_lens = req_lens;
-    model->req.nreq = nreq;
-    model->req.req_pos = req_pos;
-    model->req.caches = caches;
-    model->req.output = nullptr;
-    model->req.logits = logits;
-    model->req.temperature = nullptr;
-    model->req.topk = nullptr;
-    model->req.topp = nullptr;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -335,7 +306,7 @@ void launchDevice(const QwenHybridMeta *meta, std::shared_ptr<QwenHybridDeviceWe
         }
 
         inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
-                         req.req_lens, req.nreq, req.req_pos, req.caches,
+                         req.req_lens, req.nreq, req.req_pos, req.kv_caches, req.mamba_caches,
                          req.temperature, req.topk, req.topp, req.output, req.logits);
 
         state.proceed = false;

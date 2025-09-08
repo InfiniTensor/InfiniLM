@@ -1,14 +1,12 @@
 #pragma once
 #include "infinicore_infer/models/qwen_hybrid.h"
 
+#include "../../cache.hpp"
 #include "../../dataloader/weights_loader.hpp"
 
 #include <condition_variable>
 #include <mutex>
 #include <thread>
-
-struct QwenHybridCache {
-};
 
 struct QwenHybridDeviceWeight {
     std::shared_ptr<Tensor> w_in_embd, w_out_norm, w_out_embd, sin_table,
@@ -51,7 +49,8 @@ struct InferRequest {
     const uint32_t *req_lens;
     uint32_t nreq;
     const uint32_t *req_pos;
-    QwenHybridCache **caches;
+    KVCache **kv_caches;
+    MambaCache **mamba_caches;
     const float *temperature;
     const uint32_t *topk;
     const float *topp;

@@ -14,7 +14,8 @@ from libinfinicore_infer import (
     QwenHybridMetaCStruct,
     DataType,
     DeviceType,
-    QwenHybridCacheCStruct,
+    KVCacheCStruct,
+    MambaCacheCStruct,
 )
 from infer_task import InferTask, KVCache
 
@@ -103,6 +104,7 @@ class QwenHybridBatchedTask:
         self.req_lens_list = [len(toks) for toks in token_lists]
         self.req_pos_list = [t.pos for t in tasks]
         self.kv_cache_ptrs = [t.kvcache().data() for t in tasks]
+        self.mamba_cache_ptrs = ...  # TODO: implement mamba cache
         self.temperaturas_list = [t.temperature for t in tasks]
         self.topks_list = [t.topk for t in tasks]
         self.topps_list = [t.topp for t in tasks]
@@ -115,7 +117,11 @@ class QwenHybridBatchedTask:
         self.tokens = (c_uint * self.ntok)(*flat_tokens)
         self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
         self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
-        self.qwen_hybrid_caches = (POINTER(QwenHybridCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
+        self.kv_caches = (POINTER(KVCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
+        self.mamba_caches = (POINTER(MambaCacheCStruct) * self.nreq)(
+            *self.mamba_cache_ptrs
+        )
+
         self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
         self.topks = (c_uint * self.nreq)(*self.topks_list)
         self.topps = (c_float * self.nreq)(*self.topps_list)
@@ -127,7 +133,8 @@ class QwenHybridBatchedTask:
             self.req_lens,
             self.nreq,
             self.req_pos,
-            self.qwen_hybrid_caches,
+            self.kv_caches,
+            self.mamba_caches,
             self.temperaturas,
             self.topks,
             self.topps,
@@ -195,9 +202,7 @@ class QwenHybridForCausalLM:
                         tensor = tensor * self.meta.scale_input
                     elif "lm_head.weight" in key:
                         tensor = tensor * self.meta.scale_output
-                    self.model.load_weight(
-                        self.weights, key, tensor.data_ptr()
-                    )
+                    self.model.load_weight(self.weights, key, tensor.data_ptr())
 
     def max_context_len(self):
         return self.meta.dctx
@@ -217,6 +222,14 @@ class QwenHybridForCausalLM:
 
     def drop_kv_cache(self, kv_cache):
         self.model.drop_qwen_hybrid_cache(kv_cache)
+
+    def create_mamba_cache(self):
+        # TODO: implement mamba cache
+        return None
+
+    def drop_mamba_cache(self, mamba_cache):
+        # TODO: implement mamba cache
+        pass
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
@@ -256,11 +269,6 @@ class QwenHybridForCausalLM:
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
             steps += 1
-            # output_str = (
-            #     self.tokenizer._tokenizer.id_to_token(output_tokens[0])
-            #     .replace("▁", " ")
-            #     .replace("<0x0A>", "\n")
-            # )
             output_str = self.tokenizer.decode(output_tokens[0])
             output_content += output_str
             print(output_str, end="", flush=True)

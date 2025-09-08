@@ -4,6 +4,8 @@ from .base import (
     DeviceType,
     register_model,
     ModelWeightsCStruct,
+    KVCacheCStruct,
+    MambaCacheCStruct,
 )
 from ctypes import (
     c_size_t,
@@ -34,17 +36,11 @@ class QwenHybridMetaCStruct(Structure):
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
-        ("nbit", c_size_t),
-        ("quant_group_size", c_size_t),
         ("has_qkv_bias", c_char),
     ]
 
 
 class QwenHybridModelCStruct(Structure):
-    pass
-
-
-class QwenHybridCacheCStruct(Structure):
     pass
 
 
@@ -69,7 +65,7 @@ class QwenHybridModel(BaseModel):
 
         lib.destroyQwenHybridModel.argtypes = [POINTER(QwenHybridModelCStruct)]
 
-        lib.createQwenHybridCache.argtypes = [
+        lib.createKVCache.argtypes = [
             c_size_t,
             c_size_t,
             c_size_t,
@@ -80,9 +76,20 @@ class QwenHybridModel(BaseModel):
             POINTER(c_int),
             c_size_t,
         ]
-        lib.createQwenHybridCache.restype = POINTER(QwenHybridCacheCStruct)
+        lib.createKVCache.restype = POINTER(KVCacheCStruct)
 
-        lib.dropQwenHybridCache.argtypes = [POINTER(QwenHybridCacheCStruct)]
+        lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
+
+        lib.createMambaCache.argtypes = [
+            c_size_t,
+            DataType,
+            DeviceType,
+            POINTER(c_int),
+            c_size_t,
+        ]
+        lib.createMambaCache.restype = POINTER(MambaCacheCStruct)
+
+        lib.dropMambaCache.argtypes = [POINTER(MambaCacheCStruct)]
 
         lib.inferBatchQwenHybrid.argtypes = [
             POINTER(QwenHybridModelCStruct),
@@ -91,22 +98,12 @@ class QwenHybridModel(BaseModel):
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
-            POINTER(POINTER(QwenHybridCacheCStruct)),
+            POINTER(POINTER(KVCacheCStruct)),
+            POINTER(POINTER(MambaCacheCStruct)),
             POINTER(c_float),
             POINTER(c_uint),
             POINTER(c_float),
             POINTER(c_uint),
-        ]
-
-        lib.forwardBatchQwenHybrid.argtypes = [
-            POINTER(QwenHybridModelCStruct),
-            POINTER(c_uint),
-            c_uint,
-            POINTER(c_uint),
-            c_uint,
-            POINTER(c_uint),
-            POINTER(POINTER(QwenHybridCacheCStruct)),
-            c_void_p,
         ]
 
         lib.loadModelWeight.argtypes = [
@@ -124,15 +121,21 @@ class QwenHybridModel(BaseModel):
     def destroy_model(self, model):
         self.lib.destroyQwenHybridModel(model)
 
-    def create_qwen_hybrid_cache(
+    def create_kv_cache(
         self, nlayer, max_len, nkvh, dk, dv, dtype, device, dev_ids, ndev
     ):
-        return self.lib.createQwenHybridCache(
+        return self.lib.createKVCache(
             nlayer, max_len, nkvh, dk, dv, dtype, device, dev_ids, ndev
         )
 
-    def drop_qwen_hybrid_cache(self, qwen_hybrid_cache):
-        self.lib.dropQwenHybridCache(qwen_hybrid_cache)
+    def drop_kv_cache(self, kv_cache):
+        self.lib.dropKVCache(kv_cache)
+
+    def create_mamba_cache(self, nlayer, dtype, device, dev_ids, ndev):
+        return self.lib.createMambaCache(nlayer, dtype, device, dev_ids, ndev)
+
+    def drop_mamba_cache(self, mamba_cache):
+        self.lib.dropMambaCache(mamba_cache)
 
     def load_weight(self, weights, name, data):
         self.lib.loadModelWeight(weights, name.encode("utf-8"), data)
