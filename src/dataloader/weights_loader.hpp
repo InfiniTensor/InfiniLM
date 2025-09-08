@@ -48,7 +48,7 @@ public:
     /// @param tensor
     /// @param rank the rank of the weight tensor (default 0)
     /// @param dist_type either FULL, or distributed by ROW or COLUMN (default FULL)
-    void resigter(const std::string &name, std::shared_ptr<Tensor> tensor, int rank = 0, DistributionType dist_type = DistributionType::FULL);
+    void register_weight(const std::string &name, std::shared_ptr<Tensor> tensor, int rank = 0, DistributionType dist_type = DistributionType::FULL);
     void load(const std::string &name, const void *host_data);
     void finalize();
     std::shared_ptr<Tensor> get(const std::string &name, int rank = 0);
