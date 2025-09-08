@@ -35,43 +35,24 @@ class QwenHybridMetaFromConfig(QwenHybridMetaCStruct):
         else:
             dt_ = DataType.INFINI_DTYPE_F16
 
-        self.scale_input = 1.0
-        self.scale_output = 1.0
-        self.scale_o = 1.0
-        self.scale_down = 1.0
-        if (
-            config["model_type"] in ["fm9g", "minicpm"]
-            and "scale_emb" in config
-            and "scale_depth" in config
-            and "dim_model_base" in config
-        ):
-            self.scale_input = config["scale_emb"]
-            self.scale_output = config["hidden_size"] // config["dim_model_base"]
-            self.scale_o = config["scale_depth"] / math.sqrt(
-                config["num_hidden_layers"]
-            )
-            self.scale_down = config["scale_depth"] / math.sqrt(
-                config["num_hidden_layers"]
-            )
-
-        has_qkv_bias = (
-            1 if "attention_bias" in config and config["attention_bias"] else 0
-        )
-        if config["model_type"] in ["qwen2", "qwen3"]:
-            has_qkv_bias = 1
-
         eos_token_id = (
-            config["eos_token_id"][0]
+            config["eos_token_id"][-1]
             if type(config["eos_token_id"]) == list
             else config["eos_token_id"]
         )
 
         super().__init__(
-            dt_logits=dt_,
-            dt_linear_w=DataType.INFINI_DTYPE_I32,
-            dt_norm_w=dt_,
+            # common
+            dtype=dt_,
             nlayer=config["num_hidden_layers"],
             d=config["hidden_size"],
+            dctx=(
+                config["max_position_embeddings"] if max_tokens is None else max_tokens
+            ),
+            dvoc=config["vocab_size"],
+            epsilon=config["rms_norm_eps"],
+            end_token=eos_token_id,
+            # mha
             nh=config["num_attention_heads"],
             nkvh=(
                 config["num_key_value_heads"]
@@ -79,17 +60,19 @@ class QwenHybridMetaFromConfig(QwenHybridMetaCStruct):
                 else config["num_attention_heads"]
             ),
             dh=config["hidden_size"] // config["num_attention_heads"],
-            di=config["intermediate_size"],
-            dctx=(
-                config["max_position_embeddings"] if max_tokens is None else max_tokens
-            ),
-            dvoc=config["vocab_size"],
-            epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
-            end_token=eos_token_id,
-            nbit=config["quantization_config"]["bits"],
-            quant_group_size=config["quantization_config"]["group_size"],
-            has_qkv_bias=has_qkv_bias,
+            # linear attn
+            l_conv_dim=config.get("linear_conv_kernel_dim", 0),
+            l_expand=config.get("linear_expand_v", 0),
+            l_n_k_head=config.get("linear_num_key_heads", 0),
+            l_k_dim=config.get("linear_key_head_dim", 0),
+            l_n_v_head=config.get("linear_num_value_heads", 0),
+            l_v_dim=config.get("linear_value_head_dim", 0),
+            # moe
+            nexperts=config.get("num_experts", 0),
+            kexperts=config.get("num_experts_per_tok", 0),
+            shared_di=config.get("shared_expert_intermediate_size", 5632),
+            moe_di=config.get("moe_intermediate_size", 0),
         )
         self.torch_dtype_logits = dtype
 
@@ -104,7 +87,7 @@ class QwenHybridBatchedTask:
         self.req_lens_list = [len(toks) for toks in token_lists]
         self.req_pos_list = [t.pos for t in tasks]
         self.kv_cache_ptrs = [t.kvcache().data() for t in tasks]
-        self.mamba_cache_ptrs = ...  # TODO: implement mamba cache
+        self.mamba_cache_ptrs = None  # TODO: implement mamba cache
         self.temperaturas_list = [t.temperature for t in tasks]
         self.topks_list = [t.topk for t in tasks]
         self.topps_list = [t.topp for t in tasks]
@@ -118,9 +101,7 @@ class QwenHybridBatchedTask:
         self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
         self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
         self.kv_caches = (POINTER(KVCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
-        self.mamba_caches = (POINTER(MambaCacheCStruct) * self.nreq)(
-            *self.mamba_cache_ptrs
-        )
+        self.mamba_caches = None  # TODO: implement mamba cache
 
         self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
         self.topks = (c_uint * self.nreq)(*self.topks_list)
@@ -194,34 +175,26 @@ class QwenHybridForCausalLM:
                 for key in f.keys():
                     # print(key)
                     tensor = f.get_tensor(key)
-                    if "o_proj.scales" in key:
-                        tensor = tensor * self.meta.scale_o
-                    elif "down_proj.scales" in key:
-                        tensor = tensor * self.meta.scale_down
-                    elif "embed_tokens.weight" in key:
-                        tensor = tensor * self.meta.scale_input
-                    elif "lm_head.weight" in key:
-                        tensor = tensor * self.meta.scale_output
                     self.model.load_weight(self.weights, key, tensor.data_ptr())
 
     def max_context_len(self):
         return self.meta.dctx
 
     def create_kv_cache(self):
-        return self.model.create_qwen_hybrid_cache(
+        return self.model.create_kv_cache(
             self.meta.nlayer,
             self.meta.dctx,
             self.meta.nkvh,
             self.meta.dh,
             self.meta.dh,
-            self.meta.dt_logits,
+            self.meta.dtype,
             self.device,
             self.dev_ids,
             self.ndev,
         )
 
     def drop_kv_cache(self, kv_cache):
-        self.model.drop_qwen_hybrid_cache(kv_cache)
+        self.model.drop_kv_cache(kv_cache)
 
     def create_mamba_cache(self):
         # TODO: implement mamba cache

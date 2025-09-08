@@ -78,3 +78,15 @@ __C void dropKVCache(KVCache *kv_cache) {
     }
     delete kv_cache;
 }
+
+__C struct MambaCache *createMambaCache(
+    size_t nlayers,
+    infiniDtype_t dtype,
+    infiniDevice_t device,
+    int *dev_ids,
+    size_t ndev) {
+    return nullptr;
+}
+
+__C void dropMambaCache(MambaCache *mamba_cache) {
+}

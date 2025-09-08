@@ -61,7 +61,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto dh = meta->dh;
     auto d = meta->d;
     auto dt_logits = meta->dtype;
-    auto di = meta->moe_di / ndev;
+    auto di = meta->shared_di / ndev;
     auto dvoc = meta->dvoc;
     auto stream = rsrc.stream;
     auto weight = rsrc.weights;
@@ -119,8 +119,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     }
 
     auto qk_buf = Tensor::buffer(dt_logits, {nh * max_qk_size}, rsrc.memory_pool);
-    auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-    auto q_rearrange = rearrange_q_buf->view({nkvh, ngroup, max_seq_len, dh});
+    auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh * ngroup * max_seq_len * dh}, rsrc.memory_pool);
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
@@ -157,10 +156,11 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
             rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
             rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
             // qk
-            rearrange(q_rearrange->slice(2, 0, seq_len), q);
+            auto q_rearrange = rearrange_q_buf->slice(0, 0, nkvh * ngroup * seq_len * dh)->view({nkvh, ngroup, seq_len, dh});
+            rearrange(q_rearrange, q);
             auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
             auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
-            linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+            linear(qk_gemm, q_rearrange->view({nkvh, ngroup * seq_len, dh}), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
             // softmax
             auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
             causalSoftmax(qk_softmax, qk_softmax);
