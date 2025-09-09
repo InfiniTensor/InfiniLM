@@ -16,10 +16,11 @@ void Weight::load(const void *host_data, infinirtStream_t stream) {
     } else if (_dist_type == DistributionType::COLUMN && _tensor->ndim() > 1) { // _dist_type == DistributionType::COLUMN
         void *rearranged_ptr;
         RUN_INFINI(infinirtMallocHost(&rearranged_ptr, _tensor->numel() * dsize(_tensor->dtype())));
-        size_t row_size = _tensor->shape()[_tensor->ndim() - 1] * dsize(_tensor->dtype());
+        /// TODO: here assume weight is stored as W^T, and has been permuted {1, 0}
+        size_t row_size = _tensor->shape()[_tensor->ndim() - 2] * dsize(_tensor->dtype());
         size_t host_offset = _rank * row_size;
         size_t host_row_size = _nrank * row_size;
-        size_t rows = std::accumulate(_tensor->shape().begin(), _tensor->shape().end() - 1, size_t(1), std::multiplies<size_t>());
+        size_t rows = _tensor->shape()[_tensor->ndim() - 1];
         for (size_t row = 0; row < rows; row++) {
             memcpy((char *)rearranged_ptr + row * row_size,
                    (char *)host_data + host_offset + row * host_row_size,
