@@ -19,7 +19,14 @@ __C __export struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t se
 __C __export void dropKVCache(KVCache *kv_cache);
 
 __C __export struct MambaCache *createMambaCache(
-    size_t nlayers,
+    // size_t nlayers,
+    size_t batch_size,
+    size_t nlinear_attention_layers,
+    size_t linear_conv_kernel_dim,
+    size_t linear_key_head_dim,
+    size_t linear_value_head_dim,
+    size_t linear_num_key_heads,
+    size_t linear_num_value_heads,
     infiniDtype_t dtype,
     infiniDevice_t device,
     int *dev_ids,

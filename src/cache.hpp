@@ -9,5 +9,5 @@ struct KVCache {
 };
 
 struct MambaCache {
-    std::vector<std::vector<std::shared_ptr<Tensor>>> conv_state, ssm_state, state_indices;
+    std::vector<std::vector<std::shared_ptr<Tensor>>> conv_states, ssm_states;
 };
