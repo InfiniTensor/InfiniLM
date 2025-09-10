@@ -17,6 +17,7 @@ from ctypes import (
     Structure,
     c_char,
     c_char_p,
+    c_bool
 )
 
 
@@ -47,6 +48,7 @@ class QwenHybridMetaCStruct(Structure):
         ("kexperts", c_size_t),
         ("shared_di", c_size_t),
         ("moe_di", c_size_t),
+        ("norm_topk_prob", c_bool),
     ]
 
 
