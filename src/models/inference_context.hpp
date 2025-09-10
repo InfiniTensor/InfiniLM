@@ -67,6 +67,65 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> in_s,
                  std::shared_ptr<Tensor> in_z);
 
+    void chunk_gated_delta_rule(std::shared_ptr<Tensor> out,
+                                std::shared_ptr<Tensor> out_final_state,
+                                std::shared_ptr<Tensor> q,
+                                std::shared_ptr<Tensor> k,
+                                std::shared_ptr<Tensor> v,
+                                std::shared_ptr<Tensor> g,
+                                std::shared_ptr<Tensor> beta,
+                                std::shared_ptr<Tensor> initial_state,
+                                bool use_qk_l2norm);
+
+    void recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,
+                                    std::shared_ptr<Tensor> out_final_state,
+                                    std::shared_ptr<Tensor> q,
+                                    std::shared_ptr<Tensor> k,
+                                    std::shared_ptr<Tensor> v,
+                                    std::shared_ptr<Tensor> g,
+                                    std::shared_ptr<Tensor> beta,
+                                    std::shared_ptr<Tensor> initial_state,
+                                    bool use_qk_l2norm);
+
+    // 标准应该使用causal_conv1d
+    // 否则使用F.silu(self.conv1d(mixed_qkv)[:,:,:seq_len])
+    void conv1d(std::shared_ptr<Tensor> y,
+                std::shared_ptr<Tensor> x,
+                std::shared_ptr<Tensor> w,
+                std::shared_ptr<Tensor> b,
+                void *pads,
+                void *strides,
+                void *dilations);
+
+    void conv1d_update(std::shared_ptr<Tensor> y,
+                       std::shared_ptr<Tensor> x,
+                       std::shared_ptr<Tensor> w,
+                       std::shared_ptr<Tensor> b,
+                       std::shared_ptr<Tensor> conv_state,
+                       void *pads,
+                       void *strides,
+                       void *dilations);
+
+    void exp(std::shared_ptr<Tensor> out,
+             std::shared_ptr<Tensor> in);
+
+    void softplus(std::shared_ptr<Tensor> out,
+                  std::shared_ptr<Tensor> in);
+
+    void silu(std::shared_ptr<Tensor> out,
+              std::shared_ptr<Tensor> in);
+
+    void pad();
+
+    // void sigmoid(std::shared_ptr<Tensor> out,
+    //              std::shared_ptr<Tensor> in);
+
+    void tril(std::shared_ptr<Tensor> out,
+              std::shared_ptr<Tensor> in);
+
+    void triu(std::shared_ptr<Tensor> out,
+              std::shared_ptr<Tensor> in);
+
     void sub(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
@@ -75,7 +134,7 @@ struct InferenceContext {
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
 
-    void sigmoid(std::shared_ptr<Tensor> Y,
+    void sigmoid(std::shared_ptr<Tensor> y,
                  std::shared_ptr<Tensor> x);
 
     void topksoftmax(std::shared_ptr<Tensor> values,  // F32
@@ -147,6 +206,8 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
                                      topk);
 }
 
+// inline void gated_rmsnorm()
+
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
                    std::shared_ptr<Tensor> gate) {
     getInferenceContext().swiglu(out, up, gate);
@@ -193,4 +254,81 @@ inline void topksoftmax(std::shared_ptr<Tensor> values,  // F32
                                       x,
                                       topk,
                                       norm_topk_prob);
+}
+
+inline void chunk_gated_delta_rule(std::shared_ptr<Tensor> out,
+                                   std::shared_ptr<Tensor> out_final_state,
+                                   std::shared_ptr<Tensor> q,
+                                   std::shared_ptr<Tensor> k,
+                                   std::shared_ptr<Tensor> v,
+                                   std::shared_ptr<Tensor> g,
+                                   std::shared_ptr<Tensor> beta,
+                                   std::shared_ptr<Tensor> initial_state,
+                                   bool use_qk_l2norm) {
+    // return nullptr;
+}
+
+inline void recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,
+                                       std::shared_ptr<Tensor> out_final_state,
+                                       std::shared_ptr<Tensor> q,
+                                       std::shared_ptr<Tensor> k,
+                                       std::shared_ptr<Tensor> v,
+                                       std::shared_ptr<Tensor> g,
+                                       std::shared_ptr<Tensor> beta,
+                                       std::shared_ptr<Tensor> initial_state,
+                                       bool use_qk_l2norm) {
+    // return nullptr;
+}
+
+// 标准应该使用causal_conv1d
+// 否则使用F.silu(self.conv1d(mixed_qkv)[:,:,:seq_len])
+inline void conv1d(std::shared_ptr<Tensor> y,
+                   std::shared_ptr<Tensor> x,
+                   std::shared_ptr<Tensor> w,
+                   std::shared_ptr<Tensor> b,
+                   void *pads,
+                   void *strides,
+                   void *dilations) {
+    // return nullptr;
+}
+
+inline void conv1d_update(std::shared_ptr<Tensor> y,
+                          std::shared_ptr<Tensor> x,
+                          std::shared_ptr<Tensor> w,
+                          std::shared_ptr<Tensor> b,
+                          std::shared_ptr<Tensor> conv_state,
+                          void *pads,
+                          void *strides,
+                          void *dilations) {
+    // return nullptr;
+}
+
+inline void exp(std::shared_ptr<Tensor> out,
+                std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
+
+inline void softplus(std::shared_ptr<Tensor> out,
+                     std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
+
+inline void silu(std::shared_ptr<Tensor> out,
+                 std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
+
+// inline void sigmoid(std::shared_ptr<Tensor> out,
+//                     std::shared_ptr<Tensor> in) {
+//     // return nullptr;
+// }
+
+inline void tril(std::shared_ptr<Tensor> out,
+                 std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
+
+inline void triu(std::shared_ptr<Tensor> out,
+                 std::shared_ptr<Tensor> in) {
+    // return nullptr;
 }

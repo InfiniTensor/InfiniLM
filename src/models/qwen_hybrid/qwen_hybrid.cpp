@@ -66,8 +66,19 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto stream = rsrc.stream;
     auto weight = rsrc.weights;
 
+    // linear
+    auto embed_dim = meta->hidden_size;
+    auto head_k_dim = meta->linear_key_head_dim;
+    auto head_v_dim = meta->linear_value_head_dim;
+
+    auto num_v_heads = meta->linear_num_value_heads;
+    auto num_k_heads = meta->linear_num_key_heads;
+
+    auto key_dim = head_k_dim * num_k_heads;
+    auto value_dim = head_v_dim * num_v_heads;
     // Allocate buffers
-    auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+    auto logits_in
+        = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto q_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
     auto k_buf = Tensor::buffer(dt_logits, {ntok, nkvh * dh}, rsrc.memory_pool);
@@ -80,6 +91,12 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
     auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
     auto result_cpu = std::vector<int64_t>(nreq);
+
+    // linear buffer
+    auto hidden_states_buf = Tensor::buffer(dt_logits, {nreq, ntok, embed_dim},
+                                            rsrc.memory_pool);
+    auto projected_states_qkvz = Tensor::buffer(dt_logits, {ntok, key_dim * 2 + value_dim * 2}, rsrc.memory_pool);
+    auto projected_states_ba = Tensor::buffer(dt_logits, {ntok, num_v_heads * 2}, rsrc.memory_pool);
 
     // Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
@@ -122,6 +139,20 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh * ngroup * max_seq_len * dh}, rsrc.memory_pool);
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
+
+    // Linear Attention
+    // linear attention innfer
+    for (uint32_t layer = 0; layer < nlayer; layer++) {
+        // hiddent_states * attention_mask
+        for (uint32_t req = 0; req < nreq; req++) {
+            auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][layer] : nullptr;
+            auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][layer] : nullptr;
+
+            // linear(projected_states_qkvz, hidden_states, weight->[layer]);
+
+            // liear(projected_states_ba)
+        }
+    }
 
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {

@@ -163,9 +163,17 @@ public:
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(Dequantize)
+    // DECLARE_OP_CACHE(Chunk_gated_delta_rule)
+    DECLARE_OP_CACHE(RecurrentGatedDeltaRule)
+    DECLARE_OP_CACHE(Conv)
+    DECLARE_OP_CACHE(Exp)
+    DECLARE_OP_CACHE(Softplus)
+    DECLARE_OP_CACHE(Silu)
+    DECLARE_OP_CACHE(Sigmoid)
+    DECLARE_OP_CACHE(Tril)
+    DECLARE_OP_CACHE(Triu)
     DECLARE_OP_CACHE(Sub)
     DECLARE_OP_CACHE(Mul)
-    DECLARE_OP_CACHE(Sigmoid)
     DECLARE_OP_CACHE(Topksoftmax)
 
     CacheManager(size_t capacity = 100)
@@ -180,9 +188,16 @@ public:
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           Dequantize_cache(capacity, DESTROY_FUNC(Dequantize)),
+          RecurrentGatedDeltaRule_cache(capacity, DESTROY_FUNC(RecurrentGatedDeltaRule)),
+          Conv_cache(capacity, DESTROY_FUNC(Conv)),
+          Exp_cache(capacity, DESTROY_FUNC(Exp)),
+          Softplus_cache(capacity, DESTROY_FUNC(Softplus)),
+          Silu_cache(capacity, DESTROY_FUNC(Silu)),
+          Sigmoid_cache(capacity, DESTROY_FUNC(Sigmoid)),
+          Tril_cache(capacity, DESTROY_FUNC(Tril)),
+          Triu_cache(capacity, DESTROY_FUNC(Triu)),
           Sub_cache(capacity, DESTROY_FUNC(Sub)),
           Mul_cache(capacity, DESTROY_FUNC(Mul)),
-          Sigmoid_cache(capacity, DESTROY_FUNC(Sigmoid)),
           Topksoftmax_cache(capacity, DESTROY_FUNC(Topksoftmax)) {}
 
     template <typename... Tensors>

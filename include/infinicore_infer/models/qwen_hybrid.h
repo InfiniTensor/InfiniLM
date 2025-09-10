@@ -25,6 +25,16 @@ typedef struct
     float theta;
     // linear attention
     size_t l_conv_kernel_dim, l_expand, l_n_k_head, l_k_dim, l_n_v_head, l_v_dim;
+    size_t linear_key_head_dim;
+    size_t linear_value_head_dim;
+    size_t linear_num_value_heads;
+    size_t linear_num_key_heads;
+    // size_t _dim;
+    // size_t num_k_heads;
+    // size_t head_v_dim;
+    // size_t num_v_heads;
+    size_t hidden_size;
+    // size_t head_dim;
     // moe
     size_t nexperts, kexperts;
     size_t shared_di;

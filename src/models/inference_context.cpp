@@ -391,3 +391,80 @@ void InferenceContext::topksoftmax(std::shared_ptr<Tensor> values,  // F32
         desc, workspace, workspace_size,
         values->data(), indices->data(), x->data(), topk, norm_topk_prob, stream));
 }
+
+void InferenceContext::chunk_gated_delta_rule(std::shared_ptr<Tensor> out,
+                                              std::shared_ptr<Tensor> out_final_state,
+                                              std::shared_ptr<Tensor> q,
+                                              std::shared_ptr<Tensor> k,
+                                              std::shared_ptr<Tensor> v,
+                                              std::shared_ptr<Tensor> g,
+                                              std::shared_ptr<Tensor> beta,
+                                              std::shared_ptr<Tensor> initial_state,
+                                              bool use_qk_l2norm) {
+    // return nullptr;
+}
+
+void InferenceContext::recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,
+                                                  std::shared_ptr<Tensor> out_final_state,
+                                                  std::shared_ptr<Tensor> q,
+                                                  std::shared_ptr<Tensor> k,
+                                                  std::shared_ptr<Tensor> v,
+                                                  std::shared_ptr<Tensor> g,
+                                                  std::shared_ptr<Tensor> beta,
+                                                  std::shared_ptr<Tensor> initial_state,
+                                                  bool use_qk_l2norm) {
+    // return nullptr;
+}
+
+void InferenceContext::conv1d(std::shared_ptr<Tensor> y,
+                              std::shared_ptr<Tensor> x,
+                              std::shared_ptr<Tensor> w,
+                              std::shared_ptr<Tensor> b,
+                              void *pads,
+                              void *strides,
+                              void *dilations) {
+    // return nullptr;
+}
+
+void InferenceContext::conv1d_update(std::shared_ptr<Tensor> y,
+                                     std::shared_ptr<Tensor> x,
+                                     std::shared_ptr<Tensor> w,
+                                     std::shared_ptr<Tensor> b,
+                                     std::shared_ptr<Tensor> conv_state,
+                                     void *pads,
+                                     void *strides,
+                                     void *dilations) {
+    // return nullptr;
+}
+
+void InferenceContext::exp(std::shared_ptr<Tensor> out,
+                           std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
+
+void InferenceContext::softplus(std::shared_ptr<Tensor> out,
+                                std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
+
+void InferenceContext::silu(std::shared_ptr<Tensor> out,
+                            std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
+
+// void InferenceContext::pad();
+
+// void InferenceContext::sigmoid(std::shared_ptr<Tensor> out,
+//                                std::shared_ptr<Tensor> in) {
+//     // return nullptr;
+// }
+
+void InferenceContext::tril(std::shared_ptr<Tensor> out,
+                            std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
+
+void InferenceContext::triu(std::shared_ptr<Tensor> out,
+                            std::shared_ptr<Tensor> in) {
+    // return nullptr;
+}
