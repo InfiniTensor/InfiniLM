@@ -83,6 +83,7 @@ void print_info(const QwenHybridMeta &meta) {
     printf(" kexperts : %ld\n", meta.kexperts);
     printf(" shared_di : %ld\n", meta.shared_di);
     printf(" moe_di : %ld\n", meta.moe_di);
+    printf(" norm_topk_prob : %d\n", meta.norm_topk_prob);
 
     printf("\n");
 }

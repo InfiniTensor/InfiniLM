@@ -61,7 +61,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto dh = meta->dh;
     auto d = meta->d;
     auto dt_logits = meta->dtype;
-    auto di = meta->shared_di / ndev;
+    //  auto di = meta->shared_di / ndev;
     auto dvoc = meta->dvoc;
     auto stream = rsrc.stream;
     auto weight = rsrc.weights;
@@ -73,8 +73,8 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto k_buf = Tensor::buffer(dt_logits, {ntok, nkvh * dh}, rsrc.memory_pool);
     auto v_buf = Tensor::buffer(dt_logits, {ntok, nkvh * dh}, rsrc.memory_pool);
 
-    auto gate_buf = Tensor::buffer(dt_logits, {ntok, di}, rsrc.memory_pool);
-    auto up_buf = Tensor::buffer(dt_logits, {ntok, di}, rsrc.memory_pool);
+    // auto gate_buf = Tensor::buffer(dt_logits, {ntok, di}, rsrc.memory_pool);
+    // auto up_buf = Tensor::buffer(dt_logits, {ntok, di}, rsrc.memory_pool);
 
     auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
     auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
@@ -130,9 +130,15 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
         rmsnorm(logits_out, logits_in, weight->w_attn_norm[layer], meta->epsilon);
 
         // qkv_proj && qkv_bias
-        auto b_attn_q = weight->b_attn_q[layer];
-        auto b_attn_k = weight->b_attn_k[layer];
-        auto b_attn_v = weight->b_attn_v[layer];
+        std::shared_ptr<Tensor> b_attn_q;
+        std::shared_ptr<Tensor> b_attn_k;
+        std::shared_ptr<Tensor> b_attn_v;
+        if (weight->b_attn_q.size() > 0) {
+            b_attn_q = weight->b_attn_q[layer];
+            b_attn_k = weight->b_attn_k[layer];
+            b_attn_v = weight->b_attn_v[layer];
+        }
+
         linear(q_buf, logits_out, weight->w_attn_q[layer], 1.0, 0.0, nullptr, b_attn_q ? b_attn_q : nullptr);
         linear(k_buf, logits_out, weight->w_attn_k[layer], 1.0, 0.0, nullptr, b_attn_k ? b_attn_k : nullptr);
         linear(v_buf, logits_out, weight->w_attn_v[layer], 1.0, 0.0, nullptr, b_attn_v ? b_attn_v : nullptr);
@@ -195,19 +201,18 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
         //                          SparseMLP                                       //
         // ------------------------------------------------------------------------ //
         {
-            // 明确输入输出变量
+            // 输入变量:
             std::shared_ptr<Tensor> hidden_states = logits_out; // logits_out 是整个 MoE的输入，重新起名字为 hidden_states
 
             // 需要提前申请的缓存
             size_t moe_intermediate_size = meta->moe_di;
-            auto router_gate_up_buf = Tensor::buffer(dt_logits, {1, 2 * moe_intermediate_size}, rsrc.memory_pool);
-            auto router_gate_buf = router_gate_up_buf->slice(1, 0, moe_intermediate_size);
-            auto router_up_buf = router_gate_up_buf->slice(1, moe_intermediate_size, moe_intermediate_size);
+
+            auto router_gate_buf = Tensor::buffer(dt_logits, {1, 1 * moe_intermediate_size}, rsrc.memory_pool);
+            auto router_up_buf = Tensor::buffer(dt_logits, {1, 1 * moe_intermediate_size}, rsrc.memory_pool);
 
             size_t shared_expert_intermediate_size = meta->shared_di;
-            auto shared_gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * shared_expert_intermediate_size}, rsrc.memory_pool);
-            auto shared_gate_buf = shared_gate_up_buf->slice(1, 0, shared_expert_intermediate_size);
-            auto shared_up_buf = shared_gate_up_buf->slice(1, shared_expert_intermediate_size, shared_expert_intermediate_size);
+            auto shared_gate_buf = Tensor::buffer(dt_logits, {ntok, 1 * shared_expert_intermediate_size}, rsrc.memory_pool);
+            auto shared_up_buf = Tensor::buffer(dt_logits, {ntok, 1 * shared_expert_intermediate_size}, rsrc.memory_pool);
 
             std::shared_ptr<Tensor> shared_gate_output = Tensor::buffer(dt_logits, {ntok, 1}, rsrc.memory_pool);              // 共享专家的 gate 权重
             std::shared_ptr<Tensor> router_gate_output = Tensor::buffer(dt_logits, {ntok, meta->nexperts}, rsrc.memory_pool); // 路由专家的 gate 的输出
@@ -216,14 +221,13 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
             std::shared_ptr<Tensor> router_states_sum = Tensor::buffer(hidden_states->dtype(), hidden_states->shape(), rsrc.memory_pool); // 用于存储 router MLP的输出
             std::shared_ptr<Tensor> shared_states = Tensor::buffer(hidden_states->dtype(), hidden_states->shape(), rsrc.memory_pool);     // 用于存储 shared MLP的输出
 
-            //
             size_t topk = meta->kexperts;
             bool norm_topk_prob = meta->norm_topk_prob;
 
             std::shared_ptr<Tensor> values_gpu = Tensor::buffer(infiniDtype_t::INFINI_DTYPE_F32, {ntok, topk}, rsrc.memory_pool);  // 用于存储topkrouter的输出，每个expert对应的加权权重。
             std::shared_ptr<Tensor> indices_gpu = Tensor::buffer(infiniDtype_t::INFINI_DTYPE_I32, {ntok, topk}, rsrc.memory_pool); // 用于存储topkrouter的输出，要经过哪些专家id（从256个中选8个）
-            std::vector<float> values_cpu(ntok * topk, 0.f);                                                                       // 用于存储topkrouter的输出，每个expert对应的加权权重。（从256个中选8个）
-            std::vector<int> indices_cpu(ntok * topk, 0);                                                                          // 用于存储topkrouter的输出，要经过哪些专家的索引。
+            std::vector<float> values_cpu(ntok * topk, 0.f);
+            std::vector<int> indices_cpu(ntok * topk, 0);
 
             // ------------------------------------------------------------------------ //
             //                            开始计算                                       //

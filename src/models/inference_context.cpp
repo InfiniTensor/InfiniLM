@@ -306,6 +306,27 @@ void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
         weight->data(), in_w->data(), in_s->data(), in_z->data(), 0, 0, 0, stream));
 }
 
+void InferenceContext::sub(std::shared_ptr<Tensor> c,
+                           std::shared_ptr<Tensor> a,
+                           std::shared_ptr<Tensor> b) {
+
+    size_t key = CacheManager::createDescriptorKey(c, a, b);
+    infiniopSubDescriptor_t desc;
+
+    if (!cache_manager->getSubDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateSubDescriptor(op_handle, &desc, c->desc(), a->desc(), b->desc()));
+        cache_manager->putSubDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSubWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+    RUN_INFINI(infiniopSub(
+        desc, workspace, workspace_size,
+        c->data(), a->data(), b->data(), stream));
+}
+
 void InferenceContext::mul(std::shared_ptr<Tensor> c,
                            std::shared_ptr<Tensor> a,
                            std::shared_ptr<Tensor> b) {

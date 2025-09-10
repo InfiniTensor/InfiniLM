@@ -67,6 +67,10 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> in_s,
                  std::shared_ptr<Tensor> in_z);
 
+    void sub(std::shared_ptr<Tensor> c,
+             std::shared_ptr<Tensor> a,
+             std::shared_ptr<Tensor> b);
+
     void mul(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
@@ -167,12 +171,16 @@ inline void dequant_linear(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> 
     getInferenceContext().linear(out, x, w, alpha, beta, residual, bias);
 }
 
-inline void sigmoid(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
-    getInferenceContext().sigmoid(y, x);
+inline void sub(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
+    getInferenceContext().sub(c, a, b);
 }
 
 inline void mul(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
     getInferenceContext().mul(c, a, b);
+}
+
+inline void sigmoid(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().sigmoid(y, x);
 }
 
 inline void topksoftmax(std::shared_ptr<Tensor> values,  // F32
