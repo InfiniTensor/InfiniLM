@@ -23,6 +23,11 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
                  float epsilon);
+    void gated_rmsnorm(std::shared_ptr<Tensor> y,
+                       std::shared_ptr<Tensor> x,
+                       std::shared_ptr<Tensor> w,
+                       std::shared_ptr<Tensor> z,
+                       float epsilon);
     void gemm(std::shared_ptr<Tensor> c,
               std::shared_ptr<Tensor> a,
               std::shared_ptr<Tensor> b,
@@ -52,6 +57,10 @@ struct InferenceContext {
     void swiglu(std::shared_ptr<Tensor> out,
                 std::shared_ptr<Tensor> up,
                 std::shared_ptr<Tensor> gate);
+
+    void silu(std::shared_ptr<Tensor> out,
+              std::shared_ptr<Tensor> in);
+
     void randomSample(std::shared_ptr<Tensor> out,
                       std::shared_ptr<Tensor> prob,
                       float random_val, float top_p, uint32_t top_k, float temperature);
@@ -166,6 +175,11 @@ inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
     getInferenceContext().rmsnorm(y, x, w, epsilon);
 }
 
+inline void gated_rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
+                    std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> z, float epsilon) {
+    getInferenceContext().gated_rmsnorm(y, x, w, z, epsilon);
+}
+
 inline void gemm(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
                  std::shared_ptr<Tensor> b, float alpha, float beta) {
     getInferenceContext().gemm(c, a, b, alpha, beta);
@@ -211,6 +225,10 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
                    std::shared_ptr<Tensor> gate) {
     getInferenceContext().swiglu(out, up, gate);
+}
+
+inline void silu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in) {
+    getInferenceContext().silu(out, in);
 }
 
 inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> prob,

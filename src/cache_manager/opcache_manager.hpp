@@ -161,6 +161,7 @@ public:
     DECLARE_OP_CACHE(CausalSoftmax)
     DECLARE_OP_CACHE(Topkrouter)
     DECLARE_OP_CACHE(SwiGLU)
+    DECLARE_OP_CACHE(Silu)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(Dequantize)
     // DECLARE_OP_CACHE(Chunk_gated_delta_rule)
@@ -186,6 +187,7 @@ public:
           CausalSoftmax_cache(capacity, DESTROY_FUNC(CausalSoftmax)),
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
+          Silu_cache(capacity, DESTROY_FUNC(Silu)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           Dequantize_cache(capacity, DESTROY_FUNC(Dequantize)),
           RecurrentGatedDeltaRule_cache(capacity, DESTROY_FUNC(RecurrentGatedDeltaRule)),

@@ -56,6 +56,68 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
         y->data(), x->data(), w->data(), stream));
 }
 
+void InferenceContext::gated_rmsnorm(std::shared_ptr<Tensor> y,
+                                std::shared_ptr<Tensor> x,
+                                std::shared_ptr<Tensor> w,
+                                std::shared_ptr<Tensor> z,
+                                float epsilon) {
+    // RMSNorm: y = rms_norm(x, w)
+    size_t rmsnorm_key = CacheManager::createDescriptorKey(y, x, w);
+
+    infiniopRMSNormDescriptor_t rmsnorm_desc;
+    if (!cache_manager->getRMSNormDescriptor(rmsnorm_key, rmsnorm_desc)) {
+        RUN_INFINI(infiniopCreateRMSNormDescriptor(
+            op_handle, &rmsnorm_desc, y->desc(), x->desc(), w->desc(), epsilon));
+        cache_manager->putRMSNormDescriptor(rmsnorm_key, rmsnorm_desc);
+    }
+
+    size_t rmsnorm_workspace_size = 0;
+    RUN_INFINI(infiniopGetRMSNormWorkspaceSize(rmsnorm_desc, &rmsnorm_workspace_size));
+    ensure_workspace(rmsnorm_workspace_size);
+    void *rmsnorm_workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopRMSNorm(
+        rmsnorm_desc, rmsnorm_workspace, rmsnorm_workspace_size,
+        y->data(), x->data(), w->data(), stream));
+
+    // Silu: silued_z = silu(z)
+    auto silued_z = Tensor::buffer(z->dtype(), z->shape(), memory_pool);
+    size_t silu_key = CacheManager::createDescriptorKey(silued_z, z);
+
+    infiniopSiluDescriptor_t silu_desc;
+    if (!cache_manager->getSiluDescriptor(silu_key, silu_desc)) {
+        RUN_INFINI(infiniopCreateSiluDescriptor(
+            op_handle, &silu_desc, silued_z->desc(), z->desc()));
+        cache_manager->putSiluDescriptor(silu_key, silu_desc);
+    }
+
+    size_t silu_workspace_size = 0;
+    RUN_INFINI(infiniopGetSiluWorkspaceSize(silu_desc, &silu_workspace_size));
+    ensure_workspace(silu_workspace_size);
+    void *silu_workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopSilu(silu_desc, silu_workspace, silu_workspace_size,
+                            silued_z->data(), z->data(), stream));
+
+    // gated_rmsnorm: y = mul(y, silued_z)
+    size_t mul_key = CacheManager::createDescriptorKey(y, y, silued_z);
+
+    infiniopMulDescriptor_t mul_desc;
+    if (!cache_manager->getMulDescriptor(mul_key, mul_desc)) {
+        RUN_INFINI(infiniopCreateMulDescriptor(
+            op_handle, &mul_desc, y->desc(), y->desc(), silued_z->desc()));
+        cache_manager->putMulDescriptor(mul_key, mul_desc);
+    }
+
+    size_t mul_workspace_size = 0;
+    RUN_INFINI(infiniopGetMulWorkspaceSize(mul_desc, &mul_workspace_size));
+    ensure_workspace(mul_workspace_size);
+    void *mul_workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopMul(mul_desc, mul_workspace, mul_workspace_size,
+                           y->data(), y->data(), silued_z->data(), stream));
+}
+
 void InferenceContext::gemm(std::shared_ptr<Tensor> c,
                             std::shared_ptr<Tensor> a,
                             std::shared_ptr<Tensor> b,
@@ -211,6 +273,26 @@ void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
 
     RUN_INFINI(infiniopSwiGLU(desc, workspace, workspace_size,
                               out->data(), up->data(), gate->data(), stream));
+}
+
+void InferenceContext::silu(std::shared_ptr<Tensor> out,
+                            std::shared_ptr<Tensor> in) {
+    size_t key = CacheManager::createDescriptorKey(out, in);
+
+    infiniopSiluDescriptor_t desc;
+    if (!cache_manager->getSiluDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateSiluDescriptor(
+            op_handle, &desc, out->desc(), in->desc()));
+        cache_manager->putSiluDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSiluWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopSilu(desc, workspace, workspace_size,
+                              out->data(), in->data(), stream));
 }
 
 void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
