@@ -103,6 +103,14 @@ QwenHybridWeights::QwenHybridWeights(
     size_t nkvh = meta->nkvh / ndev;
     size_t dh = meta->dh;
     // size_t di = meta->shared_di / ndev;
+    size_t l_n_k_head = meta->l_n_k_head / ndev;
+    size_t l_n_v_head = meta->l_n_v_head / ndev;
+    size_t l_k_dim = meta->l_k_dim;
+    size_t l_v_dim = meta->l_v_dim;
+    size_t l_conv_dim = l_n_k_head * l_k_dim * 2 + l_n_v_head * l_v_dim;
+    size_t l_conv_kernel_dim = meta->l_conv_kernel_dim;
+    size_t projection_size_qkvz = l_n_k_head * l_k_dim * 2 + l_n_v_head * l_v_dim * 2;
+    size_t projection_size_ba = l_n_v_head * 2;
     size_t dctx = meta->dctx;
     size_t dvoc = meta->dvoc;
 
@@ -146,23 +154,44 @@ QwenHybridWeights::QwenHybridWeights(
     this->register_weight(W_NAME, W_VAR, i, infinicore::weights::DistributionType::W_DIST_TYPE); \
     weight->W_VAR.push_back(W_VAR);
 
+#define REGISTER_LAYER_WEIGHT_3D(W_NAME, W_VAR, W_DIM_1, W_DIM_2, W_DIM_3, W_DTYPE, W_DIST_TYPE) \
+    auto W_VAR = Tensor::weight(nullptr, W_DTYPE, {W_DIM_1, W_DIM_2, W_DIM_3});                  \
+    this->register_weight(W_NAME, W_VAR, i, infinicore::weights::DistributionType::W_DIST_TYPE); \
+    weight->W_VAR.push_back(W_VAR);
+
             REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".input_layernorm.weight", w_attn_norm, d, dt_norm_w, FULL);
 
-            REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.weight", w_attn_q, d, nh * dh, dt_logits, ROW);
-            REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.weight", w_attn_k, d, nkvh * dh, dt_logits, ROW);
-            REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.weight", w_attn_v, d, nkvh * dh, dt_logits, ROW);
-            REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.o_proj.weight", w_attn_out, nh * dh, d, dt_logits, COLUMN);
-
-            // b_attn_qkv
-            REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.bias", b_attn_q, nh * dh, dt_logits, FULL);
-            REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.bias", b_attn_k, nkvh * dh, dt_logits, FULL);
-            REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.bias", b_attn_v, nkvh * dh, dt_logits, FULL);
-
-            // FFN
-            // REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".post_attention_layernorm.weight", w_ffn_norm, d, dt_norm_w, FULL);
-            // REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.gate_proj.weight", w_ffn_gate, d, di, dt_logits, ROW);
-            // REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.up_proj.weight", w_ffn_up, d, di, dt_logits, ROW);
-            // REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.down_proj.weight", w_ffn_down, di, d, dt_logits, COLUMN);
+            if (layer % 4 < 3) {
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".linear_attn.dt_bias", b_la_dt, l_n_v_head, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".linear_attn.A_log", alpha_la_g, l_n_v_head, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_3D("model.layers." + std::to_string(layer) + ".linear_attn.conv1d.weight", w_la_conv, l_conv_dim, 1, l_conv_kernel_dim, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".linear_attn.in_proj_qkvz.weight", w_la_qkvz, d, projection_size_qkvz, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".linear_attn.in_proj_ba.weight", w_la_ba, d, projection_size_ba, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".linear_attn.norm.weight", w_la_norm, l_v_dim, dt_logits, FULL);
+                REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".linear_attn.out_proj.weight", w_la_out, l_n_v_head * l_v_dim, d, dt_logits, COLUMN);
+                weight->w_attn_q.push_back(nullptr);
+                weight->w_attn_k.push_back(nullptr);
+                weight->w_attn_v.push_back(nullptr);
+                weight->w_attn_out.push_back(nullptr);
+                weight->b_attn_q.push_back(nullptr);
+                weight->b_attn_k.push_back(nullptr);
+                weight->b_attn_v.push_back(nullptr);
+            } else {
+                REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.weight", w_attn_q, d, nh * dh, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.weight", w_attn_k, d, nkvh * dh, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.weight", w_attn_v, d, nkvh * dh, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.o_proj.weight", w_attn_out, nh * dh, d, dt_logits, COLUMN);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.bias", b_attn_q, nh * dh, dt_logits, FULL);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.bias", b_attn_k, nkvh * dh, dt_logits, FULL);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.bias", b_attn_v, nkvh * dh, dt_logits, FULL);
+                weight->b_la_dt.push_back(nullptr);
+                weight->alpha_la_g.push_back(nullptr);
+                weight->w_la_conv.push_back(nullptr);
+                weight->w_la_qkvz.push_back(nullptr);
+                weight->w_la_ba.push_back(nullptr);
+                weight->w_la_norm.push_back(nullptr);
+                weight->w_la_out.push_back(nullptr);
+            }
 
             // MoE
             std::string name = "model.layers." + std::to_string(layer) + ".post_attention_layernorm.weight";

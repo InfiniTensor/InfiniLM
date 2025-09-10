@@ -24,7 +24,7 @@ typedef struct
     size_t nh, nkvh, dh;
     float theta;
     // linear attention
-    size_t l_conv_dim, l_expand, l_n_k_head, l_k_dim, l_n_v_head, l_v_dim;
+    size_t l_conv_kernel_dim, l_expand, l_n_k_head, l_k_dim, l_n_v_head, l_v_dim;
     // moe
     size_t nexperts, kexperts;
     size_t shared_di;

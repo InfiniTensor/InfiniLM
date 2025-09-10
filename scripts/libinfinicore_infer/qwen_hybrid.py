@@ -37,7 +37,7 @@ class QwenHybridMetaCStruct(Structure):
         ("dh", c_size_t),
         ("theta", c_float),
         # linear attention
-        ("l_conv_dim", c_size_t),
+        ("l_conv_kernel_dim", c_size_t),
         ("l_expand", c_size_t),
         ("l_n_k_head", c_size_t),
         ("l_k_dim", c_size_t),

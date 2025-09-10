@@ -62,7 +62,7 @@ class QwenHybridMetaFromConfig(QwenHybridMetaCStruct):
             dh=config["hidden_size"] // config["num_attention_heads"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             # linear attn
-            l_conv_dim=config.get("linear_conv_kernel_dim", 0),
+            l_conv_kernel_dim=config.get("linear_conv_kernel_dim", 0),
             l_expand=config.get("linear_expand_v", 0),
             l_n_k_head=config.get("linear_num_key_heads", 0),
             l_k_dim=config.get("linear_key_head_dim", 0),
