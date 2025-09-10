@@ -13,6 +13,20 @@ struct QwenHybridDeviceWeight {
         cos_table;
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, b_attn_q, b_attn_k, b_attn_v, w_ffn_norm;
     std::vector<std::shared_ptr<Tensor>> w_attn_q, w_attn_k, w_attn_v, w_attn_out, w_ffn_gate, w_ffn_up, w_ffn_down;
+
+    // ----------------------------------------------------------------------- //
+    //                                       moe                               //
+    // ----------------------------------------------------------------------- //
+    std::vector<std::shared_ptr<Tensor>> w_shared_expert_gate; // gata 权重
+    std::vector<std::shared_ptr<Tensor>> w_router_expert_gate;
+
+    std::vector<std::shared_ptr<Tensor>> w_shared_expert_ffn_gate; // 共享专家的权重
+    std::vector<std::shared_ptr<Tensor>> w_shared_expert_ffn_up;
+    std::vector<std::shared_ptr<Tensor>> w_shared_expert_ffn_down;
+
+    std::vector<std::vector<std::shared_ptr<Tensor>>> w_router_expert_ffn_gate; // 路由专家的权重
+    std::vector<std::vector<std::shared_ptr<Tensor>>> w_router_expert_ffn_up;
+    std::vector<std::vector<std::shared_ptr<Tensor>>> w_router_expert_ffn_down;
 };
 
 class QwenHybridWeights : public infinicore::weights::Loader {

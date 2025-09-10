@@ -29,6 +29,8 @@ typedef struct
     size_t nexperts, kexperts;
     size_t shared_di;
     size_t moe_di;
+    bool norm_topk_prob;
+
 } QwenHybridMeta;
 
 //////////////////// APIs ///////////////////////

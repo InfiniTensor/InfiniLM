@@ -128,16 +128,15 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
         // 1. Attention
         // rms norm
         rmsnorm(logits_out, logits_in, weight->w_attn_norm[layer], meta->epsilon);
-        // qkv_proj
-        linear(q_buf, logits_out,
-               weight->w_attn_q[layer],
-               1.0, 0.0, nullptr, nullptr);
-        linear(k_buf, logits_out,
-               weight->w_attn_k[layer],
-               1.0, 0.0, nullptr, nullptr);
-        linear(v_buf, logits_out,
-               weight->w_attn_v[layer],
-               1.0, 0.0, nullptr, nullptr);
+
+        // qkv_proj && qkv_bias
+        auto b_attn_q = weight->b_attn_q[layer];
+        auto b_attn_k = weight->b_attn_k[layer];
+        auto b_attn_v = weight->b_attn_v[layer];
+        linear(q_buf, logits_out, weight->w_attn_q[layer], 1.0, 0.0, nullptr, b_attn_q ? b_attn_q : nullptr);
+        linear(k_buf, logits_out, weight->w_attn_k[layer], 1.0, 0.0, nullptr, b_attn_k ? b_attn_k : nullptr);
+        linear(v_buf, logits_out, weight->w_attn_v[layer], 1.0, 0.0, nullptr, b_attn_v ? b_attn_v : nullptr);
+
         // rope
         rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
         rope_v2(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
@@ -183,16 +182,138 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
         }
         // 2. FFN
         rmsnorm(logits_out, logits_in, weight->w_ffn_norm[layer], meta->epsilon);
-        linear(gate_buf, logits_out,
-               weight->w_ffn_gate[layer],
-               1.0, 0.0, nullptr, nullptr);
-        linear(up_buf, logits_out,
-               weight->w_ffn_up[layer],
-               1.0, 0.0, nullptr, nullptr);
-        swiglu(gate_buf, up_buf, gate_buf);
-        linear(logits_in, gate_buf,
-               weight->w_ffn_down[layer],
-               1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+
+        // MLP
+        {
+            // linear(gate_buf, logits_out, weight->w_ffn_gate[layer], 1.0, 0.0, nullptr, nullptr);
+            // linear(up_buf, logits_out, weight->w_ffn_up[layer], 1.0, 0.0, nullptr, nullptr);
+            // swiglu(gate_buf, up_buf, gate_buf);
+            // linear(logits_in, gate_buf, weight->w_ffn_down[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+        }
+
+        // ------------------------------------------------------------------------ //
+        //                          SparseMLP                                       //
+        // ------------------------------------------------------------------------ //
+        {
+            // 明确输入输出变量
+            std::shared_ptr<Tensor> hidden_states = logits_out; // logits_out 是整个 MoE的输入，重新起名字为 hidden_states
+
+            // 需要提前申请的缓存
+            size_t moe_intermediate_size = meta->moe_di;
+            auto router_gate_up_buf = Tensor::buffer(dt_logits, {1, 2 * moe_intermediate_size}, rsrc.memory_pool);
+            auto router_gate_buf = router_gate_up_buf->slice(1, 0, moe_intermediate_size);
+            auto router_up_buf = router_gate_up_buf->slice(1, moe_intermediate_size, moe_intermediate_size);
+
+            size_t shared_expert_intermediate_size = meta->shared_di;
+            auto shared_gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * shared_expert_intermediate_size}, rsrc.memory_pool);
+            auto shared_gate_buf = shared_gate_up_buf->slice(1, 0, shared_expert_intermediate_size);
+            auto shared_up_buf = shared_gate_up_buf->slice(1, shared_expert_intermediate_size, shared_expert_intermediate_size);
+
+            std::shared_ptr<Tensor> shared_gate_output = Tensor::buffer(dt_logits, {ntok, 1}, rsrc.memory_pool);              // 共享专家的 gate 权重
+            std::shared_ptr<Tensor> router_gate_output = Tensor::buffer(dt_logits, {ntok, meta->nexperts}, rsrc.memory_pool); // 路由专家的 gate 的输出
+
+            // 需要提前申请的缓存
+            std::shared_ptr<Tensor> router_states_sum = Tensor::buffer(hidden_states->dtype(), hidden_states->shape(), rsrc.memory_pool); // 用于存储 router MLP的输出
+            std::shared_ptr<Tensor> shared_states = Tensor::buffer(hidden_states->dtype(), hidden_states->shape(), rsrc.memory_pool);     // 用于存储 shared MLP的输出
+
+            //
+            size_t topk = meta->kexperts;
+            bool norm_topk_prob = meta->norm_topk_prob;
+
+            std::shared_ptr<Tensor> values_gpu = Tensor::buffer(infiniDtype_t::INFINI_DTYPE_F32, {ntok, topk}, rsrc.memory_pool);  // 用于存储topkrouter的输出，每个expert对应的加权权重。
+            std::shared_ptr<Tensor> indices_gpu = Tensor::buffer(infiniDtype_t::INFINI_DTYPE_I32, {ntok, topk}, rsrc.memory_pool); // 用于存储topkrouter的输出，要经过哪些专家id（从256个中选8个）
+            std::vector<float> values_cpu(ntok * topk, 0.f);                                                                       // 用于存储topkrouter的输出，每个expert对应的加权权重。（从256个中选8个）
+            std::vector<int> indices_cpu(ntok * topk, 0);                                                                          // 用于存储topkrouter的输出，要经过哪些专家的索引。
+
+            // ------------------------------------------------------------------------ //
+            //                            开始计算                                       //
+            // ------------------------------------------------------------------------ //
+            // (1) 共享专家：
+            //      hidden_states 经过一个共享专家
+            {
+                // 输入: hidden_states
+                // 输出: shared_states
+                auto w_gate = weight->w_shared_expert_ffn_gate[layer];
+                auto w_up = weight->w_shared_expert_ffn_up[layer];
+                auto w_down = weight->w_shared_expert_ffn_down[layer];
+
+                linear(shared_gate_buf, hidden_states, w_gate, 1.0, 0.0, nullptr, nullptr);
+                linear(shared_up_buf, hidden_states, w_up, 1.0, 0.0, nullptr, nullptr);
+                swiglu(shared_gate_buf, shared_up_buf, shared_gate_buf);
+                linear(shared_states, shared_gate_buf, w_down, 1.0, 0.0, nullptr, nullptr); // only rank 0 adds residual
+
+                // gate
+                w_gate = weight->w_shared_expert_gate[layer];
+                linear(shared_gate_output, hidden_states, w_gate, 1.0, 0.0, nullptr, nullptr); // N,1
+                sigmoid(shared_gate_output, shared_gate_output);
+
+                // mul
+                shared_gate_output = shared_gate_output->view_as(shared_states->shape(), {1, 0});
+                mul(shared_states, shared_gate_output, shared_states);
+            }
+
+            // (2) topk操作：
+            //      hidden_states 先经过 gate_weight，得到 router_gate_output
+            //      router_gate_output 进行 topk 操作
+            {
+                auto w_gate = weight->w_router_expert_gate[layer];
+                linear(router_gate_output, hidden_states, w_gate, 1.0, 0.0, nullptr, nullptr);
+
+                topksoftmax(values_gpu, indices_gpu, router_gate_output, topk, norm_topk_prob);
+                RUN_INFINI(infinirtMemcpy((void *)values_cpu.data(), values_gpu->data(), values_cpu.size() * sizeof(float), INFINIRT_MEMCPY_D2H));
+                RUN_INFINI(infinirtMemcpy((void *)indices_cpu.data(), indices_gpu->data(), indices_cpu.size() * sizeof(int), INFINIRT_MEMCPY_D2H));
+                RUN_INFINI(infinirtStreamSynchronize(rsrc.stream));
+            }
+
+            // (3) MoE操作：  每个 token 经过 4个 路由专家
+            {
+                // 输入: hidden_states, values_cpu，indices_cpu
+                // 输出: 每个token的router专家加权和
+
+                for (size_t itok = 0; itok < ntok; ++itok) {
+                    std::shared_ptr<Tensor> hidden_states_i = hidden_states->slice(0, itok, 1);
+                    std::shared_ptr<Tensor> router_states_sum_i = router_states_sum->slice(0, itok, 1);
+
+                    // 经过第一个专家 : C = alpha * AB
+                    {
+                        int index = indices_cpu[itok * topk + 0];
+                        float alpha = values_cpu[itok * topk + 0];
+
+                        auto w_gate = weight->w_router_expert_ffn_gate[layer][index];
+                        auto w_up = weight->w_router_expert_ffn_up[layer][index];
+                        auto w_down = weight->w_router_expert_ffn_down[layer][index];
+
+                        linear(router_gate_buf, hidden_states_i, w_gate, 1.0, 0.0, nullptr, nullptr);
+                        linear(router_up_buf, hidden_states_i, w_up, 1.0, 0.0, nullptr, nullptr);
+                        swiglu(router_gate_buf, router_up_buf, router_gate_buf);
+                        linear(router_states_sum_i, router_gate_buf, w_down, alpha, 0.0, nullptr, nullptr); // only rank 0 adds residual
+                    }
+
+                    // 经过后续的专家 : C  = alpha * AB + C_last
+                    for (size_t k = 1; k < topk; ++k) {
+
+                        int index = indices_cpu[itok * topk + k];
+                        float alpha = values_cpu[itok * topk + k];
+
+                        auto w_gate = weight->w_router_expert_ffn_gate[layer][index];
+                        auto w_up = weight->w_router_expert_ffn_up[layer][index];
+                        auto w_down = weight->w_router_expert_ffn_down[layer][index];
+
+                        linear(router_gate_buf, hidden_states_i, w_gate, 1.0, 0.0, nullptr, nullptr);
+                        linear(router_up_buf, hidden_states_i, w_up, 1.0, 0.0, nullptr, nullptr);
+                        swiglu(router_gate_buf, router_up_buf, router_gate_buf);
+                        linear(router_states_sum_i, router_gate_buf, w_down, alpha, 0.0, router_states_sum_i, nullptr); // only rank 0 adds residual
+                    }
+                }
+            }
+
+            // (4) 两类专家相加
+            add(router_states_sum, router_states_sum, shared_states); // 输出 ok
+
+            // (5) 最后的残差连接
+            add(logits_in, router_states_sum, logits_in);
+        }
+
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
             RUN_INFINI(infinicclAllReduce(

@@ -73,6 +73,7 @@ class QwenHybridMetaFromConfig(QwenHybridMetaCStruct):
             kexperts=config.get("num_experts_per_tok", 0),
             shared_di=config.get("shared_expert_intermediate_size", 5632),
             moe_di=config.get("moe_intermediate_size", 0),
+            norm_topk_prob=config.get("norm_topk_prob", False),
         )
         self.torch_dtype_logits = dtype
 
@@ -347,7 +348,7 @@ def test():
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     model = QwenHybridForCausalLM(model_path, device_type, ndev)
-    model.generate("山东最高的山是？", 500)
+    model.generate("山东最高的山是？", 50)
     model.destroy_model_instance()
 
 

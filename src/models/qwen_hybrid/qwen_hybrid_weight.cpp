@@ -58,6 +58,36 @@ inline std::shared_ptr<Tensor> getCosTable(size_t dctx, size_t dh, float theta, 
     return tensor;
 }
 
+namespace {
+
+void print_info(const QwenHybridMeta &meta) {
+
+    printf("\nQwenHybridMeta: \n");
+    // common
+    printf(" dt_logits : %d\n", meta.dtype);
+    printf(" nlayer : %ld\n", meta.nlayer);
+    printf(" d : %ld\n", meta.d);
+    printf(" dctx : %ld\n", meta.dctx);
+    printf(" dvoc : %ld\n", meta.dvoc);
+    printf(" epsilon : %f\n", meta.epsilon);
+    printf(" end_token : %d\n", meta.end_token);
+
+    // mha
+    printf(" nh : %ld\n", meta.nh);
+    printf(" nkvh : %ld\n", meta.nkvh);
+    printf(" dh : %ld\n", meta.dh);
+    printf(" theta : %f\n", meta.theta);
+
+    // moe
+    printf(" nexperts : %ld\n", meta.nexperts);
+    printf(" kexperts : %ld\n", meta.kexperts);
+    printf(" shared_di : %ld\n", meta.shared_di);
+    printf(" moe_di : %ld\n", meta.moe_di);
+
+    printf("\n");
+}
+}; // namespace
+
 QwenHybridWeights::QwenHybridWeights(
     const QwenHybridMeta *meta,
     infiniDevice_t device,
@@ -71,9 +101,11 @@ QwenHybridWeights::QwenHybridWeights(
     size_t nh = meta->nh / ndev;
     size_t nkvh = meta->nkvh / ndev;
     size_t dh = meta->dh;
-    size_t di = meta->shared_di / ndev;
+    // size_t di = meta->shared_di / ndev;
     size_t dctx = meta->dctx;
     size_t dvoc = meta->dvoc;
+
+    print_info(*meta);
 
     for (size_t i = 0; i < ndev; i++) {
         RUN_INFINI(infinirtSetDevice(device, dev_ids[i]));
@@ -96,6 +128,11 @@ QwenHybridWeights::QwenHybridWeights(
         weight->sin_table = getSinTable(dctx, dh, meta->theta, dt_logits);
         weight->cos_table = getCosTable(dctx, dh, meta->theta, dt_logits);
 
+        // 先resize每个layer的空间
+        weight->w_router_expert_ffn_gate.resize(nlayer);
+        weight->w_router_expert_ffn_up.resize(nlayer);
+        weight->w_router_expert_ffn_down.resize(nlayer);
+
         for (size_t layer = 0; layer < nlayer; layer++) {
 
 #define REGISTER_LAYER_WEIGHT_1D(W_NAME, W_VAR, W_DIM, W_DTYPE, W_DIST_TYPE)                     \
@@ -115,10 +152,73 @@ QwenHybridWeights::QwenHybridWeights(
             REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.weight", w_attn_v, d, nkvh * dh, dt_logits, ROW);
             REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.o_proj.weight", w_attn_out, nh * dh, d, dt_logits, COLUMN);
 
-            REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".post_attention_layernorm.weight", w_ffn_norm, d, dt_norm_w, FULL);
-            REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.gate_proj.weight", w_ffn_gate, d, di, dt_logits, ROW);
-            REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.up_proj.weight", w_ffn_up, d, di, dt_logits, ROW);
-            REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.down_proj.weight", w_ffn_down, di, d, dt_logits, COLUMN);
+            // b_attn_qkv
+            REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.bias", b_attn_q, nh * dh, dt_logits, FULL);
+            REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.bias", b_attn_k, nkvh * dh, dt_logits, FULL);
+            REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.bias", b_attn_v, nkvh * dh, dt_logits, FULL);
+
+            // FFN
+            // REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".post_attention_layernorm.weight", w_ffn_norm, d, dt_norm_w, FULL);
+            // REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.gate_proj.weight", w_ffn_gate, d, di, dt_logits, ROW);
+            // REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.up_proj.weight", w_ffn_up, d, di, dt_logits, ROW);
+            // REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".mlp.down_proj.weight", w_ffn_down, di, d, dt_logits, COLUMN);
+
+            // MoE
+            std::string name = "model.layers." + std::to_string(layer) + ".post_attention_layernorm.weight";
+            REGISTER_LAYER_WEIGHT_1D(name, w_ffn_norm, d, dt_norm_w, FULL);
+            {
+                // gate
+                name = "model.layers." + std::to_string(layer) + ".mlp.shared_expert_gate.weight";
+                REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_gate, d, 1, dt_logits, ROW);
+
+                name = "model.layers." + std::to_string(layer) + ".mlp.gate.weight";
+                REGISTER_LAYER_WEIGHT_2D(name, w_router_expert_gate, d, meta->nexperts, dt_logits, ROW);
+            }
+
+            {
+                // 共享专家
+                size_t shared_di = meta->shared_di / ndev;
+
+                name = "model.layers." + std::to_string(layer) + ".mlp.shared_expert.gate_proj.weight";
+                REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_gate, d, shared_di, dt_logits, ROW);
+
+                name = "model.layers." + std::to_string(layer) + ".mlp.shared_expert.up_proj.weight";
+                REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_up, d, shared_di, dt_logits, ROW);
+
+                name = "model.layers." + std::to_string(layer) + ".mlp.shared_expert.down_proj.weight";
+                REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_down, shared_di, d, dt_logits, COLUMN);
+            }
+
+            {
+                // 路由专家
+                size_t moe_di = meta->moe_di / ndev;
+                for (size_t iexpert = 0; iexpert < meta->nexperts; ++iexpert) {
+
+                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_gate, d, moe_di, dt_logits, COLUMN);
+                    {
+                        name = "model.layers." + std::to_string(layer) + ".mlp.experts." + std::to_string(iexpert) + ".gate_proj.weight";
+                        auto gate = Tensor::weight(nullptr, dt_logits, {moe_di, d})->permute({1, 0});
+                        this->register_weight(name, gate, i, infinicore::weights::DistributionType::ROW);
+                        weight->w_router_expert_ffn_gate[layer].push_back(gate);
+                    }
+
+                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_up, d, moe_di, dt_logits, COLUMN);
+                    {
+                        name = "model.layers." + std::to_string(layer) + ".mlp.experts." + std::to_string(iexpert) + ".up_proj.weight";
+                        auto up = Tensor::weight(nullptr, dt_logits, {moe_di, d})->permute({1, 0});
+                        this->register_weight(name, up, i, infinicore::weights::DistributionType::ROW);
+                        weight->w_router_expert_ffn_up[layer].push_back(up);
+                    }
+
+                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_down, moe_di, d, dt_logits, ROW);
+                    {
+                        name = "model.layers." + std::to_string(layer) + ".mlp.experts." + std::to_string(iexpert) + ".down_proj.weight";
+                        auto down = Tensor::weight(nullptr, dt_logits, {d, moe_di})->permute({1, 0});
+                        this->register_weight(name, down, i, infinicore::weights::DistributionType::COLUMN);
+                        weight->w_router_expert_ffn_down[layer].push_back(down);
+                    }
+                }
+            }
         }
     }
 

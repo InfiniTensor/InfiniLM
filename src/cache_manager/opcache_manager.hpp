@@ -163,6 +163,9 @@ public:
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(Dequantize)
+    DECLARE_OP_CACHE(Mul)
+    DECLARE_OP_CACHE(Sigmoid)
+    DECLARE_OP_CACHE(Topksoftmax)
 
     CacheManager(size_t capacity = 100)
         : Add_cache(capacity, DESTROY_FUNC(Add)),
@@ -175,7 +178,10 @@ public:
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
-          Dequantize_cache(capacity, DESTROY_FUNC(Dequantize)) {}
+          Dequantize_cache(capacity, DESTROY_FUNC(Dequantize)),
+          Mul_cache(capacity, DESTROY_FUNC(Mul)),
+          Sigmoid_cache(capacity, DESTROY_FUNC(Sigmoid)),
+          Topksoftmax_cache(capacity, DESTROY_FUNC(Topksoftmax)) {}
 
     template <typename... Tensors>
     static size_t createDescriptorKey(Tensors... tensors) {
