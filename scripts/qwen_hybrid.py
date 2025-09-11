@@ -194,7 +194,7 @@ class QwenHybridForCausalLM:
                             self.ndev,
                             tensor.shape[1],
                         ).permute(1, 0, 2).contiguous()
-                    elif "q_norm" in key or "k_norm" in key:
+                    elif "q_norm" in key or "k_norm" in key or "input_layernorm" in key or "post_attention_layernorm" in key or "model.norm" in key:
                         # print(f"Add 1 to qk norm weight: {key}")
                         tensor = tensor + 1
                     elif "A_log" in key:
