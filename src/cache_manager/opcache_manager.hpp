@@ -169,7 +169,6 @@ public:
     DECLARE_OP_CACHE(Conv)
     DECLARE_OP_CACHE(Exp)
     DECLARE_OP_CACHE(Softplus)
-    DECLARE_OP_CACHE(Silu)
     DECLARE_OP_CACHE(Sigmoid)
     DECLARE_OP_CACHE(Tril)
     DECLARE_OP_CACHE(Triu)
@@ -194,7 +193,6 @@ public:
           Conv_cache(capacity, DESTROY_FUNC(Conv)),
           Exp_cache(capacity, DESTROY_FUNC(Exp)),
           Softplus_cache(capacity, DESTROY_FUNC(Softplus)),
-          Silu_cache(capacity, DESTROY_FUNC(Silu)),
           Sigmoid_cache(capacity, DESTROY_FUNC(Sigmoid)),
           Tril_cache(capacity, DESTROY_FUNC(Tril)),
           Triu_cache(capacity, DESTROY_FUNC(Triu)),

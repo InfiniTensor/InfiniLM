@@ -67,12 +67,12 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto weight = rsrc.weights;
 
     // linear
-    auto embed_dim = meta->hidden_size;
-    auto head_k_dim = meta->linear_key_head_dim;
-    auto head_v_dim = meta->linear_value_head_dim;
+    auto embed_dim = meta->d;
+    auto head_k_dim = meta->l_k_dim;
+    auto head_v_dim = meta->l_v_dim;
 
-    auto num_v_heads = meta->linear_num_value_heads;
-    auto num_k_heads = meta->linear_num_key_heads;
+    auto num_v_heads = meta->l_n_v_head;
+    auto num_k_heads = meta->l_n_k_head;
 
     auto key_dim = head_k_dim * num_k_heads;
     auto value_dim = head_v_dim * num_v_heads;

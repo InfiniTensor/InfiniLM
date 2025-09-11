@@ -57,10 +57,10 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
 }
 
 void InferenceContext::gated_rmsnorm(std::shared_ptr<Tensor> y,
-                                std::shared_ptr<Tensor> x,
-                                std::shared_ptr<Tensor> w,
-                                std::shared_ptr<Tensor> z,
-                                float epsilon) {
+                                     std::shared_ptr<Tensor> x,
+                                     std::shared_ptr<Tensor> w,
+                                     std::shared_ptr<Tensor> z,
+                                     float epsilon) {
     // RMSNorm: y = rms_norm(x, w)
     size_t rmsnorm_key = CacheManager::createDescriptorKey(y, x, w);
 
@@ -292,7 +292,7 @@ void InferenceContext::silu(std::shared_ptr<Tensor> out,
     void *workspace = workspace_storage->memory();
 
     RUN_INFINI(infiniopSilu(desc, workspace, workspace_size,
-                              out->data(), in->data(), stream));
+                            out->data(), in->data(), stream));
 }
 
 void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
@@ -528,18 +528,6 @@ void InferenceContext::softplus(std::shared_ptr<Tensor> out,
                                 std::shared_ptr<Tensor> in) {
     // return nullptr;
 }
-
-void InferenceContext::silu(std::shared_ptr<Tensor> out,
-                            std::shared_ptr<Tensor> in) {
-    // return nullptr;
-}
-
-// void InferenceContext::pad();
-
-// void InferenceContext::sigmoid(std::shared_ptr<Tensor> out,
-//                                std::shared_ptr<Tensor> in) {
-//     // return nullptr;
-// }
 
 void InferenceContext::tril(std::shared_ptr<Tensor> out,
                             std::shared_ptr<Tensor> in) {

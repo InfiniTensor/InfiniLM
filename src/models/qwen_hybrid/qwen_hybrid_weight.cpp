@@ -254,6 +254,7 @@ QwenHybridWeights::QwenHybridWeights(
 
 #undef REGISTER_LAYER_WEIGHT_1D
 #undef REGISTER_LAYER_WEIGHT_2D
+#undef REGISTER_LAYER_WEIGHT_3D
 }
 
 __C struct ModelWeights *

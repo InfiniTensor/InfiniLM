@@ -121,9 +121,6 @@ struct InferenceContext {
     void softplus(std::shared_ptr<Tensor> out,
                   std::shared_ptr<Tensor> in);
 
-    void silu(std::shared_ptr<Tensor> out,
-              std::shared_ptr<Tensor> in);
-
     void pad();
 
     // void sigmoid(std::shared_ptr<Tensor> out,
@@ -176,7 +173,7 @@ inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
 }
 
 inline void gated_rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
-                    std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> z, float epsilon) {
+                          std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> z, float epsilon) {
     getInferenceContext().gated_rmsnorm(y, x, w, z, epsilon);
 }
 
@@ -330,16 +327,6 @@ inline void softplus(std::shared_ptr<Tensor> out,
                      std::shared_ptr<Tensor> in) {
     // return nullptr;
 }
-
-inline void silu(std::shared_ptr<Tensor> out,
-                 std::shared_ptr<Tensor> in) {
-    // return nullptr;
-}
-
-// inline void sigmoid(std::shared_ptr<Tensor> out,
-//                     std::shared_ptr<Tensor> in) {
-//     // return nullptr;
-// }
 
 inline void tril(std::shared_ptr<Tensor> out,
                  std::shared_ptr<Tensor> in) {
