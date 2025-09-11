@@ -164,8 +164,8 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
             linear(k_buf, logits_out, weight->w_attn_k[layer], 1.0, 0.0, nullptr, b_attn_k ? b_attn_k : nullptr);
             linear(v_buf, logits_out, weight->w_attn_v[layer], 1.0, 0.0, nullptr, b_attn_v ? b_attn_v : nullptr);
             if (use_qk_norm) {
-                rmsnorm(q_buf, q_buf, weight->w_attn_q_norm[layer], meta->epsilon);
-                rmsnorm(k_buf, k_buf, weight->w_attn_k_norm[layer], meta->epsilon);
+                rmsnorm(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), weight->w_attn_q_norm[layer], meta->epsilon);
+                rmsnorm(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), weight->w_attn_k_norm[layer], meta->epsilon);
             }
             // rope
             rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
