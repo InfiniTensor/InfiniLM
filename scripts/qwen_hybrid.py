@@ -254,7 +254,7 @@ class QwenHybridForCausalLM:
                 total_time += end_time - start_time
 
         print("\n")
-        avg_time = total_time * 1000 / (steps - 1)
+        avg_time = total_time * 1000 / (steps - 1 + 1e-9)
         print(f"Time per step: {avg_time:.3f}ms")
 
         infer_task._kv_cache.drop(self)
