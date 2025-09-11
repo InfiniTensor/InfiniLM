@@ -267,7 +267,7 @@ void print_data_bf16(uint16_t const *data, const std::vector<size_t> &shape,
         std::cout << std::endl;
     } else if (dim < shape.size() - 1) {
         for (size_t i = 0; i < shape[dim]; i++) {
-            print_data(data + i * strides[dim], shape, strides, dim + 1);
+            print_data_bf16(data + i * strides[dim], shape, strides, dim + 1);
         }
     }
 }
