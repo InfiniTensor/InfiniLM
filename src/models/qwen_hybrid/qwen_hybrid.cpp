@@ -298,6 +298,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                           z->view({ntok, num_v_heads, head_v_dim}),
                           meta->epsilon);
             linear(logits_in, linear_attn_o_buf, weight->w_la_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr);
+            linear_cache_layer += 1;
         }
 
         // All_reduce if distributed
