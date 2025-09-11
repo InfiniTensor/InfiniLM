@@ -56,68 +56,6 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
         y->data(), x->data(), w->data(), stream));
 }
 
-void InferenceContext::gated_rmsnorm(std::shared_ptr<Tensor> y,
-                                     std::shared_ptr<Tensor> x,
-                                     std::shared_ptr<Tensor> w,
-                                     std::shared_ptr<Tensor> z,
-                                     float epsilon) {
-    // RMSNorm: y = rms_norm(x, w)
-    size_t rmsnorm_key = CacheManager::createDescriptorKey(y, x, w);
-
-    infiniopRMSNormDescriptor_t rmsnorm_desc;
-    if (!cache_manager->getRMSNormDescriptor(rmsnorm_key, rmsnorm_desc)) {
-        RUN_INFINI(infiniopCreateRMSNormDescriptor(
-            op_handle, &rmsnorm_desc, y->desc(), x->desc(), w->desc(), epsilon));
-        cache_manager->putRMSNormDescriptor(rmsnorm_key, rmsnorm_desc);
-    }
-
-    size_t rmsnorm_workspace_size = 0;
-    RUN_INFINI(infiniopGetRMSNormWorkspaceSize(rmsnorm_desc, &rmsnorm_workspace_size));
-    ensure_workspace(rmsnorm_workspace_size);
-    void *rmsnorm_workspace = workspace_storage->memory();
-
-    RUN_INFINI(infiniopRMSNorm(
-        rmsnorm_desc, rmsnorm_workspace, rmsnorm_workspace_size,
-        y->data(), x->data(), w->data(), stream));
-
-    // Silu: silued_z = silu(z)
-    auto silued_z = Tensor::buffer(z->dtype(), z->shape(), memory_pool);
-    size_t silu_key = CacheManager::createDescriptorKey(silued_z, z);
-
-    infiniopSiluDescriptor_t silu_desc;
-    if (!cache_manager->getSiluDescriptor(silu_key, silu_desc)) {
-        RUN_INFINI(infiniopCreateSiluDescriptor(
-            op_handle, &silu_desc, silued_z->desc(), z->desc()));
-        cache_manager->putSiluDescriptor(silu_key, silu_desc);
-    }
-
-    size_t silu_workspace_size = 0;
-    RUN_INFINI(infiniopGetSiluWorkspaceSize(silu_desc, &silu_workspace_size));
-    ensure_workspace(silu_workspace_size);
-    void *silu_workspace = workspace_storage->memory();
-
-    RUN_INFINI(infiniopSilu(silu_desc, silu_workspace, silu_workspace_size,
-                            silued_z->data(), z->data(), stream));
-
-    // gated_rmsnorm: y = mul(y, silued_z)
-    size_t mul_key = CacheManager::createDescriptorKey(y, y, silued_z);
-
-    infiniopMulDescriptor_t mul_desc;
-    if (!cache_manager->getMulDescriptor(mul_key, mul_desc)) {
-        RUN_INFINI(infiniopCreateMulDescriptor(
-            op_handle, &mul_desc, y->desc(), y->desc(), silued_z->desc()));
-        cache_manager->putMulDescriptor(mul_key, mul_desc);
-    }
-
-    size_t mul_workspace_size = 0;
-    RUN_INFINI(infiniopGetMulWorkspaceSize(mul_desc, &mul_workspace_size));
-    ensure_workspace(mul_workspace_size);
-    void *mul_workspace = workspace_storage->memory();
-
-    RUN_INFINI(infiniopMul(mul_desc, mul_workspace, mul_workspace_size,
-                           y->data(), y->data(), silued_z->data(), stream));
-}
-
 void InferenceContext::gemm(std::shared_ptr<Tensor> c,
                             std::shared_ptr<Tensor> a,
                             std::shared_ptr<Tensor> b,
@@ -495,7 +433,22 @@ void InferenceContext::recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,
                                                   std::shared_ptr<Tensor> beta,
                                                   std::shared_ptr<Tensor> initial_state,
                                                   bool use_qk_l2norm) {
-    // return nullptr;
+    size_t key = CacheManager::createDescriptorKey(out, out_final_state, q, k, v, g, beta, initial_state);
+
+    infiniopRecurrentGatedDeltaRuleDescriptor_t desc;
+    if (!cache_manager->getRecurrentGatedDeltaRuleDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateRecurrentGatedDeltaRuleDescriptor(op_handle, &desc, out->desc(), out_final_state->desc(), q->desc(), k->desc(), v->desc(), g->desc(), beta->desc(), initial_state->desc(), use_qk_l2norm));
+        cache_manager->putRecurrentGatedDeltaRuleDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetRecurrentGatedDeltaRuleWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopRecurrentGatedDeltaRule(
+        desc, workspace, workspace_size,
+        out->data(), out_final_state->data(), q->data(), k->data(), v->data(), g->data(), beta->data(), initial_state->data(), stream));
 }
 
 void InferenceContext::conv1d(std::shared_ptr<Tensor> y,
@@ -505,7 +458,22 @@ void InferenceContext::conv1d(std::shared_ptr<Tensor> y,
                               void *pads,
                               void *strides,
                               void *dilations) {
-    // return nullptr;
+    size_t key = CacheManager::createDescriptorKey(y, x, w, b);
+
+    infiniopConvDescriptor_t desc;
+    if (!cache_manager->getConvDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateConvDescriptor(op_handle, &desc, y->desc(), x->desc(), w->desc(), b->desc(), pads, strides, dilations, x->ndim() - 2));
+        cache_manager->putConvDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetConvWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopConv(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), w->data(), b->data(), stream));
 }
 
 void InferenceContext::conv1d_update(std::shared_ptr<Tensor> y,
@@ -521,20 +489,82 @@ void InferenceContext::conv1d_update(std::shared_ptr<Tensor> y,
 
 void InferenceContext::exp(std::shared_ptr<Tensor> out,
                            std::shared_ptr<Tensor> in) {
-    // return nullptr;
+    size_t key = CacheManager::createDescriptorKey(out, in);
+
+    infiniopExpDescriptor_t desc;
+    if (!cache_manager->getExpDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateExpDescriptor(op_handle, &desc, out->desc(), in->desc()));
+        cache_manager->putExpDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetExpWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopExp(
+        desc, workspace, workspace_size,
+        out->data(), in->data(), stream));
 }
 
 void InferenceContext::softplus(std::shared_ptr<Tensor> out,
                                 std::shared_ptr<Tensor> in) {
-    // return nullptr;
+    size_t key = CacheManager::createDescriptorKey(out, in);
+
+    infiniopSoftplusDescriptor_t desc;
+    if (!cache_manager->getSoftplusDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateSoftplusDescriptor(op_handle, &desc, out->desc(), in->desc()));
+        cache_manager->putSoftplusDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSoftplusWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopSoftplus(
+        desc, workspace, workspace_size,
+        out->data(), in->data(), stream));
 }
 
 void InferenceContext::tril(std::shared_ptr<Tensor> out,
-                            std::shared_ptr<Tensor> in) {
-    // return nullptr;
+                            std::shared_ptr<Tensor> in,
+                            int diagonal) {
+    size_t key = CacheManager::createDescriptorKey(out, in);
+
+    infiniopTrilDescriptor_t desc;
+    if (!cache_manager->getTrilDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateTrilDescriptor(op_handle, &desc, out->desc(), in->desc(), diagonal));
+        cache_manager->putTrilDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetTrilWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopTril(
+        desc, workspace, workspace_size,
+        out->data(), in->data(), stream));
 }
 
 void InferenceContext::triu(std::shared_ptr<Tensor> out,
-                            std::shared_ptr<Tensor> in) {
-    // return nullptr;
+                            std::shared_ptr<Tensor> in,
+                            int diagonal) {
+    size_t key = CacheManager::createDescriptorKey(out, in);
+
+    infiniopTriuDescriptor_t desc;
+    if (!cache_manager->getTriuDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateTriuDescriptor(op_handle, &desc, out->desc(), in->desc(), diagonal));
+        cache_manager->putTriuDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetTriuWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopTriu(
+        desc, workspace, workspace_size,
+        out->data(), in->data(), stream));
 }

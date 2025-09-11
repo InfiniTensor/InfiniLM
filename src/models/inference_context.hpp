@@ -123,14 +123,13 @@ struct InferenceContext {
 
     void pad();
 
-    // void sigmoid(std::shared_ptr<Tensor> out,
-    //              std::shared_ptr<Tensor> in);
-
     void tril(std::shared_ptr<Tensor> out,
-              std::shared_ptr<Tensor> in);
+              std::shared_ptr<Tensor> in,
+              int diagonal);
 
     void triu(std::shared_ptr<Tensor> out,
-              std::shared_ptr<Tensor> in);
+              std::shared_ptr<Tensor> in,
+              int diagonal);
 
     void sub(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
@@ -174,7 +173,8 @@ inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
 
 inline void gated_rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
                           std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> z, float epsilon) {
-    getInferenceContext().gated_rmsnorm(y, x, w, z, epsilon);
+    getInferenceContext().rmsnorm(y, x, w, epsilon);
+    getInferenceContext().swiglu(y, y, z);
 }
 
 inline void gemm(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
@@ -216,8 +216,6 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
                                      routed_scaling_factor,
                                      topk);
 }
-
-// inline void gated_rmsnorm()
 
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
                    std::shared_ptr<Tensor> gate) {
@@ -292,7 +290,7 @@ inline void recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,
                                        std::shared_ptr<Tensor> beta,
                                        std::shared_ptr<Tensor> initial_state,
                                        bool use_qk_l2norm) {
-    // return nullptr;
+    getInferenceContext().recurrent_gated_delta_rule(out, out_final_state, q, k, v, g, beta, initial_state, use_qk_l2norm);
 }
 
 // 标准应该使用causal_conv1d
@@ -304,7 +302,7 @@ inline void conv1d(std::shared_ptr<Tensor> y,
                    void *pads,
                    void *strides,
                    void *dilations) {
-    // return nullptr;
+    getInferenceContext().conv1d(y, x, w, b, pads, strides, dilations);
 }
 
 inline void conv1d_update(std::shared_ptr<Tensor> y,
@@ -320,20 +318,22 @@ inline void conv1d_update(std::shared_ptr<Tensor> y,
 
 inline void exp(std::shared_ptr<Tensor> out,
                 std::shared_ptr<Tensor> in) {
-    // return nullptr;
+    getInferenceContext().exp(out, in);
 }
 
 inline void softplus(std::shared_ptr<Tensor> out,
                      std::shared_ptr<Tensor> in) {
-    // return nullptr;
+    getInferenceContext().softplus(out, in);
 }
 
 inline void tril(std::shared_ptr<Tensor> out,
-                 std::shared_ptr<Tensor> in) {
-    // return nullptr;
+                 std::shared_ptr<Tensor> in,
+                 int diagonal) {
+    getInferenceContext().tril(out, in, diagonal);
 }
 
 inline void triu(std::shared_ptr<Tensor> out,
-                 std::shared_ptr<Tensor> in) {
-    // return nullptr;
+                 std::shared_ptr<Tensor> in,
+                 int diagonal) {
+    getInferenceContext().triu(out, in, diagonal);
 }
