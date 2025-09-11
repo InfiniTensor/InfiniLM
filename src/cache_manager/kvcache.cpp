@@ -100,17 +100,20 @@ __C struct MambaCache *createMambaCache(
         linear_num_value_heads,
         linear_key_head_dim,
         linear_value_head_dim};
+    void *zeros = std::malloc(shape_conv[0] * shape_conv[1] * dsize(dtype));
+    std::memset(zeros, 0, shape_conv[0] * shape_conv[1] * dsize(dtype));
     for (unsigned int idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(device, dev_ids[idev]));
         auto conv_state = std::vector<std::shared_ptr<Tensor>>();
         auto recurrent_state = std::vector<std::shared_ptr<Tensor>>();
         for (unsigned int layer = 0; layer < nlinear_attention_layers; layer++) {
-            conv_state.push_back(std::move(Tensor::buffer(dtype, shape_conv)));
-            recurrent_state.push_back(std::move(Tensor::buffer(dtype, shape_ssm)));
+            conv_state.push_back(std::move(Tensor::weight(zeros, dtype, shape_conv)));
+            recurrent_state.push_back(std::move(Tensor::weight(zeros, dtype, shape_ssm)));
         }
         cache->conv_states.push_back(conv_state);
         cache->ssm_states.push_back(recurrent_state);
     }
+    std::free(zeros);
     return cache;
 }
 

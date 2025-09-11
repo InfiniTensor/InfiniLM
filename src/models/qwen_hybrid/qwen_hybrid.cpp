@@ -73,7 +73,6 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     // linear
     // bool use_precomputed_state = false;
     auto conv_kernel_dim = meta->l_conv_kernel_dim;
-    auto embed_dim = meta->d;
     auto head_k_dim = meta->l_k_dim;
     auto head_v_dim = meta->l_v_dim;
 
