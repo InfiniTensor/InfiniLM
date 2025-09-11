@@ -97,6 +97,7 @@ __C struct MambaCache *createMambaCache(
         linear_key_head_dim * linear_num_key_heads * 2 + linear_value_head_dim * linear_num_value_heads,
         linear_conv_kernel_dim - 1};
     auto shape_ssm = std::vector<size_t>{
+        1,
         linear_num_value_heads,
         linear_key_head_dim,
         linear_value_head_dim};

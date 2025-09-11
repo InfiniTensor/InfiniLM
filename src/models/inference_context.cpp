@@ -427,7 +427,7 @@ void InferenceContext::chunk_gated_delta_rule(std::shared_ptr<Tensor> out,
 
     infiniopChunkGatedDeltaRuleDescriptor_t desc;
     if (!cache_manager->getChunkGatedDeltaRuleDescriptor(key, desc)) {
-        infiniopTensorDescriptor_t initial_state_desc = initial_state ? alibi_slopes->desc() : nullptr;
+        infiniopTensorDescriptor_t initial_state_desc = initial_state ? initial_state->desc() : nullptr;
         RUN_INFINI(infiniopCreateChunkGatedDeltaRuleDescriptor(op_handle, &desc, out->desc(), out_final_state->desc(), q->desc(), k->desc(), v->desc(), g->desc(), beta->desc(), initial_state_desc, use_qk_l2norm, chunk_size));
         cache_manager->putChunkGatedDeltaRuleDescriptor(key, desc);
     }
