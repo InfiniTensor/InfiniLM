@@ -462,7 +462,7 @@ void InferenceContext::conv1d(std::shared_ptr<Tensor> y,
 
     infiniopConvDescriptor_t desc;
     if (!cache_manager->getConvDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateConvDescriptor(op_handle, &desc, y->desc(), x->desc(), w->desc(), b->desc(), pads, strides, dilations, x->ndim() - 2));
+        RUN_INFINI(infiniopCreateConvDescriptor(op_handle, &desc, y->desc(), x->desc(), w->desc(), b ? b->desc() : nullptr, pads, strides, dilations, x->ndim() - 2));
         cache_manager->putConvDescriptor(key, desc);
     }
 
@@ -473,7 +473,7 @@ void InferenceContext::conv1d(std::shared_ptr<Tensor> y,
 
     RUN_INFINI(infiniopConv(
         desc, workspace, workspace_size,
-        y->data(), x->data(), w->data(), b->data(), stream));
+        y->data(), x->data(), w->data(), b ? b->data() : nullptr, stream));
 }
 
 void InferenceContext::conv1d_update(std::shared_ptr<Tensor> y,
