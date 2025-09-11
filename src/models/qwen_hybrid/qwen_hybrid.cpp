@@ -323,30 +323,30 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 }
 
                 // delatascan
-                auto out_buf = Tensor::buffer(dt_logits, value->shape(), rsrc.memory_pool);
+                auto core_attn_out_buf = Tensor::buffer(dt_logits, value->shape(), rsrc.memory_pool);
                 auto last_recurrent_state_buf = Tensor::buffer(dt_logits, recurrent_state->shape(), rsrc.memory_pool);
 
                 // if (!use_precomputed_state) {
                 //     // chunk
                 // } else {
-                recurrent_gated_delta_rule(out_buf, last_recurrent_state_buf, query, key, value, a, b, recurrent_state, true);
+                recurrent_gated_delta_rule(core_attn_out_buf, last_recurrent_state_buf, query, key, value, a, b, recurrent_state, true);
                 // }
 
                 if (recurrent_state != nullptr) {
                     mamba_caches[req]->conv_states[idev][layer] = last_recurrent_state_buf;
                 }
                 auto z_shape = z->shape();
-                out_buf->view_as({out_buf->numel() / out_buf->shape().back(), out_buf->shape().back()});
+                core_attn_out_buf->view_as({core_attn_out_buf->numel() / core_attn_out_buf->shape().back(), core_attn_out_buf->shape().back()});
                 z->view_as({z->numel() / z->shape().back(), z->shape().back()});
 
                 // GatedNorm
                 // gated_norm(out_buf, z);
 
-                out_buf->view_as(z_shape);
-                out_buf->view_as({out_buf->shape()[0],
-                                  out_buf->shape()[1],
-                                  out_buf->numel() / out_buf->shape()[0] / out_buf->shape()[1]});
-                linear(output_buf, out_buf, weight->w_la_out[layer], 1.0, 0.0, nullptr, nullptr);
+                core_attn_out_buf->view_as(z_shape);
+                core_attn_out_buf->view_as({core_attn_out_buf->shape()[0],
+                                            core_attn_out_buf->shape()[1],
+                                            core_attn_out_buf->numel() / core_attn_out_buf->shape()[0] / core_attn_out_buf->shape()[1]});
+                linear(output_buf, core_attn_out_buf, weight->w_la_out[layer], 1.0, 0.0, nullptr, nullptr);
             }
             /// TODO: linear attention
             // for (uint32_t req = 0; req < nreq; req++) {
