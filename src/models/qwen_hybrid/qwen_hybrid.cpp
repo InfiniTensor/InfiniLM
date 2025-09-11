@@ -217,6 +217,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 INFINICCL_SUM, rsrc.comm, stream));
             RUN_INFINI(infinirtStreamSynchronize(stream));
         }
+
         // 2. FFN
         rmsnorm(logits_out, logits_in, weight->w_ffn_norm[layer], meta->epsilon);
 
@@ -236,12 +237,12 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
             std::shared_ptr<Tensor> hidden_states = logits_out; // logits_out 是整个 MoE的输入，重新起名字为 hidden_states
 
             // 需要提前申请的缓存
-            size_t moe_intermediate_size = meta->moe_di;
+            size_t moe_intermediate_size = meta->moe_di / ndev;
 
             auto router_gate_buf = Tensor::buffer(dt_logits, {1, 1 * moe_intermediate_size}, rsrc.memory_pool);
             auto router_up_buf = Tensor::buffer(dt_logits, {1, 1 * moe_intermediate_size}, rsrc.memory_pool);
 
-            size_t shared_expert_intermediate_size = meta->shared_di;
+            size_t shared_expert_intermediate_size = meta->shared_di / ndev;
             auto shared_gate_buf = Tensor::buffer(dt_logits, {ntok, 1 * shared_expert_intermediate_size}, rsrc.memory_pool);
             auto shared_up_buf = Tensor::buffer(dt_logits, {ntok, 1 * shared_expert_intermediate_size}, rsrc.memory_pool);
 
@@ -281,6 +282,14 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 w_gate = weight->w_shared_expert_gate[layer];
                 linear(shared_gate_output, hidden_states, w_gate, 1.0, 0.0, nullptr, nullptr); // N,1
                 sigmoid(shared_gate_output, shared_gate_output);
+
+                // shared的通信
+                if (rsrc.comm != nullptr) {
+                    RUN_INFINI(infinicclAllReduce(
+                        shared_states->data(), shared_states->data(), ntok * d, dt_logits,
+                        INFINICCL_SUM, rsrc.comm, stream));
+                    RUN_INFINI(infinirtStreamSynchronize(stream));
+                }
 
                 // mul
                 shared_gate_output = shared_gate_output->view_as(shared_states->shape(), {1, 0});
@@ -340,6 +349,13 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                         linear(router_states_sum_i, router_gate_buf, w_down, alpha, 0.0, router_states_sum_i, nullptr); // only rank 0 adds residual
                     }
                 }
+
+                if (rsrc.comm != nullptr) { // 通信2
+                    RUN_INFINI(infinicclAllReduce(
+                        router_states_sum->data(), router_states_sum->data(), ntok * d, dt_logits,
+                        INFINICCL_SUM, rsrc.comm, stream));
+                    RUN_INFINI(infinirtStreamSynchronize(stream));
+                }
             }
 
             // (4) 两类专家相加
@@ -350,12 +366,12 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
         }
 
         // All_reduce if distributed
-        if (rsrc.comm != nullptr) {
-            RUN_INFINI(infinicclAllReduce(
-                logits_in->data(), logits_in->data(), ntok * d, dt_logits,
-                INFINICCL_SUM, rsrc.comm, stream));
-            RUN_INFINI(infinirtStreamSynchronize(stream));
-        }
+        // if (rsrc.comm != nullptr) {
+        //     RUN_INFINI(infinicclAllReduce(
+        //         logits_in->data(), logits_in->data(), ntok * d, dt_logits,
+        //         INFINICCL_SUM, rsrc.comm, stream));
+        //     RUN_INFINI(infinirtStreamSynchronize(stream));
+        // }
     }
     // Sample and Output
     if (idev == 0) {

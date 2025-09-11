@@ -181,9 +181,9 @@ QwenHybridWeights::QwenHybridWeights(
                 REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.weight", w_attn_k, d, nkvh * dh, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.weight", w_attn_v, d, nkvh * dh, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.o_proj.weight", w_attn_out, nh * dh, d, dt_logits, COLUMN);
-                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.bias", b_attn_q, nh * dh, dt_logits, FULL);
-                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.bias", b_attn_k, nkvh * dh, dt_logits, FULL);
-                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.bias", b_attn_v, nkvh * dh, dt_logits, FULL);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.bias", b_attn_q, nh * dh, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.bias", b_attn_k, nkvh * dh, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.bias", b_attn_v, nkvh * dh, dt_logits, ROW);
                 weight->b_la_dt.push_back(nullptr);
                 weight->alpha_la_g.push_back(nullptr);
                 weight->w_la_conv.push_back(nullptr);
@@ -199,10 +199,10 @@ QwenHybridWeights::QwenHybridWeights(
             {
                 // gate
                 name = "model.layers." + std::to_string(layer) + ".mlp.shared_expert_gate.weight";
-                REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_gate, d, 1, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_gate, d, 1, dt_logits, FULL);
 
                 name = "model.layers." + std::to_string(layer) + ".mlp.gate.weight";
-                REGISTER_LAYER_WEIGHT_2D(name, w_router_expert_gate, d, meta->nexperts, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_2D(name, w_router_expert_gate, d, meta->nexperts, dt_logits, FULL);
             }
 
             {
@@ -224,7 +224,7 @@ QwenHybridWeights::QwenHybridWeights(
                 size_t moe_di = meta->moe_di / ndev;
                 for (size_t iexpert = 0; iexpert < meta->nexperts; ++iexpert) {
 
-                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_gate, d, moe_di, dt_logits, COLUMN);
+                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_gate, d, moe_di, dt_logits, ROW);
                     {
                         name = "model.layers." + std::to_string(layer) + ".mlp.experts." + std::to_string(iexpert) + ".gate_proj.weight";
                         auto gate = Tensor::weight(nullptr, dt_logits, {moe_di, d})->permute({1, 0});
@@ -232,7 +232,7 @@ QwenHybridWeights::QwenHybridWeights(
                         weight->w_router_expert_ffn_gate[layer].push_back(gate);
                     }
 
-                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_up, d, moe_di, dt_logits, COLUMN);
+                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_up, d, moe_di, dt_logits, ROW);
                     {
                         name = "model.layers." + std::to_string(layer) + ".mlp.experts." + std::to_string(iexpert) + ".up_proj.weight";
                         auto up = Tensor::weight(nullptr, dt_logits, {moe_di, d})->permute({1, 0});
@@ -240,7 +240,7 @@ QwenHybridWeights::QwenHybridWeights(
                         weight->w_router_expert_ffn_up[layer].push_back(up);
                     }
 
-                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_down, moe_di, d, dt_logits, ROW);
+                    // REGISTER_LAYER_WEIGHT_2D(name, w_shared_expert_ffn_down, moe_di, d, dt_logits, COLUMN);
                     {
                         name = "model.layers." + std::to_string(layer) + ".mlp.experts." + std::to_string(iexpert) + ".down_proj.weight";
                         auto down = Tensor::weight(nullptr, dt_logits, {d, moe_di})->permute({1, 0});
