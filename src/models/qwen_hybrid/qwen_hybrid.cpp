@@ -159,139 +159,6 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
-    // Linear Attention
-    // linear attention innfer
-    for (uint32_t layer = 0; layer < nlayer; layer++) {
-        // hiddent_states * attention_mask
-
-        for (uint32_t req = 0; req < nreq; req++) {
-            mul(hidden_states_buf, hidden_states_buf, attention_mask_buf);
-            auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][layer] : nullptr;
-            auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][layer] : nullptr;
-            //  前面的slice需要改，第三个参数是length
-            linear(projected_states_qkvz_buf, hidden_states_buf, weight->w_la_qkvz[layer], 1.0, 0.0, nullptr, nullptr);
-            linear(projected_states_ba_buf, hidden_states_buf, weight->w_la_ba[layer], 1.0, 0.0, nullptr, nullptr);
-
-            // liear(projected_states_ba)
-            std::vector<size_t> new_qkvz_shape = projected_states_qkvz_buf->shape();
-            new_qkvz_shape.pop_back();
-            new_qkvz_shape.push_back(num_k_heads);
-            new_qkvz_shape.push_back(2 * head_k_dim + (size_t)(2 * head_v_dim * num_v_heads / num_k_heads));
-
-            std::vector<size_t> new_ba_shape = projected_states_ba_buf->shape();
-            new_ba_shape.pop_back();
-            new_ba_shape.push_back(num_k_heads);
-            new_ba_shape.push_back((size_t)(2 * num_v_heads / num_k_heads));
-
-            auto mixed_qkvz = projected_states_qkvz_buf->view(new_qkvz_shape);
-            auto mixed_ba = projected_states_ba_buf->view(new_ba_shape);
-
-            std::vector<size_t> split_arg_list_qkvz = {head_k_dim, head_k_dim, (size_t)(num_v_heads / num_k_heads * head_v_dim), (size_t)(num_v_heads / num_k_heads * head_v_dim)};
-            std::vector<size_t> split_arg_list_ba = {(size_t)(num_v_heads / num_k_heads), (size_t)(num_v_heads / num_k_heads)};
-
-            auto split_meta_length_qkvz = mixed_qkvz->numel() / mixed_qkvz->shape()[3];
-            auto split_meta_length_ba = mixed_ba->numel() / mixed_ba->shape()[3];
-
-            auto query = mixed_qkvz->slice(3, 0, split_arg_list_qkvz[0] * split_meta_length_qkvz);
-            auto key = mixed_qkvz->slice(3, split_arg_list_qkvz[0], split_arg_list_qkvz[1] * split_meta_length_qkvz);
-            auto value = mixed_qkvz->slice(3, split_arg_list_qkvz[0] + split_arg_list_qkvz[1], split_arg_list_qkvz[2] * split_meta_length_qkvz);
-            auto z = mixed_qkvz->slice(3, split_arg_list_qkvz[2], split_arg_list_qkvz[0] + split_arg_list_qkvz[1] + split_arg_list_qkvz[3] * split_meta_length_qkvz);
-            auto b = mixed_ba->slice(3, 0, split_arg_list_ba[0] * split_meta_length_ba);
-            auto a = mixed_ba->slice(3, split_arg_list_ba[0], split_arg_list_ba[1] * split_meta_length_ba);
-
-            size_t flatten = 1;
-            for (int i = query->numel() - 1; i >= 2; i--) {
-                flatten *= query->shape()[i];
-            }
-            query = query->view_as({query->shape()[0], query->shape()[1], flatten});
-            flatten = 1;
-
-            for (int i = key->numel() - 1; i >= 2; i--) {
-                flatten *= key->shape()[i];
-            }
-            key = key->view_as({key->shape()[0], key->shape()[1], flatten});
-            flatten = 1;
-
-            for (int i = value->numel() - 1; i >= 2; i--) {
-                flatten *= value->shape()[i];
-            }
-            value = value->view_as({value->shape()[0], value->shape()[1], flatten});
-
-            auto mixed_qkv = Tensor::buffer(dt_logits, {query->shape()[0], query->shape()[1], query->shape()[2] + value->shape()[2] + key->shape()[2]}, rsrc.memory_pool);
-
-            // cat
-            rearrange(mixed_qkv->slice(2, 0, query->numel()), query);
-            rearrange(mixed_qkv->slice(2, query->shape()[2], key->numel()), key);
-            rearrange(mixed_qkv->slice(2, key->shape()[2] + query->shape()[2], value->numel()), value);
-
-            mixed_qkv->permute({0, 2, 1});
-            //---------------- conv1d
-            if (conv_state != nullptr) {
-            }
-            //-----------------conv1d end
-            mixed_qkv->permute({0, 2, 1});
-
-            auto meta_slice_lenth = mixed_qkv->numel() / mixed_qkv->shape().back();
-            query = mixed_qkv->slice(mixed_qkv->ndim() - 1, 0, key_dim * meta_slice_lenth)->view_as({query->shape()[0], query->shape()[1], query->numel() / (query->shape()[0] * query->shape()[1] * head_k_dim), head_k_dim});
-            key = mixed_qkv->slice(mixed_qkv->ndim() - 1, key_dim, key_dim * meta_slice_lenth)->view_as({key->shape()[0], key->shape()[1], key->numel() / (key->shape()[0] * key->shape()[1] * head_k_dim), head_k_dim});
-            value = mixed_qkv->slice(mixed_qkv->ndim() - 1, 2 * key_dim, value_dim * meta_slice_lenth)->view_as({value->shape()[0], value->shape()[1], value->numel() / (value->shape()[0] * value->shape()[1] * head_k_dim), head_k_dim});
-            // beta is b
-            sigmoid(b, b);
-
-            // cast float?需要cast 来把A_log和 a转换成float
-            // g is a
-            exp(A_log, weight->alpha_la_g[layer]);
-            add(a, a, weight->b_la_dt[layer]);
-            softplus(a, a);
-            mul(a, a, A_log);
-
-            // 沿着第二维度复制
-            // 没实现
-            if ((int)(num_v_heads / num_k_heads) > 1) {
-                auto new_query_shape = query->shape();
-                new_query_shape[2] = new_query_shape[2] * (int)(num_v_heads / num_k_heads);
-                auto new_query = Tensor::buffer(dt_logits, new_query_shape, rsrc.memory_pool);
-                for (size_t i = 0; i < (size_t)(num_v_heads / num_k_heads); i++) {
-                    rearrange(new_query->slice(2, i, query->numel()), query);
-                }
-                auto new_key_shape = key->shape();
-                new_key_shape[2] = new_key_shape[2] * (int)(num_v_heads / num_k_heads);
-                auto new_key = Tensor::buffer(dt_logits, new_key_shape, rsrc.memory_pool);
-                for (size_t i = 0; i < (size_t)(num_v_heads / num_k_heads); i++) {
-                    rearrange(new_key->slice(2, i, key->numel()), key);
-                }
-                query = new_query;
-                key = new_key;
-            }
-
-            // delatascan
-            auto out_buf = Tensor::buffer(dt_logits, value->shape(), rsrc.memory_pool);
-            auto last_recurrent_state_buf = Tensor::buffer(dt_logits, recurrent_state->shape(), rsrc.memory_pool);
-
-            if (!use_precomputed_state) {
-                // chunk
-            } else {
-                recurrent_gated_delta_rule(out_buf, last_recurrent_state_buf, query, key, value, a, b, recurrent_state, true);
-            }
-
-            if (recurrent_state != nullptr) {
-                mamba_caches[req]->conv_states[idev][layer] = last_recurrent_state_buf;
-            }
-            auto z_shape = z->shape();
-            out_buf->view_as({out_buf->numel() / out_buf->shape().back(), out_buf->shape().back()});
-            z->view_as({z->numel() / z->shape().back(), z->shape().back()});
-
-            // GatedNorm
-            // gated_norm(out_buf, z);
-
-            out_buf->view_as(z_shape);
-            out_buf->view_as({out_buf->shape()[0],
-                              out_buf->shape()[1],
-                              out_buf->numel() / out_buf->shape()[0] / out_buf->shape()[1]});
-            linear(output_buf, out_buf, weight->w_la_out[layer], 1.0, 0.0, nullptr, nullptr);
-        }
-    }
-
     // Compute
     size_t attn_cache_layer = 0,
            linear_cache_layer = 0;
@@ -356,16 +223,142 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                    1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
             attn_cache_layer += 1;
         } else {
-            /// TODO: linear attention
             for (uint32_t req = 0; req < nreq; req++) {
-                auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][linear_cache_layer] : nullptr;
-                auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][linear_cache_layer] : nullptr;
-
-                // linear(projected_states_qkvz, hidden_states, weight->[layer]);
+                mul(hidden_states_buf, hidden_states_buf, attention_mask_buf);
+                auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][layer] : nullptr;
+                auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][layer] : nullptr;
+                //  前面的slice需要改，第三个参数是length
+                linear(projected_states_qkvz_buf, hidden_states_buf, weight->w_la_qkvz[layer], 1.0, 0.0, nullptr, nullptr);
+                linear(projected_states_ba_buf, hidden_states_buf, weight->w_la_ba[layer], 1.0, 0.0, nullptr, nullptr);
 
                 // liear(projected_states_ba)
+                std::vector<size_t> new_qkvz_shape = projected_states_qkvz_buf->shape();
+                new_qkvz_shape.pop_back();
+                new_qkvz_shape.push_back(num_k_heads);
+                new_qkvz_shape.push_back(2 * head_k_dim + (size_t)(2 * head_v_dim * num_v_heads / num_k_heads));
+
+                std::vector<size_t> new_ba_shape = projected_states_ba_buf->shape();
+                new_ba_shape.pop_back();
+                new_ba_shape.push_back(num_k_heads);
+                new_ba_shape.push_back((size_t)(2 * num_v_heads / num_k_heads));
+
+                auto mixed_qkvz = projected_states_qkvz_buf->view(new_qkvz_shape);
+                auto mixed_ba = projected_states_ba_buf->view(new_ba_shape);
+
+                std::vector<size_t> split_arg_list_qkvz = {head_k_dim, head_k_dim, (size_t)(num_v_heads / num_k_heads * head_v_dim), (size_t)(num_v_heads / num_k_heads * head_v_dim)};
+                std::vector<size_t> split_arg_list_ba = {(size_t)(num_v_heads / num_k_heads), (size_t)(num_v_heads / num_k_heads)};
+
+                auto split_meta_length_qkvz = mixed_qkvz->numel() / mixed_qkvz->shape()[3];
+                auto split_meta_length_ba = mixed_ba->numel() / mixed_ba->shape()[3];
+
+                auto query = mixed_qkvz->slice(3, 0, split_arg_list_qkvz[0] * split_meta_length_qkvz);
+                auto key = mixed_qkvz->slice(3, split_arg_list_qkvz[0], split_arg_list_qkvz[1] * split_meta_length_qkvz);
+                auto value = mixed_qkvz->slice(3, split_arg_list_qkvz[0] + split_arg_list_qkvz[1], split_arg_list_qkvz[2] * split_meta_length_qkvz);
+                auto z = mixed_qkvz->slice(3, split_arg_list_qkvz[2], split_arg_list_qkvz[0] + split_arg_list_qkvz[1] + split_arg_list_qkvz[3] * split_meta_length_qkvz);
+                auto b = mixed_ba->slice(3, 0, split_arg_list_ba[0] * split_meta_length_ba);
+                auto a = mixed_ba->slice(3, split_arg_list_ba[0], split_arg_list_ba[1] * split_meta_length_ba);
+
+                size_t flatten = 1;
+                for (int i = query->numel() - 1; i >= 2; i--) {
+                    flatten *= query->shape()[i];
+                }
+                query = query->view_as({query->shape()[0], query->shape()[1], flatten});
+                flatten = 1;
+
+                for (int i = key->numel() - 1; i >= 2; i--) {
+                    flatten *= key->shape()[i];
+                }
+                key = key->view_as({key->shape()[0], key->shape()[1], flatten});
+                flatten = 1;
+
+                for (int i = value->numel() - 1; i >= 2; i--) {
+                    flatten *= value->shape()[i];
+                }
+                value = value->view_as({value->shape()[0], value->shape()[1], flatten});
+
+                auto mixed_qkv = Tensor::buffer(dt_logits, {query->shape()[0], query->shape()[1], query->shape()[2] + value->shape()[2] + key->shape()[2]}, rsrc.memory_pool);
+
+                // cat
+                rearrange(mixed_qkv->slice(2, 0, query->numel()), query);
+                rearrange(mixed_qkv->slice(2, query->shape()[2], key->numel()), key);
+                rearrange(mixed_qkv->slice(2, key->shape()[2] + query->shape()[2], value->numel()), value);
+
+                mixed_qkv->permute({0, 2, 1});
+                //---------------- conv1d
+                if (conv_state != nullptr) {
+                }
+                //-----------------conv1d end
+                mixed_qkv->permute({0, 2, 1});
+
+                auto meta_slice_lenth = mixed_qkv->numel() / mixed_qkv->shape().back();
+                query = mixed_qkv->slice(mixed_qkv->ndim() - 1, 0, key_dim * meta_slice_lenth)->view_as({query->shape()[0], query->shape()[1], query->numel() / (query->shape()[0] * query->shape()[1] * head_k_dim), head_k_dim});
+                key = mixed_qkv->slice(mixed_qkv->ndim() - 1, key_dim, key_dim * meta_slice_lenth)->view_as({key->shape()[0], key->shape()[1], key->numel() / (key->shape()[0] * key->shape()[1] * head_k_dim), head_k_dim});
+                value = mixed_qkv->slice(mixed_qkv->ndim() - 1, 2 * key_dim, value_dim * meta_slice_lenth)->view_as({value->shape()[0], value->shape()[1], value->numel() / (value->shape()[0] * value->shape()[1] * head_k_dim), head_k_dim});
+                // beta is b
+                sigmoid(b, b);
+
+                // cast float?需要cast 来把A_log和 a转换成float
+                // g is a
+                exp(A_log, weight->alpha_la_g[layer]);
+                add(a, a, weight->b_la_dt[layer]);
+                softplus(a, a);
+                mul(a, a, A_log);
+
+                // 沿着第二维度复制
+                // 没实现
+                if ((int)(num_v_heads / num_k_heads) > 1) {
+                    auto new_query_shape = query->shape();
+                    new_query_shape[2] = new_query_shape[2] * (int)(num_v_heads / num_k_heads);
+                    auto new_query = Tensor::buffer(dt_logits, new_query_shape, rsrc.memory_pool);
+                    for (size_t i = 0; i < (size_t)(num_v_heads / num_k_heads); i++) {
+                        rearrange(new_query->slice(2, i, query->numel()), query);
+                    }
+                    auto new_key_shape = key->shape();
+                    new_key_shape[2] = new_key_shape[2] * (int)(num_v_heads / num_k_heads);
+                    auto new_key = Tensor::buffer(dt_logits, new_key_shape, rsrc.memory_pool);
+                    for (size_t i = 0; i < (size_t)(num_v_heads / num_k_heads); i++) {
+                        rearrange(new_key->slice(2, i, key->numel()), key);
+                    }
+                    query = new_query;
+                    key = new_key;
+                }
+
+                // delatascan
+                auto out_buf = Tensor::buffer(dt_logits, value->shape(), rsrc.memory_pool);
+                auto last_recurrent_state_buf = Tensor::buffer(dt_logits, recurrent_state->shape(), rsrc.memory_pool);
+
+                if (!use_precomputed_state) {
+                    // chunk
+                } else {
+                    recurrent_gated_delta_rule(out_buf, last_recurrent_state_buf, query, key, value, a, b, recurrent_state, true);
+                }
+
+                if (recurrent_state != nullptr) {
+                    mamba_caches[req]->conv_states[idev][layer] = last_recurrent_state_buf;
+                }
+                auto z_shape = z->shape();
+                out_buf->view_as({out_buf->numel() / out_buf->shape().back(), out_buf->shape().back()});
+                z->view_as({z->numel() / z->shape().back(), z->shape().back()});
+
+                // GatedNorm
+                // gated_norm(out_buf, z);
+
+                out_buf->view_as(z_shape);
+                out_buf->view_as({out_buf->shape()[0],
+                                  out_buf->shape()[1],
+                                  out_buf->numel() / out_buf->shape()[0] / out_buf->shape()[1]});
+                linear(output_buf, out_buf, weight->w_la_out[layer], 1.0, 0.0, nullptr, nullptr);
             }
-            linear_cache_layer += 1;
+            /// TODO: linear attention
+            // for (uint32_t req = 0; req < nreq; req++) {
+            //     auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][linear_cache_layer] : nullptr;
+            //     auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][linear_cache_layer] : nullptr;
+
+            //     // linear(projected_states_qkvz, hidden_states, weight->[layer]);
+
+            //     // liear(projected_states_ba)
+            // }
+            // linear_cache_layer += 1;
         }
 
         // All_reduce if distributed
