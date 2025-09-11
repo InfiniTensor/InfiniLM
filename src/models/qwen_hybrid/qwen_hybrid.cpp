@@ -103,6 +103,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto projected_states_ba_buf = Tensor::buffer(dt_logits, {ntok, num_v_heads * 2}, rsrc.memory_pool);
     auto b_buf = projected_states_ba_buf->view({ntok, num_k_heads, num_v_heads / num_k_heads * 2})->slice(2, 0, num_v_heads / num_k_heads);
     auto a_buf = projected_states_ba_buf->view({ntok, num_k_heads, num_v_heads / num_k_heads * 2})->slice(2, num_v_heads / num_k_heads, num_v_heads / num_k_heads);
+    auto z = Tensor::buffer(dt_logits, {ntok, value_dim}, rsrc.memory_pool);
     auto linear_attn_o_buf = Tensor::buffer(dt_logits, {ntok, value_dim}, rsrc.memory_pool);
 
     auto alpha_la_g = Tensor::buffer(dt_logits, weight->alpha_la_g[0]->shape(), rsrc.memory_pool);
@@ -287,8 +288,15 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
 
                 token_offset += seq_len;
             }
-            auto z = projected_states_qkvz_buf->slice(1, key_dim * 2 + value_dim, value_dim)->view({ntok, num_v_heads, head_v_dim});
-            gated_rmsnorm(linear_attn_o_buf->view({ntok, num_v_heads, head_v_dim}), linear_attn_o_buf->view({ntok, num_v_heads, head_v_dim}), weight->w_la_norm[layer], z, meta->epsilon);
+            auto z_buf = projected_states_qkvz_buf
+                             ->view({ntok, num_k_heads, (key_dim * 2 + value_dim * 2) / num_k_heads})
+                             ->slice(2, (key_dim * 2 + value_dim) / num_k_heads, value_dim / num_k_heads);
+            rearrange(z->view({ntok, num_k_heads, value_dim / num_k_heads}), z_buf);
+            gated_rmsnorm(linear_attn_o_buf->view({ntok, num_v_heads, head_v_dim}),
+                          linear_attn_o_buf->view({ntok, num_v_heads, head_v_dim}),
+                          weight->w_la_norm[layer],
+                          z->view({ntok, num_v_heads, head_v_dim}),
+                          meta->epsilon);
             linear(logits_in, linear_attn_o_buf, weight->w_la_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr);
         }
 
