@@ -419,9 +419,29 @@ void InferenceContext::chunk_gated_delta_rule(std::shared_ptr<Tensor> out,
                                               std::shared_ptr<Tensor> v,
                                               std::shared_ptr<Tensor> g,
                                               std::shared_ptr<Tensor> beta,
-                                              std::shared_ptr<Tensor> initial_state,
-                                              bool use_qk_l2norm) {
-    // return nullptr;
+                                              std::shared_ptr<Tensor> initial_state, // can be nullptr
+                                              bool use_qk_l2norm,
+                                              size_t chunk_size) {
+
+    size_t key = CacheManager::createDescriptorKey(out, out_final_state, q, k, v, g, beta, initial_state);
+
+    infiniopChunkGatedDeltaRuleDescriptor_t desc;
+    if (!cache_manager->getChunkGatedDeltaRuleDescriptor(key, desc)) {
+        infiniopTensorDescriptor_t initial_state_desc = initial_state ? alibi_slopes->desc() : nullptr;
+        RUN_INFINI(infiniopCreateChunkGatedDeltaRuleDescriptor(op_handle, &desc, out->desc(), out_final_state->desc(), q->desc(), k->desc(), v->desc(), g->desc(), beta->desc(), initial_state_desc, use_qk_l2norm, chunk_size));
+        cache_manager->putChunkGatedDeltaRuleDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetChunkGatedDeltaRuleWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    const void *initial_state_data = initial_state ? initial_state->data() : nullptr;
+    RUN_INFINI(infiniopChunkGatedDeltaRule(
+        desc, workspace, workspace_size,
+        out->data(), out_final_state->data(), q->data(), k->data(), v->data(), g->data(), beta->data(), initial_state_data, stream));
+
 }
 
 void InferenceContext::recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,
