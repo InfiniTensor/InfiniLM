@@ -89,7 +89,7 @@ class QwenHybridBatchedTask:
         self.req_lens_list = [len(toks) for toks in token_lists]
         self.req_pos_list = [t.pos for t in tasks]
         self.kv_cache_ptrs = [t.kvcache().data() for t in tasks]
-        self.mamba_cache_ptrs = None  # TODO: implement mamba cache
+        self.mamba_cache_ptrs = [t.mamba_cache() for t in tasks]
         self.temperaturas_list = [t.temperature for t in tasks]
         self.topks_list = [t.topk for t in tasks]
         self.topps_list = [t.topp for t in tasks]
@@ -103,7 +103,9 @@ class QwenHybridBatchedTask:
         self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
         self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
         self.kv_caches = (POINTER(KVCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
-        self.mamba_caches = None  # TODO: implement mamba cache
+        self.mamba_caches = (POINTER(MambaCacheCStruct) * self.nreq)(
+            *self.mamba_cache_ptrs
+        )
 
         self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
         self.topks = (c_uint * self.nreq)(*self.topks_list)

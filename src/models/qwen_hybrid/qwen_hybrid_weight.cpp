@@ -60,7 +60,7 @@ inline std::shared_ptr<Tensor> getCosTable(size_t dctx, size_t dh, float theta, 
 
 namespace {
 
-void __attribute__((unused)) print_info(const QwenHybridMeta &meta) {
+inline void print_info(const QwenHybridMeta &meta) {
 
     printf("\nQwenHybridMeta: \n");
     // common
