@@ -71,7 +71,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto weight = rsrc.weights;
 
     // linear
-    bool use_precomputed_state = false;
+    // bool use_precomputed_state = false;
     auto embed_dim = meta->d;
     auto head_k_dim = meta->l_k_dim;
     auto head_v_dim = meta->l_v_dim;
@@ -224,14 +224,13 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
             attn_cache_layer += 1;
         } else {
             for (uint32_t req = 0; req < nreq; req++) {
+                // auto linear_layer = layer - (int)(layer + 1 / 4);
                 mul(hidden_states_buf, hidden_states_buf, attention_mask_buf);
-                auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][layer] : nullptr;
-                auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][layer] : nullptr;
-                //  前面的slice需要改，第三个参数是length
+                auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][linear_cache_layer] : nullptr;
+                auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][linear_cache_layer] : nullptr;
                 linear(projected_states_qkvz_buf, hidden_states_buf, weight->w_la_qkvz[layer], 1.0, 0.0, nullptr, nullptr);
                 linear(projected_states_ba_buf, hidden_states_buf, weight->w_la_ba[layer], 1.0, 0.0, nullptr, nullptr);
 
-                // liear(projected_states_ba)
                 std::vector<size_t> new_qkvz_shape = projected_states_qkvz_buf->shape();
                 new_qkvz_shape.pop_back();
                 new_qkvz_shape.push_back(num_k_heads);
@@ -299,10 +298,10 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
 
                 // cast float?需要cast 来把A_log和 a转换成float
                 // g is a
-                exp(A_log, weight->alpha_la_g[layer]);
+                // exp(A_log, weight->alpha_la_g[layer]);
                 add(a, a, weight->b_la_dt[layer]);
                 softplus(a, a);
-                mul(a, a, A_log);
+                mul(a, a, weight->alpha_la_g[layer]);
 
                 // 沿着第二维度复制
                 // 没实现
@@ -327,11 +326,11 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 auto out_buf = Tensor::buffer(dt_logits, value->shape(), rsrc.memory_pool);
                 auto last_recurrent_state_buf = Tensor::buffer(dt_logits, recurrent_state->shape(), rsrc.memory_pool);
 
-                if (!use_precomputed_state) {
-                    // chunk
-                } else {
-                    recurrent_gated_delta_rule(out_buf, last_recurrent_state_buf, query, key, value, a, b, recurrent_state, true);
-                }
+                // if (!use_precomputed_state) {
+                //     // chunk
+                // } else {
+                recurrent_gated_delta_rule(out_buf, last_recurrent_state_buf, query, key, value, a, b, recurrent_state, true);
+                // }
 
                 if (recurrent_state != nullptr) {
                     mamba_caches[req]->conv_states[idev][layer] = last_recurrent_state_buf;
