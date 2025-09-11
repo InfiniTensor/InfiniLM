@@ -57,6 +57,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto nkvh = meta->nkvh / ndev;
     auto nh = meta->nh / ndev;
     auto ngroup = nh / nkvh;
+    bool use_qk_norm = meta->use_qk_norm;
     // auto dctx = meta.dctx;
     auto dh = meta->dh;
     auto d = meta->d;
@@ -162,7 +163,10 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
             linear(q_buf, logits_out, weight->w_attn_q[layer], 1.0, 0.0, nullptr, b_attn_q ? b_attn_q : nullptr);
             linear(k_buf, logits_out, weight->w_attn_k[layer], 1.0, 0.0, nullptr, b_attn_k ? b_attn_k : nullptr);
             linear(v_buf, logits_out, weight->w_attn_v[layer], 1.0, 0.0, nullptr, b_attn_v ? b_attn_v : nullptr);
-
+            if (use_qk_norm) {
+                rmsnorm(q_buf, q_buf, weight->w_attn_q_norm[layer], meta->epsilon);
+                rmsnorm(k_buf, k_buf, weight->w_attn_k_norm[layer], meta->epsilon);
+            }
             // rope
             rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
             rope_v2(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);

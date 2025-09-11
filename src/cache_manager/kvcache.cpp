@@ -80,25 +80,23 @@ __C void dropKVCache(KVCache *kv_cache) {
 }
 
 __C struct MambaCache *createMambaCache(
-    size_t batch_size,
     size_t nlinear_attention_layers,
     size_t linear_conv_kernel_dim,
     size_t linear_key_head_dim,
     size_t linear_value_head_dim,
-    size_t linear_num_key_heads,
-    size_t linear_num_value_heads,
+    size_t linear_num_key_heads_,
+    size_t linear_num_value_heads_,
     infiniDtype_t dtype,
     infiniDevice_t device,
     int *dev_ids,
     size_t ndev) {
-
+    auto linear_num_key_heads = linear_num_key_heads_ / ndev;
+    auto linear_num_value_heads = linear_num_value_heads_ / ndev;
     MambaCache *cache = new MambaCache();
     auto shape_conv = std::vector<size_t>{
-        batch_size,
         linear_key_head_dim * linear_num_key_heads * 2 + linear_value_head_dim * linear_num_value_heads,
         linear_conv_kernel_dim};
     auto shape_ssm = std::vector<size_t>{
-        batch_size,
         linear_num_value_heads,
         linear_key_head_dim,
         linear_value_head_dim};

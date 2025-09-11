@@ -61,6 +61,7 @@ class QwenHybridMetaFromConfig(QwenHybridMetaCStruct):
             ),
             dh=config["hidden_size"] // config["num_attention_heads"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
+            use_qk_norm=config.get("use_qk_norm", False),
             # linear attn
             l_conv_kernel_dim=config.get("linear_conv_kernel_dim", 0),
             l_expand=config.get("linear_expand_v", 0),
@@ -176,6 +177,28 @@ class QwenHybridForCausalLM:
                 for key in f.keys():
                     # print(key)
                     tensor = f.get_tensor(key)
+                    if "conv1d" in key:
+                        # print(f"Transforming conv1d weight: {key}")
+                        tensor.reshape(
+                            tensor.shape[0] // self.ndev,
+                            self.ndev,
+                            tensor.shape[1],
+                            tensor.shape[2],
+                        ).permute(1, 0, 2, 3).contiguous()
+                    elif "in_proj_qkvz" in key or "in_proj_ba" in key:
+                        # print(f"Transforming fused linear weight: {key}")
+                        tensor.reshape(
+                            tensor.shape[0] // self.ndev,
+                            self.ndev,
+                            tensor.shape[1],
+                        ).permute(1, 0, 2).contiguous()
+                    elif "q_norm" in key or "k_norm" in key:
+                        # print(f"Add 1 to qk norm weight: {key}")
+                        tensor = tensor + 1
+                    elif "A_log" in key:
+                        # print(f"Transforming A_log weight: {key}")
+                        tensor = -tensor.float().exp().to(tensor.dtype)
+
                     self.model.load_weight(self.weights, key, tensor.data_ptr())
 
     def max_context_len(self):
@@ -183,7 +206,7 @@ class QwenHybridForCausalLM:
 
     def create_kv_cache(self):
         return self.model.create_kv_cache(
-            self.meta.nlayer,
+            self.meta.nlayer // 4,  # Full attn every 4th layers
             self.meta.dctx,
             self.meta.nkvh,
             self.meta.dh,
@@ -198,12 +221,21 @@ class QwenHybridForCausalLM:
         self.model.drop_kv_cache(kv_cache)
 
     def create_mamba_cache(self):
-        # TODO: implement mamba cache
-        return None
+        return self.model.create_mamba_cache(
+            (self.meta.nlayer // 4) * 3,
+            self.meta.l_conv_kernel_dim,
+            self.meta.l_k_dim,
+            self.meta.l_v_dim,
+            self.meta.l_n_k_head,
+            self.meta.l_n_v_head,
+            self.meta.dtype,
+            self.device,
+            self.dev_ids,
+            self.ndev,
+        )
 
     def drop_mamba_cache(self, mamba_cache):
-        # TODO: implement mamba cache
-        pass
+        self.model.drop_mamba_cache(mamba_cache)
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
@@ -233,6 +265,7 @@ class QwenHybridForCausalLM:
             self.eos_token_id,
         )
         infer_task.bind_kvcache(KVCache(self))
+        infer_task.bind_mamba_cache(self.create_mamba_cache())
 
         steps = 0
         total_time = 0
@@ -258,6 +291,7 @@ class QwenHybridForCausalLM:
         print(f"Time per step: {avg_time:.3f}ms")
 
         infer_task._kv_cache.drop(self)
+        self.drop_mamba_cache(infer_task._mamba_cache)
         return output_content, avg_time
 
     def perplexity(self, test_sequences: List[Sequence[int]], batch_size=10):

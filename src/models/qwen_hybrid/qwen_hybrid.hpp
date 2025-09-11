@@ -16,9 +16,10 @@ struct QwenHybridDeviceWeight {
     // full attention
     std::vector<std::shared_ptr<Tensor>> b_attn_q, b_attn_k, b_attn_v;
     std::vector<std::shared_ptr<Tensor>> w_attn_q, w_attn_k, w_attn_v, w_attn_out;
+    std::vector<std::shared_ptr<Tensor>> w_attn_q_norm, w_attn_k_norm;
     // linear attention
     std::vector<std::shared_ptr<Tensor>> b_la_dt, alpha_la_g, w_la_conv, w_la_qkvz, w_la_ba, w_la_norm, w_la_out;
-    
+
     std::vector<std::shared_ptr<Tensor>> w_ffn_norm;
     // ----------------------------------------------------------------------- //
     //                                       moe                               //

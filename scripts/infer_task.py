@@ -9,6 +9,7 @@ class InferTask:
         self.topp = topp
         self.end_tokens = end_tokens
         self._kv_cache = None
+        self._mamba_cache = None
         self.pos = 0
 
     def bind_kvcache(self, kv_cache, pos=0):
@@ -34,6 +35,17 @@ class InferTask:
             self.finish_reason = "length"
         else:
             self.tokens = [out_token]
+
+    def bind_mamba_cache(self, mamba_cache):
+        self._mamba_cache = mamba_cache
+
+    def release_mamba_cache(self):
+        cache = self._mamba_cache
+        self._mamba_cache = None
+        return cache
+
+    def mamba_cache(self):
+        return self._mamba_cache
 
 
 class KVCache:

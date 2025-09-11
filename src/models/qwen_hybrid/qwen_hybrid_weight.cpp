@@ -114,7 +114,7 @@ QwenHybridWeights::QwenHybridWeights(
     size_t dctx = meta->dctx;
     size_t dvoc = meta->dvoc;
 
-    print_info(*meta);
+    // print_info(*meta);
 
     for (size_t i = 0; i < ndev; i++) {
         RUN_INFINI(infinirtSetDevice(device, dev_ids[i]));
@@ -176,6 +176,8 @@ QwenHybridWeights::QwenHybridWeights(
                 weight->b_attn_q.push_back(nullptr);
                 weight->b_attn_k.push_back(nullptr);
                 weight->b_attn_v.push_back(nullptr);
+                weight->w_attn_q_norm.push_back(nullptr);
+                weight->w_attn_k_norm.push_back(nullptr);
             } else {
                 REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.weight", w_attn_q, d, nh * dh, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.weight", w_attn_k, d, nkvh * dh, dt_logits, ROW);
@@ -184,6 +186,8 @@ QwenHybridWeights::QwenHybridWeights(
                 REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.q_proj.bias", b_attn_q, nh * dh, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.k_proj.bias", b_attn_k, nkvh * dh, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.v_proj.bias", b_attn_v, nkvh * dh, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.q_norm.weight", w_attn_q_norm, dh, dt_logits, FULL);
+                REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".self_attn.k_norm.weight", w_attn_k_norm, dh, dt_logits, FULL);
                 weight->b_la_dt.push_back(nullptr);
                 weight->alpha_la_g.push_back(nullptr);
                 weight->w_la_conv.push_back(nullptr);

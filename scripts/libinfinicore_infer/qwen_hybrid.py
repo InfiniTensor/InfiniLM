@@ -17,7 +17,6 @@ from ctypes import (
     Structure,
     c_char,
     c_char_p,
-    c_bool
 )
 
 
@@ -36,6 +35,7 @@ class QwenHybridMetaCStruct(Structure):
         ("nkvh", c_size_t),
         ("dh", c_size_t),
         ("theta", c_float),
+        ("use_qk_norm", c_char),
         # linear attention
         ("l_conv_kernel_dim", c_size_t),
         ("l_expand", c_size_t),
@@ -48,7 +48,7 @@ class QwenHybridMetaCStruct(Structure):
         ("kexperts", c_size_t),
         ("shared_di", c_size_t),
         ("moe_di", c_size_t),
-        ("norm_topk_prob", c_bool),
+        ("norm_topk_prob", c_char),
     ]
 
 
@@ -93,7 +93,12 @@ class QwenHybridModel(BaseModel):
         lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
 
         lib.createMambaCache.argtypes = [
-            c_size_t,
+            c_size_t,  # nlinear_attention_layers,
+            c_size_t,  # linear_conv_kernel_dim
+            c_size_t,  # linear_key_head_dim
+            c_size_t,  # linear_value_head_dim
+            c_size_t,  # linear_num_key_heads_
+            c_size_t,  # linear_num_value_heads_
             DataType,
             DeviceType,
             POINTER(c_int),
@@ -143,8 +148,31 @@ class QwenHybridModel(BaseModel):
     def drop_kv_cache(self, kv_cache):
         self.lib.dropKVCache(kv_cache)
 
-    def create_mamba_cache(self, nlayer, dtype, device, dev_ids, ndev):
-        return self.lib.createMambaCache(nlayer, dtype, device, dev_ids, ndev)
+    def create_mamba_cache(
+        self,
+        n_linear_attn_layer,
+        conv_kernel_dim,
+        key_head_dim,
+        value_head_dim,
+        num_key_heads,
+        num_value_heads,
+        dtype,
+        device,
+        dev_ids,
+        ndev,
+    ):
+        return self.lib.createMambaCache(
+            n_linear_attn_layer,
+            conv_kernel_dim,
+            key_head_dim,
+            value_head_dim,
+            num_key_heads,
+            num_value_heads,
+            dtype,
+            device,
+            dev_ids,
+            ndev,
+        )
 
     def drop_mamba_cache(self, mamba_cache):
         self.lib.dropMambaCache(mamba_cache)
