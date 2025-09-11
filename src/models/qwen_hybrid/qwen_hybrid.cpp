@@ -101,6 +101,10 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     // linear buffer
     auto projected_states_qkvz_buf = Tensor::buffer(dt_logits, {ntok, key_dim * 2 + value_dim * 2}, rsrc.memory_pool);
     auto projected_states_ba_buf = Tensor::buffer(dt_logits, {ntok, num_v_heads * 2}, rsrc.memory_pool);
+    auto b_buf = projected_states_ba_buf->slice(1, 0, num_v_heads);
+    auto a_buf = projected_states_ba_buf->slice(1, num_v_heads, num_v_heads);
+    auto beta_buf = Tensor::buffer(dt_logits, {ntok, num_v_heads}, rsrc.memory_pool);
+    auto g_buf = Tensor::buffer(dt_logits, {ntok, num_v_heads}, rsrc.memory_pool);
     auto linear_attn_o_buf = Tensor::buffer(dt_logits, {ntok, value_dim}, rsrc.memory_pool);
 
     auto alpha_la_g = Tensor::buffer(dt_logits, weight->alpha_la_g[0]->shape(), rsrc.memory_pool);
@@ -214,6 +218,11 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
         } else {
             linear(projected_states_qkvz_buf, logits_out, weight->w_la_qkvz[layer], 1.0, 0.0, nullptr, nullptr);
             linear(projected_states_ba_buf, logits_out, weight->w_la_ba[layer], 1.0, 0.0, nullptr, nullptr);
+
+            sigmoid(beta_buf, b_buf);
+            softplus(a_buf, a_buf);
+            mul(g_buf, a_buf, weight->alpha_la_g[layer]->insertBroadcastDim(0, ntok));
+
             size_t token_offset = 0;
             for (uint32_t req = 0; req < nreq; req++) {
                 auto seq_len = req_lens[req];
@@ -223,7 +232,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 // slice out qkv of current req and reshape to conv1d input
                 auto mixed_qkv = Tensor::buffer(dt_logits, {key_dim * 2 + value_dim, conv_kernel_dim - 1 + seq_len}, rsrc.memory_pool);
                 rearrange(mixed_qkv->slice(1, conv_kernel_dim - 1, seq_len),
-                          projected_states_qkvz_buf->slice({{0, token_offset, seq_len}, {1, 0, key_dim * 2 + value_dim}}));
+                          projected_states_qkvz_buf->slice({{0, token_offset, seq_len}, {1, 0, key_dim * 2 + value_dim}})->permute({1, 0}));
                 // concat previous conv state as padding
                 rearrange(mixed_qkv->slice(1, 0, conv_kernel_dim - 1),
                           conv_state);
@@ -240,21 +249,15 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 auto z = Tensor::buffer(dt_logits, {seq_len, num_v_heads, head_v_dim}, rsrc.memory_pool);
                 // transpose to {seq_len, key_dim * 2 + value_dim}
                 mixed_qkv_out = mixed_qkv_out->view({key_dim * 2 + value_dim, seq_len})->permute({1, 0});
-                std::vector<ptrdiff_t> broadcast_strides = std::vector<ptrdiff_t>(
-                    mixed_qkv_out->slice(1, 0, key_dim)->view({seq_len, num_k_heads, 1, head_k_dim})->strides());
-                broadcast_strides[2] = 0;
-                rearrange(query, mixed_qkv_out->slice(1, 0, key_dim)->view_as({seq_len, num_k_heads, num_v_heads / num_k_heads, head_k_dim}, broadcast_strides));
-                rearrange(key, mixed_qkv_out->slice(1, key_dim, key_dim)->view_as({seq_len, num_k_heads, num_v_heads / num_k_heads, head_k_dim}, broadcast_strides));
+                // broadcast num_qk_heads to num_v_heads
+                rearrange(query, mixed_qkv_out->slice(1, 0, key_dim)->view({seq_len, num_k_heads, head_k_dim})->insertBroadcastDim(2, num_v_heads / num_k_heads));
+                rearrange(key, mixed_qkv_out->slice(1, key_dim, key_dim)->view({seq_len, num_k_heads, head_k_dim})->insertBroadcastDim(2, num_v_heads / num_k_heads));
                 rearrange(value, mixed_qkv_out->slice(1, key_dim * 2, value_dim)->view({seq_len, num_v_heads, head_v_dim}));
                 rearrange(z, projected_states_qkvz_buf->slice({{0, token_offset, seq_len}, {1, key_dim * 2 + value_dim, value_dim}})->view({seq_len, num_v_heads, head_v_dim}));
 
                 // get beta and g
-                auto b = projected_states_ba_buf->slice({{0, token_offset, seq_len}, {1, 0, num_v_heads}});
-                auto a = projected_states_ba_buf->slice({{0, token_offset, seq_len}, {1, num_v_heads, num_v_heads}});
-                auto g = Tensor::buffer(dt_logits, {seq_len, num_v_heads}, rsrc.memory_pool);
-                sigmoid(b, b);
-                softplus(a, a);
-                mul(g, a, weight->alpha_la_g[layer]);
+                auto beta = beta_buf->slice(0, token_offset, seq_len);
+                auto g = g_buf->slice(0, token_offset, seq_len);
 
                 auto linear_attn_out = Tensor::buffer(dt_logits, {seq_len, num_v_heads, head_v_dim}, rsrc.memory_pool);
                 /// TODO: gated delta

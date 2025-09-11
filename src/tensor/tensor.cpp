@@ -362,6 +362,14 @@ std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape, co
     return tensor;
 }
 
+std::shared_ptr<Tensor> Tensor::insertBroadcastDim(size_t dim, size_t broadcast_size) const {
+    std::vector<size_t> new_shape = this->_desc->shape();
+    std::vector<ptrdiff_t> new_strides = this->_desc->strides();
+    new_shape.insert(new_shape.begin() + dim, broadcast_size);
+    new_strides.insert(new_strides.begin() + dim, 0);
+    return this->view_as(new_shape, new_strides);
+}
+
 void Tensor::debug(const std::string &filename) const {
     RUN_INFINI(infinirtDeviceSynchronize());
 

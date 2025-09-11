@@ -137,6 +137,8 @@ public:
     std::shared_ptr<Tensor> view_as(const std::vector<size_t> &new_shape) const;
     std::shared_ptr<Tensor> view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const;
 
+    std::shared_ptr<Tensor> insertBroadcastDim(size_t dim, size_t broadcast_size) const;
+
     ~Tensor();
 };
 
