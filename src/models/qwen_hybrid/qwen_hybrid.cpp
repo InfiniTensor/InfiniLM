@@ -71,8 +71,8 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto head_k_dim = meta->l_k_dim;
     auto head_v_dim = meta->l_v_dim;
 
-    auto num_v_heads = meta->l_n_v_head;
-    auto num_k_heads = meta->l_n_k_head;
+    auto num_v_heads = meta->l_n_v_head / ndev;
+    auto num_k_heads = meta->l_n_k_head / ndev;
 
     auto key_dim = head_k_dim * num_k_heads;
     auto value_dim = head_v_dim * num_v_heads;
@@ -140,76 +140,79 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
-    // Linear Attention
-    // linear attention innfer
-    for (uint32_t layer = 0; layer < nlayer; layer++) {
-        // hiddent_states * attention_mask
-        for (uint32_t req = 0; req < nreq; req++) {
-            auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][layer] : nullptr;
-            auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][layer] : nullptr;
-
-            // linear(projected_states_qkvz, hidden_states, weight->[layer]);
-
-            // liear(projected_states_ba)
-        }
-    }
-
     // Compute
+    size_t attn_cache_layer = 0,
+           linear_cache_layer = 0;
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
         rmsnorm(logits_out, logits_in, weight->w_attn_norm[layer], meta->epsilon);
 
-        // qkv_proj && qkv_bias
-        std::shared_ptr<Tensor> b_attn_q;
-        std::shared_ptr<Tensor> b_attn_k;
-        std::shared_ptr<Tensor> b_attn_v;
-        if (weight->b_attn_q.size() > 0) {
-            b_attn_q = weight->b_attn_q[layer];
-            b_attn_k = weight->b_attn_k[layer];
-            b_attn_v = weight->b_attn_v[layer];
+        if (layer % 4 == 3) {
+            // qkv_proj && qkv_bias
+            std::shared_ptr<Tensor> b_attn_q;
+            std::shared_ptr<Tensor> b_attn_k;
+            std::shared_ptr<Tensor> b_attn_v;
+            if (weight->b_attn_q.size() > 0) {
+                b_attn_q = weight->b_attn_q[layer];
+                b_attn_k = weight->b_attn_k[layer];
+                b_attn_v = weight->b_attn_v[layer];
+            }
+
+            linear(q_buf, logits_out, weight->w_attn_q[layer], 1.0, 0.0, nullptr, b_attn_q ? b_attn_q : nullptr);
+            linear(k_buf, logits_out, weight->w_attn_k[layer], 1.0, 0.0, nullptr, b_attn_k ? b_attn_k : nullptr);
+            linear(v_buf, logits_out, weight->w_attn_v[layer], 1.0, 0.0, nullptr, b_attn_v ? b_attn_v : nullptr);
+
+            // rope
+            rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
+            rope_v2(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
+            size_t token_offset = 0;
+            for (uint32_t req = 0; req < nreq; req++) {
+                auto past_len = req_pos[req];
+                auto seq_len = req_lens[req];
+                auto total_len = past_len + seq_len;
+                auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+                auto q = q_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+                auto k = k_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, dh});
+                auto v = v_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, dh});
+
+                // self attention
+                // concat
+                rearrange(kv_caches[req]->k[idev][attn_cache_layer]->slice(0, past_len, seq_len), k);
+                rearrange(kv_caches[req]->v[idev][attn_cache_layer]->slice(0, past_len, seq_len), v);
+                // qk
+                auto q_rearrange = rearrange_q_buf->slice(0, 0, nkvh * ngroup * seq_len * dh)->view({nkvh, ngroup, seq_len, dh});
+                rearrange(q_rearrange, q);
+                auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
+                auto k_gemm = kv_caches[req]->k[idev][attn_cache_layer]->slice(0, 0, total_len)->permute({1, 2, 0});
+                linear(qk_gemm, q_rearrange->view({nkvh, ngroup * seq_len, dh}), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+                // softmax
+                auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
+                causalSoftmax(qk_softmax, qk_softmax);
+                auto v_gemm = kv_caches[req]->v[idev][attn_cache_layer]->slice(0, 0, total_len)->permute({1, 0, 2});
+                linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+                // rearrange attn val
+                rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
+
+                token_offset += seq_len;
+            }
+            // o_proj
+            linear(logits_in, o_buf, weight->w_attn_out[layer],
+                   1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+            attn_cache_layer += 1;
+        } else {
+            /// TODO: linear attention
+            for (uint32_t req = 0; req < nreq; req++) {
+                auto conv_state = mamba_caches == nullptr ? mamba_caches[req]->conv_states[idev][linear_cache_layer] : nullptr;
+                auto recurrent_state = nullptr ? mamba_caches[req]->ssm_states[idev][linear_cache_layer] : nullptr;
+
+                // linear(projected_states_qkvz, hidden_states, weight->[layer]);
+
+                // liear(projected_states_ba)
+            }
+            linear_cache_layer += 1;
         }
 
-        linear(q_buf, logits_out, weight->w_attn_q[layer], 1.0, 0.0, nullptr, b_attn_q ? b_attn_q : nullptr);
-        linear(k_buf, logits_out, weight->w_attn_k[layer], 1.0, 0.0, nullptr, b_attn_k ? b_attn_k : nullptr);
-        linear(v_buf, logits_out, weight->w_attn_v[layer], 1.0, 0.0, nullptr, b_attn_v ? b_attn_v : nullptr);
-
-        // rope
-        rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
-        rope_v2(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
-        size_t token_offset = 0;
-        for (uint32_t req = 0; req < nreq; req++) {
-            auto past_len = req_pos[req];
-            auto seq_len = req_lens[req];
-            auto total_len = past_len + seq_len;
-            auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-            auto q = q_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-            auto k = k_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, dh});
-            auto v = v_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, dh});
-
-            // self attention
-            // concat
-            rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
-            rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
-            // qk
-            auto q_rearrange = rearrange_q_buf->slice(0, 0, nkvh * ngroup * seq_len * dh)->view({nkvh, ngroup, seq_len, dh});
-            rearrange(q_rearrange, q);
-            auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
-            auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
-            linear(qk_gemm, q_rearrange->view({nkvh, ngroup * seq_len, dh}), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
-            // softmax
-            auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
-            causalSoftmax(qk_softmax, qk_softmax);
-            auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
-            linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
-            // rearrange attn val
-            rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
-
-            token_offset += seq_len;
-        }
-        // o_proj
-        linear(logits_in, o_buf, weight->w_attn_out[layer],
-               1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
             RUN_INFINI(infinicclAllReduce(
