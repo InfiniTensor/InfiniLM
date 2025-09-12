@@ -249,10 +249,10 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 rearrange(mixed_qkv->slice(1, 0, conv_kernel_dim - 1),
                           conv_state);
                 rearrange(conv_state, mixed_qkv->slice(1, seq_len, conv_kernel_dim - 1));
-                mixed_qkv = mixed_qkv->view({key_dim * 2 + value_dim, 1, conv_kernel_dim - 1 + seq_len});
-                auto mixed_qkv_out = Tensor::buffer(dt_logits, {key_dim * 2 + value_dim, 1, seq_len}, rsrc.memory_pool);
+                mixed_qkv = mixed_qkv->view({1, key_dim * 2 + value_dim, conv_kernel_dim - 1 + seq_len});
+                auto mixed_qkv_out = Tensor::buffer(dt_logits, {1, key_dim * 2 + value_dim, seq_len}, rsrc.memory_pool);
                 //---------------- conv1d
-                conv1d(mixed_qkv_out, mixed_qkv, weight->w_la_conv[layer], nullptr, nullptr, nullptr, nullptr);
+                conv1d(mixed_qkv_out, mixed_qkv, weight->w_la_conv[layer], nullptr, nullptr, nullptr, nullptr, key_dim * 2 + value_dim);
                 silu(mixed_qkv_out, mixed_qkv_out);
 
                 // q k v z

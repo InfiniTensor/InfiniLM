@@ -457,12 +457,13 @@ void InferenceContext::conv1d(std::shared_ptr<Tensor> y,
                               std::shared_ptr<Tensor> b,
                               void *pads,
                               void *strides,
-                              void *dilations) {
+                              void *dilations,
+                              size_t groups) {
     size_t key = CacheManager::createDescriptorKey(y, x, w, b);
 
     infiniopConvDescriptor_t desc;
     if (!cache_manager->getConvDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateConvDescriptor(op_handle, &desc, y->desc(), x->desc(), w->desc(), b ? b->desc() : nullptr, pads, strides, dilations, x->ndim() - 2));
+        RUN_INFINI(infiniopCreateConvDescriptor(op_handle, &desc, y->desc(), x->desc(), w->desc(), b ? b->desc() : nullptr, pads, strides, dilations, x->ndim() - 2, groups));
         cache_manager->putConvDescriptor(key, desc);
     }
 

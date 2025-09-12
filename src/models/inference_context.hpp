@@ -104,7 +104,8 @@ struct InferenceContext {
                 std::shared_ptr<Tensor> b,
                 void *pads,
                 void *strides,
-                void *dilations);
+                void *dilations,
+                size_t groups);
 
     void conv1d_update(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x,
@@ -301,8 +302,9 @@ inline void conv1d(std::shared_ptr<Tensor> y,
                    std::shared_ptr<Tensor> b,
                    void *pads,
                    void *strides,
-                   void *dilations) {
-    getInferenceContext().conv1d(y, x, w, b, pads, strides, dilations);
+                   void *dilations,
+                   size_t groups) {
+    getInferenceContext().conv1d(y, x, w, b, pads, strides, dilations, groups);
 }
 
 inline void conv1d_update(std::shared_ptr<Tensor> y,
