@@ -76,24 +76,25 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> in_s,
                  std::shared_ptr<Tensor> in_z);
 
-    void chunk_gated_delta_rule(std::shared_ptr<Tensor> out,
-                                std::shared_ptr<Tensor> out_final_state,
-                                std::shared_ptr<Tensor> q,
-                                std::shared_ptr<Tensor> k,
-                                std::shared_ptr<Tensor> v,
-                                std::shared_ptr<Tensor> g,
-                                std::shared_ptr<Tensor> beta,
-                                std::shared_ptr<Tensor> initial_state,
-                                bool use_qk_l2norm);
+    void chunk_gated_delta_rule(std::shared_ptr<Tensor> out, // [B, H, T, Dv]
+                                std::shared_ptr<Tensor> out_final_state, // [B, H, Dk, Dv]
+                                std::shared_ptr<Tensor> q, // [B, H, T, Dk]
+                                std::shared_ptr<Tensor> k, // [B, H, T, Dk]
+                                std::shared_ptr<Tensor> v, // [B, H, T, Dv]
+                                std::shared_ptr<Tensor> g, // [B, H, T]
+                                std::shared_ptr<Tensor> beta, // [B, H, T]
+                                std::shared_ptr<Tensor> initial_state, // can be nullptr, [B, H, Dk, Dv]
+                                bool use_qk_l2norm,
+                                size_t chunk_size);
 
-    void recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,
-                                    std::shared_ptr<Tensor> out_final_state,
-                                    std::shared_ptr<Tensor> q,
-                                    std::shared_ptr<Tensor> k,
-                                    std::shared_ptr<Tensor> v,
-                                    std::shared_ptr<Tensor> g,
-                                    std::shared_ptr<Tensor> beta,
-                                    std::shared_ptr<Tensor> initial_state,
+    void recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,  // [B, H, T, Dv]
+                                    std::shared_ptr<Tensor> out_final_state, // [B, H, Dk, Dv]
+                                    std::shared_ptr<Tensor> q, // [B, H, T, Dk]
+                                    std::shared_ptr<Tensor> k, // [B, H, T, Dk]
+                                    std::shared_ptr<Tensor> v, // [B, H, T, Dv]
+                                    std::shared_ptr<Tensor> g, // [B, H, T]
+                                    std::shared_ptr<Tensor> beta, // [B, H, T]
+                                    std::shared_ptr<Tensor> initial_state, // can be nullptr, [B, H, Dk, Dv]
                                     bool use_qk_l2norm);
 
     // 标准应该使用causal_conv1d
@@ -278,8 +279,9 @@ inline void chunk_gated_delta_rule(std::shared_ptr<Tensor> out,
                                    std::shared_ptr<Tensor> g,
                                    std::shared_ptr<Tensor> beta,
                                    std::shared_ptr<Tensor> initial_state,
-                                   bool use_qk_l2norm) {
-    // return nullptr;
+                                   bool use_qk_l2norm,
+                                   size_t chunk_size) {
+    getInferenceContext().chunk_gated_delta_rule(out, out_final_state, q, k, v, g, beta, initial_state, use_qk_l2norm, chunk_size);
 }
 
 inline void recurrent_gated_delta_rule(std::shared_ptr<Tensor> out,

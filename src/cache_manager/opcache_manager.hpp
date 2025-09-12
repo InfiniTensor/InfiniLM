@@ -164,7 +164,7 @@ public:
     DECLARE_OP_CACHE(Silu)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(Dequantize)
-    // DECLARE_OP_CACHE(Chunk_gated_delta_rule)
+    DECLARE_OP_CACHE(ChunkGatedDeltaRule)
     DECLARE_OP_CACHE(RecurrentGatedDeltaRule)
     DECLARE_OP_CACHE(Conv)
     DECLARE_OP_CACHE(Exp)
@@ -189,6 +189,7 @@ public:
           Silu_cache(capacity, DESTROY_FUNC(Silu)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           Dequantize_cache(capacity, DESTROY_FUNC(Dequantize)),
+          ChunkGatedDeltaRule_cache(capacity, DESTROY_FUNC(ChunkGatedDeltaRule)),
           RecurrentGatedDeltaRule_cache(capacity, DESTROY_FUNC(RecurrentGatedDeltaRule)),
           Conv_cache(capacity, DESTROY_FUNC(Conv)),
           Exp_cache(capacity, DESTROY_FUNC(Exp)),
