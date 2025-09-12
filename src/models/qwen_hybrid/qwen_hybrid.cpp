@@ -101,8 +101,11 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     // linear buffer
     auto projected_states_qkvz_buf = Tensor::buffer(dt_logits, {ntok, key_dim * 2 + value_dim * 2}, rsrc.memory_pool);
     auto projected_states_ba_buf = Tensor::buffer(dt_logits, {ntok, num_v_heads * 2}, rsrc.memory_pool);
-    auto b_buf = projected_states_ba_buf->view({ntok, num_k_heads, num_v_heads / num_k_heads * 2})->slice(2, 0, num_v_heads / num_k_heads);
-    auto a_buf = projected_states_ba_buf->view({ntok, num_k_heads, num_v_heads / num_k_heads * 2})->slice(2, num_v_heads / num_k_heads, num_v_heads / num_k_heads);
+    // auto b_buf = projected_states_ba_buf->view({ntok, num_k_heads, num_v_heads / num_k_heads * 2})->slice(2, 0, num_v_heads / num_k_heads);
+    // auto a_buf = projected_states_ba_buf->view({ntok, num_k_heads, num_v_heads / num_k_heads * 2})->slice(2, num_v_heads / num_k_heads, num_v_heads / num_k_heads);
+    auto b_buf = Tensor::buffer(dt_logits, {ntok, num_k_heads, num_v_heads / num_k_heads}, rsrc.memory_pool);
+    auto a_buf = Tensor::buffer(dt_logits, {ntok, num_k_heads, num_v_heads / num_k_heads}, rsrc.memory_pool);
+
     auto z = Tensor::buffer(dt_logits, {ntok, value_dim}, rsrc.memory_pool);
     auto linear_attn_o_buf = Tensor::buffer(dt_logits, {ntok, value_dim}, rsrc.memory_pool);
 
@@ -218,6 +221,8 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
             linear(projected_states_qkvz_buf, logits_out, weight->w_la_qkvz[layer], 1.0, 0.0, nullptr, nullptr);
             linear(projected_states_ba_buf, logits_out, weight->w_la_ba[layer], 1.0, 0.0, nullptr, nullptr);
 
+            rearrange(b_buf, projected_states_ba_buf->view({ntok, num_k_heads, num_v_heads / num_k_heads * 2})->slice(2, 0, num_v_heads / num_k_heads));
+            rearrange(a_buf, projected_states_ba_buf->view({ntok, num_k_heads, num_v_heads / num_k_heads * 2})->slice(2, num_v_heads / num_k_heads, num_v_heads / num_k_heads));
             sigmoid(b_buf, b_buf);
             add(a_buf, a_buf, weight->b_la_dt[layer]->view({num_k_heads, num_v_heads / num_k_heads})->insertBroadcastDim(0, ntok));
             softplus(a_buf, a_buf);
