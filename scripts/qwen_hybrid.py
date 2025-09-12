@@ -194,6 +194,35 @@ class QwenHybridForCausalLM:
                     elif "A_log" in key:
                         # print(f"Transforming A_log weight: {key}")
                         tensor = -tensor.float().exp().to(tensor.dtype)
+                    elif "q_proj.weight" in key:
+                        n_h = self.meta.nh
+                        d_h = self.meta.dh
+                        ndev = self.ndev
+                        block1, block2 = torch.split(
+                            tensor, [n_h * d_h, n_h * d_h], dim=0
+                        )
+                        blocks = []
+                        for idev in range(ndev):
+                            s_1 = block1.shape[0] // ndev
+                            s_2 = block2.shape[0] // ndev
+                            blocks.append(block1[idev * s_1 : (idev + 1) * s_1, :])
+                            blocks.append(block2[idev * s_2 : (idev + 1) * s_2, :])
+                        tensor = torch.cat(blocks, dim=0).contiguous()
+                    elif "q_proj.bias" in key:
+                        n_h = self.meta.nh
+                        d_h = self.meta.dh
+                        ndev = self.ndev
+                        block1, block2 = torch.split(
+                            tensor, [n_h * d_h, n_h * d_h], dim=0
+                        )
+                        blocks = []
+                        for idev in range(ndev):
+                            s_1 = block1.shape[0] // ndev
+                            s_2 = block2.shape[0] // ndev
+                            blocks.append(block1[idev * s_1 : (idev + 1) * s_1])
+                            blocks.append(block2[idev * s_2 : (idev + 1) * s_2])
+                        tensor = torch.cat(blocks, dim=0).contiguous()
+
                     elif "conv1d" in key:
                         n_k_h = self.meta.l_n_k_head
                         n_v_h = self.meta.l_n_v_head
