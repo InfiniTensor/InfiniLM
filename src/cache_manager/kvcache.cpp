@@ -13,6 +13,8 @@ __C struct KVCache *createKVCache(
 
     KVCache *cache = new KVCache();
     auto nkvh = nkvh_ / ndev;
+    // At least one head per shard
+    nkvh = nkvh > 0 ? nkvh : 1;
 
     auto shape_k = std::vector<size_t>{max_len, nkvh, dk};
     auto shape_v = std::vector<size_t>{max_len, nkvh, dv};

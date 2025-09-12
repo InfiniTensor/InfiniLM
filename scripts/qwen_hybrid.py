@@ -194,34 +194,16 @@ class QwenHybridForCausalLM:
                     elif "A_log" in key:
                         # print(f"Transforming A_log weight: {key}")
                         tensor = -tensor.float().exp().to(tensor.dtype)
-                    elif "q_proj.weight" in key:
-                        n_h = self.meta.nh
-                        d_h = self.meta.dh
-                        ndev = self.ndev
-                        block1, block2 = torch.split(
-                            tensor, [n_h * d_h, n_h * d_h], dim=0
+                    elif (
+                        "k_proj" in key or "v_proj" in key
+                    ) and self.ndev > self.meta.nkvh:
+                        repeat_times = self.ndev // self.meta.nkvh
+                        tensor = torch.cat([tensor for _ in range(repeat_times)], dim=0)
+                        tensor = (
+                            tensor.view(repeat_times, self.meta.nkvh, -1)
+                            .permute(1, 0, 2)
+                            .contiguous()
                         )
-                        blocks = []
-                        for idev in range(ndev):
-                            s_1 = block1.shape[0] // ndev
-                            s_2 = block2.shape[0] // ndev
-                            blocks.append(block1[idev * s_1 : (idev + 1) * s_1, :])
-                            blocks.append(block2[idev * s_2 : (idev + 1) * s_2, :])
-                        tensor = torch.cat(blocks, dim=0).contiguous()
-                    elif "q_proj.bias" in key:
-                        n_h = self.meta.nh
-                        d_h = self.meta.dh
-                        ndev = self.ndev
-                        block1, block2 = torch.split(
-                            tensor, [n_h * d_h, n_h * d_h], dim=0
-                        )
-                        blocks = []
-                        for idev in range(ndev):
-                            s_1 = block1.shape[0] // ndev
-                            s_2 = block2.shape[0] // ndev
-                            blocks.append(block1[idev * s_1 : (idev + 1) * s_1])
-                            blocks.append(block2[idev * s_2 : (idev + 1) * s_2])
-                        tensor = torch.cat(blocks, dim=0).contiguous()
 
                     elif "conv1d" in key:
                         n_k_h = self.meta.l_n_k_head
@@ -250,7 +232,7 @@ class QwenHybridForCausalLM:
         return self.model.create_kv_cache(
             self.meta.nlayer // 4,  # Full attn every 4th layers
             self.meta.dctx,
-            self.meta.nkvh * self.ndev,
+            self.meta.nkvh,
             self.meta.dh,
             self.meta.dh,
             self.meta.dtype,
