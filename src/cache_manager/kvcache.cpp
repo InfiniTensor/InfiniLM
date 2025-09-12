@@ -100,8 +100,9 @@ __C struct MambaCache *createMambaCache(
         linear_num_value_heads,
         linear_key_head_dim,
         linear_value_head_dim};
-    void *zeros = std::malloc(shape_conv[0] * shape_conv[1] * dsize(dtype));
-    std::memset(zeros, 0, shape_conv[0] * shape_conv[1] * dsize(dtype));
+    size_t max_size = std::max(shape_conv[0] * shape_conv[1], shape_ssm[0] * shape_ssm[1] * shape_ssm[2]);
+    void *zeros = std::malloc(max_size * dsize(dtype));
+    std::memset(zeros, 0, max_size * dsize(dtype));
     for (unsigned int idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(device, dev_ids[idev]));
         auto conv_state = std::vector<std::shared_ptr<Tensor>>();
