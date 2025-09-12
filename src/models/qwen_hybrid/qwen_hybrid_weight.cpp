@@ -107,6 +107,8 @@ QwenHybridWeights::QwenHybridWeights(
     size_t l_n_v_head = meta->l_n_v_head / ndev;
     size_t l_k_dim = meta->l_k_dim;
     size_t l_v_dim = meta->l_v_dim;
+    size_t l_k_size = l_n_k_head * l_k_dim;
+    size_t l_v_size = l_n_v_head * l_v_dim;
     size_t l_conv_kernel_dim = meta->l_conv_kernel_dim;
     size_t projection_size_qkvz = l_n_k_head * l_k_dim * 2 + l_n_v_head * l_v_dim * 2;
     size_t projection_size_ba = l_n_v_head * 2;
@@ -163,7 +165,7 @@ QwenHybridWeights::QwenHybridWeights(
             if (layer % 4 < 3) {
                 REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".linear_attn.dt_bias", b_la_dt, l_n_v_head, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".linear_attn.A_log", alpha_la_g, l_n_v_head, dt_logits, ROW);
-                REGISTER_LAYER_WEIGHT_3D("model.layers." + std::to_string(layer) + ".linear_attn.conv1d.weight", w_la_conv, 1, 1, l_conv_kernel_dim, dt_logits, ROW);
+                REGISTER_LAYER_WEIGHT_3D("model.layers." + std::to_string(layer) + ".linear_attn.conv1d.weight", w_la_conv, 2 * l_k_size + l_v_size, 1, l_conv_kernel_dim, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".linear_attn.in_proj_qkvz.weight", w_la_qkvz, d, projection_size_qkvz, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_2D("model.layers." + std::to_string(layer) + ".linear_attn.in_proj_ba.weight", w_la_ba, d, projection_size_ba, dt_logits, ROW);
                 REGISTER_LAYER_WEIGHT_1D("model.layers." + std::to_string(layer) + ".linear_attn.norm.weight", w_la_norm, l_v_dim, dt_logits, FULL);
