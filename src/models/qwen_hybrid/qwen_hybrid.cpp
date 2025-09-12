@@ -183,8 +183,10 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 rmsnorm(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), weight->w_attn_k_norm[layer], meta->epsilon);
             }
             // rope
-            rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
-            rope_v2(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
+            size_t rot_dim = weight->sin_table->shape()[1] * 2;
+            rope_v2(q_buf->view({ntok, nh, dh})->slice(2, 0, rot_dim), q_buf->view({ntok, nh, dh})->slice(2, 0, rot_dim), pos_ids_buf, weight->sin_table, weight->cos_table);
+            rope_v2(k_buf->view({ntok, nkvh, dh})->slice(2, 0, rot_dim), k_buf->view({ntok, nkvh, dh})->slice(2, 0, rot_dim), pos_ids_buf, weight->sin_table, weight->cos_table);
+
             size_t token_offset = 0;
             for (uint32_t req = 0; req < nreq; req++) {
                 auto past_len = req_pos[req];

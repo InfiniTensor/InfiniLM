@@ -59,9 +59,11 @@ class QwenHybridMetaFromConfig(QwenHybridMetaCStruct):
                 if "num_key_value_heads" in config
                 else config["num_attention_heads"]
             ),
-            dh=config.get("head_dim", config["hidden_size"] // config["num_attention_heads"]),
+            dh=config.get(
+                "head_dim", config["hidden_size"] // config["num_attention_heads"]
+            ),
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
-            use_qk_norm=config.get("use_qk_norm", False),
+            use_qk_norm=config.get("use_qk_norm", True),
             # linear attn
             l_conv_kernel_dim=config.get("linear_conv_kernel_dim", 0),
             l_expand=config.get("linear_expand_v", 0),
@@ -179,22 +181,7 @@ class QwenHybridForCausalLM:
                 for key in f.keys():
                     # print(key)
                     tensor = f.get_tensor(key)
-                    if "conv1d" in key:
-                        # print(f"Transforming conv1d weight: {key}")
-                        tensor.reshape(
-                            tensor.shape[0] // self.ndev,
-                            self.ndev,
-                            tensor.shape[1],
-                            tensor.shape[2],
-                        ).permute(1, 0, 2, 3).contiguous()
-                    elif "in_proj_qkvz" in key or "in_proj_ba" in key:
-                        # print(f"Transforming fused linear weight: {key}")
-                        tensor.reshape(
-                            tensor.shape[0] // self.ndev,
-                            self.ndev,
-                            tensor.shape[1],
-                        ).permute(1, 0, 2).contiguous()
-                    elif (
+                    if (
                         "q_norm" in key
                         or "k_norm" in key
                         or "input_layernorm" in key

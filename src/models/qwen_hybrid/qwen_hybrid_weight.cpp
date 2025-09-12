@@ -135,8 +135,8 @@ QwenHybridWeights::QwenHybridWeights(
         this->register_weight("lm_head.weight", w_out_embd, i);
         weight->w_out_embd = w_out_embd;
 
-        weight->sin_table = getSinTable(dctx, dh, meta->theta, dt_logits);
-        weight->cos_table = getCosTable(dctx, dh, meta->theta, dt_logits);
+        weight->sin_table = getSinTable(dctx, dh / 4, meta->theta, dt_logits);
+        weight->cos_table = getCosTable(dctx, dh / 4, meta->theta, dt_logits);
 
         // 先resize每个layer的空间
         weight->w_router_expert_ffn_gate.resize(nlayer);
