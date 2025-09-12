@@ -59,7 +59,7 @@ class QwenHybridMetaFromConfig(QwenHybridMetaCStruct):
                 if "num_key_value_heads" in config
                 else config["num_attention_heads"]
             ),
-            dh=config["hidden_size"] // config["num_attention_heads"],
+            dh=config.get("head_dim", config["hidden_size"] // config["num_attention_heads"]),
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             use_qk_norm=config.get("use_qk_norm", False),
             # linear attn
