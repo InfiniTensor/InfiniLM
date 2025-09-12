@@ -179,7 +179,8 @@ class QwenHybridForCausalLM:
         for file in sorted(dir_path_.glob("*.safetensors")):
             with safetensors.safe_open(file, framework="pt", device="cpu") as f:
                 for key in f.keys():
-                    # print(key)
+                    if "mtp" in key:
+                        continue
                     tensor = f.get_tensor(key)
                     if (
                         "q_norm" in key
@@ -203,7 +204,7 @@ class QwenHybridForCausalLM:
         return self.model.create_kv_cache(
             self.meta.nlayer // 4,  # Full attn every 4th layers
             self.meta.dctx,
-            self.meta.nkvh,
+            self.meta.nkvh * self.ndev,
             self.meta.dh,
             self.meta.dh,
             self.meta.dtype,

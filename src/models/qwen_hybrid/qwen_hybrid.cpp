@@ -57,7 +57,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits) {
     auto nlayer = meta->nlayer;
-    auto nkvh = meta->nkvh / ndev;
+    auto nkvh = meta->nkvh;
     auto nh = meta->nh / ndev;
     auto ngroup = nh / nkvh;
     bool use_qk_norm = meta->use_qk_norm;
