@@ -240,10 +240,19 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                                         ->view({ntok, num_k_heads, (key_dim * 2 + value_dim * 2) / num_k_heads})
                                         ->slice({{0, token_offset, seq_len}, {2, 0, (key_dim * 2 + value_dim) / num_k_heads}})
                                         ->permute({1, 2, 0});
-                auto mixed_qkv_reorder = mixed_qkv->slice(1, conv_kernel_dim - 1, seq_len)->view({num_k_heads, (key_dim * 2 + value_dim) / num_k_heads, seq_len});
-                rearrange(mixed_qkv_reorder->slice(1, 0, head_k_dim), qkvz_reorder->slice({{1, 0, head_k_dim}}));
-                rearrange(mixed_qkv_reorder->slice(1, head_k_dim, head_k_dim), qkvz_reorder->slice(1, head_k_dim, head_k_dim));
-                rearrange(mixed_qkv_reorder->slice(1, head_k_dim * 2, value_dim / num_k_heads), qkvz_reorder->slice(1, head_k_dim * 2, value_dim / num_k_heads));
+                auto mixed_qkv_reorder = mixed_qkv->slice(1, conv_kernel_dim - 1, seq_len);
+                rearrange(mixed_qkv_reorder
+                              ->slice(0, 0, key_dim)
+                              ->view({num_k_heads, key_dim / num_k_heads, seq_len}),
+                          qkvz_reorder->slice({{1, 0, head_k_dim}}));
+                rearrange(mixed_qkv_reorder
+                              ->slice(0, key_dim, key_dim)
+                              ->view({num_k_heads, key_dim / num_k_heads, seq_len}),
+                          qkvz_reorder->slice(1, head_k_dim, head_k_dim));
+                rearrange(mixed_qkv_reorder
+                              ->slice(0, 2 * key_dim, value_dim)
+                              ->view({num_k_heads, value_dim / num_k_heads, seq_len}),
+                          qkvz_reorder->slice(1, head_k_dim * 2, value_dim / num_k_heads));
 
                 // concat previous conv state as padding
                 rearrange(mixed_qkv->slice(1, 0, conv_kernel_dim - 1),
