@@ -86,7 +86,7 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
     auto logits_in
         = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
-    auto q_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
+    auto qg_buf = Tensor::buffer(dt_logits, {ntok, nh * 2 * dh}, rsrc.memory_pool);
     auto k_buf = Tensor::buffer(dt_logits, {ntok, nkvh * dh}, rsrc.memory_pool);
     auto v_buf = Tensor::buffer(dt_logits, {ntok, nkvh * dh}, rsrc.memory_pool);
 
@@ -173,7 +173,9 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 b_attn_v = weight->b_attn_v[layer];
             }
 
-            linear(q_buf, logits_out, weight->w_attn_q[layer], 1.0, 0.0, nullptr, b_attn_q ? b_attn_q : nullptr);
+            linear(qg_buf, logits_out, weight->w_attn_q[layer], 1.0, 0.0, nullptr, b_attn_q ? b_attn_q : nullptr);
+            auto q_buf = qg_buf->view({ntok, nh, 2 * dh})->slice(2, 0, dh);
+            auto g_buf = qg_buf->view({ntok, nh, 2 * dh})->slice(2, dh, dh);
             linear(k_buf, logits_out, weight->w_attn_k[layer], 1.0, 0.0, nullptr, b_attn_k ? b_attn_k : nullptr);
             linear(v_buf, logits_out, weight->w_attn_v[layer], 1.0, 0.0, nullptr, b_attn_v ? b_attn_v : nullptr);
             if (use_qk_norm) {
@@ -214,6 +216,8 @@ void inferDeviceBatch(const QwenHybridMeta *meta, DeviceResource &rsrc,
                 token_offset += seq_len;
             }
             // o_proj
+            sigmoid(g_buf, g_buf);
+            mul(o_buf->view({ntok, nh, dh}), o_buf->view({ntok, nh, dh}), g_buf);
             linear(logits_in, o_buf, weight->w_attn_out[layer],
                    1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
             attn_cache_layer += 1;
