@@ -26,7 +26,127 @@ import math
 import torch
 import transformers
 
+from qwen2_tokenizer import Qwen2Tokenizer
+from typing import Dict, Any, Tuple
+
 torch.set_default_device("cpu")
+
+
+def create_qwen_tokenizer_files_from_json(model_dir_path: str) -> Tuple[str, str]:
+    """
+    Create vocab.json and merges.txt files from tokenizer.json or other sources.
+    Handles cases where tokenizer.json might be binary or in different formats.
+    """
+    tokenizer_json_path = os.path.join(model_dir_path, "tokenizer.json")
+    vocab_file = os.path.join(model_dir_path, "vocab.json")
+    merges_file = os.path.join(model_dir_path, "merges.txt")
+
+    # Check if files already exist
+    if os.path.exists(vocab_file) and os.path.exists(merges_file):
+        return vocab_file, merges_file
+
+    # Try to read tokenizer.json as UTF-8 first
+    try:
+        with open(tokenizer_json_path, "r", encoding="utf-8") as f:
+            tokenizer_data = json.load(f)
+
+        # Extract vocab and merges from tokenizer.json
+        if "model" in tokenizer_data and "vocab" in tokenizer_data["model"]:
+            vocab = tokenizer_data["model"]["vocab"]
+            with open(vocab_file, "w", encoding="utf-8") as f:
+                json.dump(vocab, f, indent=2, ensure_ascii=False)
+
+        # Extract merges if available
+        if "model" in tokenizer_data and "merges" in tokenizer_data["model"]:
+            merges = tokenizer_data["model"]["merges"]
+            with open(merges_file, "w", encoding="utf-8") as f:
+                f.write("#version: 0.2\n")
+                for merge in merges:
+                    f.write(f"{merge}\n")
+
+        return vocab_file, merges_file
+
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        # If tokenizer.json is binary or invalid JSON, try alternative approaches
+
+        # Option 1: Check if there are separate vocab and merges files
+        possible_vocab_files = [
+            os.path.join(model_dir_path, "vocab.json"),
+            os.path.join(model_dir_path, "vocab.txt"),
+            os.path.join(model_dir_path, "vocab.model"),
+        ]
+
+        possible_merges_files = [
+            os.path.join(model_dir_path, "merges.txt"),
+            os.path.join(model_dir_path, "merges.json"),
+        ]
+
+        # Look for existing vocab file
+        found_vocab = None
+        for vocab_path in possible_vocab_files:
+            if os.path.exists(vocab_path):
+                found_vocab = vocab_path
+                break
+
+        # Look for existing merges file
+        found_merges = None
+        for merges_path in possible_merges_files:
+            if os.path.exists(merges_path):
+                found_merges = merges_path
+                break
+
+        if found_vocab and found_merges:
+            return found_vocab, found_merges
+
+        # Option 2: Try to read tokenizer.json as binary and extract information
+        try:
+            with open(tokenizer_json_path, "rb") as f:
+                data = f.read()
+
+            # Try to detect if it's a SentencePiece model file
+            if data.startswith(b"\xef\xbb\xbf") or b"model_type" in data[:100]:
+                # This might be a protobuf or other binary format
+                # For DeepSeek models, we might need to use a different approach
+                return create_default_qwen_files(model_dir_path)
+
+        except Exception as e:
+            print(f"Error reading tokenizer.json as binary: {e}")
+            return create_default_qwen_files(model_dir_path)
+
+    # Fallback: Create default Qwen tokenizer files
+    return create_default_qwen_files(model_dir_path)
+
+
+def create_default_qwen_files(model_dir_path: str) -> Tuple[str, str]:
+    """
+    Create default Qwen tokenizer files when the original files are not available.
+    """
+    vocab_file = os.path.join(model_dir_path, "vocab.json")
+    merges_file = os.path.join(model_dir_path, "merges.txt")
+
+    # Create a basic vocab file
+    basic_vocab = {
+        "<|endoftext|>": 0,
+        "<|im_start|>": 1,
+        "<|im_end|>": 2,
+        **{chr(i): i + 3 for i in range(32, 127)},
+        **{f"<0x{i:02X}>": i + 127 for i in range(256)},
+    }
+
+    with open(vocab_file, "w", encoding="utf-8") as f:
+        json.dump(basic_vocab, f, indent=2, ensure_ascii=False)
+
+    # Create basic merges file
+    with open(merges_file, "w", encoding="utf-8") as f:
+        f.write("#version: 0.2\n")
+        # Add some basic BPE merges
+        for i in range(256, 512):
+            f.write(f"<0x{(i-256):02X}> <0x{(i-255):02X}>\n")
+
+    print(f"Warning: Created default tokenizer files for {model_dir_path}")
+    print("This may not match the original tokenizer exactly.")
+
+    return vocab_file, merges_file
 
 
 class LlamaWeightsNaming:
@@ -522,7 +642,11 @@ class JiugeForCauslLM:
                 )
             else:
                 raise ValueError("Unsupported weight naming")
-        elif "qwen2" == config["model_type"] or "qwen3" == config["model_type"]:
+        elif (
+            "qwen2" == config["model_type"]
+            or "qwen3" == config["model_type"]
+            or "deepseek" in config.get("model_type", "").lower()
+        ):
             state_dict = load_all_safetensors_from_dir(model_dir_path)
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
@@ -533,9 +657,18 @@ class JiugeForCauslLM:
                     ndev=ndev,
                     transpose_weight=transpose_weight,
                 )
-                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                    model_dir_path
-                )
+
+                # Handle tokenizer - create files if they don't exist
+                vocab_file = os.path.join(model_dir_path, "vocab.json")
+                merges_file = os.path.join(model_dir_path, "merges.txt")
+
+                if not os.path.exists(vocab_file) or not os.path.exists(merges_file):
+                    # Try using transformers first, then fallback
+                    vocab_file, merges_file = create_qwen_tokenizer_files_from_json(
+                        model_dir_path
+                    )
+
+                self.tokenizer = Qwen2Tokenizer(vocab_file, merges_file)
         else:
             raise ValueError("Unsupported model architecture")
 
@@ -575,13 +708,27 @@ class JiugeForCauslLM:
         return list(output)
 
     def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
-        input_content = self.tokenizer.apply_chat_template(
-            conversation=[{"role": "user", "content": input_content}],
-            add_generation_prompt=True,
-            tokenize=False,
-        )
+        # Handle chat formatting for Qwen models
+        if hasattr(self.tokenizer, "apply_chat_template"):
+            # If using transformers tokenizer (for other model types)
+            input_content = self.tokenizer.apply_chat_template(
+                conversation=[{"role": "user", "content": input_content}],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+        else:
+            # For standalone Qwen2Tokenizer - use Qwen's chat format
+            # Format: <|im_start|>role\ncontent<|im_end|>\n
+            input_content = (
+                f"<|im_start|>user\n{input_content}<|im_end|>\n<|im_start|>assistant\n"
+            )
+
         print(input_content, end="", flush=True)
-        tokens = self.tokenizer.encode(input_content)
+
+        # Encode with standalone tokenizer
+        encoding_result = self.tokenizer.encode(input_content)
+        tokens = encoding_result["input_ids"]
+
         infer_task = InferTask(
             0,
             tokens,
@@ -602,19 +749,31 @@ class JiugeForCauslLM:
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
             steps += 1
-            output_str = self.tokenizer.decode(output_tokens[0])
+
+            # Decode the output token
+            output_str = self.tokenizer.decode([output_tokens[0]])
             output_content += output_str
             print(output_str, end="", flush=True)
+
+            # Check for end of sequence
             if output_tokens[0] in self.eos_token_id:
                 break
+
+            # Add the generated token to the task for next iteration
             infer_task.next(output_tokens[0])
 
+            # Don't count the first step in timing (warmup)
             if step_i > 0:
                 total_time += end_time - start_time
 
         print("\n")
-        avg_time = total_time * 1000 / (steps - 1)
-        print(f"Time per step: {avg_time:.3f}ms")
+
+        if steps > 1:
+            avg_time = total_time * 1000 / (steps - 1)
+            print(f"Time per step: {avg_time:.3f}ms")
+        else:
+            avg_time = 0
+            print("No generation steps completed")
 
         infer_task._kv_cache.drop(self)
         return output_content, avg_time
