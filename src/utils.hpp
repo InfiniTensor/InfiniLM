@@ -1,6 +1,6 @@
 #ifndef INFINICORE_INFER_UTILS_H
 #define INFINICORE_INFER_UTILS_H
-#include <infinicore.h>
+#include <infinirt.h>
 
 #include <cstring>
 #include <iostream>
