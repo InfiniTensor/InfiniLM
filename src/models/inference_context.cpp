@@ -99,14 +99,16 @@ void InferenceContext::rope(std::shared_ptr<Tensor> q,
                             std::shared_ptr<Tensor> k,
                             std::shared_ptr<Tensor> pos,
                             std::shared_ptr<Tensor> sin,
-                            std::shared_ptr<Tensor> cos) {
+                            std::shared_ptr<Tensor> cos,
+                            infiniopRoPEAlgo_t algo) {
     size_t key = CacheManager::createDescriptorKey(q, k, pos, sin, cos);
+    hash_combine(key, std::hash<int>()(algo));
 
     infiniopRoPEDescriptor_t desc;
     if (!cache_manager->getRoPEDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateRoPEDescriptor(
             op_handle, &desc, q->desc(), k->desc(),
-            pos->desc(), sin->desc(), cos->desc()));
+            pos->desc(), sin->desc(), cos->desc(), algo));
         cache_manager->putRoPEDescriptor(key, desc);
     }
 
@@ -116,32 +118,6 @@ void InferenceContext::rope(std::shared_ptr<Tensor> q,
     void *workspace = workspace_storage->memory();
 
     RUN_INFINI(infiniopRoPE(
-        desc, workspace, workspace_size,
-        q->data(), k->data(), pos->data(),
-        sin->data(), cos->data(), stream));
-}
-
-void InferenceContext::rope_v2(std::shared_ptr<Tensor> q,
-                               std::shared_ptr<Tensor> k,
-                               std::shared_ptr<Tensor> pos,
-                               std::shared_ptr<Tensor> sin,
-                               std::shared_ptr<Tensor> cos) {
-    size_t key = CacheManager::createDescriptorKey(q, k, pos, sin, cos);
-
-    infiniopRoPEv2Descriptor_t desc;
-    if (!cache_manager->getRoPEv2Descriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateRoPEv2Descriptor(
-            op_handle, &desc, q->desc(), k->desc(),
-            pos->desc(), sin->desc(), cos->desc()));
-        cache_manager->putRoPEv2Descriptor(key, desc);
-    }
-
-    size_t workspace_size = 0;
-    RUN_INFINI(infiniopGetRoPEv2WorkspaceSize(desc, &workspace_size));
-    ensure_workspace(workspace_size);
-    void *workspace = workspace_storage->memory();
-
-    RUN_INFINI(infiniopRoPEv2(
         desc, workspace, workspace_size,
         q->data(), k->data(), pos->data(),
         sin->data(), cos->data(), stream));

@@ -33,12 +33,8 @@ struct InferenceContext {
               std::shared_ptr<Tensor> k,
               std::shared_ptr<Tensor> pos,
               std::shared_ptr<Tensor> sin,
-              std::shared_ptr<Tensor> cos);
-    void rope_v2(std::shared_ptr<Tensor> q,
-                 std::shared_ptr<Tensor> k,
-                 std::shared_ptr<Tensor> pos,
-                 std::shared_ptr<Tensor> sin,
-                 std::shared_ptr<Tensor> cos);
+              std::shared_ptr<Tensor> cos,
+              infiniopRoPEAlgo_t algo);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
 
@@ -102,13 +98,13 @@ inline void rearrange(std::shared_ptr<Tensor> dst, std::shared_ptr<Tensor> src) 
 inline void rope(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
                  std::shared_ptr<Tensor> pos, std::shared_ptr<Tensor> sin,
                  std::shared_ptr<Tensor> cos) {
-    getInferenceContext().rope(q, k, pos, sin, cos);
+    getInferenceContext().rope(q, k, pos, sin, cos, INFINIOP_ROPE_ALGO_GPT_J);
 }
 
 inline void rope_v2(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
                     std::shared_ptr<Tensor> pos, std::shared_ptr<Tensor> sin,
                     std::shared_ptr<Tensor> cos) {
-    getInferenceContext().rope_v2(q, k, pos, sin, cos);
+    getInferenceContext().rope(q, k, pos, sin, cos, INFINIOP_ROPE_ALGO_GPT_NEOX);
 }
 
 inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
