@@ -11,6 +11,9 @@ DEVICE_TYPE_MAP = {
     "ascend": DeviceType.DEVICE_TYPE_ASCEND,
     "metax": DeviceType.DEVICE_TYPE_METAX,
     "moore": DeviceType.DEVICE_TYPE_MOORE,
+    "iluvatar": DeviceType.DEVICE_TYPE_ILUVATAR,
+    "kunlun": DeviceType.DEVICE_TYPE_KUNLUN,
+    "hygon": DeviceType.DEVICE_TYPE_HYGON,
 }
 
 TORCH_DEVICE_TYPE_MAP = {
@@ -20,6 +23,9 @@ TORCH_DEVICE_TYPE_MAP = {
     "ascend": "npu",
     "metax": "cuda",
     "moore": "cuda",
+    "iluvatar": "cuda",
+    "kunlun": "cuda",
+    "hygon": "cuda",
 }
 
 
