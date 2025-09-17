@@ -675,6 +675,8 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_MOORE
     elif sys.argv[1] == "--iluvatar":
         device_type = DeviceType.DEVICE_TYPE_ILUVATAR
+    elif sys.argv[1] == "--kunlun":
+        device_type = DeviceType.DEVICE_TYPE_KUNLUN
     else:
         print(
             "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
