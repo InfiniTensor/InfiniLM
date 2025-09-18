@@ -279,10 +279,19 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             } else {
                 auto o = o_buf->slice({{0, 0, ntok}})->view({ntok, nh, dh});
                 auto q_batch = qkv_rope->slice({ {0, 0, ntok}, {1, 0, nh} })->view({ntok, nh, dh});
-                q_buf->copyFrom(q_batch, rsrc.handle, stream);
+                // std::cout << "q_batch: " << q_batch->info() << std::endl;
+                // q_batch->debug
+                // std::cout << "q_batch: " << q_batch->isContiguous() << std::endl;
+                // std::cout << "q_batch: " << q_batch->strides() << std::endl;
+                // q_buf->copyFrom(q_batch, rsrc.handle, stream);
+                // std::cout << "q_buf: " << q_buf->info() << std::endl;
+
                 float scale = 1.f / float(sqrt(dh));
-                pagedAttention(o, q_buf, k_cache_pool, v_cache_pool, 
+                // pagedAttention(o, q_buf, k_cache_pool, v_cache_pool, 
+                //                block_tables_buf, seq_lens_buf, nullptr /* alibi_slopes */, scale);
+                pagedAttention(o, q_batch, k_cache_pool, v_cache_pool, 
                                block_tables_buf, seq_lens_buf, nullptr /* alibi_slopes */, scale);
+                               
                 
             }
 
