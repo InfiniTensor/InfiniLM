@@ -129,7 +129,6 @@ public:
     size_t numel() const;
 
     void debug(const std::string &filename) const;
-    void debug(size_t start_index, size_t num_elements, const std::string &label) const;
     void debug() const;
     std::string info() const;
     size_t seed() const;
