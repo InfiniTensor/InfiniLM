@@ -279,5 +279,5 @@ void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
 
     RUN_INFINI(infiniopDequantize(
         desc, workspace, workspace_size,
-        weight->data(), in_w->data(), in_s->data(), in_z->data(), 0, 0, 0, stream));
+        weight->data(), in_w->data(), in_s->data(), in_z->data(), stream));
 }
