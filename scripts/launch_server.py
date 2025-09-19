@@ -341,12 +341,11 @@ async def completion(id_, request_data, request: Request):
             # Calculate logprobs for input tokens
             from jiuge import JiugeBatchedTask
             batch_inputs = JiugeBatchedTask([infer_task])
-            logits = torch.zeros(
+            log_probs = torch.zeros(
                 (batch_inputs.ntok, request.app.state.model.meta.dvoc), 
                 dtype=request.app.state.model.meta.torch_dtype_logits
             )
-            from libinfinicore_infer import forward_batch
-            forward_batch(
+            request.app.state.model.jiuge_model.forward_batch(
                 request.app.state.model.model_instance,
                 batch_inputs.tokens,
                 batch_inputs.ntok,
@@ -354,12 +353,10 @@ async def completion(id_, request_data, request: Request):
                 batch_inputs.nreq,
                 batch_inputs.req_pos,
                 batch_inputs.kv_caches,
-                logits.data_ptr(),
+                log_probs.data_ptr(),
             )
             
-            # Calculate logprobs for input tokens
-            logits = logits.float()
-            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+            log_probs = log_probs.float()
             
             # Calculate correct logprobs for input tokens
             token_logprobs = []
