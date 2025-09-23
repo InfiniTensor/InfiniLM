@@ -1,39 +1,25 @@
 from typing import List, Sequence
-
-from sympy import true
-from libinfinicore_infer import (
-    JiugeMetaCStruct,
-    JiugeWeightsCStruct,
-    KVCacheCStruct,
-    DataType,
-    DeviceType,
-    create_jiuge_model,
-    destroy_jiuge_model,
-    create_kv_cache,
-    drop_kv_cache,
-    infer_batch,
-    forward_batch,
-)
-from infer_task import InferTask, KVCache
-
-from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import math
 import os
 from pathlib import Path
 import safetensors
 import sys
 import time
 import json
-import math
 import torch
 import transformers
 
-import logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+from libinfinicore_infer import (
+    JiugeModel,
+    JiugeMetaCStruct,
+    JiugeWeightsCStruct,
+    DataType,
+    DeviceType,
+    KVCacheCStruct,
 )
-logger = logging.getLogger(__name__)
+from infer_task import InferTask, KVCache
 
+from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 
 torch.set_default_device("cpu")
 
@@ -401,7 +387,7 @@ class JiugeBatchedTask:
         )
 
 
-class JiugeForCausalLM:
+class JiugeForCauslLM:
     def __init__(
         self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
     ):
@@ -427,13 +413,17 @@ class JiugeForCausalLM:
         transpose_weight = (
             device != DeviceType.DEVICE_TYPE_ASCEND
         )  # y = xW is faster than y=xW^T on Ascend
+
+        self.jiuge_model = JiugeModel()
+
         if "llama" == config["model_type"]:
             model = (
-                transformers.LlamaForCausalLM.from_pretrained(model_dir_path, device_map="cpu", torch_dtype=torch.bfloat16, trust_remote_code=True)
+                transformers.LlamaForCausalLM.from_pretrained(model_dir_path)
+                .cpu()
+                .half()
             )
-            load_statets_time = time.time()
             self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path, trust_remote_code=True)
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
             self.weights = JiugeWeightsImpl(
                 self.meta,
                 LlamaWeightsNaming(),
@@ -441,43 +431,17 @@ class JiugeForCausalLM:
                 ndev=ndev,
                 transpose_weight=transpose_weight,
             )
-        elif "fm9g" == config["model_type"]:
-            logger.info(f"fm9g load start.")
-            # )
-            model = (
-                transformers.AutoModelForCausalLM.from_pretrained(model_dir_path, device_map="cpu", torch_dtype=torch.bfloat16, trust_remote_code=True)
-            )
-            
-            logger.info(f"load over.")
-            load_statets_time = time.time()
-            self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
-            self.weights = JiugeWeightsImpl(
-                self.meta,
-                LlamaWeightsNaming(),
-                model.state_dict(),
-                ndev=ndev,
-                transpose_weight=transpose_weight,
-            )
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True)
-        elif "fm9g7b" == config["model_type"]:
-            logger.info(f"fm9g7b load start.")
-            model = (
-                transformers.AutoModelForCausalLM.from_pretrained(model_dir_path, device_map="cpu", torch_dtype=torch.bfloat16, trust_remote_code=True)
-            )
-            logger.info(f"load over.")
-            load_statets_time = time.time()
-            self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path, trust_remote_code=True)
-            self.weights = JiugeWeightsImpl(
-                self.meta,
-                LlamaWeightsNaming(),
-                model.state_dict(),
-                ndev=ndev,
-                transpose_weight=transpose_weight,
-            )
-        elif "qwen2" == config["model_type"]:
-            state_dict = load_all_safetensors_from_dir(model_dir_path)
+        elif "fm9g" == config["model_type"] or "minicpm" == config["model_type"]:
+            if any(
+                file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()
+            ):
+                state_dict = load_all_safetensors_from_dir(model_dir_path)
+            else:
+                state_dict = torch.load(
+                    os.path.join(model_dir_path, "pytorch_model.bin"),
+                    weights_only=True,
+                    map_location="cpu",
+                )
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
                 self.weights = JiugeWeightsImpl(
@@ -490,23 +454,65 @@ class JiugeForCausalLM:
                 self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path, trust_remote_code=True
                 )
+            else:
+                raise ValueError("Unsupported weight naming")
+        elif "fm9g7b" == config["model_type"]:
+            if any(
+                file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()
+            ):
+                state_dict = load_all_safetensors_from_dir(model_dir_path)
+            else:
+                state_dict = torch.load(
+                    os.path.join(model_dir_path, "pytorch_model.bin"),
+                    weights_only=True,
+                    map_location="cpu",
+                )
+            if LlamaWeightsNaming.match(state_dict):
+                self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
+                self.weights = JiugeWeightsImpl(
+                    self.meta,
+                    LlamaWeightsNaming(),
+                    state_dict,
+                    ndev=ndev,
+                    transpose_weight=transpose_weight,
+                )
+                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                    model_dir_path, trust_remote_code=True
+                )
+            else:
+                raise ValueError("Unsupported weight naming")
+        elif "qwen2" == config["model_type"]:
+            state_dict = load_all_safetensors_from_dir(model_dir_path)
+            if LlamaWeightsNaming.match(state_dict):
+                self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
+                self.weights = JiugeWeightsImpl(
+                    self.meta,
+                    LlamaWeightsNaming(),
+                    state_dict,
+                    ndev=ndev,
+                    transpose_weight=transpose_weight,
+                )
+                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                    model_dir_path
+                )
         else:
             raise ValueError("Unsupported model architecture")
 
         load_end_time = time.time()
-        logger.info(f"Time overall used: {load_end_time - load_start_time:.3f}s, "
-                    f"load_states_time: {load_statets_time - load_start_time:.3f}s, "
-                    f"load_weights_impl_time: {load_end_time - load_statets_time:.3f}s")
+        print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
-        logger.info(f"Creating model on {ndev} devices...")
+        print(f"Creating model on {ndev} devices...")
         load_start_time = time.time()
-        dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
-        self.model_instance = create_jiuge_model(
+        self.dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
+        self.ndev = ndev
+        self.device = device
+
+        self.model_instance = self.jiuge_model.create_model(
             byref(self.meta),
             byref(self.weights),
             device,
             ndev,
-            dev_ids,
+            self.dev_ids,
         )
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
@@ -515,15 +521,25 @@ class JiugeForCausalLM:
         return self.meta.dctx
 
     def create_kv_cache(self):
-        return create_kv_cache(self.model_instance)
+        return self.jiuge_model.create_kv_cache(
+            self.meta.nlayer,
+            self.meta.dctx,
+            self.meta.nkvh,
+            self.meta.dh,
+            self.meta.dh,
+            self.meta.dt_logits,
+            self.device,
+            self.dev_ids,
+            self.ndev,
+        )
 
     def drop_kv_cache(self, kv_cache):
-        drop_kv_cache(self.model_instance, kv_cache)
+        self.jiuge_model.drop_kv_cache(kv_cache)
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
         batch_inputs = JiugeBatchedTask(tasks)
-        infer_batch(
+        self.jiuge_model.infer_batch(
             self.model_instance,
             *(batch_inputs.input_args()),
             output,
@@ -603,7 +619,7 @@ class JiugeForCausalLM:
             logits = torch.zeros(
                 (batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits
             )
-            forward_batch(
+            self.jiuge_model.forward_batch(
                 self.model_instance,
                 batch_inputs.tokens,
                 batch_inputs.ntok,
@@ -633,6 +649,45 @@ class JiugeForCausalLM:
         return math.exp(nll / total_len)
 
     def destroy_model_instance(self):
-        destroy_jiuge_model(self.model_instance)
+        self.jiuge_model.destroy_model(self.model_instance)
         print("Model destroyed")
 
+
+def test():
+    if len(sys.argv) < 3:
+        print(
+            "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+        )
+        sys.exit(1)
+    model_path = sys.argv[2]
+    device_type = DeviceType.DEVICE_TYPE_CPU
+    if sys.argv[1] == "--cpu":
+        device_type = DeviceType.DEVICE_TYPE_CPU
+    elif sys.argv[1] == "--nvidia":
+        device_type = DeviceType.DEVICE_TYPE_NVIDIA
+    elif sys.argv[1] == "--cambricon":
+        device_type = DeviceType.DEVICE_TYPE_CAMBRICON
+    elif sys.argv[1] == "--ascend":
+        device_type = DeviceType.DEVICE_TYPE_ASCEND
+    elif sys.argv[1] == "--metax":
+        device_type = DeviceType.DEVICE_TYPE_METAX
+    elif sys.argv[1] == "--moore":
+        device_type = DeviceType.DEVICE_TYPE_MOORE
+    elif sys.argv[1] == "--iluvatar":
+        device_type = DeviceType.DEVICE_TYPE_ILUVATAR
+    elif sys.argv[1] == "--kunlun":
+        device_type = DeviceType.DEVICE_TYPE_KUNLUN
+    else:
+        print(
+            "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+        )
+        sys.exit(1)
+
+    ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    model = JiugeForCauslLM(model_path, device_type, ndev)
+    model.generate("山东最高的山是？", 500)
+    model.destroy_model_instance()
+
+
+if __name__ == "__main__":
+    test()

@@ -7,7 +7,7 @@ from transformers import AutoTokenizer
 import argparse
 
 from icinfer import LLM, SamplingParams
-from icinfer.engine.libinfinicore_infer import DeviceType
+from icinfer.models.libinfinicore_infer.base import DeviceType
 
 import logging
 logger = logging.getLogger(__name__)
@@ -153,5 +153,6 @@ if __name__ == "__main__":
 CLI:
 python example.py --model-path /home/wanghaojie/vllm/huggingface/9G7B_MHA/ --device-type nvidia --ndev 4 --max-kvcache-tokens 10240 --enable-paged-attn
 python example.py --model-path /home/wanghaojie/vllm/huggingface/9G7B_MHA/ --device-type nvidia --ndev 4
+python example.py --model-path /data-aisoft/zhujianian/Uneed/Uneed/huggingface_download/9G7B_MHA/ --device-type nvidia --ndev 4
 
 """

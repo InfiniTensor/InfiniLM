@@ -61,23 +61,23 @@ createJiugeModel(const JiugeMeta *,
 __C __export void
 destroyJiugeModel(struct JiugeModel *);
 
-/// @brief 创建 KV Cache
-__C __export struct KVCache *
-createKVCache(const struct JiugeModel *);
+// /// @brief 创建 KV Cache
+// __C __export struct KVCache *
+// createKVCache(const struct JiugeModel *);
 
-/// @brief 创建 Paged KV Cache
-__C __export struct KVCache *
-createPagedKVCache(const struct JiugeModel *, uint32_t max_kvcache_tokens);
+// /// @brief 创建 Paged KV Cache
+// __C __export struct KVCache *
+// createPagedKVCache(const struct JiugeModel *, uint32_t max_kvcache_tokens);
 
-/// @brief 复制 KV Cache
-__C __export struct KVCache *
-duplicateKVCache(const struct JiugeModel *,
-                 const struct KVCache *, uint32_t seq_len);
+// /// @brief 复制 KV Cache
+// __C __export struct KVCache *
+// duplicateKVCache(const struct JiugeModel *,
+//                  const struct KVCache *, uint32_t seq_len);
 
-/// @brief 销毁 KV Cache
-__C __export void
-dropKVCache(const struct JiugeModel *,
-            struct KVCache *);
+// /// @brief 销毁 KV Cache
+// __C __export void
+// dropKVCache(const struct JiugeModel *,
+//             struct KVCache *);
 
 /// @brief 批次推理一轮，并采样出新的 token
 /// @param tokens 输入 token 地址
@@ -93,7 +93,7 @@ dropKVCache(const struct JiugeModel *,
 /// @param enable_paged_attn 是否启用 paged attention
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
-inferBatch(struct JiugeModel *,
+inferBatchJiuge(struct JiugeModel *,
            const uint32_t *tokens, uint32_t ntok,
            const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
            struct KVCache **kv_caches,
@@ -116,7 +116,7 @@ inferBatch(struct JiugeModel *,
 /// @param enable_paged_attn 是否启用 paged attention
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
-forwardBatch(struct JiugeModel *,
+forwardBatchJiuge(struct JiugeModel *,
              const uint32_t *tokens, uint32_t ntok,
              const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
              struct KVCache **kv_caches,

@@ -1,4 +1,4 @@
-# InfiniCore-Infer
+# InfiniLM
 
 本项目是基于 [`InfiniCore`](https://github.com/InfiniTensor/InfiniCore) 的推理引擎。
 
@@ -6,7 +6,7 @@
 
 - 编译并安装 `InfiniCore` 。注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）。
 
-- 编译并安装 `InfiniCore-Infer`
+- 编译并安装 `InfiniLM`
 
 ```bash
 xmake && xmake install

@@ -11,25 +11,30 @@ import itertools
 
 from icinfer.config import Config
 from icinfer.engine.sequence import Sequence
-from icinfer.engine.libinfinicore_infer import (
-    JiugeMetaCStruct,
-    JiugeWeightsCStruct,
-    KVCacheCStruct,
-    DataType,
+from icinfer.models.libinfinicore_infer.base import (
     DeviceType,
-    create_jiuge_model,
-    destroy_jiuge_model,
-    create_kv_cache,
-    create_paged_kv_cache,
-    drop_kv_cache,
-    infer_batch,
-    forward_batch,
 )
+# from icinfer.engine.libinfinicore_infer import (
+#     JiugeMetaCStruct,
+#     JiugeWeightsCStruct,
+#     KVCacheCStruct,
+#     DataType,
+#     DeviceType,
+#     create_jiuge_model,
+#     destroy_jiuge_model,
+#     create_kv_cache,
+#     create_paged_kv_cache,
+#     drop_kv_cache,
+#     infer_batch,
+#     forward_batch,
+# )
+
+from icinfer.models.auto_modeling import AutoModelForCausalLM
 
 from icinfer.layers.sampler import Sampler
 from icinfer.utils.context import set_context, get_context, reset_context
 # from icinfer.utils.loader import load_model
-from icinfer.utils.jiuge_weights_loader import load_model
+# from icinfer.utils.jiuge_weights_loader import load_model
 from icinfer.engine.infer_task import InferTask, InferBatchedTask, InferPagedBatchedTask, PagedKVCache
 
 
@@ -73,10 +78,12 @@ class ModelRunner:
         # self.model = ModelForCausalLm(hf_config)
         # load_model(self.model, config.model)
         
-        self.model, self.meta = load_model(self.config, device)
+        self.model = AutoModelForCausalLM.from_config(self.config, device)
+        self.meta = self.model.meta
         # self.tokenizer = transformers.AutoTokenizer.from_pretrained(
         #             model_dir_path, trust_remote_code=True
         #         )
+        print("hello")
         
         eos_token_id = self.hf_config.eos_token_id
         self.eos_token_id = (
@@ -123,10 +130,10 @@ class ModelRunner:
         """
         if hasattr(self, 'kv_cache') and self.kv_cache:
             print("drop_kv_cache")
-            drop_kv_cache(self.model, self.kv_cache.data())
+            self.model.drop_kv_cache(self.kv_cache.data())
             self.kv_cache = None
         if hasattr(self, 'model') and self.model:
-            destroy_jiuge_model(self.model)
+            self.model.destroy_model_instance()
             self.model = None
         
             logger.info("ModelRunner model resources have been released.")
@@ -186,7 +193,7 @@ class ModelRunner:
     #     return num_kvcache_blocks
 
     def allocate_kv_cache(self):
-        kv_cache = self.create_paged_kv_cache(self.config.max_kvcache_tokens)
+        kv_cache = self.model.create_paged_kv_cache(self.config.max_kvcache_tokens)
         self.kv_cache = PagedKVCache(kv_cache)
         print("kvcache allocated ")
         # config = self.config
@@ -386,13 +393,14 @@ class ModelRunner:
         # return self.config.max_model_len
 
     def create_kv_cache(self):
-        return create_kv_cache(self.model)
+        return self.model.create_kv_cache()
 
     def drop_kv_cache(self, kv_cache):
-        drop_kv_cache(self.model, kv_cache)
+        # drop_kv_cache(self.model, kv_cache)
+        self.model.drop_kv_cache(kv_cache)
 
     def create_paged_kv_cache(self, max_kvcache_tokens):
-        return create_paged_kv_cache(self.model, max_kvcache_tokens)
+        return self.model.create_paged_kv_cache(max_kvcache_tokens)
     
     # @torch.inference_mode()
     # def batch_infer_one_round(self, tasks: List[InferTask]):
@@ -412,8 +420,8 @@ class ModelRunner:
             batch_inputs = InferPagedBatchedTask(tasks, batch_block_tables, slot_mapping, self.kv_cache, is_prefill)
         else:
             batch_inputs = InferBatchedTask(tasks, is_prefill)
-        infer_batch(
-            self.model,
+        self.model.infer_batch(
+            # self.model,
             *(batch_inputs.input_args()),
             self.enable_paged_attn,
             output,
@@ -440,8 +448,8 @@ class ModelRunner:
         else:
             batch_inputs = InferBatchedTask(tasks, is_prefill)
         logits = torch.zeros((batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits)
-        forward_batch(
-            self.model,
+        self.model.forward_batch(
+            # self.model,
             *(batch_inputs.input_args_for_logits()),
             self.enable_paged_attn,
             logits.data_ptr(),

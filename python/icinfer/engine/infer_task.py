@@ -1,6 +1,6 @@
 from typing import List
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
-from icinfer.engine.libinfinicore_infer import (
+from icinfer.models.libinfinicore_infer.base import (
     KVCacheCStruct,
 )
 

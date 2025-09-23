@@ -12,7 +12,7 @@
 #include <iostream>
 #include <algorithm>
 
-void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
+void createDeviceResource(JiugeDeviceResource *rsrc, const JiugeMeta *meta,
                           const JiugeWeights *weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
@@ -46,7 +46,7 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
 
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
-    *rsrc = DeviceResource{
+    *rsrc = JiugeDeviceResource{
         device,
         dev_id,
         handle,
@@ -69,7 +69,7 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeMeta *meta,
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
-void releaseDeviceResource(DeviceResource &res) {
+void releaseDeviceResource(JiugeDeviceResource &res) {
     infinirtDeviceSynchronize();
     // Release individual Tensors
     res.w_in_embd.reset();
@@ -113,7 +113,7 @@ void releaseDeviceResource(DeviceResource &res) {
     res.comm = nullptr;
 }
 
-void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
+void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -210,7 +210,7 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         max_seq_len = std::max(max_seq_len, size_t(seq_len));
     }
 
-    auto qk_buf = Tensor::buffer(dt_logits, {nh, max_qk_size}, rsrc.memory_pool);
+    auto qk_buf = Tensor::buffer(dt_logits, {nh * max_qk_size}, rsrc.memory_pool);
     auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto q_rearrange = rearrange_q_buf->view({nkvh, ngroup, max_seq_len, dh});
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
@@ -243,7 +243,6 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             pagedCaching(k, v, k_cache_pool, v_cache_pool, slot_mapping_buf);
             // printf("o_buf: pass pagedCaching\n");
 
-
             if (is_prefill) {
                 size_t token_offset = 0;
                 for (uint32_t req = 0; req < nreq; req++) {
@@ -260,12 +259,12 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                     rearrange(q_rearrange->slice(2, 0, seq_len), q);
                     // std::cout << "qk_gemm" << std::endl;
                     // std::cout << "qk_buf: " << qk_buf->info() << std::endl;
-                    auto qk_gemm = qk_buf->slice(1, 0, seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
+                    auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
                     auto k_gemm = k->permute({1, 2, 0});
                     linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
                     // softmax
                     // std::cout << "qk_softmax" << std::endl;
-                    auto qk_softmax = qk_buf->slice(1, 0, seq_len * total_len)->view({nh, seq_len, total_len});
+                    auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
                     causalSoftmax(qk_softmax, qk_softmax);
                     // std::cout << "v_gemm" << std::endl;
                     auto v_gemm = v->permute({1, 0, 2});
@@ -279,16 +278,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
             } else {
                 auto o = o_buf->slice({{0, 0, ntok}})->view({ntok, nh, dh});
                 auto q_batch = qkv_rope->slice({ {0, 0, ntok}, {1, 0, nh} })->view({ntok, nh, dh});
-                // std::cout << "q_batch: " << q_batch->info() << std::endl;
-                // q_batch->debug
-                // std::cout << "q_batch: " << q_batch->isContiguous() << std::endl;
-                // std::cout << "q_batch: " << q_batch->strides() << std::endl;
-                // q_buf->copyFrom(q_batch, rsrc.handle, stream);
-                // std::cout << "q_buf: " << q_buf->info() << std::endl;
 
                 float scale = 1.f / float(sqrt(dh));
-                // pagedAttention(o, q_buf, k_cache_pool, v_cache_pool, 
-                //                block_tables_buf, seq_lens_buf, nullptr /* alibi_slopes */, scale);
                 pagedAttention(o, q_batch, k_cache_pool, v_cache_pool, 
                                block_tables_buf, seq_lens_buf, nullptr /* alibi_slopes */, scale);
                                
@@ -316,12 +307,12 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
                 rearrange(q_rearrange->slice(2, 0, seq_len), q);
                 // std::cout << "qk_gemm" << std::endl;
                 // std::cout << "qk_buf: " << qk_buf->info() << std::endl;
-                auto qk_gemm = qk_buf->slice(1, 0, seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
+                auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
                 auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
                 linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
                 // softmax
                 // std::cout << "qk_softmax" << std::endl;
-                auto qk_softmax = qk_buf->slice(1, 0, seq_len * total_len)->view({nh, seq_len, total_len});
+                auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
                 causalSoftmax(qk_softmax, qk_softmax);
                 // std::cout << "v_gemm" << std::endl;
                 auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
@@ -401,9 +392,8 @@ void inferDeviceBatch(const JiugeMeta &meta, DeviceResource &rsrc,
         }
     }
 }
-
 __C void
-inferBatch(struct JiugeModel *model,
+inferBatchJiuge(struct JiugeModel *model,
            const uint32_t *tokens, uint32_t ntok,
            const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
            struct KVCache **kv_caches, 
@@ -443,7 +433,7 @@ inferBatch(struct JiugeModel *model,
 }
 
 __C void
-forwardBatch(struct JiugeModel *model,
+forwardBatchJiuge(struct JiugeModel *model,
              const uint32_t *tokens, uint32_t ntok,
              const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
              struct KVCache **kv_caches,
@@ -481,16 +471,17 @@ forwardBatch(struct JiugeModel *model,
     }
 }
 
-void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, DeviceResource *rsrc, InferState &state, InferRequest &req,
+void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
+    // Create Device Resource
+    createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
+
     CacheManager cache_manager(100);
-    InferenceContext ctx(rsrc, &cache_manager, rsrc->stream);
+    InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
 
     // Set the inference context for this thread
     setInferenceContext(&ctx);
 
-    // Create Device Resource
-    createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
     {
         std::unique_lock<std::mutex> lock(state.mtx);
         state.loaded = true;
@@ -528,7 +519,7 @@ JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infi
     int ndev = int(device_ids.size());
     device = device_;
     dev_ids = device_ids;
-    dev_resources = std::vector<DeviceResource>(ndev);
+    dev_resources = std::vector<JiugeDeviceResource>(ndev);
     states = std::vector<InferState>(ndev);
     threads.resize(ndev);
     RUN_INFINI(infinirtInit());

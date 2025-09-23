@@ -2,12 +2,12 @@
 #include "../tensor.hpp"
 #include "../utils.hpp"
 
-InferenceContext::InferenceContext(DeviceResource *rsrc, CacheManager *cache_manager, infinirtStream_t stream)
-    : rsrc(rsrc), cache_manager(cache_manager), stream(stream) {}
+InferenceContext::InferenceContext(infiniopHandle_t op_handle_, std::shared_ptr<MemoryPool> memory_pool_, CacheManager *cache_manager, infinirtStream_t stream)
+    : op_handle(op_handle_), memory_pool(memory_pool_), cache_manager(cache_manager), stream(stream) {}
 
 void InferenceContext::ensure_workspace(size_t required_size) {
     if (required_size > current_workspace_size || !workspace_storage) {
-        workspace_storage = Storage::createFromPool(required_size, rsrc->memory_pool);
+        workspace_storage = Storage::createFromPool(required_size, memory_pool);
         current_workspace_size = required_size;
     }
 }
@@ -19,7 +19,7 @@ void InferenceContext::add(std::shared_ptr<Tensor> c,
 
     infiniopAddDescriptor_t desc;
     if (!cache_manager->getAddDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateAddDescriptor(rsrc->handle, &desc, c->desc(), a->desc(), b->desc()));
+        RUN_INFINI(infiniopCreateAddDescriptor(op_handle, &desc, c->desc(), a->desc(), b->desc()));
         cache_manager->putAddDescriptor(key, desc);
     }
 
@@ -33,27 +33,6 @@ void InferenceContext::add(std::shared_ptr<Tensor> c,
         c->data(), a->data(), b->data(), stream));
 }
 
-void InferenceContext::mul(std::shared_ptr<Tensor> c,
-                           std::shared_ptr<Tensor> a,
-                           std::shared_ptr<Tensor> b) {
-    size_t key = CacheManager::createDescriptorKey(c, a, b);
-
-    infiniopMulDescriptor_t desc;
-    if (!cache_manager->getMulDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateMulDescriptor(rsrc->handle, &desc, c->desc(), a->desc(), b->desc()));
-        cache_manager->putMulDescriptor(key, desc);
-    }
-
-    size_t workspace_size = 0;
-    RUN_INFINI(infiniopGetMulWorkspaceSize(desc, &workspace_size));
-    ensure_workspace(workspace_size);
-    void *workspace = workspace_storage->memory();
-
-    RUN_INFINI(infiniopMul(
-        desc, workspace, workspace_size,
-        c->data(), a->data(), b->data(), stream));
-}
-
 void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
                                std::shared_ptr<Tensor> x,
                                std::shared_ptr<Tensor> w,
@@ -63,7 +42,7 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
     infiniopRMSNormDescriptor_t desc;
     if (!cache_manager->getRMSNormDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateRMSNormDescriptor(
-            rsrc->handle, &desc, y->desc(), x->desc(), w->desc(), epsilon));
+            op_handle, &desc, y->desc(), x->desc(), w->desc(), epsilon));
         cache_manager->putRMSNormDescriptor(key, desc);
     }
 
@@ -85,7 +64,7 @@ void InferenceContext::gemm(std::shared_ptr<Tensor> c,
 
     infiniopGemmDescriptor_t desc;
     if (!cache_manager->getGemmDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateGemmDescriptor(rsrc->handle, &desc, c->desc(), a->desc(), b->desc()));
+        RUN_INFINI(infiniopCreateGemmDescriptor(op_handle, &desc, c->desc(), a->desc(), b->desc()));
         cache_manager->putGemmDescriptor(key, desc);
     }
 
@@ -105,7 +84,7 @@ void InferenceContext::rearrange(std::shared_ptr<Tensor> dst,
 
     infiniopRearrangeDescriptor_t desc;
     if (!cache_manager->getRearrangeDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateRearrangeDescriptor(rsrc->handle, &desc, dst->desc(), src->desc()));
+        RUN_INFINI(infiniopCreateRearrangeDescriptor(op_handle, &desc, dst->desc(), src->desc()));
         cache_manager->putRearrangeDescriptor(key, desc);
     }
 
@@ -120,14 +99,16 @@ void InferenceContext::rope(std::shared_ptr<Tensor> q,
                             std::shared_ptr<Tensor> k,
                             std::shared_ptr<Tensor> pos,
                             std::shared_ptr<Tensor> sin,
-                            std::shared_ptr<Tensor> cos) {
+                            std::shared_ptr<Tensor> cos,
+                            infiniopRoPEAlgo_t algo) {
     size_t key = CacheManager::createDescriptorKey(q, k, pos, sin, cos);
+    hash_combine(key, std::hash<int>()(algo));
 
     infiniopRoPEDescriptor_t desc;
     if (!cache_manager->getRoPEDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateRoPEDescriptor(
-            rsrc->handle, &desc, q->desc(), k->desc(),
-            pos->desc(), sin->desc(), cos->desc()));
+            op_handle, &desc, q->desc(), k->desc(),
+            pos->desc(), sin->desc(), cos->desc(), algo));
         cache_manager->putRoPEDescriptor(key, desc);
     }
 
@@ -149,7 +130,7 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
     infiniopCausalSoftmaxDescriptor_t desc;
     if (!cache_manager->getCausalSoftmaxDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateCausalSoftmaxDescriptor(
-            rsrc->handle, &desc, y->desc(), x->desc()));
+            op_handle, &desc, y->desc(), x->desc()));
         cache_manager->putCausalSoftmaxDescriptor(key, desc);
     }
 
@@ -162,6 +143,31 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
                                      y->data(), x->data(), stream));
 }
 
+void InferenceContext::topkrouter(std::shared_ptr<Tensor> values,  // F32
+                                  std::shared_ptr<Tensor> indices, // I32
+                                  std::shared_ptr<Tensor> x,
+                                  std::shared_ptr<Tensor> correction_bias, // F32
+                                  float routed_scaling_factor,
+                                  size_t topk) {
+    size_t key = CacheManager::createDescriptorKey(values, indices, x, correction_bias);
+
+    infiniopTopkrouterDescriptor_t desc;
+    if (!cache_manager->getTopkrouterDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateTopkrouterDescriptor(
+            op_handle, &desc, x->desc(), correction_bias->desc()));
+        cache_manager->putTopkrouterDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetTopkrouterWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopTopkrouter(desc, workspace, workspace_size,
+                                  values->data(), indices->data(), x->data(), correction_bias->data(),
+                                  routed_scaling_factor, topk, stream));
+}
+
 void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
                               std::shared_ptr<Tensor> up,
                               std::shared_ptr<Tensor> gate) {
@@ -170,7 +176,7 @@ void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
     infiniopSwiGLUDescriptor_t desc;
     if (!cache_manager->getSwiGLUDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateSwiGLUDescriptor(
-            rsrc->handle, &desc, out->desc(), up->desc(), gate->desc()));
+            op_handle, &desc, out->desc(), up->desc(), gate->desc()));
         cache_manager->putSwiGLUDescriptor(key, desc);
     }
 
@@ -191,7 +197,7 @@ void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
     infiniopRandomSampleDescriptor_t desc;
     if (!cache_manager->getRandomSampleDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateRandomSampleDescriptor(
-            rsrc->handle, &desc, out->desc(), prob->desc()));
+            op_handle, &desc, out->desc(), prob->desc()));
         cache_manager->putRandomSampleDescriptor(key, desc);
     }
 
@@ -230,8 +236,8 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
             if (beta == 0.0) {
                 gemm(c, a, b, alpha, 1.0);
             } else {
-                auto c_copy = Tensor::buffer(c->dtype(), c->shape(), rsrc->memory_pool);
-                c_copy->copyFrom(c, rsrc->handle, stream);
+                auto c_copy = Tensor::buffer(c->dtype(), c->shape(), memory_pool);
+                c_copy->copyFrom(c, op_handle, stream);
                 gemm(c, a, b, alpha, beta);
                 add(c, c, c_copy);
             }
@@ -263,7 +269,7 @@ void InferenceContext::pagedCaching(std::shared_ptr<Tensor> k,
     infiniopPagedCachingDescriptor_t desc;
     if (!cache_manager->getPagedCachingDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreatePagedCachingDescriptor(
-            rsrc->handle, &desc, k->desc(), v->desc(), 
+            op_handle, &desc, k->desc(), v->desc(), 
             k_cache->desc(), v_cache->desc(), slot_mapping->desc()));
         cache_manager->putPagedCachingDescriptor(key, desc);
     }
@@ -295,7 +301,7 @@ void InferenceContext::pagedAttention(std::shared_ptr<Tensor> out,
     if (!cache_manager->getPagedAttentionDescriptor(key, desc)) {
         infiniopTensorDescriptor_t alibi_desc = alibi_slopes ? alibi_slopes->desc() : nullptr;
         RUN_INFINI(infiniopCreatePagedAttentionDescriptor(
-            rsrc->handle, &desc, out->desc(), q->desc(),
+            op_handle, &desc, out->desc(), q->desc(),
             k_cache->desc(), v_cache->desc(), block_tables->desc(),
             seq_lens->desc(), alibi_desc, scale));
         cache_manager->putPagedAttentionDescriptor(key, desc);
@@ -315,8 +321,25 @@ void InferenceContext::pagedAttention(std::shared_ptr<Tensor> out,
 }
 
 
+void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
+                               std::shared_ptr<Tensor> in_w,
+                               std::shared_ptr<Tensor> in_s,
+                               std::shared_ptr<Tensor> in_z) {
 
+    size_t key = CacheManager::createDescriptorKey(weight, in_w, in_s, in_z);
 
+    infiniopDequantizeDescriptor_t desc;
+    if (!cache_manager->getDequantizeDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateDequantizeDescriptor(op_handle, &desc, weight->desc(), in_w->desc(), in_s->desc(), in_z->desc()));
+        cache_manager->putDequantizeDescriptor(key, desc);
+    }
 
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetDequantizeWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
 
-
+    RUN_INFINI(infiniopDequantize(
+        desc, workspace, workspace_size,
+        weight->data(), in_w->data(), in_s->data(), in_z->data(), stream));
+}
