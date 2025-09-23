@@ -266,18 +266,18 @@ void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
 
     size_t key = CacheManager::createDescriptorKey(weight, in_w, in_s, in_z);
 
-    infiniopDequantizeDescriptor_t desc;
-    if (!cache_manager->getDequantizeDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateDequantizeDescriptor(op_handle, &desc, weight->desc(), in_w->desc(), in_s->desc(), in_z->desc()));
-        cache_manager->putDequantizeDescriptor(key, desc);
+    infiniopDequantizeAWQDescriptor_t desc;
+    if (!cache_manager->getDequantizeAWQDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateDequantizeAWQDescriptor(op_handle, &desc, weight->desc(), in_w->desc(), in_s->desc(), in_z->desc()));
+        cache_manager->putDequantizeAWQDescriptor(key, desc);
     }
 
     size_t workspace_size = 0;
-    RUN_INFINI(infiniopGetDequantizeWorkspaceSize(desc, &workspace_size));
+    RUN_INFINI(infiniopGetDequantizeAWQWorkspaceSize(desc, &workspace_size));
     ensure_workspace(workspace_size);
     void *workspace = workspace_storage->memory();
 
-    RUN_INFINI(infiniopDequantize(
+    RUN_INFINI(infiniopDequantizeAWQ(
         desc, workspace, workspace_size,
         weight->data(), in_w->data(), in_s->data(), in_z->data(), stream));
 }
