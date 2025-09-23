@@ -1,5 +1,7 @@
 from typing import List, Sequence
+from sympy import true
 import math
+from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 import os
 from pathlib import Path
 import safetensors
@@ -9,7 +11,7 @@ import json
 import torch
 import transformers
 
-from libinfinicore_infer import (
+from icinfer.models.libinfinicore_infer.jiuge import (
     JiugeModel,
     JiugeMetaCStruct,
     JiugeWeightsCStruct,
@@ -17,9 +19,14 @@ from libinfinicore_infer import (
     DeviceType,
     KVCacheCStruct,
 )
-from infer_task import InferTask, KVCache
+from icinfer.engine.infer_task import InferTask, KVCache
 
-from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 torch.set_default_device("cpu")
 
@@ -350,6 +357,7 @@ class JiugeBatchedTask:
     def __init__(self, tasks: List[InferTask]):
         self.tasks = tasks
         self.nreq = len(tasks)
+        self.is_prefill = 1
 
         # Precompute fields
         token_lists = [t.tokens for t in tasks]
@@ -372,6 +380,7 @@ class JiugeBatchedTask:
         self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
         self.topks = (c_uint * self.nreq)(*self.topks_list)
         self.topps = (c_float * self.nreq)(*self.topps_list)
+        print(list(self.tokens))
 
     def input_args(self):
         return (
@@ -384,12 +393,13 @@ class JiugeBatchedTask:
             self.temperaturas,
             self.topks,
             self.topps,
+            self.is_prefill,
         )
 
 
-class JiugeForCauslLM:
+class JiugeForCausalLM:
     def __init__(
-        self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
+        self, model_dir_path, config, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
     ):
         def load_all_safetensors_from_dir(dir_path_: str):
             tensors_ = {}
@@ -403,27 +413,29 @@ class JiugeForCauslLM:
         print("Loading model weights to host...")
         load_start_time = time.time()
 
-        with open(os.path.join(model_dir_path, "config.json"), "r") as f:
-            config = json.load(f)
-            self.config = config
-        eos_token_id = self.config["eos_token_id"]
-        self.eos_token_id = (
-            [eos_token_id] if type(eos_token_id) == int else eos_token_id
-        )
+        # with open(os.path.join(model_dir_path, "config.json"), "r") as f:
+        #     config = json.load(f)
+        #     self.config = config
+        # eos_token_id = self.config["eos_token_id"]
+        # self.eos_token_id = (
+        #     [eos_token_id] if type(eos_token_id) == int else eos_token_id
+        # )
+        # model_type = config.model_type
+        model_type = config["model_type"]
         transpose_weight = (
             device != DeviceType.DEVICE_TYPE_ASCEND
         )  # y = xW is faster than y=xW^T on Ascend
 
         self.jiuge_model = JiugeModel()
 
-        if "llama" == config["model_type"]:
+        if "llama" == model_type:
             model = (
                 transformers.LlamaForCausalLM.from_pretrained(model_dir_path)
                 .cpu()
                 .half()
             )
             self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path, trust_remote_code=True)
             self.weights = JiugeWeightsImpl(
                 self.meta,
                 LlamaWeightsNaming(),
@@ -431,7 +443,7 @@ class JiugeForCauslLM:
                 ndev=ndev,
                 transpose_weight=transpose_weight,
             )
-        elif "fm9g" == config["model_type"] or "minicpm" == config["model_type"]:
+        elif "fm9g" == model_type or "minicpm" == model_type:
             if any(
                 file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()
             ):
@@ -456,7 +468,7 @@ class JiugeForCauslLM:
                 )
             else:
                 raise ValueError("Unsupported weight naming")
-        elif "fm9g7b" == config["model_type"]:
+        elif "fm9g7b" == model_type:
             if any(
                 file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()
             ):
@@ -481,7 +493,7 @@ class JiugeForCauslLM:
                 )
             else:
                 raise ValueError("Unsupported weight naming")
-        elif "qwen2" == config["model_type"]:
+        elif "qwen2" == model_type:
             state_dict = load_all_safetensors_from_dir(model_dir_path)
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
@@ -532,121 +544,149 @@ class JiugeForCauslLM:
             self.dev_ids,
             self.ndev,
         )
+    
+    def create_paged_kv_cache(self, max_kvcache_tokens):
+        return self.jiuge_model.create_paged_kv_cache(
+            self.meta.nlayer,
+            self.meta.nkvh,
+            self.meta.dh,
+            self.meta.dh,
+            self.meta.dt_logits,
+            self.device,
+            self.dev_ids,
+            self.ndev,
+            self.meta.kvcache_block_size,
+            max_kvcache_tokens,
+        )
 
     def drop_kv_cache(self, kv_cache):
         self.jiuge_model.drop_kv_cache(kv_cache)
 
-    def batch_infer_one_round(self, tasks: List[InferTask]):
-        output = (c_uint * len(tasks))()
-        batch_inputs = JiugeBatchedTask(tasks)
+    # def batch_infer_one_round(self, tasks: List[InferTask]):
+    #     output = (c_uint * len(tasks))()
+    #     batch_inputs = JiugeBatchedTask(tasks)
+    #     self.jiuge_model.infer_batch(
+    #         self.model_instance,
+    #         *(batch_inputs.input_args()),
+    #         output,
+    #     )
+    #     return list(output)
+
+    def infer_batch(self, *args, **kwargs):
         self.jiuge_model.infer_batch(
             self.model_instance,
-            *(batch_inputs.input_args()),
-            output,
+            *args,
+            **kwargs
         )
-        return list(output)
-
-    def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
-        input_content = self.tokenizer.apply_chat_template(
-            conversation=[{"role": "user", "content": input_content}],
-            add_generation_prompt=True,
-            tokenize=False,
+    
+    def forward_batch(self, *args, **kwargs):
+        self.jiuge_model.forward_batch(
+            self.model_instance,
+            *args,
+            **kwargs
         )
-        print(input_content, end="", flush=True)
-        tokens = self.tokenizer.encode(input_content)
-        infer_task = InferTask(
-            0,
-            tokens,
-            self.max_context_len(),
-            temperature_,
-            topk_,
-            topp_,
-            self.eos_token_id,
-        )
-        infer_task.bind_kvcache(KVCache(self))
 
-        steps = 0
-        total_time = 0
-        output_content = ""
+    # def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
+    #     input_content = self.tokenizer.apply_chat_template(
+    #         conversation=[{"role": "user", "content": input_content}],
+    #         add_generation_prompt=True,
+    #         tokenize=False,
+    #     )
+    #     print(input_content, end="", flush=True)
+    #     tokens = self.tokenizer.encode(input_content)
+    #     infer_task = InferTask(
+    #         0,
+    #         tokens,
+    #         self.max_context_len(),
+    #         temperature_,
+    #         topk_,
+    #         topp_,
+    #         self.eos_token_id,
+    #     )
+    #     infer_task.bind_kvcache(KVCache(self))
 
-        for step_i in range(max_steps):
-            start_time = time.time()
-            output_tokens = self.batch_infer_one_round([infer_task])
-            end_time = time.time()
-            steps += 1
-            output_str = (
-                self.tokenizer._tokenizer.id_to_token(output_tokens[0])
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
-            output_content += output_str
-            print(output_str, end="", flush=True)
-            if output_tokens[0] in self.eos_token_id:
-                break
-            infer_task.next(output_tokens[0])
+    #     steps = 0
+    #     total_time = 0
+    #     output_content = ""
 
-            if step_i > 0:
-                total_time += end_time - start_time
+    #     for step_i in range(max_steps):
+    #         start_time = time.time()
+    #         output_tokens = self.batch_infer_one_round([infer_task])
+    #         end_time = time.time()
+    #         steps += 1
+    #         output_str = (
+    #             self.tokenizer._tokenizer.id_to_token(output_tokens[0])
+    #             .replace("▁", " ")
+    #             .replace("<0x0A>", "\n")
+    #         )
+    #         output_content += output_str
+    #         print(output_str, end="", flush=True)
+    #         if output_tokens[0] in self.eos_token_id:
+    #             break
+    #         infer_task.next(output_tokens[0])
 
-        print("\n")
-        avg_time = total_time * 1000 / (steps - 1)
-        print(f"Time per step: {avg_time:.3f}ms")
+    #         if step_i > 0:
+    #             total_time += end_time - start_time
 
-        infer_task._kv_cache.drop(self)
-        return output_content, avg_time
+    #     print("\n")
+    #     avg_time = total_time * 1000 / (steps - 1)
+    #     print(f"Time per step: {avg_time:.3f}ms")
 
-    def perplexity(self, test_sequences: List[Sequence[int]], batch_size=10):
-        tasks = [
-            InferTask(i, [], self.max_context_len(), 1.0, 1, 1.0, self.eos_token_id)
-            for i in range(batch_size)
-        ]
-        kv_caches = [KVCache(self) for _ in range(batch_size)]
+    #     infer_task._kv_cache.drop(self)
+    #     return output_content, avg_time
 
-        nll = 0.0
-        total_len = 0
+    # def perplexity(self, test_sequences: List[Sequence[int]], batch_size=10):
+    #     tasks = [
+    #         InferTask(i, [], self.max_context_len(), 1.0, 1, 1.0, self.eos_token_id)
+    #         for i in range(batch_size)
+    #     ]
+    #     kv_caches = [KVCache(self) for _ in range(batch_size)]
 
-        for i in range(0, len(test_sequences), batch_size):
-            batch_id = 0
-            true_tokens = []
-            while batch_id < batch_size and batch_id + i < len(test_sequences):
-                input_tokens = test_sequences[i + batch_id][:-1]
-                true_tokens.extend(test_sequences[i + batch_id][1:])
-                tasks[batch_id].tokens = input_tokens
-                tasks[batch_id].bind_kvcache(kv_caches[batch_id])
-                batch_id += 1
+    #     nll = 0.0
+    #     total_len = 0
 
-            batch_inputs = JiugeBatchedTask(tasks[:batch_id])
-            logits = torch.zeros(
-                (batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits
-            )
-            self.jiuge_model.forward_batch(
-                self.model_instance,
-                batch_inputs.tokens,
-                batch_inputs.ntok,
-                batch_inputs.req_lens,
-                batch_inputs.nreq,
-                batch_inputs.req_pos,
-                batch_inputs.kv_caches,
-                logits.data_ptr(),
-            )
+    #     for i in range(0, len(test_sequences), batch_size):
+    #         batch_id = 0
+    #         true_tokens = []
+    #         while batch_id < batch_size and batch_id + i < len(test_sequences):
+    #             input_tokens = test_sequences[i + batch_id][:-1]
+    #             true_tokens.extend(test_sequences[i + batch_id][1:])
+    #             tasks[batch_id].tokens = input_tokens
+    #             tasks[batch_id].bind_kvcache(kv_caches[batch_id])
+    #             batch_id += 1
 
-            logits = logits.float()
-            token_ids = torch.tensor(true_tokens, dtype=torch.int64)  # [ntok,]
-            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # (ntok, vocab)
-            token_logprobs = log_probs[
-                torch.arange(batch_inputs.ntok), token_ids
-            ]  # (ntok,)
+    #         batch_inputs = JiugeBatchedTask(tasks[:batch_id])
+    #         logits = torch.zeros(
+    #             (batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits
+    #         )
+    #         self.jiuge_model.forward_batch(
+    #             self.model_instance,
+    #             batch_inputs.tokens,
+    #             batch_inputs.ntok,
+    #             batch_inputs.req_lens,
+    #             batch_inputs.nreq,
+    #             batch_inputs.req_pos,
+    #             batch_inputs.kv_caches,
+    #             logits.data_ptr(),
+    #         )
 
-            start = 0
-            for l in batch_inputs.req_lens_list:
-                nll += -token_logprobs[start : start + l].sum().item()
-                start += l
-            total_len += token_logprobs.numel()
+    #         logits = logits.float()
+    #         token_ids = torch.tensor(true_tokens, dtype=torch.int64)  # [ntok,]
+    #         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # (ntok, vocab)
+    #         token_logprobs = log_probs[
+    #             torch.arange(batch_inputs.ntok), token_ids
+    #         ]  # (ntok,)
 
-        for task in tasks:
-            task.release_kvcache()
+    #         start = 0
+    #         for l in batch_inputs.req_lens_list:
+    #             nll += -token_logprobs[start : start + l].sum().item()
+    #             start += l
+    #         total_len += token_logprobs.numel()
 
-        return math.exp(nll / total_len)
+    #     for task in tasks:
+    #         task.release_kvcache()
+
+    #     return math.exp(nll / total_len)
 
     def destroy_model_instance(self):
         self.jiuge_model.destroy_model(self.model_instance)
@@ -684,7 +724,7 @@ def test():
         sys.exit(1)
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    model = JiugeForCauslLM(model_path, device_type, ndev)
+    model = JiugeForCausalLM(model_path, device_type, ndev)
     model.generate("山东最高的山是？", 500)
     model.destroy_model_instance()
 

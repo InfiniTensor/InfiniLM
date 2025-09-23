@@ -9,6 +9,8 @@
 #include <random>
 #include <thread>
 #include <vector>
+#include <iostream>
+#include <algorithm>
 
 void createDeviceResource(JiugeDeviceResource *rsrc, const JiugeMeta *meta,
                           const JiugeWeights *weights,
@@ -116,7 +118,10 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                       struct KVCache **kv_caches,
+                      const int32_t *block_tables,
+                      const int32_t *slot_mapping,
                       const float *temperature, const uint32_t *topk, const float *topp,
+                      const uint32_t is_prefill, const bool enable_paged_attn,
                       uint32_t *output, void *last_logits) {
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
@@ -130,13 +135,13 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto dvoc = meta.dvoc;
     auto stream = rsrc.stream;
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
-
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
     auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di}, rsrc.memory_pool);
     auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
+    auto q_buf = Tensor::buffer(dt_logits, {ntok, nh , dh}, rsrc.memory_pool);
     auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
     auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
     auto result_cpu = std::vector<int64_t>(nreq);
@@ -145,11 +150,14 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
 
     // Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
+    auto batch_seq_lens = std::vector<int32_t>(nreq);
+
     size_t req_start = 0;
     for (uint32_t req = 0; req < nreq; req++) {
         for (uint32_t i = 0; i < req_lens[req]; i++) {
             batch_pos_ids[req_start + i] = req_pos[req] + i;
         }
+        batch_seq_lens[req] = req_lens[req] + req_pos[req];
         req_start += req_lens[req];
     }
 
@@ -165,6 +173,27 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
                                        rsrc.w_in_embd->data(tokens[i] * d),
                                        dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
+    }
+
+    std::shared_ptr<Tensor> slot_mapping_buf, block_tables_buf, seq_lens_buf;
+    size_t max_seq_len_in_batch = 0;
+    if (enable_paged_attn) {
+        max_seq_len_in_batch = *std::max_element(batch_seq_lens.begin(), batch_seq_lens.end());
+        // Assuming block_size is a known constant, e.g., 16. The max_blocks_per_seq can be calculated.
+        // Let's assume a reasonable upper bound for simplicity. This might need to be passed in.
+        // TODO: get block_size from meta
+        size_t block_size = meta.kvcache_block_size;
+        size_t max_blocks_per_seq = (max_seq_len_in_batch + block_size - 1) / block_size;
+
+
+        slot_mapping_buf = Tensor::buffer(INFINI_DTYPE_I32, {ntok}, rsrc.memory_pool);
+        block_tables_buf = Tensor::buffer(INFINI_DTYPE_I32, {(uint32_t)nreq, (uint32_t)max_blocks_per_seq}, rsrc.memory_pool);
+        seq_lens_buf = Tensor::buffer(INFINI_DTYPE_I32, {nreq}, rsrc.memory_pool);
+
+        RUN_INFINI(infinirtMemcpyAsync(slot_mapping_buf->data(), slot_mapping, sizeof(int32_t) * ntok, INFINIRT_MEMCPY_H2D, stream));
+        RUN_INFINI(infinirtMemcpyAsync(block_tables_buf->data(), block_tables, sizeof(int32_t) * (nreq * max_blocks_per_seq), INFINIRT_MEMCPY_H2D, stream));
+        RUN_INFINI(infinirtMemcpyAsync(seq_lens_buf->data(), batch_seq_lens.data(), sizeof(int32_t) * nreq, INFINIRT_MEMCPY_H2D, stream));
+
     }
 
     // Attention
@@ -187,11 +216,12 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
+    
     // MLP buffers
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
 
-    // Compute
+
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
@@ -202,34 +232,97 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         rope(qkv_rope->slice(1, 0, nh), qkv_rope->slice(1, 0, nh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
         rope(qkv_rope->slice(1, nh, nkvh), qkv_rope->slice(1, nh, nkvh), pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
 
-        size_t token_offset = 0;
-        for (uint32_t req = 0; req < nreq; req++) {
-            auto past_len = req_pos[req];
-            auto seq_len = req_lens[req];
-            auto total_len = past_len + seq_len;
-            auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-            auto q = qkv_rope->slice({{0, token_offset, seq_len}, {1, 0, nh}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-            auto k = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
-            auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
+        if (enable_paged_attn) {
+            auto k = qkv_rope->slice({ {0, 0, ntok}, {1, nh, nkvh} });
+            auto v = qkv_rope->slice({ {0, 0, ntok}, {1, nh + nkvh, nkvh} });
 
-            // self attention
-            // concat
-            rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
-            rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
-            // qk
-            rearrange(q_rearrange->slice(2, 0, seq_len), q);
-            auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
-            auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
-            linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
-            // softmax
-            auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
-            causalSoftmax(qk_softmax, qk_softmax);
-            auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
-            linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
-            // rearrange attn val
-            rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
+            // Assuming kv_caches[0] gives access to the entire cache pool for this device.
+            // This part may need adjustment based on the actual KVCache struct definition.
+            auto k_cache_pool = kv_caches[0]->k[idev][layer]; 
+            auto v_cache_pool = kv_caches[0]->v[idev][layer];
+            pagedCaching(k, v, k_cache_pool, v_cache_pool, slot_mapping_buf);
+            // printf("o_buf: pass pagedCaching\n");
 
-            token_offset += seq_len;
+            if (is_prefill) {
+                size_t token_offset = 0;
+                for (uint32_t req = 0; req < nreq; req++) {
+                    auto past_len = req_pos[req];
+                    auto seq_len = req_lens[req];
+                    auto total_len = past_len + seq_len;
+                    auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+                    auto k = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
+                    auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
+                    auto q = qkv_rope->slice({{0, token_offset, seq_len}, {1, 0, nh}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+                    // qk
+                    // std::cout << "rearrange q" << std::endl;
+                    // std::cout << "q shape: " << q->info() << std::endl;
+                    rearrange(q_rearrange->slice(2, 0, seq_len), q);
+                    // std::cout << "qk_gemm" << std::endl;
+                    // std::cout << "qk_buf: " << qk_buf->info() << std::endl;
+                    auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
+                    auto k_gemm = k->permute({1, 2, 0});
+                    linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+                    // softmax
+                    // std::cout << "qk_softmax" << std::endl;
+                    auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
+                    causalSoftmax(qk_softmax, qk_softmax);
+                    // std::cout << "v_gemm" << std::endl;
+                    auto v_gemm = v->permute({1, 0, 2});
+                    // std::cout << "attn_val_buf" << std::endl;
+                    linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+                    // rearrange attn val
+                    rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
+
+                    token_offset += seq_len;
+                }
+            } else {
+                auto o = o_buf->slice({{0, 0, ntok}})->view({ntok, nh, dh});
+                auto q_batch = qkv_rope->slice({ {0, 0, ntok}, {1, 0, nh} })->view({ntok, nh, dh});
+
+                float scale = 1.f / float(sqrt(dh));
+                pagedAttention(o, q_batch, k_cache_pool, v_cache_pool, 
+                               block_tables_buf, seq_lens_buf, nullptr /* alibi_slopes */, scale);
+                               
+                
+            }
+
+        } else {
+            size_t token_offset = 0;
+            for (uint32_t req = 0; req < nreq; req++) {
+                auto past_len = req_pos[req];
+                auto seq_len = req_lens[req];
+                auto total_len = past_len + seq_len;
+                auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+                auto q = qkv_rope->slice({{0, token_offset, seq_len}, {1, 0, nh}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
+                auto k = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
+                auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
+
+                // self attention
+                // concat
+                rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
+                rearrange(kv_caches[req]->v[idev][layer]->slice(0, past_len, seq_len), v);
+                // qk
+                // std::cout << "rearrange q" << std::endl;
+                // std::cout << "q shape: " << q->info() << std::endl;
+                rearrange(q_rearrange->slice(2, 0, seq_len), q);
+                // std::cout << "qk_gemm" << std::endl;
+                // std::cout << "qk_buf: " << qk_buf->info() << std::endl;
+                auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
+                auto k_gemm = kv_caches[req]->k[idev][layer]->slice(0, 0, total_len)->permute({1, 2, 0});
+                linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+                // softmax
+                // std::cout << "qk_softmax" << std::endl;
+                auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
+                causalSoftmax(qk_softmax, qk_softmax);
+                // std::cout << "v_gemm" << std::endl;
+                auto v_gemm = kv_caches[req]->v[idev][layer]->slice(0, 0, total_len)->permute({1, 0, 2});
+                // std::cout << "attn_val_buf" << std::endl;
+                linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
+                // rearrange attn val
+                rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
+
+                token_offset += seq_len;
+            }
         }
 
         // o_proj
@@ -255,7 +348,10 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                 INFINICCL_SUM, rsrc.comm, stream));
             RUN_INFINI(infinirtStreamSynchronize(stream));
         }
+        // printf("o_buf: pass layer %d\n", layer);
     }
+    // printf("o_buf: pass all layers\n");
+
     // Sample and Output
     if (idev == 0) {
         if (last_logits != nullptr) {
@@ -296,13 +392,15 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         }
     }
 }
-
 __C void
 inferBatchJiuge(struct JiugeModel *model,
            const uint32_t *tokens, uint32_t ntok,
            const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-           struct KVCache **kv_caches,
+           struct KVCache **kv_caches, 
+           const int32_t *block_tables,
+           const int32_t *slot_mapping,
            const float *temperature, const uint32_t *topk, const float *topp,
+           const uint32_t is_prefill, const bool enable_paged_attn,
            uint32_t *output) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
@@ -310,11 +408,15 @@ inferBatchJiuge(struct JiugeModel *model,
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
     model->req.kv_caches = kv_caches;
+    model->req.block_tables = block_tables;
+    model->req.slot_mapping = slot_mapping;
     model->req.output = output;
     model->req.logits = nullptr;
     model->req.temperature = temperature;
     model->req.topk = topk;
     model->req.topp = topp;
+    model->req.is_prefill = is_prefill;
+    model->req.enable_paged_attn = enable_paged_attn;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -335,6 +437,9 @@ forwardBatchJiuge(struct JiugeModel *model,
              const uint32_t *tokens, uint32_t ntok,
              const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
              struct KVCache **kv_caches,
+             const int32_t *block_tables,
+             const int32_t *slot_mapping,
+             const uint32_t is_prefill, const bool enable_paged_attn,
              void *logits) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
@@ -342,11 +447,15 @@ forwardBatchJiuge(struct JiugeModel *model,
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
     model->req.kv_caches = kv_caches;
+    model->req.block_tables = block_tables;
+    model->req.slot_mapping = slot_mapping;
     model->req.output = nullptr;
     model->req.logits = logits;
     model->req.temperature = nullptr;
     model->req.topk = nullptr;
     model->req.topp = nullptr;
+    model->req.is_prefill = is_prefill;
+    model->req.enable_paged_attn = enable_paged_attn;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -391,7 +500,10 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDevic
 
         inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                          req.req_lens, req.nreq, req.req_pos, req.kv_caches,
-                         req.temperature, req.topk, req.topp, req.output, req.logits);
+                         req.block_tables, req.slot_mapping, 
+                         req.temperature, req.topk, req.topp, 
+                         req.is_prefill, req.enable_paged_attn,
+                         req.output, req.logits);
 
         state.proceed = false;
         lock.unlock();

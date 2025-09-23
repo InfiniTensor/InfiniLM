@@ -424,3 +424,61 @@ void Tensor::debug(const std::string &filename) const {
 }
 
 void Tensor::debug() const { this->debug(""); }
+
+
+// template <typename T>
+// void Tensor::init_value(T value, infiniopHandle_t handle,
+//                         infinirtStream_t stream) {
+//     ASSERT_EQ(dsize(this->dtype()), sizeof(T));
+
+//     size_t numel = 1;
+//     for (size_t dim : this->shape()) {
+//         numel *= dim;
+//     }
+//     if (numel == 0) {
+//         return;
+//     }
+
+//     RUN_INFINI(infinirtMemcpy(this->data(), &value, sizeof(T),
+//                               INFINIRT_MEMCPY_H2D));
+
+//     auto ndim = this->ndim();
+//     auto shape = this->shape();
+//     auto bcast_strides = std::vector<ptrdiff_t>(ndim, 0);
+//     auto src_desc = TensorDesc::create(this->dtype(), shape, bcast_strides);
+
+//     infiniopRearrangeDescriptor_t rearrange_desc;
+//     RUN_INFINI(infiniopCreateRearrangeDescriptor(
+//         handle, &rearrange_desc, this->desc(), src_desc->desc()));
+//     RUN_INFINI(infiniopRearrange(rearrange_desc, this->data(), this->data(),
+//                                  stream));
+
+//     RUN_INFINI(infiniopDestroyRearrangeDescriptor(rearrange_desc));
+// }
+// template <typename T>
+// void Tensor::init_value_simple(T value, infiniopHandle_t handle,
+//                                infinirtStream_t stream) {
+//     // 1. 安全检查：确保类型匹配
+//     ASSERT_EQ(dsize(this->dtype()), sizeof(T));
+
+//     // 2. 计算张量元素总数
+//     size_t numel = 1;
+//     for (size_t dim : this->shape()) {
+//         numel *= dim;
+//     }
+//     if (numel == 0) {
+//         return;
+//     }
+
+//     // 3. 在 Host (CPU) 上创建一个填满目标值的临时数据源
+//     std::vector<T> host_data(numel, value);
+
+//     // 4. 使用 Tensor::weight 功能在设备上创建一个临时的、内容正确的源张量。
+//     // 这个源张量的形状与当前张量相同，但内存是连续的。
+//     // Tensor::weight 内部会处理从 Host 到 Device 的数据拷贝。
+//     auto src_tensor = Tensor::weight(host_data.data(), this->dtype(), this->shape());
+
+//     // 5. 使用现有的、安全的 copyFrom 函数完成赋值。
+//     // copyFrom 会正确处理当前张量(this)可能存在的非连续内存布局（strides）。
+//     this->copyFrom(src_tensor, handle, stream);
+// }

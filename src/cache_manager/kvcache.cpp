@@ -1,4 +1,5 @@
 #include "../cache.hpp"
+#include <cassert>
 
 __C struct KVCache *createKVCache(
     size_t nlayers,
@@ -30,6 +31,37 @@ __C struct KVCache *createKVCache(
 
     return cache;
 }
+
+__C struct KVCache *createPagedKVCache(size_t nlayers,
+    size_t nkvh_,
+    size_t dk,
+    size_t dv,
+    infiniDtype_t dtype,
+    infiniDevice_t device,
+    int *dev_ids,
+    size_t ndev, 
+    size_t kvcache_block_size,
+    size_t max_kvcache_tokens) {
+    KVCache *cache = new KVCache();
+    auto max_num_blocks = max_kvcache_tokens / kvcache_block_size;
+    assert(kvcache_block_size > 0);
+    auto shape_k = std::vector<size_t>{max_num_blocks, nkvh_, kvcache_block_size, dk};
+    auto shape_v = std::vector<size_t>{max_num_blocks, nkvh_, kvcache_block_size, dv};
+    for (unsigned int idev = 0; idev < ndev; idev++) {
+        RUN_INFINI(infinirtSetDevice(device, dev_ids[idev]));
+        auto kcache = std::vector<std::shared_ptr<Tensor>>();
+        auto vcache = std::vector<std::shared_ptr<Tensor>>();
+        for (unsigned int layer = 0; layer < nlayers; layer++) {
+            kcache.push_back(std::move(Tensor::buffer(dtype, shape_k)));
+            vcache.push_back(std::move(Tensor::buffer(dtype, shape_v)));
+        }
+        cache->k.push_back(kcache);
+        cache->v.push_back(vcache);
+    }
+
+    return cache;
+}
+
 
 __C struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t seq_len) {
     auto ndev = kv_cache->k.size();

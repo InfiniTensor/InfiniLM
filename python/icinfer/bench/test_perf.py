@@ -28,8 +28,8 @@ PROMPTS = [
     "想象一下，如果每个人都能读懂他人的思想。"
 ]
 
-NUM_REQUESTS = 20
-CONCURRENCY = 20
+NUM_REQUESTS = 10
+CONCURRENCY = 5
 API_URL = "http://127.0.0.1:8000"
 MODEL = "FM9G-7B"
 
@@ -122,7 +122,6 @@ async def run_benchmark(verbose=False):
 
     successful_requests = len(results)
     requests_per_second = successful_requests / total_elapsed_time if total_elapsed_time > 0 else 0
-    throughput = sum(tokens_list) / total_elapsed_time if total_elapsed_time > 0 else 0
     avg_latency = sum(latencies) / len(latencies) if latencies else 0
     avg_tokens_per_second = sum(tokens_per_second_list) / len(tokens_per_second_list) if tokens_per_second_list else 0
     avg_ttft = sum(ttft_list) / len(ttft_list) if ttft_list else 0
@@ -140,7 +139,6 @@ async def run_benchmark(verbose=False):
     print(f"{'总输出token数':<{width_label}}: {sum(tokens_list)}")
     print(f"{'请求速率 (RPS)':<{width_label}}: {requests_per_second:.2f} requests/s")
     print(sep)
-    print(f"{'吞吐量':<{width_label}}: {throughput:.2f} tok/s")
     print(f"{'Average latency':<{width_label}}: {avg_latency:.2f} s")
     print(f"{'Average TTFT':<{width_label}}: {avg_ttft:.2f} s")
     print(f"{'Avg time per token':<{width_label}}: {avg_ms_per_token:.2f} ms/token")

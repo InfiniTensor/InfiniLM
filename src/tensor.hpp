@@ -137,6 +137,12 @@ public:
     std::shared_ptr<Tensor> view_as(const std::vector<size_t> &new_shape) const;
     std::shared_ptr<Tensor> view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const;
 
+    // template <typename T>
+    // void init_value(T value, infiniopHandle_t handle, infinirtStream_t stream);
+
+    // template <typename T>
+    // void init_value_simple(T value, infiniopHandle_t handle, infinirtStream_t stream);
+
     ~Tensor();
 };
 
