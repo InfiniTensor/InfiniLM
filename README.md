@@ -15,13 +15,13 @@ xmake && xmake install
 - 运行模型推理测试
 
 ```bash
-python scripts/jiuge.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore] path/to/model_dir [n_device]
+python scripts/jiuge.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] path/to/model_dir [n_device]
 ```
 
 - 部署模型推理服务
 
 ```bash
-python scripts/launch_server.py --model-path MODEL_PATH [-h] [--dev {cpu,nvidia,cambricon,ascend,metax,moore}] [--ndev NDEV] [--max-batch MAX_BATCH] [--max-tokens MAX_TOKENS]
+python scripts/launch_server.py --model-path MODEL_PATH [-h] [--dev {cpu,nvidia,cambricon,ascend,metax,moore,iluvatar,kunlun,hygon}] [--ndev NDEV] [--max-batch MAX_BATCH] [--max-tokens MAX_TOKENS]
 ```
 
 - 测试模型推理服务性能

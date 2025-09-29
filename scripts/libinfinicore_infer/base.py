@@ -35,6 +35,7 @@ class DeviceType(ctypes.c_int):
     DEVICE_TYPE_MOORE = 5
     DEVICE_TYPE_ILUVATAR = 6
     DEVICE_TYPE_KUNLUN = 7
+    DEVICE_TYPE_HYGON = 8
 
 
 class KVCacheCStruct(ctypes.Structure):
