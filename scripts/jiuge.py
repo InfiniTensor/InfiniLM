@@ -118,7 +118,9 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 if "num_key_value_heads" in config
                 else config["num_attention_heads"]
             ),
-            dh=config["hidden_size"] // config["num_attention_heads"],
+            dh=config.get(
+                "head_dim", config["hidden_size"] // config["num_attention_heads"]
+            ),
             di=config["intermediate_size"],
             dctx=(
                 config["max_position_embeddings"] if max_tokens is None else max_tokens
@@ -490,7 +492,7 @@ class JiugeForCauslLM:
                     model_dir_path
                 )
         else:
-            raise ValueError("Unsupported model architecture")
+            raise ValueError(f"Unsupported model architecture {config['model_type']}")
 
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
