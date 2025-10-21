@@ -498,6 +498,24 @@ class JiugeForCauslLM:
         else:
             raise ValueError("Unsupported model architecture")
 
+        
+        if "llama" == config["model_type"]:
+            from tokenizers import decoders as _dec
+            backend = getattr(self.tokenizer, "backend_tokenizer", None)
+            target = getattr(backend, "_tokenizer", backend)
+            norm = getattr(target, "normalizer", None)
+            dec = getattr(target, "decoder", None)
+            sn = repr(norm)[:800] if norm is not None else ""
+            sd = repr(dec)[:800] if dec is not None else ""
+            has_prepend = "Prepend" in sn
+            has_strip = "Strip" in sd
+            if has_prepend and has_strip:
+                target.decoder = _dec.Sequence([
+                    _dec.Replace("▁", " "),
+                    _dec.ByteFallback(),
+                    _dec.Fuse(),
+                ])
+
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
@@ -574,11 +592,8 @@ class JiugeForCauslLM:
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
             steps += 1
-            output_str = (
-                self.tokenizer._tokenizer.id_to_token(output_tokens[0])
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
+            output_str = self.tokenizer.decode(output_tokens[0])
+
             output_content += output_str
             print(output_str, end="", flush=True)
             if output_tokens[0] in self.eos_token_id:

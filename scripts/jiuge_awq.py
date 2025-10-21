@@ -256,11 +256,6 @@ class JiugeAWQForCausalLM:
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
             steps += 1
-            # output_str = (
-            #     self.tokenizer._tokenizer.id_to_token(output_tokens[0])
-            #     .replace("▁", " ")
-            #     .replace("<0x0A>", "\n")
-            # )
             output_str = self.tokenizer.decode(output_tokens[0])
             output_content += output_str
             print(output_str, end="", flush=True)
