@@ -37,6 +37,8 @@ struct InferenceContext {
               infiniopRoPEAlgo_t algo);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
+    void logSoftmax(std::shared_ptr<Tensor> y,
+                    std::shared_ptr<Tensor> x);
 
     void topkrouter(std::shared_ptr<Tensor> values,  // F32
                     std::shared_ptr<Tensor> indices, // I32
@@ -109,6 +111,10 @@ inline void rope_v2(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
 
 inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
     getInferenceContext().causalSoftmax(y, x);
+}
+
+inline void logSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().logSoftmax(y, x);
 }
 
 inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
