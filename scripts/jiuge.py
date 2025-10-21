@@ -58,6 +58,12 @@ class LlamaWeightsNaming:
     def attn_v_b(self, i):
         return f"model.layers.{i}.self_attn.v_proj.bias"
 
+    def attn_q_norm(self, i):
+        return f"model.layers.{i}.self_attn.q_norm.weight"
+
+    def attn_k_norm(self, i):
+        return f"model.layers.{i}.self_attn.k_norm.weight"
+
     def ffn_norm(self, i):
         return f"model.layers.{i}.post_attention_layernorm.weight"
 
@@ -117,7 +123,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 if "num_key_value_heads" in config
                 else config["num_attention_heads"]
             ),
-            dh=config["hidden_size"] // config["num_attention_heads"],
+            dh=config["head_dim"] if "head_dim" in config else config["hidden_size"] // config["num_attention_heads"],
             di=config["intermediate_size"],
             dctx=(
                 config["max_position_embeddings"] if max_tokens is None else max_tokens
@@ -274,6 +280,35 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
             self.attn_qkv_b = (c_void_p * nlayer)(*self.qkv_b_tensor_ptrs)
         else:
             self.attn_qkv_b = None
+
+        if naming.attn_q_norm(0) in state_dict:
+            self.attn_q_norm_tensors = [
+                state_dict[naming.attn_q_norm(i)]
+                .reshape([2, dh // 2])
+                .transpose(0, 1)
+                .contiguous()
+                .to(torch_dt_norm)
+                for i in range(nlayer)
+            ]
+            self.attn_q_norm_ptrs = [
+                self.attn_q_norm_tensors[i].data_ptr() for i in range(nlayer)
+            ]
+            self.attn_q_norm = (c_void_p * nlayer)(*self.attn_q_norm_ptrs)
+            self.attn_k_norm_tensors = [
+                state_dict[naming.attn_k_norm(i)]
+                .reshape([2, dh // 2])
+                .transpose(0, 1)
+                .contiguous()
+                .to(torch_dt_norm)
+                for i in range(nlayer)
+            ]
+            self.attn_k_norm_ptrs = [
+                self.attn_k_norm_tensors[i].data_ptr() for i in range(nlayer)
+            ]
+            self.attn_k_norm = (c_void_p * nlayer)(*self.attn_k_norm_ptrs)
+        else:
+            self.attn_q_norm = None
+            self.attn_k_norm = None
 
         self.attn_o_tensor = [
             (
@@ -481,7 +516,7 @@ class JiugeForCauslLM:
                 )
             else:
                 raise ValueError("Unsupported weight naming")
-        elif "qwen2" == config["model_type"]:
+        elif "qwen2" == config["model_type"] or "qwen3" == config["model_type"]:
             state_dict = load_all_safetensors_from_dir(model_dir_path)
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
