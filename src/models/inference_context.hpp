@@ -40,6 +40,12 @@ struct InferenceContext {
     void logSoftmax(std::shared_ptr<Tensor> y,
                     std::shared_ptr<Tensor> x);
 
+    void flashAttention(std::shared_ptr<Tensor> output,
+                       std::shared_ptr<Tensor> query,
+                       std::shared_ptr<Tensor> key,
+                       std::shared_ptr<Tensor> value,
+                       std::shared_ptr<Tensor> mask);
+
     void topkrouter(std::shared_ptr<Tensor> values,  // F32
                     std::shared_ptr<Tensor> indices, // I32
                     std::shared_ptr<Tensor> x,
@@ -115,6 +121,14 @@ inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) 
 
 inline void logSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
     getInferenceContext().logSoftmax(y, x);
+}
+
+inline void flashAttention(std::shared_ptr<Tensor> output,
+                          std::shared_ptr<Tensor> query,
+                          std::shared_ptr<Tensor> key,
+                          std::shared_ptr<Tensor> value,
+                          std::shared_ptr<Tensor> mask) {
+    getInferenceContext().flashAttention(output, query, key, value, mask);
 }
 
 inline void topkrouter(std::shared_ptr<Tensor> values,  // F32

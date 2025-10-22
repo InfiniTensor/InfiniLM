@@ -163,6 +163,32 @@ void InferenceContext::logSoftmax(std::shared_ptr<Tensor> y,
                                   y->data(), x->data(), stream));
 }
 
+void InferenceContext::flashAttention(std::shared_ptr<Tensor> output,
+                                     std::shared_ptr<Tensor> query,
+                                     std::shared_ptr<Tensor> key,
+                                     std::shared_ptr<Tensor> value,
+                                     std::shared_ptr<Tensor> mask) {
+    size_t cache_key = CacheManager::createDescriptorKey(output, query, key, value, mask);
+
+    infiniopFlashAttentionDescriptor_t desc;
+    if (!cache_manager->getFlashAttentionDescriptor(cache_key, desc)) {
+        RUN_INFINI(infiniopCreateFlashAttentionDescriptor(
+            op_handle, &desc, output->desc(), query->desc(), 
+            key->desc(), value->desc(), mask->desc()));
+        cache_manager->putFlashAttentionDescriptor(cache_key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetFlashAttentionWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopFlashAttention(desc, workspace, workspace_size,
+                                     output->data(), query->data(), 
+                                     key->data(), value->data(), 
+                                     mask->data(), stream));
+}
+
 void InferenceContext::topkrouter(std::shared_ptr<Tensor> values,  // F32
                                   std::shared_ptr<Tensor> indices, // I32
                                   std::shared_ptr<Tensor> x,

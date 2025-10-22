@@ -159,6 +159,7 @@ public:
     DECLARE_OP_CACHE(Rearrange)
     DECLARE_OP_CACHE(CausalSoftmax)
     DECLARE_OP_CACHE(LogSoftmax)
+    DECLARE_OP_CACHE(FlashAttention)
     DECLARE_OP_CACHE(Topkrouter)
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(RandomSample)
@@ -172,6 +173,7 @@ public:
           Rearrange_cache(capacity, DESTROY_FUNC(Rearrange)),
           CausalSoftmax_cache(capacity, DESTROY_FUNC(CausalSoftmax)),
           LogSoftmax_cache(capacity, DESTROY_FUNC(LogSoftmax)),
+          FlashAttention_cache(capacity, DESTROY_FUNC(FlashAttention)),
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
