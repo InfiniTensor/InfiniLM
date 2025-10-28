@@ -123,7 +123,11 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 if "num_key_value_heads" in config
                 else config["num_attention_heads"]
             ),
-            dh=config["head_dim"] if "head_dim" in config else config["hidden_size"] // config["num_attention_heads"],
+            dh=(
+                config["head_dim"]
+                if "head_dim" in config
+                else config["hidden_size"] // config["num_attention_heads"]
+            ),
             di=config["intermediate_size"],
             dctx=(
                 config["max_position_embeddings"] if max_tokens is None else max_tokens
@@ -533,9 +537,9 @@ class JiugeForCauslLM:
         else:
             raise ValueError("Unsupported model architecture")
 
-        
         if "llama" == config["model_type"]:
             from tokenizers import decoders as _dec
+
             backend = getattr(self.tokenizer, "backend_tokenizer", None)
             target = getattr(backend, "_tokenizer", backend)
             norm = getattr(target, "normalizer", None)
@@ -545,11 +549,13 @@ class JiugeForCauslLM:
             has_prepend = "Prepend" in sn
             has_strip = "Strip" in sd
             if has_prepend and has_strip:
-                target.decoder = _dec.Sequence([
-                    _dec.Replace("▁", " "),
-                    _dec.ByteFallback(),
-                    _dec.Fuse(),
-                ])
+                target.decoder = _dec.Sequence(
+                    [
+                        _dec.Replace("▁", " "),
+                        _dec.ByteFallback(),
+                        _dec.Fuse(),
+                    ]
+                )
 
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
@@ -599,7 +605,15 @@ class JiugeForCauslLM:
         )
         return list(output)
 
-    def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
+    def generate(
+        self,
+        input_content,
+        max_steps,
+        topp_=1.0,
+        topk_=1,
+        temperature_=1.0,
+        verbose=False,
+    ):
         input_content = self.tokenizer.apply_chat_template(
             conversation=[{"role": "user", "content": input_content}],
             add_generation_prompt=True,
@@ -620,9 +634,61 @@ class JiugeForCauslLM:
 
         steps = 0
         total_time = 0
+        prefill_time = 0
+        decode_time = 0
         output_content = ""
 
-        for step_i in range(max_steps):
+        # Prefill phase - process initial prompt
+        prefill_start_time = time.time()
+        output_tokens = self.batch_infer_one_round([infer_task])
+        prefill_end_time = time.time()
+        prefill_time = prefill_end_time - prefill_start_time
+        steps += 1
+
+        output_str = self.tokenizer.decode(output_tokens[0])
+        output_content += output_str
+        print(output_str, end="", flush=True)
+        if output_tokens[0] in self.eos_token_id:
+            # If generation ends after prefill, calculate metrics
+            total_time = prefill_time
+            total_tokens = len(tokens) + 1  # input tokens + first output token
+
+            print("\n")
+            print(f"Time per step: {total_time * 1000:.3f}ms")
+
+            if verbose:
+                overall_throughput = total_tokens / total_time
+                prefill_throughput = len(tokens) / prefill_time
+                decode_throughput = 1 / 0.001  # Avoid division by zero, use small value
+
+                print("=" * 50)
+                print("PERFORMANCE METRICS")
+                print("=" * 50)
+                print(f"Input tokens: {len(tokens)}")
+                print(f"Generated tokens: 1")
+                print(f"Total tokens: {total_tokens}")
+                print(f"Total time: {total_time * 1000:.3f}ms")
+                print(f"Prefill time: {prefill_time * 1000:.3f}ms")
+                print(f"Decode time: 0.000ms")
+                print("-" * 50)
+                print(f"Time per step: {total_time * 1000:.3f}ms")
+                print(
+                    f"Avg prefill time per token: {prefill_time * 1000 / len(tokens):.3f}ms"
+                )
+                print(f"Avg decode time per token: N/A")
+                print("-" * 50)
+                print(f"Overall throughput: {overall_throughput:.2f} tokens/s")
+                print(f"Prefill throughput: {prefill_throughput:.2f} tokens/s")
+                print(f"Decode throughput: N/A")
+                print("=" * 50)
+
+            return output_content, total_time * 1000
+
+        infer_task.next(output_tokens[0])
+
+        # Decode phase - generate subsequent tokens
+        decode_start_time = time.time()
+        for step_i in range(1, max_steps):
             start_time = time.time()
             output_tokens = self.batch_infer_one_round([infer_task])
             end_time = time.time()
@@ -638,12 +704,65 @@ class JiugeForCauslLM:
             if step_i > 0:
                 total_time += end_time - start_time
 
+        decode_end_time = time.time()
+        decode_time = decode_end_time - decode_start_time
+
         print("\n")
-        avg_time = total_time * 1000 / (steps - 1)
-        print(f"Time per step: {avg_time:.3f}ms")
+
+        # Calculate performance metrics
+        total_time = prefill_time + decode_time
+        input_tokens = len(tokens)
+        generated_tokens = steps  # including first token from prefill
+
+        # Time per token calculations
+        avg_time_per_step = (
+            total_time * 1000 / (steps - 1) if steps > 1 else total_time * 1000
+        )
+
+        print(f"Time per step: {avg_time_per_step:.3f}ms")
+
+        # Only print detailed metrics if verbose flag is set
+        if verbose:
+            total_tokens = input_tokens + generated_tokens
+
+            # Throughput calculations
+            overall_throughput = total_tokens / total_time  # tokens per second
+            prefill_throughput = input_tokens / prefill_time if prefill_time > 0 else 0
+            decode_throughput = (
+                (generated_tokens - 1) / decode_time if decode_time > 0 else 0
+            )  # exclude first token from prefill
+
+            # Time per token calculations
+            avg_prefill_time_per_token = (
+                prefill_time * 1000 / input_tokens if input_tokens > 0 else 0
+            )
+            avg_decode_time_per_token = (
+                decode_time * 1000 / (generated_tokens - 1)
+                if generated_tokens > 1
+                else 0
+            )
+
+            print("=" * 50)
+            print("PERFORMANCE METRICS")
+            print("=" * 50)
+            print(f"Input tokens: {input_tokens}")
+            print(f"Generated tokens: {generated_tokens}")
+            print(f"Total tokens: {total_tokens}")
+            print(f"Total time: {total_time * 1000:.3f}ms")
+            print(f"Prefill time: {prefill_time * 1000:.3f}ms")
+            print(f"Decode time: {decode_time * 1000:.3f}ms")
+            print("-" * 50)
+            print(f"Time per step: {avg_time_per_step:.3f}ms")
+            print(f"Avg prefill time per token: {avg_prefill_time_per_token:.3f}ms")
+            print(f"Avg decode time per token: {avg_decode_time_per_token:.3f}ms")
+            print("-" * 50)
+            print(f"Overall throughput: {overall_throughput:.2f} tokens/s")
+            print(f"Prefill throughput: {prefill_throughput:.2f} tokens/s")
+            print(f"Decode throughput: {decode_throughput:.2f} tokens/s")
+            print("=" * 50)
 
         infer_task._kv_cache.drop(self)
-        return output_content, avg_time
+        return output_content, avg_time_per_step
 
     def perplexity(self, test_sequences: List[Sequence[int]], batch_size=10):
         tasks = [
@@ -706,11 +825,21 @@ class JiugeForCauslLM:
 def test():
     if len(sys.argv) < 3:
         print(
-            "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device]"
+            "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device] [--verbose]"
         )
         sys.exit(1)
+
+    # Parse command line arguments
     model_path = sys.argv[2]
     device_type = DeviceType.DEVICE_TYPE_CPU
+    verbose = False
+
+    # Check for verbose flag
+    for arg in sys.argv:
+        if arg == "--verbose":
+            verbose = True
+            break
+
     if sys.argv[1] == "--cpu":
         device_type = DeviceType.DEVICE_TYPE_CPU
     elif sys.argv[1] == "--nvidia":
@@ -731,13 +860,16 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_HYGON
     else:
         print(
-            "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device]"
+            "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device] [--verbose]"
         )
         sys.exit(1)
 
-    ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+    # Find n_device argument (skip --verbose)
+    ndev_args = [arg for arg in sys.argv[3:] if arg != "--verbose"]
+    ndev = int(ndev_args[0]) if ndev_args else 1
+
     model = JiugeForCauslLM(model_path, device_type, ndev)
-    model.generate("山东最高的山是？", 500)
+    model.generate("山东最高的山是？", 500, verbose=verbose)
     model.destroy_model_instance()
 
 
