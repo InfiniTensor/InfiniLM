@@ -21,8 +21,8 @@ __C struct KVCache *createKVCache(
         auto kcache = std::vector<std::shared_ptr<Tensor>>();
         auto vcache = std::vector<std::shared_ptr<Tensor>>();
         for (unsigned int layer = 0; layer < nlayers; layer++) {
-            kcache.push_back(std::move(Tensor::buffer(dtype, shape_k)));
-            vcache.push_back(std::move(Tensor::buffer(dtype, shape_v)));
+            kcache.push_back(Tensor::buffer(dtype, shape_k));
+            vcache.push_back(Tensor::buffer(dtype, shape_v));
         }
         cache->k.push_back(kcache);
         cache->v.push_back(vcache);
@@ -47,8 +47,8 @@ __C struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t seq_len) {
             auto kcache = std::vector<std::shared_ptr<Tensor>>();
             auto vcache = std::vector<std::shared_ptr<Tensor>>();
             for (unsigned int layer = 0; layer < nlayers; layer++) {
-                kcache.push_back(std::move(Tensor::buffer(dtype, shape_k)));
-                vcache.push_back(std::move(Tensor::buffer(dtype, shape_v)));
+                kcache.push_back(Tensor::buffer(dtype, shape_k));
+                vcache.push_back(Tensor::buffer(dtype, shape_v));
             }
             new_kv_cache->k.push_back(kcache);
             new_kv_cache->v.push_back(vcache);
