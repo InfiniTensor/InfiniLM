@@ -10,65 +10,31 @@
 #include <thread>
 #include <vector>
 
-void createDeviceResource(JiugeDeviceResource *rsrc, const JiugeMeta *meta,
-                          const JiugeWeights *weights,
+template <typename DeviceResource, typename DeviceWeights, typename ModelMeta>
+void createDeviceResource(DeviceResource *rsrc, const ModelMeta *meta,
+                          std::shared_ptr<DeviceWeights> weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
     RUN_INFINI(infinirtSetDevice(device, dev_id));
+
+    // For DeepSeekV3, wait for weight loading stream
+    // if constexpr (std::is_same_v<DeviceWeights, DeepSeekV3DeviceWeights>) {
+    //     RUN_INFINI(infinirtStreamSynchronize(weights->load_stream));
+    // }
+
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
     infinirtStream_t stream;
     infinirtStreamCreate(&stream);
 
-    std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
-        w_ffn_norm, w_ffn_gate_up, w_ffn_down;
-    for (size_t layer = 0; layer < meta->nlayer; layer++) {
-        w_attn_norm.push_back(
-            getAttnNorm(meta, weights, layer));
-        w_attn_qkv.push_back(
-            getAttnQKV(meta, weights, layer, idev, ndev));
-        if (weights->attn_qkv_b != nullptr) {
-            b_attn_qkv.push_back(
-                getAttnQKVBias(meta, weights, layer, idev, ndev));
-        }
-
-        if (weights->attn_q_norm != nullptr) {
-            w_attn_q_norm.push_back(
-                getAttnQNorm(meta, weights, layer));
-            w_attn_k_norm.push_back(
-                getAttnKNorm(meta, weights, layer));
-        }
-        w_attn_out.push_back(
-            getAttnO(meta, weights, layer, idev, ndev));
-        w_ffn_norm.push_back(
-            getFFNNorm(meta, weights, layer));
-        w_ffn_gate_up.push_back(
-            getFFNGateUp(meta, weights, layer, idev, ndev));
-        w_ffn_down.push_back(
-            getFFNDown(meta, weights, layer, idev, ndev));
-    }
-
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
-    *rsrc = JiugeDeviceResource{
+    *rsrc = DeviceResource{
         device,
         dev_id,
         handle,
-        getInEmbd(meta, weights),
-        getOutNorm(meta, weights),
-        getOutEmbd(meta, weights),
-        getSinTable(meta),
-        getCosTable(meta),
-        w_attn_norm,
-        w_attn_qkv,
-        b_attn_qkv,
-        w_attn_q_norm,
-        w_attn_k_norm,
-        w_attn_out,
-        w_ffn_norm,
-        w_ffn_gate_up,
-        w_ffn_down,
+        weights,
         stream,
         comm,
         memory_pool,
@@ -76,42 +42,12 @@ void createDeviceResource(JiugeDeviceResource *rsrc, const JiugeMeta *meta,
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
-void releaseDeviceResource(JiugeDeviceResource &res) {
+template <typename DeviceResource>
+void releaseDeviceResource(DeviceResource &res) {
     infinirtDeviceSynchronize();
-    // Release individual Tensors
-    res.w_in_embd.reset();
-    res.w_out_norm.reset();
-    res.w_out_embd.reset();
-    res.sin_table.reset();
-    res.cos_table.reset();
-    for (auto &t : res.w_attn_norm) {
-        t.reset();
-    }
-    res.w_attn_norm.clear();
-    for (auto &t : res.w_attn_qkv) {
-        t.reset();
-    }
-    res.w_attn_qkv.clear();
-    for (auto &t : res.b_attn_qkv) {
-        t.reset();
-    }
-    res.b_attn_qkv.clear();
-    for (auto &t : res.w_attn_out) {
-        t.reset();
-    }
-    res.w_attn_out.clear();
-    for (auto &t : res.w_ffn_norm) {
-        t.reset();
-    }
-    res.w_ffn_norm.clear();
-    for (auto &t : res.w_ffn_gate_up) {
-        t.reset();
-    }
-    res.w_ffn_gate_up.clear();
-    for (auto &t : res.w_ffn_down) {
-        t.reset();
-    }
-    res.w_ffn_down.clear();
+
+    res.weights.reset();
+
     infiniopDestroyHandle(res.handle);
     res.handle = nullptr;
     infinirtStreamDestroy(res.stream);
@@ -131,15 +67,15 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
     auto ngroup = nh / nkvh;
-    // auto dctx = meta.dctx;
     auto dh = meta.dh;
     auto d = meta.d;
     auto dt_logits = meta.dt_logits;
     auto di = meta.di / ndev;
     auto dvoc = meta.dvoc;
     auto stream = rsrc.stream;
-    bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
-    bool has_qk_norm = rsrc.w_attn_q_norm.size() > 0 && rsrc.w_attn_k_norm.size() > 0;
+    auto weight = rsrc.weights;
+    bool has_qkv_bias = weight->b_attn_qkv.size() > 0;
+    bool has_qk_norm = weight->w_attn_q_norm.size() > 0 && weight->w_attn_k_norm.size() > 0;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -173,9 +109,12 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
                                        INFINIRT_MEMCPY_H2D, stream));
     }
+
+    // Copy input embeddings - ensure proper synchronization
+    RUN_INFINI(infinirtStreamSynchronize(stream));
     for (uint32_t i = 0; i < ntok; i++) {
         RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
-                                       rsrc.w_in_embd->data(tokens[i] * d),
+                                       weight->w_in_embd->data(tokens[i] * d),
                                        dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
     }
 
@@ -207,18 +146,18 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
-        rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
+        rmsnorm(logits_out, logits_in, weight->w_attn_norm[layer], meta.epsilon);
         // qkv_proj
-        linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? rsrc.b_attn_qkv[layer] : nullptr);
+        linear(qkv_buf, logits_out, weight->w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? weight->b_attn_qkv[layer] : nullptr);
 
         if (has_qk_norm) {
-            rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon);
-            rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon);
+            rmsnorm(q_buf, q_buf, weight->w_attn_q_norm[layer], meta.epsilon);
+            rmsnorm(k_buf, k_buf, weight->w_attn_k_norm[layer], meta.epsilon);
         }
 
         // rope
-        rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-        rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+        rope(q_buf, q_buf, pos_ids_buf, weight->sin_table, weight->cos_table);
+        rope(k_buf, k_buf, pos_ids_buf, weight->sin_table, weight->cos_table);
 
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
@@ -251,7 +190,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         }
 
         // o_proj
-        linear(logits_in, o_buf, rsrc.w_attn_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+        linear(logits_in, o_buf, weight->w_attn_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
 
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
@@ -261,10 +200,10 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             RUN_INFINI(infinirtStreamSynchronize(stream));
         }
         // 2. FFN
-        rmsnorm(logits_out, logits_in, rsrc.w_ffn_norm[layer], meta.epsilon);
-        linear(gate_up_buf, logits_out, rsrc.w_ffn_gate_up[layer], 1.0, 0.0, nullptr, nullptr);
+        rmsnorm(logits_out, logits_in, weight->w_ffn_norm[layer], meta.epsilon);
+        linear(gate_up_buf, logits_out, weight->w_ffn_gate_up[layer], 1.0, 0.0, nullptr, nullptr);
         swiglu(gate_buf, up_buf, gate_buf);
-        linear(logits_in, gate_buf, rsrc.w_ffn_down[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+        linear(logits_in, gate_buf, weight->w_ffn_down[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
 
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
@@ -277,9 +216,9 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     // Sample and Output
     if (idev == 0) {
         if (last_logits != nullptr) {
-            rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
+            rmsnorm(logits_out, logits_in, weight->w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
-            linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            linear(last_logits_buf, logits_out, weight->w_out_embd, 1.0, 0.0, nullptr, nullptr);
             RUN_INFINI(infinirtStreamSynchronize(stream));
             RUN_INFINI(infinirtMemcpy(last_logits, last_logits_buf->data(), dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
         }
@@ -290,10 +229,10 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                 token_offset += seq_len;
                 rmsnorm(logits_out->slice(0, req, 1),
                         logits_in->slice(0, token_offset - 1, 1),
-                        rsrc.w_out_norm,
+                        weight->w_out_norm,
                         meta.epsilon);
             }
-            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            linear(prob_buf, logits_out->slice(0, 0, nreq), weight->w_out_embd, 1.0, 0.0, nullptr, nullptr);
             std::random_device _rd;
             std::mt19937 gen(_rd());
             token_offset = 0;
@@ -315,13 +254,14 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     }
 }
 
-__C void
-inferBatchJiuge(struct JiugeModel *model,
-                const uint32_t *tokens, uint32_t ntok,
-                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                struct KVCache **kv_caches,
-                const float *temperature, const uint32_t *topk, const float *topp,
-                uint32_t *output) {
+template <typename Model, typename KVCache>
+void inferBatchCommon(Model *model,
+                      const uint32_t *tokens, uint32_t ntok,
+                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                      KVCache **kv_caches,
+                      const float *temperature, const uint32_t *topk, const float *topp,
+                      uint32_t *output) {
+    // Common request setup
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -334,12 +274,60 @@ inferBatchJiuge(struct JiugeModel *model,
     model->req.topk = topk;
     model->req.topp = topp;
 
+    // Common device synchronization pattern
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
         model->states[idev].proceed = true;
         lock.unlock();
         model->states[idev].cv_start.notify_one();
     }
+
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
+inferBatchJiuge(struct JiugeModel *model,
+                const uint32_t *tokens, uint32_t ntok,
+                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                struct KVCache **kv_caches,
+                const float *temperature, const uint32_t *topk, const float *topp,
+                uint32_t *output) {
+    inferBatchCommon(model, tokens, ntok, req_lens, nreq, req_pos,
+                     kv_caches, temperature, topk, topp, output);
+}
+
+template <typename Model, typename KVCache>
+void forwardBatchCommon(Model *model,
+                        const uint32_t *tokens, uint32_t ntok,
+                        const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                        KVCache **kv_caches,
+                        void *logits) {
+    // Common request setup for forward pass
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.output = nullptr;
+    model->req.logits = logits;
+    model->req.temperature = nullptr;
+    model->req.topk = nullptr;
+    model->req.topp = nullptr;
+
+    // Reuse same device synchronization pattern
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+
     for (size_t i = model->dev_ids.size(); i > 0; i--) {
         auto idev = i - 1;
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -354,41 +342,22 @@ forwardBatchJiuge(struct JiugeModel *model,
                   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                   struct KVCache **kv_caches,
                   void *logits) {
-    model->req.tokens = tokens;
-    model->req.ntok = ntok;
-    model->req.req_lens = req_lens;
-    model->req.nreq = nreq;
-    model->req.req_pos = req_pos;
-    model->req.kv_caches = kv_caches;
-    model->req.output = nullptr;
-    model->req.logits = logits;
-    model->req.temperature = nullptr;
-    model->req.topk = nullptr;
-    model->req.topp = nullptr;
-
-    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
-        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
-        model->states[idev].proceed = true;
-        lock.unlock();
-        model->states[idev].cv_start.notify_one();
-    }
-    for (size_t i = model->dev_ids.size(); i > 0; i--) {
-        auto idev = i - 1;
-        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
-        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
-        lock.unlock();
-    }
+    forwardBatchCommon(model, tokens, ntok, req_lens, nreq, req_pos,
+                       kv_caches, logits);
 }
 
-void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDeviceResource *rsrc, InferState &state, InferRequest &req,
-                  infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
-    // Create Device Resource
+template <typename Meta, typename DeviceWeights, typename DeviceResource>
+void launchDeviceCommon(const Meta &meta, std::shared_ptr<DeviceWeights> weights,
+                        DeviceResource *rsrc, InferState &state, InferRequest &req,
+                        infiniDevice_t device, int idev, int ndev, int dev_id,
+                        infinicclComm_t comm) {
+    // Create device resource with standardized function
     createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
 
     CacheManager cache_manager(100);
     InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
 
-    // Set the inference context for this thread
+    // Set inference context
     setInferenceContext(&ctx);
 
     {
@@ -398,15 +367,16 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDevic
         state.cv_load.notify_one();
     }
 
-    // Infer Loop
+    // Standardized inference loop
     while (true) {
         std::unique_lock<std::mutex> lock(state.mtx);
         state.cv_start.wait(lock, [&] { return state.proceed || state.exit_flag; });
-        // quit if exit_flag is set
+
         if (state.exit_flag) {
             break;
         }
 
+        // Call model-specific inference (this remains model-specific)
         inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                          req.req_lens, req.nreq, req.req_pos, req.kv_caches,
                          req.temperature, req.topk, req.topp, req.output, req.logits);
@@ -416,9 +386,53 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDevic
         state.cv_done.notify_one();
     }
 
-    // Clean-Up
+    // Cleanup with standardized function
     releaseDeviceResource(*rsrc);
-    setInferenceContext(nullptr); // Clear the context when done
+    setInferenceContext(nullptr);
+}
+
+void launchDevice(const JiugeMeta &meta, std::shared_ptr<JiugeDeviceWeights> weights, JiugeDeviceResource *rsrc, InferState &state, InferRequest &req,
+                  infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
+    launchDeviceCommon(meta, weights, rsrc, state, req, device, idev, ndev, dev_id, comm);
+}
+
+std::shared_ptr<JiugeDeviceWeights> createDeviceWeights(const JiugeMeta *meta, const JiugeWeights *weights, int idev, int ndev, infiniDevice_t device, int dev_id) {
+    auto device_weights = std::make_shared<JiugeDeviceWeights>();
+
+    // Set device info
+    device_weights->device = device;
+    device_weights->dev_id = dev_id;
+
+    // Create tensors with proper device context
+    RUN_INFINI(infinirtSetDevice(device, dev_id));
+
+    device_weights->w_in_embd = getInEmbd(meta, weights);
+    device_weights->w_out_norm = getOutNorm(meta, weights);
+    device_weights->w_out_embd = getOutEmbd(meta, weights);
+    device_weights->sin_table = getSinTable(meta);
+    device_weights->cos_table = getCosTable(meta);
+
+    for (size_t layer = 0; layer < meta->nlayer; layer++) {
+        device_weights->w_attn_norm.push_back(getAttnNorm(meta, weights, layer));
+        device_weights->w_attn_qkv.push_back(getAttnQKV(meta, weights, layer, idev, ndev));
+        if (weights->attn_qkv_b != nullptr) {
+            device_weights->b_attn_qkv.push_back(getAttnQKVBias(meta, weights, layer, idev, ndev));
+        }
+
+        if (weights->attn_q_norm != nullptr) {
+            device_weights->w_attn_q_norm.push_back(getAttnQNorm(meta, weights, layer));
+            device_weights->w_attn_k_norm.push_back(getAttnKNorm(meta, weights, layer));
+        }
+        device_weights->w_attn_out.push_back(getAttnO(meta, weights, layer, idev, ndev));
+        device_weights->w_ffn_norm.push_back(getFFNNorm(meta, weights, layer));
+        device_weights->w_ffn_gate_up.push_back(getFFNGateUp(meta, weights, layer, idev, ndev));
+        device_weights->w_ffn_down.push_back(getFFNDown(meta, weights, layer, idev, ndev));
+    }
+
+    // Ensure all weights are loaded to device
+    RUN_INFINI(infinirtDeviceSynchronize());
+
+    return device_weights;
 }
 
 JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infiniDevice_t device_, std::vector<int> device_ids) : meta(*_meta) {
@@ -435,7 +449,8 @@ JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infi
     }
 
     for (int i = 0; i < ndev; i++) {
-        threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+        auto device_weights = createDeviceWeights(_meta, weights, i, ndev, device, dev_ids[i]);
+        threads[i] = std::thread(launchDevice, std::cref(meta), device_weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
     for (int i = 0; i < ndev; i++) {
         std::unique_lock<std::mutex> lock(states[i].mtx);

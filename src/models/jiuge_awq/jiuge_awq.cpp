@@ -8,12 +8,19 @@
 #include <thread>
 #include <vector>
 
-void createDeviceResource(DeviceResource *rsrc, const JiugeAWQMeta *meta,
-                          std::shared_ptr<JiugeAWQDeviceWeight> weights,
+template <typename DeviceResource, typename DeviceWeights, typename ModelMeta>
+void createDeviceResource(DeviceResource *rsrc, const ModelMeta *meta,
+                          std::shared_ptr<DeviceWeights> weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
     RUN_INFINI(infinirtSetDevice(device, dev_id));
+
+    // For DeepSeekV3, wait for weight loading stream
+    // if constexpr (std::is_same_v<DeviceWeights, DeepSeekV3DeviceWeights>) {
+    //     RUN_INFINI(infinirtStreamSynchronize(weights->load_stream));
+    // }
+
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
     infinirtStream_t stream;
@@ -33,9 +40,11 @@ void createDeviceResource(DeviceResource *rsrc, const JiugeAWQMeta *meta,
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
+template <typename DeviceResource>
 void releaseDeviceResource(DeviceResource &res) {
     infinirtDeviceSynchronize();
-    // Release individual Tensors
+
+    res.weights.reset();
 
     infiniopDestroyHandle(res.handle);
     res.handle = nullptr;
@@ -45,26 +54,26 @@ void releaseDeviceResource(DeviceResource &res) {
     res.comm = nullptr;
 }
 
-void inferDeviceBatch(const JiugeAWQMeta *meta, DeviceResource &rsrc,
+void inferDeviceBatch(const JiugeAWQMeta &meta, DeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits) {
-    auto nlayer = meta->nlayer;
-    auto nkvh = meta->nkvh / ndev;
-    auto nh = meta->nh / ndev;
+    auto nlayer = meta.nlayer;
+    auto nkvh = meta.nkvh / ndev;
+    auto nh = meta.nh / ndev;
     auto ngroup = nh / nkvh;
     // auto dctx = meta.dctx;
-    auto dh = meta->dh;
-    auto d = meta->d;
-    auto dt_logits = meta->dt_logits;
-    auto di = meta->di / ndev;
-    auto dvoc = meta->dvoc;
+    auto dh = meta.dh;
+    auto d = meta.d;
+    auto dt_logits = meta.dt_logits;
+    auto di = meta.di / ndev;
+    auto dvoc = meta.dvoc;
     auto stream = rsrc.stream;
     auto weight = rsrc.weights;
-    bool has_qkv_bias = meta->has_qkv_bias;
+    bool has_qkv_bias = meta.has_qkv_bias;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -128,7 +137,7 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, DeviceResource &rsrc,
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
-        rmsnorm(logits_out, logits_in, weight->w_attn_norm[layer], meta->epsilon);
+        rmsnorm(logits_out, logits_in, weight->w_attn_norm[layer], meta.epsilon);
         // qkv_proj
         dequant_linear(q_buf, logits_out,
                        weight->w_attn_q[layer]->w, weight->w_attn_q[layer]->s, weight->w_attn_q[layer]->z,
@@ -182,7 +191,7 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, DeviceResource &rsrc,
             RUN_INFINI(infinirtStreamSynchronize(stream));
         }
         // 2. FFN
-        rmsnorm(logits_out, logits_in, weight->w_ffn_norm[layer], meta->epsilon);
+        rmsnorm(logits_out, logits_in, weight->w_ffn_norm[layer], meta.epsilon);
         dequant_linear(gate_buf, logits_out,
                        weight->w_ffn_gate[layer]->w, weight->w_ffn_gate[layer]->s, weight->w_ffn_gate[layer]->z,
                        1.0, 0.0, nullptr, nullptr);
@@ -204,7 +213,7 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, DeviceResource &rsrc,
     // Sample and Output
     if (idev == 0) {
         if (last_logits != nullptr) {
-            rmsnorm(logits_out, logits_in, weight->w_out_norm, meta->epsilon);
+            rmsnorm(logits_out, logits_in, weight->w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             linear(last_logits_buf, logits_out, weight->w_out_embd, 1.0, 0.0, nullptr, nullptr);
             RUN_INFINI(infinirtStreamSynchronize(stream));
@@ -218,7 +227,7 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, DeviceResource &rsrc,
                 rmsnorm(logits_out->slice(0, req, 1),
                         logits_in->slice(0, token_offset - 1, 1),
                         weight->w_out_norm,
-                        meta->epsilon);
+                        meta.epsilon);
             }
             linear(prob_buf, logits_out->slice(0, 0, nreq), weight->w_out_embd, 1.0, 0.0, nullptr, nullptr);
             std::random_device _rd;
@@ -242,13 +251,14 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, DeviceResource &rsrc,
     }
 }
 
-__C void
-inferBatchJiugeAWQ(struct JiugeAWQModel *model,
-                   const uint32_t *tokens, uint32_t ntok,
-                   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                   struct KVCache **kv_caches,
-                   const float *temperature, const uint32_t *topk, const float *topp,
-                   uint32_t *output) {
+template <typename Model, typename KVCache>
+void inferBatchCommon(Model *model,
+                      const uint32_t *tokens, uint32_t ntok,
+                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                      KVCache **kv_caches,
+                      const float *temperature, const uint32_t *topk, const float *topp,
+                      uint32_t *output) {
+    // Common request setup
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -261,12 +271,60 @@ inferBatchJiugeAWQ(struct JiugeAWQModel *model,
     model->req.topk = topk;
     model->req.topp = topp;
 
+    // Common device synchronization pattern
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
         model->states[idev].proceed = true;
         lock.unlock();
         model->states[idev].cv_start.notify_one();
     }
+
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
+inferBatchJiugeAWQ(struct JiugeAWQModel *model,
+                   const uint32_t *tokens, uint32_t ntok,
+                   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                   struct KVCache **kv_caches,
+                   const float *temperature, const uint32_t *topk, const float *topp,
+                   uint32_t *output) {
+    inferBatchCommon(model, tokens, ntok, req_lens, nreq, req_pos,
+                     kv_caches, temperature, topk, topp, output);
+}
+
+template <typename Model, typename KVCache>
+void forwardBatchCommon(Model *model,
+                        const uint32_t *tokens, uint32_t ntok,
+                        const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                        KVCache **kv_caches,
+                        void *logits) {
+    // Common request setup for forward pass
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.output = nullptr;
+    model->req.logits = logits;
+    model->req.temperature = nullptr;
+    model->req.topk = nullptr;
+    model->req.topp = nullptr;
+
+    // Reuse same device synchronization pattern
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+
     for (size_t i = model->dev_ids.size(); i > 0; i--) {
         auto idev = i - 1;
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -281,41 +339,22 @@ forwardBatchJiugeAWQ(struct JiugeAWQModel *model,
                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                      struct KVCache **kv_caches,
                      void *logits) {
-    model->req.tokens = tokens;
-    model->req.ntok = ntok;
-    model->req.req_lens = req_lens;
-    model->req.nreq = nreq;
-    model->req.req_pos = req_pos;
-    model->req.kv_caches = kv_caches;
-    model->req.output = nullptr;
-    model->req.logits = logits;
-    model->req.temperature = nullptr;
-    model->req.topk = nullptr;
-    model->req.topp = nullptr;
-
-    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
-        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
-        model->states[idev].proceed = true;
-        lock.unlock();
-        model->states[idev].cv_start.notify_one();
-    }
-    for (size_t i = model->dev_ids.size(); i > 0; i--) {
-        auto idev = i - 1;
-        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
-        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
-        lock.unlock();
-    }
+    forwardBatchCommon(model, tokens, ntok, req_lens, nreq, req_pos,
+                       kv_caches, logits);
 }
 
-void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight> weights, DeviceResource *rsrc, InferState &state, InferRequest &req,
-                  infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
-    // Create Device Resource
-    createDeviceResource(rsrc, meta, weights, device, idev, ndev, dev_id, comm);
+template <typename Meta, typename DeviceWeights, typename DeviceResource>
+void launchDeviceCommon(const Meta &meta, std::shared_ptr<DeviceWeights> weights,
+                        DeviceResource *rsrc, InferState &state, InferRequest &req,
+                        infiniDevice_t device, int idev, int ndev, int dev_id,
+                        infinicclComm_t comm) {
+    // Create device resource with standardized function
+    createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
 
     CacheManager cache_manager(100);
     InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
 
-    // Set the inference context for this thread
+    // Set inference context
     setInferenceContext(&ctx);
 
     {
@@ -325,15 +364,16 @@ void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight
         state.cv_load.notify_one();
     }
 
-    // Infer Loop
+    // Standardized inference loop
     while (true) {
         std::unique_lock<std::mutex> lock(state.mtx);
         state.cv_start.wait(lock, [&] { return state.proceed || state.exit_flag; });
-        // quit if exit_flag is set
+
         if (state.exit_flag) {
             break;
         }
 
+        // Call model-specific inference (this remains model-specific)
         inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                          req.req_lens, req.nreq, req.req_pos, req.kv_caches,
                          req.temperature, req.topk, req.topp, req.output, req.logits);
@@ -343,9 +383,14 @@ void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight
         state.cv_done.notify_one();
     }
 
-    // Clean-Up
+    // Cleanup with standardized function
     releaseDeviceResource(*rsrc);
-    setInferenceContext(nullptr); // Clear the context when done
+    setInferenceContext(nullptr);
+}
+
+void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight> weights, DeviceResource *rsrc, InferState &state, InferRequest &req,
+                  infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
+    launchDeviceCommon(*meta, weights, rsrc, state, req, device, idev, ndev, dev_id, comm);
 }
 
 JiugeAWQModel::JiugeAWQModel(const JiugeAWQMeta *meta, const ModelWeights *weights_) {

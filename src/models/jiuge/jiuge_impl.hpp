@@ -12,16 +12,22 @@
 #include <thread>
 #include <vector>
 
+// Add device weights structure similar to other implementations
+struct JiugeDeviceWeights {
+    std::shared_ptr<Tensor> w_in_embd, w_out_norm, w_out_embd, sin_table, cos_table;
+    std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out;
+    std::vector<std::shared_ptr<Tensor>> w_ffn_norm, w_ffn_gate_up, w_ffn_down;
+    infiniDevice_t device;
+    int dev_id;
+};
+
 struct JiugeDeviceResource {
     // Device
     infiniDevice_t device;
     int device_id;
     infiniopHandle_t handle;
-    // Weights
-    std::shared_ptr<Tensor> w_in_embd, w_out_norm, w_out_embd, sin_table,
-        cos_table;
-    std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm,w_attn_out,
-        w_ffn_norm, w_ffn_gate_up, w_ffn_down;
+    // Weights - now using shared pointer like other implementations
+    std::shared_ptr<JiugeDeviceWeights> weights;
     // Streams
     infinirtStream_t stream;
     // Communicator

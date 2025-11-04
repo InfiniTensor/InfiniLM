@@ -9,21 +9,27 @@
 #include <thread>
 #include <vector>
 
-void createDeviceResource(DeepSeekV3DeviceResource *rsrc, const DeepSeekV3Meta *meta,
-                          std::shared_ptr<DeepSeekV3DeviceWeights> weights,
+template <typename DeviceResource, typename DeviceWeights, typename ModelMeta>
+void createDeviceResource(DeviceResource *rsrc, const ModelMeta *meta,
+                          std::shared_ptr<DeviceWeights> weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
     RUN_INFINI(infinirtSetDevice(device, dev_id));
-    RUN_INFINI(infinirtStreamSynchronize(weights->load_stream));
+
+    // For DeepSeekV3, wait for weight loading stream
+    if constexpr (std::is_same_v<DeviceWeights, DeepSeekV3DeviceWeights>) {
+        RUN_INFINI(infinirtStreamSynchronize(weights->load_stream));
+    }
+
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
     infinirtStream_t stream;
     infinirtStreamCreate(&stream);
 
-    auto memory_pool = std::make_shared<MemoryPool>();
+    auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
-    *rsrc = DeepSeekV3DeviceResource{
+    *rsrc = DeviceResource{
         device,
         dev_id,
         handle,
@@ -35,7 +41,8 @@ void createDeviceResource(DeepSeekV3DeviceResource *rsrc, const DeepSeekV3Meta *
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
-void releaseDeviceResource(DeepSeekV3DeviceResource &res) {
+template <typename DeviceResource>
+void releaseDeviceResource(DeviceResource &res) {
     infinirtDeviceSynchronize();
 
     res.weights.reset();
@@ -431,13 +438,14 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
     }
 }
 
-__C void
-inferBatchDeepSeekV3(struct DeepSeekV3Model *model,
-                     const uint32_t *tokens, uint32_t ntok,
-                     const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                     struct DeepSeekV3Cache **kv_caches,
-                     const float *temperature, const uint32_t *topk, const float *topp,
-                     uint32_t *output) {
+template <typename Model, typename KVCache>
+void inferBatchCommon(Model *model,
+                      const uint32_t *tokens, uint32_t ntok,
+                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                      KVCache **kv_caches,
+                      const float *temperature, const uint32_t *topk, const float *topp,
+                      uint32_t *output) {
+    // Common request setup
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -450,12 +458,60 @@ inferBatchDeepSeekV3(struct DeepSeekV3Model *model,
     model->req.topk = topk;
     model->req.topp = topp;
 
+    // Common device synchronization pattern
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
         model->states[idev].proceed = true;
         lock.unlock();
         model->states[idev].cv_start.notify_one();
     }
+
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
+inferBatchDeepSeekV3(struct DeepSeekV3Model *model,
+                     const uint32_t *tokens, uint32_t ntok,
+                     const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                     struct DeepSeekV3Cache **kv_caches,
+                     const float *temperature, const uint32_t *topk, const float *topp,
+                     uint32_t *output) {
+    inferBatchCommon(model, tokens, ntok, req_lens, nreq, req_pos,
+                     kv_caches, temperature, topk, topp, output);
+}
+
+template <typename Model, typename KVCache>
+void forwardBatchCommon(Model *model,
+                        const uint32_t *tokens, uint32_t ntok,
+                        const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                        KVCache **kv_caches,
+                        void *logits) {
+    // Common request setup for forward pass
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.output = nullptr;
+    model->req.logits = logits;
+    model->req.temperature = nullptr;
+    model->req.topk = nullptr;
+    model->req.topp = nullptr;
+
+    // Reuse same device synchronization pattern
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+
     for (size_t i = model->dev_ids.size(); i > 0; i--) {
         auto idev = i - 1;
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -470,41 +526,22 @@ forwardBatchDeepSeekV3(struct DeepSeekV3Model *model,
                        const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                        struct DeepSeekV3Cache **kv_caches,
                        void *logits) {
-    model->req.tokens = tokens;
-    model->req.ntok = ntok;
-    model->req.req_lens = req_lens;
-    model->req.nreq = nreq;
-    model->req.req_pos = req_pos;
-    model->req.kv_caches = kv_caches;
-    model->req.output = nullptr;
-    model->req.logits = logits;
-    model->req.temperature = nullptr;
-    model->req.topk = nullptr;
-    model->req.topp = nullptr;
-
-    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
-        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
-        model->states[idev].proceed = true;
-        lock.unlock();
-        model->states[idev].cv_start.notify_one();
-    }
-    for (size_t i = model->dev_ids.size(); i > 0; i--) {
-        auto idev = i - 1;
-        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
-        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
-        lock.unlock();
-    }
+    forwardBatchCommon(model, tokens, ntok, req_lens, nreq, req_pos,
+                       kv_caches, logits);
 }
 
-void launchDevice(const DeepSeekV3Meta &meta, std::shared_ptr<DeepSeekV3DeviceWeights> weights, DeepSeekV3DeviceResource *rsrc, InferState &state, InferRequest &req,
-                  infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
-    // Create Device Resource
+template <typename Meta, typename DeviceWeights, typename DeviceResource>
+void launchDeviceCommon(const Meta &meta, std::shared_ptr<DeviceWeights> weights,
+                        DeviceResource *rsrc, InferState &state, InferRequest &req,
+                        infiniDevice_t device, int idev, int ndev, int dev_id,
+                        infinicclComm_t comm) {
+    // Create device resource with standardized function
     createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
 
     CacheManager cache_manager(100);
     InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
 
-    // Set the inference context for this thread
+    // Set inference context
     setInferenceContext(&ctx);
 
     {
@@ -514,15 +551,16 @@ void launchDevice(const DeepSeekV3Meta &meta, std::shared_ptr<DeepSeekV3DeviceWe
         state.cv_load.notify_one();
     }
 
-    // Infer Loop
+    // Standardized inference loop
     while (true) {
         std::unique_lock<std::mutex> lock(state.mtx);
         state.cv_start.wait(lock, [&] { return state.proceed || state.exit_flag; });
-        // quit if exit_flag is set
+
         if (state.exit_flag) {
             break;
         }
 
+        // Call model-specific inference (this remains model-specific)
         inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                          req.req_lens, req.nreq, req.req_pos, req.kv_caches,
                          req.temperature, req.topk, req.topp, req.output, req.logits);
@@ -532,9 +570,15 @@ void launchDevice(const DeepSeekV3Meta &meta, std::shared_ptr<DeepSeekV3DeviceWe
         state.cv_done.notify_one();
     }
 
-    // Clean-Up
+    // Cleanup with standardized function
     releaseDeviceResource(*rsrc);
-    setInferenceContext(nullptr); // Clear the context when done
+    setInferenceContext(nullptr);
+}
+
+void launchDevice(const DeepSeekV3Meta &meta, std::shared_ptr<DeepSeekV3DeviceWeights> weights, DeepSeekV3DeviceResource *rsrc, InferState &state, InferRequest &req,
+                  infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
+    launchDeviceCommon<DeepSeekV3Meta, DeepSeekV3DeviceWeights, DeepSeekV3DeviceResource>(
+        meta, weights, rsrc, state, req, device, idev, ndev, dev_id, comm);
 }
 
 DeepSeekV3Model::DeepSeekV3Model(const DeepSeekV3Meta *_meta, const DeepSeekV3Weights *weights) : meta(*_meta) {
