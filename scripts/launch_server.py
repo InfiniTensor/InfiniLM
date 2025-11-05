@@ -99,6 +99,7 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
         "choices": [
             {
                 "index": 0,
+                "text": content,
                 "delta": delta,
                 "logprobs": None,
                 "finish_reason": finish_reason,
@@ -286,9 +287,15 @@ async def chat(id_, request_data, request: Request):
 @App.post("/chat/completions")
 async def chat_completions(request: Request):
     data = await request.json()
+    print('-----------------------------------------')
+    print(data)
+    print('-----------------------------------------')
 
     if not data.get("messages"):
-        return JSONResponse(content={"error": "No message provided"}, status_code=400)
+        if not data.get("prompt"):
+            return JSONResponse(content={"error": "No message provided"}, status_code=400)
+        else:
+            data['messages'] = [{"role": "user", "content": data.get("prompt")}]
 
     stream = data.get("stream", False)
     id_ = f"cmpl-{uuid.uuid4().hex}"
