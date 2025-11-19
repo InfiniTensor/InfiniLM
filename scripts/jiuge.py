@@ -445,6 +445,8 @@ class JiugeForCauslLM:
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             config = json.load(f)
             self.config = config
+
+        print(f"Model config: {self.config}")
         eos_token_id = self.config["eos_token_id"]
         self.eos_token_id = (
             [eos_token_id] if type(eos_token_id) == int else eos_token_id
@@ -454,6 +456,11 @@ class JiugeForCauslLM:
         )  # y = xW is faster than y=xW^T on Ascend
 
         self.jiuge_model = JiugeModel()
+        # JiugeModel是构造函数，负责创建多线程和设备资源
+        # ✅ 创建Python的JiugeModel对象
+        # ✅ 继承自BaseModel，加载C++库
+        # ❌ 还没有创建C++的工作线程
+        # ❌ 还没有分配设备资源
 
         if "llama" == config["model_type"]:
             model = (
@@ -522,6 +529,7 @@ class JiugeForCauslLM:
                 raise ValueError("Unsupported weight naming")
         elif "qwen2" == config["model_type"] or "qwen3" == config["model_type"]:
             state_dict = load_all_safetensors_from_dir(model_dir_path)
+            print(f"state_dict keys: {list(state_dict.keys())[:50]} ...")
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
                 self.weights = JiugeWeightsImpl(
@@ -566,6 +574,7 @@ class JiugeForCauslLM:
         self.ndev = ndev
         self.device = device
 
+        # # 2. 创建C++模型实例（这里创建了工作线程！）
         self.model_instance = self.jiuge_model.create_model(
             byref(self.meta),
             byref(self.weights),
@@ -573,6 +582,14 @@ class JiugeForCauslLM:
             ndev,
             self.dev_ids,
         )
+        # ✅ 调用C++的createJiugeModel函数
+        # ✅ 执行C++的JiugeModel构造函数
+        # ✅ 创建工作线程！
+        # ✅ 分配设备资源！
+        # ✅ 线程开始运行并进入休眠等待！
+
+
+
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
@@ -596,12 +613,18 @@ class JiugeForCauslLM:
         self.jiuge_model.drop_kv_cache(kv_cache)
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
-        output = (c_uint * len(tasks))()
+        output = (c_uint * len(tasks))() # 得到一个可以在C函数中传递的数组对象
+        # c_uint: <class 'ctypes.c_uint'>
+        # output: <__main__.c_uint_Array_1 object at 0x7f76727ef240>
+        
         batch_inputs = JiugeBatchedTask(tasks)
+        # 传给下边这个infer_batch的就是包了一层啥东西的batch_inputs反正
+        # infer_batch 等价于 inferBatchJiuge
+        # output传递给C函数
         self.jiuge_model.infer_batch(
             self.model_instance,
             *(batch_inputs.input_args()),
-            output,
+            output, # 这里传递的是C数组的指针
         )
         return list(output)
 
@@ -619,8 +642,11 @@ class JiugeForCauslLM:
             add_generation_prompt=True,
             tokenize=False,
         )
+        print("=== Input Prompt ===")
         print(input_content, end="", flush=True)
+        print("=== Input Prompt End ===")
         tokens = self.tokenizer.encode(input_content)
+        print(f"Input token IDs: {tokens}")
         infer_task = InferTask(
             0,
             tokens,
@@ -639,20 +665,20 @@ class JiugeForCauslLM:
         print("\n=== KV Cache 详细信息 ===")
         print(repr(infer_task.kvcache()))
 
-        # 调试信息字典
-        print("\n=== 调试信息字典 ===")
-        debug_info = infer_task.debug_info()
-        for key, value in debug_info.items():
-            print(f"{key}: {value}")
+        # # 调试信息字典
+        # print("\n=== 调试信息字典 ===")
+        # debug_info = infer_task.debug_info()
+        # for key, value in debug_info.items():
+        #     print(f"{key}: {value}")
 
         infer_task.bind_kvcache(KVCache(self))
 
-        print(f"\nKV Cache 调试信息:")
-        kv_debug = infer_task.kvcache().debug_info()
-        for key, value in kv_debug.items():
-            print(f"  {key}: {value}")
+        # print(f"\nKV Cache 调试信息:")
+        # kv_debug = infer_task.kvcache().debug_info()
+        # for key, value in kv_debug.items():
+        #     print(f"  {key}: {value}")
 
-        print("\n" + "="*50)
+        # print("\n" + "="*50)
 
         steps = 0
         total_time = 0
@@ -663,11 +689,14 @@ class JiugeForCauslLM:
         # Prefill phase - process initial prompt
         prefill_start_time = time.time()
         output_tokens = self.batch_infer_one_round([infer_task])
+        print(f"\nOutput token IDs from prefill: {output_tokens}")
+        print(f"infer_task after prefill: {repr(infer_task)}")
         prefill_end_time = time.time()
         prefill_time = prefill_end_time - prefill_start_time
         steps += 1
 
         output_str = self.tokenizer.decode(output_tokens[0])
+        print(f"Decoded output from prefill: {output_str}\n")
         output_content += output_str
         print(output_str, end="", flush=True)
         if output_tokens[0] in self.eos_token_id:
@@ -713,12 +742,14 @@ class JiugeForCauslLM:
         for step_i in range(1, max_steps):
             start_time = time.time()
             output_tokens = self.batch_infer_one_round([infer_task])
+            # print(f"\nOutput token IDs from step {step_i}: {output_tokens}")
+            # print(f"infer_task after step {step_i}: {repr(infer_task)}")
             end_time = time.time()
             steps += 1
             output_str = self.tokenizer.decode(output_tokens[0])
 
             output_content += output_str
-            print(output_str, end="", flush=True)
+            # print(output_str, end="", flush=True)
             if output_tokens[0] in self.eos_token_id:
                 break
             infer_task.next(output_tokens[0])

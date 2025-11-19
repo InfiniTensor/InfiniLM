@@ -8,6 +8,15 @@ from .deepseek_v3 import (
     DeepSeekV3WeightLoaderCStruct,
     DeepSeekV3CacheCStruct,
 )
+from .llava import (
+    LlavaModel,
+    LlavaMetaCStruct,
+    LlavaWeightsCStruct,
+    LlavaKVCacheCStruct,
+    LlavaVisionMetaCStruct,
+    LlavaLanguageMetaCStruct,
+    LlavaProjectorMetaCStruct,
+)
 
 __all__ = [
     "DataType",
@@ -23,5 +32,13 @@ __all__ = [
     "DeepSeekV3MetaCStruct",
     "DeepSeekV3WeightsCStruct",
     "DeepSeekV3WeightLoaderCStruct",
+    "DeepSeekV3CacheCStruct",
+    "LlavaModel",
+    "LlavaMetaCStruct",
+    "LlavaWeightsCStruct",
+    "LlavaKVCacheCStruct",
+    "LlavaVisionMetaCStruct",
+    "LlavaLanguageMetaCStruct",
+    "LlavaProjectorMetaCStruct",
     "ModelRegister",
 ]

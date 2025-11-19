@@ -70,6 +70,7 @@ class InferTask:
             f"  end_tokens={self.end_tokens},\n"
             f"  finish_reason={self.finish_reason},\n"
             f"  has_kv_cache={self._kv_cache is not None}\n"
+            f"  _kv_cache={self._kv_cache}\n"
             f")"
         )
 
