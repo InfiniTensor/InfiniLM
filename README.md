@@ -35,3 +35,19 @@ python scripts/test_perf.py
 ```bash
 python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MAX_BATCH] [--max-tokens MAX_TOKENS]
 ```
+
+## 使用方式(新版)
+
+- 编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :
+    
+    - 注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）
+    - 根据硬件平台，选择 xmake 构建配置
+    - 编译安装InfiniCore
+    - 安装 C++ 库
+    - 安装 Python 包
+
+- 单次推理测试
+    - llama示例
+```bash
+python examples/llama.py [--cpu | --nvidia] --model_path=<path/to/model_dir>
+```
