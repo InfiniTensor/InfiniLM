@@ -29,31 +29,21 @@ logger = logging.get_logger(__name__)
 
 
 def repeat_kv(keys: infinicore.Tensor, values: infinicore.Tensor, ngroup: int):
-    total_seq_len, num_key_value_heads, head_dim = keys.shape
+    total_seq_len, num_heads, head_dim = keys.shape
+    s0, s1, s2 = keys.stride()
 
-    keys_repeat = infinicore.empty(
-        (total_seq_len, num_key_value_heads, ngroup, head_dim),
-        dtype=keys.dtype,
-        device=keys.device,
-    )
-    values_repeat = infinicore.empty(
-        (total_seq_len, num_key_value_heads, ngroup, head_dim),
-        dtype=values.dtype,
-        device=values.device,
+    keys_new = (
+        keys.as_strided((total_seq_len, num_heads, ngroup, head_dim), (s0, s1, 0, s2))
+        .contiguous()
+        .view((total_seq_len, num_heads * ngroup, head_dim))
     )
 
-    for i in range(ngroup):
-        keys_repeat.narrow(2, i, 1).copy_(
-            keys.view((total_seq_len, num_key_value_heads, 1, head_dim))
-        )
-        values_repeat.narrow(2, i, 1).copy_(
-            values.view((total_seq_len, num_key_value_heads, 1, head_dim))
-        )
-
-    keys_new = keys_repeat.view((total_seq_len, num_key_value_heads * ngroup, head_dim))
-    values_new = values_repeat.view(
-        (total_seq_len, num_key_value_heads * ngroup, head_dim)
+    values_new = (
+        values.as_strided((total_seq_len, num_heads, ngroup, head_dim), (s0, s1, 0, s2))
+        .contiguous()
+        .view((total_seq_len, num_heads * ngroup, head_dim))
     )
+
     return keys_new, values_new
 
 
