@@ -60,6 +60,20 @@ def get_args():
     return parser.parse_args()
 
 
+def torch_synchronize(_device):
+    if _device == "cuda":
+        torch.cuda.synchronize()
+    elif _device == "musa":
+        torch.musa.synchronize()
+
+
+def torch_empty_cache(_device):
+    if _device == "cuda":
+        torch.cuda.empty_cache()
+    elif _device == "musa":
+        torch.musa.empty_cache()
+
+
 def create_moe_torch(dir_path, device, dtype=torch.bfloat16):
     config = AutoConfig.from_pretrained(dir_path)
     moe = qwen3_moe.modeling_qwen3_moe.Qwen3MoeSparseMoeBlock(config).to(
@@ -95,12 +109,12 @@ def benchmark_moe_torch(moe, testcase, device, dtype):
 
     for _ in range(WARMUPS):
         moe(input_device)
-    torch.cuda.synchronize()
+    torch_synchronize(device)
 
     start_time = time.time()
     for _ in range(RUNS):
         moe(input_device)
-    torch.cuda.synchronize()
+    torch_synchronize(device)
     end_time = time.time()
 
     total_time = end_time - start_time
@@ -127,11 +141,12 @@ if __name__ == "__main__":
         device = "cuda"
     elif args.moore:
         device = "musa"
+        import torch_musa
     elif args.iluvatar:
         device = "cuda"
     else:
         print(
-            "Usage:  python test/qwen3_moe_test.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_path>"
+            "Usage:  python test/models/qwen3_moe/moe_test.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_path>"
         )
         sys.exit(1)
 
@@ -158,4 +173,4 @@ if __name__ == "__main__":
 
     # clean up device memory
     del moe
-    torch.cuda.empty_cache()
+    torch_empty_cache(device)
