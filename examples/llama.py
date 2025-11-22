@@ -32,6 +32,16 @@ def get_args():
         help="Run metax test",
     )
     parser.add_argument(
+        "--moore",
+        action="store_true",
+        help="Run moore test",
+    )
+    parser.add_argument(
+        "--iluvatar",
+        action="store_true",
+        help="Run iluvatar test",
+    )
+    parser.add_argument(
         "--model_path",
         type=str,
         required=True,
@@ -141,9 +151,13 @@ if __name__ == "__main__":
         device_type = "cuda"
     elif args.metax:
         device_type = "cuda"
+    elif args.moore:
+        device_type = "musa"
+    elif args.iluvatar:
+        device_type = "cuda"
     else:
         print(
-            "Usage:  python examples/llama.py [--cpu | --nvidia] --model_path=<path/to/model_dir>"
+            "Usage:  python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>"
         )
         sys.exit(1)
 
