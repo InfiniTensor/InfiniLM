@@ -175,6 +175,13 @@ def benchmark_Qwen3attention_prefill_torch(model, rotary_emb, req_list, test_cas
     torch.cuda.synchronize()
 
     for _ in range(WARMUPS):
+        for i, req in enumerate(req_list):
+            # ----------------------------------------- #
+            #          恢复 kv chche的长度
+            # ----------------------------------------- #
+            origin_len = test_cases["pastlens"][i]
+            req["past_key_values"].crop(origin_len)
+
         for req in req_list:
             # ----------------------------------------- #
             #         获得每个req的数据
@@ -216,9 +223,13 @@ def benchmark_Qwen3attention_prefill_torch(model, rotary_emb, req_list, test_cas
             origin_len = test_cases["pastlens"][i]
             req["past_key_values"].crop(origin_len)
 
-            torch.cuda.synchronize()
-            start_time = time.time()
+        torch.cuda.synchronize()
+        # ----------------------------------------- #
+        #       重要：每个req都按整个batch的起始时间计算
+        # ----------------------------------------- #
+        start_time = time.time()
 
+        for i, req in enumerate(req_list):
             # ----------------------------------------- #
             #         获得每个req的数据
             # ----------------------------------------- #
@@ -252,14 +263,15 @@ def benchmark_Qwen3attention_prefill_torch(model, rotary_emb, req_list, test_cas
             torch.cuda.synchronize()
             end_time = time.time()
 
-        time_consuming += (end_time - start_time) * 1000
+            # 记录每个req从进入所有req进入推理到自己结束的时间
+            time_consuming += end_time - start_time
 
     out_token_count = RUNS * len(req_list)
 
-    latency = time_consuming / out_token_count
+    latency = time_consuming * 1000 / out_token_count
 
     print(
-        f"\t WARMUPS={WARMUPS} RUNS={RUNS}, Attention Torch, average latency: {round(latency, 2)} ms\n"
+        f"\t WARMUPS={WARMUPS} RUNS={RUNS}, Attention Torch, average TTFT: {round(latency, 2)} ms\n"
     )
 
     return req_out_list
@@ -390,7 +402,7 @@ def benchmark_Qwen3attention_decode_torch(model, rotary_emb, req_list, test_case
     throughput = out_token_count / time_consuming
 
     print(
-        f"\t WARMUPS={WARMUPS} RUNS={RUNS}  Attention Torch average throughput: {round(throughput, 2)} /s \n"
+        f"\t WARMUPS={WARMUPS} RUNS={RUNS}, Attention Torch, average throughput: {round(throughput, 2)} tok/s \n"
     )
 
     return req_out_list

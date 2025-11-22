@@ -85,9 +85,9 @@ def generate_moe_input_torch(testcase, dtype=torch.bfloat16):
     return input_tensor
 
 
-def benchmark_moe_torch(moe, input_host, device, dtype):
+def benchmark_moe_torch(moe, testcase, device, dtype):
     """"""
-
+    input_host = generate_moe_input_torch(testcase, dtype=dtype)
     input_device = input_host.to(device=device)
 
     output_device, _ = moe(input_device)
@@ -103,7 +103,11 @@ def benchmark_moe_torch(moe, input_host, device, dtype):
     torch.cuda.synchronize()
     end_time = time.time()
 
-    print(f"    MoE Torch average latency: {(end_time - start_time) * 1000 / RUNS} ms")
+    total_time = end_time - start_time
+    total_tokens = sum(testcase["seqlens"]) * RUNS
+    print(
+        f"\t WARMUPS={WARMUPS} RUNS={RUNS}, MoE Torch average latency: {round(total_time * 1000 / RUNS, 2)} ms   throughput: {round(total_tokens / total_time, 2)} tok/s"
+    )
     return output_host
 
 
@@ -141,15 +145,16 @@ if __name__ == "__main__":
     print("Test Qwen3 MoE")
     print("*" * 130)
     print(f"Test Case PREFILL_TESTCASES : {PREFILL_TESTCASES}")
-
-    input_prefill = generate_moe_input_torch(PREFILL_TESTCASES)
-    output_prefill = benchmark_moe_torch(moe, input_prefill, device=device, dtype=dtype)
+    output_prefill = benchmark_moe_torch(
+        moe, PREFILL_TESTCASES, device=device, dtype=dtype
+    )
 
     print("\n")
     print("-" * 130)
     print(f"\nTest DECODE_TESTCASES: {DECODE_TESTCASES}")
-    input_decode = generate_moe_input_torch(DECODE_TESTCASES)
-    output_decode = benchmark_moe_torch(moe, input_decode, device=device, dtype=dtype)
+    output_decode = benchmark_moe_torch(
+        moe, DECODE_TESTCASES, device=device, dtype=dtype
+    )
 
     # clean up device memory
     del moe
