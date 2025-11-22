@@ -25,7 +25,7 @@ def get_args():
 
     parser = argparse.ArgumentParser(description="Test Operator")
     parser.add_argument(
-        "--model_dir",
+        "--model_path",
         action="store",
         help="The directory of the model to be tested",
     )
@@ -55,7 +55,7 @@ def get_args():
     parser.add_argument(
         "--iluvatar",
         action="store_true",
-        help="Run moore test",
+        help="Run iluvatar test",
     )
     return parser.parse_args()
 
@@ -111,7 +111,7 @@ if __name__ == "__main__":
     args = get_args()
     print(args)
 
-    model_dir = args.model_dir
+    model_path = args.model_path
     dtype = torch.bfloat16
     # Parse command line arguments
     device = "cpu"
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         device = "cuda"
     else:
         print(
-            "Usage:  python test/qwen3_atteniton_test.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_dir=<path/to/model_dir>"
+            "Usage:  python test/qwen3_moe_test.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_path>"
         )
         sys.exit(1)
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     # -----------------------------------------------------------------------------
     # -----------------------------------------------------------------------------
 
-    moe = create_moe_torch(model_dir, device=device, dtype=dtype)
+    moe = create_moe_torch(model_path, device=device, dtype=dtype)
 
     print("*" * 130)
     print("Test Qwen3 MoE")
