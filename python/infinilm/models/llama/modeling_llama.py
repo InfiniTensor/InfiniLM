@@ -33,13 +33,15 @@ def repeat_kv(keys: infinicore.Tensor, values: infinicore.Tensor, ngroup: int):
     s0, s1, s2 = keys.stride()
 
     keys_new = (
-        keys.as_strided((total_seq_len, num_heads, ngroup, head_dim), (s0, s1, 0, s2))
+        keys.as_strided((total_seq_len, num_heads, ngroup,
+                        head_dim), (s0, s1, 0, s2))
         .contiguous()
         .view((total_seq_len, num_heads * ngroup, head_dim))
     )
 
     values_new = (
-        values.as_strided((total_seq_len, num_heads, ngroup, head_dim), (s0, s1, 0, s2))
+        values.as_strided((total_seq_len, num_heads, ngroup,
+                          head_dim), (s0, s1, 0, s2))
         .contiguous()
         .view((total_seq_len, num_heads * ngroup, head_dim))
     )
@@ -49,7 +51,7 @@ def repeat_kv(keys: infinicore.Tensor, values: infinicore.Tensor, ngroup: int):
 
 def multi_head_attention(
     querys: infinicore.Tensor,  # [seq_len,       num_heads, head_dim]
-    keys: infinicore.Tensor,  #   [total_seq_len, num_heads, head_dim]
+    keys: infinicore.Tensor,  # [total_seq_len, num_heads, head_dim]
     values: infinicore.Tensor,  # [total_seq_len, num_heads, head_dim]
     scaling: float,
 ):
@@ -81,9 +83,11 @@ def multi_head_attention(
 
 
 def grouped_query_attention(
-    querys: infinicore.Tensor,  # [seq_len,       num_attention_heads, head_dim]
-    keys: infinicore.Tensor,  #   [total_seq_len, num_key_value_heads, head_dim]
-    values: infinicore.Tensor,  # [total_seq_len, num_key_value_heads, head_dim]
+    # [seq_len,       num_attention_heads, head_dim]
+    querys: infinicore.Tensor,
+    keys: infinicore.Tensor,  # [total_seq_len, num_key_value_heads, head_dim]
+    # [total_seq_len, num_key_value_heads, head_dim]
+    values: infinicore.Tensor,
     scaling: float,
 ):
     num_attention_heads = querys.shape[1]
@@ -117,7 +121,8 @@ class LlamaMLP(infinicore.nn.Module):
         self.act_fn = infinicore.nn.functional.silu
 
     def forward(self, x: infinicore.Tensor) -> infinicore.Tensor:
-        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+        down_proj = self.down_proj(self.act_fn(
+            self.gate_proj(x)) * self.up_proj(x))
         return down_proj
 
 
@@ -175,7 +180,7 @@ class LlamaAttention(infinicore.nn.Module):
         **kwargs,
     ) -> infinicore.Tensor:
         hidden_states_shape = hidden_states.shape  # [bs, seq_len, hidden_size]
-        bs, seq_len = hidden_states_shape[:-1]  #    [bs, seq_len]
+        bs, seq_len = hidden_states_shape[:-1]  # [bs, seq_len]
 
         querys_shape = (bs, seq_len, self.num_attention_heads, self.head_dim)
         keys_shape = (bs, seq_len, self.num_key_value_heads, self.head_dim)
@@ -259,10 +264,12 @@ class LlamaDecoderLayer(infinicore.nn.Module):
         hidden_size = config.hidden_size
         rms_norm_eps = config.rms_norm_eps
 
-        self.self_attn = LlamaAttention(config=config, layer_idx=layer_idx, **kwargs)
+        self.self_attn = LlamaAttention(
+            config=config, layer_idx=layer_idx, **kwargs)
         self.mlp = LlamaMLP(config=config, **kwargs)
 
-        self.input_layernorm = LlamaRMSNorm(hidden_size, eps=rms_norm_eps, **kwargs)
+        self.input_layernorm = LlamaRMSNorm(
+            hidden_size, eps=rms_norm_eps, **kwargs)
         self.post_attention_layernorm = LlamaRMSNorm(
             hidden_size, eps=rms_norm_eps, **kwargs
         )
@@ -326,7 +333,8 @@ class LlamaModel(infinicore.nn.Module):
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps, **kwargs)
+        self.norm = LlamaRMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps, **kwargs)
 
         self.rope_instance = infinicore.nn.RoPE(
             max_position_embeddings=config.max_position_embeddings,

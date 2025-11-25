@@ -2,16 +2,8 @@
 InfiniLM - InfiniLM model implementations
 """
 
-from infinilm.models import (
-    LlamaConfig,
-    LlamaModel,
-    LlamaForCausalLM,
-    Device,
-)
+from infinilm.models import LlamaForCausalLM
 
 __all__ = [
-    "LlamaConfig",
-    "LlamaModel",
     "LlamaForCausalLM",
-    "Device",
 ]

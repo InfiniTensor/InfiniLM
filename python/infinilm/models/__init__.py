@@ -2,16 +2,8 @@
 InfiniLM models
 """
 
-from .llama import (
-    LlamaConfig,
-    LlamaModel,
-    LlamaForCausalLM,
-    Device,
-)
+from .llama import LlamaForCausalLM
 
 __all__ = [
-    "LlamaConfig",
-    "LlamaModel",
-    "LlamaForCausalLM",
-    "Device",
+    "LlamaForCausalLM"
 ]

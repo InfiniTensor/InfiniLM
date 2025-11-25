@@ -44,16 +44,22 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
         hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache, hook_registry, layer_prefix, static_cast<int>(i));
     }
 
-    // 3. Apply final layer normalization
+    // 3. Apply final layer normalization to last token only (aligns with transformers)
     if (hook_registry && hook_registry->has_hooks()) {
         hook_registry->call_hook("before_final_norm", hidden_states, -1);
     }
-    hidden_states = norm_->forward(hidden_states);
+
+    // Narrow to last token: [batch, seq_len, hidden_size] -> [batch, 1, hidden_size]
+    auto shape = hidden_states->shape();
+    size_t seq_len = shape[1];
+    auto last_token = hidden_states->narrow({{1, seq_len - 1, 1}});
+
+    auto normalized_last_token = norm_->forward(last_token);
     if (hook_registry && hook_registry->has_hooks()) {
-        hook_registry->call_hook("final_norm", hidden_states, -1);
+        hook_registry->call_hook("final_norm", normalized_last_token, -1);
     }
 
-    return hidden_states;
+    return normalized_last_token;
 }
 
 } // namespace infinilm::models::llama

@@ -31,7 +31,7 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    from infinilm.models.llama import LlamaConfig, LlamaForCausalLM, Device
+    from infinilm.models.llama import LlamaForCausalLM
 except ImportError as e:
     print(f"Error: InfiniLM Python package not found. Please install it:")
     print(f"  pip install -e .")
@@ -60,11 +60,6 @@ def load_model_config(model_dir: str) -> dict:
     with open(config_path, 'r') as f:
         config = json.load(f)
     return config
-
-
-def create_llama_config_from_dict(config_dict: dict) -> LlamaConfig:
-    """Create a LlamaConfig from dictionary"""
-    return LlamaConfig(**config_dict)
 
 
 def load_weights_into_infinilm_model(infinilm_model, transformers_model, infini_device, torch_device):
@@ -140,24 +135,9 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     print(f"Prompt: {prompt}")
     print("=" * 70)
 
-    # Load configuration
-    print("\n1. Loading model configuration...")
+    # Check device availability
+    print("\n1. Checking device availability...")
     try:
-        config_dict = load_model_config(model_dir)
-        print(f"   ✓ Configuration loaded from {model_dir}/config.json")
-    except Exception as e:
-        print(f"   ✗ Failed to load configuration: {e}")
-        return False
-
-    # Create InfiniLM config and model
-    print("\n2. Creating InfiniLM LlamaForCausalLM...")
-    try:
-        infinilm_config = create_llama_config_from_dict(config_dict)
-        if not infinilm_config.validate():
-            print("   ✗ InfiniLM configuration validation failed")
-            return False
-
-        # Check device availability
         from infinicore.lib import _infinicore
         if device_type == "cuda":
             nvidia_device_type = _infinicore.Device.Type.NVIDIA
@@ -168,15 +148,19 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
             if device_index >= device_count:
                 print(f"   ✗ CUDA device index {device_index} is out of range")
                 return False
+        print(f"   ✓ Device {device_type}:{device_index} is available")
+    except Exception as e:
+        print(f"   ✗ Failed to check device: {e}")
+        return False
 
-        # Create device
+    # Create InfiniLM model from pretrained
+    print("\n2. Loading InfiniLM LlamaForCausalLM from pretrained...")
+    try:
         infini_device = infinicore.device(device_type, device_index)
-        device_type_upper = device_type.upper()
-        if device_type_upper == "CUDA":
-            device_type_upper = "NVIDIA"
-        device = Device(device_type_upper, device_index)
-        infinilm_model = LlamaForCausalLM(infinilm_config, device)
-        print(f"   ✓ InfiniLM model created on {device_type}:{device_index}")
+        infinilm_model = LlamaForCausalLM.from_pretrained(
+            model_dir, device=infini_device)
+        print(
+            f"   ✓ InfiniLM model loaded from {model_dir} on {device_type}:{device_index}")
     except Exception as e:
         print(f"   ✗ Failed to create InfiniLM model: {e}")
         import traceback
@@ -250,6 +234,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
                 use_cache=False
             )
             transformers_logits = outputs.logits
+            transformers_last_logits = transformers_logits[:, -1:, :]
         print(f"   ✓ Transformers inference completed")
         print(f"     Logits shape: {transformers_logits.shape}")
         print(f"     Logits dtype: {transformers_logits.dtype}")
@@ -257,16 +242,18 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
               f"max={transformers_logits.max().item():.6f}, "
               f"mean={transformers_logits.mean().item():.6f}")
 
-        # Decode predicted tokens for human understanding
-        transformers_predicted_ids = transformers_logits.argmax(dim=-1)
-        transformers_predicted_tokens = transformers_predicted_ids[0].tolist()
-        transformers_predicted_text = tokenizer.decode(
-            transformers_predicted_tokens, skip_special_tokens=True)
+        # Decode predicted tokens for human understanding (last token only)
+        transformers_last_predicted_id = transformers_last_logits.argmax(
+            dim=-1)
+        transformers_last_predicted_token = transformers_last_predicted_id[0, 0].item(
+        )
+        transformers_last_predicted_text = tokenizer.decode(
+            [transformers_last_predicted_token], skip_special_tokens=True)
         print(f"     Input prompt: {prompt}")
         print(
-            f"     Transformers predicted tokens: {transformers_predicted_tokens}")
+            f"     Transformers last token prediction: {transformers_last_predicted_token}")
         print(
-            f"     Transformers predicted text: {transformers_predicted_text}")
+            f"     Transformers last token text: \"{transformers_last_predicted_text}\"")
     except Exception as e:
         print(f"   ✗ Failed to run transformers inference: {e}")
         import traceback
@@ -295,7 +282,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
 
             # Convert InfiniCore logits to PyTorch tensor
             infinilm_logits = infinicore_to_torch_tensor(
-                infini_logits, transformers_logits)
+                infini_logits, transformers_last_logits)
             print(f"   ✓ Converted logits to PyTorch tensor")
             print(f"     Logits shape: {infinilm_logits.shape}")
             print(f"     Logits dtype: {infinilm_logits.dtype}")
@@ -314,20 +301,15 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
                 print(
                     f"     ⚠ WARNING: InfiniLM logits are very small (max abs: {infinilm_logits.abs().max().item():.6f})")
 
-            # Decode predicted tokens for human understanding
+            # Decode predicted token for human understanding (last token only)
             infinilm_predicted_ids = infinilm_logits.argmax(dim=-1)
-
-            # Check if all predictions are the same (indicates model might not be learning)
-            unique_predictions = torch.unique(infinilm_predicted_ids[0])
-            if len(unique_predictions) == 1:
-                print(
-                    f"     ⚠ WARNING: InfiniLM is predicting the same token ({unique_predictions[0].item()}) for all positions!")
-            infinilm_predicted_tokens = infinilm_predicted_ids[0].tolist()
+            infinilm_predicted_token = infinilm_predicted_ids[0, 0].item()
             infinilm_predicted_text = tokenizer.decode(
-                infinilm_predicted_tokens, skip_special_tokens=True)
+                [infinilm_predicted_token], skip_special_tokens=True)
             print(
-                f"     InfiniLM predicted tokens: {infinilm_predicted_tokens}")
-            print(f"     InfiniLM predicted text: {infinilm_predicted_text}")
+                f"     InfiniLM last token prediction: {infinilm_predicted_token}")
+            print(
+                f"     InfiniLM last token text: \"{infinilm_predicted_text}\"")
         else:
             print(f"   ⚠ Forward method not yet available in Python bindings")
             print(f"     This test will validate model setup and weight loading only")
@@ -349,17 +331,17 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     print("\n8. Comparing inference outputs...")
     try:
         # Check shapes match
-        if infinilm_logits.shape != transformers_logits.shape:
+        if infinilm_logits.shape != transformers_last_logits .shape:
             print(f"   ✗ Shape mismatch:")
             print(f"     InfiniLM: {infinilm_logits.shape}")
-            print(f"     Transformers: {transformers_logits.shape}")
+            print(f"     Transformers: {transformers_last_logits .shape}")
             return False
 
         print(f"   ✓ Shapes match: {infinilm_logits.shape}")
 
         # Compare predicted tokens for human understanding
         # Compute predicted tokens from logits
-        transformers_predicted_ids = transformers_logits.argmax(dim=-1)
+        transformers_predicted_ids = transformers_last_logits .argmax(dim=-1)
         transformers_predicted_tokens = transformers_predicted_ids[0].tolist()
         transformers_predicted_text = tokenizer.decode(
             transformers_predicted_tokens, skip_special_tokens=True)
@@ -397,7 +379,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
 
         # Compare logits
         is_close, stats = tensor_all_close(
-            infinilm_logits, transformers_logits, rtol=1e-3, atol=1e-3)
+            infinilm_logits, transformers_last_logits, rtol=1e-3, atol=1e-3)
 
         print(f"   Comparison statistics:")
         print(f"     Max absolute difference: {stats['max_abs_diff']:.6e}")

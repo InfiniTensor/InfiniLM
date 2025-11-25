@@ -11,12 +11,7 @@ This package exposes two flavors of the Llama stack:
 
 from . import configuration_llama
 from . import modeling_llama
-from .llama_cpp import (
-    Device,
-    LlamaConfig,
-    LlamaForCausalLM,
-    LlamaModel,
-)
+from .llama_cpp import LlamaForCausalLM
 
 # Provide explicit aliases for the Transformers-style Python implementation so
 # downstream tooling can still reach it without clashing with the native API.
@@ -26,10 +21,7 @@ TransformersLlamaForCausalLM = modeling_llama.LlamaForCausalLM
 
 __all__ = [
     # Native C++ bindings
-    "LlamaConfig",
-    "LlamaModel",
     "LlamaForCausalLM",
-    "Device",
     # Transformer-style reference implementation
     "configuration_llama",
     "modeling_llama",

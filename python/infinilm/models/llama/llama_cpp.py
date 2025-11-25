@@ -2,67 +2,84 @@
 Llama model C++ bindings implementation
 """
 
-from infinilm.lib import _infinilm_llama
+import json
+import os
+from typing import Optional, Union
 
-# Import Device from InfiniCore (it's already bound there)
-try:
-    from infinicore.lib import _infinicore
-    _Device = _infinicore.Device
-except ImportError:
-    # Fallback: try to get Device from _infinilm_llama if available
-    try:
-        _Device = _infinilm_llama.Device
-    except AttributeError:
-        raise ImportError(
-            "Device not found. Please ensure InfiniCore is properly installed.")
+import infinicore
+from infinicore.device import device as Device
+from infinilm.lib import _infinilm_llama
+from infinilm.models.llama.configuration_llama import LlamaConfig as _LlamaConfig
 
 
 class LlamaConfig:
-    """Llama model configuration"""
+    """Llama model configuration adapter for C++ bindings.
+
+    This class wraps configuration_llama.LlamaConfig and provides
+    a _underlying property that creates the C++ config object.
+    """
 
     def __init__(self, config_dict=None, **kwargs):
         """Create LlamaConfig from dictionary or keyword arguments"""
-        # If config_dict is provided, merge it with kwargs (kwargs take precedence)
-        if config_dict is not None and isinstance(config_dict, dict):
-            merged = {**config_dict, **kwargs}
+        # Use the Python config from configuration_llama
+        if isinstance(config_dict, _LlamaConfig):
+            self._python_config = config_dict
         else:
-            merged = kwargs
+            if config_dict is not None and isinstance(config_dict, dict):
+                merged = {**config_dict, **kwargs}
+            else:
+                merged = kwargs
+            self._python_config = _LlamaConfig(**merged)
 
-        self._config = _infinilm_llama.LlamaConfig()
-
-        # Set attributes from merged dict
-        for key, value in merged.items():
-            if hasattr(self._config, key):
-                setattr(self._config, key, value)
-
-        # Handle defaults if not explicitly set
-        if 'num_key_value_heads' not in merged:
-            self._config.num_key_value_heads = self._config.num_attention_heads
-
-        if 'head_dim' not in merged:
-            self._config.head_dim = self._config.hidden_size // self._config.num_attention_heads
+        # Lazy initialization of C++ config
+        self._cpp_config = None
 
     def __getattr__(self, name):
-        """Delegate attribute access to underlying config"""
-        return getattr(self._config, name)
+        """Delegate attribute access to Python config"""
+        return getattr(self._python_config, name)
 
     def __setattr__(self, name, value):
-        """Delegate attribute setting to underlying config"""
+        """Delegate attribute setting to Python config"""
         if name.startswith('_'):
             super().__setattr__(name, value)
         else:
-            if hasattr(self, '_config'):
-                setattr(self._config, name, value)
+            if hasattr(self, '_python_config'):
+                setattr(self._python_config, name, value)
+                # Invalidate C++ config cache when Python config changes
+                self._cpp_config = None
             else:
                 super().__setattr__(name, value)
 
     @property
     def _underlying(self):
-        """Get underlying C++ config object"""
-        return self._config
+        """Get underlying C++ config object, creating it if needed"""
+        if self._cpp_config is None:
+            self._cpp_config = _infinilm_llama.LlamaConfig()
+
+            # Copy attributes from Python config to C++ config
+            for key in dir(self._python_config):
+                if key.startswith('_'):
+                    continue
+                try:
+                    value = getattr(self._python_config, key)
+                    if hasattr(self._cpp_config, key) and not callable(value):
+                        setattr(self._cpp_config, key, value)
+                except (AttributeError, TypeError):
+                    pass
+
+            # Handle defaults
+            if not hasattr(self._cpp_config, 'num_key_value_heads') or \
+               self._cpp_config.num_key_value_heads == 0:
+                self._cpp_config.num_key_value_heads = self._cpp_config.num_attention_heads
+
+            if not hasattr(self._cpp_config, 'head_dim') or \
+               self._cpp_config.head_dim == 0:
+                self._cpp_config.head_dim = self._cpp_config.hidden_size // self._cpp_config.num_attention_heads
+
+        return self._cpp_config
 
 
-class LlamaModel:
+class LlamaModel(infinicore.nn.Module):
     """Llama base model (without language modeling head)"""
 
     def __init__(self, config, device=None):
@@ -73,6 +90,8 @@ class LlamaModel:
             config: LlamaConfig instance or dict
             device: Device instance (defaults to CPU)
         """
+        super().__init__()
+
         if isinstance(config, dict):
             config = LlamaConfig(**config)
         elif not isinstance(config, LlamaConfig):
@@ -120,8 +139,19 @@ class LlamaModel:
         """Get number of layers"""
         return self._model.num_layers()
 
+    def forward(self, *args, **kwargs):
+        """Forward wrapper."""
+        if not hasattr(self._model, "forward"):
+            raise NotImplementedError("Underlying LlamaModel has no forward()")
+        return infinicore.Tensor(
+            self._model.forward(*args, **kwargs)
+        )
 
-class LlamaForCausalLM:
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+
+class LlamaForCausalLM(infinicore.nn.Module):
     """Llama model for causal language modeling"""
 
     def __init__(self, config, device=None):
@@ -132,6 +162,8 @@ class LlamaForCausalLM:
             config: LlamaConfig instance or dict
             device: Device instance (defaults to CPU)
         """
+        super().__init__()
+
         if isinstance(config, dict):
             config = LlamaConfig(**config)
         elif not isinstance(config, LlamaConfig):
@@ -179,27 +211,38 @@ class LlamaForCausalLM:
         """Get model configuration"""
         return self._model.config()
 
+    def forward(self, *args, **kwargs):
+        """Forward wrapper."""
+        if not hasattr(self._model, "forward"):
+            raise NotImplementedError(
+                "Underlying LlamaForCausalLM has no forward()")
+        return self._model.forward(*args, **kwargs)
 
-class Device:
-    """Device for tensor operations"""
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
 
-    def __init__(self, device_type=None, device_index=0):
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_path: Union[str, os.PathLike],
+        device: Optional[Device] = None,
+    ):
         """
-        Create Device
+        Load a pretrained LlamaForCausalLM model from a directory.
 
         Args:
-            device_type: Device type (defaults to CPU)
-            device_index: Device index (defaults to 0)
-        """
-        if device_type is None:
-            self._device = _Device()
-        else:
-            if isinstance(device_type, str):
-                # Convert string to enum
-                device_type = getattr(_Device.Type, device_type.upper())
-            self._device = _Device(device_type, device_index)
+            model_path: Path to the model directory containing config.json
+            device: Device instance (defaults to CPU)
 
-    @property
-    def _underlying(self):
-        """Get underlying C++ device object"""
-        return self._device
+        Returns:
+            LlamaForCausalLM instance
+        """
+        config_path = os.path.join(model_path, "config.json")
+        if not os.path.exists(config_path):
+            raise FileNotFoundError(f"Config file not found: {config_path}")
+
+        with open(config_path, "r") as f:
+            config_dict = json.load(f)
+
+        config = LlamaConfig(config_dict)
+        return cls(config, device=device)
