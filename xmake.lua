@@ -72,7 +72,7 @@ target("_infinilm_llama")
     -- spdlog is already included globally via add_includedirs at the top
 
     add_linkdirs(INFINI_ROOT.."/lib")
-    add_links("infinicore_c_api", "infiniop", "infinirt", "infiniccl")
+    add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl")
 
     -- Add Llama model files
     add_files("csrc/models/llama/llama_*.cpp")

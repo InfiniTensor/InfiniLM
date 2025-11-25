@@ -212,12 +212,9 @@ def validate_infinicore_rope_component(
         head_dim = transformers_model.config.head_dim
         max_seq_len = transformers_model.config.max_position_embeddings
         rope_theta = getattr(transformers_model.config, "rope_theta", 10000.0)
-        freq_gen_enum = getattr(_infinicore, "RoPEFreqGen", None)
         algo_enum = getattr(_infinicore, "RoPEAlgo", None)
-        # Use GPT_J frequency generation to match Transformers Llama's frequency calculation
-        # Use GPT_NEOX rotation algorithm to match Transformers Llama's rotate_half behavior
-        # This matches the actual model implementation (see llama_attention.cpp:187-189)
-        freq_gen = freq_gen_enum.GPT_J if freq_gen_enum is not None else 0
+        # InfiniCore always uses GPT-J style inverse frequencies; select GPT_NEOX for rotation pairing
+        # to match Transformers Llama's rotate_half behavior (see llama_attention.cpp).
         algo = algo_enum.GPT_NEOX if algo_enum is not None else 1
         dtype_enum = getattr(_infinicore, "DataType", None)
         if dtype_enum is None:
@@ -230,7 +227,6 @@ def validate_infinicore_rope_component(
             head_dim,
             max_seq_len,
             rope_theta,
-            freq_gen,
             algo,
             dtype_value,
             device_underlying,
@@ -882,7 +878,7 @@ def test_intermediate_validation(model_dir: str, device_type: str = "cpu", devic
             continue
 
         # Use relaxed tolerance for RoPE steps (9.7 and 9.8) due to numerical precision differences
-        # After refactoring to use GPT_J freq_gen + GPT_NEOX algo, max abs diff is ~4e-3
+        # Using GPT-J inverse frequencies + GPT_NEOX rotation, max abs diff is ~4e-3
         # This is acceptable for float32 numerical precision differences
         step_rtol = rtol
         step_atol = atol

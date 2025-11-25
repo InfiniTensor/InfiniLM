@@ -24,11 +24,9 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config, const infinicore::Devi
                                infinicore::DataType::F32, device);
 
     // Initialize Rotary Position Embeddings
-    // Use GPT_J frequency generation (theta^(-2j/head_dim)) to match Transformers Llama
-    // Use GPT_NEOX rotation algorithm (pair j with j+head_dim/2) to match rotate_half behavior
+    // Use GPT_J-style inverse frequencies (default in InfiniCore) and GPT_NEOX rotation pairing
     INFINICORE_NN_MODULE_INIT(rotary_emb, head_dim_, config.max_position_embeddings,
-                              config.rope_theta, infinicore::nn::RoPE::Algo::GPT_J,
-                              infinicore::nn::RoPE::Algo::GPT_NEOX,
+                              config.rope_theta, infinicore::nn::RoPE::Algo::GPT_NEOX,
                               infinicore::DataType::F32, device);
 }
 
