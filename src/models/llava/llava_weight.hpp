@@ -6,15 +6,65 @@
 #include "infinicore_infer/models/llava.h"
 
 #include <memory>
+#include <cstring>  // for memcpy
 
-// // Vision weight getters
-// inline std::shared_ptr<Tensor> getPatchEmbedWeight(const LlavaWeights *weights) {
-//     return std::make_shared<Tensor>(
-//         std::vector<size_t>{},  // Shape to be defined based on vision encoder
-//         weights->vision_patch_embed_weight,
-//         DT_F16, DEVICE_CPU, 0
-//     );
-// }
+// Vision weight getters
+inline std::shared_ptr<Tensor> getPatchEmbedWeight(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights) {
+    printf("[CPP getPatchEmbedWeight] vision_patch_embed_weight address: =%p\n",
+           weights->vision_patch_embed_weight);
+    
+    // 从meta中获取vision embedding参数
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;  // 输出通道数 [1024]
+    auto patch_size = meta->vision_meta.patch_size;              // 卷积核大小 [14]
+
+    // 对于RGB图像，输入通道数总是3
+    const size_t input_channels = 3;
+
+    // Patch embedding卷积核形状: [vision_embed_dim, input_channels, patch_size, patch_size]
+    auto shape = std::vector<size_t>{vision_embed_dim, input_channels, patch_size, patch_size};
+
+    printf("[CPP getPatchEmbedWeight] Calculated shape: [%zu, %zu, %zu, %zu]\n",
+           vision_embed_dim, input_channels, patch_size, patch_size);
+
+    auto vision_patch_embed_device_tensor =
+    Tensor::weight(
+        (char *)weights->vision_patch_embed_weight,  // 权重数据指针
+        meta->language_meta.dt_logits,
+        shape
+    );
+    // std::cout << vision_patch_embed_device_tensor->info() << std::endl;
+
+    // vision_patch_embed_device_tensor->debug_first_n(10);
+
+    return vision_patch_embed_device_tensor;
+}
+
+// 创建position embedding (从meta中获取形状)
+inline std::shared_ptr<Tensor> createPositionEmbedding(LlavaMeta const *meta) {
+    // 从meta中获取参数
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
+    auto num_patches = meta->vision_meta.num_patches;
+
+    // CLIP ViT通常还需要class token，所以位置编码长度是 num_patches + 1
+    auto pos_embed_length = num_patches + 1;  // 576 + 1 = 577
+
+    printf("[CPP createPositionEmbedding] Shape: [%zu, %zu]\n", pos_embed_length, vision_embed_dim);
+
+    std::vector<float> pos_embed_data(pos_embed_length * vision_embed_dim, 0.0f);
+    return Tensor::weight(pos_embed_data.data(), INFINI_DTYPE_F16, {pos_embed_length, vision_embed_dim});
+}
+
+// 创建class token (从meta中获取形状)
+inline std::shared_ptr<Tensor> createClassToken(LlavaMeta const *meta) {
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
+
+    printf("[CPP createClassToken] Shape: [1, %zu]\n", vision_embed_dim);
+
+    std::vector<float> class_token_data(vision_embed_dim, 0.0f);
+    return Tensor::weight(class_token_data.data(), INFINI_DTYPE_F16, {1, vision_embed_dim});
+}
 
 // inline std::shared_ptr<Tensor> getProjectorWeight(const LlavaWeights *weights, size_t text_dim, size_t vision_dim) {
 //     return std::make_shared<Tensor>(

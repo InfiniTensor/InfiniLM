@@ -159,7 +159,7 @@ std::shared_ptr<Tensor> Tensor::weight(void *data, infiniDtype_t dtype,
     tensor->_storage = Storage::create(size);
     tensor->_desc = TensorDesc::create(dtype, shape, strides);
     if (data != nullptr) {
-        tensor->load(data);
+        tensor->load(data);   // CPU -> 设备内存传输
     }
 
     tensor->_offset = 0;
@@ -272,6 +272,36 @@ void print_data_bf16(uint16_t const *data, const std::vector<size_t> &shape,
     }
 }
 
+// 新增模板函数：只打印前n个数据
+template <typename T>
+void print_data_first_n(T *data, size_t total_elements, size_t n) {
+    size_t elements_to_print = std::min(total_elements, n);
+    std::cout << "前" << elements_to_print << "个数据: ";
+    for (size_t i = 0; i < elements_to_print; i++) {
+        std::cout << data[i] << " ";
+    }
+    std::cout << std::endl;
+}
+
+// F16特化版本，显示hex值和近似float值
+void print_data_first_n_f16(uint16_t const *data, size_t total_elements, size_t n) {
+    size_t elements_to_print = std::min(total_elements, n);
+    std::cout << "前" << elements_to_print << "个F16数据: " << std::endl;
+    for (size_t i = 0; i < elements_to_print; i++) {
+        std::cout << f16_to_f32(data[i]) << " ";
+    }
+    std::cout << std::endl;
+}
+
+// BF16特化版本 - 使用不同的函数名避免与F16冲突
+void print_data_first_n_bf16(uint16_t const *data, size_t total_elements, size_t n) {
+    size_t elements_to_print = std::min(total_elements, n);
+    std::cout << "前" << elements_to_print << "个BF16数据: " << std::endl;
+    for (size_t i = 0; i < elements_to_print; i++) {
+        std::cout << "  [" << i << "]: 0x" << std::hex << data[i] << std::dec << std::endl;
+    }
+}
+
 std::string Tensor::info() const {
     std::stringstream ss;
 
@@ -279,7 +309,8 @@ std::string Tensor::info() const {
        << this->_desc->info()
        << " device=" << this->deviceType()
        << " device_id=" << this->deviceId();
-    return this->_desc->info();
+    // return this->_desc->info();
+    return ss.str();
 }
 
 size_t Tensor::seed() const {
@@ -424,3 +455,68 @@ void Tensor::debug(const std::string &filename) const {
 }
 
 void Tensor::debug() const { this->debug(""); }
+
+void Tensor::debug_first_n(size_t n) const {
+    RUN_INFINI(infinirtDeviceSynchronize());
+
+    std::cout << "=== Tensor Debug (First " << n << " Elements) ===" << std::endl;
+    std::cout << info() << std::endl;
+
+    void const *cpu_data;
+    void *allocated_memory = nullptr;
+
+    if (this->deviceType() != INFINI_DEVICE_CPU) {
+        // 从设备内存复制数据到主机内存
+        allocated_memory = std::malloc(this->_storage->size());
+        RUN_INFINI(infinirtMemcpy(allocated_memory, this->_storage->memory(),
+                                  this->_storage->size(), INFINIRT_MEMCPY_D2H));
+        cpu_data = allocated_memory;
+        std::cout << "数据已从设备内存复制到主机内存" << std::endl;
+    } else {
+        cpu_data = this->_storage->memory();
+        std::cout << "数据直接在主机内存中" << std::endl;
+    }
+
+    // 计算总元素数量
+    size_t total_elements = numel();
+    std::cout << "总元素数量: " << total_elements << std::endl;
+    std::cout << "数据类型大小: " << dsize(this->dtype()) << " 字节" << std::endl;
+    std::cout << "存储总大小: " << this->_storage->size() << " 字节" << std::endl;
+
+    // 根据数据类型打印前n个元素
+    const char* data_ptr = static_cast<const char*>(cpu_data) + dataOffset();
+
+    switch (this->dtype()) {
+    case INFINI_DTYPE_F16:
+        print_data_first_n_f16((uint16_t const *)data_ptr, total_elements, n);
+        break;
+    case INFINI_DTYPE_F32:
+        print_data_first_n((float const *)data_ptr, total_elements, n);
+        break;
+    case INFINI_DTYPE_U64:
+        print_data_first_n((uint64_t const *)data_ptr, total_elements, n);
+        break;
+    case INFINI_DTYPE_I64:
+        print_data_first_n((int64_t const *)data_ptr, total_elements, n);
+        break;
+    case INFINI_DTYPE_U32:
+        print_data_first_n((uint32_t const *)data_ptr, total_elements, n);
+        break;
+    case INFINI_DTYPE_I32:
+        print_data_first_n((int32_t const *)data_ptr, total_elements, n);
+        break;
+    case INFINI_DTYPE_BF16:
+        print_data_first_n_bf16((uint16_t const *)data_ptr, total_elements, n);
+        break;
+    default:
+        std::cout << "不支持的数据类型，无法显示" << std::endl;
+        PANIC("Unsupported data type");
+    }
+
+    // 释放分配的内存
+    if (allocated_memory) {
+        std::free(allocated_memory);
+    }
+
+    std::cout << "=== Debug End ===" << std::endl;
+}

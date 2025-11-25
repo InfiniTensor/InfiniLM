@@ -123,6 +123,14 @@ class LlavaModel(BaseModel):
         lib.createKVCache.restype = POINTER(KVCacheCStruct)
         lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
 
+        # 新增：LLaVA Vision Encoding (用于batch_infer_vision)
+        lib.inferBatchLlavaVison.argtypes = [
+            POINTER(LlavaModelCStruct),  # model
+            c_void_p,  # image_data
+            c_void_p,  # output
+        ]
+        lib.inferBatchLlavaVison.restype = None
+
         # lib.encodeVision.argtypes = [
         #     POINTER(c_void_p),  # model
         #     c_void_p,  # image_tensor
@@ -173,6 +181,10 @@ class LlavaModel(BaseModel):
 
     def drop_kv_cache(self, kv_cache):
         self.lib.dropKVCache(kv_cache)
+
+    def infer_batch_vision(self, model, image_data, output):
+        """LLaVA Vision Encoding - 对应Python中的infer_batch_vision"""
+        self.lib.inferBatchLlavaVison(model, image_data, output)
 
     def encode_vision(self, model, image_tensor, output):
         self.lib.encodeVision(model, image_tensor, output)

@@ -62,6 +62,10 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> in_w,
                  std::shared_ptr<Tensor> in_s,
                  std::shared_ptr<Tensor> in_z);
+    void conv2d(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
+                std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> b,
+                std::vector<size_t> pads, std::vector<size_t> strides,
+                std::vector<size_t> dilations);
 };
 
 namespace {
@@ -148,4 +152,15 @@ inline void dequant_linear(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> 
     auto w = Tensor::buffer(x->dtype(), {x->shape()[1], out->shape()[1]}, getInferenceContext().memory_pool);
     getInferenceContext().dequant(w, w_w, w_s, w_z);
     getInferenceContext().linear(out, x, w, alpha, beta, residual, bias);
+}
+
+// 新增Conv2d的便捷函数
+inline void conv2d(std::shared_ptr<Tensor> y,
+                   std::shared_ptr<Tensor> x,
+                   std::shared_ptr<Tensor> w,
+                   std::shared_ptr<Tensor> b,
+                   std::vector<size_t>& pads,
+                   std::vector<size_t>& strides,
+                   std::vector<size_t>& dilations) {
+    getInferenceContext().conv2d(y, x, w, b, pads, strides, dilations);
 }

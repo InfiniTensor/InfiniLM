@@ -18,11 +18,26 @@ struct LlavaDeviceResource {
     infiniDevice_t device;
     int device_id;
     infiniopHandle_t handle;
-    // Weights
+
+    // Language Model Weights (复用jiuge结构)
     std::shared_ptr<Tensor> w_in_embd, w_out_norm, w_out_embd, sin_table,
         cos_table;
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm,w_attn_out,
         w_ffn_norm, w_ffn_gate_up, w_ffn_down;
+
+    // === Vision Encoder Weights ===
+    // Patch Embedding Conv2d
+    std::shared_ptr<Tensor> vision_patch_embed_weight;  // [1024, 3, 14, 14]
+
+    // Position Embedding
+    std::shared_ptr<Tensor> vision_position_embedding;  // [577, 1024]
+
+    // Class Token
+    std::shared_ptr<Tensor> vision_class_token;  // [1, 1024]
+
+    // Vision Transformer Layers (复用language结构存储)
+    // 注意：这里先只实现patch embedding部分
+
     // Streams
     infinirtStream_t stream;
     // Communicator
@@ -92,9 +107,9 @@ struct LlavaModel {
                infiniDevice_t device, std::vector<int> device_ids);
     // ~LlavaModel();
 
-    // // 统一推理接口
+    // // LLaVA四阶段统一推理接口
     // void inferBatchLlava(const uint32_t* input_tokens, const void* image_data,
-    //                     void** kv_caches, const char* mode, uint32_t batch_size,
+    //                     void** kv_caches, uint32_t batch_size,
     //                     uint32_t* output);
 
 };

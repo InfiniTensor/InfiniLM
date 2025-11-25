@@ -23,7 +23,7 @@ cache/
 #GGUF
 *.gguf
 
-# txt
-*.txt
+# # txt
+# *.txt
 
 *.http

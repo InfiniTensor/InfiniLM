@@ -9,21 +9,54 @@
 #include <random>
 #include <thread>
 #include <vector>
+#include <fstream>
+#include <iomanip>
 
 // LLaVA设备资源创建函数，模仿jiuge.cpp的createDeviceResource
 void createLlavaDeviceResource(LlavaDeviceResource *rsrc, const LlavaMeta *meta,
                              const LlavaWeights *weights,
                              infiniDevice_t device, int idev, int ndev, int dev_id,
                              infinicclComm_t comm) {
-    // 🏗️ 初始化设备资源 - 统一线程架构只需要一套resource
-    rsrc->device = device;
-    rsrc->device_id = dev_id;
+    RUN_INFINI(infinirtSetDevice(device, dev_id));
+    infiniopHandle_t handle;
+    infiniopCreateHandle(&handle);
+    infinirtStream_t stream;
+    infinirtStreamCreate(&stream);
 
-    infiniopCreateHandle(&rsrc->handle);
-    infinirtStreamCreate(&rsrc->stream);
-    rsrc->comm = comm;
+    // 初始化memory_pool
+    auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
-    // TODO: 初始化memory_pool和weights（参考jiuge.cpp）
+    // 初始化Language Model权重（暂时为空，复用jiuge结构）
+    std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
+        w_ffn_norm, w_ffn_gate_up, w_ffn_down;
+
+    // 初始化Vision Encoder权重
+    auto vision_patch_embed_weight = getPatchEmbedWeight(meta, weights);
+    auto vision_position_embedding = createPositionEmbedding(meta); // 从meta中获取形状
+    auto vision_class_token = createClassToken(meta); // 从meta中获取形状
+
+    // 临时创建language model权重（将来应该从weights中加载）
+    std::shared_ptr<Tensor> w_in_embd = nullptr;
+    std::shared_ptr<Tensor> w_out_norm = nullptr;
+    std::shared_ptr<Tensor> w_out_embd = nullptr;
+    std::shared_ptr<Tensor> sin_table = nullptr;
+    std::shared_ptr<Tensor> cos_table = nullptr;
+
+    *rsrc = LlavaDeviceResource{
+        device,
+        dev_id,
+        handle,
+        w_in_embd, w_out_norm, w_out_embd, sin_table, cos_table,
+        w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
+        w_ffn_norm, w_ffn_gate_up, w_ffn_down,
+        vision_patch_embed_weight,
+        vision_position_embedding, // TODO: 不知道是什么但先放这儿
+        vision_class_token, // TODO: 不知道是什么但先放这儿
+        stream,
+        comm,
+        memory_pool,
+    };
+    RUN_INFINI(infinirtDeviceSynchronize());
 }
 
 void releaseDeviceResource(LlavaDeviceResource &res) {
@@ -71,8 +104,63 @@ void releaseDeviceResource(LlavaDeviceResource &res) {
 }
 
 
+// LLaVA视觉编码设备层推理函数（模仿inferDeviceBatch）
+void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
+                           uint32_t idev, uint32_t ndev,
+                           const void *image_data, uint32_t *output) {
+
+// inputs["input_ids"].shape: torch.Size([1, 593])
+// shape of weight: torch.Size([1024, 3, 14, 14])
+// shape of input: torch.Size([1, 3, 336, 336])
+// shape of output: torch.Size([1, 1024, 24, 24])
+// Debug: print image_data pointer
+    printf("DEBUG: image_data pointer = %p\n", image_data);
+
+    // === 1. 准备参数 ===
+    auto vision_embed_dim = meta.vision_meta.vision_embed_dim; // 1024
+    auto image_size = meta.vision_meta.image_size; // 336
+    auto patch_size = meta.vision_meta.patch_size; // 14
+    auto dt_logits = meta.language_meta.dt_logits; // F16
+    auto stream = rsrc.stream;
+
+    // 计算patches数量
+    auto patches_per_dim = image_size / patch_size; // 24
+    // auto total_patches = patches_per_dim * patches_per_dim;
+
+    // === 2. 准备buffer ===
+    // auto input_image_tensor_f32 = Tensor::buffer(INFINI_DTYPE_F32, {1, 3, image_size, image_size}, rsrc.memory_pool);
+    auto input_image_tensor = Tensor::buffer(dt_logits, {1, 3, image_size, image_size}, rsrc.memory_pool);
+    auto patch_embed_output = Tensor::buffer(dt_logits, {1, vision_embed_dim, patches_per_dim, patches_per_dim}, rsrc.memory_pool);
+
+    // 复制输入图像数据
+    RUN_INFINI(infinirtMemcpyAsync(input_image_tensor->data(), image_data,
+                                  image_size * image_size * 3 * sizeof(uint16_t),
+                                  INFINIRT_MEMCPY_H2D, stream));
+    
+    printf("DEBUG: input_image_tensor after memcpy:\n");
+    input_image_tensor->debug_first_n(10);
+
+    // === 3. CLIPVisionEmbeddings Forward ===
+    // Step 1: Patch Embedding (Conv2d)
+
+    printf("DEBUG: Running Conv2d: input [1,3,%ld,%ld] -> output [1,%ld,%ld,%ld]\n",
+           image_size, image_size, vision_embed_dim, patches_per_dim, patches_per_dim);
+    printf("DEBUG: vision_patch_embed_weight = %p\n", rsrc.vision_patch_embed_weight.get());
+    rsrc.vision_patch_embed_weight->debug_first_n(10);
+
+    // 准备卷积参数
+    std::vector<size_t> pads = {0, 0};  // 无padding
+    std::vector<size_t> strides = {static_cast<size_t>(patch_size), static_cast<size_t>(patch_size)};
+    std::vector<size_t> dilations = {1, 1};
+
+    conv2d(patch_embed_output, input_image_tensor, rsrc.vision_patch_embed_weight,
+           nullptr, pads, strides, dilations);
+    
+    patch_embed_output->debug_first_n(10);
 
 
+
+}
 
 // LLaVA设备工作线程函数，严格按照jiuge.cpp的launchDevice结构
 void launchLlavaDevice(const LlavaMeta &meta, const LlavaWeights *weights,
@@ -114,9 +202,70 @@ void launchLlavaDevice(const LlavaMeta &meta, const LlavaWeights *weights,
         //     req.output[0] = 1;
         // }
 
-        // inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
-        //                  req.req_lens, req.nreq, req.req_pos, req.kv_caches,
-        //                  req.temperature, req.topk, req.topp, req.output, req.logits);
+        inferDeviceBatchVision(meta, *rsrc, idev, ndev, 
+                                req.image_data, req.output);
+
+        // // === LLaVA四阶段推理流程 ===
+        // // 阶段1: Vision Encoder (如果有图像)
+        // if (req.image_data != nullptr) {
+        //     state.current_stage = 1;
+        //     state.stage_completed = false;
+        //     lock.unlock();
+        //     state.cv_stage.notify_one(); // 通知主线程进入阶段1
+
+        //     // TODO: 实现vision encoding
+        //     // encodeVisionFeatures(meta, *rsrc, req.image_data, state.vision_features);
+
+        //     lock.lock();
+        //     state.stage_completed = true;
+        //     state.current_stage = 2;
+        // }
+
+        // // 阶段2: MultiModal Projector (如果有图像特征)
+        // if (state.vision_features != nullptr) {
+        //     lock.unlock();
+        //     state.cv_stage.notify_one(); // 通知主线程进入阶段2
+
+        //     // TODO: 实现multimodal projection
+        //     // projectMultiModalFeatures(meta, *rsrc, state.vision_features, state.projected_features);
+
+        //     lock.lock();
+        //     state.stage_completed = true;
+        //     state.current_stage = 3;
+        // }
+
+        // // 阶段3: Language Model Prefill (包含KV-Cache)
+        // state.current_stage = 3;
+        // state.stage_completed = false;
+        // lock.unlock();
+        // state.cv_stage.notify_one(); // 通知主线程进入阶段3
+
+        // // TODO: 实现language model prefill
+        // // 这里调用Jiuge的推理逻辑来处理text tokens + projected vision features
+        // // inferDeviceBatchLanguage(meta, *rsrc, idev, ndev, req.input_tokens, req.ntok,
+        // //                          req.req_lens, req.nreq, req.req_pos, req.kv_caches,
+        // //                          req.temperature, req.topk, req.topp, req.output, nullptr);
+
+        // lock.lock();
+        // state.stage_completed = true;
+        // state.current_stage = 4;
+
+        // // 阶段4: KV-Cache Compression (可选)
+        // if (req.kv_caches != nullptr && state.stage_completed) {
+        //     lock.unlock();
+        //     state.cv_stage.notify_one(); // 通知主线程进入阶段4
+
+        //     // TODO: 实现KV-Cache压缩 (Future: 集成Fastcache)
+        //     // compressKVCaches(meta, *rsrc, req.kv_caches);
+
+        //     lock.lock();
+        //     state.stage_completed = true;
+        // }
+
+        // // 简单占位符：返回一个token (临时)
+        // if (req.output && req.batch_size > 0) {
+        //     req.output[0] = 1; // 暂时返回固定token
+        // }
 
 
 
@@ -131,6 +280,42 @@ void launchLlavaDevice(const LlavaMeta &meta, const LlavaWeights *weights,
 }
 
 
+
+// // LLaVA四阶段统一推理实现
+// void LlavaModel::inferBatchLlava(const uint32_t* input_tokens, const void* image_data,
+//                                 void** kv_caches, uint32_t batch_size,
+//                                 uint32_t* output) {
+//     // 1. 设置推理请求参数
+//     req.input_tokens = input_tokens;
+//     req.image_data = image_data;
+//     req.kv_caches = kv_caches;
+//     req.batch_size = batch_size;
+//     req.ntok = batch_size; // 简化：假设每个请求只有一个token
+//     req.nreq = 1; // 简化：假设只有一个请求
+//     req.output = output;
+
+//     // 2. 启动所有设备线程
+//     auto ndev = dev_resources.size();
+//     for (size_t i = 0; i < ndev; i++) {
+//         std::unique_lock<std::mutex> lock(states[i].mtx);
+//         states[i].proceed = true;
+//         lock.unlock();
+//         states[i].cv_stage.notify_one(); // 发出推理开始信号
+//     }
+
+//     // 3. 等待所有设备完成
+//     for (size_t i = 0; i < ndev; i++) {
+//         std::unique_lock<std::mutex> lock(states[i].mtx);
+//         states[i].cv_stage.wait(lock, [&] { return !(states[i].proceed); });
+//         lock.unlock();
+//     }
+
+//     // 4. 清理请求参数
+//     req.input_tokens = nullptr;
+//     req.image_data = nullptr;
+//     req.kv_caches = nullptr;
+//     req.output = nullptr;
+// }
 
 // 模仿jiuge.cpp的LlavaModel constructor
 LlavaModel::LlavaModel(const LlavaMeta *_meta, const LlavaWeights *weights,
@@ -244,6 +429,54 @@ __C void destroyLlavaModel(struct LlavaModel *model) {
     }
 
     delete model;
+}
+
+// C API: 批量视觉编码（用于Python接口）
+__C void inferBatchLlavaVison(struct LlavaModel *model,
+                           const void *image_data,
+                           void *output) {
+    if (!model || !image_data || !output) {
+        return;
+    }
+
+    // 1. 设置推理参数（模仿inferBatchJiuge）
+    // TODO: 感觉这里的req结构可能要逐渐改的像 struct InferRequest 
+    model->req.input_tokens = nullptr;  // vision encoding不需要input_tokens
+    model->req.image_data = image_data;
+    model->req.kv_caches = nullptr;     // vision encoding不需要kv_caches
+    model->req.batch_size = 1;          // 简化：假设batch_size为1
+    model->req.ntok = 0;               // vision encoding不需要tokens
+    model->req.nreq = 1;               // 简化：假设一个请求
+    model->req.output = (uint32_t*)output;  // 将output转换为uint32_t指针
+
+    //////////////////////////////////////////////
+    auto vision_embed_dim = model->meta.vision_meta.vision_embed_dim;
+    auto num_patches = model->meta.vision_meta.num_patches;
+    auto total_features = vision_embed_dim * num_patches;
+    printf("inferBatchLlavaVison called: image_data=%p, output=%p\n", image_data, output);
+    printf("Vision config: embed_dim=%zu, num_patches=%zu, total_features=%zu\n",
+           vision_embed_dim, num_patches, total_features);
+    //////////////////////////////////////////////
+
+
+    // 2. 通知所有设备线程开始工作（模仿inferBatchJiuge）
+    // TODO: 注意，和jiuge不一样的地方在于，我们这里现在只有一个信号量
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;  // 设置信号
+        lock.unlock();
+        model->states[idev].cv_stage.notify_one();  // 唤醒线程（LLaVA使用cv_stage）
+    }
+
+    // 3. 等待所有设备线程完成工作（模仿inferBatchJiuge）
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_stage.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+
+    printf("inferBatchLlavaVison: vision encoding completed\n");
 }
 
 // 暂时注释掉其他复杂的API函数，只保留最基本的

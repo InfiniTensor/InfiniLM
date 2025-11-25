@@ -104,6 +104,15 @@ encodeVision(struct LlavaModel *model,
              const void *image_tensor,
              void *output);
 
+/// @brief 批量视觉编码推理（用于Python接口）
+/// @param model 模型实例
+/// @param image_data 图像数据指针
+/// @param output 输出缓冲区
+__C __export void
+inferBatchLlavaVison(struct LlavaModel *model,
+                   const void *image_data,
+                   void *output);
+
 /// @brief 多模态投影前向推理
 /// @param model 模型实例
 /// @param vision_features 视觉特征

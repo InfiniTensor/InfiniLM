@@ -281,3 +281,57 @@ void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
         desc, workspace, workspace_size,
         weight->data(), in_w->data(), in_s->data(), in_z->data(), stream));
 }
+
+void InferenceContext::conv2d(std::shared_ptr<Tensor> y,
+                             std::shared_ptr<Tensor> x,
+                             std::shared_ptr<Tensor> w,
+                             std::shared_ptr<Tensor> b,
+                             std::vector<size_t> pads,
+                             std::vector<size_t> strides,
+                             std::vector<size_t> dilations) {
+    printf("DEBUG: 死在步骤1\n");
+    // 步骤1: 创建缓存键 - 包含所有影响算子行为的参数
+    size_t key = CacheManager::createDescriptorKey(y, x, w, b);
+
+    // 将卷积参数也纳入缓存键计算
+    printf("DEBUG: 死在步骤2\n");
+    for (size_t pad : pads) {
+        hash_combine(key, std::hash<int>()(pad));
+    }
+    for (size_t stride : strides) {
+        hash_combine(key, std::hash<int>()(stride));
+    }
+    for (size_t dilation : dilations) {
+        hash_combine(key, std::hash<int>()(dilation));
+    }
+
+    // 步骤2: 查找描述符缓存
+    infiniopConvDescriptor_t desc;
+    auto b_desc = b ? b->desc() : nullptr;
+    if (!cache_manager->getConvDescriptor(key, desc)) {
+
+        // std::cout << "X DESC = " << x->info() << std::endl;
+        // std::cout << "W DESC = " << w->info() << std::endl;
+        // std::cout << "Y DESC = " << y->info() << std::endl;
+        // std::cout << "pads: " << pads[0] << ", " << pads[1] << "\n";
+        // std::cout << "strides: " << strides[0] << ", " << strides[1] << "\n";
+        // std::cout << "dilations: " << dilations[0] << ", " << dilations[1] << "\n";
+        // 步骤3: 创建新描述符并缓存
+        RUN_INFINI(infiniopCreateConvDescriptor(
+            op_handle, &desc, y->desc(), x->desc(), w->desc(), b_desc,
+            pads.data(), strides.data(), dilations.data(), pads.size()));
+        // cache_manager->putConvDescriptor(key, desc);
+    }
+    // 步骤4: 获取工作空间大小
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetConvWorkspaceSize(desc, &workspace_size));
+
+    // 步骤5: 确保工作空间足够
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    // 步骤6: 执行卷积算子
+    RUN_INFINI(infiniopConv(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), w->data(), b_desc, stream));
+}

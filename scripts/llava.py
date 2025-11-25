@@ -304,7 +304,6 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         torch_dt_mat=torch.float16,
         torch_dt_norm=torch.float32,
         ndev=1,
-        transpose_weight=True,
     ):
         nlayer = meta.language_meta.nlayer
         d = meta.language_meta.d
@@ -332,16 +331,23 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         else:
             self.dt_norm = DataType.INFINI_DTYPE_F32
 
-        self.transpose_linear_weights = 1 if transpose_weight else 0
+        # self.transpose_linear_weights = 1 if transpose_weight else 0
         self.nlayer = nlayer
 
         # === 视觉编码器权重 ===
         # Patch嵌入权重
         if naming.vision_patch_embed_weight() in state_dict:
             self.vision_patch_embed_tensor = state_dict[naming.vision_patch_embed_weight()].to(torch_dt_mat)
-            if transpose_weight:
-                self.vision_patch_embed_tensor = self.vision_patch_embed_tensor.transpose(0, 1).contiguous()
+            print(f"[Python LlavaWeightsImpl] torch_dt_mat: {torch_dt_mat} ")  # torch.float16 
+            print(f"[Python LlavaWeightsImpl] vision_patch_embed_tensor shape: {self.vision_patch_embed_tensor.shape} ")
             self.vision_patch_embed_weight = self.vision_patch_embed_tensor.data_ptr()
+            print(f"[Python LlavaWeightsImpl] first 10 vision_patch_embed_weight: {self.vision_patch_embed_tensor.flatten()[:10]} ")
+            # Print pointer address in 0x... format
+            try:
+                addr = int(self.vision_patch_embed_weight)
+                print(f"[Python LlavaWeightsImpl] vision_patch_embed_weight address: {hex(addr)}")
+            except Exception as e:
+                print(f"[Python LlavaWeightsImpl] failed to get vision_patch_embed_weight address: {e}")
         else:
             self.vision_patch_embed_weight = 0
 
@@ -367,8 +373,6 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         # === 多模态投影器权重 ===
         if naming.projector_weight() in state_dict:
             self.projector_weight_tensor = state_dict[naming.projector_weight()].to(torch_dt_mat)
-            if transpose_weight:
-                self.projector_weight_tensor = self.projector_weight_tensor.transpose(0, 1).contiguous()
             self.projector_weight = self.projector_weight_tensor.data_ptr()
         else:
             self.projector_weight = 0
@@ -382,16 +386,12 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         # === 语言模型权重 (按照Jiuge模式) ===
         # 输入输出嵌入
         self.input_embd_tensor = state_dict[naming.input_embd()].to(torch_dt_mat)
-        if not transpose_weight:
-            self.input_embd_tensor = self.input_embd_tensor.transpose(0, 1).contiguous()
         self.input_embd = self.input_embd_tensor.data_ptr()
 
         self.output_norm_tensor = state_dict[naming.output_norm()].to(torch_dt_norm)
         self.output_norm = self.output_norm_tensor.data_ptr()
 
         self.output_embd_tensor = state_dict[naming.output_embd()].to(torch_dt_mat)
-        if not transpose_weight:
-            self.output_embd_tensor = self.output_embd_tensor.transpose(0, 1).contiguous()
         self.output_embd = self.output_embd_tensor.data_ptr()
 
         # 注意力权重数组
@@ -403,141 +403,141 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         ]
         self.attn_norm = (c_void_p * nlayer)(*self.attn_norm_ptrs)
 
-        # QKV权重 - 对于LLaVA，Q、K、V是分开的，但我们可以按Jiuge的方式合并处理
-        def qkv_slices(_i):
-            _Q = (
-                state_dict[naming.attn_q(_i)]
-                .reshape([nh, 2, dh // 2, d])
-                .transpose(1, 2)
-            )
-            _K = (
-                state_dict[naming.attn_k(_i)]
-                .reshape([nkvh, 2, dh // 2, d])
-                .transpose(1, 2)
-            )
-            _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
-            _result = []
-            _nh = nh // ndev
-            _nkvh = nkvh // ndev
-            for _idev in range(ndev):
-                _result.append(_Q[_idev * _nh : (_idev + 1) * _nh, :, :, :])
-                _result.append(_K[_idev * _nkvh : (_idev + 1) * _nkvh, :, :, :])
-                _result.append(_V[_idev * _nkvh : (_idev + 1) * _nkvh, :, :])
-            return _result
+        # # QKV权重 - 对于LLaVA，Q、K、V是分开的，但我们可以按Jiuge的方式合并处理
+        # def qkv_slices(_i):
+        #     _Q = (
+        #         state_dict[naming.attn_q(_i)]
+        #         .reshape([nh, 2, dh // 2, d])
+        #         .transpose(1, 2)
+        #     )
+        #     _K = (
+        #         state_dict[naming.attn_k(_i)]
+        #         .reshape([nkvh, 2, dh // 2, d])
+        #         .transpose(1, 2)
+        #     )
+        #     _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
+        #     _result = []
+        #     _nh = nh // ndev
+        #     _nkvh = nkvh // ndev
+        #     for _idev in range(ndev):
+        #         _result.append(_Q[_idev * _nh : (_idev + 1) * _nh, :, :, :])
+        #         _result.append(_K[_idev * _nkvh : (_idev + 1) * _nkvh, :, :, :])
+        #         _result.append(_V[_idev * _nkvh : (_idev + 1) * _nkvh, :, :])
+        #     return _result
 
-        self.qkv_tensor = [
-            torch.concat(qkv_slices(i)).to(torch_dt_mat) for i in range(nlayer)
-        ]
-        if not transpose_weight:
-            for i in range(nlayer):
-                self.qkv_tensor[i] = (
-                    self.qkv_tensor[i]
-                    .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
-                    .transpose(1, 2)
-                    .contiguous()
-                )
-        self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
-        self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
+        # self.qkv_tensor = [
+        #     torch.concat(qkv_slices(i)).to(torch_dt_mat) for i in range(nlayer)
+        # ]
+        # if not transpose_weight:
+        #     for i in range(nlayer):
+        #         self.qkv_tensor[i] = (
+        #             self.qkv_tensor[i]
+        #             .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
+        #             .transpose(1, 2)
+        #             .contiguous()
+        #         )
+        # self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
+        # self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
 
-        # QKV bias (LLaVA通常没有bias)
-        self.attn_qkv_b = (c_void_p * nlayer)()
-        for i in range(nlayer):
-            self.attn_qkv_b[i] = 0
+        # # QKV bias (LLaVA通常没有bias)
+        # self.attn_qkv_b = (c_void_p * nlayer)()
+        # for i in range(nlayer):
+        #     self.attn_qkv_b[i] = 0
 
-        # Q norm 和 K norm (LLaVA通常没有)
-        self.attn_q_norm = (c_void_p * nlayer)()
-        self.attn_k_norm = (c_void_p * nlayer)()
-        for i in range(nlayer):
-            self.attn_q_norm[i] = 0
-            self.attn_k_norm[i] = 0
+        # # Q norm 和 K norm (LLaVA通常没有)
+        # self.attn_q_norm = (c_void_p * nlayer)()
+        # self.attn_k_norm = (c_void_p * nlayer)()
+        # for i in range(nlayer):
+        #     self.attn_q_norm[i] = 0
+        #     self.attn_k_norm[i] = 0
 
-        # Attention O权重
-        self.attn_o_tensor = [
-            (
-                state_dict[naming.attn_o(i)]
-                .to(torch_dt_mat)
-                .reshape([d, ndev, nh // ndev * dh])
-                .transpose(0, 1)
-                .contiguous()
-                if transpose_weight
-                else state_dict[naming.attn_o(i)]
-                .transpose(0, 1)
-                .to(torch_dt_mat)
-                .contiguous()
-            )
-            for i in range(nlayer)
-        ]
-        self.attn_o_ptrs = [self.attn_o_tensor[i].data_ptr() for i in range(nlayer)]
-        self.attn_o = (c_void_p * nlayer)(*self.attn_o_ptrs)
+        # # Attention O权重
+        # self.attn_o_tensor = [
+        #     (
+        #         state_dict[naming.attn_o(i)]
+        #         .to(torch_dt_mat)
+        #         .reshape([d, ndev, nh // ndev * dh])
+        #         .transpose(0, 1)
+        #         .contiguous()
+        #         if transpose_weight
+        #         else state_dict[naming.attn_o(i)]
+        #         .transpose(0, 1)
+        #         .to(torch_dt_mat)
+        #         .contiguous()
+        #     )
+        #     for i in range(nlayer)
+        # ]
+        # self.attn_o_ptrs = [self.attn_o_tensor[i].data_ptr() for i in range(nlayer)]
+        # self.attn_o = (c_void_p * nlayer)(*self.attn_o_ptrs)
 
-        # FFN权重
-        self.ffn_norm_tensors = [
-            state_dict[naming.ffn_norm(i)].to(torch_dt_norm) for i in range(nlayer)
-        ]
-        self.ffn_norm_ptrs = [
-            self.ffn_norm_tensors[i].data_ptr() for i in range(nlayer)
-        ]
-        self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
+        # # FFN权重
+        # self.ffn_norm_tensors = [
+        #     state_dict[naming.ffn_norm(i)].to(torch_dt_norm) for i in range(nlayer)
+        # ]
+        # self.ffn_norm_ptrs = [
+        #     self.ffn_norm_tensors[i].data_ptr() for i in range(nlayer)
+        # ]
+        # self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
 
-        def gate_up_slices(_i):
-            _result = []
-            _di = di // ndev
-            for _idev in range(ndev):
-                _start = _idev * _di
-                _end = (_idev + 1) * _di
-                _result.append(state_dict[naming.ffn_gate(_i)][_start:_end, :])
-                _result.append(state_dict[naming.ffn_up(_i)][_start:_end, :])
-            return _result
+        # def gate_up_slices(_i):
+        #     _result = []
+        #     _di = di // ndev
+        #     for _idev in range(ndev):
+        #         _start = _idev * _di
+        #         _end = (_idev + 1) * _di
+        #         _result.append(state_dict[naming.ffn_gate(_i)][_start:_end, :])
+        #         _result.append(state_dict[naming.ffn_up(_i)][_start:_end, :])
+        #     return _result
 
-        self.gate_up_tensors = [
-            torch.concat(gate_up_slices(i)).to(torch_dt_mat) for i in range(nlayer)
-        ]
-        if not transpose_weight:
-            for i in range(nlayer):
-                self.gate_up_tensors[i] = (
-                    self.gate_up_tensors[i]
-                    .reshape(ndev, 2 * di // ndev, d)
-                    .transpose(1, 2)
-                    .contiguous()
-                )
-        self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
-        self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
+        # self.gate_up_tensors = [
+        #     torch.concat(gate_up_slices(i)).to(torch_dt_mat) for i in range(nlayer)
+        # ]
+        # if not transpose_weight:
+        #     for i in range(nlayer):
+        #         self.gate_up_tensors[i] = (
+        #             self.gate_up_tensors[i]
+        #             .reshape(ndev, 2 * di // ndev, d)
+        #             .transpose(1, 2)
+        #             .contiguous()
+        #         )
+        # self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
+        # self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
 
-        self.ffn_down_tensor = [
-            (
-                state_dict[naming.ffn_down(i)]
-                .to(torch_dt_mat)
-                .reshape([d, ndev, di // ndev])
-                .transpose(0, 1)
-                .contiguous()
-                if transpose_weight
-                else state_dict[naming.ffn_down(i)]
-                .transpose(0, 1)
-                .to(torch_dt_mat)
-                .contiguous()
-            )
-            for i in range(nlayer)
-        ]
-        self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
-        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
+        # self.ffn_down_tensor = [
+        #     (
+        #         state_dict[naming.ffn_down(i)]
+        #         .to(torch_dt_mat)
+        #         .reshape([d, ndev, di // ndev])
+        #         .transpose(0, 1)
+        #         .contiguous()
+        #         if transpose_weight
+        #         else state_dict[naming.ffn_down(i)]
+        #         .transpose(0, 1)
+        #         .to(torch_dt_mat)
+        #         .contiguous()
+        #     )
+        #     for i in range(nlayer)
+        # ]
+        # self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
+        # self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
 
-        # === 视觉编码器权重数组 ===
-        vision_layer_size = meta.vision_meta.vision_num_layers
-        self.vision_encoder_weights = (c_void_p * (vision_layer_size * 10))()
+        # # === 视觉编码器权重数组 ===
+        # vision_layer_size = meta.vision_meta.vision_num_layers
+        # self.vision_encoder_weights = (c_void_p * (vision_layer_size * 10))()
 
-        # 填充视觉编码器权重 (简化版，实际应该按Jiuge模式处理)
-        for i in range(vision_layer_size):
-            idx = i * 10
-            # 这里简化处理，实际应该像Jiuge那样创建tensor对象并保存
-            vision_pre_norm_key = naming.vision_pre_norm(i)
-            if vision_pre_norm_key in state_dict:
-                self.vision_encoder_weights[idx] = state_dict[vision_pre_norm_key].data_ptr()
-            else:
-                self.vision_encoder_weights[idx] = 0
+        # # 填充视觉编码器权重 (简化版，实际应该按Jiuge模式处理)
+        # for i in range(vision_layer_size):
+        #     idx = i * 10
+        #     # 这里简化处理，实际应该像Jiuge那样创建tensor对象并保存
+        #     vision_pre_norm_key = naming.vision_pre_norm(i)
+        #     if vision_pre_norm_key in state_dict:
+        #         self.vision_encoder_weights[idx] = state_dict[vision_pre_norm_key].data_ptr()
+        #     else:
+        #         self.vision_encoder_weights[idx] = 0
 
-            # 其他视觉权重类似处理...
-            for j in range(1, 10):
-                self.vision_encoder_weights[idx + j] = 0
+        #     # 其他视觉权重类似处理...
+        #     for j in range(1, 10):
+        #         self.vision_encoder_weights[idx + j] = 0
 
         # 初始化父类结构
         super().__init__()
@@ -573,9 +573,9 @@ class LLaVAForCauslLM:
         print(f"Model config: {self.config}")
         print(f"Model eos_token_id: {self.eos_token_id}")
 
-        transpose_weight = (
-            device != DeviceType.DEVICE_TYPE_ASCEND
-        )  # y = xW is faster than y=xW^T on Ascend
+        # transpose_weight = (
+        #     device != DeviceType.DEVICE_TYPE_ASCEND
+        # )  # y = xW is faster than y=xW^T on Ascend
 
         # print(f"device: {device}")
         self.llava_model = LlavaModel()
@@ -585,17 +585,16 @@ class LLaVAForCauslLM:
             state_dict = load_all_safetensors_from_dir(model_dir_path)
             print(f"state_dict keys: {list(state_dict.keys())[:10]} ...")
             self.meta = LlavaMetaFromLlava(config, max_tokens=max_tokens)
-            print(f"meta type: {type(self.meta)}")
-            print(f"meta value: {self.meta}")
+            # print(f"meta type: {type(self.meta)}") # meta type: <class '__main__.LlavaMetaFromLlava'>
+            # print(f"meta value: {self.meta}") # meta value: <__main__.LlavaMetaFromLlava object at 0x7fda3c5e91c0>
             self.weights = LlavaWeightsImpl(
                 self.meta,
                 LlavaWeightsNaming(),
                 state_dict,
                 ndev=ndev,
-                transpose_weight=transpose_weight,
             )
-            print(f"weights type: {type(self.weights)}")
-            print(f"weights value: {self.weights}")
+            # print(f"weights type: {type(self.weights)}") # weights type: <class '__main__.LlavaWeightsImpl'>
+            # print(f"weights value: {self.weights}") # weights value: <__main__.LlavaWeightsImpl object at 0x7fda3c5e9340>
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
         print(f"Creating model on {ndev} devices...")
@@ -638,6 +637,120 @@ class LLaVAForCauslLM:
         """删除 LLaVA 的 KV Cache"""
         self.llava_model.drop_kv_cache(kv_cache)
 
+    # === LLaVA四阶段推理方法 ===
+    def batch_infer_encode(self, pixel_values, input_tokens_list):
+        """阶段1: Vision Encoder - 将图像编码为视觉特征"""
+        if pixel_values is None:
+            return None
+
+        print("=== LLaVA Vision Encoding ===")
+
+        # 将torch tensor转换为连续的字节数据
+        if hasattr(pixel_values, 'contiguous'):
+            pixel_values = pixel_values.contiguous()
+
+        # 获取图像数据指针
+        image_data = pixel_values.to(torch.float16).data_ptr()
+        print(f"pixel_values shape: {pixel_values.shape}")
+        print(f"image_data pointer: {hex(image_data)}")
+        print(f"pixel_values dtype: {pixel_values.dtype}")
+        batch_size = pixel_values.shape[0] if len(pixel_values.shape) > 0 else 1
+
+        # 准备输出缓冲区（视觉特征）
+        vision_features_size = self.meta.vision_meta.vision_embed_dim * self.meta.vision_meta.num_patches
+        vision_features_output = torch.zeros(vision_features_size, dtype=torch.float16)
+
+        print(f"Vision encoding: input shape {pixel_values.shape} -> features size {vision_features_size}")
+
+        # 准备输出缓冲区
+        output_buffer = vision_features_output.data_ptr()
+
+        # 调用C++层的 infer_batch_vision 函数
+        self.llava_model.infer_batch_vision(
+            self.model_instance,
+            image_data,
+            output_buffer
+        )
+        # # # # # # # # # # # # # # # # # 
+        try:
+            flat = pixel_values.detach().cpu().flatten()
+            first10 = flat[:10].tolist()
+            formatted = ", ".join(f"{float(x):.6f}" for x in first10)
+            print(f"pixel_values first 10: {formatted}")
+        except Exception:
+            # Fallback if not a tensor or other error
+            print(f"pixel_values: {pixel_values}")
+        # # # # # # # # # # # # # # # # # 
+
+
+        return vision_features_output
+
+    def batch_infer_projector(self, vision_features, input_tokens_list):
+        """阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间"""
+        if vision_features is None:
+            return None
+
+        print("=== LLaVA MultiModal Projection ===")
+
+        batch_size = len(input_tokens_list) if input_tokens_list else 1
+        projected_size = self.meta.language_meta.d * batch_size
+
+        # 将视觉特征投影到文本嵌入维度
+        projected_features = torch.zeros(projected_size, dtype=torch.float16)
+
+        print(f"MultiModal projection: vision_features -> text_embeddings (size: {projected_size})")
+
+        # TODO: 调用C++层的projectMultiModal函数
+        # 暂时返回占位符投影特征
+        return projected_features
+
+    def batch_infer_language(self, input_tokens_list, kv_caches, projected_features=None):
+        """阶段3: Language Model Prefill - 处理文本tokens和投影的视觉特征"""
+        print("=== LLaVA Language Model Inference ===")
+
+        batch_size = len(input_tokens_list)
+        ntok = sum(len(tokens) for tokens in input_tokens_list)
+
+        # 准备输入tokens
+        input_tokens_flat = []
+        for tokens in input_tokens_list:
+            input_tokens_flat.extend(tokens)
+
+        import numpy as np # TODO: 这里之后大概率要改
+        input_tokens_array = np.array(input_tokens_flat, dtype=np.uint32)
+        output_tokens = np.zeros(batch_size, dtype=np.uint32)
+
+        # 准备KV Cache指针
+        kv_cache_ptrs = None
+        if kv_caches and hasattr(kv_caches[0], 'kvcache'):
+            kv_cache_ptrs = [cache.kvcache for cache in kv_caches]
+
+        print(f"Language model: {ntok} tokens -> {batch_size} outputs")
+
+        # 调用统一的LLaVA推理接口（将来可替换为专门的语言推理接口）
+        self.llava_model.batch_infer_llava(
+            input_tokens_array,  # input_tokens
+            projected_features.data_ptr() if projected_features is not None else None,  # image_data
+            kv_cache_ptrs,  # kv_caches
+            batch_size,
+            output_tokens
+        )
+
+        return output_tokens
+
+    def batch_infer_compressor(self, features, kv_caches):
+        """阶段4: KV-Cache Compression - 压缩KV缓存以节省内存"""
+        if kv_caches is None:
+            print("=== KV-Cache Compression Skipped (No KV Caches) ===")
+            return kv_caches
+
+        print("=== LLaVA KV-Cache Compression ===")
+
+        # TODO: 集成Fastcache的压缩算法
+        print("KV-Cache compression: (Future - Fastcache integration)")
+
+        return kv_caches
+
 
     def generate(
         self, 
@@ -676,14 +789,14 @@ class LLaVAForCauslLM:
         )
         print(f"KV Cache: {infer_task.kvcache()}")
 
-        # 更详细的调试信息
-        print("\n=== InferTask 详细信息 ===")
-        print(repr(infer_task))
+        # # 更详细的调试信息
+        # print("\n=== InferTask 详细信息 ===")
+        # print(repr(infer_task))
 
-        infer_task.bind_kvcache(KVCache(self))
+        # infer_task.bind_kvcache(KVCache(self))
 
-        print("\n=== bind_kvcache 后 KV Cache 详细信息 ===")
-        print(repr(infer_task.kvcache()))
+        # print("\n=== bind_kvcache 后 KV Cache 详细信息 ===")
+        # print(repr(infer_task.kvcache()))
 
         steps = 0
         total_time = 0
@@ -691,7 +804,42 @@ class LLaVAForCauslLM:
         decode_time = 0
         output_content = ""
 
+        # === LLaVA四阶段推理流程 ===
+        # 阶段1: Vision Encoder - 将图像编码为视觉特征
+        output_encode = self.batch_infer_encode(pixel_values, input_ids_list)
 
+        # # 阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间
+        # projected_features = self.batch_infer_projector(output_encode, input_ids_list)
+
+        # # 阶段3: Language Model - 处理文本tokens和投影的视觉特征
+        # output_tokens = self.batch_infer_language([input_ids_list], [infer_task.kvcache()], projected_features)
+
+        # # 阶段4: KV-Cache Compression - 压缩KV缓存 (可选)
+        # compressed_kv_cache = self.batch_infer_compressor(projected_features, [infer_task.kvcache()])
+        # steps += 1
+
+
+        output_str = self.tokenizer.decode(output_tokens[0])
+        print(f"Decoded output from prefill: {output_str}\n")
+        output_content += output_str
+        print(output_str, end="", flush=True)
+        if output_tokens[0] in self.eos_token_id:
+
+            total_tokens = len(tokens) + 1  # input tokens + first output token
+
+            return output_content, total_time * 1000
+
+        infer_task.next(output_tokens[0])
+        for step_i in range(1, max_steps):
+            output_tokens = self.batch_infer_one_round([infer_task])
+            steps += 1
+            output_str = self.tokenizer.decode(output_tokens[0])
+            output_content += output_str
+            if output_tokens[0] in self.eos_token_id:
+                break
+            infer_task.next(output_tokens[0])
+
+        steps += 1
 
 
 

@@ -30,7 +30,7 @@ typedef struct
     // [dvoc, d]
     const void *output_embd;
     // nlayer * [d]
-    const void *const *attn_norm;
+    const void *const *attn_norm;  // 指针数组，每层一个RMSNorm权重
     // nlayer * [ndev, (nh + 2 * nkvh) / ndev * dh, d]
     const void *const *attn_qkv;
     // nlayer * [ndev, (nh + 2 * nkvh) / ndev * dh]

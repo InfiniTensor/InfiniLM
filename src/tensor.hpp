@@ -130,6 +130,7 @@ public:
 
     void debug(const std::string &filename) const;
     void debug() const;
+    void debug_first_n(size_t n = 10) const;  // 新增方法：只打印前n个数据
     std::string info() const;
     size_t seed() const;
 
