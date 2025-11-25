@@ -1,13 +1,11 @@
 #ifndef MODEL_JIUGE_H
 #define MODEL_JIUGE_H
-
 #include <infiniccl.h>
 #include <infiniop.h>
 #include <infinirt.h>
-
 #include <stdint.h>
-
 struct JiugeModel;
+
 
 typedef struct
 {
@@ -19,6 +17,15 @@ typedef struct
 
 typedef struct
 {
+
+    // ​**d**: 隐藏层维度（hidden dimension）
+    // ​**dvoc**: 词表大小（vocabulary dimension）
+    // ​**nlayer**: Transformer 层数
+    // ​**nh**: 注意力头数（number of heads）
+    // ​**nkvh**: KV 头数（用于分组查询注意力）
+    // ​**dh**: 每个注意力头的维度（d_head = d / nh）
+    // ​**di**: FFN 中间层维度（通常 d_i = 4*d）QKVO
+    // ​**ndev**: 设备数量（用于模型并行）
     size_t nlayer;
     infiniDtype_t dt_norm, dt_mat;
     // 0 if linear weights are passed as W, any other value if passed as W^T (default format in pytorch)
@@ -31,7 +38,7 @@ typedef struct
     const void *output_embd;
     // nlayer * [d]
     const void *const *attn_norm;
-    // nlayer * [ndev, (nh + 2 * nkvh) / ndev * dh, d]
+    // nlayer * [ndev, (nh + 2 * nkvh) / ndev * dh, d] each devide deal with equal head
     const void *const *attn_qkv;
     // nlayer * [ndev, (nh + 2 * nkvh) / ndev * dh]
     const void *const *attn_qkv_b;

@@ -2,7 +2,7 @@ from .base import BaseModel, DataType, DeviceType, KVCacheCStruct, register_mode
 from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER, Structure, byref
 
 
-class JiugeMetaCStruct(Structure):
+class JiugeMetaCStruct(Structure): # from config file
     _fields_ = [
         ("dt_logits", DataType),
         ("nlayer", c_size_t),
@@ -16,7 +16,7 @@ class JiugeMetaCStruct(Structure):
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
-    ]
+    ] # equal to c structure in c
 
 
 class JiugeWeightsCStruct(Structure):

@@ -3,11 +3,11 @@ class InferTask:
         self.id = id
         self.finish_reason = None
         self.tokens = tokens
-        self.max_tokens = max_tokens
+        self.max_tokens = max_tokens # length ?
         self.temperature = temperature
         self.topk = topk
         self.topp = topp
-        self.end_tokens = end_tokens
+        self.end_tokens = end_tokens # tow type end symbol
         self._kv_cache = None
         self.pos = 0
 
@@ -38,7 +38,7 @@ class InferTask:
 
 class KVCache:
     def __init__(self, model):
-        self._kvcache = model.create_kv_cache()
+        self._kvcache = model.create_kv_cache() # in c library
         self.tokens = [0 for _ in range(model.max_context_len())]
 
     def data(self):
