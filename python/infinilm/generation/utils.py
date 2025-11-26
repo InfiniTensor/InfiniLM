@@ -224,6 +224,9 @@ class GenerationMixin:
                     1.0,
                     out=out,
                 )
+
+            infinicore.sync_stream()  # 计算结束前需要同步
+
             end_time = time.time()
             time_list.append((end_time - start_time) * 1000)
 
