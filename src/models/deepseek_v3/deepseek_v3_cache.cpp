@@ -15,8 +15,8 @@ createDeepSeekV3Cache(const struct DeepSeekV3Model *model) {
         auto kv_pass_cache = std::vector<std::shared_ptr<Tensor>>();
         auto k_rot_cache = std::vector<std::shared_ptr<Tensor>>();
         for (size_t layer = 0; layer < nlayer; layer++) {
-            kv_pass_cache.push_back(std::move(Tensor::buffer(model->meta.dt_logits, kv_pass_shape)));
-            k_rot_cache.push_back(std::move(Tensor::buffer(model->meta.dt_logits, k_rot_shape)));
+            kv_pass_cache.push_back(Tensor::buffer(model->meta.dt_logits, kv_pass_shape));
+            k_rot_cache.push_back(Tensor::buffer(model->meta.dt_logits, k_rot_shape));
         }
         cache->kv_pass.push_back(kv_pass_cache);
         cache->k_rot.push_back(k_rot_cache);
