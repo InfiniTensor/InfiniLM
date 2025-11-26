@@ -43,17 +43,17 @@ infinicore.Tensor.to_numpy = infini_to_numpy
 
 
 class GenerationMixin:
-    def _get_initial_cache_position(
+    def _get_initial_position_ids(
         self,
         bs: int,
         seq_length: int,
         device: infinicore.device,
     ) -> infinicore.Tensor:
-        """Calculates `cache_position` for the pre-fill stage"""
-        cache_position_list = [list(range(0, seq_length)) for i in range(bs)]
+        """Calculates `position_ids` for the pre-fill stage"""
+        position_ids_list = [list(range(0, seq_length)) for i in range(bs)]
 
         return infinicore.from_list(
-            cache_position_list, dtype=infinicore.int64, device=device
+            position_ids_list, dtype=infinicore.int64, device=device
         )
 
     def prepare_inputs_for_generation(
@@ -73,29 +73,29 @@ class GenerationMixin:
             model_inputs["past_key_values"] = past_key_values
 
         # -------------------------------------------------------------------------- #
-        #                     计算所需的，cache_position
+        #                     计算所需的，position_ids
         # -------------------------------------------------------------------------- #
-        current_cache_position = kwargs.get("cache_position", None)
-        if current_cache_position is None:
+        current_position_ids = kwargs.get("position_ids", None)
+        if current_position_ids is None:
             # prill阶段
             bs, seq_len = kwargs["input_ids"].shape[0:2]
-            model_inputs["cache_position"] = self._get_initial_cache_position(
+            model_inputs["position_ids"] = self._get_initial_position_ids(
                 bs, seq_len, device
             )
 
         else:
             # decoder 阶段
-            bs, seq_len = current_cache_position.shape
-            last_position = current_cache_position.narrow(1, seq_len - 1, 1)
+            bs, seq_len = current_position_ids.shape
+            last_position = current_position_ids.narrow(1, seq_len - 1, 1)
 
             one_value = infinicore.from_list(
-                [1],
+                [1] * bs,
                 dtype=last_position.dtype,
                 device=last_position.device,
             ).view((bs, 1))
 
             next_position = one_value + last_position
-            model_inputs["cache_position"] = next_position
+            model_inputs["position_ids"] = next_position
 
         # -------------------------------------------------------------------- #
         #                 所需的: token的input_ids
@@ -127,8 +127,12 @@ class GenerationMixin:
         # -------------------------------------------------------------------- #
         #                       创建 cache                                      #
         # -------------------------------------------------------------------- #
-        model_kwargs["use_cache"] = True
-        model_kwargs["past_key_values"] = DynamicCache(config=self.config)
+        if self.use_cache:
+            model_kwargs["use_cache"] = True
+            model_kwargs["past_key_values"] = DynamicCache(config=self.config)
+        else:
+            model_kwargs["use_cache"] = False
+            model_kwargs["past_key_values"] = None
 
         # -------------------------------------------------------------------- #
         #                       _sample函数                                     #
@@ -170,12 +174,12 @@ class GenerationMixin:
         )
 
         # -------------------------------------------------------------------------- #
-        #                     初始化 cache_position
+        #                     初始化 position_ids
         # -------------------------------------------------------------------------- #
         output_tokens_list = []
 
         model_kwargs["input_ids"] = input_ids
-        model_kwargs["cache_position"] = None
+        model_kwargs["position_ids"] = None
         output_content = ""
         print()
 
@@ -186,13 +190,13 @@ class GenerationMixin:
             # -------------------------------------------------------------------------- #
             model_inputs = self.prepare_inputs_for_generation(device, **model_kwargs)
 
-            model_kwargs["cache_position"] = model_inputs["cache_position"]
+            model_kwargs["position_ids"] = model_inputs["position_ids"]
 
             # -------------------------------------------------------------------------- #
             #                     计算一次
             # -------------------------------------------------------------------------- #
             start_time = time.time()
-            logits = self.forward(**model_inputs, return_dict=True)
+            logits = self(**model_inputs)
 
             # -------------------------------------------------------------------------- #
             #                     处理输出
@@ -237,8 +241,12 @@ class GenerationMixin:
             if token_id in eos_token_id_list:
                 break
 
+        print("\n</s>")
         print(
-            f"\n\n Time per step: {round(sum(time_list) / len(time_list), 2)} ms\n",
+            f"\n\n\n Time per step:  prefill {round(time_list[0], 2)} token/ms\n",
+        )
+        print(
+            f" Time per step:  decoder {round(sum(time_list[1:]) / (len(time_list) - 1), 2)} token/ms \n",
         )
 
         return output_tokens_list, output_content

@@ -196,14 +196,14 @@ class LlamaAttention(infinicore.nn.Module):
         # --------------------------------------------------------------------------------------- #
         #                           对 Q和K， 加上 rope
         # --------------------------------------------------------------------------------------- #
-        cache_position = kwargs.pop("cache_position", None)
-        if cache_position is None:
-            raise KeyError("cache_position error")
+        position_ids = kwargs.pop("position_ids", None)
+        if position_ids is None:
+            raise KeyError("position_ids error")
         if rope_instance is None:
             raise KeyError("rope_instance error")
 
-        query_states = rope_instance(query_states, cache_position)
-        key_states = rope_instance(key_states, cache_position)
+        query_states = rope_instance(query_states, position_ids)
+        key_states = rope_instance(key_states, position_ids)
 
         # --------------------------------------------------------------------------------------- #
         #                           kv cache
@@ -338,7 +338,7 @@ class LlamaModel(infinicore.nn.Module):
     def forward(
         self,
         input_ids,
-        cache_position,
+        position_ids,
         past_key_values: Optional[Cache] = None,
         use_cache: Optional[bool] = None,  # True
         **kwargs,
@@ -364,7 +364,7 @@ class LlamaModel(infinicore.nn.Module):
             hidden_states = decoder_layer(
                 hidden_states,
                 past_key_values=past_key_values,
-                cache_position=cache_position,
+                position_ids=position_ids,
                 rope_instance=self.rope_instance,
                 **kwargs,
             )
@@ -384,6 +384,8 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
     def __init__(self, config, **kwargs):
         super().__init__()
         self.config = config
+        self.use_cache = True
+
         self.model = LlamaModel(config, **kwargs)
         self.lm_head = infinicore.nn.Linear(
             config.hidden_size,
@@ -395,14 +397,14 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
     def forward(
         self,
         input_ids,
-        cache_position,
+        position_ids,
         past_key_values: Optional[Cache] = None,
         use_cache: Optional[bool] = None,
         **kwargs,
     ):
         last_token = self.model(
             input_ids,
-            cache_position,
+            position_ids,
             past_key_values=past_key_values,
             use_cache=use_cache,
             **kwargs,
@@ -425,9 +427,3 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
         config = LlamaConfig(**config_dict)
 
         return LlamaForCausalLM(config, device=device, dtype=dtype)
-
-
-__all__ = [
-    "LlamaModel",
-    "LlamaForCausalLM",
-]

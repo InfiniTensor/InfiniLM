@@ -53,20 +53,28 @@ def get_args():
         default=100,
         help="max_new_tokens",
     )
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="python",
+        help="python or cpp model",
+    )
     return parser.parse_args()
 
 
-def test(model_path, device_str="cuda", max_new_tokens=100):
+def test(
+    prompt,
+    model_path,
+    max_new_tokens=100,
+    infini_dtype=infinicore.bfloat16,
+    infini_device=infinicore.device("cpu", 0),
+    backend="python",
+):
     # ---------------------------------------------------------------------------- #
     #                        创建模型,
     # ---------------------------------------------------------------------------- #
-    infini_device = infinicore.device(device_str, 0)
-    infini_dtype = infinicore.bfloat16
-
-    model = infinilm.LlamaForCausalLM.from_pretrained(
-        model_path,
-        device=infini_device,
-        dtype=infini_dtype,
+    model = infinilm.AutoLlamaModel.from_pretrained(
+        model_path, device=infini_device, dtype=infini_dtype, backend=backend
     )
 
     # ---------------------------------------------------------------------------- #
@@ -85,7 +93,6 @@ def test(model_path, device_str="cuda", max_new_tokens=100):
     # ---------------------------------------------------------------------------- #
     #                        创建 tokenizer
     # ---------------------------------------------------------------------------- #
-
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
     if "llama" == config.model_type:
@@ -109,7 +116,7 @@ def test(model_path, device_str="cuda", max_new_tokens=100):
     # ---------------------------------------------------------------------------- #
     #                        token编码
     # ---------------------------------------------------------------------------- #
-    prompt = "山东最高的山是？"
+    # prompt = "山东最高的山是？"
     input_content = tokenizer.apply_chat_template(
         conversation=[{"role": "user", "content": prompt}],
         add_generation_prompt=True,
@@ -144,24 +151,37 @@ if __name__ == "__main__":
     print(args)
 
     # Parse command line arguments
-    device_type = "cpu"
+    device_str = "cpu"
     if args.cpu:
-        device_type = "cpu"
+        device_str = "cpu"
     elif args.nvidia:
-        device_type = "cuda"
+        device_str = "cuda"
     elif args.metax:
-        device_type = "cuda"
+        device_str = "cuda"
     elif args.moore:
-        device_type = "musa"
+        device_str = "musa"
     elif args.iluvatar:
-        device_type = "cuda"
+        device_str = "cuda"
     else:
         print(
-            "Usage:  python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>"
+            "Usage:  python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>\n"
+            "such as, python examples/llama.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
+    prompt = "山东最高的山是？"
 
     model_path = args.model_path
     max_new_tokens = args.max_new_tokens
+    backend = args.backend
 
-    test(model_path, device_type, max_new_tokens)
+    infini_device = infinicore.device(device_str, 0)
+    infini_dtype = infinicore.bfloat16
+
+    test(
+        prompt,
+        model_path,
+        max_new_tokens,
+        infini_device=infini_device,
+        infini_dtype=infini_dtype,
+        backend=backend,
+    )
