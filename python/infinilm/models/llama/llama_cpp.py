@@ -10,6 +10,7 @@ import infinicore
 from infinicore.device import device as Device
 from infinilm.lib import _infinilm_llama
 from infinilm.models.llama.configuration_llama import LlamaConfig as _LlamaConfig
+from ...generation.utils import GenerationMixin
 
 
 class LlamaConfig:
@@ -40,10 +41,10 @@ class LlamaConfig:
 
     def __setattr__(self, name, value):
         """Delegate attribute setting to Python config"""
-        if name.startswith('_'):
+        if name.startswith("_"):
             super().__setattr__(name, value)
         else:
-            if hasattr(self, '_python_config'):
+            if hasattr(self, "_python_config"):
                 setattr(self._python_config, name, value)
                 # Invalidate C++ config cache when Python config changes
                 self._cpp_config = None
@@ -58,7 +59,7 @@ class LlamaConfig:
 
             # Copy attributes from Python config to C++ config
             for key in dir(self._python_config):
-                if key.startswith('_'):
+                if key.startswith("_"):
                     continue
                 try:
                     value = getattr(self._python_config, key)
@@ -68,13 +69,21 @@ class LlamaConfig:
                     pass
 
             # Handle defaults
-            if not hasattr(self._cpp_config, 'num_key_value_heads') or \
-               self._cpp_config.num_key_value_heads == 0:
-                self._cpp_config.num_key_value_heads = self._cpp_config.num_attention_heads
+            if (
+                not hasattr(self._cpp_config, "num_key_value_heads")
+                or self._cpp_config.num_key_value_heads == 0
+            ):
+                self._cpp_config.num_key_value_heads = (
+                    self._cpp_config.num_attention_heads
+                )
 
-            if not hasattr(self._cpp_config, 'head_dim') or \
-               self._cpp_config.head_dim == 0:
-                self._cpp_config.head_dim = self._cpp_config.hidden_size // self._cpp_config.num_attention_heads
+            if (
+                not hasattr(self._cpp_config, "head_dim")
+                or self._cpp_config.head_dim == 0
+            ):
+                self._cpp_config.head_dim = (
+                    self._cpp_config.hidden_size // self._cpp_config.num_attention_heads
+                )
 
         return self._cpp_config
 
@@ -101,8 +110,7 @@ class LlamaModel(infinicore.nn.Module):
             device = Device()
 
         self._device = device
-        self._model = _infinilm_llama.LlamaModel(
-            config._underlying, device._underlying)
+        self._model = _infinilm_llama.LlamaModel(config._underlying, device._underlying)
 
     def state_dict(self):
         """Get model state dictionary with parameter shapes"""
@@ -143,15 +151,14 @@ class LlamaModel(infinicore.nn.Module):
         """Forward wrapper."""
         if not hasattr(self._model, "forward"):
             raise NotImplementedError("Underlying LlamaModel has no forward()")
-        return infinicore.Tensor(
-            self._model.forward(*args, **kwargs)
-        )
+
+        return infinicore.Tensor(self._model.forward(*args, **kwargs))
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
 
-class LlamaForCausalLM(infinicore.nn.Module):
+class LlamaForCausalLM(GenerationMixin):
     """Llama model for causal language modeling"""
 
     def __init__(self, config, device=None):
@@ -172,14 +179,20 @@ class LlamaForCausalLM(infinicore.nn.Module):
         if device is None:
             device = Device()
 
+        self.use_cache = False
+
         print(f"[LOG] Python: Device created: {device}", flush=True)
         self._device = device
         print(
-            f"[LOG] Python: About to create LlamaForCausalLM C++ object...", flush=True)
+            f"[LOG] Python: About to create LlamaForCausalLM C++ object...", flush=True
+        )
         self._model = _infinilm_llama.LlamaForCausalLM(
-            config._underlying, device._underlying)
+            config._underlying, device._underlying
+        )
         print(
-            f"[LOG] Python: LlamaForCausalLM C++ object created successfully", flush=True)
+            f"[LOG] Python: LlamaForCausalLM C++ object created successfully",
+            flush=True,
+        )
 
     def state_dict(self):
         """Get model state dictionary with parameter shapes"""
@@ -211,12 +224,48 @@ class LlamaForCausalLM(infinicore.nn.Module):
         """Get model configuration"""
         return self._model.config()
 
-    def forward(self, *args, **kwargs):
+    def forward(self, input_ids, cache_position, *args, **kwargs):
         """Forward wrapper."""
         if not hasattr(self._model, "forward"):
-            raise NotImplementedError(
-                "Underlying LlamaForCausalLM has no forward()")
-        return self._model.forward(*args, **kwargs)
+            raise NotImplementedError("Underlying LlamaForCausalLM has no forward()")
+
+        infini_input_ids = input_ids
+        infini_position_ids = cache_position
+        kv_caches = None
+
+        # ----
+        from ...generation.utils_ceng import infinicore_to_torch_tensor
+        import torch
+
+        # input_ids_p = infinicore_to_torch_tensor(
+        #     infini_input_ids,
+        #     torch_reference=torch.zeros((1, 2), device="cuda"),
+        # )
+        # print("input_ids11: ", input_ids_p)
+
+        # cache_positon_p = infinicore_to_torch_tensor(
+        #     infini_position_ids,
+        #     torch_reference=torch.zeros((1, 2), device="cuda"),
+        # )
+        # print("cache_positon11: ", cache_positon_p)
+
+        # exit(-1)
+        # ---
+
+        # ret = infinicore.Tensor(
+        #     self._model.forward(infini_input_ids, infini_position_ids, kv_caches)
+        # )
+
+        # temp = infinicore_to_torch_tensor(
+        #     ret, torch_reference=torch.ones((1, 2), device="cuda")
+        # )
+
+        # print("temp: ", temp)
+
+        # exit(-1)
+        return infinicore.Tensor(
+            self._model.forward(infini_input_ids, infini_position_ids, kv_caches)
+        )
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)

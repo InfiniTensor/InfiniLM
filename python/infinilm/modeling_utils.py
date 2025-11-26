@@ -79,6 +79,9 @@ def get_model_state_dict(
     path = os.path.join(model_path, "model.safetensors")
     model_param = load_state_dict(path)
 
+    if model_param.get("lm_head.weight", None) is None:
+        model_param["lm_head.weight"] = model_param["model.embed_tokens.weight"]
+
     torch_device = device.type
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
 

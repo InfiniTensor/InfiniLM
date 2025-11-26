@@ -13,6 +13,8 @@ from . import configuration_llama
 from . import modeling_llama
 from .llama_cpp import LlamaForCausalLM
 
+from .llama_backend import AutoLlamaModel
+
 # Provide explicit aliases for the Transformers-style Python implementation so
 # downstream tooling can still reach it without clashing with the native API.
 TransformersLlamaConfig = configuration_llama.LlamaConfig
@@ -28,4 +30,5 @@ __all__ = [
     "TransformersLlamaConfig",
     "TransformersLlamaModel",
     "TransformersLlamaForCausalLM",
+      "AutoLlamaModel",
 ]

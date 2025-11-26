@@ -57,12 +57,14 @@ def load_model_config(model_dir: str) -> dict:
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config = json.load(f)
     return config
 
 
-def load_weights_into_infinilm_model(infinilm_model, transformers_model, infini_device, torch_device):
+def load_weights_into_infinilm_model(
+    infinilm_model, transformers_model, infini_device, torch_device
+):
     """
     Load weights from transformers model into InfiniLM model.
 
@@ -93,8 +95,7 @@ def load_weights_into_infinilm_model(infinilm_model, transformers_model, infini_
         if matching_key:
             torch_tensor = tensor.detach().clone().to(torch_device).contiguous()
             torch_tensors_keepalive.append(torch_tensor)
-            infini_tensor = torch_to_infinicore_tensor(
-                torch_tensor, infini_device)
+            infini_tensor = torch_to_infinicore_tensor(torch_tensor, infini_device)
             infinilm_state_dict[matching_key] = infini_tensor
             matched_keys.append(f"{key} -> {matching_key}")
 
@@ -109,8 +110,12 @@ def load_weights_into_infinilm_model(infinilm_model, transformers_model, infini_
     return len(matched_keys)
 
 
-def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
-                       device_type: str = "cpu", device_index: int = 0) -> bool:
+def validate_inference(
+    model_dir: str,
+    prompt: str = "Hello, how are you?",
+    device_type: str = "cpu",
+    device_index: int = 0,
+) -> bool:
     """
     Validate inference for InfiniLM llama model.
 
@@ -139,6 +144,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     print("\n1. Checking device availability...")
     try:
         from infinicore.lib import _infinicore
+
         if device_type == "cuda":
             nvidia_device_type = _infinicore.Device.Type.NVIDIA
             device_count = _infinicore.get_device_count(nvidia_device_type)
@@ -158,12 +164,15 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     try:
         infini_device = infinicore.device(device_type, device_index)
         infinilm_model = LlamaForCausalLM.from_pretrained(
-            model_dir, device=infini_device)
+            model_dir, device=infini_device
+        )
         print(
-            f"   ✓ InfiniLM model loaded from {model_dir} on {device_type}:{device_index}")
+            f"   ✓ InfiniLM model loaded from {model_dir} on {device_type}:{device_index}"
+        )
     except Exception as e:
         print(f"   ✗ Failed to create InfiniLM model: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -176,9 +185,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
             torch_device = torch.device("cpu")
 
         transformers_model = transformers.LlamaForCausalLM.from_pretrained(
-            model_dir,
-            dtype=torch.float32,
-            low_cpu_mem_usage=True
+            model_dir, dtype=torch.float32, low_cpu_mem_usage=True
         )
         transformers_model = transformers_model.to(torch_device)
         transformers_model.eval()  # Set to evaluation mode
@@ -186,6 +193,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     except Exception as e:
         print(f"   ✗ Failed to load transformers model: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -193,11 +201,13 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     print("\n4. Loading weights into InfiniLM model...")
     try:
         num_params = load_weights_into_infinilm_model(
-            infinilm_model, transformers_model, infini_device, torch_device)
+            infinilm_model, transformers_model, infini_device, torch_device
+        )
         print(f"   ✓ Loaded {num_params} parameters")
     except Exception as e:
         print(f"   ✗ Failed to load weights: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -212,7 +222,8 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
         # Create position_ids (0 to seq_len-1)
         seq_len = input_ids.shape[1]
         position_ids = torch.arange(
-            0, seq_len, dtype=torch.long, device=torch_device).unsqueeze(0)
+            0, seq_len, dtype=torch.long, device=torch_device
+        ).unsqueeze(0)
 
         print(f"   ✓ Input prepared")
         print(f"     Input shape: {input_ids.shape}")
@@ -221,6 +232,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     except Exception as e:
         print(f"   ✗ Failed to prepare input: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -229,34 +241,38 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     try:
         with torch.no_grad():
             outputs = transformers_model(
-                input_ids=input_ids,
-                position_ids=position_ids,
-                use_cache=False
+                input_ids=input_ids, position_ids=position_ids, use_cache=False
             )
             transformers_logits = outputs.logits
-            transformers_last_logits = transformers_logits[:, -1:, :]
+            transformers_last_logits = (
+                transformers_logits  # transformers_logits[:, -1:, :]
+            )
         print(f"   ✓ Transformers inference completed")
         print(f"     Logits shape: {transformers_logits.shape}")
         print(f"     Logits dtype: {transformers_logits.dtype}")
-        print(f"     Logits stats: min={transformers_logits.min().item():.6f}, "
-              f"max={transformers_logits.max().item():.6f}, "
-              f"mean={transformers_logits.mean().item():.6f}")
+        print(
+            f"     Logits stats: min={transformers_logits.min().item():.6f}, "
+            f"max={transformers_logits.max().item():.6f}, "
+            f"mean={transformers_logits.mean().item():.6f}"
+        )
 
         # Decode predicted tokens for human understanding (last token only)
-        transformers_last_predicted_id = transformers_last_logits.argmax(
-            dim=-1)
-        transformers_last_predicted_token = transformers_last_predicted_id[0, 0].item(
-        )
+        transformers_last_predicted_id = transformers_last_logits.argmax(dim=-1)
+        transformers_last_predicted_token = transformers_last_predicted_id[0, 0].item()
         transformers_last_predicted_text = tokenizer.decode(
-            [transformers_last_predicted_token], skip_special_tokens=True)
+            [transformers_last_predicted_token], skip_special_tokens=True
+        )
         print(f"     Input prompt: {prompt}")
         print(
-            f"     Transformers last token prediction: {transformers_last_predicted_token}")
+            f"     Transformers last token prediction: {transformers_last_predicted_token}"
+        )
         print(
-            f"     Transformers last token text: \"{transformers_last_predicted_text}\"")
+            f'     Transformers last token text: "{transformers_last_predicted_text}"'
+        )
     except Exception as e:
         print(f"   ✗ Failed to run transformers inference: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -265,30 +281,32 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     try:
         # Convert input to InfiniCore tensors
         infini_input_ids = torch_to_infinicore_tensor(input_ids, infini_device)
-        infini_position_ids = torch_to_infinicore_tensor(
-            position_ids, infini_device)
+        infini_position_ids = torch_to_infinicore_tensor(position_ids, infini_device)
 
         print(f"   ✓ Converted inputs to InfiniCore tensors")
 
         # Check if forward method is available
-        if hasattr(infinilm_model._model, 'forward'):
+        if hasattr(infinilm_model._model, "forward"):
             # Call forward method
             infini_logits = infinilm_model._model.forward(
                 infini_input_ids,
                 infini_position_ids,
-                None  # kv_caches
+                None,  # kv_caches
             )
             print(f"   ✓ InfiniLM forward pass completed")
 
             # Convert InfiniCore logits to PyTorch tensor
             infinilm_logits = infinicore_to_torch_tensor(
-                infini_logits, transformers_last_logits)
+                infini_logits, transformers_last_logits
+            )
             print(f"   ✓ Converted logits to PyTorch tensor")
             print(f"     Logits shape: {infinilm_logits.shape}")
             print(f"     Logits dtype: {infinilm_logits.dtype}")
-            print(f"     Logits stats: min={infinilm_logits.min().item():.6f}, "
-                  f"max={infinilm_logits.max().item():.6f}, "
-                  f"mean={infinilm_logits.mean().item():.6f}")
+            print(
+                f"     Logits stats: min={infinilm_logits.min().item():.6f}, "
+                f"max={infinilm_logits.max().item():.6f}, "
+                f"mean={infinilm_logits.mean().item():.6f}"
+            )
 
             # Check for potential issues
             if torch.isnan(infinilm_logits).any():
@@ -299,17 +317,17 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
             # Check if logits are too small (might indicate model not working)
             if infinilm_logits.abs().max().item() < 1.0:
                 print(
-                    f"     ⚠ WARNING: InfiniLM logits are very small (max abs: {infinilm_logits.abs().max().item():.6f})")
+                    f"     ⚠ WARNING: InfiniLM logits are very small (max abs: {infinilm_logits.abs().max().item():.6f})"
+                )
 
             # Decode predicted token for human understanding (last token only)
             infinilm_predicted_ids = infinilm_logits.argmax(dim=-1)
             infinilm_predicted_token = infinilm_predicted_ids[0, 0].item()
             infinilm_predicted_text = tokenizer.decode(
-                [infinilm_predicted_token], skip_special_tokens=True)
-            print(
-                f"     InfiniLM last token prediction: {infinilm_predicted_token}")
-            print(
-                f"     InfiniLM last token text: \"{infinilm_predicted_text}\"")
+                [infinilm_predicted_token], skip_special_tokens=True
+            )
+            print(f"     InfiniLM last token prediction: {infinilm_predicted_token}")
+            print(f'     InfiniLM last token text: "{infinilm_predicted_text}"')
         else:
             print(f"   ⚠ Forward method not yet available in Python bindings")
             print(f"     This test will validate model setup and weight loading only")
@@ -324,6 +342,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     except Exception as e:
         print(f"   ✗ Failed to run InfiniLM inference: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -331,25 +350,27 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     print("\n8. Comparing inference outputs...")
     try:
         # Check shapes match
-        if infinilm_logits.shape != transformers_last_logits .shape:
+        if infinilm_logits.shape != transformers_last_logits.shape:
             print(f"   ✗ Shape mismatch:")
             print(f"     InfiniLM: {infinilm_logits.shape}")
-            print(f"     Transformers: {transformers_last_logits .shape}")
+            print(f"     Transformers: {transformers_last_logits.shape}")
             return False
 
         print(f"   ✓ Shapes match: {infinilm_logits.shape}")
 
         # Compare predicted tokens for human understanding
         # Compute predicted tokens from logits
-        transformers_predicted_ids = transformers_last_logits .argmax(dim=-1)
+        transformers_predicted_ids = transformers_last_logits.argmax(dim=-1)
         transformers_predicted_tokens = transformers_predicted_ids[0].tolist()
         transformers_predicted_text = tokenizer.decode(
-            transformers_predicted_tokens, skip_special_tokens=True)
+            transformers_predicted_tokens, skip_special_tokens=True
+        )
 
         infinilm_predicted_ids = infinilm_logits.argmax(dim=-1)
         infinilm_predicted_tokens = infinilm_predicted_ids[0].tolist()
         infinilm_predicted_text = tokenizer.decode(
-            infinilm_predicted_tokens, skip_special_tokens=True)
+            infinilm_predicted_tokens, skip_special_tokens=True
+        )
 
         print(f"\n   Predicted tokens comparison:")
         print(f"     Transformers: {transformers_predicted_tokens}")
@@ -360,8 +381,9 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
             print(f"     ✗ Predicted tokens differ")
             # Show where they differ
             mismatches = []
-            min_len = min(len(transformers_predicted_tokens),
-                          len(infinilm_predicted_tokens))
+            min_len = min(
+                len(transformers_predicted_tokens), len(infinilm_predicted_tokens)
+            )
             for i in range(min_len):
                 if transformers_predicted_tokens[i] != infinilm_predicted_tokens[i]:
                     mismatches.append(i)
@@ -370,8 +392,8 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
                 print(f"     Mismatches at positions: {mismatches[:10]}")
 
         print(f"\n   Predicted text comparison:")
-        print(f"     Transformers: \"{transformers_predicted_text}\"")
-        print(f"     InfiniLM:     \"{infinilm_predicted_text}\"")
+        print(f'     Transformers: "{transformers_predicted_text}"')
+        print(f'     InfiniLM:     "{infinilm_predicted_text}"')
         if transformers_predicted_text == infinilm_predicted_text:
             print(f"     ✓ Predicted text matches!")
         else:
@@ -379,7 +401,8 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
 
         # Compare logits
         is_close, stats = tensor_all_close(
-            infinilm_logits, transformers_last_logits, rtol=1e-3, atol=1e-3)
+            infinilm_logits, transformers_last_logits, rtol=1e-3, atol=1e-3
+        )
 
         print(f"   Comparison statistics:")
         print(f"     Max absolute difference: {stats['max_abs_diff']:.6e}")
@@ -394,8 +417,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
             diff = (infinilm_logits - transformers_logits).abs()
             print(f"     Sample differences (first 5 max):")
             flat_diff = diff.flatten()
-            top_5_indices = torch.topk(
-                flat_diff, min(5, flat_diff.numel())).indices
+            top_5_indices = torch.topk(flat_diff, min(5, flat_diff.numel())).indices
             for idx in top_5_indices:
                 # torch.unravel_index expects a tensor, not a Python int
                 # idx is already a tensor scalar, so we can use it directly
@@ -404,32 +426,40 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
                 idx_tuple_py = tuple(int(x.item()) for x in idx_tuple)
                 infini_val = infinilm_logits[idx_tuple_py].item()
                 trans_val = transformers_logits[idx_tuple_py].item()
-                print(f"       [{idx_tuple_py}]: InfiniLM={infini_val:.6f}, "
-                      f"Transformers={trans_val:.6f}, diff={abs(infini_val - trans_val):.6e}")
+                print(
+                    f"       [{idx_tuple_py}]: InfiniLM={infini_val:.6f}, "
+                    f"Transformers={trans_val:.6f}, diff={abs(infini_val - trans_val):.6e}"
+                )
 
             # Diagnostic summary for large mismatches
-            if stats['max_abs_diff'] > 10.0:
+            if stats["max_abs_diff"] > 10.0:
                 print(f"\n   ⚠ DIAGNOSTIC: Large logit differences detected!")
                 print(f"     This suggests potential issues with:")
                 print(
-                    f"     1. Weight loading - verify all weights are loaded correctly")
+                    f"     1. Weight loading - verify all weights are loaded correctly"
+                )
                 print(
-                    f"     2. Attention mechanism - check if attention is computing correctly")
+                    f"     2. Attention mechanism - check if attention is computing correctly"
+                )
                 print(f"     3. Layer processing - verify all layers are being called")
                 print(
-                    f"     4. Numerical precision - check for overflow/underflow issues")
+                    f"     4. Numerical precision - check for overflow/underflow issues"
+                )
                 # Check if model is predicting same token
                 infinilm_unique = torch.unique(infinilm_predicted_ids[0])
                 if len(infinilm_unique) == 1:
                     print(
-                        f"     5. Model collapse - model is predicting same token ({infinilm_unique[0].item()})")
+                        f"     5. Model collapse - model is predicting same token ({infinilm_unique[0].item()})"
+                    )
                     print(
-                        f"        This strongly suggests an attention mechanism issue")
+                        f"        This strongly suggests an attention mechanism issue"
+                    )
             return False
 
     except Exception as e:
         print(f"   ✗ Failed to compare outputs: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -444,6 +474,7 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
     print("\n9. Cleaning up resources...")
     try:
         import gc
+
         del infinilm_model
         del transformers_model
         gc.collect()
@@ -457,13 +488,13 @@ def validate_inference(model_dir: str, prompt: str = "Hello, how are you?",
 def main():
     """Main test function"""
     # Default model path
-    default_model_dir = "/var/qy_home/zenghua/.cache/modelscope/hub/models/LLM-Research/Llama-3.2-1B-Instruct"
+    default_model_dir = "/home/wangpengcheng/Llama-3.2-1B-Instruct"
 
     # Default prompt
     default_prompt = "Hello, how are you?"
 
     # Default device
-    default_device_type = "cpu"
+    default_device_type = "cuda"
     default_device_index = 0
 
     # Parse command line arguments
@@ -494,12 +525,15 @@ def main():
         elif arg.startswith("--"):
             print(f"Error: Unknown option: {arg}")
             print(
-                f"\nUsage: {sys.argv[0]} [model_dir] [--prompt PROMPT] [--device DEVICE]")
+                f"\nUsage: {sys.argv[0]} [model_dir] [--prompt PROMPT] [--device DEVICE]"
+            )
             print(f"\nOptions:")
             print(
-                f"  --prompt PROMPT        Input prompt text (default: \"{default_prompt}\")")
+                f'  --prompt PROMPT        Input prompt text (default: "{default_prompt}")'
+            )
             print(
-                f"  --device DEVICE        Device type and index (default: {default_device_type}:{default_device_index})")
+                f"  --device DEVICE        Device type and index (default: {default_device_type}:{default_device_index})"
+            )
             print(f"                         Examples: cpu, cuda, cuda:0, cuda:1")
             sys.exit(1)
         else:
@@ -515,29 +549,31 @@ def main():
 
     if not os.path.exists(model_dir):
         print(f"Error: Model directory not found: {model_dir}")
-        print(
-            f"\nUsage: {sys.argv[0]} [model_dir] [--prompt PROMPT] [--device DEVICE]")
+        print(f"\nUsage: {sys.argv[0]} [model_dir] [--prompt PROMPT] [--device DEVICE]")
         print(f"\nOptions:")
         print(
-            f"  --prompt PROMPT        Input prompt text (default: \"{default_prompt}\")")
+            f'  --prompt PROMPT        Input prompt text (default: "{default_prompt}")'
+        )
         print(
-            f"  --device DEVICE        Device type and index (default: {default_device_type}:{default_device_index})")
+            f"  --device DEVICE        Device type and index (default: {default_device_type}:{default_device_index})"
+        )
         print(f"                         Examples: cpu, cuda, cuda:0, cuda:1")
         print(f"\nExamples:")
         print(f"  {sys.argv[0]} {default_model_dir}")
-        print(f"  {sys.argv[0]} {default_model_dir} --prompt \"What is AI?\"")
+        print(f'  {sys.argv[0]} {default_model_dir} --prompt "What is AI?"')
         print(f"  {sys.argv[0]} {default_model_dir} --device cuda:0")
         print(
-            f"  {sys.argv[0]} {default_model_dir} --prompt \"What is AI?\" --device cuda:0")
+            f'  {sys.argv[0]} {default_model_dir} --prompt "What is AI?" --device cuda:0'
+        )
         sys.exit(1)
 
     try:
-        success = validate_inference(
-            model_dir, prompt, device_type, device_index)
+        success = validate_inference(model_dir, prompt, device_type, device_index)
         sys.exit(0 if success else 1)
     except Exception as e:
         print(f"\n✗ Test failed with exception: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

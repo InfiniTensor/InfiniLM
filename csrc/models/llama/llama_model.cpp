@@ -14,7 +14,7 @@ LlamaModel::LlamaModel(const LlamaConfig &config, const infinicore::Device &devi
 
     // Initialize decoder layers
     INFINICORE_NN_MODULE_VEC_INIT(layers, config.num_hidden_layers, LlamaDecoderLayer,
-                                   config, device);
+                                  config, device);
 
     // Initialize final layer normalization
     INFINICORE_NN_MODULE_INIT(norm, config.hidden_size, config.rms_norm_eps,
@@ -28,9 +28,9 @@ LlamaModel::LlamaModel(const LlamaConfig &config, const infinicore::Device &devi
 }
 
 infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
-                                        const infinicore::Tensor &position_ids,
-                                        std::vector<void *> *kv_caches,
-                                        const HookRegistry *hook_registry) const {
+                                       const infinicore::Tensor &position_ids,
+                                       std::vector<void *> *kv_caches,
+                                       const HookRegistry *hook_registry) const {
     // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
     auto hidden_states = embed_tokens_->forward(input_ids);
     if (hook_registry && hook_registry->has_hooks()) {
@@ -52,7 +52,7 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     // Narrow to last token: [batch, seq_len, hidden_size] -> [batch, 1, hidden_size]
     auto shape = hidden_states->shape();
     size_t seq_len = shape[1];
-    auto last_token = hidden_states->narrow({{1, seq_len - 1, 1}});
+    auto last_token = hidden_states; //->narrow({{1, seq_len - 1, 1}});
 
     auto normalized_last_token = norm_->forward(last_token);
     if (hook_registry && hook_registry->has_hooks()) {

@@ -392,6 +392,7 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
     def __init__(self, config, **kwargs):
         super().__init__()
         self.config = config
+        self.use_cache = True
         self.model = LlamaModel(config, **kwargs)
         self.lm_head = infinicore.nn.Linear(
             config.hidden_size,

@@ -127,8 +127,12 @@ class GenerationMixin:
         # -------------------------------------------------------------------- #
         #                       创建 cache                                      #
         # -------------------------------------------------------------------- #
-        model_kwargs["use_cache"] = True
-        model_kwargs["past_key_values"] = DynamicCache(config=self.config)
+        if self.use_cache:
+            model_kwargs["use_cache"] = True
+            model_kwargs["past_key_values"] = DynamicCache(config=self.config)
+        else:
+            model_kwargs["use_cache"] = False
+            model_kwargs["past_key_values"] = None
 
         # -------------------------------------------------------------------- #
         #                       _sample函数                                     #
@@ -164,7 +168,8 @@ class GenerationMixin:
 
         batch_size, seq_len = input_ids.shape[:2]
 
-        eos_token_id = config.eos_token_id
+        # eos_token_id = config.eos_token_id
+        eos_token_id = 128001
         eos_token_id_list = (
             [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
         )
@@ -192,12 +197,31 @@ class GenerationMixin:
             #                     计算一次
             # -------------------------------------------------------------------------- #
             start_time = time.time()
-            logits = self.forward(**model_inputs, return_dict=True)
+            from .utils_ceng import infinicore_to_torch_tensor
+            import torch
+
+            # input_ids = infinicore_to_torch_tensor(
+            #     model_inputs["input_ids"],
+            #     torch_reference=torch.zeros((1, 2), device="cuda"),
+            # )
+            # print("input_ids: ", input_ids)
+
+            # cache_positon = infinicore_to_torch_tensor(
+            #     model_inputs["cache_position"],
+            #     torch_reference=torch.zeros((1, 2), device="cuda"),
+            # )
+            # print("cache_positon: ", cache_positon)
+
+            # exit(-1)
+
+            logits = self(**model_inputs)
 
             # -------------------------------------------------------------------------- #
             #                     处理输出
             # -------------------------------------------------------------------------- #
-            token_scores = logits
+            seq_l = logits.shape[1]
+            token_scores = logits.narrow(1, seq_l - 1, 1).contiguous()
+            # print("token_scores: ", token_scores)
 
             # -------------------------------------------------------------------------- #
             #                     random_sample

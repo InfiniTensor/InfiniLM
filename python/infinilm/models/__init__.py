@@ -2,8 +2,9 @@
 InfiniLM models
 """
 
-from .llama import LlamaForCausalLM
+from .llama import AutoLlamaModel,LlamaForCausalLM
 
 __all__ = [
-    "LlamaForCausalLM"
+    "LlamaForCausalLM",
+    "AutoLlamaModel"
 ]

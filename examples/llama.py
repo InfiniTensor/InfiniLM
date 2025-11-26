@@ -54,19 +54,28 @@ def get_args():
         help="max_new_tokens",
     )
     return parser.parse_args()
+   
 
-
-def test(model_path, device_str="cuda", max_new_tokens=100):
+def test(
+    prompt,
+    model_path,
+    max_new_tokens=100,
+    infini_dtype=infinicore.bfloat16,
+    infini_device=infinicore.device("cuda", 0),
+    backend="cpp",
+):
     # ---------------------------------------------------------------------------- #
     #                        创建模型,
     # ---------------------------------------------------------------------------- #
-    infini_device = infinicore.device(device_str, 0)
-    infini_dtype = infinicore.bfloat16
 
-    model = infinilm.LlamaForCausalLM.from_pretrained(
-        model_path,
-        device=infini_device,
-        dtype=infini_dtype,
+    # model = infinilm.LlamaForCausalLM.from_pretrained(
+    #     model_path,
+    #     device=infini_device,
+    #     dtype=infini_dtype,
+    # )
+
+    model = infinilm.AutoLlamaModel.from_pretrained(
+        model_path, device=infini_device, dtype=infini_dtype, backend=backend
     )
 
     # ---------------------------------------------------------------------------- #
@@ -88,33 +97,35 @@ def test(model_path, device_str="cuda", max_new_tokens=100):
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
-    if "llama" == config.model_type:
-        backend = getattr(tokenizer, "backend_tokenizer", None)
-        target = getattr(backend, "_tokenizer", backend)
-        norm = getattr(target, "normalizer", None)
-        dec = getattr(target, "decoder", None)
-        sn = repr(norm)[:800] if norm is not None else ""
-        sd = repr(dec)[:800] if dec is not None else ""
-        has_prepend = "Prepend" in sn
-        has_strip = "Strip" in sd
-        if has_prepend and has_strip:
-            target.decoder = _dec.Sequence(
-                [
-                    _dec.Replace("▁", " "),
-                    _dec.ByteFallback(),
-                    _dec.Fuse(),
-                ]
-            )
+    # if "llama" == config.model_type:
+    backend = getattr(tokenizer, "backend_tokenizer", None)
+    target = getattr(backend, "_tokenizer", backend)
+    norm = getattr(target, "normalizer", None)
+    dec = getattr(target, "decoder", None)
+    sn = repr(norm)[:800] if norm is not None else ""
+    sd = repr(dec)[:800] if dec is not None else ""
+    has_prepend = "Prepend" in sn
+    has_strip = "Strip" in sd
+    if has_prepend and has_strip:
+        target.decoder = _dec.Sequence(
+            [
+                _dec.Replace("▁", " "),
+                _dec.ByteFallback(),
+                _dec.Fuse(),
+            ]
+        )
 
     # ---------------------------------------------------------------------------- #
     #                        token编码
     # ---------------------------------------------------------------------------- #
-    prompt = "山东最高的山是？"
-    input_content = tokenizer.apply_chat_template(
-        conversation=[{"role": "user", "content": prompt}],
-        add_generation_prompt=True,
-        tokenize=False,
-    )
+    if False:
+        input_content = tokenizer.apply_chat_template(
+            conversation=[{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+    else:
+        input_content = prompt
     print(input_content, end="", flush=True)
     input_ids = tokenizer.encode(input_content)
 
@@ -140,6 +151,40 @@ def test(model_path, device_str="cuda", max_new_tokens=100):
 
 
 if __name__ == "__main__":
+    if False:
+        model_path = "/data/huggingface/TinyLlama-1.1B-Chat-v1.0"
+        prompt = "山东最高的山是？"
+
+        device = infinicore.device("cuda", 0)
+        dtype = infinicore.bfloat16
+        max_new_tokens = 10
+        test(
+            prompt,
+            model_path,
+            max_new_tokens=max_new_tokens,
+            infini_device=device,
+            infini_dtype=dtype,
+            backend="python",
+        )
+
+        exit(-1)
+
+    if True:
+        model_path = "/home/wangpengcheng/Llama-3.2-1B-Instruct"
+        # prompt = "Hello, how are you?"
+        prompt = "山东最高的山是？"
+        device = infinicore.device("cuda", 0)
+        dtype = infinicore.float32
+        max_new_tokens = 10
+        test(
+            prompt,
+            model_path,
+            max_new_tokens=max_new_tokens,
+            infini_device=device,
+            infini_dtype=dtype,
+            backend="cpp",
+        )
+        exit(-1)
     args = get_args()
     print(args)
 
