@@ -1,5 +1,5 @@
-#ifndef DEEPSEEK_V3_WEIGHTS_H
-#define DEEPSEEK_V3_WEIGHTS_H
+#ifndef MODEL_LLADAMOE_H
+#define MODEL_LLADAMOE_H
 
 #include <infiniccl.h>
 #include <infiniop.h>
@@ -122,7 +122,7 @@ typedef struct{
     const void *const *const *moe_expert_up;  
     // nlayer * nexperts * [di_moe, d] - 专家down投影
     const void *const *const *moe_expert_down;
-} JiugeWeights;
+} LLaDAMoEWeights;
 
 // 改进后的权重加载器结构体
 typedef struct {
@@ -142,3 +142,5 @@ inferBatchLLaDAMoE();
 
 __C void
 forwardBatchLLaDAMoE();
+
+#endif
