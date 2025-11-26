@@ -88,7 +88,10 @@ def get_model_state_dict(
     # --------------------------------------------------------- #
     #          调整权重的device和dtype
     # --------------------------------------------------------- #
-    torch_device = device.type
+
+    # 将 infinicore device 转换为 PyTorch device type
+    # 例如 "iluvatar" -> "cuda", "nvidia" -> "cuda", "cpu" -> "cpu"
+    torch_device = infinicore.utils.to_torch_device(device)
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
 
     model_param_infini = {}
@@ -98,7 +101,12 @@ def get_model_state_dict(
     # --------------------------------------------------------- #
     #           model_param_infini 引用torch.Tensor
     # --------------------------------------------------------- #
+
+    # 确保设备上下文设置为目标设备，这样 from_torch 可以正确识别设备类型
+    infinicore.context.set_device(device)
+    
     for key, value in model_param.items():
-        model_param_infini[key] = infinicore.from_torch(model_param[key])
+        # 传递 device 参数，确保使用正确的 infinicore device 类型
+        model_param_infini[key] = infinicore.from_torch(model_param[key], device=device)
 
     return model_param_infini

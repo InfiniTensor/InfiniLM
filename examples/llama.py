@@ -161,7 +161,7 @@ if __name__ == "__main__":
     elif args.moore:
         device_str = "musa"
     elif args.iluvatar:
-        device_str = "cuda"
+        device_type = "iluvatar"  # 直接使用 iluvatar 设备类型，而不是 cuda
     else:
         print(
             "Usage:  python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>\n"
