@@ -3,9 +3,8 @@ from typing import Dict, Optional, Union
 
 import torch
 from safetensors import safe_open
+import glob
 
-# from safetensors.torch import load_file as safe_load_file
-# from safetensors.torch import save_file as safe_save_file
 import infinicore
 
 str_to_torch_dtype = {
@@ -76,9 +75,19 @@ def get_model_state_dict(
     """
     Load the model weights.
     """
-    path = os.path.join(model_path, "model.safetensors")
-    model_param = load_state_dict(path)
+    # --------------------------------------------------------- #
+    #          使用从 *.safetensors文件中加载权重
+    # --------------------------------------------------------- #
+    model_param = {}
+    for file_path in glob.glob(os.path.join(model_path, "*.safetensors")):
+        model_param.update(load_state_dict(file_path))
 
+    if model_param.get("lm_head.weight", None) is None:
+        model_param["lm_head.weight"] = model_param["model.embed_tokens.weight"]
+
+    # --------------------------------------------------------- #
+    #          调整权重的device和dtype
+    # --------------------------------------------------------- #
     torch_device = device.type
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
 
@@ -86,6 +95,9 @@ def get_model_state_dict(
     for key, value in model_param.items():
         model_param[key] = value.to(device=torch_device, dtype=torch_dtype)
 
+    # --------------------------------------------------------- #
+    #           model_param_infini 引用torch.Tensor
+    # --------------------------------------------------------- #
     for key, value in model_param.items():
         model_param_infini[key] = infinicore.from_torch(model_param[key])
 
