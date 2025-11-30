@@ -117,7 +117,6 @@ class LLaDAMetaFromLlama(LLaDAMetaCStruct): # model specific data: heads num ...
                 if "head_dim" in config
                 else config["hidden_size"] // config["num_attention_heads"]
             ),
-            di=config["intermediate_size"],
             dctx=(
                 config["max_position_embeddings"] if max_tokens is None else max_tokens
             ),
@@ -327,48 +326,10 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         ]
         self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
 
-        def gate_up_slices(_i):
-            _result = []
-            _di = di // ndev
-            for _idev in range(ndev):
-                _start = _idev * _di
-                _end = (_idev + 1) * _di
-                _result.append(state_dict[naming.gate(_i)][_start:_end, :])
-                _result.append(state_dict[naming.up(_i)][_start:_end, :])
-            return _result
+       
 
-        self.gate_up_tensors = [
-            torch.concat(gate_up_slices(i)).to(torch_dt_mat) for i in range(nlayer)
-        ]
-        if not transpose_weight:
-            for i in range(nlayer):
-                self.gate_up_tensors[i] = (
-                    self.gate_up_tensors[i]
-                    .reshape(ndev, 2 * di // ndev, d)
-                    .transpose(1, 2)
-                    .contiguous()
-                )
-        self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
-        self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
+       
 
-        self.ffn_down_tensor = [
-            (
-                state_dict[naming.down(i)]
-                .to(torch_dt_mat)
-                .reshape([d, ndev, di // ndev])
-                .transpose(0, 1)
-                .contiguous()
-                if transpose_weight
-                else state_dict[naming.down(i)]
-                .transpose(0, 1)
-                .to(torch_dt_mat)
-                .contiguous()
-            )
-            * scale_down
-            for i in range(nlayer)
-        ]
-        self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
-        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs) # for SwinGLU
 
 
 
@@ -399,20 +360,23 @@ class LLaDAForCauslLM:
             [eos_token_id] if type(eos_token_id) == int else eos_token_id
         )
 
-        self.llada_model = LLaDAModel() # TODO: 实现LLaDAModel
+        # self.llada_model = LLaDAModel() # TODO: 实现LLaDAModel
 
         state_dict = load_all_safetensors_from_dir(model_dir_path)
 
-
-        self.meta = LLaDAMetaFromLlama()
-        self.weights = LLaDAWeightsImpl() # bottleneck
+        self.meta = LLaDAMetaFromLlama(config, dtype=torch.bfloat16, max_tokens=max_tokens)
+        self.weights = LLaDAWeightsImpl(
+                    self.meta,
+                    LLaDAWeifghtsNaming(),
+                    state_dict,
+                    ndev=ndev,
+                    transpose_weight=None,
+                    ) # bottleneck
         self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path, trust_remote_code=True
         ) # bottleneck
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
-
-
         print(f"Creating model on {ndev} devices...")
         load_start_time = time.time()
         self.dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
@@ -420,41 +384,34 @@ class LLaDAForCauslLM:
         self.device = device
         print("--- start create model ---")
         # self.model_instance = self.llada_model.create_model()
+        # self.model_instance = self.llada_model.create_model( # TODO:
+        #     byref(self.meta),
+        #     byref(self.weights),
+        #     device,
+        #     ndev,
+        #     self.dev_ids,
+        # )
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
 
 def test():
-    if len(sys.argv) < 3:
-        print(
-            "Usage: python llada.py [--cpu | --nvidia] <path/to/model_dir> [n_device] [--verbose]"
-        )
-        sys.exit(1)
+    # if len(sys.argv) < 3:
+    #     print(
+    #         "Usage: python llada.py [--cpu | --nvidia] <path/to/model_dir> [n_device] [--verbose]"
+    #     )
+    #     sys.exit(1)
 
     # Parse command line arguments
-    model_path = sys.argv[2]
+
+    model_path = "/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/snapshots/783d3467f108d28ac0a78d3e41af16ab05cabd8d"
     device_type = DeviceType.DEVICE_TYPE_CPU
     verbose = False
 
-    # Check for verbose flag
-    for arg in sys.argv:
-        if arg == "--verbose": # why >
-            verbose = True
-            break
-
-    if sys.argv[1] == "--cpu":
-        device_type = DeviceType.DEVICE_TYPE_CPU
-    elif sys.argv[1] == "--nvidia":
-        device_type = DeviceType.DEVICE_TYPE_NVIDIA
-    else:
-        print(
-            "Usage: python llada.py [--cpu | --nvidia] <path/to/model_dir> [n_device] [--verbose]"
-        )
-        sys.exit(1)
-
+    device_type = DeviceType.DEVICE_TYPE_CPU
+        
     # Find n_device argument (skip --verbose)
-    ndev_args = [arg for arg in sys.argv[3:] if arg != "--verbose"]
-    ndev = int(ndev_args[0]) if ndev_args else 1 # nums of card
+    ndev = 1 # nums of card
 
     model = LLaDAForCauslLM(model_path, device_type, ndev)
 

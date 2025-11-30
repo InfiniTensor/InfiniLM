@@ -2,9 +2,9 @@ from .base import BaseModel, DataType, DeviceType, KVCacheCStruct, register_mode
 from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER, Structure, byref
 
 
-class JiugeMetaCStruct(Structure): # from config file
-    _fields_ = [ # (name, size)
-        ("dt_logits", DataType), # c_int
+class JiugeMetaCStruct(Structure):
+    _fields_ = [
+        ("dt_logits", DataType),
         ("nlayer", c_size_t),
         ("d", c_size_t),
         ("nh", c_size_t),
@@ -16,7 +16,7 @@ class JiugeMetaCStruct(Structure): # from config file
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
-    ] # equal to c structure in c
+    ]
 
 
 class JiugeWeightsCStruct(Structure):
@@ -86,7 +86,7 @@ class JiugeModel(BaseModel):
             POINTER(c_uint),
             POINTER(c_float),
             POINTER(c_uint),
-        ] # 确认参数列表类型
+        ]
 
         lib.forwardBatchJiuge.argtypes = [
             POINTER(JiugeModelCStruct),

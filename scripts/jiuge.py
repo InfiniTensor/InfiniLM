@@ -83,7 +83,7 @@ class LlamaWeightsNaming:
         )
 
 
-class JiugeMetaFromLlama(JiugeMetaCStruct): # model specific data: heads num ....
+class JiugeMetaFromLlama(JiugeMetaCStruct):
     def __init__(self, config, dtype=torch.float16, max_tokens=None):
         if dtype == torch.float16:
             dt_ = DataType.INFINI_DTYPE_F16
@@ -105,7 +105,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct): # model specific data: heads num ...
             and "dim_model_base" in config
         ):
             self.scale_input = config["scale_emb"]
-            self.scale_output = config["hidden_size"] //config["hidden_size"]
+            self.scale_output = config["hidden_size"] // config["dim_model_base"]
             self.scale_o = config["scale_depth"] / math.sqrt(
                 config["num_hidden_layers"]
             )
@@ -145,7 +145,7 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
         self,
         meta,
         naming,
-        state_dict,  # 权重
+        state_dict,
         torch_dt_mat=torch.float16,
         torch_dt_norm=torch.float32,
         ndev=1,
@@ -211,7 +211,7 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
         self.output_embd = self.output_embd_tensor.data_ptr()
 
         self.attn_norm_tensors = [
-            state_dict[naming.attn_norm(i)].to(torch_dt_norm) for i in range(nlayer) # each layer's weight
+            state_dict[naming.attn_norm(i)].to(torch_dt_norm) for i in range(nlayer)
         ]
         self.attn_norm_ptrs = [
             self.attn_norm_tensors[i].data_ptr() for i in range(nlayer)
@@ -223,7 +223,7 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
                 state_dict[naming.attn_q(_i)]
                 .reshape([nh, 2, dh // 2, d])
                 .transpose(1, 2)
-            ) # For RoPE
+            )
             _K = (
                 state_dict[naming.attn_k(_i)]
                 .reshape([nkvh, 2, dh // 2, d])
@@ -382,7 +382,7 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
             for i in range(nlayer)
         ]
         self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
-        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs) # for SwinGLU
+        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
 
 
 class JiugeBatchedTask:
@@ -430,15 +430,12 @@ class JiugeForCauslLM:
     def __init__(
         self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
     ):
-        def load_all_safetensors_from_dir(dir_path_: str): #TODO: Load. Accelerate By Page Cache
+        def load_all_safetensors_from_dir(dir_path_: str):
             tensors_ = {}
             dir_path_ = Path(dir_path_)
-            print(f"load Dir path {dir_path_}")
             for file in sorted(dir_path_.glob("*.safetensors")):
                 data_ = safetensors.safe_open(file, "pt")
                 for name_ in data_.keys():
-                    # print("Tensor Name ")
-                    # print(name_)
                     tensors_[name_] = data_.get_tensor(name_)
             return tensors_
 
@@ -454,7 +451,7 @@ class JiugeForCauslLM:
         )
         transpose_weight = (
             device != DeviceType.DEVICE_TYPE_ASCEND
-        )  # y = xW is faster than y=xW^T on Ascend !
+        )  # y = xW is faster than y=xW^T on Ascend
 
         self.jiuge_model = JiugeModel()
 
@@ -469,22 +466,22 @@ class JiugeForCauslLM:
             self.weights = JiugeWeightsImpl(
                 self.meta,
                 LlamaWeightsNaming(),
-                model.state_dict(), # k-v k's tensor name, v is tensor value
+                model.state_dict(),
                 ndev=ndev,
                 transpose_weight=transpose_weight,
             )
-        elif "fm9g" == config["model_type"] or "minicpm" == config["model_type"]: # start 
+        elif "fm9g" == config["model_type"] or "minicpm" == config["model_type"]:
             if any(
-                file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir() 
+                file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()
             ):
-                state_dict = load_all_safetensors_from_dir(model_dir_path) # get safetensors k-v k is name v is weights
+                state_dict = load_all_safetensors_from_dir(model_dir_path)
             else:
                 state_dict = torch.load(
                     os.path.join(model_dir_path, "pytorch_model.bin"),
                     weights_only=True,
                     map_location="cpu",
                 )
-            if LlamaWeightsNaming.match(state_dict): #TODO: not so specif and unneed ?
+            if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
                 self.weights = JiugeWeightsImpl(
                     self.meta,
@@ -492,10 +489,10 @@ class JiugeForCauslLM:
                     state_dict,
                     ndev=ndev,
                     transpose_weight=transpose_weight,
-                ) # bottleneck
+                )
                 self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                     model_dir_path, trust_remote_code=True
-                ) # bottleneck
+                )
             else:
                 raise ValueError("Unsupported weight naming")
         elif "fm9g7b" == config["model_type"]:
@@ -568,13 +565,13 @@ class JiugeForCauslLM:
         self.dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
         self.ndev = ndev
         self.device = device
-        print("--- start create model ---")
+
         self.model_instance = self.jiuge_model.create_model(
-            byref(self.meta),    # layer and other structure in LLM
-            byref(self.weights), # specific weight
-            device,              # which card
+            byref(self.meta),
+            byref(self.weights),
+            device,
             ndev,
-            self.dev_ids,        # dev id
+            self.dev_ids,
         )
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
@@ -621,9 +618,9 @@ class JiugeForCauslLM:
             conversation=[{"role": "user", "content": input_content}],
             add_generation_prompt=True,
             tokenize=False,
-        ) # add start symbol <im_start>
+        )
         print(input_content, end="", flush=True)
-        tokens = self.tokenizer.encode(input_content) # embedding into dimennsion which equal to vocab size
+        tokens = self.tokenizer.encode(input_content)
         infer_task = InferTask(
             0,
             tokens,
@@ -632,18 +629,18 @@ class JiugeForCauslLM:
             topk_,
             topp_,
             self.eos_token_id,
-        ) # bind some parameter
-        infer_task.bind_kvcache(KVCache(self)) # bind kv cache
+        )
+        infer_task.bind_kvcache(KVCache(self))
 
         steps = 0
         total_time = 0
         prefill_time = 0
         decode_time = 0
-        output_content = "" # init output string
+        output_content = ""
 
         # Prefill phase - process initial prompt
         prefill_start_time = time.time()
-        output_tokens = self.batch_infer_one_round([infer_task]) # output only one token
+        output_tokens = self.batch_infer_one_round([infer_task])
         prefill_end_time = time.time()
         prefill_time = prefill_end_time - prefill_start_time
         steps += 1
@@ -839,7 +836,7 @@ def test():
 
     # Check for verbose flag
     for arg in sys.argv:
-        if arg == "--verbose": # why >
+        if arg == "--verbose":
             verbose = True
             break
 
@@ -869,14 +866,12 @@ def test():
 
     # Find n_device argument (skip --verbose)
     ndev_args = [arg for arg in sys.argv[3:] if arg != "--verbose"]
-    ndev = int(ndev_args[0]) if ndev_args else 1 # nums of card
+    ndev = int(ndev_args[0]) if ndev_args else 1
 
     model = JiugeForCauslLM(model_path, device_type, ndev)
-    model.generate("What's result of one plus one?", 500, verbose=verbose)
+    model.generate("山东最高的山是？", 500, verbose=verbose)
     model.destroy_model_instance()
 
 
 if __name__ == "__main__":
-    import os
-    print(os.getpid())
     test()
