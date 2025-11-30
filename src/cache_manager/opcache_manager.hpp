@@ -140,6 +140,17 @@ public:
 // Helper macro to generate the destroy function name
 #define DESTROY_FUNC(OpType) infiniopDestroy##OpType##Descriptor
 
+// 宏展开后的结果
+// LRUDescriptorCache<infiniopAddDescriptor_t> Add_cache;
+
+// bool getAddDescriptor(size_t key, infiniopAddDescriptor_t &desc) {
+//     return Add_cache.get(key, desc);
+// }
+
+// void putAddDescriptor(size_t key, const infiniopAddDescriptor_t &desc) {
+//     Add_cache.put(key, desc);
+// }
+
 // Declare cache and access functions
 #define DECLARE_OP_CACHE(OpType)                                                           \
     LRUDescriptorCache<infiniop##OpType##Descriptor_t> OpType##_cache;                     \

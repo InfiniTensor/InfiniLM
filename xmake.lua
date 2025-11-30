@@ -1,7 +1,7 @@
 local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 
 target("infinicore_infer")
-    set_kind("shared")
+    set_kind("shared") 
 
     add_includedirs("include", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })

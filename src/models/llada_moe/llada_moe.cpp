@@ -48,6 +48,6 @@ void LLaDAMoEModel()  {
 // }
 
 
-__C void destroyLaDAMoEModel(){
+__C void destroyLlaDAMoEModel(){
 
 }

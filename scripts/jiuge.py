@@ -433,9 +433,12 @@ class JiugeForCauslLM:
         def load_all_safetensors_from_dir(dir_path_: str): #TODO: Load. Accelerate By Page Cache
             tensors_ = {}
             dir_path_ = Path(dir_path_)
+            print(f"load Dir path {dir_path_}")
             for file in sorted(dir_path_.glob("*.safetensors")):
                 data_ = safetensors.safe_open(file, "pt")
                 for name_ in data_.keys():
+                    # print("Tensor Name ")
+                    # print(name_)
                     tensors_[name_] = data_.get_tensor(name_)
             return tensors_
 
@@ -565,7 +568,7 @@ class JiugeForCauslLM:
         self.dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
         self.ndev = ndev
         self.device = device
-
+        print("--- start create model ---")
         self.model_instance = self.jiuge_model.create_model(
             byref(self.meta),    # layer and other structure in LLM
             byref(self.weights), # specific weight
@@ -874,4 +877,6 @@ def test():
 
 
 if __name__ == "__main__":
+    import os
+    print(os.getpid())
     test()

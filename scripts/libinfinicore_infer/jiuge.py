@@ -3,8 +3,8 @@ from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER, Structur
 
 
 class JiugeMetaCStruct(Structure): # from config file
-    _fields_ = [
-        ("dt_logits", DataType),
+    _fields_ = [ # (name, size)
+        ("dt_logits", DataType), # c_int
         ("nlayer", c_size_t),
         ("d", c_size_t),
         ("nh", c_size_t),
@@ -86,7 +86,7 @@ class JiugeModel(BaseModel):
             POINTER(c_uint),
             POINTER(c_float),
             POINTER(c_uint),
-        ]
+        ] # 确认参数列表类型
 
         lib.forwardBatchJiuge.argtypes = [
             POINTER(JiugeModelCStruct),

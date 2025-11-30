@@ -15,6 +15,7 @@ void createDeviceResource(JiugeDeviceResource *rsrc, const JiugeMeta *meta,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
+    std::cout << "Set Device" << std::endl;
     RUN_INFINI(infinirtSetDevice(device, dev_id));
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
@@ -127,6 +128,10 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits) {
+    std::cout << "entering infer batch" << std::endl;
+
+    std::cout << "Calucute Hyper Parameter" << std::endl;
+
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
@@ -142,6 +147,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     bool has_qk_norm = rsrc.w_attn_q_norm.size() > 0 && rsrc.w_attn_k_norm.size() > 0;
 
     // Allocate buffers
+    std::cout << "Allocating  Buffer " << std::endl;
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
@@ -156,6 +162,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto k_buf = qkv_rope->slice(1, nh, nkvh);
 
     // Prepare inputs
+    std::cout << "Preparing Input" << std::endl;
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
     size_t req_start = 0;
     for (uint32_t req = 0; req < nreq; req++) {
@@ -165,6 +172,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         req_start += req_lens[req];
     }
 
+    std::cout << "Position Embedding" << std::endl;
     std::shared_ptr<Tensor> pos_ids_buf;
     if (rsrc.device == INFINI_DEVICE_CPU) {
         pos_ids_buf = Tensor::weight(batch_pos_ids.data(), INFINI_DTYPE_U32, {ntok});
@@ -203,6 +211,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
 
+    std::cout << "Transformer Layer Stream" << std::endl;
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
@@ -275,6 +284,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         }
     }
     // Sample and Output
+    std::cout << "starting reduce result" << std::endl;
     if (idev == 0) {
         if (last_logits != nullptr) {
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
@@ -382,10 +392,14 @@ forwardBatchJiuge(struct JiugeModel *model,
 
 void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
+    std::cout << "launch device" << std::endl;
     // Create Device Resource
     createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
+    
+    std::cout << "Cache Manager initing ..." << std::endl;
+    CacheManager cache_manager(100); 
 
-    CacheManager cache_manager(100);
+    std::cout << "Context Initing" << std::endl;
     InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
 
     // Set the inference context for this thread
@@ -406,7 +420,7 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDevic
         if (state.exit_flag) {
             break;
         }
-
+        std::cout << "Infering Device Batch" << std::endl;
         inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                          req.req_lens, req.nreq, req.req_pos, req.kv_caches,
                          req.temperature, req.topk, req.topp, req.output, req.logits);
@@ -417,12 +431,15 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDevic
     }
 
     // Clean-Up
+    std::cout << "Clearing Context" << std::endl;
     releaseDeviceResource(*rsrc);
     setInferenceContext(nullptr); // Clear the context when done
 }
 
 JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infiniDevice_t device_, std::vector<int> device_ids) : meta(*_meta) {
+    std::cout << "Starting Distri Deploy Model" << std::endl;
     int ndev = int(device_ids.size());
+    std::cout << "The nums of dev is " << ndev << std::endl;
     device = device_;
     dev_ids = device_ids;
     dev_resources = std::vector<JiugeDeviceResource>(ndev);
@@ -435,6 +452,7 @@ JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infi
     }
 
     for (int i = 0; i < ndev; i++) {
+        std::cout << "Launch Device " << i << " Thread" << std::endl; 
         threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
     for (int i = 0; i < ndev; i++) {
@@ -450,6 +468,7 @@ createJiugeModel(const JiugeMeta *meta,
                  infiniDevice_t device,
                  int ndev,
                  const int *dev_ids) {
+    std::cout << "Start Create Model" << std::endl;
     std::vector<int> device_ids(ndev);
     std::copy(dev_ids, dev_ids + ndev, device_ids.begin());
     JiugeModel *model = new JiugeModel(meta, weights, device, device_ids);
