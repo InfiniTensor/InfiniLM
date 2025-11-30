@@ -10,11 +10,14 @@ class LLaDAMetaCStruct(Structure): # from config file
         ("nh", c_size_t),
         ("nkvh", c_size_t),
         ("dh", c_size_t),
+        ("di_dense", c_size_t),
+        ("di_expert", c_size_t),
         ("dctx", c_size_t),
         ("dvoc", c_size_t),
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
+        ("num_experts", c_int)
     ] # equal to c structure in c
 
 

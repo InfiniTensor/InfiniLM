@@ -61,11 +61,11 @@ class LLaDAWeifghtsNaming:
     def ffn_norm(self, i):
         return f"model.layers.{i}.post_attention_layernorm.weight"
 
-    def gate(self, i):
-        return f"model.layers.{i}.mlp.gate_proj.weight"
+    def gate(self, i, j):
+        return f"model.layers.{i}.mlp.expert.gate_proj.{j}.weight"
 
-    def up(self, i):
-        return f"model.layers.{i}.mlp.up_proj.weight"
+    def up(self, i, j):
+        return f"model.layers.{i}.mlp.expert.up_proj.{j}.weight"
 
     def down(self, i):
         return f"model.layers.{i}.mlp.down_proj.weight"
@@ -117,6 +117,8 @@ class LLaDAMetaFromLlama(LLaDAMetaCStruct): # model specific data: heads num ...
                 if "head_dim" in config
                 else config["hidden_size"] // config["num_attention_heads"]
             ),
+            di_dense = config["dense_intermediate_size"],
+            di_expert = config["expert_intermediate_size"],
             dctx=(
                 config["max_position_embeddings"] if max_tokens is None else max_tokens
             ),
@@ -124,6 +126,7 @@ class LLaDAMetaFromLlama(LLaDAMetaCStruct): # model specific data: heads num ...
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             end_token=2,
+            num_experts=config["num_experts"]
         )
         self.torch_dtype_logits = dtype
 
@@ -138,10 +141,12 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         ):
         nlayer = meta.nlayer
         nh = meta.nh
+        di_expert = meta.di_expert
+        di_dense = meta.di_dense
         nkvh = meta.nkvh
         dh = meta.dh
         d = meta.d
-
+        num_experts = meta.num_experts
         scale_input = meta.scale_input
         scale_output = meta.scale_output
         scale_o = meta.scale_o
@@ -326,6 +331,91 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         ]
         self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
 
+        def expert_gate_up_slices(layer_id, num_experts):
+            """
+            Extract expert gate and up weights for one layer.
+            Compatible with keys like:
+            model.layers.{i}.mlp.experts.{e}.gate_proj.weight
+            model.layers.{i}.mlp.experts.{e}.up_proj.weight
+            """
+            gate_up_list = []
+
+            for e in range(num_experts):
+                gate_key = f"model.layers.{layer_id}.mlp.experts.{e}.gate_proj.weight"
+                up_key   = f"model.layers.{layer_id}.mlp.experts.{e}.up_proj.weight"
+
+                gate_w = state_dict[gate_key]     # shape: [1024, 2048]
+                up_w   = state_dict[up_key]       # shape: [1024, 2048]
+
+                # concat gate + up along dim 0 → shape: [2048, 2048]
+                # this matches your previous behavior
+                gate_up = torch.cat([gate_w, up_w], dim=0)
+
+                gate_up_list.append(gate_up)
+
+            return gate_up_list   # list of num_experts tensors
+                
+        self.gate_up_tensors = [
+            torch.concat(expert_gate_up_slices(i, num_experts), dim=0).to(torch_dt_mat)
+            for i in range(nlayer)
+        ]
+        # self.gate_up_tensors = [
+        #     [t.to(torch_dt_mat) for t in expert_gate_up_slices(i, num_experts)]
+        #     for i in range(nlayer)
+        # ]
+        # if not transpose_weight:
+        #     for i in range(nlayer):
+        #         self.gate_up_tensors[i] = (
+        #             self.gate_up_tensors[i]
+        #             .reshape(ndev, 2 * di_expert // ndev, d)
+        #             .transpose(1, 2)
+        #             .contiguous()
+        #         ) #TODO: 具体切分设计
+        self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
+        self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
+        
+
+        def expert_down_slices(layer_id, num_experts):
+            """
+            Extract expert gate and up weights for one layer.
+            Compatible with keys like:
+            model.layers.{i}.mlp.experts.{e}.gate_proj.weight
+            model.layers.{i}.mlp.experts.{e}.up_proj.weight
+            """
+            down_list = []
+
+            for e in range(num_experts):
+                down_key = f"model.layers.{layer_id}.mlp.experts.{e}.down_proj.weight"
+                down_w = state_dict[down_key]     # shape: [1024, 2048]
+                # concat gate + up along dim 0 → shape: [2048, 2048]
+                # this matches your previous behavior
+                down_list.append(down_w)
+
+            return down_list   # list of num_experts tensors
+        
+        # self.ffn_down_tensor = [
+        #     (
+        #         state_dict[naming.down(i)]
+        #         # .to(torch_dt_mat)
+        #         # .reshape([d, ndev, di_expert // ndev])
+        #         # .transpose(0, 1)
+        #         # .contiguous()
+        #         # if transpose_weight
+        #         # else state_dict[naming.down(i)]
+        #         # .transpose(0, 1)
+        #         # .to(torch_dt_mat)
+        #         # .contiguous() #TODO: 内存切分设计
+        #     )
+        #     * scale_down
+        #     for i in range(nlayer)
+        # ]
+        self.ffn_down_tensor = [
+            torch.concat(expert_down_slices(i, num_experts), dim=0).to(torch_dt_mat)
+            for i in range(nlayer)
+        ]
+        self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
+        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
+
        
 
        
@@ -363,7 +453,7 @@ class LLaDAForCauslLM:
         # self.llada_model = LLaDAModel() # TODO: 实现LLaDAModel
 
         state_dict = load_all_safetensors_from_dir(model_dir_path)
-
+        # C Structure Meta and weights
         self.meta = LLaDAMetaFromLlama(config, dtype=torch.bfloat16, max_tokens=max_tokens)
         self.weights = LLaDAWeightsImpl(
                     self.meta,
