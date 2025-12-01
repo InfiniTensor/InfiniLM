@@ -56,16 +56,16 @@ class LLaDAModel(BaseModel):
             # inferBatchJiuge   C++ interface
             # forwardBatchJiuge C++ interface 
         # TODO: 根据最后4个的实现完善参数列表
-        lib.createLLaDAModel.restype = POINTER(LLaDAModelCStruct)
+        lib.createLLaDAModel.restype = POINTER(LLaDAModelCStruct) # OK
         lib.createJiugeModel.argtypes = [
             POINTER(LLaDAMetaCStruct),
             POINTER(LLaDAWeightsCStruct),
             DeviceType,
             c_int,
             POINTER(c_int), # const --> Pointer
-        ]
+        ] # OK
 
-        lib.destroyJiugeModel.argtypes = [POINTER(LLaDAModelCStruct)]
+        # lib.destroyJiugeModel.argtypes = [POINTER(LLaDAModelCStruct)]
 
         lib.createKVCache.argtypes = [
             c_size_t,
@@ -82,30 +82,30 @@ class LLaDAModel(BaseModel):
 
         lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
 
-        lib.inferBatchLLaDA.argtypes = [
-            POINTER(LLaDAModelCStruct),
-            POINTER(c_uint),
-            c_uint,
-            POINTER(c_uint),
-            c_uint,
-            POINTER(c_uint),
-            POINTER(POINTER(KVCacheCStruct)),
-            POINTER(c_float),
-            POINTER(c_uint),
-            POINTER(c_float),
-            POINTER(c_uint),
-        ]
+        # lib.inferBatchLLaDA.argtypes = [
+        #     POINTER(LLaDAModelCStruct),
+        #     POINTER(c_uint),
+        #     c_uint,
+        #     POINTER(c_uint),
+        #     c_uint,
+        #     POINTER(c_uint),
+        #     POINTER(POINTER(KVCacheCStruct)),
+        #     POINTER(c_float),
+        #     POINTER(c_uint),
+        #     POINTER(c_float),
+        #     POINTER(c_uint),
+        # ]
 
-        lib.forwardBatchLLaDA.argtypes = [
-            POINTER(LLaDAModelCStruct),
-            POINTER(c_uint),
-            c_uint,
-            POINTER(c_uint),
-            c_uint,
-            POINTER(c_uint),
-            POINTER(POINTER(KVCacheCStruct)),
-            c_void_p,
-        ]
+        # lib.forwardBatchLLaDA.argtypes = [
+        #     POINTER(LLaDAModelCStruct),
+        #     POINTER(c_uint),
+        #     c_uint,
+        #     POINTER(c_uint),
+        #     c_uint,
+        #     POINTER(c_uint),
+        #     POINTER(POINTER(KVCacheCStruct)),
+        #     c_void_p,
+        # ]
     def create_model(self, meta, weights, device_type, ndev, dev_ids):
         # TODO:
         return self.lib.createLLaDAModel(meta, weights, device_type, ndev, dev_ids)

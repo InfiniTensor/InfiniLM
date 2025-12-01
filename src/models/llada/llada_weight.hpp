@@ -6,6 +6,7 @@
 inline std::shared_ptr<Tensor> getInEmbd(
     LLaDAMeta const * meta,
     LLaDAWeights const * w) {
+    std::cout << "Get In Embd" << std::endl;
     auto shape = std::vector<size_t>({meta->dvoc, meta->d});
     return Tensor::weight((char *)w->input_embd, meta->dt_logits, shape);
 }
@@ -13,6 +14,7 @@ inline std::shared_ptr<Tensor> getInEmbd(
 inline std::shared_ptr<Tensor> getOutNorm(
     LLaDAMeta const * meta,
     LLaDAWeights const * w){
+    std::cout << "Get In Embd" << std::endl;
     auto shape = std::vector<size_t>({meta->d});
     return Tensor::weight((char *)w->output_norm, w->dt_norm, shape);
 }
@@ -147,6 +149,7 @@ inline std::shared_ptr<Tensor> getFFNDown(
 }
 
 inline std::shared_ptr<Tensor> getSinTable(LLaDAMeta const *meta) {
+    std::cout << "Get Sin Table" << std::endl;
     auto half_dh = meta->dh / 2;
     auto unit = dsize(meta->dt_logits);
     void *table = std::malloc(meta->dctx * half_dh * unit);

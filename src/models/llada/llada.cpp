@@ -21,7 +21,9 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
     infiniopCreateHandle(&handle);
     infinirtStream_t stream;
     infinirtStreamCreate(&stream);
+    
 
+    std::cout << "Set Weight" << std::endl;
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
         w_ffn_norm, w_ffn_gate_up, w_ffn_down;
     for (size_t layer = 0; layer < meta->nlayer; layer++) {
@@ -50,30 +52,58 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
             getFFNDown(meta, weights, layer, idev, ndev));
     }
 
+    std::cout << "Set Memory Pool" << std::endl;
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
+    std::cout << "Set LLaDADeviceResource" << std::endl;
+    // *rsrc = LLaDADeviceResource{
+    //     device,
+    //     dev_id,
+    //     handle,
+    //     getInEmbd(meta, weights),
+    //     getOutNorm(meta, weights),
+    //     getOutEmbd(meta, weights),
+    //     getSinTable(meta),
+    //     getCosTable(meta),
+    //     w_attn_norm,
+    //     w_attn_qkv,
+    //     b_attn_qkv,
+    //     w_attn_q_norm,
+    //     w_attn_k_norm,
+    //     w_attn_out,
+    //     w_ffn_norm,
+    //     w_ffn_gate_up,
+    //     w_ffn_down,
+    //     stream,
+    //     comm,
+    //     memory_pool,
+    // };
     *rsrc = LLaDADeviceResource{
-        device,
-        dev_id,
-        handle,
-        getInEmbd(meta, weights),
-        getOutNorm(meta, weights),
-        getOutEmbd(meta, weights),
-        getSinTable(meta),
-        getCosTable(meta),
-        w_attn_norm,
-        w_attn_qkv,
-        b_attn_qkv,
-        w_attn_q_norm,
-        w_attn_k_norm,
-        w_attn_out,
-        w_ffn_norm,
-        w_ffn_gate_up,
-        w_ffn_down,
-        stream,
-        comm,
-        memory_pool,
+        .device = device,
+        .device_id = dev_id,
+        .handle = handle,
+
+        .w_in_embd = getInEmbd(meta, weights),
+        .w_out_norm = getOutNorm(meta, weights),
+        .w_out_embd = getOutEmbd(meta, weights),
+        .sin_table = getSinTable(meta),
+        .cos_table = getCosTable(meta),
+
+        .w_attn_norm = w_attn_norm,
+        .w_attn_qkv = w_attn_qkv,
+        .b_attn_qkv = b_attn_qkv,
+        .w_attn_q_norm = w_attn_q_norm,
+        .w_attn_k_norm = w_attn_k_norm,
+        .w_attn_out = w_attn_out,
+        .w_ffn_norm = w_ffn_norm,
+        .w_ffn_gate_up = w_ffn_gate_up,
+        .w_ffn_down = w_ffn_down,
+
+        .stream = stream,
+        .comm = comm,
+        .memory_pool = memory_pool,
     };
+    std::cout << "Over LLaDADeviceResource" << std::endl;
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
@@ -131,7 +161,8 @@ LLaDAModel::LLaDAModel(const LLaDAMeta *_meta, const LLaDAWeights *weights, infi
 
     for (int i = 0; i < ndev; i++) {
         std::cout << "Launch Device " << i << " Thread" << std::endl; 
-        threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+        //threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+        launchDevice(std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
 
 }

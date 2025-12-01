@@ -59,20 +59,20 @@ typedef struct {
 
 
 
-__C LLaDAModel *
+__C __export struct LLaDAModel *
 createLLaDAModel(   const LLaDAMeta *,
                     const LLaDAWeights *,
                     infiniDevice_t device,
                     int ndev,
                     const int *dev_ids);
 
-__C void
+__C __export void
 destroyLLaDAModel();
 
-__C void
+__C __export void
 inferBatchLLaDA();
 
-__C void
+__C __export void
 forwardBatchLLaDA();
 
 #endif
