@@ -450,7 +450,7 @@ class LLaDAForCauslLM:
             [eos_token_id] if type(eos_token_id) == int else eos_token_id
         )
 
-        # self.llada_model = LLaDAModel() # TODO: 实现LLaDAModel
+        self.llada_model = LLaDAModel() # TODO: 实现LLaDAModel
 
         state_dict = load_all_safetensors_from_dir(model_dir_path)
         # C Structure Meta and weights
@@ -481,6 +481,13 @@ class LLaDAForCauslLM:
         #     ndev,
         #     self.dev_ids,
         # )
+        self.model_instance = self.llada_model.create_model(
+            byref(self.meta),
+            byref(self.weights),
+            device,
+            ndev,
+            self.dev_ids,
+        )
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
