@@ -2,7 +2,16 @@ local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") an
 
 target("infinicore_infer")
     set_kind("shared") 
-
+        -- debug/release 设置
+    if is_mode("debug") then
+        set_symbols("debug")
+        set_optimize("none")
+        add_defines("DEBUG")
+    elseif is_mode("release") then
+        set_symbols("hidden")
+        set_optimize("fast")
+        add_defines("NDEBUG")
+    end
     add_includedirs("include", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })
 
@@ -11,6 +20,8 @@ target("infinicore_infer")
 
     set_languages("cxx17")
     set_warnings("all", "error")
+
+
 
     add_files("src/models/*.cpp")
     add_files("src/models/*/*.cpp")

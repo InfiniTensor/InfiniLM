@@ -4,8 +4,9 @@ from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER, Structur
 
 class LLaDAMetaCStruct(Structure): # from config file
     _fields_ = [ # (name, size)
-        ("dt_logits", DataType), # c_int
-        ("nlayer", c_size_t),
+        ("dt_logits", DataType),      # 4 bytes
+        ("_pad0", c_uint),            # 填充 4 bytes，使下一个 c_size_t 对齐
+        ("nlayer", c_size_t),         # 8 bytes
         ("d", c_size_t),
         ("nh", c_size_t),
         ("nkvh", c_size_t),
@@ -14,10 +15,11 @@ class LLaDAMetaCStruct(Structure): # from config file
         ("di_expert", c_size_t),
         ("dctx", c_size_t),
         ("dvoc", c_size_t),
-        ("epsilon", c_float),
+        ("epsilon", c_float),         # 4 bytes
         ("theta", c_float),
-        ("end_token", c_uint),
-        ("num_experts", c_int)
+        ("end_token", c_uint),        # 4 bytes
+        ("_pad1", c_uint),            # 填充 4 bytes，使下一个 size_t 对齐
+        ("num_experts", c_size_t),
     ] # equal to c structure in c
 
 

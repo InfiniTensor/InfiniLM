@@ -126,11 +126,11 @@ forwardBatchLLaDAMoE(){
 }
 
 // 目前实现了资源的分配
-void launchDevice(const LLaDAMeta &meta, const LLaDAWeights *weights, LLaDADeviceResource *rsrc, InferState &state, InferRequest &req,
+void launchDevice(const LLaDAMeta * meta, const LLaDAWeights *weights, LLaDADeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm){
     std::cout << "launch device" << std::endl;
     // Create Device Resource
-    createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
+    createDeviceResource(rsrc, meta, weights, device, idev, ndev, dev_id, comm);
 
     std::cout << "Cache Manager initing ..." << std::endl;
     CacheManager cache_manager(100); 
@@ -162,7 +162,7 @@ LLaDAModel::LLaDAModel(const LLaDAMeta *_meta, const LLaDAWeights *weights, infi
     for (int i = 0; i < ndev; i++) {
         std::cout << "Launch Device " << i << " Thread" << std::endl; 
         //threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
-        launchDevice(std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+        launchDevice(_meta, weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
 
 }

@@ -104,6 +104,7 @@ class LLaDAMetaFromLlama(LLaDAMetaCStruct): # model specific data: heads num ...
 
         super().__init__(
             dt_logits=dt_,
+            _pad0 = 0,
             nlayer=config["num_hidden_layers"],
             d=config["hidden_size"],
             nh=config["num_attention_heads"],
@@ -126,6 +127,7 @@ class LLaDAMetaFromLlama(LLaDAMetaCStruct): # model specific data: heads num ...
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             end_token=2,
+            _pad1=0,
             num_experts=config["num_experts"]
         )
         self.torch_dtype_logits = dtype

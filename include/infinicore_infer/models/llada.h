@@ -10,11 +10,10 @@
 
 struct LLaDAModel;
 
-typedef struct {
+typedef struct
+{
     infiniDtype_t dt_logits;
-    size_t nlayer, d, nh, nkvh, dh;
-    size_t di_dense, di_expert;
-    size_t dctx, dvoc;
+    size_t nlayer, d, nh, nkvh, dh, di_dense, di_expert, dctx, dvoc;
     float epsilon, theta;
     uint32_t end_token;
     size_t num_experts;
@@ -60,8 +59,8 @@ typedef struct {
 
 
 __C __export struct LLaDAModel *
-createLLaDAModel(   const LLaDAMeta *,
-                    const LLaDAWeights *,
+createLLaDAModel(const LLaDAMeta *,
+                const LLaDAWeights *,
                     infiniDevice_t device,
                     int ndev,
                     const int *dev_ids);

@@ -148,8 +148,40 @@ inline std::shared_ptr<Tensor> getFFNDown(
     }
 }
 
+void debugPrint(LLaDAMeta const *meta) {
+    if (!meta) {
+        std::cout << "LLaDAMeta pointer = NULL" << std::endl;
+        return;
+    }
+
+    std::cout << "===== LLaDAMeta DEBUG =====" << std::endl;
+    std::cout << "meta pointer   = " << meta << std::endl;
+
+    std::cout << "dt_logits      = " << (int)meta->dt_logits << std::endl;
+    std::cout << "nlayer         = " << meta->nlayer << std::endl;
+    std::cout << "d              = " << meta->d << std::endl;
+    std::cout << "nh             = " << meta->nh << std::endl;
+    std::cout << "nkvh           = " << meta->nkvh << std::endl;
+    std::cout << "dh             = " << meta->dh << std::endl;
+
+    std::cout << "di_dense       = " << meta->di_dense << std::endl;
+    std::cout << "di_expert      = " << meta->di_expert << std::endl;
+
+    std::cout << "dctx           = " << meta->dctx << std::endl;
+    std::cout << "dvoc           = " << meta->dvoc << std::endl;
+
+    std::cout << "epsilon        = " << meta->epsilon << std::endl;
+    std::cout << "theta          = " << meta->theta << std::endl;
+
+    std::cout << "end_token      = " << meta->end_token << std::endl;
+    std::cout << "num_experts    = " << meta->num_experts << std::endl;
+
+    std::cout << "===========================" << std::endl;
+}
+
 inline std::shared_ptr<Tensor> getSinTable(LLaDAMeta const *meta) {
     std::cout << "Get Sin Table" << std::endl;
+    debugPrint(meta);
     auto half_dh = meta->dh / 2;
     auto unit = dsize(meta->dt_logits);
     void *table = std::malloc(meta->dctx * half_dh * unit);
@@ -166,6 +198,7 @@ inline std::shared_ptr<Tensor> getSinTable(LLaDAMeta const *meta) {
                 ((float *)table)[i * half_dh + j] = _sin;
             } else {
                 std::cout << "unsupported data type" << std::endl;
+                std::cout << meta->dt_logits << std::endl;
                 exit(1);
             }
         }
@@ -173,6 +206,7 @@ inline std::shared_ptr<Tensor> getSinTable(LLaDAMeta const *meta) {
     auto shape = std::vector<size_t>({meta->dctx, half_dh});
     auto tensor = Tensor::weight(table, meta->dt_logits, shape);
     std::free(table);
+    std::cout << "Sin Table Initing  Over" << std::endl;
     return tensor;
 }
 
