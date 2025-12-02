@@ -27,7 +27,7 @@ python scripts/launch_server.py --model-path MODEL_PATH [-h] [--dev {cpu,nvidia,
 - 测试模型推理服务性能
 
 ```bash
-python scripts/test_perf.py 
+python scripts/test_perf.py
 ```
 
 - 使用推理服务测试模型困惑度（Perplexity）
@@ -39,19 +39,32 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
 ## 使用方式(新版)
 
 - 编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :
-    
+
     - 注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）
     - 根据硬件平台，选择 xmake 构建配置
     - 编译安装InfiniCore
     - 安装 C++ 库
     - 安装 Python 包
 
+
+
+- 编译并安装 `InfiniLM` Python 包
+  - 安装第三方依赖
+  ```bash
+    git submodule update --init --recursive
+  ```
+
+  - 安装 InfiniLM Python 包
+  ```bash
+    pip install -e .
+  ```
+
 - 单次推理测试
     - llama示例
-```bash
-python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>
-```
-例如：
-```bash
-python examples/llama.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0
-```
+    ```bash
+    python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>
+    ```
+    - 例如：
+    ```bash
+    python examples/llama.py --nvidia --model_path=/models/TinyLlama-1.1B-Chat-v1.0
+    ```

@@ -246,10 +246,10 @@ class GenerationMixin:
 
         print("\n</s>")
         print(
-            f"\n\n\n Time per step:  prefill {round(time_list[0], 2)} token/ms\n",
+            f"\n\n\n Time per step:  prefill {round(time_list[0], 2)} ms/token\n",
         )
         print(
-            f" Time per step:  decoder {round(sum(time_list[1:]) / (len(time_list) - 1), 2)} token/ms \n",
+            f" Time per step:  decoder {round(sum(time_list[1:]) / (len(time_list) - 1), 2)} ms/token \n",
         )
 
         return output_tokens_list, output_content

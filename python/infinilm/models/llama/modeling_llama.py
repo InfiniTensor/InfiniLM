@@ -49,7 +49,7 @@ def repeat_kv(keys: infinicore.Tensor, values: infinicore.Tensor, ngroup: int):
 
 def multi_head_attention(
     querys: infinicore.Tensor,  # [seq_len,       num_heads, head_dim]
-    keys: infinicore.Tensor,  #   [total_seq_len, num_heads, head_dim]
+    keys: infinicore.Tensor,  # [total_seq_len, num_heads, head_dim]
     values: infinicore.Tensor,  # [total_seq_len, num_heads, head_dim]
     scaling: float,
 ):
@@ -81,9 +81,11 @@ def multi_head_attention(
 
 
 def grouped_query_attention(
-    querys: infinicore.Tensor,  # [seq_len,       num_attention_heads, head_dim]
-    keys: infinicore.Tensor,  #   [total_seq_len, num_key_value_heads, head_dim]
-    values: infinicore.Tensor,  # [total_seq_len, num_key_value_heads, head_dim]
+    # [seq_len,       num_attention_heads, head_dim]
+    querys: infinicore.Tensor,
+    keys: infinicore.Tensor,  # [total_seq_len, num_key_value_heads, head_dim]
+    # [total_seq_len, num_key_value_heads, head_dim]
+    values: infinicore.Tensor,
     scaling: float,
 ):
     num_attention_heads = querys.shape[1]
@@ -175,7 +177,7 @@ class LlamaAttention(infinicore.nn.Module):
         **kwargs,
     ) -> infinicore.Tensor:
         hidden_states_shape = hidden_states.shape  # [bs, seq_len, hidden_size]
-        bs, seq_len = hidden_states_shape[:-1]  #    [bs, seq_len]
+        bs, seq_len = hidden_states_shape[:-1]  # [bs, seq_len]
 
         querys_shape = (bs, seq_len, self.num_attention_heads, self.head_dim)
         keys_shape = (bs, seq_len, self.num_key_value_heads, self.head_dim)

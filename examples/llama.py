@@ -1,16 +1,14 @@
+import infinicore
+from transformers import AutoTokenizer
+from tokenizers import decoders as _dec
+from infinilm.modeling_utils import get_model_state_dict
+import infinilm
+import argparse
 import sys
 import time
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
-
-import argparse
-import infinilm
-from infinilm.modeling_utils import get_model_state_dict
-from tokenizers import decoders as _dec
-from transformers import AutoTokenizer
-
-import infinicore
 
 
 def get_args():
@@ -58,6 +56,12 @@ def get_args():
         type=str,
         default="python",
         help="python or cpp model",
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        default="float32",
+        help="float32, float16, bfloat16",
     )
     return parser.parse_args()
 
@@ -112,6 +116,8 @@ def test(
                     _dec.Fuse(),
                 ]
             )
+    else:
+        raise ValueError(f"Unsupported model type: {config.model_type}")
 
     # ---------------------------------------------------------------------------- #
     #                        token编码
@@ -132,6 +138,7 @@ def test(
     input_ids_infini = infinicore.from_list(input_ids_list)
 
     t1 = time.time()
+    print("=================== start generate ====================")
     model.generate(
         input_ids_infini,
         max_new_tokens=max_new_tokens,
@@ -168,14 +175,21 @@ if __name__ == "__main__":
             "such as, python examples/llama.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
-    prompt = "山东最高的山是？"
+    prompt = "How are you"
 
     model_path = args.model_path
     max_new_tokens = args.max_new_tokens
     backend = args.backend
 
     infini_device = infinicore.device(device_str, 0)
-    infini_dtype = infinicore.bfloat16
+    if args.dtype == "float32":
+        infini_dtype = infinicore.float32
+    elif args.dtype == "bfloat16":
+        infini_dtype = infinicore.bfloat16
+    elif args.dtype == "float16":
+        infini_dtype = infinicore.float16
+    else:
+        raise ValueError(f"Unsupported dtype: {args.dtype}")
 
     test(
         prompt,
