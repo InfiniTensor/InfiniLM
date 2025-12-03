@@ -14,6 +14,6 @@ if str(_lib_dir) not in sys.path:
 
 # Import the compiled C++ module
 # The .so file should be installed in this directory by xmake
-import _infinilm_llama
+import _infinilm
 
-__all__ = ["_infinilm_llama"]
+__all__ = ["_infinilm"]

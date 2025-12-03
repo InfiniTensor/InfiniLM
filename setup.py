@@ -9,8 +9,8 @@ from setuptools.command.egg_info import egg_info
 
 def build_cpp_module():
     """Build and install the C++ extension module"""
-    subprocess.run(["xmake", "build", "_infinilm_llama"], check=True)
-    subprocess.run(["xmake", "install", "_infinilm_llama"], check=True)
+    subprocess.run(["xmake", "build", "_infinilm"], check=True)
+    subprocess.run(["xmake", "install", "_infinilm"], check=True)
 
 
 class Build(build):

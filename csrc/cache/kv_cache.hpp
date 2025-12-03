@@ -1,10 +1,10 @@
 #pragma once
 
-#include "infinicore/tensor.hpp"
 #include "infinicore/device.hpp"
+#include "infinicore/tensor.hpp"
 #include <algorithm>
-#include <utility>
 #include <memory>
+#include <utility>
 
 namespace infinilm::cache {
 
@@ -18,11 +18,11 @@ namespace infinilm::cache {
  * that needs KV caching for attention mechanisms.
  */
 struct KVCache {
-    infinicore::Tensor k_cache;  // [n_kv_head, capacity, head_dim]
-    infinicore::Tensor v_cache;  // [n_kv_head, capacity, head_dim]
-    size_t cache_position;        // Current position in cache
-    size_t max_capacity;          // Maximum capacity of cache
-    bool initialized;             // Whether cache has been initialized
+    infinicore::Tensor k_cache; // [n_kv_head, capacity, head_dim]
+    infinicore::Tensor v_cache; // [n_kv_head, capacity, head_dim]
+    size_t cache_position;      // Current position in cache
+    size_t max_capacity;        // Maximum capacity of cache
+    bool initialized;           // Whether cache has been initialized
 
     KVCache()
         : cache_position(0), max_capacity(0), initialized(false),
@@ -41,12 +41,12 @@ struct KVCache {
      * @param device Device
      */
     void ensure_capacity(size_t num_kv_heads, size_t head_dim, size_t seq_len,
-                        infinicore::DataType dtype, const infinicore::Device &device) {
+                         infinicore::DataType dtype, const infinicore::Device &device) {
         size_t required_capacity = cache_position + seq_len;
 
         // Lazy initialization
         if (!initialized) {
-            max_capacity = std::max(required_capacity, size_t(4096));  // Start with at least 4096
+            max_capacity = std::max(required_capacity, size_t(4096)); // Start with at least 4096
             k_cache = infinicore::Tensor::empty({num_kv_heads, max_capacity, head_dim},
                                                 dtype, device);
             v_cache = infinicore::Tensor::empty({num_kv_heads, max_capacity, head_dim},
@@ -94,7 +94,7 @@ struct KVCache {
 
         // Ensure capacity
         ensure_capacity(num_kv_heads, head_dim, seq_len,
-                       k_new->dtype(), k_new->device());
+                        k_new->dtype(), k_new->device());
 
         // Copy new k/v into cache at current position
         auto k_dst = k_cache->narrow({{1, cache_position, seq_len}});
@@ -113,4 +113,4 @@ struct KVCache {
     }
 };
 
-} // namespace infinilm::models::common
+} // namespace infinilm::cache
