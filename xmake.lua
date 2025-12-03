@@ -32,8 +32,7 @@ target("infinicore_infer")
     add_installfiles("include/infinicore_infer/models/*.h", {prefixdir = "include/infinicore_infer/models"})
 target_end()
 
--- Python bindings for Llama model
-target("_infinilm_llama")
+target("_infinilm")
     add_packages("pybind11")
     set_default(false)
     add_rules("python.module", {soabi = true})
@@ -52,8 +51,7 @@ target("_infinilm_llama")
     add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl")
 
     -- Add Llama model files
-    add_files("csrc/models/llama/llama_*.cpp")
-    add_files("csrc/models/debug_utils/*.cpp")
+    add_files("csrc/models/*/*.cpp")
     add_files("csrc/models/pybind11/models.cc")
 
     set_installdir("python/infinilm")

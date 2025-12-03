@@ -27,7 +27,7 @@ except ImportError as e:
 
 try:
     from infinilm.models.llama import LlamaConfig, LlamaForCausalLM, Device
-    import _infinilm_llama  # Import C++ bindings for HookRegistry
+    import _infinilm  # Import C++ bindings for HookRegistry
 except ImportError as e:
     print(f"Error: InfiniLM Python package not found. Please install it: {e}")
     sys.exit(1)
@@ -756,7 +756,7 @@ def test_intermediate_validation(
         infini_position_ids = torch_to_infinicore_tensor(position_ids, infini_device)
 
         # Create hook registry and register hooks
-        hook_registry = _infinilm_llama.HookRegistry()
+        hook_registry = _infinilm.HookRegistry()
 
         def make_infinilm_hook(name):
             def hook(hook_name, tensor, layer_idx):

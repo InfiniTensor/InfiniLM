@@ -1,7 +1,7 @@
 from ....generation.utils import GenerationMixin
 import infinicore
 from infinilm.models.llama.configuration_llama import LlamaConfig as _LlamaConfig
-from infinilm.lib import _infinilm_llama
+from infinilm.lib import _infinilm
 import json
 import os
 from typing import Optional, Union
@@ -49,7 +49,7 @@ class LlamaConfig:
     def _underlying(self):
         """Get underlying C++ config object, creating it if needed"""
         if self._cpp_config is None:
-            self._cpp_config = _infinilm_llama.LlamaConfig()
+            self._cpp_config = _infinilm.LlamaConfig()
 
             # Copy attributes from Python config to C++ config
             for key in dir(self._python_config):
@@ -107,7 +107,7 @@ class LlamaForCausalLM(GenerationMixin):
         self.use_cache = False
 
         self._device = device
-        self._model = _infinilm_llama.LlamaForCausalLM(
+        self._model = _infinilm.LlamaForCausalLM(
             config._underlying, device._underlying, dtype
         )
 
