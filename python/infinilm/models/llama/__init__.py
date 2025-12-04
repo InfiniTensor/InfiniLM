@@ -32,4 +32,13 @@ class AutoLlamaModel:
                 dtype=dtype,
             )
 
+        elif backend == "wrapper":
+            from .backends import wrapper
+
+            return wrapper.LlamaForCausalLMWrapper.from_pretrained(
+                model_path,
+                device=device,
+                dtype=dtype,
+            )
+
         raise KeyError("invalid backend")

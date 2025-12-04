@@ -53,6 +53,7 @@ target("_infinilm_llama")
 
     -- Add Llama model files
     add_files("csrc/models/llama/llama_*.cpp")
+    add_files("csrc/models/wrapper/*.cpp")
     add_files("csrc/models/debug_utils/*.cpp")
     add_files("csrc/models/pybind11/models.cc")
 
