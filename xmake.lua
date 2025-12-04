@@ -50,9 +50,8 @@ target("_infinilm")
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl")
 
-    -- Add Llama model files
-    add_files("csrc/models/*/*.cpp")
-    add_files("csrc/pybind11/bindings.cc")
+    -- Add src files
+    add_files("csrc/**.cpp")
 
     set_installdir("python/infinilm")
 target_end()
