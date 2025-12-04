@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <spdlog/spdlog.h>
+
 namespace infinilm::cache {
 
 /**

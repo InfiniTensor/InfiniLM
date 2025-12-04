@@ -72,44 +72,38 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
-    // 4. Apply RoPE to full batch
-    auto q_for_rope = q_reshaped->view({batch_size * seq_len, num_attention_heads_, head_dim_});
-    auto k_for_rope = k_reshaped->view({batch_size * seq_len, num_key_value_heads_, head_dim_});
-
-    // Call RoPE on full batch (matching Python pattern)
-    auto q_rope_out = rotary_emb_->forward(q_for_rope, pos_ids_for_rope);
-    auto k_rope_out = rotary_emb_->forward(k_for_rope, pos_ids_for_rope);
-
-    // Reshape back to [batch_size, seq_len, num_heads, head_dim] (matching Python pattern)
-    q_rope_out = q_rope_out->view({batch_size, seq_len, num_attention_heads_, head_dim_});
-    k_rope_out = k_rope_out->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
-
-    // 5. Process each batch item separately for attention computation
+    // 4. Process each batch item separately for attention computation
     infinilm::cache::KVCache *external_cache = static_cast<infinilm::cache::KVCache *>(kv_cache);
 
     // Convert to [batch, n_head, seq_len, head_dim] for cache
     // Ensure contiguous after permute for F16 compatibility with cache operations
-    auto q_rope = q_rope_out->permute({0, 2, 1, 3})->contiguous();     // [bs, n_q_head, seq_len, head_dim]
-    auto k_rope = k_rope_out->permute({0, 2, 1, 3});     // [bs, n_kv_head, seq_len, head_dim]
-    auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
+    q_reshaped = q_reshaped->permute({0, 2, 1, 3})->contiguous(); // [bs, n_q_head, seq_len, head_dim]
+    auto k_permuted = k_reshaped->permute({0, 2, 1, 3});          // [bs, n_kv_head, seq_len, head_dim]
+    auto v_permuted = v_reshaped->permute({0, 2, 1, 3});          // [bs, n_kv_head, seq_len, head_dim]
 
-    // 5. Prepare KV caches
+    // 4. Prepare KV caches
     infinicore::Tensor k_total; // [bs, n_kv_head, total_seq_len, head_dim]
     infinicore::Tensor v_total; // [bs, n_kv_head, total_seq_len, head_dim]
     if (external_cache != nullptr) {
-        auto [k_total_tmp, v_total_tmp] = external_cache->update(k_rope, v_permuted);
+        auto [k_total_tmp, v_total_tmp] = external_cache->update(k_permuted, v_permuted);
         k_total = k_total_tmp;
         v_total = v_total_tmp;
     } else {
-        auto [k_total_tmp, v_total_tmp] = internal_cache_.update(k_rope, v_permuted);
+        auto [k_total_tmp, v_total_tmp] = internal_cache_.update(k_permuted, v_permuted);
         k_total = k_total_tmp;
         v_total = v_total_tmp;
     }
     auto total_seq_len = k_total->shape()[2];
 
+    // 5. Apply RoPE to full batch
+    auto q_rope = q_reshaped->view({batch_size * num_attention_heads_, seq_len, head_dim_})->permute({1, 0, 2});                                               // [seq_len, bs * n_q_head, head_dim]
+    auto k_rope = k_total->narrow({{2, total_seq_len - seq_len, seq_len}})->view({batch_size * num_key_value_heads_, seq_len, head_dim_})->permute({1, 0, 2}); // [seq_len, bs * n_kv_head, head_dim]
+    rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
+    rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
+
     // 6. Compute attention
     size_t ngroup = num_attention_heads_ / num_key_value_heads_;
-    auto Q = q_rope->view({batch_size * num_key_value_heads_, ngroup * seq_len, head_dim_});
+    auto Q = q_reshaped->view({batch_size * num_key_value_heads_, ngroup * seq_len, head_dim_});
     auto K = k_total->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
     auto V = v_total->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
 
