@@ -63,11 +63,23 @@ def get_args():
         default="float32",
         help="float32, float16, bfloat16",
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="number of prompts in a batch",
+    )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="How are you",
+        help="input prompt",
+    )
     return parser.parse_args()
 
 
 def test(
-    prompt,
+    prompts: str | list[str],
     model_path,
     max_new_tokens=100,
     infini_dtype=infinicore.bfloat16,
@@ -123,18 +135,24 @@ def test(
     #                        token编码
     # ---------------------------------------------------------------------------- #
     # prompt = "山东最高的山是？"
-    input_content = tokenizer.apply_chat_template(
-        conversation=[{"role": "user", "content": prompt}],
-        add_generation_prompt=True,
-        tokenize=False,
-    )
-    print(input_content, end="", flush=True)
-    input_ids = tokenizer.encode(input_content)
+    if isinstance(prompts, str):
+        prompts = [prompts]
+    input_contents = [
+        tokenizer.apply_chat_template(
+            conversation=[{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        for prompt in prompts
+    ]
+    print(input_contents[0], end="", flush=True)
+    input_ids_list = tokenizer.batch_encode_plus(input_contents)[
+        "input_ids"
+    ]  # List: [[1, 1128, 526, 366, 29892]]
 
     # ---------------------------------------------------------------------------- #
     #                        自回归生成
     # ---------------------------------------------------------------------------- #
-    input_ids_list = [input_ids]  # List: [[1, 1128, 526, 366, 29892]]
     input_ids_infini = infinicore.from_list(input_ids_list)
 
     t1 = time.time()
@@ -175,7 +193,7 @@ if __name__ == "__main__":
             "such as, python examples/llama.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
-    prompt = "How are you"
+    prompts = [args.prompt for _ in range(args.batch_size)]
 
     model_path = args.model_path
     max_new_tokens = args.max_new_tokens
@@ -192,7 +210,7 @@ if __name__ == "__main__":
         raise ValueError(f"Unsupported dtype: {args.dtype}")
 
     test(
-        prompt,
+        prompts,
         model_path,
         max_new_tokens,
         infini_device=infini_device,

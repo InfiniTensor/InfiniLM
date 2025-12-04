@@ -100,9 +100,11 @@ class GenerationMixin:
         # -------------------------------------------------------------------- #
         #                 所需的: token的input_ids
         # -------------------------------------------------------------------- #
-        if kwargs.get("next_token_id", None) is not None:
-            next_token_id = kwargs["next_token_id"]
-            model_inputs["input_ids"] = infinicore.from_list([[next_token_id]])
+        if kwargs.get("next_token_ids", None) is not None:
+            next_token_ids = kwargs["next_token_ids"]
+            model_inputs["input_ids"] = infinicore.from_list(
+                [[id_] for id_ in next_token_ids],
+            )
 
         # -------------------------------------------------------------------- #
         #                 其他
@@ -236,7 +238,7 @@ class GenerationMixin:
             token_id = next_tokens.to_numpy()[0]
             output_str = tokenizer.decode([token_id], skip_special_tokens=True)
 
-            model_kwargs["next_token_id"] = token_id
+            model_kwargs["next_token_ids"] = next_tokens.to_numpy().tolist()
             output_tokens_list.append(token_id)
             output_content += output_str
 
@@ -245,11 +247,16 @@ class GenerationMixin:
                 break
 
         print("\n</s>")
+        print(f"\n\n\n Generation completed in {round(sum(time_list),2)} ms")
         print(
-            f"\n\n\n Time per step:  prefill {round(time_list[0], 2)} ms/token\n",
+            f" Batchsize={batch_size}  Per_Batch_Input_Len={seq_len}  Per_Batch_New_Tokens={len(time_list)}\n"
         )
         print(
-            f" Time per step:  decoder {round(sum(time_list[1:]) / (len(time_list) - 1), 2)} ms/token \n",
+            f" Prefill TTFT: {round(time_list[0], 2)}ms  Throughput: {round((1000 * batch_size * seq_len)/time_list[0], 2)}tok/s\n",
         )
+        if len(time_list) > 1:
+            print(
+                f" Decode  Avg ITL: {round(sum(time_list[1:]) / (len(time_list) - 1), 2)}ms   Throughput: {round((1000 * batch_size * (len(time_list) - 1))/ sum(time_list[1:]), 2)}tok/s\n",
+            )
 
         return output_tokens_list, output_content
