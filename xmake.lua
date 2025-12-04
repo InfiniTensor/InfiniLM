@@ -42,7 +42,7 @@ target("_infinilm")
     local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 
     add_includedirs("csrc", { public = false })
-    add_includedirs("csrc/models/pybind11", { public = false })
+    add_includedirs("csrc/pybind11", { public = false })
     add_includedirs("include", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })
     -- spdlog is already included globally via add_includedirs at the top
@@ -52,7 +52,7 @@ target("_infinilm")
 
     -- Add Llama model files
     add_files("csrc/models/*/*.cpp")
-    add_files("csrc/models/pybind11/models.cc")
+    add_files("csrc/pybind11/bindings.cc")
 
     set_installdir("python/infinilm")
 target_end()
