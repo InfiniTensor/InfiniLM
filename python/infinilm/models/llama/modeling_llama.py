@@ -62,13 +62,8 @@ def multi_head_attention(
 
     # [num_heads, seq_len, head_dim] @ [ num_heads, head_dim, total_seq_len]
     # => [ num_heads, seq_len, total_seq_len]
-    attn_weight = Q @ K.permute((1, 2, 0))
-
-    scaling = infinicore.from_list(
-        [scaling], dtype=attn_weight.dtype, device=attn_weight.device
-    ).as_strided(attn_weight.shape, [0, 0, 0])
-
-    attn_weight = attn_weight * scaling
+    # Q @ K.T *scaling
+    attn_weight = infinicore.matmul(Q, K.permute((1, 2, 0)), alpha=scaling)
 
     infinicore.nn.functional.causal_softmax(attn_weight, out=attn_weight)
 
@@ -169,6 +164,8 @@ class LlamaAttention(infinicore.nn.Module):
             **kwargs,
         )
 
+        self.attn_output = None  # Variable reuse
+
     def forward(
         self,
         hidden_states: infinicore.Tensor,
@@ -184,7 +181,7 @@ class LlamaAttention(infinicore.nn.Module):
         values_shape = (bs, seq_len, self.num_key_value_heads, self.head_dim)
 
         # --------------------------------------------------------------------------------------- #
-        #                           对 Q,K，V进行 project
+        #                           对 Q,K,V进行 project
         # --------------------------------------------------------------------------------------- #
         # => [bs, seq_len,  num_attention_heads, head_dim]
         query_states = self.q_proj(hidden_states).view(querys_shape)
@@ -196,13 +193,9 @@ class LlamaAttention(infinicore.nn.Module):
         value_states = self.v_proj(hidden_states).view(values_shape)
 
         # --------------------------------------------------------------------------------------- #
-        #                           对 Q和K， 加上 rope
+        #                           对 Q和K 加上 rope
         # --------------------------------------------------------------------------------------- #
         position_ids = kwargs.pop("position_ids", None)
-        if position_ids is None:
-            raise KeyError("position_ids error")
-        if rope_instance is None:
-            raise KeyError("rope_instance error")
 
         query_states = rope_instance(query_states, position_ids)
         key_states = rope_instance(key_states, position_ids)
@@ -223,7 +216,14 @@ class LlamaAttention(infinicore.nn.Module):
         #                           注意力计算
         # --------------------------------------------------------------------------------------- #
         total_seq_len = key_states_total.shape[1]
-        attn_output = infinicore.empty_like(query_states)
+
+        if self.attn_output is None or self.attn_output.shape[1] != seq_len:
+            self.attn_output = infinicore.empty(
+                (bs, seq_len, self.num_attention_heads, self.head_dim),
+                dtype=query_states.dtype,
+                device=query_states.device,
+            )
+
         for i in range(0, bs):
             query_states_i = query_states.narrow(0, i, 1).view(
                 (seq_len, self.num_attention_heads, self.head_dim)
@@ -235,7 +235,7 @@ class LlamaAttention(infinicore.nn.Module):
                 (total_seq_len, self.num_key_value_heads, self.head_dim)
             )
 
-            attn_output_i = attn_output.narrow(0, i, 1).view(
+            attn_output_i = self.attn_output.narrow(0, i, 1).view(
                 (seq_len, self.num_attention_heads, self.head_dim)
             )
 
@@ -249,8 +249,9 @@ class LlamaAttention(infinicore.nn.Module):
         #                           out project
         # --------------------------------------------------------------------------------------- #
         # ([bs, seq_len, num_attention_heads, head_dim]) ==> [bs, seq_len, hidden_size ]
-        attn_output = attn_output.view(hidden_states_shape)
-
+        attn_output = self.attn_output.view(
+            (bs, seq_len, self.num_attention_heads * self.head_dim)
+        )
         # o_proj
         return self.o_proj(attn_output)
 
@@ -292,7 +293,7 @@ class LlamaDecoderLayer(infinicore.nn.Module):
             **kwargs,
         )
 
-        hidden_states = residual + hidden_states
+        hidden_states += residual
 
         # ------------------------------------------------ #
         #           Fully Connected
@@ -303,7 +304,7 @@ class LlamaDecoderLayer(infinicore.nn.Module):
 
         hidden_states = self.mlp(hidden_states)
 
-        hidden_states = residual + hidden_states
+        hidden_states += residual
 
         return hidden_states
 
@@ -375,7 +376,10 @@ class LlamaModel(infinicore.nn.Module):
         #                    norm
         # --------------------------------------------------------- #
         seq_len = hidden_states.shape[1]
-        last_token = hidden_states.narrow(1, seq_len - 1, 1)
+        if seq_len > 1:
+            last_token = hidden_states.narrow(1, seq_len - 1, 1)
+        else:
+            last_token = hidden_states
 
         return self.norm(last_token)
 
