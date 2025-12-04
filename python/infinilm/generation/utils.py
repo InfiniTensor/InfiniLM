@@ -121,7 +121,6 @@ class GenerationMixin:
         max_new_tokens: int,
         device: infinicore.device,
         tokenizer,
-        config,
         **kwargs,
     ):
         model_kwargs = kwargs
@@ -144,7 +143,6 @@ class GenerationMixin:
             max_new_tokens=max_new_tokens,
             device=device,
             tokenizer=tokenizer,
-            config=config,
             **model_kwargs,
         )
         return result
@@ -155,7 +153,6 @@ class GenerationMixin:
         max_new_tokens: int,
         device: infinicore.device,
         tokenizer,
-        config,
         **model_kwargs,
     ):
         r"""
@@ -170,7 +167,7 @@ class GenerationMixin:
 
         batch_size, seq_len = input_ids.shape[:2]
 
-        eos_token_id = config.eos_token_id
+        eos_token_id = self.config.eos_token_id
         eos_token_id_list = (
             [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
         )
@@ -216,7 +213,7 @@ class GenerationMixin:
                 device=token_scores.device,
             )
             for i in range(0, batch_size):
-                score = token_scores.narrow(0, i, 1).view([vocab_size])
+                score = token_scores.narrow(0, i, 1).view((vocab_size,))
                 out = next_tokens.narrow(0, i, 1).view([])
                 infinicore.nn.functional.random_sample(
                     score,
@@ -247,16 +244,16 @@ class GenerationMixin:
                 break
 
         print("\n</s>")
-        print(f"\n\n\n Generation completed in {round(sum(time_list),2)} ms")
+        print(f"\n\n\n Generation completed in {round(sum(time_list), 2)} ms")
         print(
             f" Batchsize={batch_size}  Per_Batch_Input_Len={seq_len}  Per_Batch_New_Tokens={len(time_list)}\n"
         )
         print(
-            f" Prefill TTFT: {round(time_list[0], 2)}ms  Throughput: {round((1000 * batch_size * seq_len)/time_list[0], 2)}tok/s\n",
+            f" Prefill TTFT: {round(time_list[0], 2)}ms  Throughput: {round((1000 * batch_size * seq_len) / time_list[0], 2)}tok/s\n",
         )
         if len(time_list) > 1:
             print(
-                f" Decode  Avg ITL: {round(sum(time_list[1:]) / (len(time_list) - 1), 2)}ms   Throughput: {round((1000 * batch_size * (len(time_list) - 1))/ sum(time_list[1:]), 2)}tok/s\n",
+                f" Decode  Avg ITL: {round(sum(time_list[1:]) / (len(time_list) - 1), 2)}ms   Throughput: {round((1000 * batch_size * (len(time_list) - 1)) / sum(time_list[1:]), 2)}tok/s\n",
             )
 
         return output_tokens_list, output_content

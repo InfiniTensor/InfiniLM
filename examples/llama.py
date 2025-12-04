@@ -86,6 +86,7 @@ def test(
     infini_device=infinicore.device("cpu", 0),
     backend="python",
 ):
+    model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
     #                        创建模型,
     # ---------------------------------------------------------------------------- #
@@ -104,14 +105,12 @@ def test(
 
     model.load_state_dict(model_param_infini)
 
-    config = model.config
-
     # ---------------------------------------------------------------------------- #
     #                        创建 tokenizer
     # ---------------------------------------------------------------------------- #
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
-    if "llama" == config.model_type:
+    if "llama" == model.config.model_type:
         backend = getattr(tokenizer, "backend_tokenizer", None)
         target = getattr(backend, "_tokenizer", backend)
         norm = getattr(target, "normalizer", None)
@@ -129,7 +128,7 @@ def test(
                 ]
             )
     else:
-        raise ValueError(f"Unsupported model type: {config.model_type}")
+        raise ValueError(f"Unsupported model type: {model.config.model_type}")
 
     # ---------------------------------------------------------------------------- #
     #                        token编码
@@ -162,7 +161,6 @@ def test(
         max_new_tokens=max_new_tokens,
         device=infini_device,
         tokenizer=tokenizer,
-        config=config,
     )
     t2 = time.time()
 
