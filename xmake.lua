@@ -52,6 +52,7 @@ target("_infinilm")
 
     -- Add src files
     add_files("csrc/**.cpp")
+    add_files("csrc/**.cc")
 
     set_installdir("python/infinilm")
 target_end()
