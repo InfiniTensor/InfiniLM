@@ -5,6 +5,7 @@ from infinilm.lib import _infinilm
 import json
 import os
 from typing import Optional, Union
+from collections import OrderedDict
 
 
 class LlamaConfig:
@@ -113,15 +114,19 @@ class LlamaForCausalLM(GenerationMixin):
 
     def state_dict(self):
         """Get model state dictionary with parameter shapes"""
-        return self._model.state_dict()
+        destination = OrderedDict()
+        for name, param in self._model.state_dict().items():
+            destination[name] = infinicore.Tensor(param)
+        return destination
 
-    def load_state_dict(self, state_dict):
+    def load_state_dict(self, state_dict, strict=None):
         """
         Load state dictionary into the model
 
         Args:
             state_dict: Dictionary mapping parameter names to InfiniCore tensors, numpy arrays, or torch tensors
         """
+        strict = None
         self._model.load_state_dict(state_dict, self._device._underlying)
 
     def get_parameter(self, name):
