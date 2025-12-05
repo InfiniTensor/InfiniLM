@@ -47,18 +47,14 @@ class GenerationMixin:
         self,
         bs: int,
         seq_length: int,
-        device: infinicore.device,
     ) -> infinicore.Tensor:
         """Calculates `position_ids` for the pre-fill stage"""
         position_ids_list = [list(range(0, seq_length)) for i in range(bs)]
 
-        return infinicore.from_list(
-            position_ids_list, dtype=infinicore.int64, device=device
-        )
+        return infinicore.from_list(position_ids_list, dtype=infinicore.int64)
 
     def prepare_inputs_for_generation(
         self,
-        device: infinicore.device,
         past_key_values: Optional[Cache] = None,
         **kwargs,
     ):
@@ -79,9 +75,7 @@ class GenerationMixin:
         if current_position_ids is None:
             # prill阶段
             bs, seq_len = kwargs["input_ids"].shape[0:2]
-            model_inputs["position_ids"] = self._get_initial_position_ids(
-                bs, seq_len, device
-            )
+            model_inputs["position_ids"] = self._get_initial_position_ids(bs, seq_len)
 
         else:
             # decoder 阶段
@@ -119,8 +113,8 @@ class GenerationMixin:
         self,
         input_ids: infinicore.Tensor,
         max_new_tokens: int,
-        device: infinicore.device,
         tokenizer,
+        stop_on_eos=True,
         **kwargs,
     ):
         model_kwargs = kwargs
@@ -141,8 +135,8 @@ class GenerationMixin:
         result = self._sample(
             input_ids,
             max_new_tokens=max_new_tokens,
-            device=device,
             tokenizer=tokenizer,
+            stop_on_eos=stop_on_eos,
             **model_kwargs,
         )
         return result
@@ -151,8 +145,8 @@ class GenerationMixin:
         self,
         input_ids: infinicore.Tensor,
         max_new_tokens: int,
-        device: infinicore.device,
         tokenizer,
+        stop_on_eos=True,
         **model_kwargs,
     ):
         r"""
@@ -187,7 +181,7 @@ class GenerationMixin:
             # -------------------------------------------------------------------------- #
             #                     prepare model inputs
             # -------------------------------------------------------------------------- #
-            model_inputs = self.prepare_inputs_for_generation(device, **model_kwargs)
+            model_inputs = self.prepare_inputs_for_generation(**model_kwargs)
 
             model_kwargs["position_ids"] = model_inputs["position_ids"]
 
@@ -240,7 +234,7 @@ class GenerationMixin:
             output_content += output_str
 
             print(output_str, end="", flush=True)
-            if token_id in eos_token_id_list:
+            if stop_on_eos and token_id in eos_token_id_list:
                 break
 
         print("\n</s>")

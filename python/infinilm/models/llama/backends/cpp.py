@@ -96,10 +96,7 @@ class LlamaForCausalLM(GenerationMixin):
         """
         super().__init__()
 
-        if isinstance(config, dict):
-            config = LlamaConfig(**config)
-        elif not isinstance(config, LlamaConfig):
-            config = LlamaConfig(**config)
+        self.config=config
 
         if device is None:
             device = infinicore.device()
@@ -107,9 +104,10 @@ class LlamaForCausalLM(GenerationMixin):
         self.use_cache = False
 
         self._device = device
-        self._model = _infinilm.LlamaForCausalLM(
-            config._underlying, device._underlying, dtype
-        )
+        # self._model = _infinilm.LlamaForCausalLM(
+        #     config._underlying, device._underlying, dtype
+        # )
+        self._model = _infinilm.InferEngine(config._underlying, _infinilm.DistConfig(2), device._underlying.type)
 
     def state_dict(self):
         """Get model state dictionary with parameter shapes"""
@@ -122,7 +120,9 @@ class LlamaForCausalLM(GenerationMixin):
         Args:
             state_dict: Dictionary mapping parameter names to InfiniCore tensors, numpy arrays, or torch tensors
         """
-        self._model.load_state_dict(state_dict, self._device._underlying)
+        # self._model.load_state_dict(state_dict, self._device._underlying)
+        for name, param in state_dict.items():
+            self._model.load_param(name, param._underlying)
 
     def get_parameter(self, name):
         """
@@ -136,16 +136,20 @@ class LlamaForCausalLM(GenerationMixin):
         """
         return self._model.get_parameter(name)
 
-    @property
-    def config(self):
-        """Get model configuration"""
-        return self._model.config()
+    # @property
+    # def config(self):
+    #     """Get model configuration"""
+    #     return self._model.config()
 
     def forward(self, input_ids, position_ids, *args, **kwargs):
         kv_caches = None
-        return infinicore.Tensor(
-            self._model.forward(input_ids, position_ids, kv_caches)
-        )
+        # return infinicore.Tensor(
+        #     self._model.forward(input_ids, position_ids, kv_caches)
+        # )
+        return infinicore.Tensor(self._model.generate(
+            input_ids._underlying,
+            position_ids._underlying,
+        ))
 
     def __call__(self, input_ids, position_ids, *args, **kwargs):
         return self.forward(input_ids=input_ids, position_ids=position_ids)

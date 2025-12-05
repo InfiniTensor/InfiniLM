@@ -1,10 +1,12 @@
 #pragma once
 
+#include "../infinilm_model.hpp"
 #include "llama_model.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/nn/linear.hpp"
-#include "infinicore/tensor.hpp"
+
 #include "infinicore/device.hpp"
+#include "infinicore/nn/linear.hpp"
+#include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
 
 namespace infinilm::models::llama {
 
@@ -16,17 +18,17 @@ namespace infinilm::models::llama {
  *
  * This matches the structure of HuggingFace's LlamaForCausalLM.
  */
-class LlamaForCausalLM : public infinicore::nn::Module {
+class LlamaForCausalLM : public InfinilmModel {
 public:
     /**
      * @brief Construct LlamaForCausalLM module
      *
      * @param config Model configuration
      * @param device Device to create tensors on
-     * @param dtype Optional data type for model parameters (defaults to F32)
+     * @param dtype Optional data type for model parameters (defaults to BF16)
      */
     LlamaForCausalLM(const LlamaConfig &config, const infinicore::Device &device,
-                     infinicore::DataType dtype = infinicore::DataType::F32);
+                     infinicore::DataType dtype = infinicore::DataType::BF16);
 
     /**
      * @brief Forward pass: compute language modeling logits
@@ -40,8 +42,10 @@ public:
      * will be added when integrating with the inference engine.
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
-                                const infinicore::Tensor &position_ids,
-                                std::vector<void *> *kv_caches = nullptr) const;
+                               const infinicore::Tensor &position_ids,
+                               std::vector<void *> *kv_caches = nullptr) const;
+
+    infinicore::Tensor forward(std::vector<std::any> args) const override;
 
     // Module information
     const LlamaConfig &config() const { return model_->config(); }
@@ -54,7 +58,6 @@ protected:
 
     // Language modeling head
     INFINICORE_NN_MODULE(infinicore::nn::Linear, lm_head);
-
 };
 
 } // namespace infinilm::models::llama
