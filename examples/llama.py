@@ -1,7 +1,11 @@
 import infinicore
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
-from infinilm.modeling_utils import get_model_state_dict
+from infinilm.modeling_utils import (
+    get_model_state_dict,
+    load_model_state_dict_by_file,
+    load_model_state_dict_by_tensor,
+)
 import infinilm
 import argparse
 import sys
@@ -97,13 +101,13 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        加载权重
     # ---------------------------------------------------------------------------- #
+
     model_param_infini = get_model_state_dict(
         model_path,
-        device=infini_device,
         dtype=infini_dtype,
     )
 
-    model.load_state_dict(model_param_infini)
+    model.load_state_dict(model_param_infini, strict=True)
 
     # ---------------------------------------------------------------------------- #
     #                        创建 tokenizer
