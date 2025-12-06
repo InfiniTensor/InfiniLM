@@ -173,7 +173,7 @@ class LlamaConfig(PretrainedConfig):
         tie_word_embeddings=False,
         rope_theta=10000.0,
         rope_scaling=None,
-        attention_bias=False,
+        attention_bias=True,
         attention_dropout=0.0,
         mlp_bias=False,
         head_dim=None,

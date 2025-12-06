@@ -1,6 +1,7 @@
 #include "rank_worker.hpp"
 
 #include "../models/model_factory.hpp"
+#include "../models/llama/llama_for_causal_lm.hpp"
 
 #include <iostream>
 #include <spdlog/spdlog.h>
@@ -105,6 +106,32 @@ void RankWorker::wait() {
 }
 
 //------------------------------------------------------
+// reset_cache -- synchronous (blocks until worker finishes reset)
+//------------------------------------------------------
+void RankWorker::reset_cache(bool full_reset) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (should_exit_) {
+            throw std::runtime_error("RankWorker is closing; cannot reset_cache");
+        }
+
+        pending_full_reset_ = full_reset;
+        job_cmd_ = Command::RESET_CACHE;
+        has_job_ = true;
+        job_done_ = false;
+    }
+    cv_.notify_all();
+
+    // Wait for job completion
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return job_done_ || should_exit_; });
+
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker stopped while resetting cache");
+    }
+}
+
+//------------------------------------------------------
 // close -- request shutdown and join thread
 //------------------------------------------------------
 void RankWorker::close() {
@@ -153,6 +180,7 @@ void RankWorker::thread_loop() {
             std::string local_param_name;
             infinicore::Tensor local_param;
             std::vector<std::any> local_args;
+            bool local_full_reset = true;
 
             // Wait for a job or exit
             {
@@ -170,6 +198,8 @@ void RankWorker::thread_loop() {
                     local_param = pending_param_;
                 } else if (local_cmd == Command::RUN) {
                     local_args = pending_args_;
+                } else if (local_cmd == Command::RESET_CACHE) {
+                    local_full_reset = pending_full_reset_;
                 }
 
                 // mark job as being processed
@@ -216,6 +246,29 @@ void RankWorker::thread_loop() {
                     job_done_ = true;
                     cv_.notify_all();
                     spdlog::error("[{}] exception during forward: {}\n", info(), e.what());
+                    break;
+                }
+            } else if (local_cmd == Command::RESET_CACHE) {
+                try {
+                    // Cast model to LlamaForCausalLM to access reset_cache
+                    // Since we know it's LlamaForCausalLM for llama models, we can cast
+                    auto* llama_model = dynamic_cast<models::llama::LlamaForCausalLM*>(model_.get());
+                    if (llama_model) {
+                        llama_model->model().reset_cache(local_full_reset);
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        job_done_ = true;
+                    }
+                    cv_.notify_all();
+
+                } catch (const std::exception &e) {
+                    std::lock_guard<std::mutex> lk(mutex_);
+                    should_exit_ = true;
+                    job_done_ = true;
+                    cv_.notify_all();
+                    spdlog::error("[{}] exception during reset_cache: {}\n", info(), e.what());
                     break;
                 }
             } else {

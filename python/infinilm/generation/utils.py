@@ -120,6 +120,19 @@ class GenerationMixin:
         model_kwargs = kwargs
 
         # -------------------------------------------------------------------- #
+        # CRITICAL: Reset internal cache before each new generation
+        # This prevents state from persisting between different questions/prompts
+        # -------------------------------------------------------------------- #
+        # Check if this is a cpp backend model (has _model attribute with reset_cache method)
+        if hasattr(self, '_model') and hasattr(self._model, 'reset_cache'):
+            try:
+                self._model.reset_cache(full_reset=True)
+            except Exception as e:
+                # If reset_cache fails, log but continue (shouldn't happen)
+                import warnings
+                warnings.warn(f"Failed to reset cache: {e}")
+
+        # -------------------------------------------------------------------- #
         #                       创建 cache                                      #
         # -------------------------------------------------------------------- #
         if self.use_cache:
@@ -166,6 +179,12 @@ class GenerationMixin:
             [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
         )
 
+        # Extract sampling parameters from kwargs with defaults
+        random_val = model_kwargs.get("random_val", 0.1)
+        topp = model_kwargs.get("topp", 0.8)
+        topk = model_kwargs.get("topk", 1)
+        temperature = model_kwargs.get("temperature", 1.0)
+
         # -------------------------------------------------------------------------- #
         #                     初始化 position_ids
         # -------------------------------------------------------------------------- #
@@ -189,6 +208,7 @@ class GenerationMixin:
             #                     计算一次
             # -------------------------------------------------------------------------- #
             start_time = time.time()
+
             logits = self(**model_inputs)
 
             # -------------------------------------------------------------------------- #
@@ -206,15 +226,16 @@ class GenerationMixin:
                 dtype=infinicore.int32,
                 device=token_scores.device,
             )
+
             for i in range(0, batch_size):
                 score = token_scores.narrow(0, i, 1).view((vocab_size,))
                 out = next_tokens.narrow(0, i, 1).view([])
                 infinicore.nn.functional.random_sample(
                     score,
-                    0.8,
-                    0.1,
-                    1,
-                    1.0,
+                    random_val,
+                    topp,
+                    topk,
+                    temperature,
                     out=out,
                 )
 
@@ -236,7 +257,6 @@ class GenerationMixin:
             print(output_str, end="", flush=True)
             if stop_on_eos and token_id in eos_token_id_list:
                 break
-
         print("\n</s>")
         print(f"\n\n\n Generation completed in {round(sum(time_list), 2)} ms")
         print(

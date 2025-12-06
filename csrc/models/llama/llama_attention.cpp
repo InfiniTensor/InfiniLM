@@ -19,21 +19,25 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config, const infinicore::Devi
       num_key_value_heads_(config.num_key_value_heads),
       head_dim_(config.head_dim),
       kv_dim_(config.kv_dim()),
-      use_bias_(config.attention_bias) {
+      use_bias_(config.attention_bias),
+      use_output_bias_(config.attention_output_bias),
+      max_position_embeddings_(config.max_position_embeddings) {
     // Initialize projection layers
     INFINICORE_NN_MODULE_INIT(q_proj, hidden_size_, hidden_size_, use_bias_,
                               dtype, device);
     INFINICORE_NN_MODULE_INIT(k_proj, hidden_size_, kv_dim_, use_bias_,
                               dtype, device);
     INFINICORE_NN_MODULE_INIT(v_proj, hidden_size_, kv_dim_, use_bias_,
-                              dtype, device);
-    INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_bias_,
+                               dtype, device);
+    // Output projection uses attention_output_bias (can be different from qkv)
+    INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
                               dtype, device);
 }
 
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
-                                           const infinicore::Tensor &position_ids,
-                                           void *kv_cache) const {
+                                            const infinicore::Tensor &position_ids,
+                                            void *kv_cache,
+                                            size_t layer_idx) const {
     if (!rotary_emb_) {
         throw std::runtime_error("LlamaAttention: rotary_emb not configured");
     }
@@ -72,26 +76,22 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
-    // 4. Process each batch item separately for attention computation
-    infinilm::cache::KVCache *external_cache = static_cast<infinilm::cache::KVCache *>(kv_cache);
-
+    // 4. Prepare KV caches
     // Convert to [batch, n_head, seq_len, head_dim] for cache
     // Ensure contiguous after permute for F16 compatibility with cache operations
     q_reshaped = q_reshaped->permute({0, 2, 1, 3})->contiguous(); // [bs, n_q_head, seq_len, head_dim]
     auto k_permuted = k_reshaped->permute({0, 2, 1, 3});          // [bs, n_kv_head, seq_len, head_dim]
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3});          // [bs, n_kv_head, seq_len, head_dim]
-
-    // 4. Prepare KV caches
+    infinilm::cache::DynamicCache *external_cache = static_cast<infinilm::cache::DynamicCache *>(kv_cache);
     infinicore::Tensor k_total; // [bs, n_kv_head, total_seq_len, head_dim]
     infinicore::Tensor v_total; // [bs, n_kv_head, total_seq_len, head_dim]
     if (external_cache != nullptr) {
-        auto [k_total_tmp, v_total_tmp] = external_cache->update(k_permuted, v_permuted);
+        auto [k_total_tmp, v_total_tmp] = external_cache->update(layer_idx, k_permuted, v_permuted);
         k_total = k_total_tmp;
         v_total = v_total_tmp;
     } else {
-        auto [k_total_tmp, v_total_tmp] = internal_cache_.update(k_permuted, v_permuted);
-        k_total = k_total_tmp;
-        v_total = v_total_tmp;
+        // No external cache - this shouldn't happen in normal operation, but handle gracefully
+        throw std::runtime_error("LlamaAttention: kv_cache is required but nullptr provided");
     }
     auto total_seq_len = k_total->shape()[2];
 

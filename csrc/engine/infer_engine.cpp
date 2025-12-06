@@ -1,4 +1,5 @@
 #include "infer_engine.hpp"
+#include "spdlog/spdlog.h"
 
 namespace infinilm::engine {
 
@@ -59,6 +60,16 @@ InferEngine::~InferEngine() {
 
 const distributed::DistConfig &InferEngine::get_dist_config() const {
     return communication_group_.get_dist_config();
+}
+
+//------------------------------------------------------
+// reset_cache
+//------------------------------------------------------
+void InferEngine::reset_cache(bool full_reset) {
+    // Reset cache on all workers
+    for (auto &worker : workers_) {
+        worker->reset_cache(full_reset);
+    }
 }
 
 } // namespace infinilm::engine

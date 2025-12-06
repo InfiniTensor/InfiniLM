@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace infinilm::models::llama {
 
@@ -37,14 +38,23 @@ struct LlamaConfig {
 
     // Optional features
     bool use_cache = true;                   // Whether to use KV cache
-    bool attention_bias = false;             // Whether to use bias in attention projections
+    bool attention_bias = true;              // Whether to use bias in Q/K/V projections (default true for 9G7B compatibility)
+    bool attention_output_bias = false;      // Whether to use bias in output projection (o_proj)
     bool mlp_bias = false;                   // Whether to use bias in MLP projections
     bool tie_word_embeddings = false;        // Whether to tie input/output embeddings
 
+    // Training/initialization parameters
+    double attention_dropout = 0.0;          // Dropout ratio for attention probabilities
+    double initializer_range = 0.02;         // Standard deviation for weight initialization
+    size_t pretraining_tp = 1;                // Tensor parallelism rank used during pretraining
+
+    // Model metadata
+    std::string name_or_path = "";           // Model name or path identifier
+
     // Token IDs
     int64_t pad_token_id = -1;               // Padding token ID (optional)
-    int64_t bos_token_id = 1;                // Beginning of sequence token ID
-    int64_t eos_token_id = 2;                // End of sequence token ID
+    std::vector<int64_t> bos_token_id = {1}; // Beginning of sequence token ID(s)
+    std::vector<int64_t> eos_token_id = {2}; // End of sequence token ID(s)
 
     /**
      * @brief Compute key-value dimension for Grouped Query Attention (GQA)

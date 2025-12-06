@@ -28,34 +28,100 @@ inline void log_tensor_stats(const infinicore::Tensor &tensor, const std::string
 
     SPDLOG_INFO("  {}: shape={}, dtype={}, device={}", name, shape_str, static_cast<int>(dtype), device.toString());
 
-    // For F32 tensors, compute and log statistics
-    if (dtype == infinicore::DataType::F32) {
+    // For F32, F16, and BF16 tensors, compute and log statistics
+    if (dtype == infinicore::DataType::F32 ||
+        dtype == infinicore::DataType::F16 ||
+        dtype == infinicore::DataType::BF16) {
         // Copy to CPU if needed and compute stats
         auto cpu_tensor = tensor->to(infinicore::Device(infinicore::Device::Type::CPU, 0));
         std::byte *raw_data = cpu_tensor->data();
-        float *data = reinterpret_cast<float*>(raw_data);
         size_t numel = cpu_tensor->numel();
 
         if (numel > 0) {
-            float min_val = *std::min_element(data, data + numel);
-            float max_val = *std::max_element(data, data + numel);
-            float sum = std::accumulate(data, data + numel, 0.0f);
-            float mean_val = sum / static_cast<float>(numel);
+            if (dtype == infinicore::DataType::F32) {
+                float *data = reinterpret_cast<float*>(raw_data);
+                float min_val = *std::min_element(data, data + numel);
+                float max_val = *std::max_element(data, data + numel);
+                float sum = std::accumulate(data, data + numel, 0.0f);
+                float mean_val = sum / static_cast<float>(numel);
 
-            SPDLOG_INFO("    Stats: min={:.6e}, max={:.6e}, mean={:.6e}, numel={}",
-                       min_val, max_val, mean_val, numel);
+                SPDLOG_INFO("    Stats: min={:.6e}, max={:.6e}, mean={:.6e}, numel={}",
+                           min_val, max_val, mean_val, numel);
 
-            // Log sample values at specific positions
-            if (log_samples && numel > 0) {
-                size_t sample_count = std::min(max_samples, numel);
-                SPDLOG_INFO("    Sample values (first {}):", sample_count);
-                for (size_t i = 0; i < sample_count; ++i) {
-                    SPDLOG_INFO("      [{}] = {:.6e}", i, data[i]);
+                // Log sample values at specific positions
+                if (log_samples && numel > 0) {
+                    size_t sample_count = std::min(max_samples, numel);
+                    SPDLOG_INFO("    Sample values (first {}):", sample_count);
+                    for (size_t i = 0; i < sample_count; ++i) {
+                        SPDLOG_INFO("      [{}] = {:.6e}", i, data[i]);
+                    }
+                }
+            } else if (dtype == infinicore::DataType::F16) {
+                // F16 is typically uint16_t, need to convert to float for logging
+                uint16_t *data = reinterpret_cast<uint16_t*>(raw_data);
+                std::vector<float> float_data(numel);
+                for (size_t i = 0; i < numel; ++i) {
+                    // Simple F16 to F32 conversion (approximate)
+                    uint16_t h = data[i];
+                    uint32_t sign = (h >> 15) & 0x1;
+                    uint32_t exp = (h >> 10) & 0x1F;
+                    uint32_t mant = h & 0x3FF;
+                    uint32_t f32 = (sign << 31) | ((exp + 112) << 23) | (mant << 13);
+                    float_data[i] = *reinterpret_cast<float*>(&f32);
+                }
+                float min_val = *std::min_element(float_data.begin(), float_data.end());
+                float max_val = *std::max_element(float_data.begin(), float_data.end());
+                float sum = std::accumulate(float_data.begin(), float_data.end(), 0.0f);
+                float mean_val = sum / static_cast<float>(numel);
+
+                SPDLOG_INFO("    Stats (F16): min={:.6e}, max={:.6e}, mean={:.6e}, numel={}",
+                           min_val, max_val, mean_val, numel);
+
+                if (log_samples && numel > 0) {
+                    size_t sample_count = std::min(max_samples, numel);
+                    SPDLOG_INFO("    Sample values (first {}):", sample_count);
+                    for (size_t i = 0; i < sample_count; ++i) {
+                        SPDLOG_INFO("      [{}] = {:.6e}", i, float_data[i]);
+                    }
+                }
+            } else if (dtype == infinicore::DataType::BF16) {
+                // BF16 is typically uint16_t, need to convert to float for logging
+                uint16_t *data = reinterpret_cast<uint16_t*>(raw_data);
+                std::vector<float> float_data(numel);
+                for (size_t i = 0; i < numel; ++i) {
+                    // BF16 to F32 conversion
+                    uint16_t b = data[i];
+                    uint32_t f32 = (static_cast<uint32_t>(b) << 16);
+                    float_data[i] = *reinterpret_cast<float*>(&f32);
+                }
+                float min_val = *std::min_element(float_data.begin(), float_data.end());
+                float max_val = *std::max_element(float_data.begin(), float_data.end());
+                float sum = std::accumulate(float_data.begin(), float_data.end(), 0.0f);
+                float mean_val = sum / static_cast<float>(numel);
+
+                SPDLOG_INFO("    Stats (BF16): min={:.6e}, max={:.6e}, mean={:.6e}, numel={}",
+                           min_val, max_val, mean_val, numel);
+
+                if (log_samples && numel > 0) {
+                    size_t sample_count = std::min(max_samples, numel);
+                    SPDLOG_INFO("    Sample values (first {}):", sample_count);
+                    for (size_t i = 0; i < sample_count; ++i) {
+                        SPDLOG_INFO("      [{}] = {:.6e}", i, float_data[i]);
+                    }
+
+                    // Also log last N values to see newly appended decode tokens
+                    // This is critical for debugging precision issues at decode steps
+                    if (numel > sample_count) {
+                        SPDLOG_INFO("    Sample values (last {}):", sample_count);
+                        for (size_t i = numel - sample_count; i < numel; ++i) {
+                            SPDLOG_INFO("      [{}] = {:.6e}", i, float_data[i]);
+                        }
+                    }
                 }
             }
         }
     } else {
-        SPDLOG_INFO("  {} (Stats computation skipped for non-F32 tensor)", name);
+        SPDLOG_INFO("  {} (Stats computation skipped for unsupported dtype)", name);
     }
 }
 

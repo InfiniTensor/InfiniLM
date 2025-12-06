@@ -23,6 +23,9 @@ public:
     infinicore::Tensor generate(const infinicore::Tensor &input_ids,
                                const infinicore::Tensor &position_ids);
 
+    // Reset the internal cache in all workers (clears state between generations)
+    void reset_cache(bool full_reset = true);
+
     ~InferEngine();
 
     const distributed::DistConfig &get_dist_config() const;

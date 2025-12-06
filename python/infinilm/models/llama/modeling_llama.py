@@ -157,7 +157,7 @@ class LlamaAttention(infinicore.nn.Module):
         self.o_proj = infinicore.nn.Linear(
             self.num_attention_heads * self.head_dim,
             self.hidden_size,
-            bias=attention_bias,
+            bias=False,
             **kwargs,
         )
 
