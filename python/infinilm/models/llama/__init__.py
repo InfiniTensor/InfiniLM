@@ -13,6 +13,7 @@ class AutoLlamaModel:
         device: infinicore.device,
         dtype=infinicore.dtype,
         backend="python",
+        **kwargs,
     ):
         if backend == "python":
             from . import modeling_llama
@@ -21,6 +22,7 @@ class AutoLlamaModel:
                 model_path,
                 device=device,
                 dtype=dtype,
+                **kwargs,
             )
 
         elif backend == "cpp":
@@ -30,6 +32,7 @@ class AutoLlamaModel:
                 model_path,
                 device=device,
                 dtype=dtype,
+                **kwargs,
             )
 
         raise KeyError("invalid backend")

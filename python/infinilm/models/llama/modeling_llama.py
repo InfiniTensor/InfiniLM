@@ -17,15 +17,12 @@ import json
 import os
 from typing import Optional, Union
 
-from transformers.utils import logging
 
 import infinicore
 
 from ...cache_utils import Cache, DynamicCache
 from ...generation.utils import GenerationMixin
 from .configuration_llama import LlamaConfig
-
-logger = logging.get_logger(__name__)
 
 
 def repeat_kv(keys: infinicore.Tensor, values: infinicore.Tensor, ngroup: int):
@@ -399,6 +396,7 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
             bias=False,
             **kwargs,
         )
+        self.device = kwargs.get("device", infinicore.device("cpu"))
 
     def forward(
         self,
@@ -410,7 +408,7 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
     ):
         last_token = self.model(
             input_ids,
-            position_ids,
+            position_ids.to(self.device),
             past_key_values=past_key_values,
             use_cache=use_cache,
             **kwargs,

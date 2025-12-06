@@ -3,6 +3,7 @@ from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import get_model_state_dict
 import infinilm
+from infinilm.distributed import DistConfig
 import argparse
 import sys
 import time
@@ -75,6 +76,13 @@ def get_args():
         default="How are you",
         help="input prompt",
     )
+    parser.add_argument(
+        "--tp",
+        type=int,
+        default=None,
+        help="total rank for tensor parallel",
+    )
+
     return parser.parse_args()
 
 
@@ -91,7 +99,11 @@ def test(
     #                        创建模型,
     # ---------------------------------------------------------------------------- #
     model = infinilm.AutoLlamaModel.from_pretrained(
-        model_path, device=infini_device, dtype=infini_dtype, backend=backend
+        model_path,
+        device=infini_device,
+        dtype=infini_dtype,
+        backend=backend,
+        distributed_config=DistConfig(args.tp),
     )
 
     # ---------------------------------------------------------------------------- #

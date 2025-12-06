@@ -1,20 +1,6 @@
 #include "dist_config.hpp"
 
 namespace infinilm::engine::distributed {
-
-// ---------------- RankInfo ----------------
-
-RankInfo::RankInfo()
-    : tp_size(1), tp_rank(0), device_id(0) {}
-
-RankInfo::RankInfo(int tp_size_, int tp_rank_, int device_id_)
-    : tp_size(tp_size_), tp_rank(tp_rank_), device_id(device_id_) {}
-
-RankInfo::RankInfo(int tp_size_, int tp_rank_)
-    : RankInfo(tp_size_, tp_rank_, tp_rank_) {}
-
-// ---------------- DistConfig ----------------
-
 DistConfig::DistConfig()
     : tp_device_ids{0} {}
 
@@ -28,8 +14,16 @@ DistConfig::DistConfig(int tp_size)
 DistConfig::DistConfig(const std::vector<int> &tp_device_ids_)
     : tp_device_ids(tp_device_ids_) {}
 
-RankInfo DistConfig::getRankInfo(int rank) const {
-    return RankInfo(tp_device_ids.size(), rank, tp_device_ids[rank]);
+DistConfig::operator std::string() const {
+    std::string repr = "DistConfig(tp_device_ids=[";
+    for (size_t i = 0; i < tp_device_ids.size(); ++i) {
+        repr += std::to_string(tp_device_ids[i]);
+        if (i != tp_device_ids.size() - 1) {
+            repr += ", ";
+        }
+    }
+    repr += "])";
+    return repr;
 }
 
 } // namespace infinilm::engine::distributed

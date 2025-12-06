@@ -2,6 +2,7 @@ from ....generation.utils import GenerationMixin
 import infinicore
 from infinilm.models.llama.configuration_llama import LlamaConfig as _LlamaConfig
 from infinilm.lib import _infinilm
+from infinilm.distributed import DistConfig
 import json
 import os
 from typing import Optional, Union
@@ -85,7 +86,13 @@ class LlamaConfig:
 class LlamaForCausalLM(GenerationMixin):
     """Llama model for causal language modeling"""
 
-    def __init__(self, config, device=None, dtype=None):
+    def __init__(
+        self,
+        config,
+        device=None,
+        dtype=None,
+        distributed_config=DistConfig(1),
+    ):
         """
         Create LlamaForCausalLM
 
@@ -96,10 +103,7 @@ class LlamaForCausalLM(GenerationMixin):
         """
         super().__init__()
 
-        if isinstance(config, dict):
-            config = LlamaConfig(**config)
-        elif not isinstance(config, LlamaConfig):
-            config = LlamaConfig(**config)
+        self.config = config
 
         if device is None:
             device = infinicore.device()
@@ -107,8 +111,11 @@ class LlamaForCausalLM(GenerationMixin):
         self.use_cache = False
 
         self._device = device
-        self._model = _infinilm.LlamaForCausalLM(
-            config._underlying, device._underlying, dtype
+        # self._model = _infinilm.LlamaForCausalLM(
+        #     config._underlying, device._underlying, dtype
+        # )
+        self._model = _infinilm.InferEngine(
+            config._underlying, distributed_config._underlying, device._underlying.type
         )
 
     def state_dict(self):
@@ -122,7 +129,9 @@ class LlamaForCausalLM(GenerationMixin):
         Args:
             state_dict: Dictionary mapping parameter names to InfiniCore tensors, numpy arrays, or torch tensors
         """
-        self._model.load_state_dict(state_dict, self._device._underlying)
+        # self._model.load_state_dict(state_dict, self._device._underlying)
+        for name, param in state_dict.items():
+            self._model.load_param(name, param._underlying)
 
     def get_parameter(self, name):
         """
@@ -136,15 +145,21 @@ class LlamaForCausalLM(GenerationMixin):
         """
         return self._model.get_parameter(name)
 
-    @property
-    def config(self):
-        """Get model configuration"""
-        return self._model.config()
+    # @property
+    # def config(self):
+    #     """Get model configuration"""
+    #     return self._model.config()
 
     def forward(self, input_ids, position_ids, *args, **kwargs):
         kv_caches = None
+        # return infinicore.Tensor(
+        #     self._model.forward(input_ids, position_ids, kv_caches)
+        # )
         return infinicore.Tensor(
-            self._model.forward(input_ids, position_ids, kv_caches)
+            self._model.generate(
+                input_ids._underlying,
+                position_ids._underlying,
+            )
         )
 
     def __call__(self, input_ids, position_ids, *args, **kwargs):
@@ -156,6 +171,7 @@ class LlamaForCausalLM(GenerationMixin):
         model_path: Union[str, os.PathLike],
         device: Optional[infinicore.device] = None,
         dtype: Optional[infinicore.dtype] = None,
+        **kwargs,
     ):
         """
         Load a pretrained LlamaForCausalLM model from a directory.
@@ -176,4 +192,4 @@ class LlamaForCausalLM(GenerationMixin):
             config_dict = json.load(f)
 
         config = LlamaConfig(config_dict)
-        return cls(config, device=device, dtype=dtype)
+        return cls(config, device=device, dtype=dtype, **kwargs)
