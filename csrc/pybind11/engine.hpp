@@ -18,6 +18,9 @@ inline void bind_dist_config(py::module &m) {
                        "List of device IDs used in tensor parallelism")
         .def("__repr__", [](const DistConfig &cfg) {
             return std::string(cfg);
+        })
+        .def("__str__", [](const DistConfig &cfg) {
+            return std::string(cfg);
         });
 }
 

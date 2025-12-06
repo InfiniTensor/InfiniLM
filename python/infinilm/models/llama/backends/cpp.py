@@ -2,6 +2,7 @@ from ....generation.utils import GenerationMixin
 import infinicore
 from infinilm.models.llama.configuration_llama import LlamaConfig as _LlamaConfig
 from infinilm.lib import _infinilm
+from infinilm.distributed import DistConfig
 import json
 import os
 from typing import Optional, Union
@@ -85,7 +86,13 @@ class LlamaConfig:
 class LlamaForCausalLM(GenerationMixin):
     """Llama model for causal language modeling"""
 
-    def __init__(self, config, device=None, dtype=None):
+    def __init__(
+        self,
+        config,
+        device=None,
+        dtype=None,
+        distributed_config=DistConfig(1),
+    ):
         """
         Create LlamaForCausalLM
 
@@ -96,7 +103,7 @@ class LlamaForCausalLM(GenerationMixin):
         """
         super().__init__()
 
-        self.config=config
+        self.config = config
 
         if device is None:
             device = infinicore.device()
@@ -107,7 +114,9 @@ class LlamaForCausalLM(GenerationMixin):
         # self._model = _infinilm.LlamaForCausalLM(
         #     config._underlying, device._underlying, dtype
         # )
-        self._model = _infinilm.InferEngine(config._underlying, _infinilm.DistConfig(2), device._underlying.type)
+        self._model = _infinilm.InferEngine(
+            config._underlying, distributed_config._underlying, device._underlying.type
+        )
 
     def state_dict(self):
         """Get model state dictionary with parameter shapes"""
@@ -146,10 +155,12 @@ class LlamaForCausalLM(GenerationMixin):
         # return infinicore.Tensor(
         #     self._model.forward(input_ids, position_ids, kv_caches)
         # )
-        return infinicore.Tensor(self._model.generate(
-            input_ids._underlying,
-            position_ids._underlying,
-        ))
+        return infinicore.Tensor(
+            self._model.generate(
+                input_ids._underlying,
+                position_ids._underlying,
+            )
+        )
 
     def __call__(self, input_ids, position_ids, *args, **kwargs):
         return self.forward(input_ids=input_ids, position_ids=position_ids)
@@ -160,6 +171,7 @@ class LlamaForCausalLM(GenerationMixin):
         model_path: Union[str, os.PathLike],
         device: Optional[infinicore.device] = None,
         dtype: Optional[infinicore.dtype] = None,
+        **kwargs,
     ):
         """
         Load a pretrained LlamaForCausalLM model from a directory.
@@ -180,4 +192,4 @@ class LlamaForCausalLM(GenerationMixin):
             config_dict = json.load(f)
 
         config = LlamaConfig(config_dict)
-        return cls(config, device=device, dtype=dtype)
+        return cls(config, device=device, dtype=dtype, **kwargs)

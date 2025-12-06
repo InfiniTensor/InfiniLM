@@ -11,7 +11,7 @@ InferEngine::InferEngine(
     infinicore::Device::Type device_type)
     : communication_group_(distributed_config, device_type),
       model_config_(config) {
-
+    spdlog::info("Launch InferEngine with {}", std::string(distributed_config));
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
     workers_.reserve(world_size);

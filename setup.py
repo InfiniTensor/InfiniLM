@@ -37,7 +37,7 @@ setup(
     version="0.1.0",
     description="InfiniLM model implementations",
     package_dir={"": "python"},
-    packages=["infinilm", "infinilm.models", "infinilm.lib"],
+    packages=["infinilm", "infinilm.models", "infinilm.lib", "infinilm.distributed"],
     cmdclass={
         "build": Build,
         "develop": Develop,
