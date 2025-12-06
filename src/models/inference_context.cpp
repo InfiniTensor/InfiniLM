@@ -33,6 +33,27 @@ void InferenceContext::add(std::shared_ptr<Tensor> c,
         c->data(), a->data(), b->data(), stream));
 }
 
+void InferenceContext::mul(std::shared_ptr<Tensor> c,
+                           std::shared_ptr<Tensor> a,
+                           std::shared_ptr<Tensor> b) {
+    size_t key = CacheManager::createDescriptorKey(c, a, b);
+
+    infiniopMulDescriptor_t desc;
+    if (!cache_manager->getMulDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateMulDescriptor(op_handle, &desc, c->desc(), a->desc(), b->desc()));
+        cache_manager->putMulDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetMulWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopMul(
+        desc, workspace, workspace_size,
+        c->data(), a->data(), b->data(), stream));
+}
+
 void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
                                std::shared_ptr<Tensor> x,
                                std::shared_ptr<Tensor> w,
@@ -301,3 +322,71 @@ void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
         desc, workspace, workspace_size,
         weight->data(), in_w->data(), in_s->data(), in_z->data(), stream));
 }
+
+void InferenceContext::pagedCaching(std::shared_ptr<Tensor> k,
+                                      std::shared_ptr<Tensor> v,
+                                      std::shared_ptr<Tensor> k_cache,
+                                      std::shared_ptr<Tensor> v_cache,
+                                      std::shared_ptr<Tensor> slot_mapping) {
+    size_t key = CacheManager::createDescriptorKey(k, v, k_cache, v_cache, slot_mapping);
+
+    infiniopPagedCachingDescriptor_t desc;
+    if (!cache_manager->getPagedCachingDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreatePagedCachingDescriptor(
+            op_handle, &desc, k->desc(), v->desc(), 
+            k_cache->desc(), v_cache->desc(), slot_mapping->desc()));
+        cache_manager->putPagedCachingDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetPagedCachingWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopPagedCaching(
+        desc, workspace, workspace_size,
+        k->data(), v->data(),
+        k_cache->data(), v_cache->data(),
+        slot_mapping->data(), stream));
+}
+
+void InferenceContext::pagedAttention(std::shared_ptr<Tensor> out,
+                                        std::shared_ptr<Tensor> q,
+                                        std::shared_ptr<Tensor> k_cache,
+                                        std::shared_ptr<Tensor> v_cache,
+                                        std::shared_ptr<Tensor> block_tables,
+                                        std::shared_ptr<Tensor> seq_lens,
+                                        std::shared_ptr<Tensor> alibi_slopes, // can be nullptr
+                                        float scale) {
+
+    size_t key = CacheManager::createDescriptorKey(out, q, k_cache, v_cache, block_tables, seq_lens, alibi_slopes);
+
+    infiniopPagedAttentionDescriptor_t desc;
+    if (!cache_manager->getPagedAttentionDescriptor(key, desc)) {
+        infiniopTensorDescriptor_t alibi_desc = alibi_slopes ? alibi_slopes->desc() : nullptr;
+        RUN_INFINI(infiniopCreatePagedAttentionDescriptor(
+            op_handle, &desc, out->desc(), q->desc(),
+            k_cache->desc(), v_cache->desc(), block_tables->desc(),
+            seq_lens->desc(), alibi_desc, scale));
+        cache_manager->putPagedAttentionDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetPagedAttentionWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+    
+    const void* alibi_data = alibi_slopes ? alibi_slopes->data() : nullptr;
+    RUN_INFINI(infiniopPagedAttention(
+        desc, workspace, workspace_size,
+        out->data(), q->data(), k_cache->data(), v_cache->data(),
+        block_tables->data(), seq_lens->data(), alibi_data,
+        stream));
+}
+
+
+
+
+
+
+

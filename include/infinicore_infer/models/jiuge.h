@@ -12,7 +12,7 @@ struct JiugeModel;
 typedef struct
 {
     infiniDtype_t dt_logits;
-    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc;
+    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc, kvcache_block_size;
     float epsilon, theta;
     uint32_t end_token;
 } JiugeMeta;
@@ -65,6 +65,32 @@ createJiugeModel(const JiugeMeta *,
 __C __export void
 destroyJiugeModel(struct JiugeModel *);
 
+// /// @brief 创建 KV Cache
+// __C __export struct KVCache *
+// createKVCache(const struct JiugeModel *);
+
+/// @brief 创建 Paged KV Cache
+__C __export struct KVCache *createPagedKVCache(
+    size_t nlayers,
+    size_t nkvh_,
+    size_t kvcache_block_size,
+    size_t max_kvcache_tokens,
+    size_t dh,
+    infiniDtype_t dtype,
+    infiniDevice_t device,
+    int *dev_ids,
+    size_t ndev);
+
+// /// @brief 复制 KV Cache
+// __C __export struct KVCache *
+// duplicateKVCache(const struct JiugeModel *,
+//                  const struct KVCache *, uint32_t seq_len);
+
+// /// @brief 销毁 KV Cache
+// __C __export void
+// dropKVCache(const struct JiugeModel *,
+//             struct KVCache *);
+
 /// @brief 批次推理一轮，并采样出新的 token
 /// @param tokens 输入 token 地址
 /// @param ntok 输入 token 数量
@@ -75,6 +101,8 @@ destroyJiugeModel(struct JiugeModel *);
 /// @param temperature 采样温度（0. 表示贪心采样）
 /// @param topk 采样 topk（1 表示贪心采样）
 /// @param topp 采样 topp
+/// @param is_prefill 是否按 prefill 流程处理，0 表示 decode，1 表示 prefill
+/// @param enable_paged_attn 是否启用 paged attention
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 inferBatchJiuge(struct JiugeModel *,
@@ -84,6 +112,17 @@ inferBatchJiuge(struct JiugeModel *,
                 const float *temperature, const uint32_t *topk, const float *topp,
                 uint32_t *output);
 
+__C __export void
+inferBatch(struct JiugeModel *,
+           const uint32_t *tokens, uint32_t ntok,
+           const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+           struct KVCache **kv_caches,
+           const int32_t *block_tables,
+           const int32_t *slot_mapping,
+           const float *temperature, const uint32_t *topk, const float *topp,
+           const uint32_t is_prefill, const bool enable_paged_attn,
+           uint32_t *output);
+
 /// @brief 批次推理一轮，输出 output embedding 后的 logits
 /// @param tokens 输入 token 地址
 /// @param ntok 输入 token 数量
@@ -91,6 +130,10 @@ inferBatchJiuge(struct JiugeModel *,
 /// @param req_lens 每个请求的 token 数量
 /// @param req_pos 每个请求的起始位置
 /// @param kv_caches 每个请求的 KV Cache
+/// @param block_tables 每个请求的 block 表
+/// @param slot_mapping 每个请求的 slot 映射
+/// @param is_prefill 是否按 prefill 流程处理，0 表示 decode，1 表示 prefill
+/// @param enable_paged_attn 是否启用 paged attention
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 forwardBatchJiuge(struct JiugeModel *,
@@ -98,5 +141,15 @@ forwardBatchJiuge(struct JiugeModel *,
                   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                   struct KVCache **kv_caches,
                   void *logits);
+
+__C __export void
+forwardBatch(struct JiugeModel *,
+             const uint32_t *tokens, uint32_t ntok,
+             const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+             struct KVCache **kv_caches,
+             const int32_t *block_tables,
+             const int32_t *slot_mapping,
+             const uint32_t is_prefill, const bool enable_paged_attn,
+             void *logits);
 
 #endif
