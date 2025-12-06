@@ -131,7 +131,7 @@ infinicore::Tensor RankWorker::get_output() {
 void RankWorker::thread_loop() {
     try {
         // Initialize device & model outside of holding the main mutex to avoid blocking callers.
-        infinicore::context::setDevice(rank_info_.deivce);
+        infinicore::context::setDevice(rank_info_.device);
 
         // Create model using factory (may be expensive)
         model_ = InfinilmModelFactory::createModel(model_config_, rank_info_);

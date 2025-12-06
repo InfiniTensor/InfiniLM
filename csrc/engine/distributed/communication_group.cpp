@@ -26,7 +26,7 @@ RankInfo CommunicationGroup::get_rank_info(int rank) const {
     RankInfo info;
     info.tp_size = dist_config_.tp_device_ids.size();
     info.tp_rank = rank;
-    info.deivce = infinicore::Device(device_type_, dist_config_.tp_device_ids[rank]);
+    info.device = infinicore::Device(device_type_, dist_config_.tp_device_ids[rank]);
     info.comm = communicators_[rank];
     return info;
 }

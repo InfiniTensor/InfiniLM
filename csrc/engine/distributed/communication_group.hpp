@@ -13,7 +13,7 @@ namespace infinilm::engine::distributed {
 // Communicator each rank will hold
 struct RankInfo {
     // Device Type and ID assigned to this rank
-    infinicore::Device deivce;
+    infinicore::Device device;
     // Tensor parallelism size
     int tp_size;
     // Tensor parallelism rank number of this rank
@@ -21,12 +21,12 @@ struct RankInfo {
     // Communicator handle
     infinicclComm_t comm;
 
-    RankInfo(infinicore::Device _deivce = infinicore::context::getDevice())
-        : tp_size(1), tp_rank(0), deivce(_deivce), comm(nullptr){};
+    RankInfo(infinicore::Device _device = infinicore::context::getDevice())
+        : tp_size(1), tp_rank(0), device(_device), comm(nullptr){};
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "RankInfo: device=" << deivce.toString() << ", tp_size=" << tp_size << ", tp_rank=" << tp_rank;
+        ss << "RankInfo: device=" << device.toString() << ", tp_size=" << tp_size << ", tp_rank=" << tp_rank;
         return ss.str();
     }
 };
