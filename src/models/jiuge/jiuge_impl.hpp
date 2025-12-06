@@ -45,10 +45,14 @@ struct InferRequest {
     uint32_t nreq;
     const uint32_t *req_pos;
     struct KVCache **kv_caches;
+    const int32_t *block_tables;
+    const int32_t *slot_mapping;
     const float *temperature;
     const uint32_t *topk;
     const float *topp;
     uint32_t *output;
+    uint32_t is_prefill;
+    bool enable_paged_attn;
     void *logits;
 };
 

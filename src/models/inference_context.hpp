@@ -19,6 +19,9 @@ struct InferenceContext {
     void add(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
+    void mul(std::shared_ptr<Tensor> c,
+             std::shared_ptr<Tensor> a,
+             std::shared_ptr<Tensor> b);
     void rmsnorm(std::shared_ptr<Tensor> y,
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
@@ -64,6 +67,21 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> in_w,
                  std::shared_ptr<Tensor> in_s,
                  std::shared_ptr<Tensor> in_z);
+
+    void pagedCaching(std::shared_ptr<Tensor> k,
+                      std::shared_ptr<Tensor> v,
+                      std::shared_ptr<Tensor> k_cache,
+                      std::shared_ptr<Tensor> v_cache,
+                      std::shared_ptr<Tensor> slot_mapping);
+    
+    void pagedAttention(std::shared_ptr<Tensor> out,
+                        std::shared_ptr<Tensor> q,
+                        std::shared_ptr<Tensor> k_cache,
+                        std::shared_ptr<Tensor> v_cache,
+                        std::shared_ptr<Tensor> block_tables,
+                        std::shared_ptr<Tensor> seq_lens,
+                        std::shared_ptr<Tensor> alibi_slopes, // can be nullptr
+                        float scale);
 };
 
 namespace {
@@ -82,6 +100,11 @@ inline void setInferenceContext(InferenceContext *ctx) {
 inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
     getInferenceContext().add(c, a, b);
 }
+
+inline void mul(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
+    getInferenceContext().mul(c, a, b);
+}
+
 
 inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
                     std::shared_ptr<Tensor> w, float epsilon) {
@@ -155,3 +178,19 @@ inline void dequant_linear(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> 
     getInferenceContext().dequant(w, w_w, w_s, w_z);
     getInferenceContext().linear(out, x, w, alpha, beta, residual, bias);
 }
+
+
+inline void pagedCaching(std::shared_ptr<Tensor> k, std::shared_ptr<Tensor> v,
+                         std::shared_ptr<Tensor> k_cache, std::shared_ptr<Tensor> v_cache,
+                         std::shared_ptr<Tensor> slot_mapping) {
+    getInferenceContext().pagedCaching(k, v, k_cache, v_cache, slot_mapping);
+}
+
+inline void pagedAttention(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> q,
+                           std::shared_ptr<Tensor> k_cache, std::shared_ptr<Tensor> v_cache,
+                           std::shared_ptr<Tensor> block_tables, std::shared_ptr<Tensor> seq_lens,
+                           std::shared_ptr<Tensor> alibi_slopes, float scale) {
+    getInferenceContext().pagedAttention(out, q, k_cache, v_cache, block_tables, seq_lens, alibi_slopes, scale);
+}
+
+
