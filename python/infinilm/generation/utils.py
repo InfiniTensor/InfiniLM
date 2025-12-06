@@ -189,6 +189,7 @@ class GenerationMixin:
             #                     计算一次
             # -------------------------------------------------------------------------- #
             start_time = time.time()
+
             logits = self(**model_inputs)
 
             # -------------------------------------------------------------------------- #
@@ -206,6 +207,7 @@ class GenerationMixin:
                 dtype=infinicore.int32,
                 device=token_scores.device,
             )
+
             for i in range(0, batch_size):
                 score = token_scores.narrow(0, i, 1).view((vocab_size,))
                 out = next_tokens.narrow(0, i, 1).view([])
@@ -236,7 +238,6 @@ class GenerationMixin:
             print(output_str, end="", flush=True)
             if stop_on_eos and token_id in eos_token_id_list:
                 break
-
         print("\n</s>")
         print(f"\n\n\n Generation completed in {round(sum(time_list), 2)} ms")
         print(

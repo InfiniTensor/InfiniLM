@@ -2,6 +2,7 @@
 
 #include "llama_config.hpp"
 #include "llama_decoder_layer.hpp"
+#include "cache/kv_cache.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
@@ -9,6 +10,7 @@
 #include "infinicore/tensor.hpp"
 #include "infinicore/device.hpp"
 #include <vector>
+#include <memory>
 
 namespace infinilm::models::llama {
 
@@ -40,20 +42,25 @@ public:
      *
      * @param input_ids Token IDs tensor of shape [batch, seq_len]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param kv_caches Optional KV caches for incremental decoding (one per layer)
+     * @param kv_cache Optional model-level KV cache for incremental decoding
      * @return Output tensor of shape [batch, seq_len, hidden_size]
-     *
-     * Note: This is a placeholder forward method. The actual implementation
-     * will be added when integrating with the inference engine.
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
                                 const infinicore::Tensor &position_ids,
-                                std::vector<void *> *kv_caches = nullptr) const;
+                                void *kv_cache = nullptr) const;
 
 
     // Module information
     const LlamaConfig &config() const { return config_; }
     size_t num_layers() const { return config_.num_hidden_layers; }
+
+    /**
+     * @brief Get the internal cache as an opaque pointer
+     * @return Opaque pointer to the cache, or nullptr if cache hasn't been created yet
+     */
+    void *cache() const {
+        return cache_ ? cache_.get() : nullptr;
+    }
 
 protected:
     // Token embeddings
@@ -70,6 +77,10 @@ protected:
 
 private:
     LlamaConfig config_;
+    // Persistent cache for when no external cache is provided
+    // Mutable because it's not part of the model's learned parameters,
+    // but needs to persist across forward calls for incremental decoding
+    mutable std::unique_ptr<infinilm::cache::DynamicCache> cache_;
 };
 
 } // namespace infinilm::models::llama

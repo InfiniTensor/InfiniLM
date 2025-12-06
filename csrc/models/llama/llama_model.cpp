@@ -36,25 +36,51 @@ LlamaModel::LlamaModel(const LlamaConfig &config, const infinicore::Device &devi
 
 infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
                                        const infinicore::Tensor &position_ids,
-                                       std::vector<void *> *kv_caches) const {
+                                       void *kv_cache) const {
+    // Use persistent internal cache if no external cache is provided
+    // This matches Python backend behavior: if use_cache and past_key_values is None, create DynamicCache
+    // The cache persists across forward calls to enable incremental decoding
+    void *cache_to_use = kv_cache;
+
+    if (kv_cache == nullptr) {
+        // Create or reuse persistent internal cache at model level
+        // This ensures the cache persists across multiple forward calls (prefill -> decode -> decode...)
+        size_t seq_len = input_ids->shape()[1];
+
+        if (!cache_) {
+            // First time: create cache
+            cache_ = std::make_unique<infinilm::cache::DynamicCache>(
+                config_.num_hidden_layers,
+                config_.max_position_embeddings
+            );
+        }
+        cache_to_use = cache_.get();
+    }
+
     // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
     auto hidden_states = embed_tokens_->forward(input_ids);
 
     // 2. Process through all decoder layers
-    for (size_t i = 0; i < layers_.size(); ++i) {
-        void *kv_cache = (kv_caches && i < kv_caches->size()) ? (*kv_caches)[i] : nullptr;
-        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache);
+    size_t num_layers = layers_.size();
+    for (size_t i = 0; i < num_layers; ++i) {
+        // Pass model-level cache with layer index
+        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, cache_to_use, i);
+
+        // DEBUG: Disabled previous final layer logging
+        // Logging moved to decoder layer for post-attention normalization
     }
+
 
     // 3. Apply final layer normalization to last token only (aligns with transformers)
 
     // Narrow to last token: [batch, seq_len, hidden_size] -> [batch, 1, hidden_size]
     auto shape = hidden_states->shape();
     size_t seq_len = shape[1];
-    auto last_token = hidden_states; //->narrow({{1, seq_len - 1, 1}});
+    auto last_token = hidden_states->narrow({{1, seq_len - 1, 1}});
 
-    auto normalized_states = norm_->forward(hidden_states);
-    auto normalized_last_token = normalized_states->narrow({{1, seq_len - 1, 1}});
+    // DEBUG: Disabled previous final layer normalization logging
+    // Normalize only the last token (matches Python backend)
+    auto normalized_last_token = norm_->forward(last_token);
 
     return normalized_last_token;
 }

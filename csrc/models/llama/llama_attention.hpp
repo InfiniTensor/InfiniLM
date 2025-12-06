@@ -39,12 +39,14 @@ public:
      *
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param kv_cache Optional KV cache for incremental decoding
+     * @param kv_cache Optional model-level KV cache for incremental decoding
+     * @param layer_idx Layer index for cache access (required if kv_cache is provided)
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &position_ids,
-                                void *kv_cache = nullptr) const;
+                                void *kv_cache = nullptr,
+                                size_t layer_idx = 0) const;
 
     /**
      * @brief Provide shared RoPE module from parent model.
@@ -73,10 +75,9 @@ private:
     size_t num_key_value_heads_;
     size_t head_dim_;
     size_t kv_dim_;
-    bool use_bias_;
-
-    // Internal KV cache for when no external cache is provided
-    mutable infinilm::cache::KVCache internal_cache_;
+    bool use_bias_;              // Bias for Q/K/V projections
+    bool use_output_bias_;        // Bias for output projection (o_proj)
+    size_t max_position_embeddings_;  // For cache initialization (deprecated, kept for compatibility)
 };
 
 } // namespace infinilm::models::llama

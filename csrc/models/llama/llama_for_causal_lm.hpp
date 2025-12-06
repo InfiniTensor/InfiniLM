@@ -35,15 +35,12 @@ public:
      *
      * @param input_ids Token IDs tensor of shape [batch, seq_len]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param kv_caches Optional KV caches for incremental decoding (one per layer)
+     * @param kv_cache Optional model-level KV cache for incremental decoding
      * @return Logits tensor of shape [batch, seq_len, vocab_size]
-     *
-     * Note: This is a placeholder forward method. The actual implementation
-     * will be added when integrating with the inference engine.
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
                                const infinicore::Tensor &position_ids,
-                               std::vector<void *> *kv_caches = nullptr) const;
+                               void *kv_cache = nullptr) const;
 
     infinicore::Tensor forward(std::vector<std::any> args) const override;
 

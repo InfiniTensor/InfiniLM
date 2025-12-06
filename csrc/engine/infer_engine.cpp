@@ -1,4 +1,5 @@
 #include "infer_engine.hpp"
+#include "spdlog/spdlog.h"
 
 namespace infinilm::engine {
 

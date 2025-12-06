@@ -56,14 +56,78 @@ inline void bind_llama(py::module &m) {
         .def_readwrite("model_type", &LlamaConfig::model_type)
         .def_readwrite("rope_theta", &LlamaConfig::rope_theta)
         .def_readwrite("attention_bias", &LlamaConfig::attention_bias)
+        .def_readwrite("attention_output_bias", &LlamaConfig::attention_output_bias)
         .def_readwrite("mlp_bias", &LlamaConfig::mlp_bias)
         .def_readwrite("tie_word_embeddings", &LlamaConfig::tie_word_embeddings)
         .def_readwrite("use_cache", &LlamaConfig::use_cache)
+        .def_readwrite("attention_dropout", &LlamaConfig::attention_dropout)
+        .def_readwrite("initializer_range", &LlamaConfig::initializer_range)
+        .def_readwrite("pretraining_tp", &LlamaConfig::pretraining_tp)
+        .def_readwrite("name_or_path", &LlamaConfig::name_or_path)
         .def_readwrite("pad_token_id", &LlamaConfig::pad_token_id)
-        .def_readwrite("bos_token_id", &LlamaConfig::bos_token_id)
-        .def_readwrite("eos_token_id", &LlamaConfig::eos_token_id)
+        .def_property("bos_token_id",
+            [](const LlamaConfig &self) {
+                // Always return as list to match Python config format
+                return py::cast(self.bos_token_id);
+            },
+            [](LlamaConfig &self, py::object value) {
+                // Accept both single int and list
+                if (py::isinstance<py::int_>(value)) {
+                    self.bos_token_id = {value.cast<int64_t>()};
+                } else if (py::isinstance<py::list>(value) || py::isinstance<py::tuple>(value)) {
+                    self.bos_token_id = value.cast<std::vector<int64_t>>();
+                } else {
+                    throw py::type_error("bos_token_id must be int or list of ints");
+                }
+            })
+        .def_property("eos_token_id",
+            [](const LlamaConfig &self) {
+                // Always return as list to match Python config format
+                return py::cast(self.eos_token_id);
+            },
+            [](LlamaConfig &self, py::object value) {
+                // Accept both single int and list
+                if (py::isinstance<py::int_>(value)) {
+                    self.eos_token_id = {value.cast<int64_t>()};
+                } else if (py::isinstance<py::list>(value) || py::isinstance<py::tuple>(value)) {
+                    self.eos_token_id = value.cast<std::vector<int64_t>>();
+                } else {
+                    throw py::type_error("eos_token_id must be int or list of ints");
+                }
+            })
         .def("validate", &LlamaConfig::validate)
-        .def("kv_dim", &LlamaConfig::kv_dim);
+        .def("kv_dim", &LlamaConfig::kv_dim)
+        // Add __dir__ to make attributes discoverable via dir() in Python
+        .def("__dir__", [](const LlamaConfig &self) {
+            py::list dir_list;
+            dir_list.append("vocab_size");
+            dir_list.append("hidden_size");
+            dir_list.append("intermediate_size");
+            dir_list.append("num_hidden_layers");
+            dir_list.append("num_attention_heads");
+            dir_list.append("num_key_value_heads");
+            dir_list.append("head_dim");
+            dir_list.append("max_position_embeddings");
+            dir_list.append("rms_norm_eps");
+            dir_list.append("hidden_act");
+            dir_list.append("model_type");
+            dir_list.append("rope_theta");
+            dir_list.append("attention_bias");
+            dir_list.append("attention_output_bias");
+            dir_list.append("mlp_bias");
+            dir_list.append("tie_word_embeddings");
+            dir_list.append("use_cache");
+            dir_list.append("attention_dropout");
+            dir_list.append("initializer_range");
+            dir_list.append("pretraining_tp");
+            dir_list.append("name_or_path");
+            dir_list.append("pad_token_id");
+            dir_list.append("bos_token_id");
+            dir_list.append("eos_token_id");
+            dir_list.append("validate");
+            dir_list.append("kv_dim");
+            return dir_list;
+        });
 
     // Note: Device is already bound in InfiniCore bindings, so we don't need to bind it here
 
@@ -121,6 +185,8 @@ inline void bind_llama(py::module &m) {
                 dtype = infinicore::DataType::F32;
             } else if (typestr == "<f2" || typestr == "float16") {
                 dtype = infinicore::DataType::F16;
+            } else if (typestr == "bfloat16") {
+                dtype = infinicore::DataType::BF16;
             } else if (typestr == "<i4" || typestr == "int32") {
                 dtype = infinicore::DataType::I32;
             } else if (typestr == "<i8" || typestr == "int64") {
@@ -144,6 +210,8 @@ inline void bind_llama(py::module &m) {
                 dtype = infinicore::DataType::F32;
             } else if (dtype_str.find("float16") != std::string::npos) {
                 dtype = infinicore::DataType::F16;
+            } else if (dtype_str.find("bfloat16") != std::string::npos) {
+                dtype = infinicore::DataType::BF16;
             } else if (dtype_str.find("int32") != std::string::npos) {
                 dtype = infinicore::DataType::I32;
             } else if (dtype_str.find("int64") != std::string::npos) {
@@ -200,7 +268,12 @@ inline void bind_llama(py::module &m) {
                 }
                 model.load_state_dict(cpp_state_dict); }, py::arg("state_dict"), py::arg("device"))
         .def("config", &LlamaForCausalLM::config, py::return_value_policy::reference_internal)
-        .def("forward", [convert_to_tensor](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_caches = py::none()) {
+        .def(
+            "cache", [](const LlamaForCausalLM &model) {
+            // Get the cache from the underlying model as an opaque pointer
+            return model.model().cache();
+        }, "Get the internal cache as an opaque pointer")
+        .def("forward", [convert_to_tensor](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_cache = py::none()) {
                 // Helper to extract C++ tensor from Python object
                 auto get_tensor = [convert_to_tensor](py::object obj) -> infinicore::Tensor {
                     // If it's already a Python InfiniCore tensor wrapper, extract underlying
@@ -233,12 +306,25 @@ inline void bind_llama(py::module &m) {
                 auto infini_input_ids = get_tensor(input_ids);
                 auto infini_position_ids = get_tensor(position_ids);
 
-                // Handle kv_caches if provided
-                std::vector<void *> *kv_caches_ptr = nullptr;
+            // Handle kv_cache if provided (model-level DynamicCache)
+            void *kv_cache_ptr = nullptr;
+            if (!kv_cache.is_none()) {
+                // Try to extract DynamicCache from Python object
+                if (py::hasattr(kv_cache, "_underlying")) {
+                    kv_cache_ptr = kv_cache.attr("_underlying").cast<void *>();
+                } else {
+                    // Try direct cast
+                    try {
+                        kv_cache_ptr = kv_cache.cast<void *>();
+                    } catch (...) {
+                        // If conversion fails, pass nullptr (cache will be ignored)
+                        kv_cache_ptr = nullptr;
+                    }
+                }
+            }
 
-                return model.forward(infini_input_ids, infini_position_ids, kv_caches_ptr); },
-             //
-             py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
+            return model.forward(infini_input_ids, infini_position_ids, kv_cache_ptr);
+        }, py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
 }
 
 } // namespace infinilm::models::llama

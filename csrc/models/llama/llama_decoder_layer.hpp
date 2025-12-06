@@ -39,11 +39,13 @@ public:
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
      * @param kv_cache Optional KV cache for incremental decoding
+     * @param layer_idx Layer index for cache management and debugging
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &position_ids,
-                                void *kv_cache = nullptr) const;
+                                void *kv_cache = nullptr,
+                                size_t layer_idx = -1) const;
 
     void set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) {
         if (self_attn_) {
