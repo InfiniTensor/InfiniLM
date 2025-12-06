@@ -28,9 +28,11 @@ public:
     void load_param(const std::string &name,
                     const infinicore::Tensor &param);
 
-    // Submit a run (forward) job and wait until completion.
-    // The result can be retrieved with get_output().
+    // Submit a run (forward) job.
     void run(const std::vector<std::any> &args);
+
+    // Wait until run job completes. The result can be retrieved with get_output().
+    void wait();
 
     // Request worker shutdown and join the thread.
     void close();
