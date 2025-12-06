@@ -75,28 +75,32 @@ void RankWorker::load_param(const std::string &name,
 }
 
 //------------------------------------------------------
-// run -- synchronous (blocks until worker finishes forward)
+// run -- asynchronous
 //------------------------------------------------------
 void RankWorker::run(const std::vector<std::any> &args) {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (should_exit_) {
-            throw std::runtime_error("RankWorker is closing; cannot run");
-        }
+    std::lock_guard<std::mutex> lock(mutex_);
 
-        pending_args_ = args;
-        job_cmd_ = Command::RUN;
-        has_job_ = true;
-        job_done_ = false;
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker is closing; cannot run");
     }
-    cv_.notify_all();
 
-    // Wait for job completion
+    pending_args_ = args;
+    job_cmd_ = Command::RUN;
+    has_job_ = true;
+    job_done_ = false;
+
+    cv_.notify_all();
+}
+
+//------------------------------------------------------
+// wait -- asynchronous
+//------------------------------------------------------
+void RankWorker::wait() {
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return job_done_ || should_exit_; });
 
     if (should_exit_) {
-        throw std::runtime_error("RankWorker stopped while running");
+        throw std::runtime_error("RankWorker stopped during run");
     }
 }
 

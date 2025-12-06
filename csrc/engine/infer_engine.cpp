@@ -39,6 +39,10 @@ infinicore::Tensor InferEngine::generate(const infinicore::Tensor &input_ids,
     for (auto &worker : workers_) {
         worker->run(std::vector<std::any>({input_ids, position_ids}));
     }
+    // Wait for all workers
+    for (auto &worker : workers_) {
+        worker->wait();
+    }
 
     return workers_[0]->get_output();
 }
