@@ -85,4 +85,14 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     return normalized_last_token;
 }
 
+void LlamaModel::reset_cache(bool full_reset) const {
+    if (cache_) {
+        if (full_reset) {
+            cache_->full_reset();
+        } else {
+            cache_->reset();
+        }
+    }
+}
+
 } // namespace infinilm::models::llama

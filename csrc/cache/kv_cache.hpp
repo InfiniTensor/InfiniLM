@@ -287,6 +287,20 @@ public:
     }
 
     /**
+     * @brief Full reset: clear cache positions
+     * This ensures no stale data persists between different generation sequences
+     * The cache tensors will be overwritten on next update, so we only need to reset positions
+     * Use this when you need to guarantee a completely clean cache state
+     */
+    void full_reset() {
+        for (auto& layer : layers_) {
+            std::fill(layer.cache_positions.begin(), layer.cache_positions.end(), 0);
+            // Note: We don't zero out tensors as they will be overwritten on next update
+            // Resetting positions ensures the cache starts fresh
+        }
+    }
+
+    /**
      * @brief Access a specific layer's cache (for advanced usage)
      */
     KVCacheLayer& layer(size_t layer_idx) {

@@ -17,6 +17,7 @@ class RankWorker {
         INIT,
         LOAD,
         RUN,
+        RESET_CACHE,
         STOP
     };
 
@@ -33,6 +34,9 @@ public:
 
     // Submit a run (forward) job.
     void run(const std::vector<std::any> &args);
+
+    // Reset the internal cache in the model (clears state between generations)
+    void reset_cache(bool full_reset = true);
 
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
@@ -67,6 +71,7 @@ private:
     std::string pending_param_name_;
     infinicore::Tensor pending_param_;
     std::vector<std::any> pending_args_;
+    bool pending_full_reset_ = true;
 
     // Output (protected by mutex)
     infinicore::Tensor output_;

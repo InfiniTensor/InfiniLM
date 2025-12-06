@@ -62,6 +62,14 @@ public:
         return cache_ ? cache_.get() : nullptr;
     }
 
+    /**
+     * @brief Reset the internal cache (clears cache positions and optionally zeros tensors)
+     * This should be called when starting a new generation sequence to prevent state
+     * from persisting between different questions/prompts
+     * @param full_reset If true, also zero out cache tensors (more thorough but slower)
+     */
+    void reset_cache(bool full_reset = true) const;
+
 protected:
     // Token embeddings
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);

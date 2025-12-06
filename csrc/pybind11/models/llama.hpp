@@ -273,6 +273,11 @@ inline void bind_llama(py::module &m) {
             // Get the cache from the underlying model as an opaque pointer
             return model.model().cache();
         }, "Get the internal cache as an opaque pointer")
+        .def(
+            "reset_cache", [](const LlamaForCausalLM &model, bool full_reset = true) {
+            // Reset the internal cache to prevent state from persisting between generations
+            model.model().reset_cache(full_reset);
+        }, py::arg("full_reset") = true, "Reset the internal cache (clears state between generations)")
         .def("forward", [convert_to_tensor](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_cache = py::none()) {
                 // Helper to extract C++ tensor from Python object
                 auto get_tensor = [convert_to_tensor](py::object obj) -> infinicore::Tensor {
