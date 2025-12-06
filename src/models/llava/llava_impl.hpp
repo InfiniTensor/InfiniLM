@@ -30,7 +30,7 @@ struct LlavaDeviceResource {
     std::shared_ptr<Tensor> vision_patch_embed_weight;  // [1024, 3, 14, 14]
 
     // Position Embedding
-    std::shared_ptr<Tensor> vision_position_embedding;  // [577, 1024]
+    std::shared_ptr<Tensor> vision_position_embedding;  // [1, 577, 1024]
 
     // Class Token
     std::shared_ptr<Tensor> vision_class_token;  // [1, 1024]

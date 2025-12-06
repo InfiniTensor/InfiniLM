@@ -289,12 +289,10 @@ void InferenceContext::conv2d(std::shared_ptr<Tensor> y,
                              std::vector<size_t> pads,
                              std::vector<size_t> strides,
                              std::vector<size_t> dilations) {
-    printf("DEBUG: 死在步骤1\n");
     // 步骤1: 创建缓存键 - 包含所有影响算子行为的参数
     size_t key = CacheManager::createDescriptorKey(y, x, w, b);
 
     // 将卷积参数也纳入缓存键计算
-    printf("DEBUG: 死在步骤2\n");
     for (size_t pad : pads) {
         hash_combine(key, std::hash<int>()(pad));
     }

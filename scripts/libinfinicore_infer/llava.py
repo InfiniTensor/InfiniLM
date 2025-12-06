@@ -52,7 +52,8 @@ class LlavaWeightsCStruct(Structure):
     _fields_ = [
         # Vision Encoder Weights
         ("vision_patch_embed_weight", c_void_p),
-        ("vision_patch_embed_bias", c_void_p),
+        ("vision_class_token", c_void_p),
+        ("vision_position_embedding", c_void_p),
         ("vision_encoder_weights", POINTER(c_void_p)),
 
         # MultiModal Projector Weights

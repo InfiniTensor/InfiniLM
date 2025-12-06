@@ -749,7 +749,7 @@ class JiugeForCauslLM:
             output_str = self.tokenizer.decode(output_tokens[0])
 
             output_content += output_str
-            # print(output_str, end="", flush=True)
+            print(output_str, end="", flush=True)
             if output_tokens[0] in self.eos_token_id:
                 break
             infer_task.next(output_tokens[0])

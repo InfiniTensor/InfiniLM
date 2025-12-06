@@ -48,13 +48,12 @@ class LlavaWeightsNaming:
         """视觉编码器patch嵌入权重名"""
         return "vision_tower.vision_model.embeddings.patch_embedding.weight"
 
-    def vision_patch_embed_bias(self):
-        """视觉编码器patch嵌入偏置名"""
-        return ""  # LLaVA没有这个bias
-
     def vision_position_embedding(self):
         """视觉编码器位置嵌入权重名"""
         return "vision_tower.vision_model.embeddings.position_embedding.weight"
+
+    # def vision_class_embedding(self):
+    #     return "vision_tower.vision_model.embeddings.class_embedding.weight"
 
     def vision_class_token(self):
         """视觉编码器class token权重名"""
@@ -338,24 +337,19 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         # Patch嵌入权重
         if naming.vision_patch_embed_weight() in state_dict:
             self.vision_patch_embed_tensor = state_dict[naming.vision_patch_embed_weight()].to(torch_dt_mat)
-            print(f"[Python LlavaWeightsImpl] torch_dt_mat: {torch_dt_mat} ")  # torch.float16 
-            print(f"[Python LlavaWeightsImpl] vision_patch_embed_tensor shape: {self.vision_patch_embed_tensor.shape} ")
+            # print(f"[Python LlavaWeightsImpl] torch_dt_mat: {torch_dt_mat} ")  # torch.float16 
+            # print(f"[Python LlavaWeightsImpl] vision_patch_embed_tensor shape: {self.vision_patch_embed_tensor.shape} ")
             self.vision_patch_embed_weight = self.vision_patch_embed_tensor.data_ptr()
-            print(f"[Python LlavaWeightsImpl] first 10 vision_patch_embed_weight: {self.vision_patch_embed_tensor.flatten()[:10]} ")
+            print(f"[Python LlavaWeightsImpl] vision_patch_embed_weight pointer: {hex(self.vision_patch_embed_weight)} " )
+            # print(f"[Python LlavaWeightsImpl] first 10 vision_patch_embed_weight: {self.vision_patch_embed_tensor.flatten()[:10]} ")
             # Print pointer address in 0x... format
             try:
                 addr = int(self.vision_patch_embed_weight)
-                print(f"[Python LlavaWeightsImpl] vision_patch_embed_weight address: {hex(addr)}")
+                # print(f"[Python LlavaWeightsImpl] vision_patch_embed_weight address: {hex(addr)}")
             except Exception as e:
                 print(f"[Python LlavaWeightsImpl] failed to get vision_patch_embed_weight address: {e}")
         else:
             self.vision_patch_embed_weight = 0
-
-        if naming.vision_patch_embed_bias() in state_dict:
-            self.vision_patch_embed_bias_tensor = state_dict[naming.vision_patch_embed_bias()].to(torch_dt_norm)
-            self.vision_patch_embed_bias = self.vision_patch_embed_bias_tensor.data_ptr()
-        else:
-            self.vision_patch_embed_bias = 0
 
         # 位置嵌入和class token
         if naming.vision_position_embedding() in state_dict:
@@ -364,9 +358,16 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         else:
             self.vision_position_embedding = 0
 
+        # if naming.vision_class_embedding() in state_dict:
+        #     self.vision_class_embedding_tensor = state_dict[naming.vision_class_embedding()].to(torch_dt_mat)
+        #     self.vision_class_embedding = self.vision_class_embedding_tensor.data_ptr()
         if naming.vision_class_token() in state_dict:
             self.vision_class_token_tensor = state_dict[naming.vision_class_token()].to(torch_dt_mat)
+            print(f"[Python LlavaWeightsImpl] vision_class_token_tensor: {self.vision_class_token_tensor} ")
+            print(f"[Python LlavaWeightsImpl] vision_class_token_tensor shape: {self.vision_class_token_tensor.shape} " )
+            print(f"[Python LlavaWeightsImpl] vision_class_token_tensor dtype: {self.vision_class_token_tensor.dtype} " )
             self.vision_class_token = self.vision_class_token_tensor.data_ptr()
+            print(f"[Python LlavaWeightsImpl] vision_class_token pointer: {hex(self.vision_class_token)} ")
         else:
             self.vision_class_token = 0
 
@@ -653,7 +654,6 @@ class LLaVAForCauslLM:
         image_data = pixel_values.to(torch.float16).data_ptr()
         print(f"pixel_values shape: {pixel_values.shape}")
         print(f"image_data pointer: {hex(image_data)}")
-        print(f"pixel_values dtype: {pixel_values.dtype}")
         batch_size = pixel_values.shape[0] if len(pixel_values.shape) > 0 else 1
 
         # 准备输出缓冲区（视觉特征）
@@ -671,21 +671,23 @@ class LLaVAForCauslLM:
             image_data,
             output_buffer
         )
-        # # # # # # # # # # # # # # # # # 
-        try:
-            flat = pixel_values.detach().cpu().flatten()
-            first10 = flat[:10].tolist()
-            formatted = ", ".join(f"{float(x):.6f}" for x in first10)
-            print(f"pixel_values first 10: {formatted}")
-        except Exception:
-            # Fallback if not a tensor or other error
-            print(f"pixel_values: {pixel_values}")
-        # # # # # # # # # # # # # # # # # 
-
+        print(f"output_buffer pointer: {hex(output_buffer)}")
+        # print(f"output_buffer: {list(output_buffer)}")
+        # # # # # # # # # # # # # # # # # # 
+        # try:
+        #     flat = pixel_values.detach().cpu().flatten()
+        #     first10 = flat[:10].tolist()
+        #     formatted = ", ".join(f"{float(x):.6f}" for x in first10)
+        #     print(f"pixel_values first 10: {formatted}")
+        # except Exception:
+        #     # Fallback if not a tensor or other error
+        #     print(f"pixel_values: {pixel_values}")
+        # # # # # # # # # # # # # # # # # # 
 
         return vision_features_output
 
     def batch_infer_projector(self, vision_features, input_tokens_list):
+        print("走到这儿了")
         """阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间"""
         if vision_features is None:
             return None
@@ -807,9 +809,12 @@ class LLaVAForCauslLM:
         # === LLaVA四阶段推理流程 ===
         # 阶段1: Vision Encoder - 将图像编码为视觉特征
         output_encode = self.batch_infer_encode(pixel_values, input_ids_list)
+        print(f"Output encode shape: {output_encode.shape if output_encode is not None else 'None'}")
+        print(f"Output encode: {output_encode if output_encode is not None else 'None'}")
 
-        # # 阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间
-        # projected_features = self.batch_infer_projector(output_encode, input_ids_list)
+
+        # 阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间
+        projected_features = self.batch_infer_projector(output_encode, input_ids_list)
 
         # # 阶段3: Language Model - 处理文本tokens和投影的视觉特征
         # output_tokens = self.batch_infer_language([input_ids_list], [infer_task.kvcache()], projected_features)

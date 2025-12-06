@@ -32,8 +32,9 @@ void createLlavaDeviceResource(LlavaDeviceResource *rsrc, const LlavaMeta *meta,
 
     // 初始化Vision Encoder权重
     auto vision_patch_embed_weight = getPatchEmbedWeight(meta, weights);
-    auto vision_position_embedding = createPositionEmbedding(meta); // 从meta中获取形状
-    auto vision_class_token = createClassToken(meta); // 从meta中获取形状
+    auto vision_position_embedding = createPositionEmbedding(meta, weights); // 从meta中获取形状
+    auto vision_class_token = getClassToken(meta, weights); // 从meta中获取形状
+    // auto vision_class_embedding = getClassToken(meta);
 
     // 临时创建language model权重（将来应该从weights中加载）
     std::shared_ptr<Tensor> w_in_embd = nullptr;
@@ -114,7 +115,6 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
 // shape of input: torch.Size([1, 3, 336, 336])
 // shape of output: torch.Size([1, 1024, 24, 24])
 // Debug: print image_data pointer
-    printf("DEBUG: image_data pointer = %p\n", image_data);
 
     // === 1. 准备参数 ===
     auto vision_embed_dim = meta.vision_meta.vision_embed_dim; // 1024
@@ -136,31 +136,64 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     RUN_INFINI(infinirtMemcpyAsync(input_image_tensor->data(), image_data,
                                   image_size * image_size * 3 * sizeof(uint16_t),
                                   INFINIRT_MEMCPY_H2D, stream));
-    
-    printf("DEBUG: input_image_tensor after memcpy:\n");
-    input_image_tensor->debug_first_n(10);
+
+    // printf("DEBUG: input_image_tensor after memcpy:\n");
+    // input_image_tensor->debug_first_n(10);
 
     // === 3. CLIPVisionEmbeddings Forward ===
     // Step 1: Patch Embedding (Conv2d)
 
     printf("DEBUG: Running Conv2d: input [1,3,%ld,%ld] -> output [1,%ld,%ld,%ld]\n",
            image_size, image_size, vision_embed_dim, patches_per_dim, patches_per_dim);
-    printf("DEBUG: vision_patch_embed_weight = %p\n", rsrc.vision_patch_embed_weight.get());
-    rsrc.vision_patch_embed_weight->debug_first_n(10);
 
     // 准备卷积参数
     std::vector<size_t> pads = {0, 0};  // 无padding
     std::vector<size_t> strides = {static_cast<size_t>(patch_size), static_cast<size_t>(patch_size)};
     std::vector<size_t> dilations = {1, 1};
 
+    // patch_embeds = self.patch_embedding(pixel_values.to(dtype=target_dtype))  # Conv2d
     conv2d(patch_embed_output, input_image_tensor, rsrc.vision_patch_embed_weight,
-           nullptr, pads, strides, dilations);
-    
-    patch_embed_output->debug_first_n(10);
+           nullptr, pads, strides, dilations); // （1，1024，24，24）
+
+    // flatten 2D patch -> [batch, embed_dim, total_patches]
+    auto total_patches = patches_per_dim * patches_per_dim;
+    auto patch_embed_flat = patch_embed_output->view({1, vision_embed_dim, total_patches});
+
+    // transpose -> [batch, total_patches, embed_dim]
+    auto patch_embed_transposed = patch_embed_flat->permute({0, 2, 1});
+    // 创建 class embedding buffer
+    // class_embeds = self.class_embedding.expand(batch_size, 1, -1)
+    // assume batch=1
+
+    auto class_embed_tensor = Tensor::buffer(dt_logits, {1, 1, vision_embed_dim}, rsrc.memory_pool); 
+    // Tensor: shape[ 1 1 1024 ]
+    RUN_INFINI(infinirtMemcpyAsync(class_embed_tensor->data(),
+                                rsrc.vision_class_token->data(),
+                                sizeof(uint16_t) * vision_embed_dim,
+                                INFINIRT_MEMCPY_D2D, stream));
 
 
+    // embeddings = torch.cat([class_embeds, patch_embeds], dim=1)
+    auto embeddings = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    // [ 1 577 1024 ]
+
+    // 1) 把 class token 放到 embeddings[:, 0:1, :]
+    rearrange(embeddings->slice(1, 0, 1), class_embed_tensor); // 注意：slice(dim=1, start=0, length=1)
+
+    // 2) 把所有 patch token 放到 embeddings[:, 1:1+T, :]
+    rearrange(embeddings->slice(1, 1, total_patches), patch_embed_transposed); // 注意：slice(dim=1, start=1, length=total_patches)
+
+    printf("DEBUG: embeddings after concat:\n");
+    embeddings->debug_first_n(10);
+    rsrc.vision_position_embedding->debug_first_n(10);
+
+    // 3) 加 position embedding （pos tensor 必须是 [1, 1+T, C]）
+    add(embeddings, embeddings, rsrc.vision_position_embedding);
 
 }
+
+
+
 
 // LLaVA设备工作线程函数，严格按照jiuge.cpp的launchDevice结构
 void launchLlavaDevice(const LlavaMeta &meta, const LlavaWeights *weights,

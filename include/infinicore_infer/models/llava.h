@@ -45,7 +45,8 @@ typedef struct {
 typedef struct {
     // Vision Encoder Weights
     const void *vision_patch_embed_weight;  // [num_patches, vision_embed_dim]
-    const void *vision_patch_embed_bias;    // [vision_embed_dim]
+    const void *vision_class_token;    // [vision_embed_dim]
+    const void *vision_position_embedding;  // [num_patches + 1, vision_embed_dim]
     const void *const *vision_encoder_weights;  // vision_layers * [various vision weights]
 
     // MultiModal Projector Weights
