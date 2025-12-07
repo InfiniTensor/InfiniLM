@@ -61,7 +61,7 @@ def get_args():
     parser.add_argument(
         "--dtype",
         type=str,
-        default="float32",
+        default="bfloat16",
         help="float32, float16, bfloat16",
     )
     parser.add_argument(
@@ -79,7 +79,7 @@ def get_args():
     parser.add_argument(
         "--tp",
         type=int,
-        default=None,
+        default=1,
         help="total rank for tensor parallel",
     )
 
@@ -93,6 +93,7 @@ def test(
     infini_dtype=infinicore.bfloat16,
     infini_device=infinicore.device("cpu", 0),
     backend="python",
+    tp=1,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -103,7 +104,7 @@ def test(
         device=infini_device,
         dtype=infini_dtype,
         backend=backend,
-        distributed_config=DistConfig(args.tp),
+        distributed_config=DistConfig(tp),
     )
 
     # ---------------------------------------------------------------------------- #
@@ -168,6 +169,8 @@ def test(
 
     t1 = time.time()
     print("=================== start generate ====================")
+    time.sleep(100)
+
     model.generate(
         input_ids_infini,
         max_new_tokens=max_new_tokens,
@@ -182,6 +185,32 @@ def test(
 
 
 if __name__ == "__main__":
+    if True:
+        prompt = "山东最高的山是？"
+
+        model_path = "/data/huggingface/TinyLlama-1.1B-Chat-v1.0/"
+        # model_path = "/home/wangpengcheng/Llama-2-TinyLlama-1.1B-Chat-v1.0-small"
+
+        # model_path = "/home/wangpengcheng/Llama-2-TinyLlama-1.1B-Chat-v1.0-mlp"
+
+        # model_path = "/home/wangpengcheng/Llama-2-TinyLlama-1.1B-Chat-v1.0-attention"
+
+        device = infinicore.device("cuda", 0)
+        dtype = infinicore.bfloat16
+        max_new_tokens = 10
+        backend = "cpp"
+        tp = 2
+        test(
+            prompt,
+            model_path,
+            max_new_tokens=max_new_tokens,
+            infini_device=device,
+            infini_dtype=dtype,
+            backend=backend,
+            tp=tp,
+        )
+        exit(-1)
+
     args = get_args()
     print(args)
 

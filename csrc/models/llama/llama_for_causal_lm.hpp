@@ -8,6 +8,8 @@
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 
+#include "../../engine/distributed/distributed.hpp"
+
 namespace infinilm::models::llama {
 
 /**
@@ -27,8 +29,10 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to BF16)
      */
-    LlamaForCausalLM(const LlamaConfig &config, const infinicore::Device &device,
-                     infinicore::DataType dtype = infinicore::DataType::BF16);
+    LlamaForCausalLM(const LlamaConfig &config,
+                     const infinicore::Device &device,
+                     infinicore::DataType dtype = infinicore::DataType::BF16,
+                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: compute language modeling logits

@@ -6,8 +6,10 @@
 
 namespace infinilm::models::llama {
 
-LlamaModel::LlamaModel(const LlamaConfig &config, const infinicore::Device &device,
-                       infinicore::DataType dtype)
+LlamaModel::LlamaModel(const LlamaConfig &config,
+                       const infinicore::Device &device,
+                       infinicore::DataType dtype,
+                       engine::distributed::RankInfo rank_info)
     : config_(config) {
     // Initialize token embeddings
     INFINICORE_NN_MODULE_INIT(embed_tokens, config.vocab_size, config.hidden_size,
@@ -15,7 +17,7 @@ LlamaModel::LlamaModel(const LlamaConfig &config, const infinicore::Device &devi
 
     // Initialize decoder layers
     INFINICORE_NN_MODULE_VEC_INIT(layers, config.num_hidden_layers, LlamaDecoderLayer,
-                                   config, device, dtype);
+                                  config, device, dtype, rank_info);
 
     // Initialize final layer normalization
     INFINICORE_NN_MODULE_INIT(norm, config.hidden_size, config.rms_norm_eps,

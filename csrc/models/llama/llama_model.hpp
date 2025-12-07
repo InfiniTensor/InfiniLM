@@ -1,14 +1,16 @@
 #pragma once
 
-#include "llama_config.hpp"
-#include "llama_decoder_layer.hpp"
-#include "infinicore/nn/module.hpp"
+#include "infinicore/device.hpp"
 #include "infinicore/nn/embedding.hpp"
+#include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
-#include "infinicore/device.hpp"
+#include "llama_config.hpp"
+#include "llama_decoder_layer.hpp"
 #include <vector>
+
+#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::llama {
 
@@ -32,8 +34,10 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaModel(const LlamaConfig &config, const infinicore::Device &device,
-               infinicore::DataType dtype = infinicore::DataType::F32);
+    LlamaModel(const LlamaConfig &config,
+               const infinicore::Device &device,
+               infinicore::DataType dtype = infinicore::DataType::F32,
+               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: process input through the model
@@ -47,9 +51,8 @@ public:
      * will be added when integrating with the inference engine.
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
-                                const infinicore::Tensor &position_ids,
-                                std::vector<void *> *kv_caches = nullptr) const;
-
+                               const infinicore::Tensor &position_ids,
+                               std::vector<void *> *kv_caches = nullptr) const;
 
     // Module information
     const LlamaConfig &config() const { return config_; }

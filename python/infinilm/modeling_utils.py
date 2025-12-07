@@ -82,13 +82,13 @@ def get_model_state_dict(
     for file_path in glob.glob(os.path.join(model_path, "*.safetensors")):
         model_param.update(load_state_dict(file_path))
 
-    if model_param.get("lm_head.weight", None) is None:
-        model_param["lm_head.weight"] = model_param["model.embed_tokens.weight"]
+    # if model_param.get("lm_head.weight", None) is None:
+    #     model_param["lm_head.weight"] = model_param["model.embed_tokens.weight"]
 
     # --------------------------------------------------------- #
     #          调整权重的device和dtype
     # --------------------------------------------------------- #
-    torch_device = device.type
+    torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
 
     model_param_infini = {}

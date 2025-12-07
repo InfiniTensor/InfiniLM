@@ -1,15 +1,17 @@
 #pragma once
 
-#include "llama_config.hpp"
 #include "cache/kv_cache.hpp"
-#include "infinicore/nn/module.hpp"
+#include "infinicore/device.hpp"
 #include "infinicore/nn/linear.hpp"
+#include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
-#include "infinicore/device.hpp"
+#include "llama_config.hpp"
 #include <algorithm>
-#include <utility>
 #include <memory>
+#include <utility>
+
+#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::llama {
 
@@ -31,8 +33,10 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaAttention(const LlamaConfig &config, const infinicore::Device &device,
-                  infinicore::DataType dtype = infinicore::DataType::F32);
+    LlamaAttention(const LlamaConfig &config,
+                   const infinicore::Device &device,
+                   infinicore::DataType dtype = infinicore::DataType::F32,
+                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: compute attention
@@ -43,8 +47,8 @@ public:
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                                const infinicore::Tensor &position_ids,
-                                void *kv_cache = nullptr) const;
+                               const infinicore::Tensor &position_ids,
+                               void *kv_cache = nullptr) const;
 
     /**
      * @brief Provide shared RoPE module from parent model.
@@ -59,10 +63,16 @@ public:
 
 protected:
     // Projection layers
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, q_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, k_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, v_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, o_proj);
+    // INFINICORE_NN_MODULE(infinicore::nn::Linear, q_proj);
+    // INFINICORE_NN_MODULE(infinicore::nn::Linear, k_proj);
+    // INFINICORE_NN_MODULE(infinicore::nn::Linear, v_proj);
+    // INFINICORE_NN_MODULE(infinicore::nn::Linear, o_proj);
+
+    // Projection layers
+    INFINICORE_NN_MODULE(infinicore::nn::ColumnParallelLinear, q_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::ColumnParallelLinear, k_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::ColumnParallelLinear, v_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
 
     // Shared Rotary Position Embeddings (RoPE)
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
@@ -77,6 +87,8 @@ private:
 
     // Internal KV cache for when no external cache is provided
     mutable infinilm::cache::KVCache internal_cache_;
+
+    engine::distributed::RankInfo rank_info_;
 };
 
 } // namespace infinilm::models::llama

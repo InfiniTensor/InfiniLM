@@ -1,12 +1,14 @@
 #pragma once
 
-#include "llama_config.hpp"
-#include "llama_attention.hpp"
-#include "llama_mlp.hpp"
+#include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
-#include "infinicore/device.hpp"
+#include "llama_attention.hpp"
+#include "llama_config.hpp"
+#include "llama_mlp.hpp"
+
+#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::llama {
 
@@ -30,8 +32,10 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaDecoderLayer(const LlamaConfig &config, const infinicore::Device &device,
-                     infinicore::DataType dtype = infinicore::DataType::F32);
+    LlamaDecoderLayer(const LlamaConfig &config,
+                      const infinicore::Device &device,
+                      infinicore::DataType dtype = infinicore::DataType::F32,
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: process one decoder layer
@@ -42,15 +46,14 @@ public:
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                                const infinicore::Tensor &position_ids,
-                                void *kv_cache = nullptr) const;
+                               const infinicore::Tensor &position_ids,
+                               void *kv_cache = nullptr) const;
 
     void set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) {
         if (self_attn_) {
             self_attn_->set_rotary_emb(rotary_emb);
         }
     }
-
 
 protected:
     // Layer normalization
@@ -60,6 +63,8 @@ protected:
     // Attention and MLP
     INFINICORE_NN_MODULE(LlamaAttention, self_attn);
     INFINICORE_NN_MODULE(LlamaMLP, mlp);
+
+    engine::distributed::RankInfo rank_info_;
 };
 
 } // namespace infinilm::models::llama

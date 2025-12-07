@@ -12,31 +12,44 @@
 
 namespace infinilm::models::llama {
 
-LlamaAttention::LlamaAttention(const LlamaConfig &config, const infinicore::Device &device,
-                               infinicore::DataType dtype)
+LlamaAttention::LlamaAttention(const LlamaConfig &config,
+                               const infinicore::Device &device,
+                               infinicore::DataType dtype,
+                               engine::distributed::RankInfo rank_info)
     : hidden_size_(config.hidden_size),
       num_attention_heads_(config.num_attention_heads),
       num_key_value_heads_(config.num_key_value_heads),
       head_dim_(config.head_dim),
       kv_dim_(config.kv_dim()),
-      use_bias_(config.attention_bias) {
+      use_bias_(config.attention_bias), rank_info_(rank_info) {
+
+    int tp_rank = rank_info.tp_rank;
+    int tp_size = rank_info.tp_size;
+
     // Initialize projection layers
+    // INFINICORE_NN_MODULE_INIT(q_proj, hidden_size_, hidden_size_, use_bias_,
+    //                           dtype, device);
+    // INFINICORE_NN_MODULE_INIT(k_proj, hidden_size_, kv_dim_, use_bias_,
+    //                           dtype, device);
+    // INFINICORE_NN_MODULE_INIT(v_proj, hidden_size_, kv_dim_, use_bias_,
+    //                           dtype, device);
+    // INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_bias_,
+    //                           dtype, device);
+
     INFINICORE_NN_MODULE_INIT(q_proj, hidden_size_, hidden_size_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size);
     INFINICORE_NN_MODULE_INIT(k_proj, hidden_size_, kv_dim_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size);
     INFINICORE_NN_MODULE_INIT(v_proj, hidden_size_, kv_dim_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size);
     INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size, rank_info.comm);
 }
 
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
                                            const infinicore::Tensor &position_ids,
                                            void *kv_cache) const {
-    if (!rotary_emb_) {
-        throw std::runtime_error("LlamaAttention: rotary_emb not configured");
-    }
+
     // Input shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();
@@ -98,6 +111,10 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
     // 5. Apply RoPE to full batch
     auto q_rope = q_reshaped->view({batch_size * num_attention_heads_, seq_len, head_dim_})->permute({1, 0, 2});                                               // [seq_len, bs * n_q_head, head_dim]
     auto k_rope = k_total->narrow({{2, total_seq_len - seq_len, seq_len}})->view({batch_size * num_key_value_heads_, seq_len, head_dim_})->permute({1, 0, 2}); // [seq_len, bs * n_kv_head, head_dim]
+
+    if (!rotary_emb_) {
+        throw std::runtime_error("LlamaAttention: rotary_emb not configured");
+    }
     rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
     rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
 

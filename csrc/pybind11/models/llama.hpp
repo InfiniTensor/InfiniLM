@@ -158,19 +158,19 @@ inline void bind_llama(py::module &m) {
 
     // Bind LlamaForCausalLM
     py::class_<LlamaForCausalLM, std::shared_ptr<LlamaForCausalLM>>(m, "LlamaForCausalLM")
-        .def(py::init([](const LlamaConfig &config, const Device &device, py::object dtype_obj) {
-                 infinicore::DataType dtype = infinicore::DataType::F32;
-                 if (!dtype_obj.is_none()) {
-                     // Extract dtype from Python object
-                     if (py::hasattr(dtype_obj, "_underlying")) {
-                         dtype = dtype_obj.attr("_underlying").cast<infinicore::DataType>();
-                     } else {
-                         dtype = dtype_obj.cast<infinicore::DataType>();
-                     }
-                 }
-                 return std::make_shared<LlamaForCausalLM>(config, device, dtype);
-             }),
-             py::arg("config"), py::arg("device"), py::arg("dtype") = py::none())
+        // .def(py::init([](const LlamaConfig &config, const Device &device, py::object dtype_obj) {
+        //          infinicore::DataType dtype = infinicore::DataType::F32;
+        //          if (!dtype_obj.is_none()) {
+        //              // Extract dtype from Python object
+        //              if (py::hasattr(dtype_obj, "_underlying")) {
+        //                  dtype = dtype_obj.attr("_underlying").cast<infinicore::DataType>();
+        //              } else {
+        //                  dtype = dtype_obj.cast<infinicore::DataType>();
+        //              }
+        //          }
+        //          return std::make_shared<LlamaForCausalLM>(config, device, dtype);
+        //      }),
+        //      py::arg("config"), py::arg("device"), py::arg("dtype") = py::none())
         .def("state_dict", [](const LlamaForCausalLM &model) {
             // Convert state_dict to Python dict with shape information
             auto state_dict = model.state_dict();
@@ -184,8 +184,7 @@ inline void bind_llama(py::module &m) {
             }
             return result;
         })
-        .def(
-            "get_parameter", [](const LlamaForCausalLM &model, const std::string &name) {
+        .def("get_parameter", [](const LlamaForCausalLM &model, const std::string &name) {
                 // Get actual tensor parameter by name
                 auto state_dict = model.state_dict();
                 auto it = state_dict.find(name);
@@ -194,11 +193,8 @@ inline void bind_llama(py::module &m) {
                     const infinicore::Tensor &tensor = it->second;
                     return tensor;
                 }
-                throw std::runtime_error("Parameter '" + name + "' not found in model");
-            },
-            py::arg("name"))
-        .def(
-            "load_state_dict", [convert_to_tensor](LlamaForCausalLM &model, py::dict state_dict, const Device &device) {
+                throw std::runtime_error("Parameter '" + name + "' not found in model"); }, py::arg("name"))
+        .def("load_state_dict", [convert_to_tensor](LlamaForCausalLM &model, py::dict state_dict, const Device &device) {
                 // Convert Python dict to C++ state_dict
                 std::unordered_map<std::string, infinicore::Tensor> cpp_state_dict;
                 for (auto item : state_dict) {
@@ -206,12 +202,9 @@ inline void bind_llama(py::module &m) {
                     py::object value = item.second.cast<py::object>();
                     cpp_state_dict.emplace(key, convert_to_tensor(value, device));
                 }
-                model.load_state_dict(cpp_state_dict);
-            },
-            py::arg("state_dict"), py::arg("device"))
-        .def("config", &LlamaForCausalLM::config, py::return_value_policy::reference_internal)
-        .def(
-            "forward", [convert_to_tensor](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_caches = py::none()) {
+                model.load_state_dict(cpp_state_dict); }, py::arg("state_dict"), py::arg("device"))
+        //   .def("config", &LlamaForCausalLM::config, py::return_value_policy::reference_internal)
+        .def("forward", [convert_to_tensor](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_caches = py::none()) {
                 // Helper to extract C++ tensor from Python object
                 auto get_tensor = [convert_to_tensor](py::object obj) -> infinicore::Tensor {
                     // If it's already a Python InfiniCore tensor wrapper, extract underlying
@@ -247,9 +240,7 @@ inline void bind_llama(py::module &m) {
                 // Handle kv_caches if provided
                 std::vector<void *> *kv_caches_ptr = nullptr;
 
-                return model.forward(infini_input_ids, infini_position_ids, kv_caches_ptr);
-            },
-            py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
+                return model.forward(infini_input_ids, infini_position_ids, kv_caches_ptr); }, py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
 }
 
 } // namespace infinilm::models::llama
