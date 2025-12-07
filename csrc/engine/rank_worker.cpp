@@ -75,6 +75,13 @@ void RankWorker::load_param(const std::string &name,
 }
 
 //------------------------------------------------------
+// state_dict --
+//------------------------------------------------------
+std::unordered_map<std::string, infinicore::nn::Parameter> RankWorker::state_dict() {
+    return this->model_->state_dict();
+}
+
+//------------------------------------------------------
 // run -- asynchronous
 //------------------------------------------------------
 void RankWorker::run(const std::vector<std::any> &args) {
