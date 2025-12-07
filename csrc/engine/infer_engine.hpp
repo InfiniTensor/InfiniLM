@@ -19,9 +19,12 @@ public:
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);
 
+    // return the parameters (i.e. weights and biases).
+    std::unordered_map<std::string, infinicore::nn::Parameter> state_dict();
+
     // Run a single forward pass on all workers and return the outputs from all ranks
     infinicore::Tensor generate(const infinicore::Tensor &input_ids,
-                               const infinicore::Tensor &position_ids);
+                                const infinicore::Tensor &position_ids);
 
     ~InferEngine();
 

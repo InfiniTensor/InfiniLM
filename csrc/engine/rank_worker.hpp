@@ -28,6 +28,9 @@ public:
     void load_param(const std::string &name,
                     const infinicore::Tensor &param);
 
+    // return the parameters (i.e. weights and biases).
+    std::unordered_map<std::string, infinicore::nn::Parameter> state_dict();
+
     // Submit a run (forward) job.
     void run(const std::vector<std::any> &args);
 

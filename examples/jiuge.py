@@ -1,8 +1,9 @@
 import infinicore
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
-from infinilm.modeling_utils import get_model_state_dict
+from infinilm.modeling_utils import load_model_state_dict_by_file
 import infinilm
+from infinilm.distributed import DistConfig
 import argparse
 import sys
 import time
@@ -60,7 +61,7 @@ def get_args():
     parser.add_argument(
         "--dtype",
         type=str,
-        default="float32",
+        default="bfloat16",
         help="float32, float16, bfloat16",
     )
     parser.add_argument(
@@ -74,6 +75,12 @@ def get_args():
         type=str,
         default="How are you",
         help="input prompt",
+    )
+    parser.add_argument(
+        "--tp",
+        type=int,
+        default=None,
+        help="total rank for tensor parallel",
     )
 
     return parser.parse_args()
@@ -96,24 +103,19 @@ def test(
         device=infini_device,
         dtype=infini_dtype,
         backend=backend,
+        distributed_config=DistConfig(args.tp),
     )
 
     # ---------------------------------------------------------------------------- #
     #                        加载权重
     # ---------------------------------------------------------------------------- #
-    model_param_infini = get_model_state_dict(
-        model_path,
-        device=infini_device,
-        dtype=infini_dtype,
-    )
-
-    model.load_state_dict(model_param_infini, strict=True)
+    load_model_state_dict_by_file(model, model_path, dtype=infini_dtype)
 
     # ---------------------------------------------------------------------------- #
     #                        创建 tokenizer
     # ---------------------------------------------------------------------------- #
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
+  
     if "llama" == model.config.model_type:
         backend = getattr(tokenizer, "backend_tokenizer", None)
         target = getattr(backend, "_tokenizer", backend)
@@ -131,8 +133,7 @@ def test(
                     _dec.Fuse(),
                 ]
             )
-    else:
-        raise ValueError(f"Unsupported model type: {model.config.model_type}")
+
 
     # ---------------------------------------------------------------------------- #
     #                        token编码

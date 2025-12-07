@@ -42,11 +42,16 @@ inline void bind_infer_engine(py::module &m) {
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")
-        .def(
-            "generate", [](InferEngine &self, py::object input_ids, py::object position_ids) -> infinicore::Tensor {
-                return self.generate(input_ids.cast<infinicore::Tensor>(), position_ids.cast<infinicore::Tensor>());
-            },
-            "Run inference on all ranks with arbitrary arguments");
+        .def("state_dict", [](InferEngine &self) {
+            // Return a dictionary containing references to the whole state of the module.
+            auto state_dict = self.state_dict();
+            py::dict result;
+            for (const auto &[name, param] : state_dict) {
+                result[py::cast(name)] = infinicore::Tensor(param);
+            }
+            return result;
+        })
+        .def("generate", [](InferEngine &self, py::object input_ids, py::object position_ids) -> infinicore::Tensor { return self.generate(input_ids.cast<infinicore::Tensor>(), position_ids.cast<infinicore::Tensor>()); }, "Run inference on all ranks with arbitrary arguments");
 
     // Optionally, you can add __repr__ for debugging
     m.attr("InferEngine").attr("__repr__") = py::cpp_function([](const InferEngine &self) {
