@@ -1,7 +1,6 @@
 #include "llama_for_causal_lm.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
-#include "infinicore/ops/random_sample.hpp"
 #include "infinicore/context/context.hpp"
 #include <iostream>
 
