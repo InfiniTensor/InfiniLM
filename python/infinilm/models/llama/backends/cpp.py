@@ -34,14 +34,6 @@ class LlamaConfig:
         # Lazy initialization of C++ config
         self._cpp_config = None
 
-        # Detect if this is a jiuge model
-        self._is_jiuge_model = self._detect_jiuge_model()
-
-    def _detect_jiuge_model(self):
-        """Detect if this is a jiuge-specific model type"""
-        model_type = getattr(self._python_config, "model_type", "")
-        return model_type in ["fm9g7b", "fm9g", "minicpm"]
-
     def __getattr__(self, name):
         """Delegate attribute access to Python config"""
         return getattr(self._python_config, name)
@@ -55,9 +47,6 @@ class LlamaConfig:
                 setattr(self._python_config, name, value)
                 # Invalidate C++ config cache when Python config changes
                 self._cpp_config = None
-                # Re-detect model type if model_type changes
-                if name == "model_type":
-                    self._is_jiuge_model = self._detect_jiuge_model()
             else:
                 super().__setattr__(name, value)
 
@@ -116,27 +105,6 @@ class LlamaConfig:
             if hasattr(self._python_config, "vocab_size"):
                 self._cpp_config.vocab_size = self._python_config.vocab_size
 
-            # Handle attention_bias and attention_output_bias based on model type
-            if self._is_jiuge_model:
-                # For jiuge models: q/k/v have bias, but o_proj does NOT have bias
-                # Align with Python backend which hardcodes attention_bias=True
-                # and o_proj bias=False
-                self._cpp_config.attention_bias = True  # Always True for jiuge models
-                self._cpp_config.attention_output_bias = False  # Always False for jiuge models
-            else:
-                # For regular Llama models: use config values or defaults
-                # Handle attention_bias: if not in Python config, use C++ default (true)
-                # This supports models that don't have attention_bias in config
-                if not hasattr(self._python_config, "attention_bias"):
-                    # Keep C++ default (true) - no need to set explicitly
-                    pass
-                # If attention_bias is in Python config, it was already copied above
-
-                # Default attention_output_bias to attention_bias if not explicitly set
-                # (for backward compatibility with models that don't have this field)
-                if not hasattr(self._python_config, "attention_output_bias"):
-                    self._cpp_config.attention_output_bias = self._cpp_config.attention_bias
-
             # Validate config after setting all values (especially important for jiuge models)
             if not self._cpp_config.validate():
                 raise ValueError("C++ LlamaConfig validation failed. Check config values.")
@@ -144,9 +112,8 @@ class LlamaConfig:
             # Log key config values for debugging (especially useful for jiuge models)
             import logging
             logger = logging.getLogger(__name__)
-            model_type_str = "jiuge" if self._is_jiuge_model else "llama"
             logger.info(
-                f"LlamaConfig ({model_type_str}) C++ LlamaConfig created: vocab_size={self._cpp_config.vocab_size}, "
+                f"LlamaConfig ({self._python_config.model_type}) C++ LlamaConfig created: vocab_size={self._cpp_config.vocab_size}, "
                 f"hidden_size={self._cpp_config.hidden_size}, "
                 f"num_attention_heads={self._cpp_config.num_attention_heads}, "
                 f"num_key_value_heads={self._cpp_config.num_key_value_heads}, "
