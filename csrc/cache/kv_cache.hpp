@@ -15,21 +15,6 @@
 
 namespace infinilm::cache {
 
-/**
- * @brief Helper function to format tensor shape as string for logging
- */
-inline std::string shape_to_string(const std::vector<size_t>& shape) {
-    if (shape.empty()) {
-        return "[]";
-    }
-    std::string result = "[";
-    for (size_t i = 0; i < shape.size(); ++i) {
-        if (i > 0) result += ", ";
-        result += std::to_string(shape[i]);
-    }
-    result += "]";
-    return result;
-}
 
 /**
  * @brief Single layer's KV cache for incremental decoding
@@ -84,7 +69,7 @@ struct KVCacheLayer {
             if (k_cache->shape()[0] != batch_size || k_cache->shape()[1] != num_kv_heads ||
                 k_cache->shape()[2] != max_capacity || k_cache->shape()[3] != head_dim) {
                 SPDLOG_ERROR("KVCacheLayer::ensure_capacity: Cache shape mismatch after initialization - expected: [{}, {}, {}, {}], got: {}",
-                            batch_size, num_kv_heads, max_capacity, head_dim, shape_to_string(k_cache->shape()));
+                            batch_size, num_kv_heads, max_capacity, head_dim, k_cache->info());
                 throw std::runtime_error("KV cache initialization: shape mismatch");
             }
         }
