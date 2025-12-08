@@ -284,7 +284,6 @@ public:
             // Note: We don't reset initialized flag or clear the cache tensors
             // to avoid reallocation. The cache will be overwritten on next update.
         }
-        SPDLOG_INFO("DynamicCache::reset: All layers reset to position {}", pos);
     }
 
     /**

@@ -44,6 +44,9 @@ public:
 
     infinicore::Tensor forward(std::vector<std::any> args) const override;
 
+    // Reset internal cache position
+    void reset_cache(size_t pos = 0) override;
+
     // Module information
     const LlamaConfig &config() const { return model_->config(); }
     LlamaModel &model() { return *model_; }

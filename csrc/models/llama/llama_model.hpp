@@ -54,13 +54,6 @@ public:
     const LlamaConfig &config() const { return config_; }
     size_t num_layers() const { return config_.num_hidden_layers; }
 
-    /**
-     * @brief Get the internal cache as an opaque pointer
-     * @return Opaque pointer to the cache, or nullptr if cache hasn't been created yet
-     */
-    void *cache() const {
-        return cache_ ? cache_.get() : nullptr;
-    }
 
     /**
      * @brief Reset the internal cache to a specific position

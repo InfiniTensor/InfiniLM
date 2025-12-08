@@ -1,7 +1,6 @@
 #include "rank_worker.hpp"
 
 #include "../models/model_factory.hpp"
-#include "../models/llama/llama_for_causal_lm.hpp"
 
 #include <iostream>
 #include <spdlog/spdlog.h>
@@ -260,12 +259,8 @@ void RankWorker::thread_loop() {
                 }
             } else if (local_cmd == Command::RESET_CACHE) {
                 try {
-                    // Cast model to LlamaForCausalLM to access reset_cache
-                    // Since we know it's LlamaForCausalLM for llama models, we can cast
-                    auto* llama_model = dynamic_cast<models::llama::LlamaForCausalLM*>(model_.get());
-                    if (llama_model) {
-                        llama_model->model().reset_cache(local_reset_pos);
-                    }
+                    // Generic reset_cache on the model interface
+                    model_->reset_cache(local_reset_pos);
 
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

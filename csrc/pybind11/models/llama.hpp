@@ -183,11 +183,6 @@ inline void bind_llama(py::module &m) {
                 model.load_state_dict(cpp_state_dict); }, py::arg("state_dict"))
         .def("config", &LlamaForCausalLM::config, py::return_value_policy::reference_internal)
         .def(
-            "cache", [](const LlamaForCausalLM &model) {
-            // Get the cache from the underlying model as an opaque pointer
-            return model.model().cache();
-        }, "Get the internal cache as an opaque pointer")
-        .def(
             "reset_cache", [](const LlamaForCausalLM &model, size_t pos = 0) {
             // Reset the internal cache to prevent state from persisting between generations
             model.model().reset_cache(pos);

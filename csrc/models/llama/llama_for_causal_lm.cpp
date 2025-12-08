@@ -60,4 +60,8 @@ infinicore::Tensor LlamaForCausalLM::forward(std::vector<std::any> args) const {
     return forward(input_ids, position_ids, kv_caches);
 }
 
+void LlamaForCausalLM::reset_cache(size_t pos) {
+    model_->reset_cache(pos);
+}
+
 } // namespace infinilm::models::llama
