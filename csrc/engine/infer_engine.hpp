@@ -27,7 +27,9 @@ public:
                                 const infinicore::Tensor &position_ids);
 
     // Reset the internal cache in all workers (clears state between generations)
-    void reset_cache(bool full_reset = true);
+    // By default, this is synchronous (blocks until reset completes).
+    // If async=true, this becomes asynchronous (unstable - use with caution).
+    void reset_cache(size_t pos = 0, bool async = false);
 
     ~InferEngine();
 

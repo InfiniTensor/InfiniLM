@@ -113,28 +113,31 @@ void RankWorker::wait() {
 }
 
 //------------------------------------------------------
-// reset_cache -- synchronous (blocks until worker finishes reset)
+// reset_cache -- synchronous by default, async optional (unstable)
 //------------------------------------------------------
-void RankWorker::reset_cache(bool full_reset) {
+void RankWorker::reset_cache(size_t pos, bool async) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (should_exit_) {
             throw std::runtime_error("RankWorker is closing; cannot reset_cache");
         }
 
-        pending_full_reset_ = full_reset;
+        pending_reset_pos_ = pos;
         job_cmd_ = Command::RESET_CACHE;
         has_job_ = true;
         job_done_ = false;
     }
     cv_.notify_all();
 
-    // Wait for job completion
-    std::unique_lock<std::mutex> lk(mutex_);
-    cv_.wait(lk, [&] { return job_done_ || should_exit_; });
+    // By default, wait for job completion (synchronous)
+    // If async=true, return immediately (unstable - use with caution)
+    if (!async) {
+        std::unique_lock<std::mutex> lk(mutex_);
+        cv_.wait(lk, [&] { return job_done_ || should_exit_; });
 
-    if (should_exit_) {
-        throw std::runtime_error("RankWorker stopped while resetting cache");
+        if (should_exit_) {
+            throw std::runtime_error("RankWorker stopped while resetting cache");
+        }
     }
 }
 
@@ -187,7 +190,7 @@ void RankWorker::thread_loop() {
             std::string local_param_name;
             infinicore::Tensor local_param;
             std::vector<std::any> local_args;
-            bool local_full_reset = true;
+            size_t local_reset_pos = 0;
 
             // Wait for a job or exit
             {
@@ -206,7 +209,7 @@ void RankWorker::thread_loop() {
                 } else if (local_cmd == Command::RUN) {
                     local_args = pending_args_;
                 } else if (local_cmd == Command::RESET_CACHE) {
-                    local_full_reset = pending_full_reset_;
+                    local_reset_pos = pending_reset_pos_;
                 }
 
                 // mark job as being processed
@@ -261,7 +264,7 @@ void RankWorker::thread_loop() {
                     // Since we know it's LlamaForCausalLM for llama models, we can cast
                     auto* llama_model = dynamic_cast<models::llama::LlamaForCausalLM*>(model_.get());
                     if (llama_model) {
-                        llama_model->model().reset_cache(local_full_reset);
+                        llama_model->model().reset_cache(local_reset_pos);
                     }
 
                     {

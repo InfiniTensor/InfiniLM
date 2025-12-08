@@ -63,12 +63,12 @@ public:
     }
 
     /**
-     * @brief Reset the internal cache (clears cache positions and optionally zeros tensors)
+     * @brief Reset the internal cache to a specific position
      * This should be called when starting a new generation sequence to prevent state
      * from persisting between different questions/prompts
-     * @param full_reset If true, also zero out cache tensors (more thorough but slower)
+     * @param pos Position to reset to (defaults to 0)
      */
-    void reset_cache(bool full_reset = true) const;
+    void reset_cache(size_t pos = 0) const;
 
 protected:
     // Token embeddings

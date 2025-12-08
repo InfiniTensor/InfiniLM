@@ -53,8 +53,9 @@ inline void bind_infer_engine(py::module &m) {
         })
         .def("generate", [](InferEngine &self, py::object input_ids, py::object position_ids) -> infinicore::Tensor { return self.generate(input_ids.cast<infinicore::Tensor>(), position_ids.cast<infinicore::Tensor>()); }, "Run inference on all ranks with arbitrary arguments")
         .def("reset_cache", &InferEngine::reset_cache,
-             py::arg("full_reset") = true,
-             "Reset the internal cache in all workers (clears state between generations)");
+             py::arg("pos") = 0, py::arg("async") = false,
+             "Reset the internal cache in all workers to a specific position (clears state between generations). "
+             "By default, this is synchronous. If async=True, this becomes asynchronous (unstable - use with caution).");
 
     // Optionally, you can add __repr__ for debugging
     m.attr("InferEngine").attr("__repr__") = py::cpp_function([](const InferEngine &self) {

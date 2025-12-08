@@ -75,10 +75,10 @@ const distributed::DistConfig &InferEngine::get_dist_config() const {
 //------------------------------------------------------
 // reset_cache
 //------------------------------------------------------
-void InferEngine::reset_cache(bool full_reset) {
+void InferEngine::reset_cache(size_t pos, bool async) {
     // Reset cache on all workers
     for (auto &worker : workers_) {
-        worker->reset_cache(full_reset);
+        worker->reset_cache(pos, async);
     }
 }
 

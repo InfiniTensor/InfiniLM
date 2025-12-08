@@ -36,7 +36,9 @@ public:
     void run(const std::vector<std::any> &args);
 
     // Reset the internal cache in the model (clears state between generations)
-    void reset_cache(bool full_reset = true);
+    // By default, this is synchronous (blocks until reset completes).
+    // If async=true, this becomes asynchronous (unstable - use with caution).
+    void reset_cache(size_t pos = 0, bool async = false);
 
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
@@ -71,7 +73,7 @@ private:
     std::string pending_param_name_;
     infinicore::Tensor pending_param_;
     std::vector<std::any> pending_args_;
-    bool pending_full_reset_ = true;
+    size_t pending_reset_pos_ = 0;
 
     // Output (protected by mutex)
     infinicore::Tensor output_;

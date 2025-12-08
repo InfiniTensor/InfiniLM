@@ -274,30 +274,17 @@ public:
     size_t max_position_embeddings() const { return max_position_embeddings_; }
 
     /**
-     * @brief Reset cache for all layers (clear cache positions)
-     * This should be called when starting a new generation sequence
+     * @brief Reset cache for all layers to a specific position
+     * This should be called when starting a new generation sequence or resetting to a specific position
+     * @param pos Position to reset to (defaults to 0)
      */
-    void reset() {
+    void reset(size_t pos = 0) {
         for (auto& layer : layers_) {
-            std::fill(layer.cache_positions.begin(), layer.cache_positions.end(), 0);
+            std::fill(layer.cache_positions.begin(), layer.cache_positions.end(), pos);
             // Note: We don't reset initialized flag or clear the cache tensors
             // to avoid reallocation. The cache will be overwritten on next update.
         }
-        SPDLOG_INFO("DynamicCache::reset: All layers reset to position 0");
-    }
-
-    /**
-     * @brief Full reset: clear cache positions
-     * This ensures no stale data persists between different generation sequences
-     * The cache tensors will be overwritten on next update, so we only need to reset positions
-     * Use this when you need to guarantee a completely clean cache state
-     */
-    void full_reset() {
-        for (auto& layer : layers_) {
-            std::fill(layer.cache_positions.begin(), layer.cache_positions.end(), 0);
-            // Note: We don't zero out tensors as they will be overwritten on next update
-            // Resetting positions ensures the cache starts fresh
-        }
+        SPDLOG_INFO("DynamicCache::reset: All layers reset to position {}", pos);
     }
 
     /**
