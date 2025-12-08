@@ -6,8 +6,10 @@
 
 namespace infinilm::models::llama {
 
-LlamaModel::LlamaModel(const LlamaConfig &config, const infinicore::Device &device,
-                       infinicore::DataType dtype)
+LlamaModel::LlamaModel(const LlamaConfig &config,
+                       const infinicore::Device &device,
+                       infinicore::DataType dtype,
+                       engine::distributed::RankInfo rank_info)
     : config_(config) {
     // Initialize token embeddings
     INFINICORE_NN_MODULE_INIT(embed_tokens, config.vocab_size, config.hidden_size,
@@ -20,7 +22,7 @@ LlamaModel::LlamaModel(const LlamaConfig &config, const infinicore::Device &devi
     layers_.reserve(config.num_hidden_layers);
     for (size_t i = 0; i < config.num_hidden_layers; ++i) {
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
-            "layers." + std::to_string(i), config, device, i, dtype));
+            "layers." + std::to_string(i), config, device, i, dtype, rank_info));
     }
 
     // Initialize final layer normalization
@@ -57,8 +59,7 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
             // First time: create cache
             cache_ = std::make_unique<infinilm::cache::DynamicCache>(
                 config_.num_hidden_layers,
-                config_.max_position_embeddings
-            );
+                config_.max_position_embeddings);
         }
         cache_to_use = cache_.get();
     }
@@ -75,7 +76,6 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
         // DEBUG: Disabled previous final layer logging
         // Logging moved to decoder layer for post-attention normalization
     }
-
 
     // 3. Apply final layer normalization to last token only (aligns with transformers)
 

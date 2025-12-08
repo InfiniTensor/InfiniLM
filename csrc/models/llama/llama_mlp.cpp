@@ -4,18 +4,24 @@
 
 namespace infinilm::models::llama {
 
-LlamaMLP::LlamaMLP(const LlamaConfig &config, const infinicore::Device &device,
-                   infinicore::DataType dtype)
+LlamaMLP::LlamaMLP(const LlamaConfig &config,
+                   const infinicore::Device &device,
+                   infinicore::DataType dtype,
+                   engine::distributed::RankInfo rank_info)
     : hidden_size_(config.hidden_size),
       intermediate_size_(config.intermediate_size),
-      use_bias_(config.mlp_bias) {
+      use_bias_(config.mlp_bias), rank_info_(rank_info) {
+
+    int tp_rank = rank_info.tp_rank;
+    int tp_size = rank_info.tp_size;
+
     // Initialize projection layers
     INFINICORE_NN_MODULE_INIT(gate_proj, hidden_size_, intermediate_size_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size);
     INFINICORE_NN_MODULE_INIT(up_proj, hidden_size_, intermediate_size_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size);
     INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size, rank_info.comm);
 }
 
 infinicore::Tensor LlamaMLP::forward(const infinicore::Tensor &hidden_states) const {
