@@ -68,7 +68,9 @@ class LlamaConfig:
                     pass
 
             # Handle num_key_value_heads with validation
-            python_num_kv_heads = getattr(self._python_config, "num_key_value_heads", None)
+            python_num_kv_heads = getattr(
+                self._python_config, "num_key_value_heads", None
+            )
             if python_num_kv_heads is None or python_num_kv_heads == 0:
                 self._cpp_config.num_key_value_heads = (
                     self._cpp_config.num_attention_heads
@@ -80,8 +82,14 @@ class LlamaConfig:
             python_head_dim = getattr(self._python_config, "head_dim", None)
             if python_head_dim is None or python_head_dim == 0:
                 # Compute from hidden_size and num_attention_heads
-                if self._cpp_config.hidden_size > 0 and self._cpp_config.num_attention_heads > 0:
-                    computed_head_dim = self._cpp_config.hidden_size // self._cpp_config.num_attention_heads
+                if (
+                    self._cpp_config.hidden_size > 0
+                    and self._cpp_config.num_attention_heads > 0
+                ):
+                    computed_head_dim = (
+                        self._cpp_config.hidden_size
+                        // self._cpp_config.num_attention_heads
+                    )
                     self._cpp_config.head_dim = computed_head_dim
                 else:
                     raise ValueError(
@@ -92,10 +100,17 @@ class LlamaConfig:
                 # Use from Python config
                 self._cpp_config.head_dim = python_head_dim
                 # Validate it matches expected value (warn but allow for flexibility)
-                if self._cpp_config.hidden_size > 0 and self._cpp_config.num_attention_heads > 0:
-                    expected_head_dim = self._cpp_config.hidden_size // self._cpp_config.num_attention_heads
+                if (
+                    self._cpp_config.hidden_size > 0
+                    and self._cpp_config.num_attention_heads > 0
+                ):
+                    expected_head_dim = (
+                        self._cpp_config.hidden_size
+                        // self._cpp_config.num_attention_heads
+                    )
                     if self._cpp_config.head_dim != expected_head_dim:
                         import warnings
+
                         warnings.warn(
                             f"head_dim ({self._cpp_config.head_dim}) != hidden_size/num_attention_heads ({expected_head_dim}). "
                             f"Using head_dim from config."
@@ -107,10 +122,13 @@ class LlamaConfig:
 
             # Validate config after setting all values (especially important for jiuge models)
             if not self._cpp_config.validate():
-                raise ValueError("C++ LlamaConfig validation failed. Check config values.")
+                raise ValueError(
+                    "C++ LlamaConfig validation failed. Check config values."
+                )
 
             # Log key config values for debugging (especially useful for jiuge models)
             import logging
+
             logger = logging.getLogger(__name__)
             logger.info(
                 f"LlamaConfig ({self._python_config.model_type}) C++ LlamaConfig created: vocab_size={self._cpp_config.vocab_size}, "
@@ -188,6 +206,9 @@ class LlamaForCausalLM(GenerationMixin):
         # self._model.load_state_dict(state_dict, self._device._underlying)
         for name, param in state_dict.items():
             self._model.load_param(name, param._underlying)
+
+    def load_param(self, name: str, weight: infinicore.Tensor):
+        self._model.load_param(name, weight._underlying)
 
     def get_parameter(self, name):
         """

@@ -55,7 +55,7 @@ def get_args():
     parser.add_argument(
         "--backend",
         type=str,
-        default="python",
+        default="cpp",
         help="python or cpp model",
     )
     parser.add_argument(
@@ -79,7 +79,7 @@ def get_args():
     parser.add_argument(
         "--tp",
         type=int,
-        default=None,
+        default=1,
         help="total rank for tensor parallel",
     )
 
@@ -93,6 +93,7 @@ def test(
     infini_dtype=infinicore.bfloat16,
     infini_device=infinicore.device("cpu", 0),
     backend="python",
+    tp=1,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -103,7 +104,7 @@ def test(
         device=infini_device,
         dtype=infini_dtype,
         backend=backend,
-        distributed_config=DistConfig(args.tp),
+        distributed_config=DistConfig(tp),
     )
 
     # ---------------------------------------------------------------------------- #
@@ -115,7 +116,7 @@ def test(
     #                        创建 tokenizer
     # ---------------------------------------------------------------------------- #
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-  
+
     if "llama" == model.config.model_type:
         backend = getattr(tokenizer, "backend_tokenizer", None)
         target = getattr(backend, "_tokenizer", backend)
@@ -133,7 +134,6 @@ def test(
                     _dec.Fuse(),
                 ]
             )
-
 
     # ---------------------------------------------------------------------------- #
     #                        token编码
@@ -201,6 +201,7 @@ if __name__ == "__main__":
     model_path = args.model_path
     max_new_tokens = args.max_new_tokens
     backend = args.backend
+    tp = args.tp
 
     infini_device = infinicore.device(device_str, 0)
     if args.dtype == "float32":
@@ -219,4 +220,5 @@ if __name__ == "__main__":
         infini_device=infini_device,
         infini_dtype=infini_dtype,
         backend=backend,
+        tp=tp,
     )

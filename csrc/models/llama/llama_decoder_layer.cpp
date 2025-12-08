@@ -4,24 +4,25 @@
 
 namespace infinilm::models::llama {
 
-LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config, const infinicore::Device &device,
+LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
+                                     const infinicore::Device &device,
                                      size_t layer_idx,
-                                     infinicore::DataType dtype)
-    : layer_idx_(layer_idx) {
-    // Initialize layer normalization layers
+                                     infinicore::DataType dtype,
+                                     engine::distributed::RankInfo rank_info) : layer_idx_(layer_idx) , rank_info_(rank_info){
+    // Initialize layer normalization layers 
     INFINICORE_NN_MODULE_INIT(input_layernorm, config.hidden_size, config.rms_norm_eps,
                               dtype, device);
     INFINICORE_NN_MODULE_INIT(post_attention_layernorm, config.hidden_size, config.rms_norm_eps,
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, dtype);
-    INFINICORE_NN_MODULE_INIT(mlp, config, device, dtype);
+    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, dtype, rank_info_);
+    INFINICORE_NN_MODULE_INIT(mlp, config, device, dtype, rank_info_);
 }
 
 infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_states,
-                                               const infinicore::Tensor &position_ids,
-                                               void *kv_cache) const {
+                                              const infinicore::Tensor &position_ids,
+                                              void *kv_cache) const {
     // Save residual for attention
     auto residual = hidden_states;
 

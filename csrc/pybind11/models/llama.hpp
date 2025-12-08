@@ -65,12 +65,9 @@ inline void bind_llama(py::module &m) {
         .def_readwrite("pretraining_tp", &LlamaConfig::pretraining_tp)
         .def_readwrite("name_or_path", &LlamaConfig::name_or_path)
         .def_readwrite("pad_token_id", &LlamaConfig::pad_token_id)
-        .def_property("bos_token_id",
-            [](const LlamaConfig &self) {
+        .def_property("bos_token_id", [](const LlamaConfig &self) {
                 // Always return as list to match Python config format
-                return py::cast(self.bos_token_id);
-            },
-            [](LlamaConfig &self, py::object value) {
+                return py::cast(self.bos_token_id); }, [](LlamaConfig &self, py::object value) {
                 // Accept both single int and list
                 if (py::isinstance<py::int_>(value)) {
                     self.bos_token_id = {value.cast<int64_t>()};
@@ -78,14 +75,10 @@ inline void bind_llama(py::module &m) {
                     self.bos_token_id = value.cast<std::vector<int64_t>>();
                 } else {
                     throw py::type_error("bos_token_id must be int or list of ints");
-                }
-            })
-        .def_property("eos_token_id",
-            [](const LlamaConfig &self) {
+                } })
+        .def_property("eos_token_id", [](const LlamaConfig &self) {
                 // Always return as list to match Python config format
-                return py::cast(self.eos_token_id);
-            },
-            [](LlamaConfig &self, py::object value) {
+                return py::cast(self.eos_token_id); }, [](LlamaConfig &self, py::object value) {
                 // Accept both single int and list
                 if (py::isinstance<py::int_>(value)) {
                     self.eos_token_id = {value.cast<int64_t>()};
@@ -93,8 +86,7 @@ inline void bind_llama(py::module &m) {
                     self.eos_token_id = value.cast<std::vector<int64_t>>();
                 } else {
                     throw py::type_error("eos_token_id must be int or list of ints");
-                }
-            })
+                } })
         .def("validate", &LlamaConfig::validate)
         .def("kv_dim", &LlamaConfig::kv_dim)
         // Add __dir__ to make attributes discoverable via dir() in Python
@@ -126,26 +118,12 @@ inline void bind_llama(py::module &m) {
             dir_list.append("eos_token_id");
             dir_list.append("validate");
             dir_list.append("kv_dim");
-            return dir_list;
-        });
+            return dir_list; });
 
     // Note: Device is already bound in InfiniCore bindings, so we don't need to bind it here
 
     // Bind LlamaForCausalLM
     py::class_<LlamaForCausalLM, std::shared_ptr<LlamaForCausalLM>>(m, "LlamaForCausalLM")
-        .def(py::init([](const LlamaConfig &config, const Device &device, py::object dtype_obj) {
-                 infinicore::DataType dtype = infinicore::DataType::F32;
-                 if (!dtype_obj.is_none()) {
-                     // Extract dtype from Python object
-                     if (py::hasattr(dtype_obj, "_underlying")) {
-                         dtype = dtype_obj.attr("_underlying").cast<infinicore::DataType>();
-                     } else {
-                         dtype = dtype_obj.cast<infinicore::DataType>();
-                     }
-                 }
-                 return std::make_shared<LlamaForCausalLM>(config, device, dtype);
-             }),
-             py::arg("config"), py::arg("device"), py::arg("dtype") = py::none())
         .def("state_dict", [](const LlamaForCausalLM &model) {
             // Return a dictionary containing references to the whole state of the module.
             auto state_dict = model.state_dict();
@@ -182,11 +160,9 @@ inline void bind_llama(py::module &m) {
                 }
                 model.load_state_dict(cpp_state_dict); }, py::arg("state_dict"))
         .def("config", &LlamaForCausalLM::config, py::return_value_policy::reference_internal)
-        .def(
-            "reset_cache", [](const LlamaForCausalLM &model, size_t pos = 0) {
+        .def("reset_cache", [](const LlamaForCausalLM &model, size_t pos = 0) {
             // Reset the internal cache to prevent state from persisting between generations
-            model.model().reset_cache(pos);
-        }, py::arg("pos") = 0, "Reset the internal cache to a specific position (clears state between generations)")
+            model.model().reset_cache(pos); }, py::arg("pos") = 0, "Reset the internal cache to a specific position (clears state between generations)")
         .def("forward", [](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_cache = py::none()) {
                 // Helper to extract C++ tensor from Python InfiniCore tensor
                 auto get_tensor = [](py::object obj) -> infinicore::Tensor {
@@ -219,8 +195,7 @@ inline void bind_llama(py::module &m) {
                 }
             }
 
-            return model.forward(infini_input_ids, infini_position_ids, kv_cache_ptr);
-        }, py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
+            return model.forward(infini_input_ids, infini_position_ids, kv_cache_ptr); }, py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
 }
 
 } // namespace infinilm::models::llama

@@ -9,12 +9,15 @@
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <vector>
 
 namespace infinilm::models::llama {
 
-LlamaAttention::LlamaAttention(const LlamaConfig &config, const infinicore::Device &device,
+LlamaAttention::LlamaAttention(const LlamaConfig &config,
+                               const infinicore::Device &device,
                                size_t layer_idx,
-                               infinicore::DataType dtype)
+                               infinicore::DataType dtype,
+                               engine::distributed::RankInfo rank_info)
     : layer_idx_(layer_idx),
       hidden_size_(config.hidden_size),
       num_attention_heads_(config.num_attention_heads),
@@ -23,22 +26,36 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config, const infinicore::Devi
       kv_dim_(config.kv_dim()),
       use_bias_(config.attention_bias),
       use_output_bias_(config.attention_output_bias),
-      max_position_embeddings_(config.max_position_embeddings) {
+      max_position_embeddings_(config.max_position_embeddings), rank_info_(rank_info) {
+
+    int tp_rank = rank_info.tp_rank;
+    int tp_size = rank_info.tp_size;
+
+    int num_attention_heads = config.num_attention_heads;
+    int num_key_value_heads = config.num_key_value_heads;
+
+    if ((num_key_value_heads >= tp_size) && (0 == (num_key_value_heads % tp_size))) {
+        this->num_attention_heads_ = num_attention_heads / tp_size;
+        this->num_key_value_heads_ = num_key_value_heads / tp_size;
+    } else {
+        throw std::runtime_error("num_attention_heads / tp_size error.");
+    }
+
     // Initialize projection layers
     INFINICORE_NN_MODULE_INIT(q_proj, hidden_size_, hidden_size_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size);
     INFINICORE_NN_MODULE_INIT(k_proj, hidden_size_, kv_dim_, use_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size);
     INFINICORE_NN_MODULE_INIT(v_proj, hidden_size_, kv_dim_, use_bias_,
-                               dtype, device);
+                              dtype, device, tp_rank, tp_size);
     // Output projection uses attention_output_bias (can be different from qkv)
     INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
-                              dtype, device);
+                              dtype, device, tp_rank, tp_size, rank_info.comm);
 }
 
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
-                                            const infinicore::Tensor &position_ids,
-                                            void *kv_cache) const {
+                                           const infinicore::Tensor &position_ids,
+                                           void *kv_cache) const {
     if (!rotary_emb_) {
         throw std::runtime_error("LlamaAttention: rotary_emb not configured");
     }

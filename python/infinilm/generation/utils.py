@@ -124,12 +124,13 @@ class GenerationMixin:
         # This prevents state from persisting between different questions/prompts
         # -------------------------------------------------------------------- #
         # Check if this is a cpp backend model (has _model attribute with reset_cache method)
-        if hasattr(self, '_model') and hasattr(self._model, 'reset_cache'):
+        if hasattr(self, "_model") and hasattr(self._model, "reset_cache"):
             try:
                 self._model.reset_cache()
             except Exception as e:
                 # If reset_cache fails, log but continue (shouldn't happen)
                 import warnings
+
                 warnings.warn(f"Failed to reset cache: {e}")
 
         # -------------------------------------------------------------------- #
@@ -210,6 +211,7 @@ class GenerationMixin:
             start_time = time.time()
 
             logits = self(**model_inputs)
+            infinicore.sync_device()
 
             # -------------------------------------------------------------------------- #
             #                     处理输出
