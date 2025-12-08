@@ -112,6 +112,35 @@ void RankWorker::wait() {
 }
 
 //------------------------------------------------------
+// reset_cache -- synchronous by default, async optional (unstable)
+//------------------------------------------------------
+void RankWorker::reset_cache(size_t pos, bool async) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (should_exit_) {
+            throw std::runtime_error("RankWorker is closing; cannot reset_cache");
+        }
+
+        pending_reset_pos_ = pos;
+        job_cmd_ = Command::RESET_CACHE;
+        has_job_ = true;
+        job_done_ = false;
+    }
+    cv_.notify_all();
+
+    // By default, wait for job completion (synchronous)
+    // If async=true, return immediately (unstable - use with caution)
+    if (!async) {
+        std::unique_lock<std::mutex> lk(mutex_);
+        cv_.wait(lk, [&] { return job_done_ || should_exit_; });
+
+        if (should_exit_) {
+            throw std::runtime_error("RankWorker stopped while resetting cache");
+        }
+    }
+}
+
+//------------------------------------------------------
 // close -- request shutdown and join thread
 //------------------------------------------------------
 void RankWorker::close() {
@@ -160,6 +189,7 @@ void RankWorker::thread_loop() {
             std::string local_param_name;
             infinicore::Tensor local_param;
             std::vector<std::any> local_args;
+            size_t local_reset_pos = 0;
 
             // Wait for a job or exit
             {
@@ -177,6 +207,8 @@ void RankWorker::thread_loop() {
                     local_param = pending_param_;
                 } else if (local_cmd == Command::RUN) {
                     local_args = pending_args_;
+                } else if (local_cmd == Command::RESET_CACHE) {
+                    local_reset_pos = pending_reset_pos_;
                 }
 
                 // mark job as being processed
@@ -223,6 +255,25 @@ void RankWorker::thread_loop() {
                     job_done_ = true;
                     cv_.notify_all();
                     spdlog::error("[{}] exception during forward: {}\n", info(), e.what());
+                    break;
+                }
+            } else if (local_cmd == Command::RESET_CACHE) {
+                try {
+                    // Generic reset_cache on the model interface
+                    model_->reset_cache(local_reset_pos);
+
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        job_done_ = true;
+                    }
+                    cv_.notify_all();
+
+                } catch (const std::exception &e) {
+                    std::lock_guard<std::mutex> lk(mutex_);
+                    should_exit_ = true;
+                    job_done_ = true;
+                    cv_.notify_all();
+                    spdlog::error("[{}] exception during reset_cache: {}\n", info(), e.what());
                     break;
                 }
             } else {

@@ -14,6 +14,9 @@ class LlamaConfig:
 
     This class wraps configuration_llama.LlamaConfig and provides
     a _underlying property that creates the C++ config object.
+
+    Automatically detects and handles both regular Llama models and Jiuge models
+    (fm9g7b, fm9g, minicpm) with appropriate defaults and validation.
     """
 
     def __init__(self, config_dict=None, **kwargs):
@@ -64,22 +67,61 @@ class LlamaConfig:
                 except (AttributeError, TypeError):
                     pass
 
-            # Handle defaults
-            if (
-                not hasattr(self._cpp_config, "num_key_value_heads")
-                or self._cpp_config.num_key_value_heads == 0
-            ):
+            # Handle num_key_value_heads with validation
+            python_num_kv_heads = getattr(self._python_config, "num_key_value_heads", None)
+            if python_num_kv_heads is None or python_num_kv_heads == 0:
                 self._cpp_config.num_key_value_heads = (
                     self._cpp_config.num_attention_heads
                 )
+            else:
+                self._cpp_config.num_key_value_heads = python_num_kv_heads
 
-            if (
-                not hasattr(self._cpp_config, "head_dim")
-                or self._cpp_config.head_dim == 0
-            ):
-                self._cpp_config.head_dim = (
-                    self._cpp_config.hidden_size // self._cpp_config.num_attention_heads
-                )
+            # Handle head_dim with validation (critical for GEMM operations)
+            python_head_dim = getattr(self._python_config, "head_dim", None)
+            if python_head_dim is None or python_head_dim == 0:
+                # Compute from hidden_size and num_attention_heads
+                if self._cpp_config.hidden_size > 0 and self._cpp_config.num_attention_heads > 0:
+                    computed_head_dim = self._cpp_config.hidden_size // self._cpp_config.num_attention_heads
+                    self._cpp_config.head_dim = computed_head_dim
+                else:
+                    raise ValueError(
+                        f"Cannot compute head_dim: hidden_size={self._cpp_config.hidden_size}, "
+                        f"num_attention_heads={self._cpp_config.num_attention_heads}"
+                    )
+            else:
+                # Use from Python config
+                self._cpp_config.head_dim = python_head_dim
+                # Validate it matches expected value (warn but allow for flexibility)
+                if self._cpp_config.hidden_size > 0 and self._cpp_config.num_attention_heads > 0:
+                    expected_head_dim = self._cpp_config.hidden_size // self._cpp_config.num_attention_heads
+                    if self._cpp_config.head_dim != expected_head_dim:
+                        import warnings
+                        warnings.warn(
+                            f"head_dim ({self._cpp_config.head_dim}) != hidden_size/num_attention_heads ({expected_head_dim}). "
+                            f"Using head_dim from config."
+                        )
+
+            # Ensure vocab_size is set (explicit handling)
+            if hasattr(self._python_config, "vocab_size"):
+                self._cpp_config.vocab_size = self._python_config.vocab_size
+
+            # Validate config after setting all values (especially important for jiuge models)
+            if not self._cpp_config.validate():
+                raise ValueError("C++ LlamaConfig validation failed. Check config values.")
+
+            # Log key config values for debugging (especially useful for jiuge models)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"LlamaConfig ({self._python_config.model_type}) C++ LlamaConfig created: vocab_size={self._cpp_config.vocab_size}, "
+                f"hidden_size={self._cpp_config.hidden_size}, "
+                f"num_attention_heads={self._cpp_config.num_attention_heads}, "
+                f"num_key_value_heads={self._cpp_config.num_key_value_heads}, "
+                f"head_dim={self._cpp_config.head_dim}, "
+                f"kv_dim={self._cpp_config.kv_dim()}, "
+                f"attention_bias={self._cpp_config.attention_bias}, "
+                f"attention_output_bias={self._cpp_config.attention_output_bias}"
+            )
 
         return self._cpp_config
 
@@ -104,12 +146,22 @@ class LlamaForCausalLM(GenerationMixin):
         """
         super().__init__()
 
-        self.config = config
+        # Convert config to LlamaConfig (handles both regular Llama and Jiuge models)
+        if isinstance(config, dict):
+            config = LlamaConfig(**config)
+        elif not isinstance(config, LlamaConfig):
+            # Not a dict or LlamaConfig, try to convert
+            config = LlamaConfig(config)
+        # If already LlamaConfig, use as-is (it will auto-detect jiuge models)
 
         if device is None:
             device = infinicore.device()
 
         self.use_cache = False
+
+        # Store the Python wrapper config so it can be accessed later
+        # This is needed for DynamicCache which calls config.get_text_config()
+        self._config = config
 
         self._device = device
         # self._model = _infinilm.LlamaForCausalLM(
@@ -149,10 +201,13 @@ class LlamaForCausalLM(GenerationMixin):
         """
         return self._model.get_parameter(name)
 
-    # @property
-    # def config(self):
-    #     """Get model configuration"""
-    #     return self._model.config()
+    @property
+    def config(self):
+        """Get model configuration"""
+        # Return the Python wrapper config instead of C++ config
+        # This ensures compatibility with code that expects PretrainedConfig methods
+        # like get_text_config() used by DynamicCache
+        return self._config
 
     def forward(self, input_ids, position_ids, *args, **kwargs):
         kv_caches = None
@@ -195,5 +250,6 @@ class LlamaForCausalLM(GenerationMixin):
         with open(config_path, "r") as f:
             config_dict = json.load(f)
 
+        # LlamaConfig automatically detects and handles jiuge models
         config = LlamaConfig(config_dict)
         return cls(config, device=device, dtype=dtype, **kwargs)

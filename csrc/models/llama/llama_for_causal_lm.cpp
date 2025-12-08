@@ -1,13 +1,17 @@
 #include "llama_for_causal_lm.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/context/context.hpp"
+#include <iostream>
 
 namespace infinilm::models::llama {
 
 LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config, const infinicore::Device &device,
                                    infinicore::DataType dtype) {
 
+    // Initialize module's device_ member
     device_ = device;
+
     // Initialize base model
     INFINICORE_NN_MODULE_INIT(model, config, device, dtype);
 
@@ -20,13 +24,20 @@ LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config, const infinicore::
 
 infinicore::Tensor LlamaForCausalLM::forward(const infinicore::Tensor &input_ids,
                                              const infinicore::Tensor &position_ids,
-                                             std::vector<void *> *kv_caches) const {
+                                             void *kv_cache) const {
     // 1. Forward through base model to get hidden states
     auto position_ids_device = position_ids->to(device_);
-    auto hidden_states = model_->forward(input_ids, position_ids_device, kv_caches);
+    auto hidden_states = model_->forward(input_ids, position_ids_device, kv_cache);
 
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);
+
+    // 3. CRITICAL: Synchronize the C++ backend's context after forward pass
+    // This ensures all C++ backend operations complete before returning to Python
+    if (device_.getType() != infinicore::Device::Type::CPU) {
+        infinicore::context::setDevice(device_, false);
+        infinicore::context::syncStream();
+    }
 
     return logits;
 }
@@ -47,6 +58,10 @@ infinicore::Tensor LlamaForCausalLM::forward(std::vector<std::any> args) const {
     }
 
     return forward(input_ids, position_ids, kv_caches);
+}
+
+void LlamaForCausalLM::reset_cache(size_t pos) {
+    model_->reset_cache(pos);
 }
 
 } // namespace infinilm::models::llama

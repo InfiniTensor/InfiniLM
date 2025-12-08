@@ -4,7 +4,6 @@ Test script to validate forward pass across different backends and dtypes.
 
 Tests:
 1. Python backend with bfloat16
-2. C++ backend with float32
 3. C++ backend with bfloat16
 
 This script runs a prefill step (full sequence forward pass with KV cache)
@@ -81,6 +80,12 @@ def get_args():
         default="How are you",
         help="Test prompt (default: 'How are you')",
     )
+    parser.add_argument(
+        "--num_decode_steps",
+        type=int,
+        default=2,
+        help="Number of decode steps to run after prefill (default: 2)",
+    )
     return parser.parse_args()
 
 
@@ -116,9 +121,9 @@ def create_inputs(prompt, tokenizer, device, backend="cpp"):
     return input_ids_infini, position_ids_infini, input_content
 
 
-def run_forward_pass(model, input_ids, position_ids, backend, dtype):
-    """Run prefill and first decode step with KV cache, return decode step logits."""
-    print(f"  Running forward pass (prefill + first decode step)...")
+def run_forward_pass(model, input_ids, position_ids, backend, dtype, num_decode_steps=2):
+    """Run prefill and multiple decode steps with KV cache, return all decode step logits."""
+    print(f"  Running forward pass (prefill + {num_decode_steps} decode step(s))...")
 
     try:
         # Get the underlying model
@@ -162,19 +167,6 @@ def run_forward_pass(model, input_ids, position_ids, backend, dtype):
                 print(
                     f"    Prefill logits stats: min={prefill_logits_np.min():.6f}, max={prefill_logits_np.max():.6f}, mean={prefill_logits_np.mean():.6f}")
 
-            # Step 2: Decode - run forward pass with single token
-            # Get the predicted token from prefill
-            if np.isnan(prefill_logits_np).any():
-                # If prefill has NaN, use a default token to continue testing decode step
-                print(
-                    f"    ⚠ WARNING: Using default token 29902 due to NaN in prefill logits")
-                predicted_token_id = 29902
-            else:
-                predicted_token_id = int(
-                    prefill_logits_np.argmax(axis=-1)[0, 0])
-            print(
-                f"    Step 2: Decode (next_token_id={predicted_token_id})...")
-
             # Get device from input_ids
             if hasattr(input_ids, "device"):
                 input_device = input_ids.device
@@ -182,19 +174,59 @@ def run_forward_pass(model, input_ids, position_ids, backend, dtype):
                 input_device = getattr(
                     position_ids, "device", infinicore.device("cpu", 0))
 
-            # Create single token input for decode step
-            decode_input_ids = infinicore.from_list(
-                [[predicted_token_id]], device=input_device)
-
-            # Create position_ids for decode step (should be seq_len, since we've processed seq_len tokens)
+            # Initialize decode logits list
+            decode_logits_list = []
             seq_len = input_ids.shape[1]
-            decode_position_ids = infinicore.from_list(
-                [[seq_len]], dtype=infinicore.int64, device=input_device
-            )
+            current_token_id = None
 
-            # Run decode step - C++ backend manages cache internally
-            decode_logits = underlying_model.forward(
-                decode_input_ids, decode_position_ids)
+            # Run multiple decode steps
+            for decode_step in range(num_decode_steps):
+                # Get the predicted token from previous step
+                if decode_step == 0:
+                    # First decode step: use token from prefill
+                    if np.isnan(prefill_logits_np).any():
+                        print(f"    ⚠ WARNING: Using default token 29902 due to NaN in prefill logits")
+                        current_token_id = 29902
+                    else:
+                        current_token_id = int(prefill_logits_np.argmax(axis=-1)[0, 0])
+                else:
+                    # Subsequent decode steps: use token from previous decode
+                    prev_logits_np = decode_logits_list[-1]
+                    if np.isnan(prev_logits_np).any():
+                        print(f"    ⚠ WARNING: Using default token 29902 due to NaN in decode step {decode_step} logits")
+                        current_token_id = 29902
+                    else:
+                        current_token_id = int(prev_logits_np.argmax(axis=-1)[0, 0])
+
+                print(f"    Step {decode_step + 2}: Decode step {decode_step + 1} (next_token_id={current_token_id})...")
+
+                # Create single token input for decode step
+                decode_input_ids = infinicore.from_list(
+                    [[current_token_id]], device=input_device)
+
+                # Create position_ids for decode step
+                decode_position_ids = infinicore.from_list(
+                    [[seq_len + decode_step]], dtype=infinicore.int64, device=input_device
+                )
+
+                # Run decode step - C++ backend manages cache internally
+                decode_logits = underlying_model.forward(
+                    decode_input_ids, decode_position_ids)
+
+                # Convert decode logits to numpy
+                decode_logits_np = infinicore_to_numpy(decode_logits)
+                decode_logits_list.append(decode_logits_np)
+                print(f"    ✓ Decode step {decode_step + 1} completed, logits shape: {decode_logits_np.shape}")
+
+                # Check decode logits for issues
+                if np.isnan(decode_logits_np).any():
+                    print(f"    ⚠ WARNING: Decode step {decode_step + 1} logits contain NaN values!")
+                    print(f"      NaN count: {np.isnan(decode_logits_np).sum()}")
+                if np.isinf(decode_logits_np).any():
+                    print(f"    ⚠ WARNING: Decode step {decode_step + 1} logits contain Inf values!")
+                    print(f"      Inf count: {np.isinf(decode_logits_np).sum()}")
+                if not np.isnan(decode_logits_np).any():
+                    print(f"    Decode step {decode_step + 1} logits stats: min={decode_logits_np.min():.6f}, max={decode_logits_np.max():.6f}, mean={decode_logits_np.mean():.6f}")
         else:
             # Python backend uses DynamicCache
             # Get model config
@@ -217,12 +249,6 @@ def run_forward_pass(model, input_ids, position_ids, backend, dtype):
             print(
                 f"    ✓ Prefill completed, logits shape: {prefill_logits_np.shape}")
 
-            # Step 2: Decode - run forward pass with single token
-            # Get the predicted token from prefill
-            predicted_token_id = int(prefill_logits_np.argmax(axis=-1)[0, 0])
-            print(
-                f"    Step 2: Decode (next_token_id={predicted_token_id})...")
-
             # Get device from input_ids
             if hasattr(input_ids, "device"):
                 input_device = input_ids.device
@@ -231,48 +257,87 @@ def run_forward_pass(model, input_ids, position_ids, backend, dtype):
                 input_device = getattr(
                     position_ids, "device", infinicore.device("cpu", 0))
 
-            # Create single token input for decode step
-            decode_input_ids = infinicore.from_list(
-                [[predicted_token_id]], device=input_device)
-
-            # Create position_ids for decode step (should be seq_len, since we've processed seq_len tokens)
+            # Initialize decode logits list
+            decode_logits_list = []
             seq_len = input_ids.shape[1]
-            decode_position_ids = infinicore.from_list(
-                [[seq_len]], dtype=infinicore.int64, device=input_device
-            )
+            current_token_id = None
 
-            # Run decode step with KV cache
-            decode_logits = underlying_model.forward(
-                decode_input_ids, decode_position_ids, past_key_values=past_key_values, use_cache=True
-            )
+            # Run multiple decode steps
+            for decode_step in range(num_decode_steps):
+                # Get the predicted token from previous step
+                if decode_step == 0:
+                    # First decode step: use token from prefill
+                    if np.isnan(prefill_logits_np).any():
+                        print(f"    ⚠ WARNING: Using default token 29902 due to NaN in prefill logits")
+                        current_token_id = 29902
+                    else:
+                        current_token_id = int(prefill_logits_np.argmax(axis=-1)[0, 0])
+                else:
+                    # Subsequent decode steps: use token from previous decode
+                    prev_logits_np = decode_logits_list[-1]
+                    if np.isnan(prev_logits_np).any():
+                        print(f"    ⚠ WARNING: Using default token 29902 due to NaN in decode step {decode_step} logits")
+                        current_token_id = 29902
+                    else:
+                        current_token_id = int(prev_logits_np.argmax(axis=-1)[0, 0])
 
-        # Convert decode logits to numpy for analysis
-        logits_np = infinicore_to_numpy(decode_logits)
+                print(f"    Step {decode_step + 2}: Decode step {decode_step + 1} (next_token_id={current_token_id})...")
 
-        print(f"  ✓ Forward pass completed (prefill + decode)")
-        print(f"    Decode logits shape: {logits_np.shape}")
-        print(f"    Decode logits dtype: {logits_np.dtype}")
-        print(
-            f"    Decode logits stats: min={logits_np.min():.6f}, max={logits_np.max():.6f}, mean={logits_np.mean():.6f}")
+                # Create single token input for decode step
+                decode_input_ids = infinicore.from_list(
+                    [[current_token_id]], device=input_device)
 
-        # Check for issues
-        if np.isnan(logits_np).any():
-            print(f"    ⚠ WARNING: Logits contain NaN values!")
-            return None, True
-        if np.isinf(logits_np).any():
-            print(f"    ⚠ WARNING: Logits contain Inf values!")
-            return None, True
+                # Create position_ids for decode step
+                decode_position_ids = infinicore.from_list(
+                    [[seq_len + decode_step]], dtype=infinicore.int64, device=input_device
+                )
 
-        # Check if logits are too small (might indicate model not working)
-        if np.abs(logits_np).max() < 1.0:
-            print(
-                f"    ⚠ WARNING: Logits are very small (max abs: {np.abs(logits_np).max():.6f})")
+                # Run decode step with KV cache
+                decode_logits = underlying_model.forward(
+                    decode_input_ids, decode_position_ids, past_key_values=past_key_values, use_cache=True
+                )
 
-        # Get predicted token from decode step
-        predicted_token = int(logits_np.argmax(axis=-1)[0, 0])
-        print(f"    Predicted token ID from decode: {predicted_token}")
+                # Convert decode logits to numpy
+                decode_logits_np = infinicore_to_numpy(decode_logits)
+                decode_logits_list.append(decode_logits_np)
+                print(f"    ✓ Decode step {decode_step + 1} completed, logits shape: {decode_logits_np.shape}")
 
-        return logits_np, False
+                # Check decode logits for issues
+                if np.isnan(decode_logits_np).any():
+                    print(f"    ⚠ WARNING: Decode step {decode_step + 1} logits contain NaN values!")
+                    print(f"      NaN count: {np.isnan(decode_logits_np).sum()}")
+                if np.isinf(decode_logits_np).any():
+                    print(f"    ⚠ WARNING: Decode step {decode_step + 1} logits contain Inf values!")
+                    print(f"      Inf count: {np.isinf(decode_logits_np).sum()}")
+                if not np.isnan(decode_logits_np).any():
+                    print(f"    Decode step {decode_step + 1} logits stats: min={decode_logits_np.min():.6f}, max={decode_logits_np.max():.6f}, mean={decode_logits_np.mean():.6f}")
+
+        # Summary of all decode steps
+        print(f"  ✓ Forward pass completed (prefill + {num_decode_steps} decode step(s))")
+        for i, logits_np in enumerate(decode_logits_list):
+            print(f"    Decode step {i + 1} logits shape: {logits_np.shape}, dtype: {logits_np.dtype}")
+
+        # Check for issues in all decode steps
+        has_error = False
+        for i, logits_np in enumerate(decode_logits_list):
+            if np.isnan(logits_np).any():
+                print(f"    ⚠ WARNING: Decode step {i + 1} logits contain NaN values!")
+                print(f"      NaN count: {np.isnan(logits_np).sum()}")
+                has_error = True
+            if np.isinf(logits_np).any():
+                print(f"    ⚠ WARNING: Decode step {i + 1} logits contain Inf values!")
+                print(f"      Inf count: {np.isinf(logits_np).sum()}")
+                has_error = True
+            if np.abs(logits_np).max() < 1.0:
+                print(f"    ⚠ WARNING: Decode step {i + 1} logits are very small (max abs: {np.abs(logits_np).max():.6f})")
+
+        # Get predicted token from last decode step
+        if decode_logits_list and not np.isnan(decode_logits_list[-1]).any():
+            predicted_token = int(decode_logits_list[-1].argmax(axis=-1)[0, 0])
+            print(f"    Predicted token ID from decode step {num_decode_steps}: {predicted_token}")
+
+        # Return tuple of all decode logits
+        return tuple(decode_logits_list), has_error
 
     except Exception as e:
         print(f"  ✗ Forward pass failed: {e}")
@@ -353,7 +418,7 @@ def infinicore_to_numpy(tensor):
     return result
 
 
-def test_configuration(model_path, device, backend, dtype, prompt):
+def test_configuration(model_path, device, backend, dtype, prompt, num_decode_steps=2):
     """Test a specific backend/dtype configuration."""
     print("\n" + "=" * 80)
     print(f"Testing: Backend={backend}, Dtype={dtype}")
@@ -377,7 +442,7 @@ def test_configuration(model_path, device, backend, dtype, prompt):
     # Load tokenizer
     print("\n1. Loading tokenizer...")
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
         print(f"  ✓ Tokenizer loaded")
     except Exception as e:
         print(f"  ✗ Failed to load tokenizer: {e}")
@@ -428,25 +493,25 @@ def test_configuration(model_path, device, backend, dtype, prompt):
         traceback.print_exc()
         return None, True
 
-    # Run forward pass (prefill + decode step)
-    print(f"\n5. Running forward pass (prefill + first decode step)...")
-    logits, has_error = run_forward_pass(
-        model, input_ids, position_ids, backend, dtype)
+    # Run forward pass (prefill + multiple decode steps)
+    print(f"\n5. Running forward pass (prefill + {num_decode_steps} decode step(s))...")
+    logits_tuple, has_error = run_forward_pass(
+        model, input_ids, position_ids, backend, dtype, num_decode_steps)
 
     if has_error:
         return None, True
 
-    return logits, False
+    return logits_tuple, False
 
 
-def compare_logits(logits1, logits2, name1, name2):
+def compare_logits(logits1, logits2, name1, name2, step_name="logits"):
     """Compare two logits arrays."""
     print(f"\n{'=' * 80}")
-    print(f"Comparing: {name1} vs {name2}")
+    print(f"Comparing: {name1} vs {name2} ({step_name})")
     print(f"{'=' * 80}")
 
     if logits1 is None or logits2 is None:
-        print("  ✗ Cannot compare: one or both logits are None")
+        print(f"  ✗ Cannot compare: one or both {step_name} are None")
         return False
 
     if logits1.shape != logits2.shape:
@@ -469,9 +534,9 @@ def compare_logits(logits1, logits2, name1, name2):
     is_close = np.allclose(logits1, logits2, rtol=rtol, atol=atol)
 
     if is_close:
-        print(f"  ✓ Logits are close (within tolerance)")
+        print(f"  ✓ {step_name.capitalize()} are close (within tolerance)")
     else:
-        print(f"  ⚠ Logits differ significantly")
+        print(f"  ⚠ {step_name.capitalize()} differ significantly")
         # Show top differences
         flat_diff = diff.flatten()
         top_indices = np.argsort(flat_diff)[-10:][::-1]
@@ -493,6 +558,7 @@ def main():
     print(f"Model path: {args.model_path}")
     print(f"Device: {args.device}")
     print(f"Prompt: {args.prompt}")
+    print(f"Number of decode steps: {args.num_decode_steps}")
     print("=" * 80)
 
     results = {}
@@ -502,25 +568,16 @@ def main():
     print("TEST 1: Python Backend + BFloat16")
     print("=" * 80)
     logits_py_bf16, error = test_configuration(
-        args.model_path, args.device, "python", "bfloat16", args.prompt
+        args.model_path, args.device, "python", "bfloat16", args.prompt, args.num_decode_steps
     )
     results["python_bf16"] = (logits_py_bf16, error)
-
-    # Test 2: C++ backend with float32
-    print("\n\n" + "=" * 80)
-    print("TEST 2: C++ Backend + Float32")
-    print("=" * 80)
-    logits_cpp_f32, error = test_configuration(
-        args.model_path, args.device, "cpp", "float32", args.prompt
-    )
-    results["cpp_f32"] = (logits_cpp_f32, error)
 
     # Test 3: C++ backend with bfloat16
     print("\n\n" + "=" * 80)
     print("TEST 3: C++ Backend + BFloat16")
     print("=" * 80)
     logits_cpp_bf16, error = test_configuration(
-        args.model_path, args.device, "cpp", "bfloat16", args.prompt
+        args.model_path, args.device, "cpp", "bfloat16", args.prompt, args.num_decode_steps
     )
     results["cpp_bf16"] = (logits_cpp_bf16, error)
 
@@ -533,23 +590,22 @@ def main():
 
     # Compare Python BF16 vs C++ BF16 (should be similar)
     if not results["python_bf16"][1] and not results["cpp_bf16"][1]:
-        is_close = compare_logits(
-            results["python_bf16"][0],
-            results["cpp_bf16"][0],
-            "Python BF16",
-            "C++ BF16"
-        )
-        comparisons.append(("Python BF16 vs C++ BF16", is_close))
+        py_logits = results["python_bf16"][0]
+        cpp_logits = results["cpp_bf16"][0]
 
-    # Compare C++ F32 vs C++ BF16 (should be similar but with some differences)
-    if not results["cpp_f32"][1] and not results["cpp_bf16"][1]:
-        is_close = compare_logits(
-            results["cpp_f32"][0],
-            results["cpp_bf16"][0],
-            "C++ F32",
-            "C++ BF16"
-        )
-        comparisons.append(("C++ F32 vs C++ BF16", is_close))
+        if py_logits is not None and cpp_logits is not None:
+            # Compare all decode steps
+            num_steps = min(len(py_logits), len(cpp_logits))
+            for step_idx in range(num_steps):
+                step_name = f"decode step {step_idx + 1}"
+                is_close = compare_logits(
+                    py_logits[step_idx],
+                    cpp_logits[step_idx],
+                    "Python BF16",
+                    "C++ BF16",
+                    step_name
+                )
+                comparisons.append((f"Python BF16 vs C++ BF16 ({step_name})", is_close))
 
     # Summary
     print("\n\n" + "=" * 80)

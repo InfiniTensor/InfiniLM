@@ -5,7 +5,9 @@
 namespace infinilm::models::llama {
 
 LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config, const infinicore::Device &device,
-                                     infinicore::DataType dtype) {
+                                     size_t layer_idx,
+                                     infinicore::DataType dtype)
+    : layer_idx_(layer_idx) {
     // Initialize layer normalization layers
     INFINICORE_NN_MODULE_INIT(input_layernorm, config.hidden_size, config.rms_norm_eps,
                               dtype, device);
@@ -13,7 +15,7 @@ LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config, const infinicore
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, config, device, dtype);
+    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, dtype);
     INFINICORE_NN_MODULE_INIT(mlp, config, device, dtype);
 }
 

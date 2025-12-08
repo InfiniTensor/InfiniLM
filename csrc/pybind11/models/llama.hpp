@@ -56,105 +56,80 @@ inline void bind_llama(py::module &m) {
         .def_readwrite("model_type", &LlamaConfig::model_type)
         .def_readwrite("rope_theta", &LlamaConfig::rope_theta)
         .def_readwrite("attention_bias", &LlamaConfig::attention_bias)
+        .def_readwrite("attention_output_bias", &LlamaConfig::attention_output_bias)
         .def_readwrite("mlp_bias", &LlamaConfig::mlp_bias)
         .def_readwrite("tie_word_embeddings", &LlamaConfig::tie_word_embeddings)
         .def_readwrite("use_cache", &LlamaConfig::use_cache)
+        .def_readwrite("attention_dropout", &LlamaConfig::attention_dropout)
+        .def_readwrite("initializer_range", &LlamaConfig::initializer_range)
+        .def_readwrite("pretraining_tp", &LlamaConfig::pretraining_tp)
+        .def_readwrite("name_or_path", &LlamaConfig::name_or_path)
         .def_readwrite("pad_token_id", &LlamaConfig::pad_token_id)
-        .def_readwrite("bos_token_id", &LlamaConfig::bos_token_id)
-        .def_readwrite("eos_token_id", &LlamaConfig::eos_token_id)
+        .def_property("bos_token_id",
+            [](const LlamaConfig &self) {
+                // Always return as list to match Python config format
+                return py::cast(self.bos_token_id);
+            },
+            [](LlamaConfig &self, py::object value) {
+                // Accept both single int and list
+                if (py::isinstance<py::int_>(value)) {
+                    self.bos_token_id = {value.cast<int64_t>()};
+                } else if (py::isinstance<py::list>(value) || py::isinstance<py::tuple>(value)) {
+                    self.bos_token_id = value.cast<std::vector<int64_t>>();
+                } else {
+                    throw py::type_error("bos_token_id must be int or list of ints");
+                }
+            })
+        .def_property("eos_token_id",
+            [](const LlamaConfig &self) {
+                // Always return as list to match Python config format
+                return py::cast(self.eos_token_id);
+            },
+            [](LlamaConfig &self, py::object value) {
+                // Accept both single int and list
+                if (py::isinstance<py::int_>(value)) {
+                    self.eos_token_id = {value.cast<int64_t>()};
+                } else if (py::isinstance<py::list>(value) || py::isinstance<py::tuple>(value)) {
+                    self.eos_token_id = value.cast<std::vector<int64_t>>();
+                } else {
+                    throw py::type_error("eos_token_id must be int or list of ints");
+                }
+            })
         .def("validate", &LlamaConfig::validate)
-        .def("kv_dim", &LlamaConfig::kv_dim);
+        .def("kv_dim", &LlamaConfig::kv_dim)
+        // Add __dir__ to make attributes discoverable via dir() in Python
+        .def("__dir__", [](const LlamaConfig &self) {
+            py::list dir_list;
+            dir_list.append("vocab_size");
+            dir_list.append("hidden_size");
+            dir_list.append("intermediate_size");
+            dir_list.append("num_hidden_layers");
+            dir_list.append("num_attention_heads");
+            dir_list.append("num_key_value_heads");
+            dir_list.append("head_dim");
+            dir_list.append("max_position_embeddings");
+            dir_list.append("rms_norm_eps");
+            dir_list.append("hidden_act");
+            dir_list.append("model_type");
+            dir_list.append("rope_theta");
+            dir_list.append("attention_bias");
+            dir_list.append("attention_output_bias");
+            dir_list.append("mlp_bias");
+            dir_list.append("tie_word_embeddings");
+            dir_list.append("use_cache");
+            dir_list.append("attention_dropout");
+            dir_list.append("initializer_range");
+            dir_list.append("pretraining_tp");
+            dir_list.append("name_or_path");
+            dir_list.append("pad_token_id");
+            dir_list.append("bos_token_id");
+            dir_list.append("eos_token_id");
+            dir_list.append("validate");
+            dir_list.append("kv_dim");
+            return dir_list;
+        });
 
     // Note: Device is already bound in InfiniCore bindings, so we don't need to bind it here
-
-    // Helper function to convert Python object (InfiniCore tensor, numpy array, or torch tensor) to C++ Tensor
-    auto convert_to_tensor = [](py::object obj, const Device &device) -> infinicore::Tensor {
-        // First check if it's already an InfiniCore tensor (has _underlying attribute)
-        if (py::hasattr(obj, "_underlying")) {
-            try {
-                // Extract the underlying C++ tensor from Python InfiniCore tensor
-                auto underlying = obj.attr("_underlying");
-                auto infini_tensor = underlying.cast<infinicore::Tensor>();
-                return infini_tensor;
-            } catch (const py::cast_error &) {
-                // Fall through to other conversion methods
-            }
-        }
-
-        // Try direct cast (in case it's already a C++ tensor exposed to Python)
-        try {
-            auto infini_tensor = obj.cast<infinicore::Tensor>();
-            return infini_tensor;
-        } catch (const py::cast_error &) {
-            // Not an InfiniCore tensor, continue with other conversions
-        }
-
-        // Try to get data pointer and shape from numpy array or torch tensor
-        void *data_ptr = nullptr;
-        std::vector<size_t> shape;
-        infinicore::DataType dtype = infinicore::DataType::F32;
-
-        // Check if it's a numpy array
-        if (py::hasattr(obj, "__array_interface__")) {
-            auto array_info = obj.attr("__array_interface__");
-            auto data = array_info["data"];
-            if (py::isinstance<py::tuple>(data)) {
-                auto data_tuple = data.cast<py::tuple>();
-                data_ptr = reinterpret_cast<void *>(data_tuple[0].cast<uintptr_t>());
-            } else {
-                data_ptr = reinterpret_cast<void *>(data.cast<uintptr_t>());
-            }
-
-            auto shape_obj = array_info["shape"];
-            if (py::isinstance<py::tuple>(shape_obj)) {
-                auto shape_tuple = shape_obj.cast<py::tuple>();
-                for (auto dim : shape_tuple) {
-                    shape.push_back(dim.cast<size_t>());
-                }
-            } else {
-                shape.push_back(shape_obj.cast<size_t>());
-            }
-
-            // Get dtype
-            std::string typestr = array_info["typestr"].cast<std::string>();
-            if (typestr == "<f4" || typestr == "float32") {
-                dtype = infinicore::DataType::F32;
-            } else if (typestr == "<f2" || typestr == "float16") {
-                dtype = infinicore::DataType::F16;
-            } else if (typestr == "<i4" || typestr == "int32") {
-                dtype = infinicore::DataType::I32;
-            } else if (typestr == "<i8" || typestr == "int64") {
-                dtype = infinicore::DataType::I64;
-            }
-        } else if (py::hasattr(obj, "data_ptr")) {
-            // Try torch tensor
-            data_ptr = reinterpret_cast<void *>(obj.attr("data_ptr")().cast<uintptr_t>());
-            auto shape_obj = obj.attr("shape");
-            if (py::isinstance<py::tuple>(shape_obj) || py::isinstance<py::list>(shape_obj)) {
-                for (auto dim : shape_obj) {
-                    shape.push_back(dim.cast<size_t>());
-                }
-            } else {
-                shape.push_back(shape_obj.cast<size_t>());
-            }
-
-            // Get dtype from torch tensor
-            std::string dtype_str = py::str(obj.attr("dtype"));
-            if (dtype_str.find("float32") != std::string::npos) {
-                dtype = infinicore::DataType::F32;
-            } else if (dtype_str.find("float16") != std::string::npos) {
-                dtype = infinicore::DataType::F16;
-            } else if (dtype_str.find("int32") != std::string::npos) {
-                dtype = infinicore::DataType::I32;
-            } else if (dtype_str.find("int64") != std::string::npos) {
-                dtype = infinicore::DataType::I64;
-            }
-        } else {
-            throw std::runtime_error("Unsupported tensor type. Expected InfiniCore tensor, numpy array, or torch tensor.");
-        }
-
-        return infinicore::Tensor::from_blob(data_ptr, shape, dtype, device);
-    };
 
     // Bind LlamaForCausalLM
     py::class_<LlamaForCausalLM, std::shared_ptr<LlamaForCausalLM>>(m, "LlamaForCausalLM")
@@ -190,55 +165,62 @@ inline void bind_llama(py::module &m) {
                     return tensor;
                 }
                 throw std::runtime_error("Parameter '" + name + "' not found in model"); }, py::arg("name"))
-        .def("load_state_dict", [convert_to_tensor](LlamaForCausalLM &model, py::dict state_dict, const Device &device) {
+        .def("load_state_dict", [](LlamaForCausalLM &model, py::dict state_dict) {
                 // Convert Python dict to C++ state_dict
                 std::unordered_map<std::string, infinicore::Tensor> cpp_state_dict;
                 for (auto item : state_dict) {
                     std::string key = item.first.cast<std::string>();
                     py::object value = item.second.cast<py::object>();
-                    cpp_state_dict.emplace(key, convert_to_tensor(value, device));
+                    // Extract InfiniCore tensor from Python object
+                    infinicore::Tensor tensor;
+                    if (py::hasattr(value, "_underlying")) {
+                        tensor = value.attr("_underlying").cast<infinicore::Tensor>();
+                    } else {
+                        tensor = value.cast<infinicore::Tensor>();
+                    }
+                    cpp_state_dict.emplace(key, tensor);
                 }
-                model.load_state_dict(cpp_state_dict); }, py::arg("state_dict"), py::arg("device"))
+                model.load_state_dict(cpp_state_dict); }, py::arg("state_dict"))
         .def("config", &LlamaForCausalLM::config, py::return_value_policy::reference_internal)
-        .def("forward", [convert_to_tensor](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_caches = py::none()) {
-                // Helper to extract C++ tensor from Python object
-                auto get_tensor = [convert_to_tensor](py::object obj) -> infinicore::Tensor {
+        .def(
+            "reset_cache", [](const LlamaForCausalLM &model, size_t pos = 0) {
+            // Reset the internal cache to prevent state from persisting between generations
+            model.model().reset_cache(pos);
+        }, py::arg("pos") = 0, "Reset the internal cache to a specific position (clears state between generations)")
+        .def("forward", [](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_cache = py::none()) {
+                // Helper to extract C++ tensor from Python InfiniCore tensor
+                auto get_tensor = [](py::object obj) -> infinicore::Tensor {
                     // If it's already a Python InfiniCore tensor wrapper, extract underlying
                     if (py::hasattr(obj, "_underlying")) {
                         return obj.attr("_underlying").cast<infinicore::Tensor>();
                     }
                     // Try direct cast (in case it's already a C++ tensor)
-                    try {
-                        return obj.cast<infinicore::Tensor>();
-                    } catch (const py::cast_error &) {
-                        // Extract device from first tensor for conversion
-                        Device device = Device(Device::Type::CPU, 0);
-                        if (py::hasattr(obj, "device")) {
-                            try {
-                                auto py_device = obj.attr("device");
-                                if (py::hasattr(py_device, "_underlying")) {
-                                    device = py_device.attr("_underlying").cast<Device>();
-                                } else {
-                                    device = py_device.cast<Device>();
-                                }
-                            } catch (...) {
-                                // Keep default CPU device
-                            }
-                        }
-                        return convert_to_tensor(obj, device);
-                    }
+                    return obj.cast<infinicore::Tensor>();
                 };
 
-                // Convert Python tensors to C++ tensors
+                // Extract InfiniCore tensors from Python objects
                 auto infini_input_ids = get_tensor(input_ids);
                 auto infini_position_ids = get_tensor(position_ids);
 
-                // Handle kv_caches if provided
-                std::vector<void *> *kv_caches_ptr = nullptr;
+            // Handle kv_cache if provided (model-level DynamicCache)
+            void *kv_cache_ptr = nullptr;
+            if (!kv_cache.is_none()) {
+                // Try to extract DynamicCache from Python object
+                if (py::hasattr(kv_cache, "_underlying")) {
+                    kv_cache_ptr = kv_cache.attr("_underlying").cast<void *>();
+                } else {
+                    // Try direct cast
+                    try {
+                        kv_cache_ptr = kv_cache.cast<void *>();
+                    } catch (...) {
+                        // If conversion fails, pass nullptr (cache will be ignored)
+                        kv_cache_ptr = nullptr;
+                    }
+                }
+            }
 
-                return model.forward(infini_input_ids, infini_position_ids, kv_caches_ptr); },
-             //
-             py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
+            return model.forward(infini_input_ids, infini_position_ids, kv_cache_ptr);
+        }, py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
 }
 
 } // namespace infinilm::models::llama
