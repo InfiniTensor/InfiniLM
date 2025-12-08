@@ -13,9 +13,15 @@ LlamaModel::LlamaModel(const LlamaConfig &config, const infinicore::Device &devi
     INFINICORE_NN_MODULE_INIT(embed_tokens, config.vocab_size, config.hidden_size,
                               std::nullopt, dtype, device);
 
-    // Initialize decoder layers
-    INFINICORE_NN_MODULE_VEC_INIT(layers, config.num_hidden_layers, LlamaDecoderLayer,
-                                   config, device, dtype);
+    // Initialize decoder layers with layer indices
+    // TODO: Update INFINICORE_NN_MODULE_VEC_INIT macro to support per-layer constructor arguments
+    //       (e.g., via a factory function or lambda that receives the layer index)
+    //       Currently, we can't use the macro because each layer needs a different layer_idx
+    layers_.reserve(config.num_hidden_layers);
+    for (size_t i = 0; i < config.num_hidden_layers; ++i) {
+        layers_.push_back(this->register_module<LlamaDecoderLayer>(
+            "layers." + std::to_string(i), config, device, i, dtype));
+    }
 
     // Initialize final layer normalization
     INFINICORE_NN_MODULE_INIT(norm, config.hidden_size, config.rms_norm_eps,
@@ -63,8 +69,8 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     // 2. Process through all decoder layers
     size_t num_layers = layers_.size();
     for (size_t i = 0; i < num_layers; ++i) {
-        // Pass model-level cache with layer index
-        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, cache_to_use, i);
+        // Pass model-level cache (layer index is now a property of the layer)
+        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, cache_to_use);
 
         // DEBUG: Disabled previous final layer logging
         // Logging moved to decoder layer for post-attention normalization

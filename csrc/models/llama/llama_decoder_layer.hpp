@@ -28,9 +28,11 @@ public:
      *
      * @param config Model configuration
      * @param device Device to create tensors on
+     * @param layer_idx Layer index for cache management and debugging
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
     LlamaDecoderLayer(const LlamaConfig &config, const infinicore::Device &device,
+                     size_t layer_idx,
                      infinicore::DataType dtype = infinicore::DataType::F32);
 
     /**
@@ -39,13 +41,16 @@ public:
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
      * @param kv_cache Optional KV cache for incremental decoding
-     * @param layer_idx Layer index for cache management and debugging
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &position_ids,
-                                void *kv_cache = nullptr,
-                                size_t layer_idx = -1) const;
+                                void *kv_cache = nullptr) const;
+
+    /**
+     * @brief Get the layer index
+     */
+    size_t layer_idx() const { return layer_idx_; }
 
     void set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) {
         if (self_attn_) {
@@ -62,6 +67,9 @@ protected:
     // Attention and MLP
     INFINICORE_NN_MODULE(LlamaAttention, self_attn);
     INFINICORE_NN_MODULE(LlamaMLP, mlp);
+
+private:
+    size_t layer_idx_;  // Layer index for cache management and debugging
 };
 
 } // namespace infinilm::models::llama

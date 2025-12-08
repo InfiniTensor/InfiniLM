@@ -13,8 +13,10 @@
 namespace infinilm::models::llama {
 
 LlamaAttention::LlamaAttention(const LlamaConfig &config, const infinicore::Device &device,
+                               size_t layer_idx,
                                infinicore::DataType dtype)
-    : hidden_size_(config.hidden_size),
+    : layer_idx_(layer_idx),
+      hidden_size_(config.hidden_size),
       num_attention_heads_(config.num_attention_heads),
       num_key_value_heads_(config.num_key_value_heads),
       head_dim_(config.head_dim),
@@ -36,8 +38,7 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config, const infinicore::Devi
 
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
                                             const infinicore::Tensor &position_ids,
-                                            void *kv_cache,
-                                            size_t layer_idx) const {
+                                            void *kv_cache) const {
     if (!rotary_emb_) {
         throw std::runtime_error("LlamaAttention: rotary_emb not configured");
     }
@@ -86,7 +87,7 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
     infinicore::Tensor k_total; // [bs, n_kv_head, total_seq_len, head_dim]
     infinicore::Tensor v_total; // [bs, n_kv_head, total_seq_len, head_dim]
     if (external_cache != nullptr) {
-        auto [k_total_tmp, v_total_tmp] = external_cache->update(layer_idx, k_permuted, v_permuted);
+        auto [k_total_tmp, v_total_tmp] = external_cache->update(layer_idx_, k_permuted, v_permuted);
         k_total = k_total_tmp;
         v_total = v_total_tmp;
     } else {

@@ -5,7 +5,9 @@
 namespace infinilm::models::llama {
 
 LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config, const infinicore::Device &device,
-                                     infinicore::DataType dtype) {
+                                     size_t layer_idx,
+                                     infinicore::DataType dtype)
+    : layer_idx_(layer_idx) {
     // Initialize layer normalization layers
     INFINICORE_NN_MODULE_INIT(input_layernorm, config.hidden_size, config.rms_norm_eps,
                               dtype, device);
@@ -13,14 +15,13 @@ LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config, const infinicore
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, config, device, dtype);
+    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, dtype);
     INFINICORE_NN_MODULE_INIT(mlp, config, device, dtype);
 }
 
 infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_states,
                                                const infinicore::Tensor &position_ids,
-                                               void *kv_cache,
-                                               size_t layer_idx) const {
+                                               void *kv_cache) const {
     // Save residual for attention
     auto residual = hidden_states;
 
@@ -28,7 +29,7 @@ infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_s
     auto normed_states = input_layernorm_->forward(hidden_states);
 
     // 2. Self-attention with residual connection
-    auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache, layer_idx);
+    auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache);
 
     // Add residual: hidden_states = hidden_states + attn_output
     auto output = infinicore::op::add(residual, attn_output);
