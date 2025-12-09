@@ -30,15 +30,20 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
         worker->load_param(name, param);
     }
 }
-
 //------------------------------------------------------
 // state_dict
 //------------------------------------------------------
-std::unordered_map<std::string, infinicore::nn::Parameter> InferEngine::state_dict() {
+std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> InferEngine::state_dict() {
+
+    std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> results;
     if (0 == workers_.size()) {
         throw std::runtime_error(" Model object not found. ");
     }
-    return workers_[0]->state_dict();
+
+    for (auto &worker : workers_) {
+        results.push_back(worker->state_dict());
+    }
+    return results;
 }
 
 //------------------------------------------------------

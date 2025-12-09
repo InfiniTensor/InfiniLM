@@ -37,29 +37,38 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
 ```
 
 ## 使用方式(新版)
+#### 一、编译并安装 `InfiniCore`
+编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :
 
-- 编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :
-
-    - 注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）
-    - 根据硬件平台，选择 xmake 构建配置
-    - 编译安装InfiniCore
-    - 安装 C++ 库
-    - 安装 Python 包
+- 注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）
+- 根据硬件平台，选择 xmake 构建配置
+- 编译安装InfiniCore
+- 安装 C++ 库
+- 安装 Python 包
 
 
+#### 二、编译并安装  `InfiniLM`
+  - 克隆项目
+  
+    由于仓库中含有子模块，所以在克隆时请添加 `--recursive` 或 `--recurse-submodules`，如：
 
-- 编译并安装 `InfiniLM` Python 包
-  - 安装第三方依赖
-  ```bash
+    ```shell
+    git clone --recursive https://github.com/InfiniTensor/InfiniCore.git
+    ```
+
+    或者在普通克隆后进行更新：
+
+    ```shell
     git submodule update --init --recursive
-  ```
+    ```
+
 
   - 安装 InfiniLM Python 包
-  ```bash
-    pip install -e .
-  ```
+    ```bash
+      pip install -e .
+    ```
 
-- 单次推理测试
+  - 单次推理测试
     - llama示例
     ```bash
     python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>
@@ -67,4 +76,14 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
     - 例如：
     ```bash
     python examples/llama.py --nvidia --model_path=/models/TinyLlama-1.1B-Chat-v1.0
+    ```
+  - 分布式推理测试
+      - 9g示例
+      ```bash
+    python examples/jiuge.py [---nvidia] --model_path=<path/to/model_dir> --backend=cpp --tp=NDEV --batch_size=MAX_BATCH 
+    ```
+    
+    - 例如： 9G7B模型，cpp后端，batch_size为16，4卡分布式
+    ```bash
+    python examples/jiuge.py --nvidia --model_path=/models/9G7B_MHA/ --backend=cpp --tp=4 --batch_size=16 
     ```
