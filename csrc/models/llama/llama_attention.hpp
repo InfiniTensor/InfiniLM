@@ -1,7 +1,10 @@
 #pragma once
 
-#include "cache/kv_cache.hpp"
-#include "infinicore/device.hpp"
+#include "../../cache/kv_cache.hpp"
+#include "../../engine/distributed/distributed.hpp"
+#include "../../layers/fused_linear.hpp"
+#include "llama_config.hpp"
+
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rope.hpp"
@@ -10,8 +13,6 @@
 #include <algorithm>
 #include <memory>
 #include <utility>
-
-#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::llama {
 
@@ -70,9 +71,7 @@ public:
 
 protected:
     // Projection layers
-    INFINICORE_NN_MODULE(infinicore::nn::ColumnParallelLinear, q_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::ColumnParallelLinear, k_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::ColumnParallelLinear, v_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::QKVParallelLinear, qkv_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
 
     engine::distributed::RankInfo rank_info_;

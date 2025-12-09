@@ -41,10 +41,10 @@ target("_infinilm")
 
     local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 
-    add_includedirs("csrc", { public = false })
-    add_includedirs("csrc/pybind11", { public = false })
-    add_includedirs("include", { public = false })
+    -- add_includedirs("csrc", { public = false })
+    -- add_includedirs("csrc/pybind11", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })
+    add_includedirs("include", { public = false })
     -- spdlog is already included globally via add_includedirs at the top
 
     add_linkdirs(INFINI_ROOT.."/lib")

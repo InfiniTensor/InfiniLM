@@ -201,6 +201,7 @@ class GenerationMixin:
             # -------------------------------------------------------------------------- #
             #                     prepare model inputs
             # -------------------------------------------------------------------------- #
+            start_time = time.time()
             model_inputs = self.prepare_inputs_for_generation(**model_kwargs)
 
             model_kwargs["position_ids"] = model_inputs["position_ids"]
@@ -208,8 +209,6 @@ class GenerationMixin:
             # -------------------------------------------------------------------------- #
             #                     计算一次
             # -------------------------------------------------------------------------- #
-            start_time = time.time()
-
             logits = self(**model_inputs)
             infinicore.sync_device()
 
@@ -242,10 +241,6 @@ class GenerationMixin:
                 )
 
             infinicore.sync_stream()  # 计算结束前需要同步
-
-            end_time = time.time()
-            time_list.append((end_time - start_time) * 1000)
-
             # ----------------------------------------------------------------- #
             #                得到下一个token的id，并解码为字符
             # ----------------------------------------------------------------- #
@@ -255,6 +250,9 @@ class GenerationMixin:
             model_kwargs["next_token_ids"] = next_tokens.to_numpy().tolist()
             output_tokens_list.append(token_id)
             output_content += output_str
+
+            end_time = time.time()
+            time_list.append((end_time - start_time) * 1000)
 
             print(output_str, end="", flush=True)
             if stop_on_eos and token_id in eos_token_id_list:
