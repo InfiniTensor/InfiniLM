@@ -42,11 +42,22 @@ def main():
 
     path = args.model_path
     tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
-    llm = InfiniEngine(path, device=device_type, ndev=args.ndev, enforce_eager=True, 
-              tensor_parallel_size=args.ndev, trust_remote_code=True, 
-              attention_bias=True, enable_paged_attn=args.enable_paged_attn, max_kvcache_tokens=max_kvcache_tokens)
+    llm = InfiniEngine(
+        path,
+        device=device_type,
+        ndev=args.ndev,
+        enforce_eager=True, 
+        tensor_parallel_size=args.ndev,
+        trust_remote_code=True, 
+        attention_bias=True,
+        enable_paged_attn=args.enable_paged_attn,
+        max_kvcache_tokens=max_kvcache_tokens
+    )
 
-    sampling_params = SamplingParams(temperature=0.6, max_tokens=128)
+    sampling_params = SamplingParams(
+        temperature=0.6,
+        max_tokens=128
+    )
 
     prompts = [
         "山东最高的山是？",
