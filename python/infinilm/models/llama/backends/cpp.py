@@ -189,12 +189,9 @@ class LlamaForCausalLM(GenerationMixin):
             config._underlying, distributed_config._underlying, device._underlying.type
         )
 
-    def state_dict(self):
-        """Get model state dictionary with parameter shapes"""
-        destination = OrderedDict()
-        for name, param in self._model.state_dict().items():
-            destination[name] = infinicore.Tensor(param)
-        return destination
+    def state_dict_keyname(self):
+        """Get model key name."""
+        return self._model.state_dict()[0].keys()
 
     def load_state_dict(self, state_dict, strict=None):
         """

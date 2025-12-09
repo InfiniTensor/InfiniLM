@@ -44,18 +44,20 @@ inline void bind_infer_engine(py::module &m) {
              "Load a parameter tensor into all workers (each worker picks its shard)")
         .def("state_dict", [](InferEngine &self) {
             // Return a dictionary containing references to the whole state of the module.
-            auto state_dict = self.state_dict();
-            py::dict result;
-            for (const auto &[name, param] : state_dict) {
-                result[py::cast(name)] = infinicore::Tensor(param);
+            py::list state_dict_tp_all;
+            for (const auto &state_dict_tp : self.state_dict()) {
+                py::dict result;
+                for (const auto &[name, param] : state_dict_tp) {
+                    result[py::cast(name)] = infinicore::Tensor(param);
+                }
+                state_dict_tp_all.append(result);
             }
-            return result;
+
+            return state_dict_tp_all;
         })
         .def("generate", [](InferEngine &self, py::object input_ids, py::object position_ids) -> infinicore::Tensor { return self.generate(input_ids.cast<infinicore::Tensor>(), position_ids.cast<infinicore::Tensor>()); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", &InferEngine::reset_cache,
-             py::arg("pos") = 0, py::arg("async") = false,
-             "Reset the internal cache in all workers to a specific position (clears state between generations). "
-             "By default, this is synchronous. If async=True, this becomes asynchronous (unstable - use with caution).");
+        .def("reset_cache", &InferEngine::reset_cache, py::arg("pos") = 0, py::arg("async") = false, "Reset the internal cache in all workers to a specific position (clears state between generations). "
+                                                                                                     "By default, this is synchronous. If async=True, this becomes asynchronous (unstable - use with caution).");
 
     // Optionally, you can add __repr__ for debugging
     m.attr("InferEngine").attr("__repr__") = py::cpp_function([](const InferEngine &self) {

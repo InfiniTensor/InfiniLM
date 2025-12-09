@@ -4,7 +4,7 @@ from typing import Dict, Union
 import torch
 from safetensors import safe_open
 import glob
-
+from tqdm import tqdm
 import infinicore
 
 str_to_torch_dtype = {
@@ -33,20 +33,22 @@ def check_parameters(model_keys: list, already_loaded_keys: list):
     error_msgs: list[str] = []
 
     if len(unexpected_keys) > 0:
-        error_msgs.insert(
-            0,
+        error_msgs.append(
             "Unexpected key(s) in state_dict: {}. ".format(
                 ", ".join('"{}"'.format(k) for k in unexpected_keys)
-            ),
+            )
         )
     if len(missing_keys) > 0:
-        error_msgs.insert(
-            0,
+        error_msgs.append(
             "Missing key(s) in state_dict: {}. ".format(
                 ", ".join('"{}"'.format(k) for k in missing_keys)
-            ),
+            )
         )
-    return error_msgs
+
+    if len(error_msgs) > 0:
+        raise RuntimeError(
+            "Error(s) in loading state_dict\n\t{}".format("\n\t".join(error_msgs))
+        )
 
 
 def load_state_dict(
@@ -86,6 +88,9 @@ def get_model_state_dict(
     """
     Load the model weights.
     """
+
+    print(" load weights ......")
+
     torch_device = device.type
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
 
@@ -117,35 +122,57 @@ def load_model_state_dict_by_file(
     dtype=infinicore.dtype,
 ) -> Dict[str, infinicore.Tensor]:
     """
-    Load the model weights by file.
+    Load the model weights from file.
     """
+    print(" load weights ......")
+
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
-    model_keys = model.state_dict().keys()
+    model_keys = model.state_dict_keyname()
 
     already_loaded_keys = []
-    for file_path in glob.glob(os.path.join(model_path, "*.safetensors")):
-        # --------------------------------------------------------- #
-        #          Load weights from *.safetensors file
-        # --------------------------------------------------------- #
-        model_param = load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
-        already_loaded_keys.extend(model_param.keys())
 
-        # --------------------------------------------------------- #
-        #         model_param_infini references torch.Tensor
-        # --------------------------------------------------------- #
+    file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
+    if len(file_list) > 0:
+        for file_path in tqdm(file_list, desc="Processing files"):
+            tqdm.write(f"Processing: {os.path.basename(file_path)}")
+
+            # --------------------------------------------------------- #
+            #          Load weights from *.safetensors file
+            # --------------------------------------------------------- #
+            model_param = load_state_dict(
+                file_path, device=torch_device, dtype=torch_dtype
+            )
+            already_loaded_keys.extend(model_param.keys())
+
+            # --------------------------------------------------------- #
+            #         model_param_infini references torch.Tensor
+            # --------------------------------------------------------- #
+            model_param_infini = {}
+            for key in model_param.keys():
+                model_param_infini[key] = infinicore.from_torch(model_param[key])
+
+            model.load_state_dict(model_param_infini, strict=False)
+            infinicore.sync_device()
+
+    elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
+        file_path = os.path.join(model_path, "pytorch_model.bin")
+        model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+
         model_param_infini = {}
-        for key in model_param.keys():
-            model_param_infini[key] = infinicore.from_torch(model_param[key])
+        for key in model_params.keys():
+            model_param_infini[key] = infinicore.from_torch(
+                model_params[key].to(dtype=torch_dtype)
+            )
 
-        model.load_state_dict(model_param_infini, strict=False)
+            already_loaded_keys.append(key)
+
+        model.load_state_dict(model_param_infini, strict=True)
         infinicore.sync_device()
+    else:
+        raise KeyError("Weight file not found.")
 
-    error_msgs = check_parameters(model_keys, already_loaded_keys)
-    if len(error_msgs) > 0:
-        raise RuntimeError(
-            "Error(s) in loading state_dict\n\t{}".format("\n\t".join(error_msgs))
-        )
+    check_parameters(model_keys, already_loaded_keys)
 
 
 def load_model_state_dict_by_tensor(
@@ -156,23 +183,37 @@ def load_model_state_dict_by_tensor(
     """
     Load the model weights by tensor.
     """
+    print(" load weights ......")
 
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
-    model_keys = model.state_dict().keys()
+    model_keys = model.state_dict_keyname()
     already_loaded_keys = []
 
-    for file in glob.glob(os.path.join(model_path, "*.safetensors")):
-        with safe_open(file, "pt", "cpu") as f:
-            for name in f.keys():
-                param_infini = infinicore.from_torch(
-                    f.get_tensor(name).to(dtype=torch_dtype)
-                )
-                model.load_parameter(name, param_infini)
-                already_loaded_keys.append(name)
-                infinicore.sync_stream()
+    file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
+    if len(file_list) > 0:
+        for file_path in tqdm(file_list, desc="Processing files"):
+            tqdm.write(f"Processing: {os.path.basename(file_path)}")
 
-    error_msgs = check_parameters(model_keys, already_loaded_keys)
-    if len(error_msgs) > 0:
-        raise RuntimeError(
-            "Error(s) in loading state_dict\n\t{}".format("\n\t".join(error_msgs))
-        )
+            with safe_open(file_path, "pt", "cpu") as f:
+                for name in f.keys():
+                    weight_infini = infinicore.from_torch(
+                        f.get_tensor(name).to(dtype=torch_dtype)
+                    )
+                    model.load_param(name, weight_infini)
+                    already_loaded_keys.append(name)
+                    infinicore.sync_stream()
+
+    elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
+        file_path = os.path.join(model_path, "pytorch_model.bin")
+        model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+
+        for key in model_params.keys():
+            weight_infini = infinicore.from_torch(
+                model_params[key].to(dtype=torch_dtype)
+            )
+            model.load_param(key, weight_infini)
+            already_loaded_keys.append(key)
+    else:
+        raise KeyError("Weight file not found.")
+
+    check_parameters(model_keys, already_loaded_keys)
