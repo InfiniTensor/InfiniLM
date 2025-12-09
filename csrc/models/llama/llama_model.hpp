@@ -1,7 +1,10 @@
 #pragma once
 
-#include "cache/kv_cache.hpp"
-#include "infinicore/device.hpp"
+#include "llama_config.hpp"
+#include "llama_decoder_layer.hpp"
+#include "../../cache/kv_cache.hpp"
+
+#include "infinicore/nn/module.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"

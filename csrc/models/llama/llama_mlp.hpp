@@ -1,5 +1,8 @@
 #pragma once
 
+#include "../../layers/fused_linear.hpp"
+#include "llama_config.hpp"
+
 #include "infinicore/device.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
@@ -48,14 +51,10 @@ public:
     size_t intermediate_size() const { return intermediate_size_; }
 
 protected:
-    // Projection layers
-    INFINICORE_NN_MODULE(infinicore::nn::ColumnParallelLinear, gate_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::ColumnParallelLinear, up_proj);
+    INFINICORE_NN_MODULE(layers::GateUpParallelLinear, gate_up_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
 
     engine::distributed::RankInfo rank_info_;
-
-private:
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;

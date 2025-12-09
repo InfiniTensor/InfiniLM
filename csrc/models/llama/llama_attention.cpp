@@ -42,12 +42,8 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     }
 
     // Initialize projection layers
-    INFINICORE_NN_MODULE_INIT(q_proj, hidden_size_, hidden_size_, use_bias_,
-                              dtype, device, tp_rank, tp_size);
-    INFINICORE_NN_MODULE_INIT(k_proj, hidden_size_, kv_dim_, use_bias_,
-                              dtype, device, tp_rank, tp_size);
-    INFINICORE_NN_MODULE_INIT(v_proj, hidden_size_, kv_dim_, use_bias_,
-                              dtype, device, tp_rank, tp_size);
+    INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
+                             dtype, device, rank_info);
     // Output projection uses attention_output_bias (can be different from qkv)
     INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
                               dtype, device, tp_rank, tp_size, rank_info.comm);
@@ -66,11 +62,7 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
     size_t seq_len = shape[1];
 
     // 1. Project Q, K, V
-    auto q = q_proj_->forward(hidden_states_mutable); // [batch, seq_len, hidden_size]
-
-    auto k = k_proj_->forward(hidden_states_mutable); // [batch, seq_len, kv_dim]
-
-    auto v = v_proj_->forward(hidden_states_mutable); // [batch, seq_len, kv_dim]
+    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
     // 2. Reshape for multi-head attention
 
