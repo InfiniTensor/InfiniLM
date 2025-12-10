@@ -103,4 +103,15 @@ void LlamaModel::reset_cache(size_t pos) const {
     }
 }
 
+void LlamaModel::reset_cache(const cache::CacheConfig &new_config, size_t pos) const {
+    if (internal_cache_) {
+        internal_cache_->update_config(new_config);
+        internal_cache_->reset(pos);
+    }
+    if (external_cache_) {
+        external_cache_->update_config(new_config);
+        external_cache_->reset(pos);
+    }
+}
+
 } // namespace infinilm::models::llama

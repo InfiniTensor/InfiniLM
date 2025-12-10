@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../cache/cache_config.hpp"
 #include "../models/model_factory.hpp"
 #include "distributed/distributed.hpp"
 
@@ -18,6 +19,7 @@ class RankWorker {
         LOAD,
         RUN,
         RESET_CACHE,
+        RESET_CACHE_WITH_CONFIG,
         STOP
     };
 
@@ -40,6 +42,8 @@ public:
     // By default, this is synchronous (blocks until reset completes).
     // If async=true, this becomes asynchronous (unstable - use with caution).
     void reset_cache(size_t pos = 0, bool async = false);
+
+    void reset_cache(const cache::CacheConfig &new_config, size_t pos = 0, bool async = false);
 
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
@@ -76,6 +80,7 @@ private:
     infinicore::Tensor pending_param_;
     std::vector<std::any> pending_args_;
     size_t pending_reset_pos_ = 0;
+    cache::CacheConfig pending_reset_config_;
 
     // Output (protected by mutex)
     infinicore::Tensor output_;

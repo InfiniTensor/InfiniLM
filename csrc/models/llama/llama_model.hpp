@@ -68,6 +68,14 @@ public:
     void reset_cache(size_t pos = 0) const;
 
     /**
+     * @brief Reset the internal cache with a new configuration and position
+     * This should be called when changing cache parameters (e.g., initial capacity)
+     * @param new_config New cache configuration
+     * @param pos Position to reset to
+     */
+    void reset_cache(const cache::CacheConfig &new_config, size_t pos = 0) const;
+
+    /**
      * @brief Set external cache for the model
      * @param cache Pointer to external cache (managed by CacheManager)
      */

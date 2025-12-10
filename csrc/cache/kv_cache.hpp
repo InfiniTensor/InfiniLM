@@ -273,13 +273,35 @@ public:
      * @brief Update cache configuration (for dynamic reconfiguration)
      */
     void update_config(const CacheConfig &new_config) {
+        // Check if we need to rebuild
+        bool need_rebuild = false;
+
+        // Rebuild if number of layers changed
         if (new_config.num_layers != cache_config_.num_layers) {
-            // Resize layers if number of layers changed
+            need_rebuild = true;
             layers_.resize(new_config.num_layers);
         }
+
+        // Rebuild if reset mode is RECREATE
+        if (new_config.reset_mode == CacheResetMode::RECREATE) {
+            need_rebuild = true;
+        }
+
+        // Update configuration
         cache_config_ = new_config;
-        spdlog::info("DynamicCache configuration updated: layers={}, initial_capacity={}, growth_factor={}",
-                     new_config.num_layers, new_config.initial_capacity, new_config.growth_factor);
+
+        if (need_rebuild) {
+            // Clear all layers to force reinitialization on next use
+            for (auto &layer : layers_) {
+                layer.initialized = false;
+                layer.max_capacity = 0;
+                // Tensors will be recreated when ensure_capacity is called
+            }
+            spdlog::info("DynamicCache configuration updated - cache will be rebuilt on next use");
+        } else {
+            spdlog::info("DynamicCache configuration updated: layers={}, initial_capacity={}, growth_factor={}",
+                         new_config.num_layers, new_config.initial_capacity, new_config.growth_factor);
+        }
     }
 
     /**
