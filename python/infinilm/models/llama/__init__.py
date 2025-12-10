@@ -1,6 +1,7 @@
 import os
 from typing import Optional, Union
 import infinicore
+import time
 
 __all__ = ["AutoLlamaModel"]
 
@@ -15,14 +16,18 @@ class AutoLlamaModel:
         backend="python",
         **kwargs,
     ):
+        t1 = time.time()
+
         if backend == "python":
             from . import modeling_llama
 
             print("\n***************************************************************")
-            print("\t\t Loading Llama Model with Python Backend")
-            print(f"\t\t Device: {device}, DType: {dtype}")
+            print("\t Loading Llama Model with Python Backend")
+            print(f"\t Device: {device}, DType: {dtype}")
             print("***************************************************************\n")
-            return modeling_llama.LlamaForCausalLM.from_pretrained(
+            print(" create model ......")
+
+            instance = modeling_llama.LlamaForCausalLM.from_pretrained(
                 model_path,
                 device=device,
                 dtype=dtype,
@@ -33,14 +38,20 @@ class AutoLlamaModel:
             from .backends import cpp
 
             print("\n***************************************************************")
-            print("\t\tLoading Llama Model with C++ Backend")
-            print(f"\t\tDevice: {device}, DType: {dtype}")
+            print("\t Loading Llama Model with C++ Backend")
+            print(f"\t Device: {device}, DType: {dtype}")
             print("***************************************************************\n")
-            return cpp.LlamaForCausalLM.from_pretrained(
+            print(" create model ......")
+            instance = cpp.LlamaForCausalLM.from_pretrained(
                 model_path,
                 device=device,
                 dtype=dtype,
                 **kwargs,
             )
+        else:
+            raise KeyError("invalid backend")
 
-        raise KeyError("invalid backend")
+        t2 = time.time()
+        print(f" create model over! {(t2 - t1) * 1000} ms \n")
+
+        return instance

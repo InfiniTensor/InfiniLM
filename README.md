@@ -53,7 +53,7 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
     由于仓库中含有子模块，所以在克隆时请添加 `--recursive` 或 `--recurse-submodules`，如：
 
     ```shell
-    git clone --recursive https://github.com/InfiniTensor/InfiniCore.git
+    git clone --recursive https://github.com/InfiniTensor/InfiniLM.git
     ```
 
     或者在普通克隆后进行更新：
