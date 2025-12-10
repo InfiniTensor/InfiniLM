@@ -1,6 +1,6 @@
 import os
 from typing import Dict, Union
-
+import time
 import torch
 from safetensors import safe_open
 import glob
@@ -89,7 +89,8 @@ def get_model_state_dict(
     Load the model weights.
     """
 
-    print(" load weights ......")
+    print(" read weights ......")
+    t1 = time.time()
 
     torch_device = device.type
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
@@ -113,6 +114,8 @@ def get_model_state_dict(
     for key in model_param.keys():
         model_param_infini[key] = infinicore.from_torch(model_param[key])
 
+    t2 = time.time()
+    print(f" read weights over! {(t2 - t1) * 1000} ms \n")
     return model_param_infini
 
 
@@ -125,6 +128,7 @@ def load_model_state_dict_by_file(
     Load the model weights from file.
     """
     print(" load weights ......")
+    t1 = time.time()
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
@@ -174,6 +178,9 @@ def load_model_state_dict_by_file(
 
     check_parameters(model_keys, already_loaded_keys)
 
+    t2 = time.time()
+    print(f" load weights over! {(t2 - t1) * 1000} ms \n")
+
 
 def load_model_state_dict_by_tensor(
     model: infinicore.nn.Module,
@@ -183,7 +190,9 @@ def load_model_state_dict_by_tensor(
     """
     Load the model weights by tensor.
     """
+
     print(" load weights ......")
+    t1 = time.time()
 
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
@@ -217,3 +226,6 @@ def load_model_state_dict_by_tensor(
         raise KeyError("Weight file not found.")
 
     check_parameters(model_keys, already_loaded_keys)
+
+    t2 = time.time()
+    print(f" load weights over! {(t2 - t1) * 1000} ms \n")
