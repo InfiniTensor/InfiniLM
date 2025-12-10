@@ -49,7 +49,7 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
 
 #### 二、编译并安装  `InfiniLM`
   - 克隆项目
-  
+
     由于仓库中含有子模块，所以在克隆时请添加 `--recursive` 或 `--recurse-submodules`，如：
 
     ```shell
@@ -80,10 +80,27 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
   - 分布式推理测试
       - 9g示例
       ```bash
-    python examples/jiuge.py [---nvidia] --model_path=<path/to/model_dir> --backend=cpp --tp=NDEV --batch_size=MAX_BATCH 
+    python examples/jiuge.py [---nvidia] --model_path=<path/to/model_dir> --backend=cpp --tp=NDEV --batch_size=MAX_BATCH
     ```
-    
+
     - 例如： 9G7B模型，cpp后端，batch_size为16，4卡分布式
     ```bash
-    python examples/jiuge.py --nvidia --model_path=/models/9G7B_MHA/ --backend=cpp --tp=4 --batch_size=16 
+    python examples/jiuge.py --nvidia --model_path=/models/9G7B_MHA/ --backend=cpp --tp=4 --batch_size=16
     ```
+
+  - 运行推理基准测试（C-Eval/MMLU）
+
+    ```bash
+    python test/bench/test_benchmark.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N]
+    ```
+
+  - 示例：
+    - C-Eval（默认 subject=all，会依次加载全部科目；亦可指定单科目）
+      ```bash
+      python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench ceval --subject middle_school_mathematics --num_samples 100 --backend cpp --ndev 1
+      ```
+
+    - MMLU（默认 subject=all）
+      ```bash
+      python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra --backend cpp --ndev 1
+      ```

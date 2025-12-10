@@ -262,8 +262,7 @@ def test():
     backend = "cpp"
     ndev = 1
     benchmark = None
-    subject = None  # For MMLU
-    dataset_name = "middle_school_mathematics"  # For C-Eval
+    subject = "all"  # Shared for both C-Eval and MMLU
     num_samples = None
     max_new_tokens = 500
 
@@ -280,9 +279,6 @@ def test():
             i += 2
         elif sys.argv[i] == "--subject" and i + 1 < len(sys.argv):
             subject = sys.argv[i + 1]
-            i += 2
-        elif sys.argv[i] == "--dataset" and i + 1 < len(sys.argv):
-            dataset_name = sys.argv[i + 1]
             i += 2
         elif sys.argv[i] == "--num_samples" and i + 1 < len(sys.argv):
             num_samples = int(sys.argv[i + 1])
@@ -329,20 +325,83 @@ def test():
 
     # Load dataset based on benchmark
     if benchmark == "ceval":
-        # Load C-Eval dataset
-        # https://huggingface.co/datasets/ceval/ceval-exam/tree/main/middle_school_geography
-        print(f"Loading C-Eval dataset (dataset: {dataset_name})...")
+        ceval_subjects = [
+            "accountant",
+            "advanced_mathematics",
+            "art_studies",
+            "basic_medicine",
+            "business_administration",
+            "chinese_language_and_literature",
+            "civil_servant",
+            "clinical_medicine",
+            "college_chemistry",
+            "college_economics",
+            "college_physics",
+            "college_programming",
+            "computer_architecture",
+            "computer_network",
+            "discrete_mathematics",
+            "education_science",
+            "electrical_engineer",
+            "environmental_impact_assessment_engineer",
+            "fire_engineer",
+            "high_school_biology",
+            "high_school_chemistry",
+            "high_school_chinese",
+            "high_school_geography",
+            "high_school_history",
+            "high_school_mathematics",
+            "high_school_physics",
+            "high_school_politics",
+            "ideological_and_moral_cultivation",
+            "law",
+            "legal_professional",
+            "logic",
+            "mao_zedong_thought",
+            "marxism",
+            "metrology_engineer",
+            "middle_school_biology",
+            "middle_school_chemistry",
+            "middle_school_geography",
+            "middle_school_history",
+            "middle_school_mathematics",
+            "middle_school_physics",
+            "middle_school_politics",
+            "modern_chinese_history",
+            "operating_system",
+            "physician",
+            "plant_protection",
+            "probability_and_statistics",
+            "professional_tour_guide",
+            "sports_science",
+            "tax_accountant",
+            "teacher_qualification",
+            "urban_and_rural_planner",
+            "veterinary_medicine",
+        ]
+
+        def _load_ceval_subject(subj):
+            print(f"Loading C-Eval dataset (subject: {subj})...")
+            ds = load_dataset(r"ceval/ceval-exam", name=subj)
+            data = ds["val"]
+            if hasattr(data, "to_list"):
+                return data.to_list()
+            return list(data)
+
         try:
-            dataset = load_dataset(r"ceval/ceval-exam", name=dataset_name)
-            samples = dataset["val"]
-            # Convert Dataset to list if needed
-            if hasattr(samples, 'to_list'):
-                samples = samples.to_list()
+            # Support loading a single subject or all subjects by concatenating
+            if subject is None or subject == "all":
+                samples = []
+                for subj in ceval_subjects:
+                    samples.extend(_load_ceval_subject(subj))
             else:
-                samples = list(samples)
+                if subject not in ceval_subjects:
+                    print(f"Unknown C-Eval subject '{subject}'. Available subjects: {', '.join(ceval_subjects)}")
+                    sys.exit(1)
+                samples = _load_ceval_subject(subject)
         except Exception as e:
             print(f"Error loading dataset: {e}")
-            print("Available datasets: middle_school_mathematics, high_school_history, high_school_chinese, high_school_physics, middle_school_geography, middle_school_physics")
+            print("Available subjects: " + ", ".join(ceval_subjects))
             sys.exit(1)
 
     elif benchmark == "mmlu":
