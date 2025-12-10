@@ -94,13 +94,12 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
     python test/bench/test_benchmark.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N]
     ```
 
-  - 示例：
-    - C-Eval（默认 subject=all，会依次加载全部科目；亦可指定单科目）
+    - C-Eval示例（默认 subject=all，会依次加载全部科目；亦可指定单科目）
       ```bash
       python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench ceval --subject middle_school_mathematics --num_samples 100 --backend cpp --ndev 1
       ```
 
-    - MMLU（默认 subject=all）
+    - MMLU示例（默认 subject=all）
       ```bash
       python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra --backend cpp --ndev 1
       ```
