@@ -390,7 +390,7 @@ forwardBatchJiuge(struct JiugeModel *model,
     }
 }
 
-void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDeviceResource *rsrc, InferState &state, InferRequest &req,
+void launchDevice(const JiugeMeta & meta, const JiugeWeights *weights, JiugeDeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
     std::cout << "launch device" << std::endl;
     // Create Device Resource

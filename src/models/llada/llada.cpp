@@ -56,28 +56,6 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
     std::cout << "Set LLaDADeviceResource" << std::endl;
-    // *rsrc = LLaDADeviceResource{
-    //     device,
-    //     dev_id,
-    //     handle,
-    //     getInEmbd(meta, weights),
-    //     getOutNorm(meta, weights),
-    //     getOutEmbd(meta, weights),
-    //     getSinTable(meta),
-    //     getCosTable(meta),
-    //     w_attn_norm,
-    //     w_attn_qkv,
-    //     b_attn_qkv,
-    //     w_attn_q_norm,
-    //     w_attn_k_norm,
-    //     w_attn_out,
-    //     w_ffn_norm,
-    //     w_ffn_gate_up,
-    //     w_ffn_down,
-    //     stream,
-    //     comm,
-    //     memory_pool,
-    // };
     *rsrc = LLaDADeviceResource{
         .device = device,
         .device_id = dev_id,
@@ -107,30 +85,68 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
-void releaseDeviceResource(){
-
+void releaseDeviceResource(LLaDADeviceResource &rsrc){
+    std::cout << "Release" << std::endl;
 }
 
-void inferDeviceBatch(){
-
+void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
+                      uint32_t idev, uint32_t ndev,
+                      const uint32_t *tokens, uint32_t ntok,
+                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                      struct KVCache **kv_caches,
+                      const float *temperature, const uint32_t *topk, const float *topp,
+                      uint32_t *output, void *last_logits){
+    std::cout << "Infer Device Batch" << std::endl;
 }
 
 __C void
-inferBatchLLaDAMoE(){
-
+inferBatchLLaDA(struct LLaDAModel *model,
+                const uint32_t *tokens, uint32_t ntok,
+                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                struct KVCache **kv_caches,
+                const float *temperature, const uint32_t *topk, const float *topp,
+                uint32_t *output){
+    std::cout << "Infer Batch LLaDA is be called";
 }
 
 __C void
-forwardBatchLLaDAMoE(){
+forwardBatchLLaDA(struct LLaDAModel *model,
+                  const uint32_t *tokens, uint32_t ntok,
+                  const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                  struct KVCache **kv_caches,
+                  void *logits){
+                        model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.output = nullptr;
+    model->req.logits = logits;
+    model->req.temperature = nullptr;
+    model->req.topk = nullptr;
+    model->req.topp = nullptr;
 
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
 }
 
 // 目前实现了资源的分配
-void launchDevice(const LLaDAMeta * meta, const LLaDAWeights *weights, LLaDADeviceResource *rsrc, InferState &state, InferRequest &req,
+void launchDevice(const LLaDAMeta & meta, const LLaDAWeights *weights, LLaDADeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm){
     std::cout << "launch device" << std::endl;
     // Create Device Resource
-    createDeviceResource(rsrc, meta, weights, device, idev, ndev, dev_id, comm);
+    createDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
 
     std::cout << "Cache Manager initing ..." << std::endl;
     CacheManager cache_manager(100); 
@@ -140,6 +156,29 @@ void launchDevice(const LLaDAMeta * meta, const LLaDAWeights *weights, LLaDADevi
 
     // Set the inference context for this thread
     setInferenceContext(&ctx);
+
+    while (true) {
+        std::unique_lock<std::mutex> lock(state.mtx);
+        state.cv_start.wait(lock, [&] { return state.proceed || state.exit_flag; });
+        // quit if exit_flag is set
+        if (state.exit_flag) {
+            break;
+        }
+        std::cout << "Infering Device Batch" << std::endl;
+        inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
+                         req.req_lens, req.nreq, req.req_pos, req.kv_caches,
+                         req.temperature, req.topk, req.topp, req.output, req.logits);
+
+        state.proceed = false;
+        lock.unlock();
+        state.cv_done.notify_one();
+    }
+
+    // Clean-Up
+    std::cout << "Clearing Context" << std::endl;
+    releaseDeviceResource(*rsrc);
+    setInferenceContext(nullptr); // Clear the context when done
+
 }
 
 
@@ -161,8 +200,8 @@ LLaDAModel::LLaDAModel(const LLaDAMeta *_meta, const LLaDAWeights *weights, infi
 
     for (int i = 0; i < ndev; i++) {
         std::cout << "Launch Device " << i << " Thread" << std::endl; 
-        //threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
-        launchDevice(_meta, weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+        threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+        //launchDevice(_meta, weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
 
 }
@@ -179,7 +218,6 @@ __C struct LLaDAModel * createLLaDAModel(const LLaDAMeta * meta,
 
     //1. 测试launchDevice
     return model;
-    //
 }
 
 

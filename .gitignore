@@ -27,3 +27,6 @@ cache/
 *.txt
 
 *.http
+
+#weight
+llada_torch/*

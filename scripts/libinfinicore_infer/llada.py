@@ -59,7 +59,7 @@ class LLaDAModel(BaseModel):
             # forwardBatchJiuge C++ interface 
         # TODO: 根据最后4个的实现完善参数列表
         lib.createLLaDAModel.restype = POINTER(LLaDAModelCStruct) # OK
-        lib.createJiugeModel.argtypes = [
+        lib.createLLaDAModel.argtypes = [
             POINTER(LLaDAMetaCStruct),
             POINTER(LLaDAWeightsCStruct),
             DeviceType,
@@ -84,30 +84,30 @@ class LLaDAModel(BaseModel):
 
         lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
 
-        # lib.inferBatchLLaDA.argtypes = [
-        #     POINTER(LLaDAModelCStruct),
-        #     POINTER(c_uint),
-        #     c_uint,
-        #     POINTER(c_uint),
-        #     c_uint,
-        #     POINTER(c_uint),
-        #     POINTER(POINTER(KVCacheCStruct)),
-        #     POINTER(c_float),
-        #     POINTER(c_uint),
-        #     POINTER(c_float),
-        #     POINTER(c_uint),
-        # ]
+        lib.inferBatchLLaDA.argtypes = [
+            POINTER(LLaDAModelCStruct),
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),
+            POINTER(POINTER(KVCacheCStruct)),
+            POINTER(c_float),
+            POINTER(c_uint),
+            POINTER(c_float),
+            POINTER(c_uint),
+        ]
 
-        # lib.forwardBatchLLaDA.argtypes = [
-        #     POINTER(LLaDAModelCStruct),
-        #     POINTER(c_uint),
-        #     c_uint,
-        #     POINTER(c_uint),
-        #     c_uint,
-        #     POINTER(c_uint),
-        #     POINTER(POINTER(KVCacheCStruct)),
-        #     c_void_p,
-        # ]
+        lib.forwardBatchLLaDA.argtypes = [
+            POINTER(LLaDAModelCStruct),
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),
+            POINTER(POINTER(KVCacheCStruct)),
+            c_void_p,
+        ]
     def create_model(self, meta, weights, device_type, ndev, dev_ids):
         # TODO:
         return self.lib.createLLaDAModel(meta, weights, device_type, ndev, dev_ids)
@@ -137,9 +137,23 @@ class LLaDAModel(BaseModel):
         topp,
         output,
     ):
-        pass
+        self.lib.inferBatchLLaDA(
+            model,
+            tokens,
+            ntok,
+            req_lens,
+            nreq,
+            req_pos,
+            kv_caches,
+            temperature,
+            topk,
+            topp,
+            output,
+        )
 
     def forward_batch(
         self, model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
     ):
-        pass
+        self.lib.forwardBatchLLaDA(
+            model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
+        )

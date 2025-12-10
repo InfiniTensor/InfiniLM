@@ -8,6 +8,7 @@ import time
 import json
 import torch
 import transformers
+from infer_task import InferTask, KVCache
 
 from libinfinicore_infer import (
     DeviceType,
@@ -17,6 +18,8 @@ from libinfinicore_infer import (
 from libinfinicore_infer.llada import LLaDAModel, LLaDAMetaCStruct, LLaDAWeightsCStruct
 
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import torch.nn.functional as F
+import numpy as np
 
 class LLaDAWeifghtsNaming:
     def input_embd(self):
@@ -418,12 +421,51 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
         self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
 
-       
 
-       
+class LLaDABatchedTask:
+    """
+    Batch task handler for LLaDA model inference.
+    Similar to JiugeBatchedTask but adapted for LLaDA requirements.
+    """
+    def __init__(self, tasks: List[InferTask]):
+        self.tasks = tasks
+        self.nreq = len(tasks)
 
+        # Precompute fields
+        token_lists = [t.tokens for t in tasks]
+        self.req_lens_list = [len(toks) for toks in token_lists]
+        self.req_pos_list = [t.pos for t in tasks]
+        self.kv_cache_ptrs = [t.kvcache().data() for t in tasks]
+        self.temperaturas_list = [t.temperature for t in tasks]
+        self.topks_list = [t.topk for t in tasks]
+        self.topps_list = [t.topp for t in tasks]
 
+        # Flatten token lists
+        flat_tokens = [tok for toks in token_lists for tok in toks]
+        self.ntok = len(flat_tokens)
 
+        # Convert to ctypes arrays in one pass
+        self.tokens = (c_uint * self.ntok)(*flat_tokens)
+        self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
+        self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
+        self.kv_caches = (POINTER(KVCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
+        self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
+        self.topks = (c_uint * self.nreq)(*self.topks_list)
+        self.topps = (c_float * self.nreq)(*self.topps_list)
+
+    def input_args(self):
+        return (
+            self.tokens,
+            self.ntok,
+            self.req_lens,
+            self.nreq,
+            self.req_pos,
+            self.kv_caches,
+            self.temperaturas,
+            self.topks,
+            self.topps,
+        )
+    
 
 class LLaDAForCauslLM:
     def __init__(
@@ -475,14 +517,6 @@ class LLaDAForCauslLM:
         self.ndev = ndev
         self.device = device
         print("--- start create model ---")
-        # self.model_instance = self.llada_model.create_model()
-        # self.model_instance = self.llada_model.create_model( # TODO:
-        #     byref(self.meta),
-        #     byref(self.weights),
-        #     device,
-        #     ndev,
-        #     self.dev_ids,
-        # )
         self.model_instance = self.llada_model.create_model(
             byref(self.meta),
             byref(self.weights),
@@ -494,27 +528,194 @@ class LLaDAForCauslLM:
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
 
+    # <--------------------------------------  Infer PipeLine  ------------------------------------------------>
+    def max_context_len(self):
+        return self.meta.dctx
+
+    def batch_infer_one_round(self, tasks: List[InferTask]):
+        """
+        Perform one round of batch inference using LLaDA model.
+
+        Args:
+            tasks: List of InferTask objects containing input sequences and parameters
+
+        Returns:
+            List of generated token IDs
+        """
+        output = (c_uint * len(tasks))()
+        batch_inputs = LLaDABatchedTask(tasks)
+        self.llada_model.infer_batch(
+            self.model_instance,
+            *(batch_inputs.input_args()),
+            output,
+        )
+        return list(output)
+    
+    def generate(
+        self,
+        prompts: str,
+        max_steps: int = 128,
+        gen_length: int = 128,
+        block_length: int = 128,
+        temperature_: float = 0.,
+        cfg_scale: float = 0.,
+        remasking: str = 'low_confidence',
+        mask_id: int = 126336,
+        logits_eos_inf: bool = False,
+        confidence_eos_eot_inf: bool = False,
+        verbose: bool = False,
+        topp_ = 1.0,
+        topk_ = 1
+    ):
+        if isinstance(prompts, str):
+            prompts = [prompts]
+
+        # Apply chat template and tokenize
+        messages = [{"role": "user", "content": prompt} for prompt in prompts]
+        formatted_prompts = [self.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
+        encoded_outputs = self.tokenizer.encode(
+            formatted_prompts,
+            add_special_tokens=False,
+            padding=True,
+            return_tensors="pt"
+        )
+
+        infer_task = InferTask(
+            0,
+            encoded_outputs,
+            self.max_context_len(),
+            temperature_,
+            topk_,
+            topp_,
+            self.eos_token_id,
+        )
+
+        # TODO:
+        output_tokens = self.batch_infer_one_round([infer_task])
+
+       
+
+
+    def forward_logits_batch(self, input_ids_tensor, attention_mask_tensor=None):
+        """
+        Forward pass to get logits for a batch of sequences using C++ model.
+
+        Args:
+            input_ids_tensor: Tensor of shape (batch_size, seq_len) with token IDs
+            attention_mask_tensor: Tensor of shape (batch_size, seq_len) with attention mask
+
+        Returns:
+            logits: Tensor of shape (batch_size, seq_len, vocab_size)
+        """
+        batch_size, seq_len = input_ids_tensor.shape
+
+        # Create InferTask objects for each sequence in the batch
+        tasks = []
+        for i in range(batch_size):
+            # Extract tokens for this sequence
+            seq_tokens = input_ids_tensor[i].tolist()
+            # Create KVCache for this sequence
+            kv_cache = KVCache(
+                self.meta.nlayer,
+                self.meta.dctx,
+                self.meta.nkvh,
+                self.meta.dh,
+                self.meta.dh,
+                self.meta.dt_logits,
+                self.device,
+                self.dev_ids,
+                self.ndev,
+            )
+            # Create InferTask
+            task = InferTask(
+                tokens=seq_tokens,
+                pos=0,  # Start position
+                temperature=0.0,  # Will be handled by sampling logic
+                topk=1,  # Will be handled by sampling logic
+                topp=1.0,  # Will be handled by sampling logic
+                kvcache=kv_cache,
+            )
+            tasks.append(task)
+
+        # Create batched task
+        batch_inputs = LLaDABatchedTask(tasks)
+
+        # Prepare output tensor for logits
+        vocab_size = self.config.get("vocab_size", 150528)
+        logits_tensor = torch.zeros(
+            batch_inputs.ntok, vocab_size,
+            dtype=self.meta.torch_dtype_logits,
+            device=torch.device("cpu")
+        )
+
+        # Call C++ forward_batch
+        self.llada_model.forward_batch(
+            self.model_instance,
+            batch_inputs.tokens,
+            batch_inputs.ntok,
+            batch_inputs.req_lens,
+            batch_inputs.nreq,
+            batch_inputs.req_pos,
+            batch_inputs.kv_caches,
+            logits_tensor.data_ptr(),
+        )
+
+        # Reshape logits to (batch_size, seq_len, vocab_size)
+        # Note: This requires careful handling of the flattened output
+        logits_reshaped = torch.zeros(batch_size, seq_len, vocab_size, dtype=logits_tensor.dtype, device=logits_tensor.device)
+
+        # Copy logits back to batch format
+        token_offset = 0
+        for req_idx, req_len in enumerate(batch_inputs.req_lens_list):
+            # Extract logits for this request
+            req_logits = logits_tensor[token_offset:token_offset + req_len]
+            logits_reshaped[req_idx, :req_len] = req_logits
+            token_offset += req_len
+
+        # Clean up KV caches
+        for task in tasks:
+            task.kvcache().drop()
+
+        return logits_reshaped
+
+
+
+
 def test():
-    # if len(sys.argv) < 3:
-    #     print(
-    #         "Usage: python llada.py [--cpu | --nvidia] <path/to/model_dir> [n_device] [--verbose]"
-    #     )
-    #     sys.exit(1)
-
-    # Parse command line arguments
-
+ 
     model_path = "/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/snapshots/783d3467f108d28ac0a78d3e41af16ab05cabd8d"
     device_type = DeviceType.DEVICE_TYPE_CPU
-    verbose = False
+    verbose = True
 
-    device_type = DeviceType.DEVICE_TYPE_CPU
-        
-    # Find n_device argument (skip --verbose)
-    ndev = 1 # nums of card
+    # Number of devices
+    ndev = 1
 
+    print("Loading LLaDA model...")
     model = LLaDAForCauslLM(model_path, device_type, ndev)
 
+    # Test prompts
+    test_prompts = [
+        "The capital of France is",
+    ]
 
+    print("\n=== Testing C++ Model Integration Function ===")
+    for i, prompt in enumerate(test_prompts):
+        print(f"\nTest {i+1}: {prompt}")
+        try:
+            # Use the C++ model integration function
+            result = model.generate(
+                prompts=prompt,
+                max_steps=16,  # Reduced for faster testing
+                gen_length=32,  # Shorter generation for testing
+                block_length=16,
+                temperature_=0.0,  # Deterministic for testing
+                verbose=verbose
+            )
+            print(f"Result: {result}")
+        except Exception as e:
+            print(f"Error in C++ model generation: {e}")
+
+   
 
 if __name__ == "__main__":
     import os
