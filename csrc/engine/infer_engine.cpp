@@ -11,33 +11,65 @@ InferEngine::InferEngine(
     const std::any &config,
     const distributed::DistConfig &distributed_config,
     infinicore::Device::Type device_type,
-    cache::CacheType cache_type)
+    const cache::CacheConfig &cache_config) // Changed parameter
     : communication_group_(distributed_config, device_type),
-      model_config_(config) {
+      model_config_(config),
+      cache_config_(cache_config) {
 
     spdlog::info("Launch InferEngine with {}", std::string(distributed_config));
+    spdlog::info("Cache configuration: type={}, layers={}, max_pos={}",
+                 static_cast<int>(cache_config_.type),
+                 cache_config_.num_layers,
+                 cache_config_.max_position_embeddings);
 
-    // Determine number of layers from config if available
-    size_t num_layers = 32;                // Default value, should extract from config
-    size_t max_position_embeddings = 4096; // Default value
-
-    // Try to extract model configuration for cache parameters
+    // Try to extract model configuration to override default cache parameters if needed
     try {
-        // Assuming config contains LlamaConfig or similar
-        // This needs to be adapted based on actual config type
         if (config.type() == typeid(models::llama::LlamaConfig)) {
             const auto &llama_config = std::any_cast<models::llama::LlamaConfig>(config);
-            num_layers = llama_config.num_hidden_layers;
-            max_position_embeddings = llama_config.max_position_embeddings;
+
+            // Only override if not explicitly set in CacheConfig
+            if (cache_config_.num_layers == -1) { // Default value check
+                cache_config_.num_layers = llama_config.num_hidden_layers;
+            }
+            if (cache_config_.max_position_embeddings == -1) { // Default value check
+                cache_config_.max_position_embeddings = llama_config.max_position_embeddings;
+            }
+
+            spdlog::info("Updated cache config from model: layers={}, max_pos={}",
+                         cache_config_.num_layers, cache_config_.max_position_embeddings);
         }
     } catch (...) {
-        spdlog::warn("Could not extract model config for cache parameters, using defaults");
+        spdlog::warn("Could not extract model config, using provided CacheConfig");
     }
 
     // Create CacheManager with one cache per worker
+    create_cache_manager();
+}
+
+//------------------------------------------------------
+// Helper method to create cache manager
+//------------------------------------------------------
+void InferEngine::create_cache_manager() {
     int world_size = communication_group_.get_world_size();
-    cache_manager_ = std::make_unique<cache::CacheManager>(
-        world_size, cache_type, num_layers, max_position_embeddings);
+
+    // Validate cache configuration
+    if (cache_config_.num_layers == -1) {
+        spdlog::warn("CacheConfig.num_layers not set, using default value 32");
+        cache_config_.num_layers = 32;
+    }
+    if (cache_config_.max_position_embeddings == -1) {
+        spdlog::warn("CacheConfig.max_position_embeddings not set, using default value 4096");
+        cache_config_.max_position_embeddings = 4096;
+    }
+
+    spdlog::info("Creating CacheManager with config: type={}, layers={}, initial_capacity={}, growth_factor={}",
+                 static_cast<int>(cache_config_.type),
+                 cache_config_.num_layers,
+                 cache_config_.initial_capacity,
+                 cache_config_.growth_factor);
+
+    // Create CacheManager using CacheConfig
+    cache_manager_ = std::make_unique<cache::CacheManager>(world_size, cache_config_);
 
     // Create one RankWorker per rank, passing cache pointer
     workers_.reserve(world_size);
@@ -58,11 +90,11 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
         worker->load_param(name, param);
     }
 }
+
 //------------------------------------------------------
 // state_dict
 //------------------------------------------------------
 std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> InferEngine::state_dict() {
-
     std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> results;
     if (0 == workers_.size()) {
         throw std::runtime_error(" Model object not found. ");
@@ -116,6 +148,51 @@ void InferEngine::reset_cache(size_t pos, bool async) {
         for (size_t i = 0; i < workers_.size(); ++i) {
             workers_[i]->reset_cache(pos, true);
         }
+    }
+}
+
+//------------------------------------------------------
+// reset_cache (overloaded with CacheConfig)
+//------------------------------------------------------
+void InferEngine::reset_cache(const cache::CacheConfig &new_config, size_t pos, bool async) {
+    spdlog::info("Resetting cache with new configuration: type={}, layers={}, max_pos={}",
+                 static_cast<int>(new_config.type),
+                 new_config.num_layers,
+                 new_config.max_position_embeddings);
+
+    // Check if we need to recreate the cache
+    bool need_recreate = false;
+
+    if (new_config.reset_mode == cache::CacheResetMode::RECREATE) {
+        need_recreate = true;
+        spdlog::info("Cache reset mode is RECREATE, will rebuild cache");
+    } else if (cache_config_ != new_config) {
+        // Configuration changed, need to recreate
+        need_recreate = true;
+        spdlog::info("KV configuration changed, will rebuild cache");
+    }
+
+    if (need_recreate) {
+        // Store workers' current state if needed
+        spdlog::info("Recreating cache with new configuration...");
+
+        // Close all workers first
+        for (auto &worker : workers_) {
+            worker->close();
+        }
+        workers_.clear();
+
+        // Update configuration
+        cache_config_ = new_config;
+
+        // Recreate cache manager with new configuration
+        create_cache_manager();
+
+        spdlog::info("Cache recreated successfully");
+    } else {
+        // Just reset positions
+        spdlog::info("Keeping existing cache, only resetting positions to {}", pos);
+        reset_cache(pos, async);
     }
 }
 

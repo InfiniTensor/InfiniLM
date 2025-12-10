@@ -7,8 +7,9 @@ namespace infinilm::cache {
 // Concrete implementation of CacheInterface for DynamicCache
 class DynamicCacheWrapper : public CacheInterface {
 public:
-    DynamicCacheWrapper(size_t num_layers, size_t max_position_embeddings)
-        : cache_(std::make_shared<DynamicCache>(num_layers, max_position_embeddings)) {}
+    DynamicCacheWrapper(const CacheConfig &cache_config)
+        : cache_config_(cache_config),
+          cache_(std::make_shared<DynamicCache>(cache_config)) {}
 
     void update(size_t layer_idx,
                 const infinicore::Tensor &k_new,
@@ -53,21 +54,32 @@ public:
         return total;
     }
 
+    // Get cache configuration
+    const CacheConfig &get_config() const { return cache_config_; }
+
+    // Update cache configuration
+    void update_config(const CacheConfig &new_config) {
+        cache_config_ = new_config;
+        cache_->update_config(new_config);
+    }
+
 private:
+    CacheConfig cache_config_;
     std::shared_ptr<DynamicCache> cache_;
 };
 
 // CacheManager Implementation
 CacheManager::CacheManager(size_t num_caches,
-                           CacheType cache_type,
-                           size_t num_layers,
-                           size_t max_position_embeddings)
-    : cache_type_(cache_type),
-      num_layers_(num_layers),
-      max_position_embeddings_(max_position_embeddings) {
+                           const CacheConfig &cache_config) // Change parameter to CacheConfig
+    : cache_config_(cache_config) {
 
-    spdlog::info("Creating CacheManager with {} caches of type {}",
-                 num_caches, static_cast<int>(cache_type));
+    spdlog::info("Creating CacheManager with {} caches", num_caches);
+    spdlog::info("Cache config: type={}, layers={}, initial_capacity={}, growth_factor={}, initial_batch={}",
+                 static_cast<int>(cache_config.type),
+                 cache_config.num_layers,
+                 cache_config.initial_capacity,
+                 cache_config.growth_factor,
+                 cache_config.initial_batch_size);
 
     for (size_t i = 0; i < num_caches; ++i) {
         caches_.push_back(create_cache_instance());
@@ -75,12 +87,42 @@ CacheManager::CacheManager(size_t num_caches,
 }
 
 std::shared_ptr<CacheInterface> CacheManager::create_cache_instance() {
-    switch (cache_type_) {
+    switch (cache_config_.type) {
     case CacheType::DYNAMIC:
-        return std::make_shared<DynamicCacheWrapper>(num_layers_, max_position_embeddings_);
+        return std::make_shared<DynamicCacheWrapper>(cache_config_);
     default:
         throw std::runtime_error("Unsupported cache type");
     }
+}
+
+// Add method to update cache configuration
+bool CacheManager::reconfigure(const CacheConfig &new_config) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Check if anything actually changed
+    if (new_config == cache_config_) {
+        return false; // No change needed
+    }
+
+    spdlog::info("Reconfiguring cache: type={}->{}, layers={}->{}, initial_capacity={}->{}, growth_factor={}->{}",
+                 static_cast<int>(cache_config_.type), static_cast<int>(new_config.type),
+                 cache_config_.num_layers, new_config.num_layers,
+                 cache_config_.initial_capacity, new_config.initial_capacity,
+                 cache_config_.growth_factor, new_config.growth_factor);
+
+    // Update configuration
+    cache_config_ = new_config;
+
+    // Clear existing caches
+    caches_.clear();
+
+    // Create new caches with updated configuration
+    size_t num_caches = caches_.size(); // This should be preserved from before
+    for (size_t i = 0; i < num_caches; ++i) {
+        caches_.push_back(create_cache_instance());
+    }
+
+    return true;
 }
 
 CacheInterface &CacheManager::get_cache(size_t worker_idx) {

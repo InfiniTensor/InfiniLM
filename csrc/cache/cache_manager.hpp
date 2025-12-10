@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cache_config.hpp"
 #include "infinicore/device.hpp"
 #include "kv_cache.hpp"
 #include <cstdint>
@@ -9,15 +10,6 @@
 #include <vector>
 
 namespace infinilm::cache {
-
-/**
- * @enum CacheType
- * @brief Enumeration of supported cache types
- */
-enum class CacheType {
-    DYNAMIC, ///< Dynamic KV cache (grows as needed)
-    PAGED,   ///< Paged KV cache (for paged attention)
-};
 
 /**
  * @class CacheInterface
@@ -60,16 +52,39 @@ public:
 class CacheManager {
 public:
     /**
-     * @brief Construct CacheManager with specified configuration
-     * @param num_caches Number of cache instances to create (typically equals number of workers)
-     * @param cache_type Type of cache to create for all instances
-     * @param num_layers Number of layers per cache (for DynamicCache)
-     * @param max_position_embeddings Maximum position embeddings
+     * @brief Construct CacheManager with cache configuration
+     * @param num_caches Number of cache instances to create
+     * @param cache_config Cache configuration
      */
     CacheManager(size_t num_caches = 1,
-                 CacheType cache_type = CacheType::DYNAMIC,
-                 size_t num_layers = 32,
-                 size_t max_position_embeddings = 4096);
+                 const CacheConfig &cache_config = CacheConfig());
+
+    /**
+     * @brief Reconfigure cache with new configuration
+     * @param new_config New cache configuration
+     * @return True if cache was reconfigured, false if parameters unchanged
+     */
+    bool reconfigure(const CacheConfig &new_config);
+
+    /**
+     * @brief Get current cache configuration
+     */
+    const CacheConfig &get_cache_config() const { return cache_config_; }
+
+    /**
+     * @brief Get cache type
+     */
+    CacheType cache_type() const { return cache_config_.type; }
+
+    /**
+     * @brief Get the number of layers
+     */
+    size_t get_num_layers() const { return cache_config_.num_layers; }
+
+    /**
+     * @brief Get max position embeddings
+     */
+    size_t get_max_position_embeddings() const { return cache_config_.max_position_embeddings; }
 
     /**
      * @brief Get cache for a specific worker/device
@@ -126,11 +141,6 @@ public:
     size_t num_caches() const { return caches_.size(); }
 
     /**
-     * @brief Get cache type
-     */
-    CacheType cache_type() const { return cache_type_; }
-
-    /**
      * @brief Create a new cache instance (for dynamic scaling)
      * @return Index of the newly created cache
      */
@@ -141,6 +151,17 @@ public:
      * @param worker_idx Index of cache to remove
      */
     void remove_cache(size_t worker_idx);
+
+    /**
+     * @brief Reconfigure cache with new parameters
+     * @param new_type New cache type
+     * @param new_num_layers New number of layers
+     * @param new_max_position_embeddings New max position embeddings
+     * @return True if cache was reconfigured, false if parameters unchanged
+     */
+    bool reconfigure(CacheType new_type,
+                     size_t new_num_layers,
+                     size_t new_max_position_embeddings);
 
     /**
      * @brief Get total memory usage across all caches
@@ -154,9 +175,7 @@ public:
 
 private:
     std::vector<std::shared_ptr<CacheInterface>> caches_;
-    CacheType cache_type_;
-    size_t num_layers_;
-    size_t max_position_embeddings_;
+    CacheConfig cache_config_;
     mutable std::mutex mutex_;
 
     // Factory method to create cache instances
