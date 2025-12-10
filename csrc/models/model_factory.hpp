@@ -7,6 +7,6 @@
 namespace infinilm {
 class InfinilmModelFactory {
 public:
-    static std::shared_ptr<InfinilmModel> createModel(const std::any &config, engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+    static std::shared_ptr<InfinilmModel> createModel(const std::any &config, engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(), void *cache_ptr = nullptr);
 };
 } // namespace infinilm

@@ -9,9 +9,11 @@
 namespace infinilm::engine {
 
 RankWorker::RankWorker(const std::any &model_config,
-                       const distributed::RankInfo &rank_info)
+                       const distributed::RankInfo &rank_info,
+                       void *cache_ptr)
     : model_config_(model_config),
       rank_info_(rank_info),
+      cache_ptr_(cache_ptr),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
@@ -174,7 +176,7 @@ void RankWorker::thread_loop() {
         infinicore::context::setDevice(rank_info_.device);
 
         // Create model using factory (may be expensive)
-        model_ = InfinilmModelFactory::createModel(model_config_, rank_info_);
+        model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, cache_ptr_);
 
         // Signal that initialization is done
         {
@@ -259,8 +261,14 @@ void RankWorker::thread_loop() {
                 }
             } else if (local_cmd == Command::RESET_CACHE) {
                 try {
-                    // Generic reset_cache on the model interface
+                    // Option 1: Use model's reset_cache if it handles cache
                     model_->reset_cache(local_reset_pos);
+
+                    // Option 2: Reset cache directly if we have access
+                    // if (cache_ptr_ != nullptr) {
+                    //     auto* dynamic_cache = static_cast<cache::DynamicCache*>(cache_ptr_);
+                    //     dynamic_cache->reset(local_reset_pos);
+                    // }
 
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

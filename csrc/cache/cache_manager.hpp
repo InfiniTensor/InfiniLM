@@ -1,7 +1,7 @@
 #pragma once
 
-#include "kv_cache.hpp"
 #include "infinicore/device.hpp"
+#include "kv_cache.hpp"
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -10,18 +10,13 @@
 
 namespace infinilm::cache {
 
-// Forward declarations for future cache types
-class StaticCache;
-class FlashAttentionCache;
-
 /**
  * @enum CacheType
  * @brief Enumeration of supported cache types
  */
 enum class CacheType {
-    DYNAMIC,   ///< Dynamic KV cache (grows as needed)
-    STATIC,    ///< Static KV cache (fixed capacity)
-    FLASH_ATTN ///< FlashAttention-optimized cache
+    DYNAMIC, ///< Dynamic KV cache (grows as needed)
+    PAGED,   ///< Paged KV cache (for paged attention)
 };
 
 /**
@@ -158,14 +153,14 @@ public:
     void clear_all();
 
 private:
-    std::vector<std::unique_ptr<CacheInterface>> caches_;
+    std::vector<std::shared_ptr<CacheInterface>> caches_;
     CacheType cache_type_;
     size_t num_layers_;
     size_t max_position_embeddings_;
     mutable std::mutex mutex_;
 
     // Factory method to create cache instances
-    std::unique_ptr<CacheInterface> create_cache_instance();
+    std::shared_ptr<CacheInterface> create_cache_instance();
 };
 
 } // namespace infinilm::cache

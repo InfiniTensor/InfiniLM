@@ -8,7 +8,7 @@ namespace infinilm::cache {
 class DynamicCacheWrapper : public CacheInterface {
 public:
     DynamicCacheWrapper(size_t num_layers, size_t max_position_embeddings)
-        : cache_(std::make_unique<DynamicCache>(num_layers, max_position_embeddings)) {}
+        : cache_(std::make_shared<DynamicCache>(num_layers, max_position_embeddings)) {}
 
     void update(size_t layer_idx,
                 const infinicore::Tensor &k_new,
@@ -54,107 +54,7 @@ public:
     }
 
 private:
-    std::unique_ptr<DynamicCache> cache_;
-};
-
-// Placeholder for future cache types
-class StaticCacheWrapper : public CacheInterface {
-public:
-    StaticCacheWrapper(size_t num_layers, size_t max_position_embeddings) {
-        // TODO: Implement when StaticCache is available
-        throw std::runtime_error("StaticCache not implemented yet");
-    }
-
-    void update(size_t layer_idx,
-                const infinicore::Tensor &k_new,
-                const infinicore::Tensor &v_new) override {
-        // TODO: Implement
-    }
-
-    void reset(size_t pos = 0) override {
-        // TODO: Implement
-    }
-
-    size_t cache_position(size_t layer_idx) const override {
-        // TODO: Implement
-        return 0;
-    }
-
-    size_t num_layers() const override {
-        // TODO: Implement
-        return 0;
-    }
-
-    void *raw_ptr() override {
-        // TODO: Implement
-        return nullptr;
-    }
-
-    CacheType type() const override {
-        return CacheType::STATIC;
-    }
-
-    std::string name() const override {
-        return "StaticCache";
-    }
-
-    bool supports_prefill() const override {
-        return true;
-    }
-
-    bool supports_incremental() const override {
-        return false; // Static cache might not support incremental decoding
-    }
-};
-
-// Placeholder for FlashAttention cache
-class FlashAttentionCacheWrapper : public CacheInterface {
-public:
-    FlashAttentionCacheWrapper(size_t num_layers, size_t max_position_embeddings) {
-        // TODO: Implement when FlashAttentionCache is available
-        throw std::runtime_error("FlashAttentionCache not implemented yet");
-    }
-
-    void update(size_t layer_idx,
-                const infinicore::Tensor &k_new,
-                const infinicore::Tensor &v_new) override {
-        // TODO: Implement
-    }
-
-    void reset(size_t pos = 0) override {
-        // TODO: Implement
-    }
-
-    size_t cache_position(size_t layer_idx) const override {
-        // TODO: Implement
-        return 0;
-    }
-
-    size_t num_layers() const override {
-        // TODO: Implement
-        return 0;
-    }
-
-    void *raw_ptr() override {
-        // TODO: Implement
-        return nullptr;
-    }
-
-    CacheType type() const override {
-        return CacheType::FLASH_ATTN;
-    }
-
-    std::string name() const override {
-        return "FlashAttentionCache";
-    }
-
-    bool supports_prefill() const override {
-        return true;
-    }
-
-    bool supports_incremental() const override {
-        return true;
-    }
+    std::shared_ptr<DynamicCache> cache_;
 };
 
 // CacheManager Implementation
@@ -174,14 +74,10 @@ CacheManager::CacheManager(size_t num_caches,
     }
 }
 
-std::unique_ptr<CacheInterface> CacheManager::create_cache_instance() {
+std::shared_ptr<CacheInterface> CacheManager::create_cache_instance() {
     switch (cache_type_) {
     case CacheType::DYNAMIC:
-        return std::make_unique<DynamicCacheWrapper>(num_layers_, max_position_embeddings_);
-    case CacheType::STATIC:
-        return std::make_unique<StaticCacheWrapper>(num_layers_, max_position_embeddings_);
-    case CacheType::FLASH_ATTN:
-        return std::make_unique<FlashAttentionCacheWrapper>(num_layers_, max_position_embeddings_);
+        return std::make_shared<DynamicCacheWrapper>(num_layers_, max_position_embeddings_);
     default:
         throw std::runtime_error("Unsupported cache type");
     }

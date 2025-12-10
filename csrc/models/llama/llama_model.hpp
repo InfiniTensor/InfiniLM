@@ -1,10 +1,9 @@
 #pragma once
 
+#include "../../cache/kv_cache.hpp"
 #include "llama_config.hpp"
 #include "llama_decoder_layer.hpp"
-#include "../../cache/kv_cache.hpp"
 
-#include "infinicore/nn/module.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
@@ -68,6 +67,14 @@ public:
      */
     void reset_cache(size_t pos = 0) const;
 
+    /**
+     * @brief Set external cache for the model
+     * @param cache Pointer to external cache (managed by CacheManager)
+     */
+    void set_external_cache(void *cache) {
+        external_cache_ = static_cast<cache::DynamicCache *>(cache);
+    }
+
 protected:
     // Token embeddings
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
@@ -86,7 +93,8 @@ private:
     // Persistent cache for when no external cache is provided
     // Mutable because it's not part of the model's learned parameters,
     // but needs to persist across forward calls for incremental decoding
-    mutable std::unique_ptr<infinilm::cache::DynamicCache> cache_;
+    mutable std::unique_ptr<infinilm::cache::DynamicCache> internal_cache_;
+    cache::DynamicCache *external_cache_ = nullptr;
 };
 
 } // namespace infinilm::models::llama

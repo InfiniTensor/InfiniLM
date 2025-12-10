@@ -23,7 +23,8 @@ class RankWorker {
 
 public:
     RankWorker(const std::any &model_config,
-               const distributed::RankInfo &rank_info);
+               const distributed::RankInfo &rank_info,
+               void *cache_ptr = nullptr);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
@@ -59,6 +60,7 @@ private:
     std::any model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
+    void *cache_ptr_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;
