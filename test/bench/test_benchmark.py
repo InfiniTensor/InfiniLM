@@ -345,98 +345,96 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
 def _load_ceval_from_cache(cache_dir, subject_name, split, ceval_subjects):
     """
     Load CEval data from local cache avoiding network calls.
-    Uses HuggingFace cached Arrow files:
-      cache_dir/ceval___ceval-exam/<subject>/0.0.0/<hash>/ceval-exam-val.arrow
-      cache_dir/ceval___ceval-exam/<subject>/0.0.0/<hash>/ceval-exam-test.arrow
-    Raises FileNotFoundError if none match.
+    Scans cached Arrow files under ceval___ceval-exam and filters by split.
     """
-    base_dirs = [
-        os.path.join(cache_dir, "ceval___ceval-exam"),
-    ]
-
-    def try_load_arrow(path):
-        if os.path.isfile(path) and path.endswith(".arrow"):
-            ds = Dataset.from_file(path)
-            # ensure required columns exist
-            if {"question", "A", "B", "C", "D", "answer"}.issubset(ds.column_names):
-                return ds.to_list()
-        return None
-
-    # First try Arrow files inside hashed dirs (HF cache layout) and merge requested splits
-    merged_arrow_records = []
-    hf_subject_dir = os.path.join(cache_dir, "ceval___ceval-exam", subject_name)
-    if os.path.isdir(hf_subject_dir):
-        for root, _, files in os.walk(hf_subject_dir):
-            for fname in files:
-                if fname.endswith(".arrow"):  # filenames don't include subject name
-                    if split != "all":
-                        if split == "test" and "test" not in fname:
-                            continue
-                        if split == "val" and "val" not in fname:
-                            continue
-                    path = os.path.join(root, fname)
-                    result = try_load_arrow(path)
-                    if result is not None:
-                        merged_arrow_records.extend(result)
-        if merged_arrow_records:
-            return merged_arrow_records
-    raise FileNotFoundError(
-        f"CEval cached data not found for subject '{subject_name}'."
+    split_names = (
+        ["test"] if split == "test" else ["val"] if split == "val" else ["val", "test"]
     )
+
+    base = os.path.join(cache_dir, "ceval___ceval-exam", subject_name)
+    if os.path.isdir(base):
+        records = []
+        for root, _, files in os.walk(base):
+            for fname in files:
+                if not fname.endswith(".arrow"):
+                    continue
+                lower = fname.lower()
+                if split == "test" and "test" not in lower:
+                    continue
+                if split == "val" and not any(x in lower for x in ["val", "validation", "dev"]):
+                    continue
+                if split == "all" and not any(x in lower for x in ["val", "validation", "dev", "test"]):
+                    continue
+                try:
+                    ds = Dataset.from_file(os.path.join(root, fname))
+                    records.extend(ds.to_list())
+                except Exception:
+                    continue
+        if records:
+            return records
+
+    # If cache_dir provided and nothing loaded, fail without network
+    raise FileNotFoundError(f"CEval cached data not found for subject '{subject_name}' with splits {split_names}")
 
 
 def _load_mmlu_from_cache(cache_dir, subject_name, split):
     """
     Load MMLU data from local cache avoiding network calls.
-    Uses HuggingFace cached Arrow files:
-      cache_dir/cais___mmlu/<subject>/0.0.0/<hash>/*test*.arrow
-      cache_dir/cais___mmlu/<subject>/0.0.0/<hash>/*validation*.arrow
-    For 'all', we scan subdirectories under cache_dir/cais___mmlu.
+    Scans cached Arrow files under cache_dir/cais___mmlu and filters by split.
     """
-    base_dir_hf = os.path.join(cache_dir, "cais___mmlu")
-
     def load_one(subj):
-        # Try HF arrow files
-        if os.path.isdir(base_dir_hf):
-            for root, _, files in os.walk(os.path.join(base_dir_hf, subj)):
-                for fname in files:
-                    if not fname.endswith(".arrow"):
-                        continue
-                    if split != "all":
-                        if split == "test" and "test" not in fname:
-                            continue
-                        if split == "val" and "validation" not in fname and "dev" not in fname:
-                            continue
-                    path = os.path.join(root, fname)
-                    ds = Dataset.from_file(path)
-                    return ds.to_list()
-
-        raise FileNotFoundError(
-            f"MMLU cached data not found for subject '{subj}'."
+        split_names = (
+            ["test"]
+            if split == "test"
+            else ["validation", "dev"]
+            if split == "val"
+            else ["validation", "dev", "test"]
         )
 
+        base = os.path.join(cache_dir, "cais___mmlu", subj)
+        if not os.path.isdir(base):
+            raise FileNotFoundError(f"MMLU cache dir not found: {base}")
+
+        records = []
+        for root, _, files in os.walk(base):
+            for fname in files:
+                if not fname.endswith(".arrow"):
+                    continue
+                lower = fname.lower()
+                if split == "test" and "test" not in lower:
+                    continue
+                if split == "val" and not any(x in lower for x in ["validation", "dev"]):
+                    continue
+                if split == "all" and not any(x in lower for x in ["validation", "dev", "test"]):
+                    continue
+                try:
+                    ds = Dataset.from_file(os.path.join(root, fname))
+                    records.extend(ds.to_list())
+                except Exception:
+                    continue
+        if records:
+            return records
+        raise FileNotFoundError(f"MMLU cached data not found for subject '{subj}' with splits {split_names}")
+
     if subject_name == "all":
-        # Aggregate all subjects from HF cache if available
+        base_dir_hf = os.path.join(cache_dir, "cais___mmlu")
+        subjects = []
         if os.path.isdir(base_dir_hf):
             subjects = [
                 d for d in os.listdir(base_dir_hf) if os.path.isdir(os.path.join(base_dir_hf, d))
             ]
-        else:
-            subjects = []
         if not subjects:
-            raise FileNotFoundError(
-                f"MMLU cache dir '{base_dir_hf}' not found. Please download/extract dataset first."
-            )
+            return load_one("all"), "all"
+
         all_samples = []
         for subj in subjects:
             try:
                 all_samples.extend(load_one(subj))
             except FileNotFoundError:
-                # Skip missing subjects silently; log could be added if desired
                 continue
         if not all_samples:
             raise FileNotFoundError(
-                f"No MMLU cached data found under '{base_dir_hf}'. Please ensure arrow files exist."
+                f"No MMLU cached data found under '{base_dir_hf}'. Please ensure datasets are cached."
             )
         return all_samples, "all"
 
@@ -531,6 +529,12 @@ def test():
             "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
+
+    # Normalize cache_dir and force offline when provided
+    if cache_dir:
+        cache_dir = os.path.expanduser(cache_dir)
+        os.environ["HF_DATASETS_OFFLINE"] = "1"
+        os.environ["HF_HUB_OFFLINE"] = "1"
 
     # Parse comma-separated subjects
     if split not in ["test", "val", "all"]:
