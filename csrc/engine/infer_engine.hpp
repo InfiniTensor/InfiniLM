@@ -11,10 +11,12 @@ namespace infinilm::engine {
 
 class InferEngine {
 public:
+    // Updated constructor: accept CacheConfig instead of CacheType
     InferEngine(
         const std::any &config,
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
-        infinicore::Device::Type device_type = infinicore::context::getDevice().getType());
+        infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
+        const cache::CacheConfig &cache_config = cache::CacheConfig());
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);
@@ -26,19 +28,24 @@ public:
     infinicore::Tensor generate(const infinicore::Tensor &input_ids,
                                 const infinicore::Tensor &position_ids);
 
-    // Reset the internal cache in all workers (clears state between generations)
-    // By default, this is synchronous (blocks until reset completes).
-    // If async=true, this becomes asynchronous (unstable - use with caution).
-    void reset_cache(size_t pos = 0, bool async = false);
+    // Reset the internal cache pos in all workers (clears state between generations)
+    void reset_cache(size_t pos = 0);
+
+    // Overload: reset cache with new KV configuration
+    void reset_cache(const cache::CacheConfig &new_config, size_t pos = 0);
 
     ~InferEngine();
 
     const distributed::DistConfig &get_dist_config() const;
 
+    // Get current KV configuration
+    const cache::CacheConfig &get_cache_config() const { return cache_config_; }
+
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     distributed::CommunicationGroup communication_group_;
     std::any model_config_;
+    cache::CacheConfig cache_config_;
 };
 
 } // namespace infinilm::engine

@@ -66,4 +66,8 @@ void LlamaForCausalLM::reset_cache(size_t pos) {
     model_->reset_cache(pos);
 }
 
+void LlamaForCausalLM::reset_cache(const cache::CacheConfig &new_config, size_t pos) {
+    model_->reset_cache(new_config, pos);
+}
+
 } // namespace infinilm::models::llama

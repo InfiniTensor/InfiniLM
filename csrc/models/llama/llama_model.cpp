@@ -3,6 +3,7 @@
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
+#include <iostream>
 
 namespace infinilm::models::llama {
 
@@ -50,18 +51,20 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     // The cache persists across forward calls to enable incremental decoding
     void *cache_to_use = kv_cache;
 
-    if (kv_cache == nullptr) {
+    if (cache_to_use == nullptr) {
         // Create or reuse persistent internal cache at model level
         // This ensures the cache persists across multiple forward calls (prefill -> decode -> decode...)
-        size_t seq_len = input_ids->shape()[1];
-
-        if (!cache_) {
-            // First time: create cache
-            cache_ = std::make_unique<infinilm::cache::DynamicCache>(
-                config_.num_hidden_layers,
-                config_.max_position_embeddings);
+        if (external_cache_ != nullptr) {
+            cache_to_use = external_cache_;
+        } else {
+            // Fall back to internal cache
+            if (!internal_cache_) {
+                internal_cache_ = std::make_unique<infinilm::cache::DynamicCache>(
+                    config_.num_hidden_layers,
+                    config_.max_position_embeddings);
+            }
+            cache_to_use = internal_cache_.get();
         }
-        cache_to_use = cache_.get();
     }
 
     // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
@@ -92,8 +95,22 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
 }
 
 void LlamaModel::reset_cache(size_t pos) const {
-    if (cache_) {
-        cache_->reset(pos);
+    if (internal_cache_) {
+        internal_cache_->reset(pos);
+    }
+    if (external_cache_) {
+        external_cache_->reset(pos);
+    }
+}
+
+void LlamaModel::reset_cache(const cache::CacheConfig &new_config, size_t pos) const {
+    if (internal_cache_) {
+        internal_cache_->update_config(new_config);
+        internal_cache_->reset(pos);
+    }
+    if (external_cache_) {
+        external_cache_->update_config(new_config);
+        external_cache_->reset(pos);
     }
 }
 

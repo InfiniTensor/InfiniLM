@@ -50,6 +50,7 @@ public:
 
     // Reset internal cache position
     void reset_cache(size_t pos = 0) override;
+    void reset_cache(const cache::CacheConfig &new_config, size_t pos) override;
 
     // Module information
     const LlamaConfig &config() const { return model_->config(); }
