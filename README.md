@@ -97,7 +97,7 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
     - 参数说明：
       - `--subject`: 指定科目，支持单个科目、多个科目（逗号分隔）或 `all`（默认值，加载全部科目）
       - `--output_csv`: 可选，指定CSV输出文件路径。如未指定则不生成CSV文件。CSV包含每个科目的结果和总体结果
-      - `--cache_dir`: 可选，指定数据集缓存目录的父目录。应指向包含 `ceval___ceval-exam` 和 `cais___mmlu` 等数据集子目录的父目录（例如 `~/.cache/huggingface/datasets/`）。如果数据集已缓存，将跳过下载直接使用缓存数据，加快加载速度
+      - `--cache_dir`: 可选，指定数据集缓存目录的父目录。应指向包含 `ceval___ceval-exam` 和 `cais___mmlu` 等数据集子目录的父目录（例如 `~/.cache/huggingface/datasets/`）。设置后脚本优先使用本地 CSV（`pandas.read_csv`）离线加载数据，避免 `load_dataset` 的网络请求
 
     - C-Eval示例：
       - 单个科目：

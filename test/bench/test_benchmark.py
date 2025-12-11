@@ -4,7 +4,7 @@ import argparse
 import time
 import re
 import csv
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 import infinicore
 import infinilm
 from infinilm.models.llama import AutoLlamaModel
@@ -342,11 +342,112 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
     }
 
 
+def _load_ceval_from_cache(cache_dir, subject_name, split, ceval_subjects):
+    """
+    Load CEval data from local cache avoiding network calls.
+    Uses HuggingFace cached Arrow files:
+      cache_dir/ceval___ceval-exam/<subject>/0.0.0/<hash>/ceval-exam-val.arrow
+      cache_dir/ceval___ceval-exam/<subject>/0.0.0/<hash>/ceval-exam-test.arrow
+    Raises FileNotFoundError if none match.
+    """
+    base_dirs = [
+        os.path.join(cache_dir, "ceval___ceval-exam"),
+    ]
+
+    def try_load_arrow(path):
+        if os.path.isfile(path) and path.endswith(".arrow"):
+            ds = Dataset.from_file(path)
+            # ensure required columns exist
+            if {"question", "A", "B", "C", "D", "answer"}.issubset(ds.column_names):
+                return ds.to_list()
+        return None
+
+    # First try Arrow files inside hashed dirs (HF cache layout) and merge requested splits
+    merged_arrow_records = []
+    hf_subject_dir = os.path.join(cache_dir, "ceval___ceval-exam", subject_name)
+    if os.path.isdir(hf_subject_dir):
+        for root, _, files in os.walk(hf_subject_dir):
+            for fname in files:
+                if fname.endswith(".arrow"):  # filenames don't include subject name
+                    if split != "all":
+                        if split == "test" and "test" not in fname:
+                            continue
+                        if split == "val" and "val" not in fname:
+                            continue
+                    path = os.path.join(root, fname)
+                    result = try_load_arrow(path)
+                    if result is not None:
+                        merged_arrow_records.extend(result)
+        if merged_arrow_records:
+            return merged_arrow_records
+    raise FileNotFoundError(
+        f"CEval cached data not found for subject '{subject_name}'."
+    )
+
+
+def _load_mmlu_from_cache(cache_dir, subject_name, split):
+    """
+    Load MMLU data from local cache avoiding network calls.
+    Uses HuggingFace cached Arrow files:
+      cache_dir/cais___mmlu/<subject>/0.0.0/<hash>/*test*.arrow
+      cache_dir/cais___mmlu/<subject>/0.0.0/<hash>/*validation*.arrow
+    For 'all', we scan subdirectories under cache_dir/cais___mmlu.
+    """
+    base_dir_hf = os.path.join(cache_dir, "cais___mmlu")
+
+    def load_one(subj):
+        # Try HF arrow files
+        if os.path.isdir(base_dir_hf):
+            for root, _, files in os.walk(os.path.join(base_dir_hf, subj)):
+                for fname in files:
+                    if not fname.endswith(".arrow"):
+                        continue
+                    if split != "all":
+                        if split == "test" and "test" not in fname:
+                            continue
+                        if split == "val" and "validation" not in fname and "dev" not in fname:
+                            continue
+                    path = os.path.join(root, fname)
+                    ds = Dataset.from_file(path)
+                    return ds.to_list()
+
+        raise FileNotFoundError(
+            f"MMLU cached data not found for subject '{subj}'."
+        )
+
+    if subject_name == "all":
+        # Aggregate all subjects from HF cache if available
+        if os.path.isdir(base_dir_hf):
+            subjects = [
+                d for d in os.listdir(base_dir_hf) if os.path.isdir(os.path.join(base_dir_hf, d))
+            ]
+        else:
+            subjects = []
+        if not subjects:
+            raise FileNotFoundError(
+                f"MMLU cache dir '{base_dir_hf}' not found. Please download/extract dataset first."
+            )
+        all_samples = []
+        for subj in subjects:
+            try:
+                all_samples.extend(load_one(subj))
+            except FileNotFoundError:
+                # Skip missing subjects silently; log could be added if desired
+                continue
+        if not all_samples:
+            raise FileNotFoundError(
+                f"No MMLU cached data found under '{base_dir_hf}'. Please ensure arrow files exist."
+            )
+        return all_samples, "all"
+
+    return load_one(subject_name), subject_name
+
+
 def test():
     # Parse arguments manually to handle device flags properly
     if len(sys.argv) < 4:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -359,6 +460,7 @@ def test():
     ndev = 1
     benchmark = None
     subject = "all"  # Shared for both C-Eval and MMLU, can be comma-separated
+    split = "test"   # test | val | all
     num_samples = None
     max_new_tokens = 500
     output_csv = None
@@ -377,6 +479,9 @@ def test():
             i += 2
         elif sys.argv[i] == "--subject" and i + 1 < len(sys.argv):
             subject = sys.argv[i + 1]
+            i += 2
+        elif sys.argv[i] == "--split" and i + 1 < len(sys.argv):
+            split = sys.argv[i + 1]
             i += 2
         elif sys.argv[i] == "--num_samples" and i + 1 < len(sys.argv):
             num_samples = int(sys.argv[i + 1])
@@ -428,6 +533,10 @@ def test():
         sys.exit(1)
 
     # Parse comma-separated subjects
+    if split not in ["test", "val", "all"]:
+        print("Error: --split must be one of: test, val, all")
+        sys.exit(1)
+
     if subject and subject != "all":
         subject_list = [s.strip() for s in subject.split(",")]
     else:
@@ -499,14 +608,24 @@ def test():
 
         def _load_ceval_subject(subj):
             print(f"Loading C-Eval dataset (subject: {subj})...")
-            kwargs = {}
             if cache_dir:
-                kwargs["cache_dir"] = cache_dir
-            ds = load_dataset(r"ceval/ceval-exam", name=subj, **kwargs)
-            data = ds["val"]
-            if hasattr(data, "to_list"):
-                return data.to_list()
-            return list(data)
+                return _load_ceval_from_cache(cache_dir, subj, split, ceval_subjects)
+            # online fallback via HF load_dataset
+            if split == "all":
+                records = []
+                for split_name in ["val", "test"]:
+                    try:
+                        ds = load_dataset(r"ceval/ceval-exam", name=subj, split=split_name)
+                        records.extend(ds.to_list())
+                    except Exception:
+                        continue
+                if records:
+                    return records
+                raise FileNotFoundError(f"No ceval splits found online for subject {subj}")
+            hf_split = "test" if split == "test" else "val"
+            ds = load_dataset(r"ceval/ceval-exam", name=subj, split=hf_split)
+            data = ds.to_list()
+            return data
 
         def load_subject_samples(subj_name):
             if subj_name == "all":
@@ -522,27 +641,39 @@ def test():
     elif benchmark == "mmlu":
         def _load_mmlu_subject(subj):
             print(f"Loading MMLU dataset (subject: {subj})...")
-            kwargs = {}
             if cache_dir:
-                kwargs["cache_dir"] = cache_dir
+                return _load_mmlu_from_cache(cache_dir, subj, split)
             if subj == "all":
-                dataset = load_dataset("cais/mmlu", "all", **kwargs)
+                dataset = load_dataset("cais/mmlu", "all")
                 samples = []
+                splits_to_load = ["test"] if split == "test" else ["validation"] if split == "val" else ["validation", "test"]
                 for subject_name in dataset.keys():
                     if subject_name in ["train", "validation", "test"]:
                         continue
-                    test_data = dataset[subject_name]["test"]
-                    if hasattr(test_data, 'to_list'):
-                        samples.extend(test_data.to_list())
-                    else:
-                        samples.extend(list(test_data))
+                    for sp in splits_to_load:
+                        if sp not in dataset[subject_name]:
+                            continue
+                        split_data = dataset[subject_name][sp]
+                        if hasattr(split_data, 'to_list'):
+                            samples.extend(split_data.to_list())
+                        else:
+                            samples.extend(list(split_data))
                 return samples, "all"
             else:
-                dataset = load_dataset("cais/mmlu", subj, **kwargs)
-                test_data = dataset["test"]
-                if hasattr(test_data, 'to_list'):
-                    return test_data.to_list(), subj
-                return list(test_data), subj
+                splits_to_load = ["test"] if split == "test" else ["validation"] if split == "val" else ["validation", "test"]
+                records = []
+                for sp in splits_to_load:
+                    try:
+                        dataset = load_dataset("cais/mmlu", subj, split=sp)
+                        if hasattr(dataset, 'to_list'):
+                            records.extend(dataset.to_list())
+                        else:
+                            records.extend(list(dataset))
+                    except Exception:
+                        continue
+                if not records:
+                    raise FileNotFoundError(f"MMLU subject {subj} split(s) {splits_to_load} not found")
+                return records, subj
 
         def load_subject_samples(subj_name):
             return _load_mmlu_subject(subj_name)
