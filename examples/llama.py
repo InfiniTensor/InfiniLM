@@ -163,7 +163,6 @@ def test(
     model.generate(
         input_ids_infini,
         max_new_tokens=max_new_tokens,
-        device=infini_device,
         tokenizer=tokenizer,
     )
     t2 = time.time()
