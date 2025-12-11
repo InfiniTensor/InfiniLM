@@ -10,15 +10,15 @@ namespace infinilm::engine {
 
 RankWorker::RankWorker(const std::any &model_config,
                        const distributed::RankInfo &rank_info,
-                       void *cache_ptr)
+                       const cache::CacheConfig &cache_config)
     : model_config_(model_config),
       rank_info_(rank_info),
-      cache_ptr_(cache_ptr),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
       should_exit_(false),
-      init_done_(false) {
+      init_done_(false),
+      pending_cache_config_(cache_config) {
     // start the thread
     thread_ = std::thread(&RankWorker::thread_loop, this);
 
@@ -137,7 +137,7 @@ void RankWorker::reset_cache(const cache::CacheConfig &new_config, size_t pos) {
 
     // Store both the position and the new config
     pending_reset_pos_ = pos;
-    pending_reset_config_ = new_config;
+    pending_cache_config_ = new_config;
     job_cmd_ = Command::RESET_CACHE_WITH_CONFIG;
     has_job_ = true;
     job_done_ = false;
@@ -176,6 +176,8 @@ void RankWorker::thread_loop() {
     try {
         // Initialize device & model outside of holding the main mutex to avoid blocking callers.
         infinicore::context::setDevice(rank_info_.device);
+
+        cache_ptr_ = std::make_shared<cache::DynamicCache>(pending_cache_config_);
 
         // Create model using factory (may be expensive)
         model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, cache_ptr_);
@@ -216,7 +218,7 @@ void RankWorker::thread_loop() {
                     local_reset_pos = pending_reset_pos_;
                 } else if (local_cmd == Command::RESET_CACHE_WITH_CONFIG) {
                     local_reset_pos = pending_reset_pos_;
-                    local_reset_config = pending_reset_config_;
+                    local_reset_config = pending_cache_config_;
                 }
 
                 // mark job as being processed

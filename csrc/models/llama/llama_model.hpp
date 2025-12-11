@@ -79,8 +79,8 @@ public:
      * @brief Set external cache for the model
      * @param cache Pointer to external cache (managed by CacheManager)
      */
-    void set_external_cache(void *cache) {
-        external_cache_ = static_cast<cache::DynamicCache *>(cache);
+    void set_external_cache(std::shared_ptr<cache::DynamicCache> cache) {
+        external_cache_ = cache.get();
     }
 
 protected:

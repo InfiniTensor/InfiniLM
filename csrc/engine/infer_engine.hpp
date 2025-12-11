@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../cache/cache_manager.hpp"
 #include "distributed/distributed.hpp"
 #include "infinicore/tensor.hpp"
 #include "rank_worker.hpp"
@@ -39,10 +38,6 @@ public:
 
     const distributed::DistConfig &get_dist_config() const;
 
-    // Get cache manager for external control
-    cache::CacheManager &get_cache_manager() { return *cache_manager_; }
-    const cache::CacheManager &get_cache_manager() const { return *cache_manager_; }
-
     // Get current KV configuration
     const cache::CacheConfig &get_cache_config() const { return cache_config_; }
 
@@ -50,10 +45,7 @@ protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     distributed::CommunicationGroup communication_group_;
     std::any model_config_;
-    std::unique_ptr<cache::CacheManager> cache_manager_;
     cache::CacheConfig cache_config_;
-
-    void create_cache_manager();
 };
 
 } // namespace infinilm::engine

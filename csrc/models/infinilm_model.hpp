@@ -2,7 +2,7 @@
 
 #include "infinicore/nn/module.hpp"
 
-#include "../cache/cache_config.hpp"
+#include "../cache/cache.hpp"
 
 #include <any>
 

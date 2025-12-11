@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../cache/cache_config.hpp"
+#include "../cache/cache.hpp"
 #include "../models/model_factory.hpp"
 #include "distributed/distributed.hpp"
 
@@ -26,7 +26,7 @@ class RankWorker {
 public:
     RankWorker(const std::any &model_config,
                const distributed::RankInfo &rank_info,
-               void *cache_ptr = nullptr);
+               const cache::CacheConfig &cache_config);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
@@ -63,7 +63,7 @@ private:
     std::any model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
-    void *cache_ptr_;
+    std::shared_ptr<cache::DynamicCache> cache_ptr_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;
@@ -79,7 +79,7 @@ private:
     infinicore::Tensor pending_param_;
     std::vector<std::any> pending_args_;
     size_t pending_reset_pos_ = 0;
-    cache::CacheConfig pending_reset_config_;
+    cache::CacheConfig pending_cache_config_;
 
     // Output (protected by mutex)
     infinicore::Tensor output_;

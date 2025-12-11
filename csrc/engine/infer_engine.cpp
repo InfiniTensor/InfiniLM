@@ -37,32 +37,14 @@ InferEngine::InferEngine(
         spdlog::warn("Could not extract model config, using provided CacheConfig");
     }
 
-    // Create CacheManager with one cache per worker
-    create_cache_manager();
-}
-
-//------------------------------------------------------
-// Helper method to create cache manager
-//------------------------------------------------------
-void InferEngine::create_cache_manager() {
+    // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
-
-    spdlog::info("Creating CacheManager with config: type={}, layers={}, initial_capacity={}, growth_factor={}",
-                 static_cast<int>(cache_config_.type),
-                 cache_config_.num_layers,
-                 cache_config_.initial_capacity,
-                 cache_config_.growth_factor);
-
-    // Create CacheManager using CacheConfig
-    cache_manager_ = std::make_unique<cache::CacheManager>(world_size, cache_config_);
-
-    // Create one RankWorker per rank, passing cache pointer
     workers_.reserve(world_size);
     for (int r = 0; r < world_size; ++r) {
         workers_.emplace_back(std::make_unique<RankWorker>(
             model_config_,
             communication_group_.get_rank_info(r),
-            cache_manager_->get_raw_cache_ptr(r)));
+            cache_config_));
     }
 }
 
