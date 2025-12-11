@@ -106,8 +106,6 @@ std::shared_ptr<CacheInterface> CacheManager::create_cache_instance() {
 
 // Add method to update cache configuration
 bool CacheManager::reconfigure(const CacheConfig &new_config) {
-    std::lock_guard<std::mutex> lock(mutex_);
-
     // Check if anything actually changed
     if (new_config == cache_config_) {
         return false; // No change needed
@@ -135,7 +133,6 @@ bool CacheManager::reconfigure(const CacheConfig &new_config) {
 }
 
 CacheInterface &CacheManager::get_cache(size_t worker_idx) {
-    std::lock_guard<std::mutex> lock(mutex_);
     if (worker_idx >= caches_.size()) {
         throw std::runtime_error("CacheManager: worker index out of range");
     }
@@ -143,7 +140,6 @@ CacheInterface &CacheManager::get_cache(size_t worker_idx) {
 }
 
 const CacheInterface &CacheManager::get_cache(size_t worker_idx) const {
-    std::lock_guard<std::mutex> lock(mutex_);
     if (worker_idx >= caches_.size()) {
         throw std::runtime_error("CacheManager: worker index out of range");
     }
@@ -162,21 +158,9 @@ void CacheManager::update_cache(size_t worker_idx,
     cache.update(layer_idx, k_new, v_new);
 }
 
-void CacheManager::reset_all(size_t pos) {
-    std::lock_guard<std::mutex> lock(mutex_);
+void CacheManager::reset_pos(size_t pos) {
     for (auto &cache : caches_) {
         cache->reset(pos);
-    }
-}
-
-void CacheManager::reset_all(const cache::CacheConfig &new_config, size_t pos) {
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    // Update configuration
-    cache_config_ = new_config;
-
-    for (auto &cache : caches_) {
-        cache->reset(cache_config_, pos);
     }
 }
 
@@ -189,13 +173,11 @@ size_t CacheManager::get_cache_position(size_t worker_idx, size_t layer_idx) con
 }
 
 size_t CacheManager::create_new_cache() {
-    std::lock_guard<std::mutex> lock(mutex_);
     caches_.push_back(create_cache_instance());
     return caches_.size() - 1;
 }
 
 void CacheManager::remove_cache(size_t worker_idx) {
-    std::lock_guard<std::mutex> lock(mutex_);
     if (worker_idx >= caches_.size()) {
         throw std::runtime_error("CacheManager: worker index out of range");
     }
@@ -203,7 +185,6 @@ void CacheManager::remove_cache(size_t worker_idx) {
 }
 
 size_t CacheManager::total_memory_usage() const {
-    std::lock_guard<std::mutex> lock(mutex_);
     size_t total = 0;
     for (const auto &cache : caches_) {
         total += cache->memory_usage();
@@ -212,7 +193,6 @@ size_t CacheManager::total_memory_usage() const {
 }
 
 void CacheManager::clear_all() {
-    std::lock_guard<std::mutex> lock(mutex_);
     for (auto &cache : caches_) {
         cache->clear();
     }

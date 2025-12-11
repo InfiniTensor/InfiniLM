@@ -37,9 +37,9 @@ public:
 
     // Optional advanced features
     virtual void clear() { reset(0); }
-    virtual size_t memory_usage() const { return 0; }
-    virtual bool supports_prefill() const { return true; }
-    virtual bool supports_incremental() const { return true; }
+    virtual size_t memory_usage() const = 0;
+    // virtual bool supports_prefill() = 0;
+    // virtual bool supports_incremental() = 0;
 };
 
 /**
@@ -83,9 +83,9 @@ public:
     size_t get_num_layers() const { return cache_config_.num_layers; }
 
     /**
-     * @brief Get max position embeddings
+     * @brief Get max KV cache length
      */
-    size_t get_max_position_embeddings() const { return cache_config_.max_position_embeddings; }
+    size_t get_max_kv_cache_length() const { return cache_config_.max_kv_cache_length; }
 
     /**
      * @brief Get cache for a specific worker/device
@@ -122,15 +122,7 @@ public:
      * @brief Reset cache for all workers
      * @param pos Position to reset to (default 0)
      */
-    void reset_all(size_t pos = 0);
-
-    /**
-     * @brief Reset cache for all workers with new configuration
-     * @param new_config New cache configuration
-     * @param pos Position to reset to (default 0)
-     * @param async Whether to perform reset asynchronously
-     */
-    void reset_all(const cache::CacheConfig &new_config, size_t pos = 0);
+    void reset_pos(size_t pos = 0);
 
     /**
      * @brief Reset cache for a specific worker
@@ -185,7 +177,6 @@ public:
 private:
     std::vector<std::shared_ptr<CacheInterface>> caches_;
     CacheConfig cache_config_;
-    mutable std::mutex mutex_;
 
     // Factory method to create cache instances
     std::shared_ptr<CacheInterface> create_cache_instance();

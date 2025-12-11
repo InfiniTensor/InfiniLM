@@ -98,8 +98,8 @@ struct KVCacheLayer {
                          static_cast<float>(required_capacity + max_capacity)));
 
             // Ensure we don't exceed max_position_embeddings if specified
-            if (cache_config.max_position_embeddings != -1) {
-                new_capacity = std::min(new_capacity, cache_config.max_position_embeddings);
+            if (cache_config.max_kv_cache_length != 0) {
+                new_capacity = std::min(new_capacity, cache_config.max_kv_cache_length);
             }
 
             // Ensure we grow by at least some minimum amount
@@ -325,7 +325,7 @@ public:
     /**
      * @brief Get max position embeddings (used for initial capacity)
      */
-    size_t max_position_embeddings() const { return cache_config_.max_position_embeddings; }
+    size_t max_kv_cache_length() const { return cache_config_.max_kv_cache_length; }
 
     /**
      * @brief Reset cache for all layers to a specific position

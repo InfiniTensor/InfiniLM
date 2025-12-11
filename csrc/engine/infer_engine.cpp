@@ -17,26 +17,21 @@ InferEngine::InferEngine(
       cache_config_(cache_config) {
 
     spdlog::info("Launch InferEngine with {}", std::string(distributed_config));
-    spdlog::info("Cache configuration: type={}, layers={}, max_pos={}",
+    spdlog::info("Cache configuration: type={}, layers={}, max_kv_cache_length={}",
                  static_cast<int>(cache_config_.type),
                  cache_config_.num_layers,
-                 cache_config_.max_position_embeddings);
+                 cache_config_.max_kv_cache_length);
 
     // Try to extract model configuration to override default cache parameters if needed
     try {
         if (config.type() == typeid(models::llama::LlamaConfig)) {
             const auto &llama_config = std::any_cast<models::llama::LlamaConfig>(config);
 
-            // Only override if not explicitly set in CacheConfig
-            if (cache_config_.num_layers == -1) { // Default value check
-                cache_config_.num_layers = llama_config.num_hidden_layers;
-            }
-            if (cache_config_.max_position_embeddings == -1) { // Default value check
-                cache_config_.max_position_embeddings = llama_config.max_position_embeddings;
-            }
+            cache_config_.num_layers = llama_config.num_hidden_layers;
+            cache_config_.max_kv_cache_length = llama_config.max_position_embeddings;
 
-            spdlog::info("Updated cache config from model: layers={}, max_pos={}",
-                         cache_config_.num_layers, cache_config_.max_position_embeddings);
+            spdlog::info("Updated cache config from model: layers={}, max_kv_cache_length={}",
+                         cache_config_.num_layers, cache_config_.max_kv_cache_length);
         }
     } catch (...) {
         spdlog::warn("Could not extract model config, using provided CacheConfig");
@@ -51,16 +46,6 @@ InferEngine::InferEngine(
 //------------------------------------------------------
 void InferEngine::create_cache_manager() {
     int world_size = communication_group_.get_world_size();
-
-    // Validate cache configuration
-    if (cache_config_.num_layers == -1) {
-        spdlog::warn("CacheConfig.num_layers not set, using default value 32");
-        cache_config_.num_layers = 32;
-    }
-    if (cache_config_.max_position_embeddings == -1) {
-        spdlog::warn("CacheConfig.max_position_embeddings not set, using default value 4096");
-        cache_config_.max_position_embeddings = 4096;
-    }
 
     spdlog::info("Creating CacheManager with config: type={}, layers={}, initial_capacity={}, growth_factor={}",
                  static_cast<int>(cache_config_.type),
@@ -140,27 +125,16 @@ const distributed::DistConfig &InferEngine::get_dist_config() const {
 //------------------------------------------------------
 // reset_cache
 //------------------------------------------------------
-void InferEngine::reset_cache(size_t pos, bool async) {
-    if (!async) {
-        cache_manager_->reset_all(pos);
-    } else {
-        // Asynchronous reset: reset each worker individually
-        for (size_t i = 0; i < workers_.size(); ++i) {
-            workers_[i]->reset_cache(pos, true);
-        }
-    }
+void InferEngine::reset_cache(size_t pos) {
+    cache_manager_->reset_pos(pos);
 }
 
 //------------------------------------------------------
 // reset_cache (overloaded with CacheConfig)
 //------------------------------------------------------
-void InferEngine::reset_cache(const cache::CacheConfig &new_config, size_t pos, bool async) {
-    if (!async) {
-        cache_manager_->reset_all(new_config, pos);
-    } else {
-        for (size_t i = 0; i < workers_.size(); ++i) {
-            workers_[i]->reset_cache(new_config, pos, async);
-        }
+void InferEngine::reset_cache(const cache::CacheConfig &new_config, size_t pos) {
+    for (size_t i = 0; i < workers_.size(); ++i) {
+        workers_[i]->reset_cache(new_config, pos);
     }
 }
 

@@ -27,12 +27,12 @@ inline void bind_cache_config(py::module &m) {
         .def(py::init<CacheType, size_t, size_t>(),
              py::arg("type") = CacheType::DYNAMIC,
              py::arg("num_layers") = 32,
-             py::arg("max_position_embeddings") = 4096,
+             py::arg("max_kv_cache_length") = 4096,
              "Constructor with parameters")
         .def_readwrite("type", &CacheConfig::type, "Cache type")
         .def_readwrite("num_layers", &CacheConfig::num_layers, "Number of layers")
-        .def_readwrite("max_position_embeddings", &CacheConfig::max_position_embeddings,
-                       "Maximum position embeddings")
+        .def_readwrite("max_kv_cache_length", &CacheConfig::max_kv_cache_length,
+                       "Maximum KV cache length")
         .def_readwrite("initial_capacity", &CacheConfig::initial_capacity,
                        "Initial cache capacity in tokens")
         .def_readwrite("initial_batch_size", &CacheConfig::initial_batch_size,
@@ -42,11 +42,11 @@ inline void bind_cache_config(py::module &m) {
         .def_readwrite("reset_mode", &CacheConfig::reset_mode,
                        "Cache reset mode")
         .def("__repr__", [](const CacheConfig &cfg) {
-            return fmt::format("CacheConfig(type={}, num_layers={}, max_position_embeddings={}, "
+            return fmt::format("CacheConfig(type={}, num_layers={}, max_kv_cache_length={}, "
                                "initial_capacity={}, initial_batch_size={}, growth_factor={}, "
                                "reset_mode={})",
                                static_cast<int>(cfg.type), cfg.num_layers,
-                               cfg.max_position_embeddings, cfg.initial_capacity,
+                               cfg.max_kv_cache_length, cfg.initial_capacity,
                                cfg.initial_batch_size, cfg.growth_factor,
                                static_cast<int>(cfg.reset_mode));
         });
@@ -108,8 +108,8 @@ inline void bind_infer_engine(py::module &m) {
                 return self.generate(input_ids.cast<infinicore::Tensor>(), position_ids.cast<infinicore::Tensor>());
             },
             "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", py::overload_cast<size_t, bool>(&InferEngine::reset_cache), py::arg("pos") = 0, py::arg("async") = false, "Reset the internal cache in all workers to a specific position")
-        .def("reset_cache", py::overload_cast<const cache::CacheConfig &, size_t, bool>(&InferEngine::reset_cache), py::arg("cache_config"), py::arg("pos") = 0, py::arg("async") = false, "Reset cache with new KV configuration")
+        .def("reset_cache", py::overload_cast<size_t>(&InferEngine::reset_cache), py::arg("pos") = 0, "Reset the internal cache in all workers to a specific position")
+        .def("reset_cache", py::overload_cast<const cache::CacheConfig &, size_t>(&InferEngine::reset_cache), py::arg("cache_config"), py::arg("pos") = 0, "Reset cache with new KV configuration")
         .def("get_cache_config", &InferEngine::get_cache_config, "Get current KV configuration")
         .def("__repr__", [](const InferEngine &self) {
             return "<InferEngine: " + std::string(self.get_dist_config()) + ">";
