@@ -5,7 +5,6 @@
 #include "infinicore/tensor.hpp"
 
 #include "cache_config.hpp"
-#include "cache_interface.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -341,25 +340,6 @@ public:
         }
     }
 
-    // /**
-    //  * @brief Reinitialize cache with new configuration
-    //  * @param new_num_layers New number of layers
-    //  * @param new_max_position_embeddings New max position embeddings
-    //  */
-    // void reinitialize(size_t new_num_layers, size_t new_max_position_embeddings) {
-    //     // Clear existing layers
-    //     layers_.clear();
-
-    //     // Update configuration
-    //     max_position_embeddings_ = new_max_position_embeddings;
-
-    //     // Create new layers
-    //     layers_.resize(new_num_layers);
-
-    //     spdlog::info("DynamicCache reinitialized with {} layers, max_position_embeddings={}",
-    //                  new_num_layers, new_max_position_embeddings);
-    // }
-
     /**
      * @brief Access a specific layer's cache (for advanced usage)
      */
@@ -380,72 +360,6 @@ public:
 private:
     CacheConfig cache_config_;
     std::vector<KVCacheLayer> layers_;
-};
-
-// Concrete implementation of CacheInterface for DynamicCache
-class DynamicCacheWrapper : public CacheInterface {
-public:
-    DynamicCacheWrapper(const CacheConfig &cache_config)
-        : cache_(std::make_shared<DynamicCache>(cache_config)) {}
-
-    void update(size_t layer_idx,
-                const infinicore::Tensor &k_new,
-                const infinicore::Tensor &v_new) override {
-        cache_->update(layer_idx, k_new, v_new);
-    }
-
-    void reset(size_t pos = 0) override {
-        cache_->reset(pos);
-    }
-
-    void reset(CacheConfig &new_config, size_t pos = 0) override {
-        cache_->update_config(new_config);
-        cache_->reset(pos);
-    }
-
-    size_t cache_position(size_t layer_idx) const override {
-        return cache_->cache_position(layer_idx);
-    }
-
-    size_t num_layers() const override {
-        return cache_->num_layers();
-    }
-
-    void *raw_ptr() override {
-        return cache_.get();
-    }
-
-    CacheType type() const override {
-        return CacheType::DYNAMIC;
-    }
-
-    std::string name() const override {
-        return "DynamicCache";
-    }
-
-    size_t memory_usage() const override {
-        // Simple estimation: sum of all tensor sizes
-        size_t total = 0;
-        for (size_t i = 0; i < num_layers(); ++i) {
-            const auto &layer = cache_->layer(i);
-            if (layer.initialized) {
-                total += layer.k_cache->numel() * layer.k_cache->element_size();
-                total += layer.v_cache->numel() * layer.v_cache->element_size();
-            }
-        }
-        return total;
-    }
-
-    // Get cache configuration
-    const CacheConfig &get_config() const { return cache_->get_config(); }
-
-    // Update cache configuration
-    void update_config(const CacheConfig &new_config) {
-        cache_->update_config(new_config);
-    }
-
-private:
-    std::shared_ptr<DynamicCache> cache_;
 };
 
 } // namespace infinilm::cache
