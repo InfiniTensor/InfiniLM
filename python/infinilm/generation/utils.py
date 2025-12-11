@@ -169,7 +169,6 @@ class GenerationMixin:
         Parameters:
             input_ids (batch_size, seq_len): The sequence used as a prompt for the generation.
             max_new_tokens: Maximum number of new tokens.
-            device: infinicore.device.
             tokenizer: translating data into raw text.
         """
 

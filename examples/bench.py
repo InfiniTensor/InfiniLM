@@ -1,6 +1,5 @@
 import infinicore
 from transformers import AutoTokenizer
-from tokenizers import decoders as _dec
 from infinilm.modeling_utils import load_model_state_dict_by_file
 import infinilm
 from infinilm.distributed import DistConfig
@@ -8,8 +7,119 @@ import argparse
 import sys
 import time
 import os
+import json
+from collections import OrderedDict
+from tqdm import tqdm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
+
+
+DATA_TYPE_BYTES = {
+    "bfloat16": 2,
+    "float16": 2,
+    "float32": 4,
+}
+
+# BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128]
+# INPUT_LENS = [32, 256, 1024, 4096]
+# OUTPUT_LENS = [256, 1024, 4096]
+
+
+def read_json_file(file_path):
+    """Load and return JSON content from file_path."""
+    with open(file_path, "r") as file:
+        return json.load(file)
+
+
+def parse_list(value: str):
+    """Parse parse_list argument: can be a single int or a list of ints.
+
+    Examples:
+        "1" -> 1
+        "[1,2,4]" -> [1, 2, 4]
+        "1,2,4" -> [1, 2, 4]
+    """
+    value = value.strip()
+    # Try to parse as JSON list first
+    if value.startswith("[") and value.endswith("]"):
+        try:
+            result = json.loads(value)
+            if isinstance(result, list):
+                return [int(x) for x in result]
+            return int(result)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Try to parse as comma-separated values
+    if "," in value:
+        try:
+            return [int(x.strip()) for x in value.split(",")]
+        except ValueError:
+            pass
+
+    # Try to parse as a single integer
+    try:
+        return int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"batch-size must be an int or list[int], got: {value}"
+        )
+
+
+def get_test_cases(
+    model_path: str,
+    batch_size_list: list[int],
+    input_len_list: list[int],
+    output_len_list: list[int],
+):
+    model_path = os.path.expanduser(model_path)
+
+    """Generate cases ordered by ascending KV cache memory usage."""
+    # Load model config to derive attention dimensions
+    config = read_json_file(os.path.join(model_path, "config.json"))
+    head_dim = config.get(
+        "head_dim", config.get("hidden_size") // config.get("num_attention_heads")
+    )
+    # KV heads and layers drive cache size
+    num_key_value_heads = config.get("num_key_value_heads")
+    num_hidden_layers = config.get("num_hidden_layers")
+
+    # Enumerate all batch/input/output combinations and compute KV cache size
+    case_list = []
+    for batch_size in batch_size_list:
+        for input_len in input_len_list:
+            for output_len in output_len_list:
+                for data_type in ["bfloat16"]:
+                    data_type_bytes = DATA_TYPE_BYTES[data_type]
+
+                    total_seq_len = input_len + output_len
+                    kvcache_memory_bytes = (
+                        data_type_bytes
+                        * (batch_size * total_seq_len * num_key_value_heads * head_dim)
+                        * num_hidden_layers
+                    )
+                    kvcache_memory_gb = kvcache_memory_bytes / (1024 * 1024 * 1024)
+
+                    case_list.append(
+                        {
+                            "idx": len(case_list),
+                            "batch_size": batch_size,
+                            "input_len": input_len,
+                            "output_len": output_len,
+                            "data_type": data_type,
+                            "kvcache_memory": round(kvcache_memory_gb, 3),
+                        }
+                    )
+
+    # Sort by KV cache size and wrap in OrderedDict with index keys
+    case_dict = OrderedDict(
+        (idx, case)
+        for idx, case in enumerate(
+            sorted(case_list, key=lambda case: case["kvcache_memory"])
+        )
+    )
+
+    return case_dict
 
 
 def get_args():
@@ -41,9 +151,9 @@ def get_args():
 
     parser.add_argument(
         "--batch-size",
-        type=int,
+        type=parse_list,
         default=1,
-        help="number of prompts in a batch",
+        help="number of prompts in a batch (can be an int or a list of ints, e.g., '1' or '[1,2,4]' or '1,2,4')",
     )
     parser.add_argument(
         "--tensor-parallel-size",
@@ -54,15 +164,15 @@ def get_args():
     )
     parser.add_argument(
         "--input-len",
-        type=int,
-        default=1,
+        type=parse_list,
+        default=10,
         help="output tokens",
     )
 
     parser.add_argument(
         "--output-len",
-        type=int,
-        default=10,
+        type=parse_list,
+        default=20,
         help="output tokens",
     )
     return parser.parse_args()
@@ -77,77 +187,85 @@ def repeat_prompt(input_ids: list[int], target_length: int):
     return (input_ids * repeat_times)[:target_length]
 
 
-def test(
-    model_path,
-    infini_dtype=infinicore.bfloat16,
-    infini_device=infinicore.device("cpu", 0),
-    batch_size=1,
-    tp=1,
-    input_len=10,
-    output_len=10,
-):
-    model_path = os.path.expanduser(model_path)
-    # ---------------------------------------------------------------------------- #
-    #                        创建模型,
-    # ---------------------------------------------------------------------------- #
+class TestModel:
+    model: infinicore.nn.Module
+    tokenizer: AutoTokenizer
+    input_ids_list: list[int]
 
-    model = infinilm.AutoLlamaModel.from_pretrained(
+    def __init__(
+        self,
         model_path,
-        device=infini_device,
-        dtype=infini_dtype,
-        backend="cpp",
-        distributed_config=DistConfig(tp),
-    )
-
-    # ---------------------------------------------------------------------------- #
-    #                        加载权重
-    # ---------------------------------------------------------------------------- #
-    load_model_state_dict_by_file(model, model_path, dtype=infini_dtype)
-
-    # ---------------------------------------------------------------------------- #
-    #                        创建 tokenizer
-    # ---------------------------------------------------------------------------- #
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
-    # ---------------------------------------------------------------------------- #
-    #                        token编码
-    # ---------------------------------------------------------------------------- #
-    input_content = [
-        tokenizer.apply_chat_template(
-            conversation=[{"role": "user", "content": prompt}],
-            add_generation_prompt=True,
-            tokenize=False,
+        infini_dtype=infinicore.bfloat16,
+        infini_device=infinicore.device("cpu", 0),
+        tp=1,
+    ) -> None:
+        model_path = os.path.expanduser(model_path)
+        # ---------------------------------------------------------------------------- #
+        #                        创建模型,
+        # ---------------------------------------------------------------------------- #
+        model = infinilm.AutoLlamaModel.from_pretrained(
+            model_path,
+            device=infini_device,
+            dtype=infini_dtype,
+            backend="cpp",
+            distributed_config=DistConfig(tp),
         )
-    ]
 
-    # print(input_content, end="", flush=True)
-    input_ids_list = tokenizer.batch_encode_plus(input_content)[
-        "input_ids"
-    ]  # List: [[1, 1128, 526, 366, 29892]]
+        # ---------------------------------------------------------------------------- #
+        #                        加载权重
+        # ---------------------------------------------------------------------------- #
+        load_model_state_dict_by_file(model, model_path, dtype=infini_dtype)
 
-    input_ids = repeat_prompt(input_ids_list[0], target_length=input_len)
-    input_ids_list = [input_ids] * batch_size
-    # print(input_ids_list)
+        # ---------------------------------------------------------------------------- #
+        #                        创建 tokenizer
+        # ---------------------------------------------------------------------------- #
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
-    # ---------------------------------------------------------------------------- #
-    #                        自回归生成
-    # ---------------------------------------------------------------------------- #
-    input_ids_infini = infinicore.from_list(input_ids_list)
+        # ---------------------------------------------------------------------------- #
+        #                        token编码
+        # ---------------------------------------------------------------------------- #
+        input_content = [
+            tokenizer.apply_chat_template(
+                conversation=[{"role": "user", "content": prompt}],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+        ]
 
-    t1 = time.time()
-    print("=================== start generate ====================")
-    model.generate(
-        input_ids_infini,
-        max_new_tokens=output_len,
-        device=infini_device,
-        tokenizer=tokenizer,
-        stop_on_eos=False,
-    )
-    t2 = time.time()
+        # print(input_content, end="", flush=True)
+        input_ids_list = tokenizer.batch_encode_plus(input_content)["input_ids"]
 
-    print(
-        f"total_time: {round((t2 - t1) * 1000, 2)} ms",
-    )
+        self.model = model
+        self.tokenizer = tokenizer
+        self.input_ids_list = input_ids_list
+
+    def run(
+        self,
+        batch_size: int,
+        input_len: int,
+        output_len: int,
+    ):
+        input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
+        input_ids_list = [input_ids] * batch_size
+
+        # ---------------------------------------------------------------------------- #
+        #                        自回归生成
+        # ---------------------------------------------------------------------------- #
+        input_ids_infini = infinicore.from_list(input_ids_list)
+
+        t1 = time.time()
+        print("=================== start generate ====================")
+        self.model.generate(
+            input_ids_infini,
+            max_new_tokens=output_len,
+            tokenizer=self.tokenizer,
+            stop_on_eos=False,
+        )
+        t2 = time.time()
+
+        print(
+            f"total_time: {round((t2 - t1) * 1000, 2)} ms",
+        )
 
 
 if __name__ == "__main__":
@@ -162,15 +280,13 @@ if __name__ == "__main__":
         device_str = "cuda"
     else:
         print(
-            "python examples/bench.py --nvidia --model=~/TinyLlama-1.1B-Chat-v1.0/ --batch-size=2 --tensor-parallel-size=1 --input-len=50 --output-len=50"
+            "python examples/bench.py --nvidia --model=~/TinyLlama-1.1B-Chat-v1.0/ --batch-size=2 --tp=1 --input-len=50 --output-len=50"
         )
         sys.exit(1)
-
+    # -------------------------------------------------------- #
+    #             解析参数
+    # -------------------------------------------------------- #
     model_path = args.model
-    batch_size = args.batch_size
-    tp = args.tensor_parallel_size
-    output_len = args.output_len
-    input_len = args.input_len
 
     infini_device = infinicore.device(device_str, 0)
     if args.dtype == "float32":
@@ -182,12 +298,50 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unsupported dtype: {args.dtype}")
 
-    test(
+    tp = args.tensor_parallel_size
+
+    batch_size = args.batch_size
+    input_len = args.input_len
+    output_len = args.output_len
+
+    if isinstance(batch_size, int):
+        batch_size = [batch_size]
+
+    if isinstance(input_len, int):
+        input_len = [input_len]
+
+    if isinstance(output_len, int):
+        output_len = [output_len]
+
+    cases_dict = get_test_cases(model_path, batch_size, input_len, output_len)
+    # -------------------------------------------------------- #
+    #             测试
+    # -------------------------------------------------------- #
+    # print("=================== start test ====================", type(batch_size))
+
+    test = TestModel(
         model_path,
-        infini_device=infini_device,
         infini_dtype=infini_dtype,
-        batch_size=batch_size,
+        infini_device=infini_device,
         tp=tp,
-        input_len=input_len,
-        output_len=output_len,
     )
+
+    for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
+        tqdm.write(f"\033[92mProcessing : {case}\033[0m")
+
+        batch_size = case["batch_size"]
+        input_len = case["input_len"]
+        output_len = case["output_len"]
+
+        # reset cache for each case
+        initial_capacity = input_len + output_len + 100
+        test.model.reset_cache(
+            batch_size=batch_size, pos=0, initial_capacity=initial_capacity
+        )
+
+        # run test one case
+        test.run(
+            batch_size=batch_size,
+            input_len=input_len,
+            output_len=output_len,
+        )

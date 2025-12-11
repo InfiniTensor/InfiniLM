@@ -189,6 +189,16 @@ class LlamaForCausalLM(GenerationMixin):
             config._underlying, distributed_config._underlying, device._underlying.type
         )
 
+    def reset_cache(self, batch_size: int, pos: int = 0, initial_capacity: int = 1024):
+        """Reset the cache for the model"""
+        infinicore.sync_device()
+
+        cache_config = self._model.get_cache_config()
+        cache_config.initial_batch_size = batch_size
+        cache_config.initial_capacity = initial_capacity
+
+        self._model.reset_cache(cache_config, pos)
+
     def state_dict_keyname(self):
         """Get model key name."""
         return self._model.state_dict()[0].keys()

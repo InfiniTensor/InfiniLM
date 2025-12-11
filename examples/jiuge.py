@@ -65,7 +65,7 @@ def get_args():
         help="float32, float16, bfloat16",
     )
     parser.add_argument(
-        "--batch_size",
+        "--batch-size",
         type=int,
         default=1,
         help="number of prompts in a batch",
@@ -164,7 +164,6 @@ def test(
     model.generate(
         input_ids_infini,
         max_new_tokens=max_new_tokens,
-        device=infini_device,
         tokenizer=tokenizer,
     )
     t2 = time.time()
@@ -192,8 +191,8 @@ if __name__ == "__main__":
         device_str = "cuda"
     else:
         print(
-            "Usage:  python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>\n"
-            "such as, python examples/llama.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
+            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>\n"
+            "such as, python examples/jiuge.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
     prompts = [args.prompt for _ in range(args.batch_size)]
