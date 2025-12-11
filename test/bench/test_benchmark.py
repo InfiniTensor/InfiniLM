@@ -346,7 +346,7 @@ def test():
     # Parse arguments manually to handle device flags properly
     if len(sys.argv) < 4:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -362,6 +362,7 @@ def test():
     num_samples = None
     max_new_tokens = 500
     output_csv = None
+    cache_dir = None
 
     i = 3
     while i < len(sys.argv):
@@ -385,6 +386,9 @@ def test():
             i += 2
         elif sys.argv[i] == "--output_csv" and i + 1 < len(sys.argv):
             output_csv = sys.argv[i + 1]
+            i += 2
+        elif sys.argv[i] == "--cache_dir" and i + 1 < len(sys.argv):
+            cache_dir = sys.argv[i + 1]
             i += 2
         else:
             i += 1
@@ -419,7 +423,7 @@ def test():
         device_type_str = "hygon"
     else:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -495,7 +499,10 @@ def test():
 
         def _load_ceval_subject(subj):
             print(f"Loading C-Eval dataset (subject: {subj})...")
-            ds = load_dataset(r"ceval/ceval-exam", name=subj)
+            kwargs = {}
+            if cache_dir:
+                kwargs["cache_dir"] = cache_dir
+            ds = load_dataset(r"ceval/ceval-exam", name=subj, **kwargs)
             data = ds["val"]
             if hasattr(data, "to_list"):
                 return data.to_list()
@@ -515,8 +522,11 @@ def test():
     elif benchmark == "mmlu":
         def _load_mmlu_subject(subj):
             print(f"Loading MMLU dataset (subject: {subj})...")
+            kwargs = {}
+            if cache_dir:
+                kwargs["cache_dir"] = cache_dir
             if subj == "all":
-                dataset = load_dataset("cais/mmlu", "all")
+                dataset = load_dataset("cais/mmlu", "all", **kwargs)
                 samples = []
                 for subject_name in dataset.keys():
                     if subject_name in ["train", "validation", "test"]:
@@ -528,7 +538,7 @@ def test():
                         samples.extend(list(test_data))
                 return samples, "all"
             else:
-                dataset = load_dataset("cais/mmlu", subj)
+                dataset = load_dataset("cais/mmlu", subj, **kwargs)
                 test_data = dataset["test"]
                 if hasattr(test_data, 'to_list'):
                     return test_data.to_list(), subj
