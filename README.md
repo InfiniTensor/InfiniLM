@@ -91,15 +91,33 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
   - 运行推理基准测试（C-Eval/MMLU）
 
     ```bash
-    python test/bench/test_benchmark.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N]
+    python test/bench/test_benchmark.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH]
     ```
 
-    - C-Eval示例（默认 subject=all，会依次加载全部科目；亦可指定单科目）
-      ```bash
-      python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench ceval --subject middle_school_mathematics --num_samples 100 --backend cpp --ndev 1
-      ```
+    - 参数说明：
+      - `--subject`: 指定科目，支持单个科目、多个科目（逗号分隔）或 `all`（默认值，加载全部科目）
+      - `--output_csv`: 可选，指定CSV输出文件路径。如未指定则不生成CSV文件。CSV包含每个科目的结果和总体结果
 
-    - MMLU示例（默认 subject=all）
-      ```bash
-      python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra --backend cpp --ndev 1
-      ```
+    - C-Eval示例：
+      - 单个科目：
+        ```bash
+        python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench ceval --subject middle_school_mathematics --num_samples 100 --backend cpp --ndev 1
+        ```
+      - 多个科目（逗号分隔）：
+        ```bash
+        python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench ceval --subject middle_school_mathematics,high_school_physics --backend cpp --ndev 1 --output_csv results.csv
+        ```
+      - 全部科目并输出CSV：
+        ```bash
+        python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench ceval --subject all --backend cpp --ndev 1 --output_csv results.csv
+        ```
+
+    - MMLU示例：
+      - 单个科目：
+        ```bash
+        python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra --backend cpp --ndev 1
+        ```
+      - 多个科目（逗号分隔）：
+        ```bash
+        python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra,anatomy,astronomy --backend cpp --ndev 1 --output_csv results.csv
+        ```

@@ -3,6 +3,7 @@ import os
 import argparse
 import time
 import re
+import csv
 from datasets import load_dataset
 import infinicore
 import infinilm
@@ -246,11 +247,106 @@ def extract_answer_mmlu(output_content):
     return None
 
 
+def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=None):
+    """Evaluate samples for a single subject and return results"""
+    answers_list = []
+    for idx, sample in enumerate(samples):
+        if benchmark == "ceval":
+            input_content = f"'question':{sample['question']},'A': {sample['A']}, 'B':{sample['B']}, 'C': {sample['C']},'D': {sample['D']}。"
+            conversation = [
+                {
+                    "role": "system",
+                    "content": "请从question的A，B，C，D四个选项中选择正确的选项。例如，标准答案：A。",
+                },
+                {"role": "user", "content": input_content},
+            ]
+            answer = sample["answer"]
+            output_content, avg_time = model.generate(
+                conversation, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0
+            )
+            is_correct = extract_answer_ceval(output_content, answer)
+            answers_list.append({
+                "id": sample.get("id", idx),
+                "output_content": output_content,
+                "answer": answer,
+                "is_correct": is_correct,
+                "subject": subject_name
+            })
+            if benchmark == "ceval":
+                print("标准答案：", answer)
+
+        elif benchmark == "mmlu":
+            question = sample['question']
+            choices = sample['choices']
+            answer_idx = sample['answer']  # MMLU answer is 0-3 index
+
+            output_content, avg_time = model.generate(
+                question, choices, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0
+            )
+
+            predicted_answer = extract_answer_mmlu(output_content)
+
+            # Convert answer index to letter for display
+            answer_letter = chr(65 + answer_idx) if answer_idx < 4 else "?"
+            predicted_letter = chr(65 + predicted_answer) if predicted_answer is not None and predicted_answer < 4 else "?"
+
+            print(f"Sample {idx}: Correct answer: {answer_letter} ({answer_idx}), Predicted: {predicted_letter} ({predicted_answer})")
+
+            answers_list.append({
+                "id": idx,
+                "output_content": output_content,
+                "answer": answer_idx,
+                "predicted": predicted_answer,
+                "subject": subject_name
+            })
+
+    # Evaluate results for this subject
+    true_num = 0
+    all_num = 0
+    for cont in answers_list:
+        id = cont["id"]
+        all_num = all_num + 1
+
+        if benchmark == "ceval":
+            answer = cont["answer"]
+            is_correct = cont["is_correct"]
+            if is_correct:
+                true_num = true_num + 1
+                print(f"id {id} : ", "正确")
+            else:
+                print(f"id {id}: ", "错误")
+
+        elif benchmark == "mmlu":
+            answer = cont["answer"]
+            predicted = cont["predicted"]
+            if predicted is not None and predicted == answer:
+                true_num = true_num + 1
+                print(f"id {id}: Correct")
+            else:
+                answer_letter = chr(65 + answer) if answer < 4 else "?"
+                predicted_letter = chr(65 + predicted) if predicted is not None and predicted < 4 else "?"
+                print(f"id {id}: Wrong (correct: {answer_letter}, predicted: {predicted_letter})")
+
+    accuracy = true_num / all_num if all_num > 0 else 0.0
+    if benchmark == "ceval":
+        print(f"成绩: {true_num}/{all_num}", accuracy)
+    else:
+        print(f"Accuracy: {true_num}/{all_num} = {accuracy:.2%}")
+
+    return {
+        "subject": subject_name or "all",
+        "correct": true_num,
+        "total": all_num,
+        "accuracy": accuracy,
+        "answers_list": answers_list
+    }
+
+
 def test():
     # Parse arguments manually to handle device flags properly
     if len(sys.argv) < 4:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH]"
         )
         sys.exit(1)
 
@@ -262,9 +358,10 @@ def test():
     backend = "cpp"
     ndev = 1
     benchmark = None
-    subject = "all"  # Shared for both C-Eval and MMLU
+    subject = "all"  # Shared for both C-Eval and MMLU, can be comma-separated
     num_samples = None
     max_new_tokens = 500
+    output_csv = None
 
     i = 3
     while i < len(sys.argv):
@@ -285,6 +382,9 @@ def test():
             i += 2
         elif sys.argv[i] == "--max_new_tokens" and i + 1 < len(sys.argv):
             max_new_tokens = int(sys.argv[i + 1])
+            i += 2
+        elif sys.argv[i] == "--output_csv" and i + 1 < len(sys.argv):
+            output_csv = sys.argv[i + 1]
             i += 2
         else:
             i += 1
@@ -319,11 +419,24 @@ def test():
         device_type_str = "hygon"
     else:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH]"
         )
         sys.exit(1)
 
-    # Load dataset based on benchmark
+    # Parse comma-separated subjects
+    if subject and subject != "all":
+        subject_list = [s.strip() for s in subject.split(",")]
+    else:
+        subject_list = ["all"]
+
+    # Create model based on backend (create once, reuse for all subjects)
+    if backend != "010":
+        model = InfiniLMBenchmark(model_path, device_type_str, ndev, backend, benchmark)
+    else:
+        print(f"test 010 backend by scripts/test_ceval.py")
+        exit(0)
+
+    # Define helper functions for loading datasets
     if benchmark == "ceval":
         ceval_subjects = [
             "accountant",
@@ -388,175 +501,113 @@ def test():
                 return data.to_list()
             return list(data)
 
-        try:
-            # Support loading a single subject or all subjects by concatenating
-            if subject is None or subject == "all":
+        def load_subject_samples(subj_name):
+            if subj_name == "all":
                 samples = []
                 for subj in ceval_subjects:
                     samples.extend(_load_ceval_subject(subj))
+                return samples, "all"
             else:
-                if subject not in ceval_subjects:
-                    print(f"Unknown C-Eval subject '{subject}'. Available subjects: {', '.join(ceval_subjects)}")
-                    sys.exit(1)
-                samples = _load_ceval_subject(subject)
-        except Exception as e:
-            print(f"Error loading dataset: {e}")
-            print("Available subjects: " + ", ".join(ceval_subjects))
-            sys.exit(1)
+                if subj_name not in ceval_subjects:
+                    raise ValueError(f"Unknown C-Eval subject '{subj_name}'. Available subjects: {', '.join(ceval_subjects)}")
+                return _load_ceval_subject(subj_name), subj_name
 
     elif benchmark == "mmlu":
-        # Load MMLU dataset
-        # https://huggingface.co/datasets/cais/mmlu
-        if subject is None:
-            subject = "all"
-        print(f"Loading MMLU dataset (subject: {subject})...")
-        try:
-            if subject == "all":
+        def _load_mmlu_subject(subj):
+            print(f"Loading MMLU dataset (subject: {subj})...")
+            if subj == "all":
                 dataset = load_dataset("cais/mmlu", "all")
-                # Combine all subjects into a single dataset
                 samples = []
                 for subject_name in dataset.keys():
                     if subject_name in ["train", "validation", "test"]:
                         continue
-                    # Convert Dataset to list
                     test_data = dataset[subject_name]["test"]
                     if hasattr(test_data, 'to_list'):
                         samples.extend(test_data.to_list())
                     else:
                         samples.extend(list(test_data))
+                return samples, "all"
             else:
-                dataset = load_dataset("cais/mmlu", subject)
+                dataset = load_dataset("cais/mmlu", subj)
                 test_data = dataset["test"]
-                # Convert Dataset to list
                 if hasattr(test_data, 'to_list'):
-                    samples = test_data.to_list()
-                else:
-                    samples = list(test_data)
+                    return test_data.to_list(), subj
+                return list(test_data), subj
+
+        def load_subject_samples(subj_name):
+            return _load_mmlu_subject(subj_name)
+
+    # Evaluate each subject separately
+    all_results = []
+
+    for subj in subject_list:
+        print(f"\n{'='*60}")
+        print(f"Evaluating subject: {subj}")
+        print(f"{'='*60}\n")
+
+        try:
+            samples, actual_subj_name = load_subject_samples(subj)
+            print(f"Loaded {len(samples)} samples for subject: {actual_subj_name}")
+
+            # Limit number of samples if specified
+            if num_samples is not None and num_samples > 0:
+                original_count = len(samples)
+                samples = samples[:num_samples]
+                print(f"Limited to {len(samples)} samples for validation (from {original_count} total)")
+
+            # Test with first sample if available
+            if len(samples) > 0:
+                sample = samples[0]
+                if benchmark == "ceval":
+                    input_content = f"'question':{sample['question']},'A': {sample['A']}, 'B':{sample['B']}, 'C': {sample['C']},'D': {sample['D']}。"
+                    test_conversation = [
+                        {
+                            "role": "system",
+                            "content": "请从question的A，B，C，D四个选项中选择正确的选项。例如，标准答案：A。",
+                        },
+                        {"role": "user", "content": input_content},
+                    ]
+                    test_output, _ = model.generate(test_conversation, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0)
+                elif benchmark == "mmlu":
+                    question = sample['question']
+                    choices = sample['choices']
+                    test_output, _ = model.generate(question, choices, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0)
+                print(f"\nTest output: {test_output}\n")
+
+            # Evaluate samples for this subject
+            result = evaluate_samples(model, samples, benchmark, max_new_tokens, actual_subj_name)
+            all_results.append(result)
+            print(f"\nSubject '{actual_subj_name}' completed: {result['correct']}/{result['total']} = {result['accuracy']:.2%}")
+
         except Exception as e:
-            print(f"Error loading dataset: {e}")
-            print("Available subjects: abstract_algebra, anatomy, astronomy, business_ethics, etc.")
-            print("Use --subject all to load all subjects")
-            sys.exit(1)
-
-    print(f"Loaded {len(samples)} samples")
-
-    # Limit number of samples if specified
-    if num_samples is not None and num_samples > 0:
-        original_count = len(samples)
-        samples = samples[:num_samples]
-        print(f"Limited to {len(samples)} samples for validation (from {original_count} total)")
-
-    # Create model based on backend
-    if backend != "010":
-        model = InfiniLMBenchmark(model_path, device_type_str, ndev, backend, benchmark)
-    else:
-        print(f"test 010 backend by scripts/test_ceval.py")
-        exit(0)
-
-    # Test with first sample if available
-    if len(samples) > 0:
-        sample = samples[0]
-        if benchmark == "ceval":
-            input_content = f"'question':{sample['question']},'A': {sample['A']}, 'B':{sample['B']}, 'C': {sample['C']},'D': {sample['D']}。"
-            test_conversation = [
-                {
-                    "role": "system",
-                    "content": "请从question的A，B，C，D四个选项中选择正确的选项。例如，标准答案：A。",
-                },
-                {"role": "user", "content": input_content},
-            ]
-            test_output, _ = model.generate(test_conversation, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0)
-        elif benchmark == "mmlu":
-            question = sample['question']
-            choices = sample['choices']
-            test_output, _ = model.generate(question, choices, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0)
-        print(f"\nTest output: {test_output}")
-
-    answers_list = []
-    for idx, sample in enumerate(samples):
-        if benchmark == "ceval":
-            input_content = f"'question':{sample['question']},'A': {sample['A']}, 'B':{sample['B']}, 'C': {sample['C']},'D': {sample['D']}。"
-            conversation = [
-                {
-                    "role": "system",
-                    "content": "请从question的A，B，C，D四个选项中选择正确的选项。例如，标准答案：A。",
-                },
-                {"role": "user", "content": input_content},
-            ]
-            answer = sample["answer"]
-            output_content, avg_time = model.generate(
-                conversation, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0
-            )
-            is_correct = extract_answer_ceval(output_content, answer)
-            answers_list.append({
-                "id": sample.get("id", idx),
-                "output_content": output_content,
-                "answer": answer,
-                "is_correct": is_correct
-            })
-            if benchmark == "ceval":
-                print("标准答案：", answer)
-
-        elif benchmark == "mmlu":
-            question = sample['question']
-            choices = sample['choices']
-            answer_idx = sample['answer']  # MMLU answer is 0-3 index
-
-            output_content, avg_time = model.generate(
-                question, choices, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0
-            )
-
-            predicted_answer = extract_answer_mmlu(output_content)
-
-            # Convert answer index to letter for display
-            answer_letter = chr(65 + answer_idx) if answer_idx < 4 else "?"
-            predicted_letter = chr(65 + predicted_answer) if predicted_answer is not None and predicted_answer < 4 else "?"
-
-            print(f"Sample {idx}: Correct answer: {answer_letter} ({answer_idx}), Predicted: {predicted_letter} ({predicted_answer})")
-
-            answers_list.append({
-                "id": idx,
-                "output_content": output_content,
-                "answer": answer_idx,
-                "predicted": predicted_answer
-            })
+            print(f"Error evaluating subject '{subj}': {e}")
+            continue
 
     model.destroy_model_instance()
 
-    print("-------------------------------------------------------------")
+    # Calculate overall results
+    overall_correct = sum(r['correct'] for r in all_results)
+    overall_total = sum(r['total'] for r in all_results)
+    overall_accuracy = overall_correct / overall_total if overall_total > 0 else 0.0
 
-    # Evaluate results
-    true_num = 0
-    all_num = 0
-    for cont in answers_list:
-        id = cont["id"]
-        all_num = all_num + 1
-
-        if benchmark == "ceval":
-            answer = cont["answer"]
-            is_correct = cont["is_correct"]
-            if is_correct:
-                true_num = true_num + 1
-                print(f"id {id} : ", "正确")
-            else:
-                print(f"id {id}: ", "错误")
-
-        elif benchmark == "mmlu":
-            answer = cont["answer"]
-            predicted = cont["predicted"]
-            if predicted is not None and predicted == answer:
-                true_num = true_num + 1
-                print(f"id {id}: Correct")
-            else:
-                answer_letter = chr(65 + answer) if answer < 4 else "?"
-                predicted_letter = chr(65 + predicted) if predicted is not None and predicted < 4 else "?"
-                print(f"id {id}: Wrong (correct: {answer_letter}, predicted: {predicted_letter})")
-
-    accuracy = true_num / all_num if all_num > 0 else 0.0
+    print(f"\n{'='*60}")
+    print("OVERALL RESULTS")
+    print(f"{'='*60}")
     if benchmark == "ceval":
-        print(f"成绩: {true_num}/{all_num}", accuracy)
+        print(f"Overall 成绩: {overall_correct}/{overall_total} = {overall_accuracy:.2%}")
     else:
-        print(f"Accuracy: {true_num}/{all_num} = {accuracy:.2%}")
+        print(f"Overall Accuracy: {overall_correct}/{overall_total} = {overall_accuracy:.2%}")
+
+    # Write CSV if output path is specified
+    if output_csv:
+        print(f"\nWriting results to CSV: {output_csv}")
+        with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['Subject', 'Correct', 'Total', 'Accuracy'])
+            for result in all_results:
+                writer.writerow([result['subject'], result['correct'], result['total'], f"{result['accuracy']:.4f}"])
+            writer.writerow(['Overall', overall_correct, overall_total, f"{overall_accuracy:.4f}"])
+        print(f"CSV file written successfully: {output_csv}")
 
 
 if __name__ == "__main__":
