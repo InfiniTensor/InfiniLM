@@ -29,4 +29,3 @@ cache/
 *.http
 
 #weight
-llada_torch/LLaDA
