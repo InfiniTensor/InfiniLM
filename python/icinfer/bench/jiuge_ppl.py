@@ -1,0 +1,130 @@
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from datasets import load_dataset
+import sys
+
+from icinfer import LLM, SamplingParams
+from icinfer.engine.libinfinicore_infer import DeviceType
+
+DEVICE_TYPE_MAP = {
+    "cpu": DeviceType.DEVICE_TYPE_CPU,
+    "nvidia": DeviceType.DEVICE_TYPE_NVIDIA,
+    "cambricon": DeviceType.DEVICE_TYPE_CAMBRICON,
+    "ascend": DeviceType.DEVICE_TYPE_ASCEND,
+    "metax": DeviceType.DEVICE_TYPE_METAX,
+    "moore": DeviceType.DEVICE_TYPE_MOORE,
+}
+
+TORCH_DEVICE_TYPE_MAP = {
+    "cpu": "cpu",
+    "nvidia": "cuda",
+    "cambricon": "mlu",
+    "ascend": "npu",
+    "metax": "cuda",
+    "moore": "cuda",
+}
+
+
+def test_torch(input_ids_list, device_):
+    device = TORCH_DEVICE_TYPE_MAP[device_]
+    model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).to(
+        device
+    )
+    model.eval()
+
+    total_neg_log_likelihood = 0
+    total_tokens = 0
+
+    with torch.no_grad():
+        for input_ids in input_ids_list:
+            input_ids = torch.tensor(input_ids, device=device)
+            # shift inputs and labels
+            inputs = input_ids[:-1].unsqueeze(0)  # [1, seq_len-1]
+            labels = input_ids[1:].unsqueeze(0)  # [1, seq_len-1]
+
+            outputs = model(inputs, use_cache=False)
+            logits = outputs.logits  # [1, seq_len-1, vocab_size]
+
+            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+            # gather log probs of true tokens
+            true_token_log_probs = log_probs.gather(
+                dim=-1, index=labels.unsqueeze(-1)
+            ).squeeze(-1)
+
+            total_neg_log_likelihood += -true_token_log_probs.sum().item()
+            total_tokens += labels.numel()
+
+    perplexity = torch.exp(torch.tensor(total_neg_log_likelihood / total_tokens))
+    return perplexity
+
+
+def test_infinicore(
+    input_ids_list, model_path, device_, ndev_, enable_paged_attn, max_kvcache_tokens
+):
+    device = DEVICE_TYPE_MAP[device_]
+
+    llm = LLM(
+        model_path,
+        device=device,
+        enforce_eager=True,
+        tensor_parallel_size=ndev_,
+        trust_remote_code=True,
+        attention_bias=True,
+        enable_paged_attn=enable_paged_attn,
+        max_kvcache_tokens=max_kvcache_tokens,
+    )
+
+    perplexity = llm.perplexity(input_ids_list)
+    llm.model_runner.exit()
+    return perplexity
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-path", type=str, required=True)
+    parser.add_argument(
+        "--dev", type=str, default="nvidia", choices=DEVICE_TYPE_MAP.keys()
+    )
+    parser.add_argument(
+        "--ndev",
+        type=int,
+        default=1,
+        help="Number of devices to use (default: 1)",
+    )
+    parser.add_argument("--max-kvcache-tokens", type=int, default=4096)
+    parser.add_argument("--enable-paged-attn", action="store_true")
+
+    args = parser.parse_args()
+    max_kvcache_tokens = args.max_kvcache_tokens
+
+    seq_len = 512
+
+    model_path = args.model_path
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    local_file_paths = {"test": "<path/to/model_dir>"}
+    dataset = load_dataset("parquet", data_files=local_file_paths, split="test")
+
+    texts = dataset["text"]
+    texts = [t.strip() for t in texts if len(t.strip()) > 0]
+
+    input_ids_list = []
+    for text in texts:
+        ids = tokenizer.encode(text)
+        # split long sequences into chunks
+        for i in range(0, len(ids) - seq_len + 1, seq_len):
+            input_ids_list.append(ids[i : i + seq_len])
+
+    InfiniCore_perplexity = 14.35
+
+    width_label = 24
+    sep = "-" * 60
+    MODEL = "FM9G-70B"
+
+    print(f"\n=== 📊 性能指标汇总 ({MODEL}) ===")
+    print(sep)
+    print(
+        f"{'InfiniLM Paged Attn Perplexity':<{width_label}}: {InfiniCore_perplexity:.2f}"
+    )
+    print(sep)

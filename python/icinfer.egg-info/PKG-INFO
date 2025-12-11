@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: icinfer
+Version: 0.1.0
+Summary: a lightweight, hardware-agnostic, unified inference engine implementation built from scratch, based on InfiniCore
+Author: 
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/InfiniTensor/InfiniLM
+Requires-Python: <3.13,>=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: torch>=2.4.0
+Requires-Dist: triton>=3.0.0
+Requires-Dist: transformers>=4.51.0
+Requires-Dist: xxhash
