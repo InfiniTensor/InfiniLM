@@ -118,10 +118,12 @@ class LLaDAModel(BaseModel):
     def create_kv_cache(
         self, nlayer, max_len, nkvh, dk, dv, dtype, device, dev_ids, ndev
     ):
-        pass
+        return self.lib.createKVCache(
+            nlayer, max_len, nkvh, dk, dv, dtype, device, dev_ids, ndev
+        )
 
     def drop_kv_cache(self, kv_cache):
-        pass
+        self.lib.dropKVCache(kv_cache)
 
     def infer_batch(
         self,

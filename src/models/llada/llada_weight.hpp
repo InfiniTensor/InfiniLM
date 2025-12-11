@@ -3,10 +3,42 @@
 
 
 #include <cmath>
+void debugPrint(LLaDAMeta const *meta) {
+    if (!meta) {
+        std::cout << "LLaDAMeta pointer = NULL" << std::endl;
+        return;
+    }
+
+    std::cout << "===== LLaDAMeta DEBUG =====" << std::endl;
+    std::cout << "meta pointer   = " << meta << std::endl;
+
+    std::cout << "dt_logits      = " << (int)meta->dt_logits << std::endl;
+    std::cout << "nlayer         = " << meta->nlayer << std::endl;
+    std::cout << "d              = " << meta->d << std::endl;
+    std::cout << "nh             = " << meta->nh << std::endl;
+    std::cout << "nkvh           = " << meta->nkvh << std::endl;
+    std::cout << "dh             = " << meta->dh << std::endl;
+
+    std::cout << "di_dense       = " << meta->di_dense << std::endl;
+    std::cout << "di_expert      = " << meta->di_expert << std::endl;
+
+    std::cout << "dctx           = " << meta->dctx << std::endl;
+    std::cout << "dvoc           = " << meta->dvoc << std::endl;
+
+    std::cout << "epsilon        = " << meta->epsilon << std::endl;
+    std::cout << "theta          = " << meta->theta << std::endl;
+
+    std::cout << "end_token      = " << meta->end_token << std::endl;
+    std::cout << "num_experts    = " << meta->num_experts << std::endl;
+
+    std::cout << "===========================" << std::endl;
+}
+
 inline std::shared_ptr<Tensor> getInEmbd(
     LLaDAMeta const * meta,
     LLaDAWeights const * w) {
-    std::cout << "Get In Embd" << std::endl;
+    debugPrint(meta);
+    std::cout << "Get In Embd11" << std::endl;
     auto shape = std::vector<size_t>({meta->dvoc, meta->d});
     return Tensor::weight((char *)w->input_embd, meta->dt_logits, shape);
 }
@@ -14,14 +46,16 @@ inline std::shared_ptr<Tensor> getInEmbd(
 inline std::shared_ptr<Tensor> getOutNorm(
     LLaDAMeta const * meta,
     LLaDAWeights const * w){
-    std::cout << "Get In Embd" << std::endl;
-    auto shape = std::vector<size_t>({meta->d});
+    debugPrint(meta);
+    std::cout << "Get In Embd112" << std::endl;
+    auto shape = std::vector<size_t>({meta->d}); //TODO:
     return Tensor::weight((char *)w->output_norm, w->dt_norm, shape);
 }
 
 inline std::shared_ptr<Tensor> getOutEmbd(
     LLaDAMeta const *meta,
     LLaDAWeights const *w) {
+    std::cout << "Out Embd sd" << std::endl;
     if (w->transpose_linear_weights != 0) {
         auto shape = std::vector<size_t>({meta->dvoc, meta->d});
         return Tensor::weight((char *)w->output_embd, meta->dt_logits, shape)
@@ -148,36 +182,7 @@ inline std::shared_ptr<Tensor> getFFNDown(
     }
 }
 
-void debugPrint(LLaDAMeta const *meta) {
-    if (!meta) {
-        std::cout << "LLaDAMeta pointer = NULL" << std::endl;
-        return;
-    }
 
-    std::cout << "===== LLaDAMeta DEBUG =====" << std::endl;
-    std::cout << "meta pointer   = " << meta << std::endl;
-
-    std::cout << "dt_logits      = " << (int)meta->dt_logits << std::endl;
-    std::cout << "nlayer         = " << meta->nlayer << std::endl;
-    std::cout << "d              = " << meta->d << std::endl;
-    std::cout << "nh             = " << meta->nh << std::endl;
-    std::cout << "nkvh           = " << meta->nkvh << std::endl;
-    std::cout << "dh             = " << meta->dh << std::endl;
-
-    std::cout << "di_dense       = " << meta->di_dense << std::endl;
-    std::cout << "di_expert      = " << meta->di_expert << std::endl;
-
-    std::cout << "dctx           = " << meta->dctx << std::endl;
-    std::cout << "dvoc           = " << meta->dvoc << std::endl;
-
-    std::cout << "epsilon        = " << meta->epsilon << std::endl;
-    std::cout << "theta          = " << meta->theta << std::endl;
-
-    std::cout << "end_token      = " << meta->end_token << std::endl;
-    std::cout << "num_experts    = " << meta->num_experts << std::endl;
-
-    std::cout << "===========================" << std::endl;
-}
 
 inline std::shared_ptr<Tensor> getSinTable(LLaDAMeta const *meta) {
     std::cout << "Get Sin Table" << std::endl;

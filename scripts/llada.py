@@ -441,8 +441,23 @@ class LLaDABatchedTask:
         self.topps_list = [t.topp for t in tasks]
 
         # Flatten token lists
-        flat_tokens = [tok for toks in token_lists for tok in toks]
+        print(f"token_lists: {token_lists}")
+        print(f"First token_list type: {type(token_lists[0]) if token_lists else 'Empty'}")
+        if token_lists:
+            print(f"First token_list content: {token_lists[0][:5] if isinstance(token_lists[0], list) else 'Not a list'}")
+
+        flat_tokens = []
+        for toks in token_lists:
+            if isinstance(toks, (list, tuple)):
+                flat_tokens.extend(toks)
+            else:
+                flat_tokens.append(toks)
+
+        # Convert all tokens to int
+        flat_tokens = [int(tok) for tok in flat_tokens]
+
         self.ntok = len(flat_tokens)
+        print(f"flat_tokens (first 10): {flat_tokens[:10]}")
 
         # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * self.ntok)(*flat_tokens)
@@ -524,6 +539,7 @@ class LLaDAForCauslLM:
             ndev,
             self.dev_ids,
         )
+        self.model_ptr = self.model_instance
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
@@ -531,6 +547,24 @@ class LLaDAForCauslLM:
     # <--------------------------------------  Infer PipeLine  ------------------------------------------------>
     def max_context_len(self):
         return self.meta.dctx
+
+    def create_kv_cache(self):
+        """Create KV cache for the model"""
+        return self.llada_model.create_kv_cache(
+            self.meta.nlayer,
+            self.meta.dctx,
+            self.meta.nkvh,
+            self.meta.dh,
+            self.meta.dh,
+            self.meta.dt_logits,
+            self.device,
+            self.dev_ids,
+            self.ndev,
+        )
+
+    def drop_kv_cache(self, kv_cache):
+        """Drop KV cache"""
+        self.llada_model.drop_kv_cache(kv_cache)
 
     def batch_infer_one_round(self, tasks: List[InferTask]):
         """
@@ -571,18 +605,30 @@ class LLaDAForCauslLM:
             prompts = [prompts]
 
         # Apply chat template and tokenize
+        print("Staring generate prepare")
         messages = [{"role": "user", "content": prompt} for prompt in prompts]
         formatted_prompts = [self.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
-        encoded_outputs = self.tokenizer.encode(
+        encoded_outputs = self.tokenizer.batch_encode_plus(
             formatted_prompts,
             add_special_tokens=False,
             padding=True,
             return_tensors="pt"
         )
+        # Extract input_ids from batch encoding
+        input_ids = encoded_outputs['input_ids']
+
+        # For single prompt, get the first sequence
+        if len(prompts) == 1:
+            tokens = input_ids[0].tolist()
+        else:
+            # For batch, handle each sequence separately
+            tokens = [seq.tolist() for seq in input_ids]
+
+        print(f"Tokens type: {type(tokens)}, content: {tokens[:10] if isinstance(tokens, list) else 'Not a list'}")
 
         infer_task = InferTask(
             0,
-            encoded_outputs,
+            tokens,
             self.max_context_len(),
             temperature_,
             topk_,
@@ -590,10 +636,14 @@ class LLaDAForCauslLM:
             self.eos_token_id,
         )
 
-        # TODO:
+        # Bind KV cache
+        kv_cache = KVCache(self)
+        infer_task.bind_kvcache(kv_cache)
+        print("Staring Infering")
         output_tokens = self.batch_infer_one_round([infer_task])
 
        
+
 
 
     def forward_logits_batch(self, input_ids_tensor, attention_mask_tensor=None):
@@ -694,26 +744,24 @@ def test():
     model = LLaDAForCauslLM(model_path, device_type, ndev)
 
     # Test prompts
-    test_prompts = [
-        "The capital of France is",
-    ]
+    test_prompts = "The capital of France is "
 
     print("\n=== Testing C++ Model Integration Function ===")
-    for i, prompt in enumerate(test_prompts):
-        print(f"\nTest {i+1}: {prompt}")
-        try:
+    # for i, prompt in enumerate(test_prompts):
+    #     print(f"\nTest {i+1}: {prompt}")
+    #     try:
             # Use the C++ model integration function
-            result = model.generate(
-                prompts=prompt,
+    result = model.generate(
+                prompts=test_prompts,
                 max_steps=16,  # Reduced for faster testing
                 gen_length=32,  # Shorter generation for testing
                 block_length=16,
                 temperature_=0.0,  # Deterministic for testing
                 verbose=verbose
             )
-            print(f"Result: {result}")
-        except Exception as e:
-            print(f"Error in C++ model generation: {e}")
+        #     print(f"Result: {result}")
+        # except Exception as e:
+        #     print(f"Error in C++ model generation: {e}")
 
    
 

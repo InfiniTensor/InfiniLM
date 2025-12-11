@@ -10,12 +10,15 @@
 #include <thread>
 #include <vector>
 
+
+
 // #TODO:这个是草稿版
 void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
                           const LLaDAWeights *weights, infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm){
     std::cout << "Set Device" << std::endl;
+    //Print(meta);
     RUN_INFINI(infinirtSetDevice(device, dev_id));
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
@@ -23,7 +26,7 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
     infinirtStreamCreate(&stream);
     
 
-    std::cout << "Set Weight" << std::endl;
+    std::cout << "Set Weight" << std::endl; // 逐层获取权重
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
         w_ffn_norm, w_ffn_gate_up, w_ffn_down;
     for (size_t layer = 0; layer < meta->nlayer; layer++) {
@@ -96,7 +99,9 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits){
-    std::cout << "Infer Device Batch" << std::endl;
+    std::cout << "entering infer batch" << std::endl;
+
+    std::cout << "Calucute Hyper Parameter" << std::endl;
 }
 
 __C void
@@ -106,7 +111,31 @@ inferBatchLLaDA(struct LLaDAModel *model,
                 struct KVCache **kv_caches,
                 const float *temperature, const uint32_t *topk, const float *topp,
                 uint32_t *output){
-    std::cout << "Infer Batch LLaDA is be called";
+    std::cout << "Infer Batch LLaDA is be called" << std::endl;
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.output = output;
+    model->req.logits = nullptr;
+    model->req.temperature = temperature;
+    model->req.topk = topk;
+    model->req.topp = topp;
+
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
 }
 
 __C void
@@ -185,6 +214,7 @@ void launchDevice(const LLaDAMeta & meta, const LLaDAWeights *weights, LLaDADevi
 // TODO: not void just for tmp
 LLaDAModel::LLaDAModel(const LLaDAMeta *_meta, const LLaDAWeights *weights, infiniDevice_t device_, std::vector<int> device_ids)  {
     std::cout << "Starting Distri Deploy Model" << std::endl;
+    debugPrint(_meta); // Alright Until this place
     int ndev = int(device_ids.size());
     std::cout << "The nums of dev is " << ndev << std::endl;
     device = device_;
@@ -200,8 +230,7 @@ LLaDAModel::LLaDAModel(const LLaDAMeta *_meta, const LLaDAWeights *weights, infi
 
     for (int i = 0; i < ndev; i++) {
         std::cout << "Launch Device " << i << " Thread" << std::endl; 
-        threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
-        //launchDevice(_meta, weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+        threads[i] = std::thread(launchDevice, std::cref(*_meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
 
 }
@@ -214,6 +243,8 @@ __C struct LLaDAModel * createLLaDAModel(const LLaDAMeta * meta,
                                          const int *dev_ids) {
     std::vector<int> device_ids(ndev);
     std::copy(dev_ids, dev_ids + ndev, device_ids.begin());
+    std::cout << "Take a See!" << std::endl;
+    debugPrint(meta);
     LLaDAModel *model = new LLaDAModel(meta, weights, device, device_ids); // 测试代码编写在该函数体内部
 
     //1. 测试launchDevice
