@@ -216,9 +216,17 @@ public:
      * @param cache_config Cache configuration parameters
      */
     DynamicCache(const CacheConfig &cache_config)
-        : cache_config_(cache_config), layers_(cache_config.num_layers) {
+        : cache_config_(cache_config),
+          // Create either one layer (if sharing) or num_layers layers
+          layers_(cache_config.use_single_layer_cache ? 1 : cache_config.num_layers) {
+
         if (cache_config.num_layers == -1) {
             throw std::runtime_error("DynamicCache: num_layers must be specified in CacheConfig");
+        }
+
+        if (cache_config.use_single_layer_cache) {
+            spdlog::info("DynamicCache: Using single shared KVCacheLayer for all {} decoder layers",
+                         cache_config.num_layers);
         }
     }
 
@@ -228,8 +236,17 @@ public:
      * @param num_layers Number of model layers (creates one cache layer per model layer)
      * @param max_position_embeddings Maximum position embeddings (used for initial capacity)
      */
-    DynamicCache(size_t num_layers, size_t max_position_embeddings = 4096)
-        : cache_config_(CacheConfig(CacheType::DYNAMIC, num_layers, max_position_embeddings)), layers_(num_layers) {}
+    DynamicCache(size_t num_layers, size_t max_position_embeddings = 4096, bool use_single_layer = false)
+        : cache_config_(CacheConfig(CacheType::DYNAMIC, num_layers, max_position_embeddings)),
+          layers_(use_single_layer ? 1 : num_layers) {
+
+        cache_config_.use_single_layer_cache = use_single_layer;
+
+        if (use_single_layer) {
+            spdlog::info("DynamicCache: Using single shared KVCacheLayer for all {} decoder layers",
+                         num_layers);
+        }
+    }
 
     /**
      * @brief Update cache with new key and value states for a specific layer
@@ -238,14 +255,18 @@ public:
         size_t layer_idx,
         const infinicore::Tensor &k_new,
         const infinicore::Tensor &v_new) {
-        if (layer_idx >= layers_.size()) {
-            SPDLOG_ERROR("DynamicCache::update: layer_idx {} out of range (num_layers: {})",
-                         layer_idx, layers_.size());
-            throw std::runtime_error("DynamicCache: layer_idx out of range");
+
+        // When using single layer cache, map all layer indices to layer 0
+        size_t cache_layer_idx = cache_config_.use_single_layer_cache ? 0 : layer_idx;
+
+        if (cache_layer_idx >= layers_.size()) {
+            SPDLOG_ERROR("DynamicCache::update: cache_layer_idx {} out of range (num_layers: {})",
+                         cache_layer_idx, layers_.size());
+            throw std::runtime_error("DynamicCache: cache_layer_idx out of range");
         }
 
         // Update the cache for this layer with cache config
-        return layers_[layer_idx].update(k_new, v_new, cache_config_);
+        return layers_[cache_layer_idx].update(k_new, v_new, cache_config_);
     }
 
     /**
@@ -313,13 +334,16 @@ public:
      * @brief Get cache position for a specific layer
      */
     size_t cache_position(size_t layer_idx) const {
-        if (layer_idx >= layers_.size()) {
-            throw std::runtime_error("DynamicCache: layer_idx out of range");
+        // When using single layer cache, map all layer indices to layer 0
+        size_t cache_layer_idx = cache_config_.use_single_layer_cache ? 0 : layer_idx;
+
+        if (cache_layer_idx >= layers_.size()) {
+            throw std::runtime_error("DynamicCache: cache_layer_idx out of range");
         }
-        if (layers_[layer_idx].cache_positions.empty()) {
+        if (layers_[cache_layer_idx].cache_positions.empty()) {
             return 0;
         }
-        return layers_[layer_idx].cache_positions[0]; // All batch items should have same position
+        return layers_[cache_layer_idx].cache_positions[0]; // All batch items should have same position
     }
 
     /**
@@ -340,40 +364,34 @@ public:
         }
     }
 
-    // /**
-    //  * @brief Reinitialize cache with new configuration
-    //  * @param new_num_layers New number of layers
-    //  * @param new_max_position_embeddings New max position embeddings
-    //  */
-    // void reinitialize(size_t new_num_layers, size_t new_max_position_embeddings) {
-    //     // Clear existing layers
-    //     layers_.clear();
-
-    //     // Update configuration
-    //     max_position_embeddings_ = new_max_position_embeddings;
-
-    //     // Create new layers
-    //     layers_.resize(new_num_layers);
-
-    //     spdlog::info("DynamicCache reinitialized with {} layers, max_position_embeddings={}",
-    //                  new_num_layers, new_max_position_embeddings);
-    // }
-
     /**
      * @brief Access a specific layer's cache (for advanced usage)
      */
     KVCacheLayer &layer(size_t layer_idx) {
-        if (layer_idx >= layers_.size()) {
-            throw std::runtime_error("DynamicCache: layer_idx out of range");
+        // When using single layer cache, map all layer indices to layer 0
+        size_t cache_layer_idx = cache_config_.use_single_layer_cache ? 0 : layer_idx;
+
+        if (cache_layer_idx >= layers_.size()) {
+            throw std::runtime_error("DynamicCache: cache_layer_idx out of range");
         }
-        return layers_[layer_idx];
+        return layers_[cache_layer_idx];
     }
 
     const KVCacheLayer &layer(size_t layer_idx) const {
-        if (layer_idx >= layers_.size()) {
-            throw std::runtime_error("DynamicCache: layer_idx out of range");
+        // When using single layer cache, map all layer indices to layer 0
+        size_t cache_layer_idx = cache_config_.use_single_layer_cache ? 0 : layer_idx;
+
+        if (cache_layer_idx >= layers_.size()) {
+            throw std::runtime_error("DynamicCache: cache_layer_idx out of range");
         }
-        return layers_[layer_idx];
+        return layers_[cache_layer_idx];
+    }
+
+    /**
+     * @brief Check if using single shared layer cache
+     */
+    bool is_single_layer_cache() const {
+        return cache_config_.use_single_layer_cache;
     }
 
 private:

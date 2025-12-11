@@ -41,14 +41,16 @@ inline void bind_cache_config(py::module &m) {
                        "Cache growth factor when resizing (e.g., 2.0 for doubling)")
         .def_readwrite("reset_mode", &CacheConfig::reset_mode,
                        "Cache reset mode")
+        .def_readwrite("use_single_layer_cache", &CacheConfig::use_single_layer_cache,
+                       "When true, create only one KVCacheLayer shared by all decoder layers")
         .def("__repr__", [](const CacheConfig &cfg) {
             return fmt::format("CacheConfig(type={}, num_layers={}, max_position_embeddings={}, "
                                "initial_capacity={}, initial_batch_size={}, growth_factor={}, "
-                               "reset_mode={})",
+                               "reset_mode={}, use_single_layer_cache={})",
                                static_cast<int>(cfg.type), cfg.num_layers,
                                cfg.max_position_embeddings, cfg.initial_capacity,
                                cfg.initial_batch_size, cfg.growth_factor,
-                               static_cast<int>(cfg.reset_mode));
+                               static_cast<int>(cfg.reset_mode), cfg.use_single_layer_cache);
         });
 }
 

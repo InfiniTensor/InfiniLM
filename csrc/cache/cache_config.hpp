@@ -1,4 +1,3 @@
-// cache_config.hpp (modified)
 #pragma once
 
 #include <cstddef>
@@ -29,13 +28,19 @@ struct CacheConfig {
     float growth_factor = 2.0f;     // Cache growth factor when resizing
     CacheResetMode reset_mode = CacheResetMode::PRESERVE;
 
+    // NEW: Enable shared single-layer cache for all decoder layers
+    // When true, DynamicCache creates only one KVCacheLayer instance
+    // and all decoder layers share/update this same layer.
+    // Useful for memory-constrained environments or special optimization cases.
+    bool use_single_layer_cache = true;
+
     // Constructor
     CacheConfig() = default;
     CacheConfig(CacheType t, size_t nl = 32, size_t mpe = 4096)
         : type(t), num_layers(nl), max_position_embeddings(mpe) {}
 
     bool operator==(const CacheConfig &other) const {
-        return type == other.type && num_layers == other.num_layers && max_position_embeddings == other.max_position_embeddings && initial_capacity == other.initial_capacity && initial_batch_size == other.initial_batch_size && growth_factor == other.growth_factor;
+        return type == other.type && num_layers == other.num_layers && max_position_embeddings == other.max_position_embeddings && initial_capacity == other.initial_capacity && initial_batch_size == other.initial_batch_size && growth_factor == other.growth_factor && use_single_layer_cache == other.use_single_layer_cache;
     }
 
     bool operator!=(const CacheConfig &other) const {
