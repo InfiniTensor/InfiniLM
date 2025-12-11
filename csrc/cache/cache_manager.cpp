@@ -84,12 +84,6 @@ void CacheManager::update_cache(size_t worker_idx,
     cache.update(layer_idx, k_new, v_new);
 }
 
-void CacheManager::reset_pos(size_t pos) {
-    for (auto &cache : caches_) {
-        cache->reset(pos);
-    }
-}
-
 void CacheManager::reset_worker(size_t worker_idx, size_t pos) {
     get_cache(worker_idx).reset(pos);
 }

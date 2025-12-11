@@ -88,12 +88,6 @@ public:
                       const infinicore::Tensor &v_new);
 
     /**
-     * @brief Reset cache for all workers
-     * @param pos Position to reset to (default 0)
-     */
-    void reset_pos(size_t pos = 0);
-
-    /**
      * @brief Reset cache for a specific worker
      * @param worker_idx Worker index
      * @param pos Position to reset to (default 0)

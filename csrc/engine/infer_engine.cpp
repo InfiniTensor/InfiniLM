@@ -126,7 +126,12 @@ const distributed::DistConfig &InferEngine::get_dist_config() const {
 // reset_cache
 //------------------------------------------------------
 void InferEngine::reset_cache(size_t pos) {
-    cache_manager_->reset_pos(pos);
+    for (size_t i = 0; i < workers_.size(); ++i) {
+        workers_[i]->reset_cache(pos);
+    }
+    for (auto &worker : workers_) {
+        worker->wait();
+    }
 }
 
 //------------------------------------------------------
@@ -135,6 +140,9 @@ void InferEngine::reset_cache(size_t pos) {
 void InferEngine::reset_cache(const cache::CacheConfig &new_config, size_t pos) {
     for (size_t i = 0; i < workers_.size(); ++i) {
         workers_[i]->reset_cache(new_config, pos);
+    }
+    for (auto &worker : workers_) {
+        worker->wait();
     }
 }
 

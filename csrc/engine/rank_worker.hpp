@@ -39,11 +39,10 @@ public:
     void run(const std::vector<std::any> &args);
 
     // Reset the internal cache in the model (clears state between generations)
-    // By default, this is synchronous (blocks until reset completes).
-    // If async=true, this becomes asynchronous (unstable - use with caution).
-    void reset_cache(size_t pos = 0, bool async = false);
+    void reset_cache(size_t pos = 0);
 
-    void reset_cache(const cache::CacheConfig &new_config, size_t pos = 0, bool async = false);
+    // Reset the internal cache with a new configuration
+    void reset_cache(const cache::CacheConfig &new_config, size_t pos = 0);
 
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();

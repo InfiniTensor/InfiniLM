@@ -116,58 +116,32 @@ void RankWorker::wait() {
 //------------------------------------------------------
 // reset_cache -- synchronous by default, async optional (unstable)
 //------------------------------------------------------
-void RankWorker::reset_cache(size_t pos, bool async) {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (should_exit_) {
-            throw std::runtime_error("RankWorker is closing; cannot reset_cache");
-        }
-
-        pending_reset_pos_ = pos;
-        job_cmd_ = Command::RESET_CACHE;
-        has_job_ = true;
-        job_done_ = false;
+void RankWorker::reset_cache(size_t pos) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker is closing; cannot reset_cache");
     }
+
+    pending_reset_pos_ = pos;
+    job_cmd_ = Command::RESET_CACHE;
+    has_job_ = true;
+    job_done_ = false;
     cv_.notify_all();
-
-    // By default, wait for job completion (synchronous)
-    // If async=true, return immediately (unstable - use with caution)
-    if (!async) {
-        std::unique_lock<std::mutex> lk(mutex_);
-        cv_.wait(lk, [&] { return job_done_ || should_exit_; });
-
-        if (should_exit_) {
-            throw std::runtime_error("RankWorker stopped while resetting cache");
-        }
-    }
 }
 
-void RankWorker::reset_cache(const cache::CacheConfig &new_config, size_t pos, bool async) {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (should_exit_) {
-            throw std::runtime_error("RankWorker is closing; cannot reset_cache");
-        }
-
-        // Store both the position and the new config
-        pending_reset_pos_ = pos;
-        pending_reset_config_ = new_config;
-        job_cmd_ = Command::RESET_CACHE_WITH_CONFIG;
-        has_job_ = true;
-        job_done_ = false;
+void RankWorker::reset_cache(const cache::CacheConfig &new_config, size_t pos) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker is closing; cannot reset_cache");
     }
+
+    // Store both the position and the new config
+    pending_reset_pos_ = pos;
+    pending_reset_config_ = new_config;
+    job_cmd_ = Command::RESET_CACHE_WITH_CONFIG;
+    has_job_ = true;
+    job_done_ = false;
     cv_.notify_all();
-
-    // By default, wait for job completion (synchronous)
-    // If async=true, return immediately (unstable - use with caution)
-    if (!async) {
-        std::unique_lock<std::mutex> lk(mutex_);
-        cv_.wait(lk, [&] { return job_done_ || should_exit_; });
-
-        if (should_exit_) {
-            throw std::runtime_error("RankWorker stopped while resetting cache");
-        }
-    }
 }
 
 //------------------------------------------------------
