@@ -92,6 +92,10 @@ struct KVCacheLayer {
         }
         // Grow cache if needed using growth factor from config
         else if (required_capacity > max_capacity) {
+            if (!cache_config.allow_expand) {
+                SPDLOG_ERROR("KVCacheLayer::ensure_capacity: Cache expansion not allowed by config");
+                throw std::runtime_error("KV cache expansion not allowed");
+            }
             // Calculate new capacity using growth factor
             size_t new_capacity = static_cast<size_t>(
                 std::max(static_cast<float>(max_capacity) * growth_factor,

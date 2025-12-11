@@ -39,16 +39,22 @@ inline void bind_cache_config(py::module &m) {
                        "Initial batch size for cache allocation")
         .def_readwrite("growth_factor", &CacheConfig::growth_factor,
                        "Cache growth factor when resizing (e.g., 2.0 for doubling)")
+        .def_readwrite("allow_expand", &CacheConfig::allow_expand,
+                       "Whether to allow cache expansion")
         .def_readwrite("reset_mode", &CacheConfig::reset_mode,
                        "Cache reset mode")
+        .def("__eq__", &CacheConfig::operator==, py::is_operator(),
+             "Check if two CacheConfig objects are equal")
+        .def("__ne__", &CacheConfig::operator!=, py::is_operator(),
+             "Check if two CacheConfig objects are not equal")
         .def("__repr__", [](const CacheConfig &cfg) {
             return fmt::format("CacheConfig(type={}, num_layers={}, max_kv_cache_length={}, "
                                "initial_capacity={}, initial_batch_size={}, growth_factor={}, "
-                               "reset_mode={})",
+                               "allow_expand={}, reset_mode={})",
                                static_cast<int>(cfg.type), cfg.num_layers,
                                cfg.max_kv_cache_length, cfg.initial_capacity,
                                cfg.initial_batch_size, cfg.growth_factor,
-                               static_cast<int>(cfg.reset_mode));
+                               cfg.allow_expand, static_cast<int>(cfg.reset_mode));
         });
 }
 
