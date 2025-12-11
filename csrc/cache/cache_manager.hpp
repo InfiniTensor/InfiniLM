@@ -26,6 +26,7 @@ public:
         = 0;
 
     virtual void reset(size_t pos = 0) = 0;
+    virtual void reset(CacheConfig &new_config, size_t pos = 0) = 0;
     virtual size_t cache_position(size_t layer_idx) const = 0;
     virtual size_t num_layers() const = 0;
     virtual void *raw_ptr() = 0; // Returns raw pointer for compatibility
@@ -122,6 +123,14 @@ public:
      * @param pos Position to reset to (default 0)
      */
     void reset_all(size_t pos = 0);
+
+    /**
+     * @brief Reset cache for all workers with new configuration
+     * @param new_config New cache configuration
+     * @param pos Position to reset to (default 0)
+     * @param async Whether to perform reset asynchronously
+     */
+    void reset_all(const cache::CacheConfig &new_config, size_t pos = 0);
 
     /**
      * @brief Reset cache for a specific worker

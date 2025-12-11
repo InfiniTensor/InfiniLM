@@ -21,6 +21,15 @@ public:
         cache_->reset(pos);
     }
 
+    void reset(CacheConfig &new_config, size_t pos = 0) override {
+        if (new_config.initial_batch_size != cache_config_.initial_batch_size) {
+            new_config.reset_mode = CacheResetMode::RECREATE;
+        }
+        cache_config_ = new_config;
+        cache_->update_config(new_config);
+        cache_->reset(pos);
+    }
+
     size_t cache_position(size_t layer_idx) const override {
         return cache_->cache_position(layer_idx);
     }
@@ -157,6 +166,17 @@ void CacheManager::reset_all(size_t pos) {
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto &cache : caches_) {
         cache->reset(pos);
+    }
+}
+
+void CacheManager::reset_all(const cache::CacheConfig &new_config, size_t pos) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Update configuration
+    cache_config_ = new_config;
+
+    for (auto &cache : caches_) {
+        cache->reset(cache_config_, pos);
     }
 }
 

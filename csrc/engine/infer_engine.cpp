@@ -155,44 +155,12 @@ void InferEngine::reset_cache(size_t pos, bool async) {
 // reset_cache (overloaded with CacheConfig)
 //------------------------------------------------------
 void InferEngine::reset_cache(const cache::CacheConfig &new_config, size_t pos, bool async) {
-    spdlog::info("Resetting cache with new configuration: type={}, layers={}, max_pos={}",
-                 static_cast<int>(new_config.type),
-                 new_config.num_layers,
-                 new_config.max_position_embeddings);
-
-    // Check if we need to recreate the cache
-    bool need_recreate = false;
-
-    if (new_config.reset_mode == cache::CacheResetMode::RECREATE) {
-        need_recreate = true;
-        spdlog::info("Cache reset mode is RECREATE, will rebuild cache");
-    } else if (cache_config_ != new_config) {
-        // Configuration changed, need to recreate
-        need_recreate = true;
-        spdlog::info("KV configuration changed, will rebuild cache");
-    }
-
-    if (need_recreate) {
-        // Store workers' current state if needed
-        spdlog::info("Recreating cache with new configuration...");
-
-        // Close all workers first
-        for (auto &worker : workers_) {
-            worker->close();
-        }
-        workers_.clear();
-
-        // Update configuration
-        cache_config_ = new_config;
-
-        // Recreate cache manager with new configuration
-        create_cache_manager();
-
-        spdlog::info("Cache recreated successfully");
+    if (!async) {
+        cache_manager_->reset_all(new_config, pos);
     } else {
-        // Just reset positions
-        spdlog::info("Keeping existing cache, only resetting positions to {}", pos);
-        reset_cache(pos, async);
+        for (size_t i = 0; i < workers_.size(); ++i) {
+            workers_[i]->reset_cache(new_config, pos, async);
+        }
     }
 }
 
