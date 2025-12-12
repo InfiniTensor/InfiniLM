@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../cache/kv_cache.hpp"
+#include "../../cache/cache.hpp"
 #include "../../engine/distributed/distributed.hpp"
 #include "../../layers/fused_linear.hpp"
 #include "llama_config.hpp"
