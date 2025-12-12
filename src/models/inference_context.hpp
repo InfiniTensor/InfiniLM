@@ -48,6 +48,8 @@ struct InferenceContext {
     void swiglu(std::shared_ptr<Tensor> out,
                 std::shared_ptr<Tensor> up,
                 std::shared_ptr<Tensor> gate);
+    void relu(std::shared_ptr<Tensor> y,
+              std::shared_ptr<Tensor> x);
     void randomSample(std::shared_ptr<Tensor> out,
                       std::shared_ptr<Tensor> prob,
                       float random_val, float top_p, uint32_t top_k, float temperature);
@@ -68,9 +70,8 @@ struct InferenceContext {
                 std::vector<size_t> dilations);
 };
 
-namespace {
-thread_local InferenceContext *tls_inference_context = nullptr;
-}
+extern thread_local InferenceContext *tls_inference_context;
+inline InferenceContext *maybe_get_context() { return tls_inference_context; }
 
 inline InferenceContext &getInferenceContext() {
     assert(tls_inference_context != nullptr && "InferenceContext not set for this thread");
@@ -133,6 +134,10 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
                    std::shared_ptr<Tensor> gate) {
     getInferenceContext().swiglu(out, up, gate);
+}
+
+inline void relu(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().relu(y, x);
 }
 
 inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> prob,

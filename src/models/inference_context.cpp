@@ -189,6 +189,32 @@ void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
                               out->data(), up->data(), gate->data(), stream));
 }
 
+
+
+void InferenceContext::relu(std::shared_ptr<Tensor> y,
+                            std::shared_ptr<Tensor> x) {
+    size_t key = CacheManager::createDescriptorKey(y, x);
+
+    infiniopReluDescriptor_t desc;
+    if (!cache_manager->getReluDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateReluDescriptor(op_handle, &desc, y->desc(), x->desc()));
+        cache_manager->putReluDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetReluWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+    
+    RUN_INFINI(infiniopRelu(desc,
+                            workspace,
+                            workspace_size,
+                            y->data(), x->data(), stream));
+}
+
+
+
+
 void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
                                     std::shared_ptr<Tensor> prob,
                                     float random_val, float top_p, uint32_t top_k, float temperature) {
@@ -289,10 +315,12 @@ void InferenceContext::conv2d(std::shared_ptr<Tensor> y,
                              std::vector<size_t> pads,
                              std::vector<size_t> strides,
                              std::vector<size_t> dilations) {
+    printf("DEBUG: 死在步骤1\n");
     // 步骤1: 创建缓存键 - 包含所有影响算子行为的参数
     size_t key = CacheManager::createDescriptorKey(y, x, w, b);
 
     // 将卷积参数也纳入缓存键计算
+    printf("DEBUG: 死在步骤2\n");
     for (size_t pad : pads) {
         hash_combine(key, std::hash<int>()(pad));
     }
