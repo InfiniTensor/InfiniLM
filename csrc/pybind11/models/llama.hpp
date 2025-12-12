@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../cache/kv_cache.hpp"
+#include "../../cache/cache.hpp"
 #include "../../models/debug_utils/hooks.hpp"
 #include "../../models/llama/llama.hpp"
 #include "../../models/llama/llama_attention.hpp"
@@ -65,7 +65,8 @@ inline void bind_llama(py::module &m) {
         .def_readwrite("pretraining_tp", &LlamaConfig::pretraining_tp)
         .def_readwrite("name_or_path", &LlamaConfig::name_or_path)
         .def_readwrite("pad_token_id", &LlamaConfig::pad_token_id)
-        .def_property("bos_token_id", [](const LlamaConfig &self) {
+        .def_property(
+            "bos_token_id", [](const LlamaConfig &self) {
                 // Always return as list to match Python config format
                 return py::cast(self.bos_token_id); }, [](LlamaConfig &self, py::object value) {
                 // Accept both single int and list
@@ -76,7 +77,8 @@ inline void bind_llama(py::module &m) {
                 } else {
                     throw py::type_error("bos_token_id must be int or list of ints");
                 } })
-        .def_property("eos_token_id", [](const LlamaConfig &self) {
+        .def_property(
+            "eos_token_id", [](const LlamaConfig &self) {
                 // Always return as list to match Python config format
                 return py::cast(self.eos_token_id); }, [](LlamaConfig &self, py::object value) {
                 // Accept both single int and list
@@ -133,7 +135,8 @@ inline void bind_llama(py::module &m) {
             }
             return result;
         })
-        .def("get_parameter", [](const LlamaForCausalLM &model, const std::string &name) {
+        .def(
+            "get_parameter", [](const LlamaForCausalLM &model, const std::string &name) {
                 // Get actual tensor parameter by name
                 auto state_dict = model.state_dict();
                 auto it = state_dict.find(name);
@@ -143,7 +146,8 @@ inline void bind_llama(py::module &m) {
                     return tensor;
                 }
                 throw std::runtime_error("Parameter '" + name + "' not found in model"); }, py::arg("name"))
-        .def("load_state_dict", [](LlamaForCausalLM &model, py::dict state_dict) {
+        .def(
+            "load_state_dict", [](LlamaForCausalLM &model, py::dict state_dict) {
                 // Convert Python dict to C++ state_dict
                 std::unordered_map<std::string, infinicore::Tensor> cpp_state_dict;
                 for (auto item : state_dict) {
@@ -160,10 +164,12 @@ inline void bind_llama(py::module &m) {
                 }
                 model.load_state_dict(cpp_state_dict); }, py::arg("state_dict"))
         .def("config", &LlamaForCausalLM::config, py::return_value_policy::reference_internal)
-        .def("reset_cache", [](const LlamaForCausalLM &model, size_t pos = 0) {
+        .def(
+            "reset_cache", [](const LlamaForCausalLM &model, size_t pos = 0) {
             // Reset the internal cache to prevent state from persisting between generations
             model.model().reset_cache(pos); }, py::arg("pos") = 0, "Reset the internal cache to a specific position (clears state between generations)")
-        .def("forward", [](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_cache = py::none()) {
+        .def(
+            "forward", [](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_cache = py::none()) {
                 // Helper to extract C++ tensor from Python InfiniCore tensor
                 auto get_tensor = [](py::object obj) -> infinicore::Tensor {
                     // If it's already a Python InfiniCore tensor wrapper, extract underlying

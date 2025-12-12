@@ -97,7 +97,7 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
     q_reshaped = q_rope->permute({0, 2, 1, 3});          // [bs, n_q_head, seq_len, head_dim]
     auto k_permuted = k_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
-    infinilm::cache::DynamicCache *external_cache = static_cast<infinilm::cache::DynamicCache *>(kv_cache);
+    infinilm::cache::CacheInterface *external_cache = static_cast<infinilm::cache::CacheInterface *>(kv_cache);
     infinicore::Tensor k_total; // [bs, n_kv_head, total_seq_len, head_dim]
     infinicore::Tensor v_total; // [bs, n_kv_head, total_seq_len, head_dim]
     if (external_cache != nullptr) {
