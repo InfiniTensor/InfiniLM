@@ -160,6 +160,7 @@ public:
     DECLARE_OP_CACHE(CausalSoftmax)
     DECLARE_OP_CACHE(LogSoftmax)
     DECLARE_OP_CACHE(Topkrouter)
+    DECLARE_OP_CACHE(Topksoftmax)
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(DequantizeAWQ)
@@ -173,6 +174,7 @@ public:
           CausalSoftmax_cache(capacity, DESTROY_FUNC(CausalSoftmax)),
           LogSoftmax_cache(capacity, DESTROY_FUNC(LogSoftmax)),
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
+          Topksoftmax_cache(capacity, DESTROY_FUNC(Topksoftmax)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)) {}

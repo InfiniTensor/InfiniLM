@@ -47,6 +47,12 @@ struct InferenceContext {
                     float routed_scaling_factor,
                     size_t topk);
 
+    void topksoftmax(std::shared_ptr<Tensor> values,  // F32
+                     std::shared_ptr<Tensor> indices, // I32
+                     std::shared_ptr<Tensor> x,
+                     size_t topk,
+                     int norm_topk_prob);
+
     void swiglu(std::shared_ptr<Tensor> out,
                 std::shared_ptr<Tensor> up,
                 std::shared_ptr<Tensor> gate);
@@ -130,6 +136,19 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
                                      correction_bias, // F32
                                      routed_scaling_factor,
                                      topk);
+}
+
+inline void topksoftmax(std::shared_ptr<Tensor> values,  // F32
+                        std::shared_ptr<Tensor> indices, // I32
+                        std::shared_ptr<Tensor> x,
+                        size_t topk,
+                        int norm_topk_prob) {
+
+    getInferenceContext().topksoftmax(values,
+                                      indices,
+                                      x,
+                                      topk,
+                                      norm_topk_prob);
 }
 
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,

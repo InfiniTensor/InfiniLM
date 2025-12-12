@@ -188,6 +188,47 @@ void InferenceContext::topkrouter(std::shared_ptr<Tensor> values,  // F32
                                   routed_scaling_factor, topk, stream));
 }
 
+/**
+ * @brief Performs Top-K Softmax operation
+ *
+ * This function performs Top-K Softmax operation on the input tensor x:
+ * 1. Finds the top-k largest values and their indices in the input tensor
+ * 2. Applies softmax normalization to these top-k values
+ * 3. Writes the normalized probability values to values and corresponding indices to indices
+ *
+ * This operation is commonly used in sparse attention mechanisms and Mixture of Experts (MoE)
+ * models to select the most important top-k elements and perform probability normalization.
+ *
+ * @param values Output tensor storing the normalized probability values of top-k elements (F32 type)
+ * @param indices Output tensor storing the index positions corresponding to the top-k values (I32 type)
+ * @param x Input tensor containing the data to perform top-k softmax operation on
+ * @param topk The top-k value to select, i.e., selecting the top k largest elements
+ * @param norm_topk_prob Whether to normalize the top-k probabilities (non-zero value indicates normalization)
+ */
+void InferenceContext::topksoftmax(std::shared_ptr<Tensor> values,  // F32
+                                   std::shared_ptr<Tensor> indices, // I32
+                                   std::shared_ptr<Tensor> x,
+                                   size_t topk,
+                                   int norm_topk_prob) {
+
+    size_t key = CacheManager::createDescriptorKey(values, indices, x);
+
+    infiniopTopksoftmaxDescriptor_t desc;
+    if (!cache_manager->getTopksoftmaxDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateTopksoftmaxDescriptor(op_handle, &desc, x->desc()));
+        cache_manager->putTopksoftmaxDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetTopksoftmaxWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopTopksoftmax(
+        desc, workspace, workspace_size,
+        values->data(), indices->data(), x->data(), topk, norm_topk_prob, stream));
+}
+
 void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
                               std::shared_ptr<Tensor> up,
                               std::shared_ptr<Tensor> gate) {
