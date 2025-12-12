@@ -5,7 +5,7 @@ namespace infinilm {
 std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     const std::any &config,
     engine::distributed::RankInfo rank_info,
-    std::shared_ptr<cache::CacheInterface> cache_ptr) {
+    std::shared_ptr<cache::Cache> cache_ptr) {
 
     if (config.type() == typeid(models::llama::LlamaConfig)) {
         const auto &llama_config = std::any_cast<models::llama::LlamaConfig>(config);

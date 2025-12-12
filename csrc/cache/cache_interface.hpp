@@ -11,9 +11,9 @@ namespace infinilm::cache {
  * @brief Abstract interface for KV cache implementations
  * This allows different cache types (Dynamic, Paged, etc.) to be used interchangeably
  */
-class CacheInterface {
+class Cache {
 public:
-    virtual ~CacheInterface() = default;
+    virtual ~Cache() = default;
 
     /**
      * @brief Update cache with new key and value states
@@ -72,7 +72,7 @@ public:
     /**
      * @brief Factory method to create cache based on configuration
      */
-    static std::shared_ptr<CacheInterface> create(const CacheConfig &config);
+    static std::shared_ptr<Cache> create(const CacheConfig &config);
 };
 
 } // namespace infinilm::cache

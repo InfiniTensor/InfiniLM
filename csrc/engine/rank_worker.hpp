@@ -63,7 +63,7 @@ private:
     std::any model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
-    std::shared_ptr<cache::CacheInterface> cache_ptr_;
+    std::shared_ptr<cache::Cache> cache_ptr_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;

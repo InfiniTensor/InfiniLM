@@ -73,7 +73,7 @@ struct KVCacheLayer {
  * Stores a list of KVCacheLayer objects, one per model layer.
  * This aligns with Python backend's DynamicCache architecture.
  */
-class DynamicCache : public CacheInterface {
+class DynamicCache : public Cache {
 public:
     /**
      * @brief Construct DynamicCache with cache configuration

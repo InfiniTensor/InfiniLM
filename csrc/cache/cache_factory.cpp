@@ -4,7 +4,7 @@
 
 namespace infinilm::cache {
 
-std::shared_ptr<CacheInterface> CacheInterface::create(const CacheConfig &config) {
+std::shared_ptr<Cache> Cache::create(const CacheConfig &config) {
     switch (config.type) {
     case CacheType::DYNAMIC:
         return std::make_shared<DynamicCache>(config);

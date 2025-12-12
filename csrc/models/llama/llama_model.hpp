@@ -79,7 +79,7 @@ public:
      * @brief Set external cache for the model
      * @param cache Pointer to external cache (managed by CacheManager)
      */
-    void set_external_cache(std::shared_ptr<cache::CacheInterface> cache) {
+    void set_external_cache(std::shared_ptr<cache::Cache> cache) {
         external_cache_ = cache.get();
     }
 
@@ -102,7 +102,7 @@ private:
     // Mutable because it's not part of the model's learned parameters,
     // but needs to persist across forward calls for incremental decoding
     mutable std::unique_ptr<infinilm::cache::DynamicCache> internal_cache_;
-    cache::CacheInterface *external_cache_ = nullptr;
+    cache::Cache *external_cache_ = nullptr;
 };
 
 } // namespace infinilm::models::llama

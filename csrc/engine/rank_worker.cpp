@@ -177,7 +177,7 @@ void RankWorker::thread_loop() {
         // Initialize device & model outside of holding the main mutex to avoid blocking callers.
         infinicore::context::setDevice(rank_info_.device);
 
-        cache_ptr_ = cache::CacheInterface::create(pending_cache_config_);
+        cache_ptr_ = cache::Cache::create(pending_cache_config_);
         spdlog::info("[{}] Created {} cache with {} layers",
                      info(),
                      cache_ptr_->get_config().type == cache::CacheType::DYNAMIC ? "Dynamic" : "Paged",
