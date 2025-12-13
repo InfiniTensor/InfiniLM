@@ -10,12 +10,14 @@ import torch
 import transformers
 from transformers import AutoProcessor
 import ctypes
-from ctypes import c_int, c_void_p, byref
+from ctypes import c_int, c_void_p, c_uint, byref
 # from PIL import Image
 # import numpy as np
 
 
 from libinfinicore_infer import (
+    JiugeMetaCStruct,
+    JiugeWeightsCStruct,
     LlavaMetaCStruct,
     LlavaVisionMetaCStruct,
     LlavaLanguageMetaCStruct,
@@ -26,6 +28,365 @@ from libinfinicore_infer import (
     DeviceType,
 )
 from infer_task import InferTask, KVCache
+
+
+
+class LlamaWeightsNaming:
+    def input_embd(self):
+        return "language_model.model.embed_tokens.weight"
+
+    def output_norm(self):
+        return "language_model.model.norm.weight"
+
+    def output_embd(self):
+        return "language_model.lm_head.weight"
+
+    def attn_norm(self, i):
+        return f"language_model.model.layers.{i}.input_layernorm.weight"
+
+    def attn_q(self, i):
+        return f"language_model.model.layers.{i}.self_attn.q_proj.weight"
+
+    def attn_k(self, i):
+        return f"language_model.model.layers.{i}.self_attn.k_proj.weight"
+
+    def attn_v(self, i):
+        return f"language_model.model.layers.{i}.self_attn.v_proj.weight"
+
+    def attn_o(self, i):
+        return f"language_model.model.layers.{i}.self_attn.o_proj.weight"
+
+    def attn_q_b(self, i):
+        return f"language_model.model.layers.{i}.self_attn.q_proj.bias"
+
+    def attn_k_b(self, i):
+        return f"language_model.model.layers.{i}.self_attn.k_proj.bias"
+
+    def attn_v_b(self, i):
+        return f"model.layers.{i}.self_attn.v_proj.bias"
+
+    def attn_q_norm(self, i):
+        return f"language_model.model.layers.{i}.self_attn.q_norm.weight"
+
+    def attn_k_norm(self, i):
+        return f"language_model.model.layers.{i}.self_attn.k_norm.weight"
+
+    def ffn_norm(self, i):
+        return f"language_model.model.layers.{i}.post_attention_layernorm.weight"
+
+    def gate(self, i):
+        return f"language_model.model.layers.{i}.mlp.gate_proj.weight"
+
+    def up(self, i):
+        return f"language_model.model.layers.{i}.mlp.up_proj.weight"
+
+    def down(self, i):
+        return f"language_model.model.layers.{i}.mlp.down_proj.weight"
+
+    def match(state_dict):
+        return (
+            "model.norm.weight" in state_dict
+            and "model.layers.0.self_attn.q_proj.weight" in state_dict
+        )
+
+
+
+class JiugeMetaFromLlama(JiugeMetaCStruct):
+    def __init__(self, config, dtype=torch.float16, max_tokens=None):
+        if dtype == torch.float16:
+            dt_ = DataType.INFINI_DTYPE_F16
+        elif dtype == torch.float32:
+            dt_ = DataType.INFINI_DTYPE_F32
+        elif dtype == torch.bfloat16:
+            dt_ = DataType.INFINI_DTYPE_BF16
+        else:
+            dt_ = DataType.INFINI_DTYPE_F16
+
+        self.scale_input = 1.0
+        self.scale_output = 1.0
+        self.scale_o = 1.0
+        self.scale_down = 1.0
+        if (
+            config["model_type"] in ["fm9g", "minicpm"]
+            and "scale_emb" in config
+            and "scale_depth" in config
+            and "dim_model_base" in config
+        ):
+            self.scale_input = config["scale_emb"]
+            self.scale_output = config["hidden_size"] // config["dim_model_base"]
+            self.scale_o = config["scale_depth"] / math.sqrt(
+                config["num_hidden_layers"]
+            )
+            self.scale_down = config["scale_depth"] / math.sqrt(
+                config["num_hidden_layers"]
+            )
+
+        super().__init__(
+            dt_logits=dt_,
+            # nlayer=config["num_hidden_layers"],
+            nlayer=32,      # vicuna-7b-v1.5 config
+            d=4096,
+            nh=32,
+            nkvh=32,
+            dh=(4096 // 32),
+            di=11008,
+            dctx=(
+                4096 if max_tokens is None else max_tokens
+            ),
+            dvoc=32064,
+            epsilon=1e-05,
+            theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
+            end_token=2,
+        )
+        self.torch_dtype_logits = dtype
+
+
+
+
+class JiugeWeightsImpl(JiugeWeightsCStruct):
+    def __init__(
+        self,
+        meta,
+        naming,
+        state_dict,
+        torch_dt_mat=torch.float16,
+        torch_dt_norm=torch.float32,
+        ndev=1,
+        transpose_weight=True,
+    ):
+        nlayer = meta.nlayer
+        nh = meta.nh
+        nkvh = meta.nkvh
+        dh = meta.dh
+        d = meta.d
+        di = meta.di
+        scale_input = meta.scale_input
+        scale_output = meta.scale_output
+        scale_o = meta.scale_o
+        scale_down = meta.scale_down
+        assert nh % nkvh == 0
+        assert nh % ndev == 0
+        assert nkvh % ndev == 0
+        assert di % ndev == 0
+        torch_dt_logits = meta.torch_dtype_logits
+        if torch_dt_mat == torch.float16:
+            self.dt_mat = DataType.INFINI_DTYPE_F16
+        elif torch_dt_mat == torch.float32:
+            self.dt_mat = DataType.INFINI_DTYPE_F32
+        elif torch_dt_mat == torch.bfloat16:
+            self.dt_mat = DataType.INFINI_DTYPE_BF16
+        else:
+            raise ValueError("Unsupported proj weight data type")
+        if torch_dt_norm == torch.float16:
+            self.dt_norm = DataType.INFINI_DTYPE_F16
+        elif torch_dt_norm == torch.float32:
+            self.dt_norm = DataType.INFINI_DTYPE_F32
+        elif torch_dt_norm == torch.bfloat16:
+            self.dt_norm = DataType.INFINI_DTYPE_BF16
+        else:
+            raise ValueError("Unsupported norm weight data type")
+
+        input_embd_naming = (
+            naming.input_embd()
+            if naming.input_embd() in state_dict
+            else naming.output_embd()
+        )
+        output_embd_naming = (
+            naming.output_embd()
+            if naming.output_embd() in state_dict
+            else naming.input_embd()
+        )
+        self.transpose_linear_weights = 1 if transpose_weight else 0
+        self.nlayer = nlayer
+        self.input_embd_tensor = (
+            state_dict[input_embd_naming].to(torch_dt_logits) * scale_input
+        )
+        self.input_embd = self.input_embd_tensor.data_ptr()
+        self.output_norm_tensor = (
+            state_dict[naming.output_norm()].to(torch_dt_norm) * scale_output
+        )
+        self.output_norm = self.output_norm_tensor.data_ptr()
+        self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_mat)
+        if not transpose_weight:
+            self.output_embd_tensor = self.output_embd_tensor.transpose(
+                0, 1
+            ).contiguous()
+        self.output_embd = self.output_embd_tensor.data_ptr()
+
+        self.attn_norm_tensors = [
+            state_dict[naming.attn_norm(i)].to(torch_dt_norm) for i in range(nlayer)
+        ]
+        self.attn_norm_ptrs = [
+            self.attn_norm_tensors[i].data_ptr() for i in range(nlayer)
+        ]
+        self.attn_norm = (c_void_p * nlayer)(*self.attn_norm_ptrs)
+
+        def qkv_slices(_i):
+            _Q = (
+                state_dict[naming.attn_q(_i)]
+                .reshape([nh, 2, dh // 2, d])
+                .transpose(1, 2)
+            )
+            _K = (
+                state_dict[naming.attn_k(_i)]
+                .reshape([nkvh, 2, dh // 2, d])
+                .transpose(1, 2)
+            )
+            _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
+            _result = []
+            _nh = nh // ndev
+            _nkvh = nkvh // ndev
+            for _idev in range(ndev):
+                _result.append(_Q[_idev * _nh : (_idev + 1) * _nh, :, :, :])
+                _result.append(_K[_idev * _nkvh : (_idev + 1) * _nkvh, :, :, :])
+                _result.append(_V[_idev * _nkvh : (_idev + 1) * _nkvh, :, :])
+            return _result
+
+        self.qkv_tensor = [
+            torch.concat(qkv_slices(i)).to(torch_dt_mat) for i in range(nlayer)
+        ]
+        if not transpose_weight:
+            for i in range(nlayer):
+                self.qkv_tensor[i] = (
+                    self.qkv_tensor[i]
+                    .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
+                    .transpose(1, 2)
+                    .contiguous()
+                )
+        self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
+        self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
+
+        def qkv_b_slices(_i):
+            _QB = (
+                state_dict[naming.attn_q_b(_i)]
+                .reshape([nh, 2, dh // 2])
+                .transpose(1, 2)
+            )
+            _KB = (
+                state_dict[naming.attn_k_b(_i)]
+                .reshape([nkvh, 2, dh // 2])
+                .transpose(1, 2)
+            )
+            _VB = state_dict[naming.attn_v_b(_i)].reshape([nkvh, dh // 2, 2])
+            _result = []
+            _nh = nh // ndev
+            _nkvh = nkvh // ndev
+            for _idev in range(ndev):
+                _result.append(_QB[_idev * _nh : (_idev + 1) * _nh, :, :].flatten())
+                _result.append(_KB[_idev * _nkvh : (_idev + 1) * _nkvh, :, :].flatten())
+                _result.append(_VB[_idev * _nkvh : (_idev + 1) * _nkvh, :, :].flatten())
+            return _result
+
+        if naming.attn_q_b(0) in state_dict:
+            self.qkv_b_tensors = [
+                torch.concat(qkv_b_slices(i)).to(torch_dt_logits) for i in range(nlayer)
+            ]
+            self.qkv_b_tensor_ptrs = [
+                self.qkv_b_tensors[i].data_ptr() for i in range(nlayer)
+            ]
+            self.attn_qkv_b = (c_void_p * nlayer)(*self.qkv_b_tensor_ptrs)
+        else:
+            self.attn_qkv_b = None
+
+        if naming.attn_q_norm(0) in state_dict:
+            self.attn_q_norm_tensors = [
+                state_dict[naming.attn_q_norm(i)]
+                .reshape([2, dh // 2])
+                .transpose(0, 1)
+                .contiguous()
+                .to(torch_dt_norm)
+                for i in range(nlayer)
+            ]
+            self.attn_q_norm_ptrs = [
+                self.attn_q_norm_tensors[i].data_ptr() for i in range(nlayer)
+            ]
+            self.attn_q_norm = (c_void_p * nlayer)(*self.attn_q_norm_ptrs)
+            self.attn_k_norm_tensors = [
+                state_dict[naming.attn_k_norm(i)]
+                .reshape([2, dh // 2])
+                .transpose(0, 1)
+                .contiguous()
+                .to(torch_dt_norm)
+                for i in range(nlayer)
+            ]
+            self.attn_k_norm_ptrs = [
+                self.attn_k_norm_tensors[i].data_ptr() for i in range(nlayer)
+            ]
+            self.attn_k_norm = (c_void_p * nlayer)(*self.attn_k_norm_ptrs)
+        else:
+            self.attn_q_norm = None
+            self.attn_k_norm = None
+
+        self.attn_o_tensor = [
+            (
+                state_dict[naming.attn_o(i)]
+                .to(torch_dt_mat)
+                .reshape([d, ndev, nh // ndev * dh])
+                .transpose(0, 1)
+                .contiguous()
+                if transpose_weight
+                else state_dict[naming.attn_o(i)]
+                .transpose(0, 1)
+                .to(torch_dt_mat)
+                .contiguous()
+            )
+            * scale_o
+            for i in range(nlayer)
+        ]
+        self.attn_o_ptrs = [self.attn_o_tensor[i].data_ptr() for i in range(nlayer)]
+        self.attn_o = (c_void_p * nlayer)(*self.attn_o_ptrs)
+
+        self.ffn_norm_tensors = [
+            state_dict[naming.ffn_norm(i)].to(torch_dt_norm) for i in range(nlayer)
+        ]
+        self.ffn_norm_ptrs = [
+            self.ffn_norm_tensors[i].data_ptr() for i in range(nlayer)
+        ]
+        self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
+
+        def gate_up_slices(_i):
+            _result = []
+            _di = di // ndev
+            for _idev in range(ndev):
+                _start = _idev * _di
+                _end = (_idev + 1) * _di
+                _result.append(state_dict[naming.gate(_i)][_start:_end, :])
+                _result.append(state_dict[naming.up(_i)][_start:_end, :])
+            return _result
+
+        self.gate_up_tensors = [
+            torch.concat(gate_up_slices(i)).to(torch_dt_mat) for i in range(nlayer)
+        ]
+        if not transpose_weight:
+            for i in range(nlayer):
+                self.gate_up_tensors[i] = (
+                    self.gate_up_tensors[i]
+                    .reshape(ndev, 2 * di // ndev, d)
+                    .transpose(1, 2)
+                    .contiguous()
+                )
+        self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
+        self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
+
+        self.ffn_down_tensor = [
+            (
+                state_dict[naming.down(i)]
+                .to(torch_dt_mat)
+                .reshape([d, ndev, di // ndev])
+                .transpose(0, 1)
+                .contiguous()
+                if transpose_weight
+                else state_dict[naming.down(i)]
+                .transpose(0, 1)
+                .to(torch_dt_mat)
+                .contiguous()
+            )
+            * scale_down
+            for i in range(nlayer)
+        ]
+        self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
+        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
+
 
 
 
@@ -59,46 +420,62 @@ class LlavaWeightsNaming:
         """视觉编码器class token权重名"""
         return "vision_tower.vision_model.embeddings.class_embedding"
 
-    def vision_pre_norm(self, layer_idx):
+    def vision_post_layernorm_bias(self):
+        """视觉编码器 post_layernorm.bias 权重名"""
+        return "vision_tower.vision_model.post_layernorm.bias"
+
+    def vision_post_layernorm_weight(self):
+        """视觉编码器 post_layernorm.weight 权重名"""
+        return "vision_tower.vision_model.post_layernorm.weight"
+
+    def vision_pre_layernorm_bias(self):
+        """视觉编码器 pre_layernorm.bias 权重名"""
+        return "vision_tower.vision_model.pre_layrnorm.bias"
+
+    def vision_pre_layernorm_weight(self):
+        """视觉编码器 pre_layernorm.weight 权重名"""
+        return "vision_tower.vision_model.pre_layrnorm.weight"
+
+    def vision_in_layer_pre_norm_weights(self, layer_idx):
         """视觉编码器前置归一化权重名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.layer_norm1.weight"
 
-    def vision_pre_norm_bias(self, layer_idx):
+    def vision_in_layer_pre_norm_biases(self, layer_idx):
         """视觉编码器前置归一化偏置名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.layer_norm1.bias"
 
-    def vision_q_weight(self, layer_idx):
+    def vision_q_weights(self, layer_idx):
         """视觉编码器Q权重名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.q_proj.weight"
 
-    def vision_q_bias(self, layer_idx):
+    def vision_q_biases(self, layer_idx):
         """视觉编码器Q偏置名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.q_proj.bias"
 
-    def vision_k_weight(self, layer_idx):
+    def vision_k_weights(self, layer_idx):
         """视觉编码器K权重名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.k_proj.weight"
 
-    def vision_k_bias(self, layer_idx):
+    def vision_k_biases(self, layer_idx):
         """视觉编码器K偏置名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.k_proj.bias"
 
-    def vision_v_weight(self, layer_idx):
+    def vision_v_weights(self, layer_idx):
         """视觉编码器V权重名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.v_proj.weight"
 
-    def vision_v_bias(self, layer_idx):
+    def vision_v_biases(self, layer_idx):
         """视觉编码器V偏置名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.v_proj.bias"
 
-    def vision_qkv_weight(self, layer_idx):
-        """视觉编码器QKV合并权重名（如果存在）"""
-        # 某些实现可能将QKV合并为一个权重
-        return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.qkv.weight"
+    # def vision_qkv_weight(self, layer_idx):
+    #     """视觉编码器QKV合并权重名（如果存在）"""
+    #     # 某些实现可能将QKV合并为一个权重
+    #     return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.qkv.weight"
 
-    def vision_qkv_bias(self, layer_idx):
-        """视觉编码器QKV合并偏置名（如果存在）"""
-        return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.qkv.bias"
+    # def vision_qkv_bias(self, layer_idx):
+    #     """视觉编码器QKV合并偏置名（如果存在）"""
+    #     return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.qkv.bias"
 
     def vision_proj_weight(self, layer_idx):
         """视觉编码器投影权重名"""
@@ -108,7 +485,7 @@ class LlavaWeightsNaming:
         """视觉编码器投影偏置名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.self_attn.out_proj.bias"
 
-    def vision_post_norm(self, layer_idx):
+    def vision_in_layer_post_norm_weight(self, layer_idx):
         """视觉编码器后置归一化权重名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.layer_norm2.weight"
 
@@ -131,6 +508,11 @@ class LlavaWeightsNaming:
     def vision_mlp_fc2_bias(self, layer_idx):
         """视觉编码器MLP第二层偏置名"""
         return f"vision_tower.vision_model.encoder.layers.{layer_idx}.mlp.fc2.bias"
+
+
+
+
+
 
     def vision_post_norm_final_weight(self):
         """视觉编码器最终归一化权重名"""
@@ -213,8 +595,6 @@ class LlavaWeightsNaming:
         """FFN下投影权重名"""
         return f"language_model.model.layers.{layer_idx}.mlp.down_proj.weight"
 
-
-
 class LlavaMetaFromLlava(LlavaMetaCStruct):
     def __init__(self, config, dtype=torch.float16, max_tokens=None):
         # Data type conversion
@@ -237,7 +617,7 @@ class LlavaMetaFromLlava(LlavaMetaCStruct):
             vision_num_layers=vision_config.get("num_hidden_layers", 24),
             vision_num_heads=vision_config.get("num_attention_heads", 16),
             vision_intermediate_size=vision_config.get("intermediate_size", 4096),
-            vision_epsilon=1e-6,  # CLIP ViT的标准值
+            vision_epsilon=1e-5,  # 来自 transformers
         )
 
         # Language model meta (from text_config or main config)
@@ -293,7 +673,6 @@ class LlavaMetaFromLlava(LlavaMetaCStruct):
 
 
 
-
 class LlavaWeightsImpl(LlavaWeightsCStruct):
     def __init__(
         self,
@@ -301,10 +680,11 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         naming,
         state_dict,
         torch_dt_mat=torch.float16,
-        torch_dt_norm=torch.float32,
+        torch_dt_norm=torch.float16,
         ndev=1,
     ):
         nlayer = meta.language_meta.nlayer
+        vision_nlayer = meta.vision_meta.vision_num_layers
         d = meta.language_meta.d
         di = meta.language_meta.di
         nh = meta.language_meta.nh
@@ -332,6 +712,7 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
 
         # self.transpose_linear_weights = 1 if transpose_weight else 0
         self.nlayer = nlayer
+        self.vision_nlayer = vision_nlayer
 
         # === 视觉编码器权重 ===
         # Patch嵌入权重
@@ -340,7 +721,7 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
             # print(f"[Python LlavaWeightsImpl] torch_dt_mat: {torch_dt_mat} ")  # torch.float16 
             # print(f"[Python LlavaWeightsImpl] vision_patch_embed_tensor shape: {self.vision_patch_embed_tensor.shape} ")
             self.vision_patch_embed_weight = self.vision_patch_embed_tensor.data_ptr()
-            print(f"[Python LlavaWeightsImpl] vision_patch_embed_weight pointer: {hex(self.vision_patch_embed_weight)} " )
+            # print(f"[Python LlavaWeightsImpl] vision_patch_embed_weight pointer: {hex(self.vision_patch_embed_weight)} " )
             # print(f"[Python LlavaWeightsImpl] first 10 vision_patch_embed_weight: {self.vision_patch_embed_tensor.flatten()[:10]} ")
             # Print pointer address in 0x... format
             try:
@@ -363,13 +744,194 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         #     self.vision_class_embedding = self.vision_class_embedding_tensor.data_ptr()
         if naming.vision_class_token() in state_dict:
             self.vision_class_token_tensor = state_dict[naming.vision_class_token()].to(torch_dt_mat)
-            print(f"[Python LlavaWeightsImpl] vision_class_token_tensor: {self.vision_class_token_tensor} ")
-            print(f"[Python LlavaWeightsImpl] vision_class_token_tensor shape: {self.vision_class_token_tensor.shape} " )
-            print(f"[Python LlavaWeightsImpl] vision_class_token_tensor dtype: {self.vision_class_token_tensor.dtype} " )
+            # print(f"[Python LlavaWeightsImpl] vision_class_token_tensor: {self.vision_class_token_tensor} ")
+            # print(f"[Python LlavaWeightsImpl] vision_class_token_tensor shape: {self.vision_class_token_tensor.shape} " )
+            # print(f"[Python LlavaWeightsImpl] vision_class_token_tensor dtype: {self.vision_class_token_tensor.dtype} " )
             self.vision_class_token = self.vision_class_token_tensor.data_ptr()
             print(f"[Python LlavaWeightsImpl] vision_class_token pointer: {hex(self.vision_class_token)} ")
         else:
             self.vision_class_token = 0
+
+        # pre_layernorm.weight
+        if naming.vision_pre_layernorm_weight() in state_dict:
+            self.vision_pre_layernorm_weight_tensor = state_dict[naming.vision_pre_layernorm_weight()].to(torch_dt_mat)
+            self.vision_pre_layernorm_weight = self.vision_pre_layernorm_weight_tensor.data_ptr()
+            print(f"[Python LlavaWeightsImpl] vision_pre_layernorm_weight pointer: {hex(self.vision_pre_layernorm_weight)} ")
+        else:
+            self.vision_pre_layernorm_weight = 0
+
+        # pre_layernorm.bias
+        if naming.vision_pre_layernorm_bias() in state_dict:
+            self.vision_pre_layernorm_bias_tensor = state_dict[naming.vision_pre_layernorm_bias()].to(torch_dt_mat)
+            self.vision_pre_layernorm_bias = self.vision_pre_layernorm_bias_tensor.data_ptr()
+        else:
+            self.vision_pre_layernorm_bias = 0
+        # post_layernorm.weight
+        if naming.vision_post_layernorm_weight() in state_dict:
+            self.vision_post_layernorm_weight_tensor = state_dict[naming.vision_post_layernorm_weight()].to(torch_dt_mat)
+            self.vision_post_layernorm_weight = self.vision_post_layernorm_weight_tensor.data_ptr()
+        else:
+            self.vision_post_layernorm_weight = 0
+
+        # post_layernorm.bias
+        if naming.vision_post_layernorm_bias() in state_dict:
+            self.vision_post_layernorm_bias_tensor = state_dict[naming.vision_post_layernorm_bias()].to(torch_dt_mat)
+            self.vision_post_layernorm_bias = self.vision_post_layernorm_bias_tensor.data_ptr()
+        else:
+            self.vision_post_layernorm_bias = 0
+
+        # in_layer pre_norm weights
+        self.vision_in_layer_pre_norm_weight_tensors = [
+            state_dict[naming.vision_in_layer_pre_norm_weights(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_in_layer_pre_norm_weight_ptrs = [
+            self.vision_in_layer_pre_norm_weight_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_in_layer_pre_norm_weights = (c_void_p * vision_nlayer)(*self.vision_in_layer_pre_norm_weight_ptrs)
+
+        # in_layer pre_norm biases
+        self.vision_in_layer_pre_norm_bias_tensors = [
+            state_dict[naming.vision_in_layer_pre_norm_biases(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_in_layer_pre_norm_bias_ptrs = [
+            self.vision_in_layer_pre_norm_bias_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_in_layer_pre_norm_biases = (c_void_p * vision_nlayer)(*self.vision_in_layer_pre_norm_bias_ptrs)
+
+        # q weights
+        self.vision_q_weight_tensors = [
+            state_dict[naming.vision_q_weights(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_q_weight_ptrs = [
+            self.vision_q_weight_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_q_weights = (c_void_p * vision_nlayer)(*self.vision_q_weight_ptrs)
+        # q biases
+        self.vision_q_bias_tensors = [
+            state_dict[naming.vision_q_biases(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_q_bias_ptrs = [
+            self.vision_q_bias_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_q_biases = (c_void_p * vision_nlayer)(*self.vision_q_bias_ptrs)
+        # k weights
+        self.vision_k_weight_tensors = [
+            state_dict[naming.vision_k_weights(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_k_weight_ptrs = [
+            self.vision_k_weight_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_k_weights = (c_void_p * vision_nlayer)(*self.vision_k_weight_ptrs)
+        # k biases
+        self.vision_k_bias_tensors = [
+            state_dict[naming.vision_k_biases(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_k_bias_ptrs = [
+            self.vision_k_bias_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_k_biases = (c_void_p * vision_nlayer)(*self.vision_k_bias_ptrs)
+        # v weights
+        self.vision_v_weight_tensors = [
+            state_dict[naming.vision_v_weights(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_v_weight_ptrs = [
+            self.vision_v_weight_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_v_weights = (c_void_p * vision_nlayer)(*self.vision_v_weight_ptrs)
+        # v biases
+        self.vision_v_bias_tensors = [
+            state_dict[naming.vision_v_biases(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_v_bias_ptrs = [
+            self.vision_v_bias_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_v_biases = (c_void_p * vision_nlayer)(*self.vision_v_bias_ptrs)
+
+        ###############################################
+        # out_proj.weight / out_proj.bias
+        ###############################################
+
+        self.vision_proj_weight_tensors = [
+            state_dict[naming.vision_proj_weight(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_proj_weight_ptrs = [
+            self.vision_proj_weight_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_proj_weight = (c_void_p * vision_nlayer)(*self.vision_proj_weight_ptrs)
+
+        self.vision_proj_bias_tensors = [
+            state_dict[naming.vision_proj_bias(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_proj_bias_ptrs = [
+            self.vision_proj_bias_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_proj_bias = (c_void_p * vision_nlayer)(*self.vision_proj_bias_ptrs)
+
+
+        ###############################################
+        # post norm (after attention) weight / bias
+        ###############################################
+
+        self.vision_in_layer_post_norm_tensors = [
+            state_dict[naming.vision_in_layer_post_norm_weight(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_in_layer_post_norm_ptrs = [
+            self.vision_in_layer_post_norm_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_in_layer_post_norm_weight = (c_void_p * vision_nlayer)(*self.vision_in_layer_post_norm_ptrs)
+        # print(f"[Python LlavaWeightsImpl] vision_in_layer_post_norm_weight pointers: {[hex(ptr) for ptr in self.vision_in_layer_post_norm_ptrs]} ")
+
+        self.vision_post_norm_bias_tensors = [
+            state_dict[naming.vision_post_norm_bias(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_post_norm_bias_ptrs = [
+            self.vision_post_norm_bias_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_post_norm_bias = (c_void_p * vision_nlayer)(*self.vision_post_norm_bias_ptrs)
+
+
+        ###############################################
+        # MLP: fc1 / fc2
+        ###############################################
+
+        # fc1.weight
+        self.vision_mlp_fc1_weight_tensors = [
+            state_dict[naming.vision_mlp_fc1_weight(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_mlp_fc1_weight_ptrs = [
+            self.vision_mlp_fc1_weight_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_mlp_fc1_weight = (c_void_p * vision_nlayer)(*self.vision_mlp_fc1_weight_ptrs)
+
+        # fc1.bias
+        self.vision_mlp_fc1_bias_tensors = [
+            state_dict[naming.vision_mlp_fc1_bias(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_mlp_fc1_bias_ptrs = [
+            self.vision_mlp_fc1_bias_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_mlp_fc1_bias = (c_void_p * vision_nlayer)(*self.vision_mlp_fc1_bias_ptrs)
+
+
+        # fc2.weight
+        self.vision_mlp_fc2_weight_tensors = [
+            state_dict[naming.vision_mlp_fc2_weight(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_mlp_fc2_weight_ptrs = [
+            self.vision_mlp_fc2_weight_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_mlp_fc2_weight = (c_void_p * vision_nlayer)(*self.vision_mlp_fc2_weight_ptrs)
+
+        # fc2.bias
+        self.vision_mlp_fc2_bias_tensors = [
+            state_dict[naming.vision_mlp_fc2_bias(i)].to(torch_dt_mat) for i in range(vision_nlayer)
+        ]
+        self.vision_mlp_fc2_bias_ptrs = [
+            self.vision_mlp_fc2_bias_tensors[i].data_ptr() for i in range(vision_nlayer)
+        ]
+        self.vision_mlp_fc2_bias = (c_void_p * vision_nlayer)(*self.vision_mlp_fc2_bias_ptrs)
+
+
 
         # === 多模态投影器权重 ===
         if naming.projector_weight() in state_dict:
@@ -379,7 +941,7 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
             self.projector_weight = 0
 
         if naming.projector_bias() in state_dict:
-            self.projector_bias_tensor = state_dict[naming.projector_bias()].to(torch_dt_norm)
+            self.projector_bias_tensor = state_dict[naming.projector_bias()].to(torch_dt_mat)
             self.projector_bias = self.projector_bias_tensor.data_ptr()
         else:
             self.projector_bias = 0
@@ -389,7 +951,7 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         self.input_embd_tensor = state_dict[naming.input_embd()].to(torch_dt_mat)
         self.input_embd = self.input_embd_tensor.data_ptr()
 
-        self.output_norm_tensor = state_dict[naming.output_norm()].to(torch_dt_norm)
+        self.output_norm_tensor = state_dict[naming.output_norm()].to(torch_dt_mat)
         self.output_norm = self.output_norm_tensor.data_ptr()
 
         self.output_embd_tensor = state_dict[naming.output_embd()].to(torch_dt_mat)
@@ -397,7 +959,7 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
 
         # 注意力权重数组
         self.attn_norm_tensors = [
-            state_dict[naming.attn_norm(i)].to(torch_dt_norm) for i in range(nlayer)
+            state_dict[naming.attn_norm(i)].to(torch_dt_mat) for i in range(nlayer)
         ]
         self.attn_norm_ptrs = [
             self.attn_norm_tensors[i].data_ptr() for i in range(nlayer)
@@ -545,8 +1107,6 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
 
 
 
-
-
 class LLaVAForCauslLM:
     def __init__(self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None):
         def load_all_safetensors_from_dir(dir_path_: str):
@@ -594,6 +1154,24 @@ class LLaVAForCauslLM:
                 state_dict,
                 ndev=ndev,
             )
+
+            transpose_weight = (
+                device != DeviceType.DEVICE_TYPE_ASCEND
+            )  # y = xW is faster than y=xW^T on Ascend
+
+
+            self.language_meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
+            self.language_weights = JiugeWeightsImpl(
+                self.language_meta,
+                LlamaWeightsNaming(),
+                state_dict,
+                ndev=ndev,
+                transpose_weight=transpose_weight,
+            )
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path
+            )
+
             # print(f"weights type: {type(self.weights)}") # weights type: <class '__main__.LlavaWeightsImpl'>
             # print(f"weights value: {self.weights}") # weights value: <__main__.LlavaWeightsImpl object at 0x7fda3c5e9340>
         load_end_time = time.time()
@@ -686,59 +1264,6 @@ class LLaVAForCauslLM:
 
         return vision_features_output
 
-    def batch_infer_projector(self, vision_features, input_tokens_list):
-        print("走到这儿了")
-        """阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间"""
-        if vision_features is None:
-            return None
-
-        print("=== LLaVA MultiModal Projection ===")
-
-        batch_size = len(input_tokens_list) if input_tokens_list else 1
-        projected_size = self.meta.language_meta.d * batch_size
-
-        # 将视觉特征投影到文本嵌入维度
-        projected_features = torch.zeros(projected_size, dtype=torch.float16)
-
-        print(f"MultiModal projection: vision_features -> text_embeddings (size: {projected_size})")
-
-        # TODO: 调用C++层的projectMultiModal函数
-        # 暂时返回占位符投影特征
-        return projected_features
-
-    def batch_infer_language(self, input_tokens_list, kv_caches, projected_features=None):
-        """阶段3: Language Model Prefill - 处理文本tokens和投影的视觉特征"""
-        print("=== LLaVA Language Model Inference ===")
-
-        batch_size = len(input_tokens_list)
-        ntok = sum(len(tokens) for tokens in input_tokens_list)
-
-        # 准备输入tokens
-        input_tokens_flat = []
-        for tokens in input_tokens_list:
-            input_tokens_flat.extend(tokens)
-
-        import numpy as np # TODO: 这里之后大概率要改
-        input_tokens_array = np.array(input_tokens_flat, dtype=np.uint32)
-        output_tokens = np.zeros(batch_size, dtype=np.uint32)
-
-        # 准备KV Cache指针
-        kv_cache_ptrs = None
-        if kv_caches and hasattr(kv_caches[0], 'kvcache'):
-            kv_cache_ptrs = [cache.kvcache for cache in kv_caches]
-
-        print(f"Language model: {ntok} tokens -> {batch_size} outputs")
-
-        # 调用统一的LLaVA推理接口（将来可替换为专门的语言推理接口）
-        self.llava_model.batch_infer_llava(
-            input_tokens_array,  # input_tokens
-            projected_features.data_ptr() if projected_features is not None else None,  # image_data
-            kv_cache_ptrs,  # kv_caches
-            batch_size,
-            output_tokens
-        )
-
-        return output_tokens
 
     def batch_infer_compressor(self, features, kv_caches):
         """阶段4: KV-Cache Compression - 压缩KV缓存以节省内存"""
@@ -813,8 +1338,12 @@ class LLaVAForCauslLM:
         print(f"Output encode: {output_encode if output_encode is not None else 'None'}")
 
 
-        # 阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间
-        projected_features = self.batch_infer_projector(output_encode, input_ids_list)
+        output_encode = self.batch_infer_llm(pixel_values, input_ids_list)
+
+
+
+        # # 阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间
+        # projected_features = self.batch_infer_projector(output_encode, input_ids_list)
 
         # # 阶段3: Language Model - 处理文本tokens和投影的视觉特征
         # output_tokens = self.batch_infer_language([input_ids_list], [infer_task.kvcache()], projected_features)

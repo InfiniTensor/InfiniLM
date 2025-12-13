@@ -51,10 +51,39 @@ class LlavaMetaCStruct(Structure):
 class LlavaWeightsCStruct(Structure):
     _fields_ = [
         # Vision Encoder Weights
+        ("vision_nlayer", c_void_p),
         ("vision_patch_embed_weight", c_void_p),
         ("vision_class_token", c_void_p),
         ("vision_position_embedding", c_void_p),
-        ("vision_encoder_weights", POINTER(c_void_p)),
+        ("vision_encoder_weights", POINTER(c_void_p)), # 好像没用
+        ("vision_pre_layernorm_weight", c_void_p),
+        ("vision_pre_layernorm_bias", c_void_p),
+        ("vision_post_layernorm_weight", c_void_p),
+        ("vision_post_layernorm_bias", c_void_p),
+
+        ("vision_q_weights", POINTER(c_void_p)),
+        ("vision_q_biases", POINTER(c_void_p)),
+        ("vision_k_weights", POINTER(c_void_p)),
+        ("vision_k_biases", POINTER(c_void_p)),
+        ("vision_v_weights", POINTER(c_void_p)),
+        ("vision_v_biases", POINTER(c_void_p)),
+
+        ("vision_in_layer_pre_norm_weights", POINTER(c_void_p)),
+        ("vision_in_layer_pre_norm_biases", POINTER(c_void_p)),
+
+        ("vision_proj_weight", POINTER(c_void_p)),
+        ("vision_proj_bias", POINTER(c_void_p)),
+
+        ("vision_in_layer_post_norm_weight", POINTER(c_void_p)),
+        ("vision_post_norm_bias", POINTER(c_void_p)),
+
+        ("vision_mlp_fc1_weight", POINTER(c_void_p)),
+        ("vision_mlp_fc1_bias", POINTER(c_void_p)),
+
+        ("vision_mlp_fc2_weight", POINTER(c_void_p)),
+        ("vision_mlp_fc2_bias", POINTER(c_void_p)),
+
+
 
         # MultiModal Projector Weights
         ("projector_weight", c_void_p),

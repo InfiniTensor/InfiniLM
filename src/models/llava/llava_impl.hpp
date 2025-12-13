@@ -35,6 +35,22 @@ struct LlavaDeviceResource {
     // Class Token
     std::shared_ptr<Tensor> vision_class_token;  // [1, 1024]
 
+    // pre and post LayerNorm weights and biases
+    std::shared_ptr<Tensor> vision_pre_layernorm_weight;  // [1024]
+    std::shared_ptr<Tensor> vision_pre_layernorm_bias;    // [1024]
+    std::shared_ptr<Tensor> vision_post_layernorm_weight;  // [1024]
+    std::shared_ptr<Tensor> vision_post_layernorm_bias;    // [1024]
+
+    // qkv weights and biases for Vision Transformer Layers
+    std::vector<std::shared_ptr<Tensor>> vision_q_weights, vision_q_biases,
+        vision_k_weights, vision_k_biases,
+        vision_v_weights, vision_v_biases,
+        vision_in_layer_pre_norm_weights, vision_in_layer_pre_norm_biases,
+        vision_proj_weight, vision_proj_bias,
+        vision_in_layer_post_norm_weight, vision_post_norm_bias,
+        vision_mlp_fc1_weight, vision_mlp_fc1_bias,
+        vision_mlp_fc2_weight, vision_mlp_fc2_bias;
+
     // Vision Transformer Layers (复用language结构存储)
     // 注意：这里先只实现patch embedding部分
 

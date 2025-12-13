@@ -1,6 +1,7 @@
 #include "inference_context.hpp"
 #include "../tensor.hpp"
 #include "../utils.hpp"
+#include <atomic>
 
 InferenceContext::InferenceContext(infiniopHandle_t op_handle_, std::shared_ptr<MemoryPool> memory_pool_, CacheManager *cache_manager, infinirtStream_t stream)
     : op_handle(op_handle_), memory_pool(memory_pool_), cache_manager(cache_manager), stream(stream) {}
@@ -54,6 +55,54 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
     RUN_INFINI(infiniopRMSNorm(
         desc, workspace, workspace_size,
         y->data(), x->data(), w->data(), stream));
+}
+
+void InferenceContext::layernorm(std::shared_ptr<Tensor> output,
+                                 std::shared_ptr<Tensor> input_standardization,
+                                 std::shared_ptr<Tensor> input_std_deviation,
+                                 std::shared_ptr<Tensor> input,
+                                 std::shared_ptr<Tensor> weight,
+                                 std::shared_ptr<Tensor> bias,
+                                 float eps) {
+    // 构造 descriptor key（把所有相关 tensor 都参与 key）
+    size_t key = CacheManager::createDescriptorKey(
+        output, input_standardization, input_std_deviation, input, weight, bias);
+
+    infiniopLayerNormDescriptor_t desc;
+    if (!cache_manager->getLayerNormDescriptor(key, desc)) {
+        // create descriptor: 注意 eps 必须是最后一个参数（与绑定的 C API 一致）
+        RUN_INFINI(infiniopCreateLayerNormDescriptor(
+            op_handle,
+            &desc,
+            output->desc(),                    // output_desc
+            input_standardization->desc(),     // input_standardization_desc
+            input_std_deviation->desc(),       // input_std_deviation_desc
+            input->desc(),                     // input_desc
+            weight ? weight->desc() : nullptr, // weight_desc (gamma)
+            bias ? bias->desc() : nullptr,     // bias_desc (beta) or nullptr
+            eps                                 // epsilon (最后)
+        ));
+        cache_manager->putLayerNormDescriptor(key, desc);
+    }
+
+    // 获取 workspace 大小并确保 workspace 足够
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetLayerNormWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    // 调用 kernel（最后一个参数是 stream）
+    RUN_INFINI(infiniopLayerNorm(
+        desc,
+        workspace,
+        workspace_size,
+        output->data(),
+        input_standardization->data(),
+        input_std_deviation->data(),
+        input->data(),
+        weight ? weight->data() : nullptr,
+        bias ? bias->data() : nullptr,
+        stream));
 }
 
 void InferenceContext::gemm(std::shared_ptr<Tensor> c,
@@ -220,7 +269,10 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
                               std::shared_ptr<Tensor> residual,
                               std::shared_ptr<Tensor> bias) {
     bool residual_flag = residual != nullptr;
-
+// bias && !residual
+// residual
+// residual->data() == c->data()
+// beta == 0.0
     if (bias && !residual) {
         int ndim_diff = c->ndim() - 1;
         ASSERT_EQ(bias->ndim(), 1);

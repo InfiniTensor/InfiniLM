@@ -58,12 +58,219 @@ inline std::shared_ptr<Tensor> getClassToken(LlavaMeta const *meta,
         Tensor::weight((char *)weights->vision_class_token, 
         INFINI_DTYPE_F16, 
         {vision_embed_dim});
-    
-    printf("[CPP getClassToken] First 10 values: \n");
-    vision_class_token_device_tensor->debug_first_n(10);
+
+    // printf("[CPP getClassToken] First 10 values: \n");
+    // vision_class_token_device_tensor->debug_first_n(10);
     
     return vision_class_token_device_tensor;
 }
+
+inline std::shared_ptr<Tensor> getVisionQWeight(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights,
+    size_t layer) {
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_q_weights[layer],
+        INFINI_DTYPE_F16,
+        {vision_embed_dim, vision_embed_dim}
+    );
+}
+inline std::shared_ptr<Tensor> getVisionQBias(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights,
+    size_t layer) {
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_q_biases[layer],
+        INFINI_DTYPE_F16,
+        {vision_embed_dim}
+    );
+}
+
+inline std::shared_ptr<Tensor> getVisionKWeight(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights,
+    size_t layer) {
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_k_weights[layer],
+        INFINI_DTYPE_F16,
+        {vision_embed_dim, vision_embed_dim}
+    );
+}
+inline std::shared_ptr<Tensor> getVisionKBias(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights,
+    size_t layer) {
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_k_biases[layer],
+        INFINI_DTYPE_F16,
+        {vision_embed_dim}
+    );
+}
+inline std::shared_ptr<Tensor> getVisionVWeight(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights,
+    size_t layer) {
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_v_weights[layer],
+        INFINI_DTYPE_F16,
+        {vision_embed_dim, vision_embed_dim}
+    );
+}
+inline std::shared_ptr<Tensor> getVisionVBias(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights,
+    size_t layer) {
+    auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_v_biases[layer],
+        INFINI_DTYPE_F16,
+        {vision_embed_dim}
+    );
+}
+
+inline std::shared_ptr<Tensor> getVisionPreLNWeight(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights) {
+
+    printf("[CPP getVisionPreLNWeight] vision_pre_layernorm_weight pointer: %p\n", weights->vision_pre_layernorm_weight);
+    auto dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_pre_layernorm_weight,
+        INFINI_DTYPE_F16,
+        {dim}
+    );
+}
+
+inline std::shared_ptr<Tensor> getVisionPreLNBias(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights) {
+
+    auto dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_pre_layernorm_bias,
+        INFINI_DTYPE_F16,
+        {dim}
+    );
+}
+
+inline std::shared_ptr<Tensor> getVisionPostLNWeight(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights) {
+
+    auto dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_post_layernorm_weight,
+        INFINI_DTYPE_F16,
+        {dim}
+    );
+}
+
+inline std::shared_ptr<Tensor> getVisionPostLNBias(
+    LlavaMeta const *meta,
+    LlavaWeights const *weights) {
+
+    auto dim = meta->vision_meta.vision_embed_dim;
+
+    return Tensor::weight(
+        (char *)weights->vision_post_layernorm_bias,
+        INFINI_DTYPE_F16,
+        {dim}
+    );
+}
+
+inline std::shared_ptr<Tensor> getVisionInLayerPreNormWeight(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    return Tensor::weight((char *)weights->vision_in_layer_pre_norm_weights[layer],
+                          INFINI_DTYPE_F16, {dim});
+}
+
+inline std::shared_ptr<Tensor> getVisionInLayerPreNormBias(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    return Tensor::weight((char *)weights->vision_in_layer_pre_norm_biases[layer],
+                          INFINI_DTYPE_F16, {dim});
+}
+
+
+
+inline std::shared_ptr<Tensor> getVisionProjWeight(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    return Tensor::weight((char *)weights->vision_proj_weight[layer],
+                          INFINI_DTYPE_F16, {dim, dim});
+}
+
+inline std::shared_ptr<Tensor> getVisionProjBias(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    return Tensor::weight((char *)weights->vision_proj_bias[layer],
+                          INFINI_DTYPE_F16, {dim});
+}
+
+
+inline std::shared_ptr<Tensor> getVisionInLayerPostNormWeight(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    // printf("[CPP vision_in_layer_post_norm_weight] layer: %zu, pointer: %p\n", layer, weights->vision_in_layer_post_norm_weight[layer]);
+    return Tensor::weight((char *)weights->vision_in_layer_post_norm_weight[layer],
+                          INFINI_DTYPE_F16, {dim});
+}
+
+inline std::shared_ptr<Tensor> getVisionInLayerPostNormBias(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    // printf("[CPP vision_post_norm_bias] layer: %zu, pointer: %p\n", layer, weights->vision_post_norm_bias[layer]);
+    return Tensor::weight((char *)weights->vision_post_norm_bias[layer],
+                          INFINI_DTYPE_F16, {dim});
+}
+
+
+inline std::shared_ptr<Tensor> getVisionMLPFC1Weight(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    auto mlp = meta->vision_meta.vision_intermediate_size;
+    return Tensor::weight((char *)weights->vision_mlp_fc1_weight[layer],
+                          INFINI_DTYPE_F16, {mlp, dim});
+}
+
+inline std::shared_ptr<Tensor> getVisionMLPFC1Bias(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto mlp = meta->vision_meta.vision_intermediate_size;
+    return Tensor::weight((char *)weights->vision_mlp_fc1_bias[layer],
+                          INFINI_DTYPE_F16, {mlp});
+}
+
+
+inline std::shared_ptr<Tensor> getVisionMLPFC2Weight(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    auto mlp = meta->vision_meta.vision_intermediate_size;
+    return Tensor::weight((char *)weights->vision_mlp_fc2_weight[layer],
+                          INFINI_DTYPE_F16, {dim, mlp});
+}
+
+inline std::shared_ptr<Tensor> getVisionMLPFC2Bias(
+    LlavaMeta const *meta, LlavaWeights const *weights, size_t layer) {
+    auto dim = meta->vision_meta.vision_embed_dim;
+    return Tensor::weight((char *)weights->vision_mlp_fc2_bias[layer],
+                          INFINI_DTYPE_F16, {dim});
+}
+
 
 // inline std::shared_ptr<Tensor> createClassEmbedding(LlavaMeta const *meta) {
 //     auto vision_embed_dim = meta->vision_meta.vision_embed_dim;

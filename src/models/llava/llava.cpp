@@ -34,6 +34,68 @@ void createLlavaDeviceResource(LlavaDeviceResource *rsrc, const LlavaMeta *meta,
     auto vision_patch_embed_weight = getPatchEmbedWeight(meta, weights);
     auto vision_position_embedding = createPositionEmbedding(meta, weights); // 从meta中获取形状
     auto vision_class_token = getClassToken(meta, weights); // 从meta中获取形状
+    auto vision_pre_layernorm_weight = getVisionPreLNWeight(meta, weights);
+    auto vision_pre_layernorm_bias   = getVisionPreLNBias(meta, weights);
+
+    auto vision_post_layernorm_weight = getVisionPostLNWeight(meta, weights);
+    auto vision_post_layernorm_bias   = getVisionPostLNBias(meta, weights);
+
+    std::vector<std::shared_ptr<Tensor>> vision_q_weights, vision_q_biases,
+        vision_k_weights, vision_k_biases,
+        vision_v_weights, vision_v_biases,
+        vision_in_layer_pre_norm_weights, vision_in_layer_pre_norm_biases,
+        vision_proj_weight, vision_proj_bias,
+        vision_in_layer_post_norm_weight, vision_post_norm_bias,
+        vision_mlp_fc1_weight, vision_mlp_fc1_bias,
+        vision_mlp_fc2_weight, vision_mlp_fc2_bias;
+
+
+    for (size_t layer = 0; layer < meta->vision_meta.vision_num_layers; layer++) {
+        vision_q_weights.push_back(
+            getVisionQWeight(meta, weights, layer));
+        vision_q_biases.push_back(
+            getVisionQBias(meta, weights, layer));
+        vision_k_weights.push_back(
+            getVisionKWeight(meta, weights, layer));
+        vision_k_biases.push_back(
+            getVisionKBias(meta, weights, layer));
+        vision_v_weights.push_back(
+            getVisionVWeight(meta, weights, layer));
+        vision_v_biases.push_back(
+            getVisionVBias(meta, weights, layer));
+        // in-layer pre norm
+        vision_in_layer_pre_norm_weights.push_back(
+            getVisionInLayerPreNormWeight(meta, weights, layer));
+        vision_in_layer_pre_norm_biases.push_back(
+            getVisionInLayerPreNormBias(meta, weights, layer));
+
+        // proj
+        vision_proj_weight.push_back(
+            getVisionProjWeight(meta, weights, layer));
+        vision_proj_bias.push_back(
+            getVisionProjBias(meta, weights, layer));
+
+        // post norm
+        vision_in_layer_post_norm_weight.push_back(
+            getVisionInLayerPostNormWeight(meta, weights, layer));
+        vision_post_norm_bias.push_back(
+            getVisionInLayerPostNormBias(meta, weights, layer));
+
+        // MLP fc1
+        vision_mlp_fc1_weight.push_back(
+            getVisionMLPFC1Weight(meta, weights, layer));
+        vision_mlp_fc1_bias.push_back(
+            getVisionMLPFC1Bias(meta, weights, layer));
+
+        // MLP fc2
+        vision_mlp_fc2_weight.push_back(
+            getVisionMLPFC2Weight(meta, weights, layer));
+        vision_mlp_fc2_bias.push_back(
+            getVisionMLPFC2Bias(meta, weights, layer));
+
+    }
+
+
     // auto vision_class_embedding = getClassToken(meta);
 
     // 临时创建language model权重（将来应该从weights中加载）
@@ -51,8 +113,18 @@ void createLlavaDeviceResource(LlavaDeviceResource *rsrc, const LlavaMeta *meta,
         w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
         w_ffn_norm, w_ffn_gate_up, w_ffn_down,
         vision_patch_embed_weight,
-        vision_position_embedding, // TODO: 不知道是什么但先放这儿
-        vision_class_token, // TODO: 不知道是什么但先放这儿
+        vision_position_embedding,
+        vision_class_token,
+        vision_pre_layernorm_weight, vision_pre_layernorm_bias,
+        vision_post_layernorm_weight, vision_post_layernorm_bias,
+        vision_q_weights, vision_q_biases,
+        vision_k_weights, vision_k_biases,
+        vision_v_weights, vision_v_biases,
+        vision_in_layer_pre_norm_weights, vision_in_layer_pre_norm_biases,
+        vision_proj_weight, vision_proj_bias,
+        vision_in_layer_post_norm_weight, vision_post_norm_bias,
+        vision_mlp_fc1_weight, vision_mlp_fc1_bias,
+        vision_mlp_fc2_weight, vision_mlp_fc2_bias,
         stream,
         comm,
         memory_pool,
@@ -118,19 +190,61 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
 
     // === 1. 准备参数 ===
     auto vision_embed_dim = meta.vision_meta.vision_embed_dim; // 1024
+    auto vision_nh   = meta.vision_meta.vision_num_heads; // 16
     auto image_size = meta.vision_meta.image_size; // 336
     auto patch_size = meta.vision_meta.patch_size; // 14
     auto dt_logits = meta.language_meta.dt_logits; // F16
     auto stream = rsrc.stream;
-
+    // auto vision_num_layers = meta.vision_meta.vision_num_layers; // 24
     // 计算patches数量
     auto patches_per_dim = image_size / patch_size; // 24
-    // auto total_patches = patches_per_dim * patches_per_dim;
+    auto total_patches = patches_per_dim * patches_per_dim; // 576
+
+
+
+
+    // 假设你已经得到了 q_buf, k_buf, v_buf  shape = [1, seq_len, vision_embed_dim]
+    // 现在 reshape 成多头格式
+    auto vision_dh   = vision_embed_dim / vision_nh;
+    auto vision_seq  = 1 + total_patches; // 577
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     // === 2. 准备buffer ===
     // auto input_image_tensor_f32 = Tensor::buffer(INFINI_DTYPE_F32, {1, 3, image_size, image_size}, rsrc.memory_pool);
     auto input_image_tensor = Tensor::buffer(dt_logits, {1, 3, image_size, image_size}, rsrc.memory_pool);
     auto patch_embed_output = Tensor::buffer(dt_logits, {1, vision_embed_dim, patches_per_dim, patches_per_dim}, rsrc.memory_pool);
+    // embeddings = torch.cat([class_embeds, patch_embeds], dim=1)
+    auto embeddings = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    // [ 1 577 1024 ]
+    auto pre_layernorm = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto vision_residual = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto in_layer_pre_norm = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    // [ 1 577 1024 ]
+    auto q_buf = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto k_buf = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto v_buf = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto input_standardization = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto input_std_deviation   = Tensor::buffer(dt_logits, {1, 1 + total_patches}, rsrc.memory_pool);
+
+
+
+
 
     // 复制输入图像数据
     RUN_INFINI(infinirtMemcpyAsync(input_image_tensor->data(), image_data,
@@ -156,7 +270,6 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
            nullptr, pads, strides, dilations); // （1，1024，24，24）
 
     // flatten 2D patch -> [batch, embed_dim, total_patches]
-    auto total_patches = patches_per_dim * patches_per_dim;
     auto patch_embed_flat = patch_embed_output->view({1, vision_embed_dim, total_patches});
 
     // transpose -> [batch, total_patches, embed_dim]
@@ -172,23 +285,185 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
                                 sizeof(uint16_t) * vision_embed_dim,
                                 INFINIRT_MEMCPY_D2D, stream));
 
-
-    // embeddings = torch.cat([class_embeds, patch_embeds], dim=1)
-    auto embeddings = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
-    // [ 1 577 1024 ]
-
     // 1) 把 class token 放到 embeddings[:, 0:1, :]
     rearrange(embeddings->slice(1, 0, 1), class_embed_tensor); // 注意：slice(dim=1, start=0, length=1)
-
     // 2) 把所有 patch token 放到 embeddings[:, 1:1+T, :]
     rearrange(embeddings->slice(1, 1, total_patches), patch_embed_transposed); // 注意：slice(dim=1, start=1, length=total_patches)
 
-    printf("DEBUG: embeddings after concat:\n");
-    embeddings->debug_first_n(10);
-    rsrc.vision_position_embedding->debug_first_n(10);
-
     // 3) 加 position embedding （pos tensor 必须是 [1, 1+T, C]）
     add(embeddings, embeddings, rsrc.vision_position_embedding);
+    // printf("DEBUG: embeddings after add position embedding:\n");
+    // embeddings->debug_first_n(10);
+    // embeddings->debug();
+
+    // (pre_layrnorm): LayerNorm((1024,), eps=1e-05, elementwise_affine=True) # 暂未实现
+    printf("meta.vision_meta.vision_epsilon: %e\n", meta.vision_meta.vision_epsilon);
+    layernorm(/*out_put*/ pre_layernorm,
+                /*input_standardization*/ input_standardization,
+                /*input_std_deviation*/ input_std_deviation,
+                /*input*/ embeddings,
+                /*weight*/ rsrc.vision_pre_layernorm_weight,
+                /*bias*/ rsrc.vision_pre_layernorm_bias,
+                meta.vision_meta.vision_epsilon); // 1e-5
+    // printf("DEBUG: pre_layernorm after LayerNorm_1\n");
+    // pre_layernorm->debug_first_n(10);
+
+
+
+    // for (uint32_t layer = 0; layer < vision_num_layers; layer++) {
+    for (uint32_t layer = 0; layer < 1; layer++) {
+
+        // residual = hidden_states
+        // vision_residual = pre_layernorm;
+        RUN_INFINI(infinirtMemcpyAsync(vision_residual->data(),
+                                    pre_layernorm->data(),
+                                    sizeof(dt_logits) * (1 + total_patches) * vision_embed_dim,
+                                    INFINIRT_MEMCPY_D2D, stream));
+        // printf("DEBUG: pre_layernorm:\n");
+        // pre_layernorm->debug_first_n(10);
+        // printf("DEBUG: vision_residual:\n");
+        // vision_residual->debug_first_n(10);
+
+        // (layer_norm1): LayerNorm((1024,), eps=1e-05, elementwise_affine=True))
+
+        std::cout << "q_buf->info()" << q_buf->info() << std::endl;
+        layernorm(/*out_put*/ in_layer_pre_norm,
+                    /*input_standardization*/ input_standardization,
+                    /*input_std_deviation*/ input_std_deviation,
+                    /*input*/ pre_layernorm,
+                    /*weight*/ rsrc.vision_in_layer_pre_norm_weights[layer],
+                    /*bias*/ rsrc.vision_in_layer_pre_norm_biases[layer],
+                    meta.vision_meta.vision_epsilon); // 1e-5
+        printf("DEBUG: in_layer_pre_norm after LayerNorm_2\n");
+        in_layer_pre_norm->debug_first_n(10); 
+        // debug: 不考虑中间两行，这里是对的了。(== hidden_states at encoder_layer start__3)
+
+        // // 测试二维的linear和三维的linear是否一样
+        // std::cout << "q_buf->info()" << q_buf->info() << std::endl;
+        // // shape[ 1 577 1024 ]
+        // std::cout << "pre_layernorm->info()" << pre_layernorm->info() << std::endl;
+        // // shape[ 1 577 1024 ]
+        // std::cout << "rsrc.vision_q_weights[layer]->info()" << rsrc.vision_q_weights[layer]->info() << std::endl;
+        // // shape[ 1024 1024 ]
+        // // bias应该是 shape[ 1024 ]，正确性debug的时候可以去linear里看看bias被拓展成什么形状了
+        // // 当前这么乘，跟降维后的结果，还是只有两行不一样……好奇怪，但应该还是最开始那个啥导致的。
+
+
+        // // 线性投影
+        linear(q_buf, in_layer_pre_norm, rsrc.vision_q_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_q_biases[layer]);
+        // printf("DEBUG: q_buf after linear projection:\n");
+        // // debug: 不考虑中间两行，这里是对的了。(== queries (first 10 elements): )
+        // q_buf->debug();
+        linear(k_buf, in_layer_pre_norm, rsrc.vision_k_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_k_biases[layer]);
+        linear(v_buf, in_layer_pre_norm, rsrc.vision_v_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_v_biases[layer]);
+
+
+
+
+        // 1) rearrange Q/K/V → [vision_nh, vision_seq, vision_dh]
+        auto q_rearr = Tensor::buffer(dt_logits, {1, vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
+        auto k_rearr = Tensor::buffer(dt_logits, {1, vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
+        auto v_rearr = Tensor::buffer(dt_logits, {1, vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
+        
+        // std::cout << "q_rearr->info()" << q_rearr->info() << std::endl;
+        // printf("DEBUG: Rearranging Q/K/V tensors\n");
+        // auto test = q_buf->view({1, vision_seq, vision_nh, vision_dh});
+        // std::cout << "test->info()" << test->info() << std::endl;
+        // auto test_perm = test->permute({0,2,1,3});
+        // std::cout << "test_perm->info()" << test_perm->info() << std::endl;
+        // printf("DEBUG: Rearranging Q/K/V tensors\n");
+
+
+
+        rearrange(q_rearr, q_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
+        rearrange(k_rearr, k_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
+        rearrange(v_rearr, v_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
+        printf("DEBUG: Rearranging Q/K/V tensors444\n");
+
+        // 2) 准备 QK = [vision_nh, vision_seq, vision_seq]
+        auto qk_buf = Tensor::buffer(dt_logits, {vision_nh, vision_seq, vision_seq}, rsrc.memory_pool);
+
+        // 3) Q * K^T + scaling
+        printf("DEBUG: Rearranging Q/K/V tensors6\n");
+        auto k_T = k_rearr->permute({0,1,3,2});  // [vision_nh, vision_dh, vision_seq]
+        linear(
+            qk_buf,
+            q_rearr->slice(0, 0, 1)->view({vision_nh, vision_seq, vision_dh}),
+            k_T->slice(0, 0, 1)->view({vision_nh, vision_dh, vision_seq}),
+            /*alpha=*/0.125,   // <-- scaling，严格和 torch 一致
+            /*beta=*/0.0,
+            nullptr,
+            nullptr
+        );
+
+        // 4) softmax (你还没实现，用 causalSoftmax 临时代替)
+        auto qk_softmax = qk_buf->view({vision_nh, vision_seq, vision_seq});
+        causalSoftmax(qk_softmax, qk_softmax);  // debug: FIXME: non-causal softmax required
+
+        // 5) Attn * V
+        auto attn_val_buf = Tensor::buffer(dt_logits, {vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
+        printf("DEBUG: Rearranging Q/K/V tensors7\n");
+        // auto v_gemm = v_rearr->permute({0,1,3,2});   // [vision_nh, vision_dh, vision_seq]
+        auto v_gemm = v_rearr->permute({0,1,2,3});   // debug
+
+        std::cout << "attn_val_buf->info()" << attn_val_buf->info() << std::endl;
+        std::cout << "qk_softmax->info()" << qk_softmax->info() << std::endl;
+        std::cout << "v_gemm->slice(0, 0, 1)->view({vision_nh, vision_dh, vision_seq})->info()" << v_gemm->slice(0, 0, 1)->view({vision_nh, vision_dh, vision_seq})->info() << std::endl;
+
+        linear(
+            attn_val_buf, // debug: shape[ 16 577 64 ] strides[ 36928 64 1 ]
+            qk_softmax, // debug: shape[ 16 577 577 ] strides[ 332929 577 1 ] 
+            v_gemm->slice(0, 0, 1)->view({vision_nh, vision_seq, vision_dh}), // debug: 注意这里的 view, 可能不对【shape[ 16 64 577 ] strides[ 36928 577 1 ]】
+            /*alpha=*/1.0,
+            /*beta=*/0.0,
+            nullptr,
+            nullptr
+        );
+
+        printf("DEBUG: Rearranging Q/K/V tensors55\n");
+        // 6) 合头 → o: [1, vision_seq, vision_embed_dim]
+        auto o_tmp = Tensor::buffer(dt_logits, {1, vision_seq, vision_nh, vision_dh}, rsrc.memory_pool);
+        rearrange(o_tmp, attn_val_buf->view({1, vision_nh, vision_seq, vision_dh})->permute({0,2,1,3}));
+        printf("DEBUG: Rearranging Q/K/V tensors57\n");
+        std::cout << "o_tmp->info()" << o_tmp->info() << std::endl; // Tensor: shape[ 1 577 16 64 ]
+        auto o = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        rearrange(o, o_tmp->view({1, vision_seq, vision_embed_dim}));
+
+        // rearrange(o_tmp, attn_val_buf->view({1, vision_nh, vision_seq, vision_dh})->permute({0,2,1,3})->view({1, vision_seq, vision_embed_dim}));
+        printf("DEBUG: Rearranging Q/K/V tensors56\n");
+
+
+
+        // if(layer == 0) {
+        //     // printf("DEBUG: After first layer linear projections shapes:\n");
+        //     // std::cout << flat_q_buf->info() << std::endl;
+        //     // std::cout << flat_embeddings->info() << std::endl;
+        //     // std::cout << rsrc.vision_q_weights[layer]->info() << std::endl;
+        //     // std::cout << rsrc.vision_q_biases[layer]->info() << std::endl;
+        //     // printf("DEBUG: vision_q_weights");
+        //     // rsrc.vision_q_weights[layer]->debug_first_n(10);
+        //     // printf("DEBUG: vision_q_biases");
+        //     // rsrc.vision_q_biases[layer]->debug_first_n(10);
+        //     // printf("DEBUG: vision_k_weights");
+        //     // rsrc.vision_k_weights[layer]->debug_first_n(10);
+        //     // printf("DEBUG: vision_k_biases");
+        //     // rsrc.vision_k_biases[layer]->debug_first_n(10);
+        //     // rsrc.vision_v_weights[layer]->debug_first_n(10);
+        //     // printf("DEBUG: vision_v_biases");
+        //     // rsrc.vision_v_biases[layer]->debug_first_n(10);
+
+        //     printf("DEBUG: After first layer linear projections:\n");
+        //     // // q_buf->debug_first_n(10);
+        //     // // k_buf->debug_first_n(10);
+        //     // // v_buf->debug_first_n(10);
+        //     q_buf->debug();
+        //     // printf("\n\n\n\n\n");
+        //     // k_buf->debug();
+        //     // printf("\n\n\n\n\n");
+        //     // v_buf->debug();
+        // }
+    }
+    auto fake_output = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
 
 }
 

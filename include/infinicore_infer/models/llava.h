@@ -17,7 +17,7 @@ typedef struct {
     size_t vision_embed_dim;
     size_t vision_num_layers;
     size_t vision_num_heads;
-    size_t vision_intermediate_size;
+    size_t vision_intermediate_size; // mlp_dim
     float vision_epsilon;
 } LlavaVisionMeta;
 
@@ -44,10 +44,44 @@ typedef struct {
 
 typedef struct {
     // Vision Encoder Weights
+    size_t vision_nlayer;
     const void *vision_patch_embed_weight;  // [num_patches, vision_embed_dim]
     const void *vision_class_token;    // [vision_embed_dim]
     const void *vision_position_embedding;  // [num_patches + 1, vision_embed_dim]
-    const void *const *vision_encoder_weights;  // vision_layers * [various vision weights]
+    const void *const *vision_encoder_weights;  // vision_layers * [various vision weights] // 应该没用到
+
+    const void *vision_pre_layernorm_weight;  // [vision_embed_dim]
+    const void *vision_pre_layernorm_bias;    // [vision_embed_dim]
+    const void *vision_post_layernorm_weight;  // [vision_embed_dim]
+    const void *vision_post_layernorm_bias;    // [vision_embed_dim]
+    
+    const void *const *vision_q_weights;  // vision_layers * [vision_q_weight]
+    const void *const *vision_q_biases;   // vision_layers * [vision_q_bias]
+    const void *const *vision_k_weights;  // vision_layers * [vision_k_weight]
+    const void *const *vision_k_biases;   // vision_layers * [vision_k_bias]
+    const void *const *vision_v_weights;  // vision_layers * [vision_v_weight]
+    const void *const *vision_v_biases;   // vision_layers * [vision_v_bias]
+
+
+    const void *const *vision_in_layer_pre_norm_weights;  // vision_layers * [vision_embed_dim]
+    const void *const *vision_in_layer_pre_norm_biases;   // vision_layers * [vision_embed_dim]
+
+    // out_proj / proj (注意：是 attention 的输出投影)
+    const void *const *vision_proj_weight;            // vision_layers * [embed_dim, embed_dim]
+    const void *const *vision_proj_bias;              // vision_layers * [embed_dim]
+
+    // post attention layernorm（等价 torch: self.layer_norm2 或类似）
+    const void *const *vision_in_layer_post_norm_weight;       // vision_layers * [embed_dim]
+    const void *const *vision_post_norm_bias;         // vision_layers * [embed_dim]
+
+    // MLP 层：fc1
+    const void *const *vision_mlp_fc1_weight;         // vision_layers * [mlp_dim, embed_dim]
+    const void *const *vision_mlp_fc1_bias;           // vision_layers * [mlp_dim] // 4096, vision_intermediate_size
+
+    // MLP 层：fc2
+    const void *const *vision_mlp_fc2_weight;         // vision_layers * [embed_dim, mlp_dim]
+    const void *const *vision_mlp_fc2_bias;           // vision_layers * [embed_dim]
+
 
     // MultiModal Projector Weights
     const void *projector_weight;  // [text_embed_dim, vision_embed_dim]
