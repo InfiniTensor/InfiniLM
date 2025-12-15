@@ -14,6 +14,7 @@ target("infinicore_infer")
 
     add_files("src/models/*.cpp")
     add_files("src/models/*/*.cpp")
+    add_files("src/models/qwen/*/*.cpp")
     add_files("src/tensor/*.cpp")
     add_files("src/allocator/*.cpp")
     add_files("src/dataloader/*.cpp")
