@@ -201,7 +201,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         """
         # Convert tokens to infinicore format
         input_ids_list = [tokens]
-        input_ids = infinicore.from_list(input_ids_list, dtype=infinicore.int64).to(self.device)
+        input_ids = infinicore.from_list(input_ids_list)
 
         # Use model's built-in generate() method which properly handles KV cache
         # Pass sampling parameters (temperature, topk, topp) via kwargs
