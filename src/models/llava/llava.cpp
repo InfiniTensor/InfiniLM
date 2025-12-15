@@ -199,6 +199,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // 计算patches数量
     auto patches_per_dim = image_size / patch_size; // 24
     auto total_patches = patches_per_dim * patches_per_dim; // 576
+    auto vision_intermediate_size = meta.vision_meta.vision_intermediate_size; // 4096
 
 
 
@@ -207,13 +208,6 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // 现在 reshape 成多头格式
     auto vision_dh   = vision_embed_dim / vision_nh;
     auto vision_seq  = 1 + total_patches; // 577
-
-
-
-
-
-
-
 
 
 
@@ -378,13 +372,11 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         rearrange(q_rearr, q_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
         rearrange(k_rearr, k_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
         rearrange(v_rearr, v_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
-        printf("DEBUG: Rearranging Q/K/V tensors444\n");
 
         // 2) 准备 QK = [vision_nh, vision_seq, vision_seq]
         auto qk_buf = Tensor::buffer(dt_logits, {vision_nh, vision_seq, vision_seq}, rsrc.memory_pool);
 
         // 3) Q * K^T + scaling
-        printf("DEBUG: Rearranging Q/K/V tensors6\n");
         auto k_T = k_rearr->permute({0,1,3,2});  // [vision_nh, vision_dh, vision_seq]
         linear(
             qk_buf,
@@ -402,7 +394,6 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
 
         // 5) Attn * V
         auto attn_val_buf = Tensor::buffer(dt_logits, {vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
-        printf("DEBUG: Rearranging Q/K/V tensors7\n");
         // auto v_gemm = v_rearr->permute({0,1,3,2});   // [vision_nh, vision_dh, vision_seq]
         auto v_gemm = v_rearr->permute({0,1,2,3});   // debug
 
@@ -420,18 +411,52 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
             nullptr
         );
 
-        printf("DEBUG: Rearranging Q/K/V tensors55\n");
         // 6) 合头 → o: [1, vision_seq, vision_embed_dim]
         auto o_tmp = Tensor::buffer(dt_logits, {1, vision_seq, vision_nh, vision_dh}, rsrc.memory_pool);
         rearrange(o_tmp, attn_val_buf->view({1, vision_nh, vision_seq, vision_dh})->permute({0,2,1,3}));
-        printf("DEBUG: Rearranging Q/K/V tensors57\n");
         std::cout << "o_tmp->info()" << o_tmp->info() << std::endl; // Tensor: shape[ 1 577 16 64 ]
         auto o = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
         rearrange(o, o_tmp->view({1, vision_seq, vision_embed_dim}));
+        std::cout << "o->info()" << o->info() << std::endl;
 
-        // rearrange(o_tmp, attn_val_buf->view({1, vision_nh, vision_seq, vision_dh})->permute({0,2,1,3})->view({1, vision_seq, vision_embed_dim}));
-        printf("DEBUG: Rearranging Q/K/V tensors56\n");
 
+        // === Attention out_proj ===
+        // o -> attn_out
+        auto attn_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        linear(attn_out, o, rsrc.vision_proj_weight[layer]->permute({1, 0}), 1.0f, 0.0f, nullptr, rsrc.vision_proj_bias[layer]);
+
+        // === Attention residual add ===   // 复用 pre_layernorm 作为输出 buffer
+        // hidden_states = residual + hidden_states
+        add(pre_layernorm, attn_out, vision_residual);
+        std::cout << pre_layernorm->info() << std::endl;
+        // 此时 pre_layernorm = attention block 的输出
+
+        // hidden_states = self.layer_norm2(hidden_states)
+        auto post_attn_norm = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        layernorm(
+            /*out*/ post_attn_norm,
+            /*input_standardization*/ input_standardization,
+            /*input_std_deviation*/ input_std_deviation,
+            /*input*/ pre_layernorm,
+            /*weight*/ rsrc.vision_in_layer_post_norm_weight[layer],
+            /*bias*/  rsrc.vision_post_norm_bias[layer],
+            meta.vision_meta.vision_epsilon
+        );
+
+        // mlp_out = self.mlp(hidden_states)
+        auto mlp_fc1_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_intermediate_size}, rsrc.memory_pool);
+        linear(
+            mlp_fc1_out,
+            post_attn_norm,
+            rsrc.vision_mlp_fc1_weight[layer]->permute({1, 0}),
+            1.0f,
+            0.0f,
+            nullptr,
+            rsrc.vision_mlp_fc1_bias[layer]
+        );
+
+        // TODO: gelu activation
+ 
 
 
         // if(layer == 0) {
