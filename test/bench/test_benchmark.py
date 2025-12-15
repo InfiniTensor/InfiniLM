@@ -8,7 +8,7 @@ from datasets import load_dataset, Dataset
 import infinicore
 import infinilm
 from infinilm.models.llama import AutoLlamaModel
-from infinilm.modeling_utils import get_model_state_dict
+from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
 from abc import ABC, abstractmethod
 
@@ -113,12 +113,17 @@ class InfiniLMBenchmark(BaseBenchmark):
 
         # Load weights
         print("Loading model weights...")
-        model_param_infini = get_model_state_dict(
+        load_model_state_dict_by_file(
+            self.model,
             model_dir_path,
-            device=self.device,
             dtype=self.dtype,
         )
-        self.model.load_state_dict(model_param_infini)
+        # model_param_infini = get_model_state_dict(
+        #     model_dir_path,
+        #     device=self.device,
+        #     dtype=self.dtype,
+        # )
+        # self.model.load_state_dict(model_param_infini)
         print("Model loaded successfully")
 
     def max_context_len(self):
