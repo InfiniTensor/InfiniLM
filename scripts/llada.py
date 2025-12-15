@@ -457,7 +457,7 @@ class LLaDABatchedTask:
         flat_tokens = [int(tok) for tok in flat_tokens]
 
         self.ntok = len(flat_tokens)
-        print(f"flat_tokens (first 10): {flat_tokens[:10]}")
+        print(f"flat_tokens : {flat_tokens}")
 
         # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * self.ntok)(*flat_tokens)
@@ -759,9 +759,9 @@ def test():
                 temperature_=0.0,  # Deterministic for testing
                 verbose=verbose
             )
-        #     print(f"Result: {result}")
-        # except Exception as e:
-        #     print(f"Error in C++ model generation: {e}")
+    #     #     print(f"Result: {result}")
+    #     # except Exception as e:
+    #     #     print(f"Error in C++ model generation: {e}")
 
    
 

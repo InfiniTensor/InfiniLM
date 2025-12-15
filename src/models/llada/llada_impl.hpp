@@ -54,6 +54,7 @@ struct InferRequest {
 
 struct LLaDAModel {
     LLaDAMeta meta;
+    const LLaDAWeights *weights;  // Add weights pointer
     infiniDevice_t device;
     std::vector<int> dev_ids;
     std::vector<LLaDADeviceResource> dev_resources;
@@ -63,6 +64,11 @@ struct LLaDAModel {
 
     LLaDAModel(const LLaDAMeta *, const LLaDAWeights *, infiniDevice_t device, std::vector<int> device_ids);
 };
+
+// Function declarations
+void launchDevice(const LLaDAMeta &meta, const LLaDAWeights *weights, LLaDADeviceResource *rsrc,
+                 InferState &state, InferRequest &req, infiniDevice_t device, int idev, int ndev,
+                 int dev_id, infinicclComm_t comm);
 
 
 #endif

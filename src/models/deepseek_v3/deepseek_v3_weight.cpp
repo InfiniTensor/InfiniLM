@@ -436,7 +436,7 @@ static DeepSeekV3WeightLoader weight_loader = {
     .load_mlp_experts = load_mlp_experts,
 };
 
-__C DeepSeekV3Weights *
+__C __export DeepSeekV3Weights *
 createDeepSeekV3Weights(const DeepSeekV3Meta *meta,
                         infiniDevice_t device,
                         int ndev,
