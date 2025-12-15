@@ -17,6 +17,9 @@ __pycache__/
 # Cache
 cache/
 
+# Cache
+.cache/clangd/
+
 # JSON
 *.json
 
