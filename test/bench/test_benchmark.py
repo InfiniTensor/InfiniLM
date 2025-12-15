@@ -118,12 +118,6 @@ class InfiniLMBenchmark(BaseBenchmark):
             model_dir_path,
             dtype=self.dtype,
         )
-        # model_param_infini = get_model_state_dict(
-        #     model_dir_path,
-        #     device=self.device,
-        #     dtype=self.dtype,
-        # )
-        # self.model.load_state_dict(model_param_infini)
         print("Model loaded successfully")
 
     def max_context_len(self):
@@ -382,7 +376,7 @@ def _load_ceval_from_cache(cache_dir, subject_name, split, ceval_subjects):
     raise FileNotFoundError(f"CEval cached data not found for subject '{subject_name}' with splits {split_names}")
 
 
-def _load_mmlu_from_cache(cache_dir, subject_name, split):
+def _load_mmlu_from_cache(cache_dir, subject_name, split, mmlu_subjects):
     """
     Load MMLU data from local cache avoiding network calls.
     Scans cached Arrow files under cache_dir/cais___mmlu and filters by split.
@@ -422,24 +416,16 @@ def _load_mmlu_from_cache(cache_dir, subject_name, split):
         raise FileNotFoundError(f"MMLU cached data not found for subject '{subj}' with splits {split_names}")
 
     if subject_name == "all":
-        base_dir_hf = os.path.join(cache_dir, "cais___mmlu")
-        subjects = []
-        if os.path.isdir(base_dir_hf):
-            subjects = [
-                d for d in os.listdir(base_dir_hf) if os.path.isdir(os.path.join(base_dir_hf, d))
-            ]
-        if not subjects:
-            return load_one("all"), "all"
-
+        # Use hardcoded list of MMLU subjects, excluding "all"
         all_samples = []
-        for subj in subjects:
+        for subj in mmlu_subjects:
             try:
                 all_samples.extend(load_one(subj))
             except FileNotFoundError:
                 continue
         if not all_samples:
             raise FileNotFoundError(
-                f"No MMLU cached data found under '{base_dir_hf}'. Please ensure datasets are cached."
+                f"No MMLU cached data found for any subject. Please ensure datasets are cached."
             )
         return all_samples, "all"
 
@@ -648,25 +634,86 @@ def test():
                 return _load_ceval_subject(subj_name), subj_name
 
     elif benchmark == "mmlu":
+        mmlu_subjects = [
+            "abstract_algebra",
+            "anatomy",
+            "astronomy",
+            "business_ethics",
+            "clinical_knowledge",
+            "college_biology",
+            "college_chemistry",
+            "college_computer_science",
+            "college_mathematics",
+            "college_medicine",
+            "college_physics",
+            "computer_security",
+            "conceptual_physics",
+            "econometrics",
+            "electrical_engineering",
+            "elementary_mathematics",
+            "formal_logic",
+            "global_facts",
+            "high_school_biology",
+            "high_school_chemistry",
+            "high_school_computer_science",
+            "high_school_european_history",
+            "high_school_geography",
+            "high_school_government_and_politics",
+            "high_school_macroeconomics",
+            "high_school_mathematics",
+            "high_school_microeconomics",
+            "high_school_physics",
+            "high_school_psychology",
+            "high_school_statistics",
+            "high_school_us_history",
+            "high_school_world_history",
+            "human_aging",
+            "human_sexuality",
+            "international_law",
+            "jurisprudence",
+            "logical_fallacies",
+            "machine_learning",
+            "management",
+            "marketing",
+            "medical_genetics",
+            "miscellaneous",
+            "moral_disputes",
+            "moral_scenarios",
+            "nutrition",
+            "philosophy",
+            "prehistory",
+            "professional_accounting",
+            "professional_law",
+            "professional_medicine",
+            "professional_psychology",
+            "public_relations",
+            "security_studies",
+            "sociology",
+            "us_foreign_policy",
+            "virology",
+            "world_religions",
+        ]
+
         def _load_mmlu_subject(subj):
             print(f"Loading MMLU dataset (subject: {subj})...")
             if cache_dir:
-                return _load_mmlu_from_cache(cache_dir, subj, split)
+                return _load_mmlu_from_cache(cache_dir, subj, split, mmlu_subjects)
             if subj == "all":
-                dataset = load_dataset("cais/mmlu", "all")
                 samples = []
                 splits_to_load = ["test"] if split == "test" else ["validation"] if split == "val" else ["validation", "test"]
-                for subject_name in dataset.keys():
-                    if subject_name in ["train", "validation", "test"]:
-                        continue
+                # Load each subject individually from hardcoded list, excluding "all"
+                for subject_name in mmlu_subjects:
                     for sp in splits_to_load:
-                        if sp not in dataset[subject_name]:
+                        try:
+                            dataset = load_dataset("cais/mmlu", subject_name, split=sp)
+                            if hasattr(dataset, 'to_list'):
+                                samples.extend(dataset.to_list())
+                            else:
+                                samples.extend(list(dataset))
+                        except Exception:
                             continue
-                        split_data = dataset[subject_name][sp]
-                        if hasattr(split_data, 'to_list'):
-                            samples.extend(split_data.to_list())
-                        else:
-                            samples.extend(list(split_data))
+                if not samples:
+                    raise FileNotFoundError(f"No MMLU data found for any subject in the list")
                 return samples, "all"
             else:
                 splits_to_load = ["test"] if split == "test" else ["validation"] if split == "val" else ["validation", "test"]
@@ -686,6 +733,15 @@ def test():
 
         def load_subject_samples(subj_name):
             return _load_mmlu_subject(subj_name)
+
+    # Expand "all" to individual subjects for per-subject reporting
+    if "all" in subject_list:
+        if benchmark == "ceval":
+            # Replace "all" with all individual ceval subjects
+            subject_list = [s for s in subject_list if s != "all"] + ceval_subjects
+        elif benchmark == "mmlu":
+            # Replace "all" with all individual mmlu subjects
+            subject_list = [s for s in subject_list if s != "all"] + mmlu_subjects
 
     # Evaluate each subject separately
     all_results = []
