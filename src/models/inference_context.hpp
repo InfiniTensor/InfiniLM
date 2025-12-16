@@ -3,6 +3,7 @@
 #include "../cache_manager/opcache_manager.hpp"
 
 #include <cassert>
+#include <cmath>
 
 struct InferenceContext {
     infiniopHandle_t op_handle;
@@ -180,4 +181,15 @@ inline void conv2d(std::shared_ptr<Tensor> y,
                    std::vector<size_t>& strides,
                    std::vector<size_t>& dilations) {
     getInferenceContext().conv2d(y, x, w, b, pads, strides, dilations);
+}
+
+inline void quickGelu(Tensor* out, Tensor* in){
+    size_t N = in->numel(); // 总元素数
+    float* in_ptr = in->data();
+    float* out_ptr = out->data();
+    #pragma omp parallel for
+    for (size_t i = 0; i < N; ++i) {
+        float x = in_ptr[i];
+        out_ptr[i] = x / (1.0f + expf(-1.702f * x)); // sigmoid(1.702*x)
+    }
 }

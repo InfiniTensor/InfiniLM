@@ -201,23 +201,10 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     auto total_patches = patches_per_dim * patches_per_dim; // 576
     auto vision_intermediate_size = meta.vision_meta.vision_intermediate_size; // 4096
 
-
-
-
     // 假设你已经得到了 q_buf, k_buf, v_buf  shape = [1, seq_len, vision_embed_dim]
     // 现在 reshape 成多头格式
     auto vision_dh   = vision_embed_dim / vision_nh;
     auto vision_seq  = 1 + total_patches; // 577
-
-
-
-
-
-
-
-
-
-
 
     // === 2. 准备buffer ===
     // auto input_image_tensor_f32 = Tensor::buffer(INFINI_DTYPE_F32, {1, 3, image_size, image_size}, rsrc.memory_pool);
@@ -235,9 +222,6 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     auto v_buf = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
     auto input_standardization = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
     auto input_std_deviation   = Tensor::buffer(dt_logits, {1, 1 + total_patches}, rsrc.memory_pool);
-
-
-
 
 
     // 复制输入图像数据
@@ -347,11 +331,12 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         linear(q_buf, in_layer_pre_norm, rsrc.vision_q_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_q_biases[layer]);
         // printf("DEBUG: q_buf after linear projection:\n");
         // // debug: 不考虑中间两行，这里是对的了。(== queries (first 10 elements): )
+
+
+
         // q_buf->debug();
-        linear(k_buf, in_layer_pre_norm, rsrc.vision_k_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_k_biases[layer]);
+        linear(k_buf, in_layer_pre_norm, rsrc.vision_k_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_k_biases[layer]);        
         linear(v_buf, in_layer_pre_norm, rsrc.vision_v_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_v_biases[layer]);
-
-
 
 
         // 1) rearrange Q/K/V → [vision_nh, vision_seq, vision_dh]
@@ -443,52 +428,71 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
             meta.vision_meta.vision_epsilon
         );
 
-        // mlp_out = self.mlp(hidden_states)
+        // === MLP ===
+        // FC1: 1024 -> 4096
         auto mlp_fc1_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_intermediate_size}, rsrc.memory_pool);
-        linear(
-            mlp_fc1_out,
-            post_attn_norm,
-            rsrc.vision_mlp_fc1_weight[layer]->permute({1, 0}),
-            1.0f,
-            0.0f,
-            nullptr,
-            rsrc.vision_mlp_fc1_bias[layer]
-        );
+        linear(mlp_fc1_out, post_attn_norm, rsrc.vision_mlp_fc1_weight[layer]->permute({1, 0}),
+            1.0f, 0.0f, nullptr, rsrc.vision_mlp_fc1_bias[layer]);
 
-        // TODO: gelu activation
- 
+        // QuickGELU Activation
+        auto mlp_activated_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_intermediate_size}, rsrc.memory_pool);
+        quickGelu(mlp_activated_out, mlp_fc1_out);
+
+        // FC2: 4096 -> 1024
+        auto mlp_fc2_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        linear(mlp_fc2_out, mlp_activated_out, rsrc.vision_mlp_fc2_weight[layer]->permute({1, 0}),
+            1.0f, 0.0f, nullptr, rsrc.vision_mlp_fc2_bias[layer]);
+
+        // === 第二次残差连接：MLP ===
+        add(pre_layernorm, mlp_fc2_out, vision_residual);
 
 
-        // if(layer == 0) {
-        //     // printf("DEBUG: After first layer linear projections shapes:\n");
-        //     // std::cout << flat_q_buf->info() << std::endl;
-        //     // std::cout << flat_embeddings->info() << std::endl;
-        //     // std::cout << rsrc.vision_q_weights[layer]->info() << std::endl;
-        //     // std::cout << rsrc.vision_q_biases[layer]->info() << std::endl;
-        //     // printf("DEBUG: vision_q_weights");
-        //     // rsrc.vision_q_weights[layer]->debug_first_n(10);
-        //     // printf("DEBUG: vision_q_biases");
-        //     // rsrc.vision_q_biases[layer]->debug_first_n(10);
-        //     // printf("DEBUG: vision_k_weights");
-        //     // rsrc.vision_k_weights[layer]->debug_first_n(10);
-        //     // printf("DEBUG: vision_k_biases");
-        //     // rsrc.vision_k_biases[layer]->debug_first_n(10);
-        //     // rsrc.vision_v_weights[layer]->debug_first_n(10);
-        //     // printf("DEBUG: vision_v_biases");
-        //     // rsrc.vision_v_biases[layer]->debug_first_n(10);
+        if(layer == 0) {
+            printf("DEBUG: After first layer linear projections shapes:\n");
+            std::cout << flat_q_buf->info() << std::endl;
+            std::cout << flat_embeddings->info() << std::endl;
+            std::cout << rsrc.vision_q_weights[layer]->info() << std::endl;
+            std::cout << rsrc.vision_q_biases[layer]->info() << std::endl;
+            printf("DEBUG: vision_q_weights");
+            rsrc.vision_q_weights[layer]->debug_first_n(10);
+            printf("DEBUG: vision_q_biases");
+            rsrc.vision_q_biases[layer]->debug_first_n(10);
+            printf("DEBUG: vision_k_weights");
+            rsrc.vision_k_weights[layer]->debug_first_n(10);
+            printf("DEBUG: vision_k_biases");
+            rsrc.vision_k_biases[layer]->debug_first_n(10);
+            rsrc.vision_v_weights[layer]->debug_first_n(10);
+            printf("DEBUG: vision_v_biases");
+            rsrc.vision_v_biases[layer]->debug_first_n(10);
 
-        //     printf("DEBUG: After first layer linear projections:\n");
-        //     // // q_buf->debug_first_n(10);
-        //     // // k_buf->debug_first_n(10);
-        //     // // v_buf->debug_first_n(10);
-        //     q_buf->debug();
-        //     // printf("\n\n\n\n\n");
-        //     // k_buf->debug();
-        //     // printf("\n\n\n\n\n");
-        //     // v_buf->debug();
-        // }
+            printf("DEBUG: After first layer linear projections:\n");
+            q_buf->debug_first_n(10);
+            k_buf->debug_first_n(10);
+            v_buf->debug_first_n(10);
+            q_buf->debug();
+            printf("\n\n\n\n\n");
+            k_buf->debug();
+            printf("\n\n\n\n\n");
+            v_buf->debug();
+        }
     }
-    auto fake_output = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+    // auto fake_output = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+    auto post_layernorm_output = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+    layernorm(post_layernorm_output,
+              input_standardization,
+              input_std_deviation,
+              pre_layernorm,  // 所有encoder层的输出
+              rsrc.vision_post_layernorm_weight,  // 需要在资源中添加这个权重
+              rsrc.vision_post_layernorm_bias,    // 需要在资源中添加这个偏置
+              meta.vision_meta.vision_epsilon
+            );
+
+    // === 6. 输出处理 ===
+    // 通常只需要 [CLS] token 的特征，即 post_layernorm_output[:, 0, :]
+    auto cls_output = post_layernorm_output->slice(1, 0, 1); // shape: [1, 1, 1024]
+    
+    printf("DEBUG: Final vision model output (CLS token):\n");
+    cls_output->debug_first_n(10);
 
 }
 
@@ -496,7 +500,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
 
 
 // LLaVA设备工作线程函数，严格按照jiuge.cpp的launchDevice结构
-void launchLlavaDevice(const LlavaMeta &meta, const LlavaWeights *weights,
+void launchLlavaDev ice(const LlavaMeta &meta, const LlavaWeights *weights,
                      LlavaDeviceResource *rsrc, LlavaInferState &state,
                      LlavaRequest &req,
                      infiniDevice_t device, int idev, int ndev, int dev_id,
