@@ -25,62 +25,72 @@ torch.set_default_device("cpu")
 
 
 class LlamaWeightsNaming:
+    def __init__(self, prefix: str = ""):
+        # Optional prefix like "llm." for MiniCPM-V.
+        self.prefix = prefix
+
+    def _p(self, name: str) -> str:
+        return f"{self.prefix}{name}" if self.prefix else name
+
     def input_embd(self):
-        return "model.embed_tokens.weight"
+        return self._p("model.embed_tokens.weight")
 
     def output_norm(self):
-        return "model.norm.weight"
+        return self._p("model.norm.weight")
 
     def output_embd(self):
-        return "lm_head.weight"
+        return self._p("lm_head.weight")
 
     def attn_norm(self, i):
-        return f"model.layers.{i}.input_layernorm.weight"
+        return self._p(f"model.layers.{i}.input_layernorm.weight")
 
     def attn_q(self, i):
-        return f"model.layers.{i}.self_attn.q_proj.weight"
+        return self._p(f"model.layers.{i}.self_attn.q_proj.weight")
 
     def attn_k(self, i):
-        return f"model.layers.{i}.self_attn.k_proj.weight"
+        return self._p(f"model.layers.{i}.self_attn.k_proj.weight")
 
     def attn_v(self, i):
-        return f"model.layers.{i}.self_attn.v_proj.weight"
+        return self._p(f"model.layers.{i}.self_attn.v_proj.weight")
 
     def attn_o(self, i):
-        return f"model.layers.{i}.self_attn.o_proj.weight"
+        return self._p(f"model.layers.{i}.self_attn.o_proj.weight")
 
     def attn_q_b(self, i):
-        return f"model.layers.{i}.self_attn.q_proj.bias"
+        return self._p(f"model.layers.{i}.self_attn.q_proj.bias")
 
     def attn_k_b(self, i):
-        return f"model.layers.{i}.self_attn.k_proj.bias"
+        return self._p(f"model.layers.{i}.self_attn.k_proj.bias")
 
     def attn_v_b(self, i):
-        return f"model.layers.{i}.self_attn.v_proj.bias"
+        return self._p(f"model.layers.{i}.self_attn.v_proj.bias")
 
     def attn_q_norm(self, i):
-        return f"model.layers.{i}.self_attn.q_norm.weight"
+        return self._p(f"model.layers.{i}.self_attn.q_norm.weight")
 
     def attn_k_norm(self, i):
-        return f"model.layers.{i}.self_attn.k_norm.weight"
+        return self._p(f"model.layers.{i}.self_attn.k_norm.weight")
 
     def ffn_norm(self, i):
-        return f"model.layers.{i}.post_attention_layernorm.weight"
+        return self._p(f"model.layers.{i}.post_attention_layernorm.weight")
 
     def gate(self, i):
-        return f"model.layers.{i}.mlp.gate_proj.weight"
+        return self._p(f"model.layers.{i}.mlp.gate_proj.weight")
 
     def up(self, i):
-        return f"model.layers.{i}.mlp.up_proj.weight"
+        return self._p(f"model.layers.{i}.mlp.up_proj.weight")
 
     def down(self, i):
-        return f"model.layers.{i}.mlp.down_proj.weight"
+        return self._p(f"model.layers.{i}.mlp.down_proj.weight")
 
-    def match(state_dict):
-        return (
-            "model.norm.weight" in state_dict
-            and "model.layers.0.self_attn.q_proj.weight" in state_dict
-        )
+    @staticmethod
+    def match(state_dict, prefix: str = ""):
+        def p(n: str) -> str:
+            return f"{prefix}{n}" if prefix else n
+
+        return p("model.norm.weight") in state_dict and p(
+            "model.layers.0.self_attn.q_proj.weight"
+        ) in state_dict
 
 
 class JiugeMetaFromLlama(JiugeMetaCStruct):
@@ -527,6 +537,40 @@ class JiugeForCauslLM:
                 )
             else:
                 raise ValueError("Unsupported weight naming")
+        elif "minicpmv" == config["model_type"]:
+            if any(
+                file.suffix == ".safetensors" for file in Path(model_dir_path).iterdir()
+            ):
+                state_dict = load_all_safetensors_from_dir(model_dir_path)
+            else:
+                state_dict = torch.load(
+                    os.path.join(model_dir_path, "pytorch_model.bin"),
+                    weights_only=True,
+                    map_location="cpu",
+                )
+            naming_prefix = "llm."
+            if not LlamaWeightsNaming.match(state_dict, prefix=naming_prefix):
+                raise ValueError("Unsupported MiniCPM-V LLM weight naming")
+            torch_dtype_str = config.get("torch_dtype", "float16")
+            dtype_map = {
+                "bfloat16": torch.bfloat16,
+                "float16": torch.float16,
+                "float32": torch.float32,
+            }
+            llm_dtype = dtype_map.get(torch_dtype_str, torch.float16)
+            self.meta = JiugeMetaFromLlama(config, dtype=llm_dtype, max_tokens=max_tokens)
+            naming = LlamaWeightsNaming(prefix=naming_prefix)
+            self.weights = JiugeWeightsImpl(
+                self.meta,
+                naming,
+                state_dict,
+                torch_dt_mat=llm_dtype,
+                ndev=ndev,
+                transpose_weight=transpose_weight,
+            )
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
         elif "qwen2" == config["model_type"] or "qwen3" == config["model_type"]:
             state_dict = load_all_safetensors_from_dir(model_dir_path)
             print(f"state_dict keys: {list(state_dict.keys())[:50]} ...")
@@ -881,17 +925,23 @@ def test():
             "Usage: python jiuge.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device] [--verbose]"
         )
         sys.exit(1)
-
-    # Parse command line arguments
     model_path = sys.argv[2]
     device_type = DeviceType.DEVICE_TYPE_CPU
-    verbose = False
+    verbose = "--verbose" in sys.argv
+    init_only = "--init-only" in sys.argv
 
-    # Check for verbose flag
-    for arg in sys.argv:
-        if arg == "--verbose":
-            verbose = True
-            break
+    max_steps = 64
+    prompt = "山东最高的山是？"
+    if "--max-steps" in sys.argv:
+        try:
+            max_steps = int(sys.argv[sys.argv.index("--max-steps") + 1])
+        except Exception:
+            raise ValueError("--max-steps requires an integer value")
+    if "--prompt" in sys.argv:
+        try:
+            prompt = sys.argv[sys.argv.index("--prompt") + 1]
+        except Exception:
+            raise ValueError("--prompt requires a string value")
 
     if sys.argv[1] == "--cpu":
         device_type = DeviceType.DEVICE_TYPE_CPU
@@ -917,12 +967,20 @@ def test():
         )
         sys.exit(1)
 
-    # Find n_device argument (skip --verbose)
-    ndev_args = [arg for arg in sys.argv[3:] if arg != "--verbose"]
-    ndev = int(ndev_args[0]) if ndev_args else 1
+    # Find n_device argument (first numeric positional after model_dir)
+    ndev = 1
+    for arg in sys.argv[3:]:
+        if arg.startswith("--"):
+            continue
+        try:
+            ndev = int(arg)
+            break
+        except ValueError:
+            continue
 
     model = JiugeForCauslLM(model_path, device_type, ndev)
-    model.generate("山东最高的山是？", 500, verbose=verbose)
+    if not init_only:
+        model.generate(prompt, max_steps, verbose=verbose)
     model.destroy_model_instance()
 
 

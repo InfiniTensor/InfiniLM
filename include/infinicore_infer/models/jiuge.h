@@ -99,4 +99,31 @@ forwardBatchJiuge(struct JiugeModel *,
                   struct KVCache **kv_caches,
                   void *logits);
 
+/// @brief 批次推理一轮，支持对指定 token 位置的输入 embedding 做覆盖（用于多模态 image embedding 注入）
+/// @note override_pos 需要按升序排列，且每个位置最多出现一次
+/// @param n_override 覆盖位置数量
+/// @param override_pos 覆盖位置（基于拼接后的 tokens 序列下标，范围 [0, ntok)）
+/// @param override_embeds 覆盖 embedding，shape [n_override, d]，dtype = meta.dt_logits
+__C __export void
+inferBatchJiugeWithOverrides(struct JiugeModel *,
+                             const uint32_t *tokens, uint32_t ntok,
+                             const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                             struct KVCache **kv_caches,
+                             uint32_t n_override,
+                             const uint32_t *override_pos,
+                             const void *override_embeds,
+                             const float *temperature, const uint32_t *topk, const float *topp,
+                             uint32_t *output);
+
+/// @brief 批次推理一轮，输出 logits，支持对指定 token 位置的输入 embedding 做覆盖
+__C __export void
+forwardBatchJiugeWithOverrides(struct JiugeModel *,
+                               const uint32_t *tokens, uint32_t ntok,
+                               const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                               struct KVCache **kv_caches,
+                               uint32_t n_override,
+                               const uint32_t *override_pos,
+                               const void *override_embeds,
+                               void *logits);
+
 #endif

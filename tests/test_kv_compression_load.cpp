@@ -8,8 +8,6 @@
 #include <iostream>
 #include <memory>
 
-thread_local InferenceContext *tls_inference_context = nullptr;
-
 int main(int argc, char **argv) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <weights.bin> [cpu|hygon]" << std::endl;

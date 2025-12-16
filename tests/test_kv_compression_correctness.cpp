@@ -14,7 +14,7 @@
 #include <regex>
 #include <string>
 #include <vector>
- thread_local InferenceContext *tls_inference_context = nullptr;
+ 
 
 namespace {
 struct Meta {

@@ -85,6 +85,9 @@ struct InferRequest {
     uint32_t nreq;
     const uint32_t *req_pos;
     struct KVCache **kv_caches;
+    uint32_t n_override;
+    const uint32_t *override_pos;
+    const void *override_embeds;
     const float *temperature;
     const uint32_t *topk;
     const float *topp;

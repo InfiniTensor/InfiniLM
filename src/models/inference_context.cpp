@@ -2,6 +2,8 @@
 #include "../tensor.hpp"
 #include "../utils.hpp"
 
+thread_local InferenceContext *tls_inference_context = nullptr;
+
 InferenceContext::InferenceContext(infiniopHandle_t op_handle_, std::shared_ptr<MemoryPool> memory_pool_, CacheManager *cache_manager, infinirtStream_t stream)
     : op_handle(op_handle_), memory_pool(memory_pool_), cache_manager(cache_manager), stream(stream) {}
 
@@ -315,12 +317,11 @@ void InferenceContext::conv2d(std::shared_ptr<Tensor> y,
                              std::vector<size_t> pads,
                              std::vector<size_t> strides,
                              std::vector<size_t> dilations) {
-    printf("DEBUG: 死在步骤1\n");
     // 步骤1: 创建缓存键 - 包含所有影响算子行为的参数
     size_t key = CacheManager::createDescriptorKey(y, x, w, b);
 
     // 将卷积参数也纳入缓存键计算
-    printf("DEBUG: 死在步骤2\n");
+    void *b_data = b ? b->data() : nullptr;
     for (size_t pad : pads) {
         hash_combine(key, std::hash<int>()(pad));
     }
@@ -359,5 +360,5 @@ void InferenceContext::conv2d(std::shared_ptr<Tensor> y,
     // 步骤6: 执行卷积算子
     RUN_INFINI(infiniopConv(
         desc, workspace, workspace_size,
-        y->data(), x->data(), w->data(), b_desc, stream));
+        y->data(), x->data(), w->data(), b_data, stream));
 }

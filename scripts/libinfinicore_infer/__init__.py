@@ -17,6 +17,15 @@ from .llava import (
     LlavaLanguageMetaCStruct,
     LlavaProjectorMetaCStruct,
 )
+from .minicpmv import (
+    MiniCPMVModel,
+    MiniCPMVMetaCStruct,
+    MiniCPMVWeightsCStruct,
+    MiniCPMVVisionMetaCStruct,
+    MiniCPMVResamplerMetaCStruct,
+    MiniCPMVLanguageMetaCStruct,
+    MiniCPMVSiglipLayerWeightsCStruct,
+)
 
 __all__ = [
     "DataType",
@@ -40,5 +49,12 @@ __all__ = [
     "LlavaVisionMetaCStruct",
     "LlavaLanguageMetaCStruct",
     "LlavaProjectorMetaCStruct",
+    "MiniCPMVModel",
+    "MiniCPMVMetaCStruct",
+    "MiniCPMVWeightsCStruct",
+    "MiniCPMVVisionMetaCStruct",
+    "MiniCPMVResamplerMetaCStruct",
+    "MiniCPMVLanguageMetaCStruct",
+    "MiniCPMVSiglipLayerWeightsCStruct",
     "ModelRegister",
 ]

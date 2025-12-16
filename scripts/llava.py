@@ -945,3 +945,10 @@ def test():
 
 if __name__ == "__main__":
     test()
+
+
+
+
+# compress = Compress()
+
+# compress.compress(kv_caches, [(i_start, i_end), .......])
