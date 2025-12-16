@@ -6,6 +6,7 @@ set_toolchains("gcc")
 
 -- Add spdlog from third_party directory
 add_includedirs("third_party/spdlog/include")
+add_cxxflags("-Wno-unused-variable")
 
 target("infinicore_infer")
     set_kind("shared")
@@ -18,7 +19,6 @@ target("infinicore_infer")
 
     set_languages("cxx17")
     set_warnings("all", "error")
-    add_cxxflags("-Wno-unused-variable")
     add_files("src/models/*.cpp")
     add_files("src/models/*/*.cpp")
     add_files("src/tensor/*.cpp")
@@ -26,7 +26,6 @@ target("infinicore_infer")
     add_files("src/dataloader/*.cpp")
     add_files("src/cache_manager/*.cpp")
     add_includedirs("include")
-
     set_installdir(INFINI_ROOT)
     add_installfiles("include/infinicore_infer.h", {prefixdir = "include"})
     add_installfiles("include/infinicore_infer/models/*.h", {prefixdir = "include/infinicore_infer/models"})
