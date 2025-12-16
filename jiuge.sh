@@ -8,7 +8,7 @@ set -e  # 遇到错误立即退出
 echo "=========================================="
 echo "🚀 启动 Jiuge 模型 (9G4B) - NVIDIA版本"
 echo "=========================================="
-
+export INFINI_ROOT=/home/featurize/.infini
 # 设置参数
 MODEL_DIR="/home/featurize/work/InfiniFamily/9G4B"
 DEVICE="--nvidia"

@@ -172,7 +172,6 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         req_start += req_lens[req];
     }
 
-    std::cout << "Position Embedding" << std::endl;
     std::shared_ptr<Tensor> pos_ids_buf;
     if (rsrc.device == INFINI_DEVICE_CPU) {
         pos_ids_buf = Tensor::weight(batch_pos_ids.data(), INFINI_DTYPE_U32, {ntok});
@@ -216,8 +215,10 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
+        std::cout << "Are you OK" <<  std::endl;
         rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
         // qkv_proj
+        std::cout << "rmsnorm is OK" <<  std::endl;
         linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? rsrc.b_attn_qkv[layer] : nullptr);
 
         if (has_qk_norm) {
@@ -225,7 +226,8 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon);
         }
 
-        // rope
+        // rope 
+        std::cout << "Position Embedding" << std::endl;
         rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
         rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
 

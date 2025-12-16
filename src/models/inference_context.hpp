@@ -83,6 +83,7 @@ inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::share
 
 inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
                     std::shared_ptr<Tensor> w, float epsilon) {
+    std::cout << "rmsnorm called in cpp" << std::endl;
     getInferenceContext().rmsnorm(y, x, w, epsilon);
 }
 
