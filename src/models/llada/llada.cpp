@@ -322,7 +322,7 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         // TODO: 实现RoPE旋转位置编码
         std::cout << "Position Embedding" << std::endl;
         rope(q_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-        // 注意：rope函数会同时处理q和k，所以第二个调用可能不需要
+        // 注意：rope函数会同时处理q和k，所以第二个调用可能不需要 buffer created
 
         // ====================================================================
         // 3.6 注意力计算
