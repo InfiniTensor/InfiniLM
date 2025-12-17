@@ -9,6 +9,12 @@
 namespace infinilm {
 class InfinilmModel : public infinicore::nn::Module {
 public:
+    struct Config {
+        std::string model_type;
+
+        virtual ~Config() = default;
+    };
+
     virtual ~InfinilmModel() = default;
     virtual infinicore::Tensor forward(std::vector<std::any>) const = 0;
     // Optional: reset cache; default no-op for models without cache

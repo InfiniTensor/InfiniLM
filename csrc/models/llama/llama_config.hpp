@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "../infinilm_model.hpp"
+
 namespace infinilm::models::llama {
 
 /**
@@ -13,7 +15,7 @@ namespace infinilm::models::llama {
  * This struct holds all hyperparameters needed to construct a Llama model.
  * It follows the same structure as HuggingFace's LlamaConfig.
  */
-struct LlamaConfig {
+struct LlamaConfig : public InfinilmModel::Config {
     // Vocabulary and embedding
     size_t vocab_size = 32000;              // Vocabulary size
     size_t hidden_size = 4096;               // Hidden dimension size

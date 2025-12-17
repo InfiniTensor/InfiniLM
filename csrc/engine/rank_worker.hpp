@@ -24,7 +24,7 @@ class RankWorker {
     };
 
 public:
-    RankWorker(const std::any &model_config,
+    RankWorker(const InfinilmModel::Config &model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig &cache_config);
 
@@ -60,7 +60,7 @@ private:
 
 private:
     // Worker properties
-    std::any model_config_;
+    const InfinilmModel::Config &model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::DynamicCache> cache_ptr_;
