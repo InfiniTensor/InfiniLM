@@ -15,10 +15,12 @@
 
 """LLaMA model configuration"""
 
+from infinilm.lib import _infinilm
+
 from ...configuration_utils import PretrainedConfig
 
 
-class LlamaConfig(PretrainedConfig):
+class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
     r"""
     This is the configuration class to store the configuration of a [`LlamaModel`]. It is used to instantiate an LLaMA
     model according to the specified arguments, defining the model architecture. Instantiating a configuration with the
@@ -166,7 +168,7 @@ class LlamaConfig(PretrainedConfig):
         initializer_range=0.02,
         rms_norm_eps=1e-6,
         use_cache=True,
-        pad_token_id=None,
+        pad_token_id=-1,
         bos_token_id=1,
         eos_token_id=2,
         pretraining_tp=1,
@@ -179,6 +181,8 @@ class LlamaConfig(PretrainedConfig):
         head_dim=None,
         **kwargs,
     ):
+        _infinilm.LlamaConfig.__init__(self)
+
         # ---
         self.model_type = "llama"
         self.name_or_path = ""
@@ -221,7 +225,7 @@ class LlamaConfig(PretrainedConfig):
             self.rope_scaling["rope_type"] = self.rope_scaling["type"]
         # rope_config_validation(self)
 
-        super().__init__(
+        PretrainedConfig.__init__(
             pad_token_id=pad_token_id,
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
