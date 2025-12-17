@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../models/llama/llama_config.hpp"
 #include "distributed/distributed.hpp"
 #include "infinicore/tensor.hpp"
 #include "rank_worker.hpp"
@@ -13,7 +14,7 @@ class InferEngine {
 public:
     // Updated constructor: accept CacheConfig instead of CacheType
     InferEngine(
-        const std::any &config,
+        const InfinilmModel::Config &config,
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
         const cache::CacheConfig &cache_config = cache::CacheConfig());
@@ -44,7 +45,7 @@ public:
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     distributed::CommunicationGroup communication_group_;
-    std::any model_config_;
+    const InfinilmModel::Config &model_config_;
     cache::CacheConfig cache_config_;
 };
 

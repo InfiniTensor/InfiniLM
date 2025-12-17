@@ -85,11 +85,11 @@ namespace infinilm::engine {
 
 inline void bind_infer_engine(py::module &m) {
     py::class_<InferEngine, std::shared_ptr<InferEngine>>(m, "InferEngine")
-        .def(py::init([](const infinilm::models::llama::LlamaConfig &cfg,
+        .def(py::init([](const InfinilmModel::Config &cfg,
                          const infinilm::engine::distributed::DistConfig &dist,
                          infinicore::Device::Type dev,
                          const infinilm::cache::CacheConfig &cache_config) {
-                 return new InferEngine(std::any(cfg), dist, dev, cache_config);
+                 return new InferEngine(cfg, dist, dev, cache_config);
              }),
              py::arg("config"),
              py::arg("distributed_config") = distributed::DistConfig(),

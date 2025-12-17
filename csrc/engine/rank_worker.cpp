@@ -8,7 +8,7 @@
 
 namespace infinilm::engine {
 
-RankWorker::RankWorker(const std::any &model_config,
+RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
                        const cache::CacheConfig &cache_config)
     : model_config_(model_config),

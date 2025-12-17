@@ -39,9 +39,11 @@ inline void bind_llama(py::module &m) {
         .def("clear", &HookRegistry::clear)
         .def("has_hooks", &HookRegistry::has_hooks);
 
+    py::class_<InfinilmModel::Config> config(m, "Config");
+
     // Bind LlamaConfig
-    py::class_<LlamaConfig> config(m, "LlamaConfig");
-    config
+    py::class_<LlamaConfig, InfinilmModel::Config> llama_config(m, "LlamaConfig");
+    llama_config
         .def(py::init<>())
         .def_readwrite("vocab_size", &LlamaConfig::vocab_size)
         .def_readwrite("hidden_size", &LlamaConfig::hidden_size)

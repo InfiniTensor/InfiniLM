@@ -1,5 +1,4 @@
 #include "infer_engine.hpp"
-#include "../models/llama/llama_config.hpp"
 #include "spdlog/spdlog.h"
 
 namespace infinilm::engine {
@@ -8,7 +7,7 @@ namespace infinilm::engine {
 // Constructor
 //------------------------------------------------------
 InferEngine::InferEngine(
-    const std::any &config,
+    const InfinilmModel::Config &config,
     const distributed::DistConfig &distributed_config,
     infinicore::Device::Type device_type,
     const cache::CacheConfig &cache_config) // Changed parameter
@@ -24,8 +23,8 @@ InferEngine::InferEngine(
 
     // Try to extract model configuration to override default cache parameters if needed
     try {
-        if (config.type() == typeid(models::llama::LlamaConfig)) {
-            const auto &llama_config = std::any_cast<models::llama::LlamaConfig>(config);
+        if (const auto llama_config_ptr = dynamic_cast<const models::llama::LlamaConfig *>(&config)) {
+            const auto &llama_config = *llama_config_ptr;
 
             cache_config_.num_layers = llama_config.num_hidden_layers;
             cache_config_.max_kv_cache_length = llama_config.max_position_embeddings;
