@@ -1,54 +1,12 @@
 from ....generation.utils import GenerationMixin
 import infinicore
-from infinilm.models.llama.configuration_llama import LlamaConfig as _LlamaConfig
+from infinilm.models.llama.configuration_llama import LlamaConfig
 from infinilm.lib import _infinilm
 from infinilm.distributed import DistConfig
 import json
 import os
 from typing import Optional, Union
 from collections import OrderedDict
-
-
-class LlamaConfig:
-    """Llama model configuration adapter for C++ bindings.
-
-    This class wraps configuration_llama.LlamaConfig and provides
-    a _underlying property that creates the C++ config object.
-
-    Automatically detects and handles both regular Llama models and Jiuge models
-    (fm9g7b, fm9g, minicpm) with appropriate defaults and validation.
-    """
-
-    def __init__(self, config_dict=None, **kwargs):
-        """Create LlamaConfig from dictionary or keyword arguments"""
-        # Use the Python config from configuration_llama
-        if isinstance(config_dict, _LlamaConfig):
-            self._python_config = config_dict
-        else:
-            if config_dict is not None and isinstance(config_dict, dict):
-                merged = {**config_dict, **kwargs}
-            else:
-                merged = kwargs
-            self._python_config = _LlamaConfig(**merged)
-
-        # Lazy initialization of C++ config
-        self._cpp_config = None
-
-    def __getattr__(self, name):
-        """Delegate attribute access to Python config"""
-        return getattr(self._python_config, name)
-
-    def __setattr__(self, name, value):
-        """Delegate attribute setting to Python config"""
-        if name.startswith("_"):
-            super().__setattr__(name, value)
-        else:
-            if hasattr(self, "_python_config"):
-                setattr(self._python_config, name, value)
-                # Invalidate C++ config cache when Python config changes
-                self._cpp_config = None
-            else:
-                super().__setattr__(name, value)
 
 
 class LlamaForCausalLM(GenerationMixin):
@@ -186,5 +144,5 @@ class LlamaForCausalLM(GenerationMixin):
             config_dict = json.load(f)
 
         # LlamaConfig automatically detects and handles jiuge models
-        config = LlamaConfig(config_dict)
+        config = LlamaConfig(**config_dict)
         return cls(config, device=device, dtype=dtype, **kwargs)
