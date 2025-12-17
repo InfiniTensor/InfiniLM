@@ -171,6 +171,7 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;      // 是否有QKV偏置
         bool has_qk_norm = rsrc.w_attn_q_norm.size() > 0 && rsrc.w_attn_k_norm.size() > 0;  // 是否有QK归一化
         
+        auto nexperts = meta.num_experts;
 
         // Allocate buffers
         std::cout << "Allocating  Buffer " << std::endl;
@@ -182,6 +183,8 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
         auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
         auto result_cpu = std::vector<int64_t>(nreq);
+
+        auto router_logits_buf = Tensor::buffer(dt_logits, {di_dense, nexperts}, rsrc.memory_pool);
         
         std::cout << "Slice Qkv buffer" << std::endl;
         auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
@@ -262,6 +265,7 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
 
                 
                 if (has_qk_norm) {
+                    std::cout << "Use Qk norm" << std::endl;
                     rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer_idx], meta.epsilon);
                     rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer_idx], meta.epsilon);
                 }
@@ -297,6 +301,19 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                     rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
                     token_offset += seq_len;
                 }
+                 // o_proj
+                linear(logits_in, o_buf, rsrc.w_attn_out[layer_idx], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
+                        // All_reduce if distributed
+                if (rsrc.comm != nullptr) {
+                    RUN_INFINI(infinicclAllReduce(
+                        logits_in->data(), logits_in->data(), ntok * d, dt_logits,
+                        INFINICCL_SUM, rsrc.comm, stream));
+                    RUN_INFINI(infinirtStreamSynchronize(stream));
+                }
+        
+                // 2. FFN Expert LLaDAMoESparseMoeBlock
+                // linear()                   //router_logits = self.gate(hidden_states)
+        
         }
         RUN_INFINI(infinirtStreamSynchronize(stream));
 
