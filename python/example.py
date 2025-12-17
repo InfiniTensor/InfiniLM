@@ -40,6 +40,12 @@ def main():
     else:
         raise ValueError("Error: --device_type is required.")
 
+    if not args.enable_paged_attn:
+        raise ValueError(
+            "This script currently only supports paged attention. "
+            "Please enable it with --enable-paged-attn."
+        )
+
     path = args.model_path
     tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
     llm = InfiniEngine(
