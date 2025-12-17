@@ -105,8 +105,7 @@ class ModelRunner:
         在程序退出时，安全地释放 C++ 侧的资源。
         """
         if hasattr(self, "kv_cache") and self.kv_cache:
-            print("drop_paged_kv_cache")
-            # ！！！待完善的部分，需要后续在处理！！！drop_paged_kv_cache 和 drop_kv_cache
+            print("[info] drop_paged_kv_cache")
             drop_paged_kv_cache(self.kv_cache.data())
             self.kv_cache = None
         if hasattr(self, "model") and self.model:
@@ -134,7 +133,7 @@ class ModelRunner:
             self.ndev,
         )
         self.kv_cache = PagedKVCache(kv_cache)
-        print("kvcache allocated ")
+        print("[info] Paged kvcache allocated ")
 
     def allocate_kv_cache(self):
         kv_cache = self.create_kv_cache(
