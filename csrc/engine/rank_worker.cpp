@@ -251,6 +251,7 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::RUN) {
                 try {
                     auto out = model_->forward(local_args);
+                    infinicore::context::syncStream();
 
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

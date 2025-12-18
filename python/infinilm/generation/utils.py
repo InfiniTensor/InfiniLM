@@ -251,22 +251,31 @@ class GenerationMixin:
             output_content += output_str
 
             end_time = time.time()
-            time_list.append((end_time - start_time) * 1000)
+            time_list.append((end_time - start_time))
 
             print(output_str, end="", flush=True)
             if stop_on_eos and token_id in eos_token_id_list:
                 break
         print("\n</s>")
-        print(f"\n\n\n Generation completed in {round(sum(time_list), 2)} ms")
+        print(f"\n\n\n Generation completed in {round(sum(time_list) * 1000, 2)} ms")
         print(
             f" Batchsize={batch_size}  Per_Batch_Input_Len={seq_len}  Per_Batch_New_Tokens={len(time_list)}\n"
         )
         print(
-            f" Prefill TTFT: {round(time_list[0], 2)}ms  Throughput: {round((1000 * batch_size * seq_len) / time_list[0], 2)}tok/s\n",
+            f" Prefill TTFT: {round(time_list[0], 2)}ms  Throughput: {round((batch_size * seq_len) / time_list[0], 2)}tok/s\n",
         )
         if len(time_list) > 1:
             print(
-                f" Decode  Avg ITL: {round(sum(time_list[1:]) / (len(time_list) - 1), 2)}ms   Throughput: {round((1000 * batch_size * (len(time_list) - 1)) / sum(time_list[1:]), 2)}tok/s\n",
+                f" Decode  Avg ITL: {round(sum(time_list[1:]) * 1000 / (len(time_list) - 1), 2)}ms   Throughput: {round((batch_size * (len(time_list) - 1)) / sum(time_list[1:]), 2)}tok/s\n",
             )
 
+        return {
+            "output_token_ids": output_tokens_list,
+            "output_content": output_content,
+            "total_latency": sum(time_list),
+            "prefill_latency": time_list[0],
+            "decode_latency": sum(time_list[1:]),
+            "total_input_tokens": batch_size * seq_len,
+            "total_output_tokens": len(time_list),
+        }
         return output_tokens_list, output_content

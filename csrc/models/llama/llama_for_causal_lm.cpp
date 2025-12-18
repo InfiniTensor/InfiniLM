@@ -34,13 +34,6 @@ infinicore::Tensor LlamaForCausalLM::forward(const infinicore::Tensor &input_ids
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);
 
-    // 3. CRITICAL: Synchronize the C++ backend's context after forward pass
-    // This ensures all C++ backend operations complete before returning to Python
-    if (device_.getType() != infinicore::Device::Type::CPU) {
-        infinicore::context::setDevice(device_, false);
-        infinicore::context::syncStream();
-    }
-
     return logits;
 }
 
