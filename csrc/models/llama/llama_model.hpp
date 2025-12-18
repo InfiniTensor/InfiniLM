@@ -31,6 +31,22 @@ namespace infinilm::models::llama {
  */
 class LlamaModel : public infinicore::nn::Module {
 public:
+    struct Input {
+        /// Token IDs tensor of shape `[batch, seq_len]`.
+        infinicore::Tensor input_ids;
+
+        /// Position IDs tensor of shape `[batch, seq_len]` or `[seq_len]`.
+        infinicore::Tensor position_ids;
+
+        /// Optional model-level KV cache for incremental decoding. Defaults to `nullptr`.
+        void *kv_cache = nullptr;
+    };
+
+    struct Output {
+        /// Output tensor of shape [batch, seq_len, hidden_size].
+        infinicore::Tensor hidden_states;
+    };
+
     /**
      * @brief Construct LlamaModel module
      *
@@ -46,14 +62,10 @@ public:
     /**
      * @brief Forward pass: process input through the model
      *
-     * @param input_ids Token IDs tensor of shape [batch, seq_len]
-     * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param kv_cache Optional model-level KV cache for incremental decoding
-     * @return Output tensor of shape [batch, seq_len, hidden_size]
+     * @param input Encapsulated input tensors and other parameters
+     * @return Output structure containing the result tensor
      */
-    infinicore::Tensor forward(const infinicore::Tensor &input_ids,
-                               const infinicore::Tensor &position_ids,
-                               void *kv_cache = nullptr) const;
+    Output forward(const Input &input) const;
 
     // Module information
     const LlamaConfig &config() const { return config_; }
