@@ -75,8 +75,9 @@ std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> InferEng
 //------------------------------------------------------
 // forward
 //------------------------------------------------------
-infinicore::Tensor InferEngine::forward(const infinicore::Tensor &input_ids,
-                                        const infinicore::Tensor &position_ids) {
+InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
+    const auto &[input_ids, position_ids] = input;
+
     // Trigger each worker to run inference
     for (auto &worker : workers_) {
         worker->run(std::vector<std::any>({input_ids, position_ids}));
@@ -86,7 +87,7 @@ infinicore::Tensor InferEngine::forward(const infinicore::Tensor &input_ids,
         worker->wait();
     }
 
-    return workers_[0]->get_output();
+    return {workers_[0]->get_output()};
 }
 
 //------------------------------------------------------

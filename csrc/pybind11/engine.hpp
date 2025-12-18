@@ -84,7 +84,8 @@ inline void bind_dist_config(py::module &m) {
 namespace infinilm::engine {
 
 inline void bind_infer_engine(py::module &m) {
-    py::class_<InferEngine, std::shared_ptr<InferEngine>>(m, "InferEngine")
+    py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(m, "InferEngine");
+    infer_engine
         .def(py::init([](const InfinilmModel::Config &cfg,
                          const infinilm::engine::distributed::DistConfig &dist,
                          infinicore::Device::Type dev,
@@ -109,17 +110,22 @@ inline void bind_infer_engine(py::module &m) {
             }
             return state_dict_tp_all;
         })
-        .def(
-            "forward", [](InferEngine &self, py::object input_ids, py::object position_ids) -> infinicore::Tensor {
-                return self.forward(input_ids.cast<infinicore::Tensor>(), position_ids.cast<infinicore::Tensor>());
-            },
-            "Run inference on all ranks with arbitrary arguments")
+        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
         .def("reset_cache", py::overload_cast<size_t>(&InferEngine::reset_cache), py::arg("pos") = 0, "Reset the internal cache in all workers to a specific position")
         .def("reset_cache", py::overload_cast<const cache::CacheConfig &, size_t>(&InferEngine::reset_cache), py::arg("cache_config"), py::arg("pos") = 0, "Reset cache with new KV configuration")
         .def("get_cache_config", &InferEngine::get_cache_config, "Get current KV configuration")
         .def("__repr__", [](const InferEngine &self) {
             return "<InferEngine: " + std::string(self.get_dist_config()) + ">";
         });
+
+    py::class_<InferEngine::Input>(infer_engine, "Input")
+        .def(py::init([](const infinicore::Tensor &input_ids, const infinicore::Tensor &position_ids) {
+                 return new InferEngine::Input{input_ids, position_ids};
+             }),
+             py::arg("input_ids"), py::arg("position_ids"));
+
+    py::class_<InferEngine::Output>(infer_engine, "Output")
+        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Output tensor");
 }
 
 } // namespace infinilm::engine

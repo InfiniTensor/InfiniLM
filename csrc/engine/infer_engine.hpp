@@ -12,6 +12,16 @@ namespace infinilm::engine {
 
 class InferEngine {
 public:
+    struct Input {
+        infinicore::Tensor input_ids;
+
+        infinicore::Tensor position_ids;
+    };
+
+    struct Output {
+        infinicore::Tensor hidden_states;
+    };
+
     // Updated constructor: accept CacheConfig instead of CacheType
     InferEngine(
         const InfinilmModel::Config &config,
@@ -26,8 +36,7 @@ public:
     std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> state_dict();
 
     // Run a single forward pass on all workers and return the outputs from all ranks
-    infinicore::Tensor forward(const infinicore::Tensor &input_ids,
-                               const infinicore::Tensor &position_ids);
+    Output forward(const Input &input);
 
     // Reset the internal cache pos in all workers (clears state between generations)
     void reset_cache(size_t pos = 0);
