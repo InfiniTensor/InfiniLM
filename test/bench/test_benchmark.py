@@ -13,6 +13,10 @@ from infinilm.distributed import DistConfig
 from abc import ABC, abstractmethod
 
 
+TOTAL_TOKENS = 0
+TOTAL_TIME = 0.0
+
+
 class BaseBenchmark(ABC):
     """Base class for benchmark evaluation with common tokenizer and generation utilities"""
 
@@ -43,7 +47,14 @@ class BaseBenchmark(ABC):
 class InfiniLMBenchmark(BaseBenchmark):
     """Wrapper class for InfiniLM cpp backend for benchmark evaluation"""
 
-    def __init__(self, model_dir_path, device_type_str="cpu", ndev=1, backend="cpp", benchmark="ceval"):
+    def __init__(
+        self,
+        model_dir_path,
+        device_type_str="cpu",
+        ndev=1,
+        backend="cpp",
+        benchmark="ceval",
+    ):
         import transformers
 
         self.benchmark = benchmark
@@ -71,6 +82,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         # Load config and tokenizer
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             import json
+
             self.config_dict = json.load(f)
 
         # Align tokenizer initialization with jiuge backend (010)
@@ -78,7 +90,9 @@ class InfiniLMBenchmark(BaseBenchmark):
         model_type = self.config_dict.get("model_type", "")
         if model_type == "llama":
             # For llama models: no trust_remote_code (matches jiuge line 465)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
         elif model_type in ["fm9g", "minicpm", "fm9g7b"]:
             # For fm9g/minicpm/fm9g7b models: use trust_remote_code=True (matches jiuge lines 493-495, 518-520)
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -126,47 +140,11 @@ class InfiniLMBenchmark(BaseBenchmark):
     def render_input_content(self, *args, **kwargs):
         """Render input content based on benchmark type"""
         if self.benchmark == "ceval":
-            return self._render_ceval(*args, **kwargs)
+            return render_ceval(self.tokenizer, *args, **kwargs)
         elif self.benchmark == "mmlu":
-            return self._render_mmlu(*args, **kwargs)
+            return render_mmlu(self.tokenizer, *args, **kwargs)
         else:
             raise ValueError(f"Unknown benchmark: {self.benchmark}")
-
-    def _render_ceval(self, conversation):
-        """Render C-Eval conversation to input content"""
-        return (
-            self.tokenizer.apply_chat_template(
-                conversation=conversation,
-                add_generation_prompt=True,
-                tokenize=False,
-            )
-            + "正确答案是"
-        )
-
-    def _render_mmlu(self, question, choices):
-        """Render MMLU question and choices to input content"""
-        choices_text = "\n".join([f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
-        instruction = (
-            "You are a multiple-choice question solver. "
-            "Select the correct option and respond with only the letter A, B, C, or D."
-        )
-        prompt = f"{instruction}\n\nQuestion: {question}\n{choices_text}\nAnswer:"
-
-        # Use chat template if available, otherwise return plain text
-        if hasattr(self.tokenizer, 'apply_chat_template'):
-            conversation = [
-                {"role": "system", "content": instruction},
-                {"role": "user", "content": f"{question}\n{choices_text}\nAnswer:"}
-            ]
-            try:
-                return self.tokenizer.apply_chat_template(
-                    conversation=conversation,
-                    add_generation_prompt=True,
-                    tokenize=False,
-                )
-            except Exception:
-                return prompt
-        return prompt
 
     def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
         """Generate response based on benchmark type"""
@@ -178,11 +156,11 @@ class InfiniLMBenchmark(BaseBenchmark):
         tokens = self.encode_text(input_content)
 
         # Delegate to backend-specific generation implementation
-        output_content, avg_time = self._generate_step(
+        output_content = self._generate_step(
             tokens, max_steps, topp_, topk_, temperature_
         )
 
-        return output_content, avg_time
+        return output_content
 
     def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
         """
@@ -199,7 +177,7 @@ class InfiniLMBenchmark(BaseBenchmark):
 
         # Use model's built-in generate() method which properly handles KV cache
         # Pass sampling parameters (temperature, topk, topp) via kwargs
-        output_tokens_list, output_content = self.model.generate(
+        result = self.model.generate(
             input_ids=input_ids,
             max_new_tokens=max_steps,
             tokenizer=self.tokenizer,
@@ -208,19 +186,183 @@ class InfiniLMBenchmark(BaseBenchmark):
             topk=topk_,
             topp=topp_,
         )
+        global TOTAL_TOKENS, TOTAL_TIME
+        TOTAL_TIME += result["total_latency"]
+        TOTAL_TOKENS += result["total_input_tokens"] + result["total_output_tokens"]
 
-        # Calculate average time (GenerationMixin doesn't return timing info)
-        # We'll use a placeholder since the timing info isn't available
-        print("\n")
-        avg_time = 0.0  # GenerationMixin doesn't expose per-step timing
-        print(f"Time per step: N/A (using GenerationMixin.generate)")
-
-        return output_content, avg_time
+        return result["output_content"]
 
     def destroy_model_instance(self):
         # Cleanup if needed
         del self.model
         print("Model destroyed")
+
+
+class TorchBenchmark(BaseBenchmark):
+    """Torch backend using HuggingFace Transformers"""
+
+    def __init__(self, model_dir_path, device_type_str="cpu", benchmark="ceval"):
+        import torch
+        import transformers
+
+        self.benchmark = benchmark
+
+        # Device
+        if device_type_str == "nvidia":
+            self.device = torch.device("cuda")
+        elif device_type_str == "cpu":
+            self.device = torch.device("cpu")
+        else:
+            raise ValueError(
+                f"Torch backend unsupported device type: {device_type_str}"
+            )
+
+        # Load tokenizer
+        with open(os.path.join(model_dir_path, "config.json"), "r") as f:
+            import json
+
+            self.config_dict = json.load(f)
+
+        model_type = self.config_dict.get("model_type", "")
+        if model_type in ["fm9g", "minicpm", "fm9g7b"]:
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
+        else:
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
+
+        # Load model
+        print("Loading model with torch backend...")
+        self.model = transformers.AutoModelForCausalLM.from_pretrained(
+            model_dir_path,
+            torch_dtype=torch.bfloat16 if self.device.type == "cuda" else torch.float32,
+            trust_remote_code=True,
+        ).to(self.device)
+
+        self.model.eval()
+        print("Torch model loaded successfully")
+
+        eos_token_id = self.config_dict.get("eos_token_id")
+        self.eos_token_id = (
+            [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
+        )
+
+    def max_context_len(self):
+        return self.config_dict.get("max_position_embeddings", 2048)
+
+    def render_input_content(self, *args, **kwargs):
+        if self.benchmark == "ceval":
+            return render_ceval(self.tokenizer, *args, **kwargs)
+        elif self.benchmark == "mmlu":
+            return render_mmlu(self.tokenizer, *args, **kwargs)
+        else:
+            raise ValueError(f"Unknown benchmark: {self.benchmark}")
+
+    def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
+        import torch
+        import time
+
+        input_ids = torch.tensor([tokens], device=self.device)
+
+        if self.device.type == "cuda":
+            torch.cuda.synchronize()
+
+        start_time = time.perf_counter()
+
+        outputs = self.model.generate(
+            input_ids=input_ids,
+            max_new_tokens=max_steps,
+            do_sample=temperature_ > 0,
+            temperature=temperature_,
+            top_k=topk_,
+            top_p=topp_,
+            eos_token_id=self.eos_token_id,
+            pad_token_id=2,
+        )
+
+        # --- end sync ---
+        if self.device.type == "cuda":
+            torch.cuda.synchronize()
+
+        end_time = time.perf_counter()
+
+        # ---- post process ----
+        generated_ids = outputs[0][len(tokens) :]
+        output_text = self.tokenizer.decode(generated_ids)
+
+        # ---- stats ----
+        input_tokens = len(tokens)
+        new_tokens = generated_ids.numel()
+        total_tokens = input_tokens + new_tokens
+
+        total_time = end_time - start_time
+        throughput = total_tokens / total_time if total_time > 0 else 0.0
+        print(output_text)
+        print()
+        print(f"Total time: {total_time * 1000:.2f} ms")
+        print(f"Input tokens: {input_tokens}")
+        print(f"New tokens: {new_tokens}")
+        print(f"Total tokens processed: {total_tokens}")
+        print(f"Throughput: {throughput:.2f} tok/s")
+        global TOTAL_TOKENS, TOTAL_TIME
+        TOTAL_TOKENS += total_tokens
+        TOTAL_TIME += total_time
+
+        return output_text
+
+    def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
+        input_content = self.render_input_content(*args)
+        print(input_content, end="", flush=True)
+
+        tokens = self.encode_text(input_content)
+
+        return self._generate_step(tokens, max_steps, topp_, topk_, temperature_)
+
+    def destroy_model_instance(self):
+        del self.model
+        print("Torch model destroyed")
+
+
+def render_ceval(_tokenizer, conversation):
+    """Render C-Eval conversation to input content"""
+    return (
+        _tokenizer.apply_chat_template(
+            conversation=conversation,
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        + "正确答案是"
+    )
+
+
+def render_mmlu(_tokenizer, question, choices):
+    """Render MMLU question and choices to input content"""
+    choices_text = "\n".join(
+        [f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)]
+    )
+    instruction = (
+        "You are a multiple-choice question solver. "
+        "Select the correct option and respond with only the letter A, B, C, or D."
+    )
+    prompt = f"{instruction}\n\nQuestion: {question}\n{choices_text}\nAnswer:"
+
+    # Use chat template if available, otherwise return plain text
+    if hasattr(_tokenizer, "apply_chat_template"):
+        conversation = [
+            {"role": "system", "content": instruction},
+            {"role": "user", "content": f"{question}\n{choices_text}\nAnswer:"},
+        ]
+        try:
+            return _tokenizer.apply_chat_template(
+                conversation=conversation,
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+        except Exception:
+            return prompt
+    return prompt
 
 
 def extract_answer_ceval(output_content, answer):
@@ -238,7 +380,7 @@ def extract_answer_mmlu(output_content):
     # Find first meaningful token
     match = re.search(r"\b([ABCD])\b", output_upper)
     if match:
-        return ord(match.group(1)) - ord('A')
+        return ord(match.group(1)) - ord("A")
     else:
         match_num = re.search(r"\b([0-3])\b", output_upper)
         if match_num:
@@ -260,44 +402,63 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
                 {"role": "user", "content": input_content},
             ]
             answer = sample["answer"]
-            output_content, avg_time = model.generate(
-                conversation, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0
+            output_content = model.generate(
+                conversation,
+                max_steps=max_new_tokens,
+                topp_=1.0,
+                topk_=1,
+                temperature_=1.0,
             )
             is_correct = extract_answer_ceval(output_content, answer)
-            answers_list.append({
-                "id": sample.get("id", idx),
-                "output_content": output_content,
-                "answer": answer,
-                "is_correct": is_correct,
-                "subject": subject_name
-            })
+            answers_list.append(
+                {
+                    "id": sample.get("id", idx),
+                    "output_content": output_content,
+                    "answer": answer,
+                    "is_correct": is_correct,
+                    "subject": subject_name,
+                }
+            )
             if benchmark == "ceval":
                 print("标准答案：", answer)
 
         elif benchmark == "mmlu":
-            question = sample['question']
-            choices = sample['choices']
-            answer_idx = sample['answer']  # MMLU answer is 0-3 index
+            question = sample["question"]
+            choices = sample["choices"]
+            answer_idx = sample["answer"]  # MMLU answer is 0-3 index
 
-            output_content, avg_time = model.generate(
-                question, choices, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0
+            output_content = model.generate(
+                question,
+                choices,
+                max_steps=max_new_tokens,
+                topp_=1.0,
+                topk_=1,
+                temperature_=1.0,
             )
 
             predicted_answer = extract_answer_mmlu(output_content)
 
             # Convert answer index to letter for display
             answer_letter = chr(65 + answer_idx) if answer_idx < 4 else "?"
-            predicted_letter = chr(65 + predicted_answer) if predicted_answer is not None and predicted_answer < 4 else "?"
+            predicted_letter = (
+                chr(65 + predicted_answer)
+                if predicted_answer is not None and predicted_answer < 4
+                else "?"
+            )
 
-            print(f"Sample {idx}: Correct answer: {answer_letter} ({answer_idx}), Predicted: {predicted_letter} ({predicted_answer})")
+            print(
+                f"Sample {idx}: Correct answer: {answer_letter} ({answer_idx}), Predicted: {predicted_letter} ({predicted_answer})"
+            )
 
-            answers_list.append({
-                "id": idx,
-                "output_content": output_content,
-                "answer": answer_idx,
-                "predicted": predicted_answer,
-                "subject": subject_name
-            })
+            answers_list.append(
+                {
+                    "id": idx,
+                    "output_content": output_content,
+                    "answer": answer_idx,
+                    "predicted": predicted_answer,
+                    "subject": subject_name,
+                }
+            )
 
     # Evaluate results for this subject
     true_num = 0
@@ -323,8 +484,14 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
                 print(f"id {id}: Correct")
             else:
                 answer_letter = chr(65 + answer) if answer < 4 else "?"
-                predicted_letter = chr(65 + predicted) if predicted is not None and predicted < 4 else "?"
-                print(f"id {id}: Wrong (correct: {answer_letter}, predicted: {predicted_letter})")
+                predicted_letter = (
+                    chr(65 + predicted)
+                    if predicted is not None and predicted < 4
+                    else "?"
+                )
+                print(
+                    f"id {id}: Wrong (correct: {answer_letter}, predicted: {predicted_letter})"
+                )
 
     accuracy = true_num / all_num if all_num > 0 else 0.0
     if benchmark == "ceval":
@@ -337,7 +504,7 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
         "correct": true_num,
         "total": all_num,
         "accuracy": accuracy,
-        "answers_list": answers_list
+        "answers_list": answers_list,
     }
 
 
@@ -360,9 +527,13 @@ def _load_ceval_from_cache(cache_dir, subject_name, split, ceval_subjects):
                 lower = fname.lower()
                 if split == "test" and "test" not in lower:
                     continue
-                if split == "val" and not any(x in lower for x in ["val", "validation", "dev"]):
+                if split == "val" and not any(
+                    x in lower for x in ["val", "validation", "dev"]
+                ):
                     continue
-                if split == "all" and not any(x in lower for x in ["val", "validation", "dev", "test"]):
+                if split == "all" and not any(
+                    x in lower for x in ["val", "validation", "dev", "test"]
+                ):
                     continue
                 try:
                     ds = Dataset.from_file(os.path.join(root, fname))
@@ -373,7 +544,9 @@ def _load_ceval_from_cache(cache_dir, subject_name, split, ceval_subjects):
             return records
 
     # If cache_dir provided and nothing loaded, fail without network
-    raise FileNotFoundError(f"CEval cached data not found for subject '{subject_name}' with splits {split_names}")
+    raise FileNotFoundError(
+        f"CEval cached data not found for subject '{subject_name}' with splits {split_names}"
+    )
 
 
 def _load_mmlu_from_cache(cache_dir, subject_name, split, mmlu_subjects):
@@ -381,13 +554,16 @@ def _load_mmlu_from_cache(cache_dir, subject_name, split, mmlu_subjects):
     Load MMLU data from local cache avoiding network calls.
     Scans cached Arrow files under cache_dir/cais___mmlu and filters by split.
     """
+
     def load_one(subj):
         split_names = (
             ["test"]
             if split == "test"
-            else ["validation", "dev"]
-            if split == "val"
-            else ["validation", "dev", "test"]
+            else (
+                ["validation", "dev"]
+                if split == "val"
+                else ["validation", "dev", "test"]
+            )
         )
 
         base = os.path.join(cache_dir, "cais___mmlu", subj)
@@ -402,9 +578,13 @@ def _load_mmlu_from_cache(cache_dir, subject_name, split, mmlu_subjects):
                 lower = fname.lower()
                 if split == "test" and "test" not in lower:
                     continue
-                if split == "val" and not any(x in lower for x in ["validation", "dev"]):
+                if split == "val" and not any(
+                    x in lower for x in ["validation", "dev"]
+                ):
                     continue
-                if split == "all" and not any(x in lower for x in ["validation", "dev", "test"]):
+                if split == "all" and not any(
+                    x in lower for x in ["validation", "dev", "test"]
+                ):
                     continue
                 try:
                     ds = Dataset.from_file(os.path.join(root, fname))
@@ -413,7 +593,9 @@ def _load_mmlu_from_cache(cache_dir, subject_name, split, mmlu_subjects):
                     continue
         if records:
             return records
-        raise FileNotFoundError(f"MMLU cached data not found for subject '{subj}' with splits {split_names}")
+        raise FileNotFoundError(
+            f"MMLU cached data not found for subject '{subj}' with splits {split_names}"
+        )
 
     if subject_name == "all":
         # Use hardcoded list of MMLU subjects, excluding "all"
@@ -436,7 +618,7 @@ def test():
     # Parse arguments manually to handle device flags properly
     if len(sys.argv) < 4:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -449,7 +631,7 @@ def test():
     ndev = 1
     benchmark = None
     subject = "all"  # Shared for both C-Eval and MMLU, can be comma-separated
-    split = "test"   # test | val | all
+    split = "test"  # test | val | all
     num_samples = None
     max_new_tokens = 500
     output_csv = None
@@ -517,7 +699,7 @@ def test():
         device_type_str = "hygon"
     else:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -539,7 +721,12 @@ def test():
 
     # Create model based on backend (create once, reuse for all subjects)
     if backend != "010":
-        model = InfiniLMBenchmark(model_path, device_type_str, ndev, backend, benchmark)
+        if backend == "torch":
+            model = TorchBenchmark(model_path, device_type_str, benchmark)
+        else:
+            model = InfiniLMBenchmark(
+                model_path, device_type_str, ndev, backend, benchmark
+            )
     else:
         print(f"test 010 backend by scripts/test_ceval.py")
         exit(0)
@@ -610,13 +797,17 @@ def test():
                 records = []
                 for split_name in ["val", "test"]:
                     try:
-                        ds = load_dataset(r"ceval/ceval-exam", name=subj, split=split_name)
+                        ds = load_dataset(
+                            r"ceval/ceval-exam", name=subj, split=split_name
+                        )
                         records.extend(ds.to_list())
                     except Exception:
                         continue
                 if records:
                     return records
-                raise FileNotFoundError(f"No ceval splits found online for subject {subj}")
+                raise FileNotFoundError(
+                    f"No ceval splits found online for subject {subj}"
+                )
             hf_split = "test" if split == "test" else "val"
             ds = load_dataset(r"ceval/ceval-exam", name=subj, split=hf_split)
             data = ds.to_list()
@@ -630,7 +821,9 @@ def test():
                 return samples, "all"
             else:
                 if subj_name not in ceval_subjects:
-                    raise ValueError(f"Unknown C-Eval subject '{subj_name}'. Available subjects: {', '.join(ceval_subjects)}")
+                    raise ValueError(
+                        f"Unknown C-Eval subject '{subj_name}'. Available subjects: {', '.join(ceval_subjects)}"
+                    )
                 return _load_ceval_subject(subj_name), subj_name
 
     elif benchmark == "mmlu":
@@ -700,35 +893,47 @@ def test():
                 return _load_mmlu_from_cache(cache_dir, subj, split, mmlu_subjects)
             if subj == "all":
                 samples = []
-                splits_to_load = ["test"] if split == "test" else ["validation"] if split == "val" else ["validation", "test"]
+                splits_to_load = (
+                    ["test"]
+                    if split == "test"
+                    else ["validation"] if split == "val" else ["validation", "test"]
+                )
                 # Load each subject individually from hardcoded list, excluding "all"
                 for subject_name in mmlu_subjects:
                     for sp in splits_to_load:
                         try:
                             dataset = load_dataset("cais/mmlu", subject_name, split=sp)
-                            if hasattr(dataset, 'to_list'):
+                            if hasattr(dataset, "to_list"):
                                 samples.extend(dataset.to_list())
                             else:
                                 samples.extend(list(dataset))
                         except Exception:
                             continue
                 if not samples:
-                    raise FileNotFoundError(f"No MMLU data found for any subject in the list")
+                    raise FileNotFoundError(
+                        f"No MMLU data found for any subject in the list"
+                    )
                 return samples, "all"
             else:
-                splits_to_load = ["test"] if split == "test" else ["validation"] if split == "val" else ["validation", "test"]
+                splits_to_load = (
+                    ["test"]
+                    if split == "test"
+                    else ["validation"] if split == "val" else ["validation", "test"]
+                )
                 records = []
                 for sp in splits_to_load:
                     try:
                         dataset = load_dataset("cais/mmlu", subj, split=sp)
-                        if hasattr(dataset, 'to_list'):
+                        if hasattr(dataset, "to_list"):
                             records.extend(dataset.to_list())
                         else:
                             records.extend(list(dataset))
                     except Exception:
                         continue
                 if not records:
-                    raise FileNotFoundError(f"MMLU subject {subj} split(s) {splits_to_load} not found")
+                    raise FileNotFoundError(
+                        f"MMLU subject {subj} split(s) {splits_to_load} not found"
+                    )
                 return records, subj
 
         def load_subject_samples(subj_name):
@@ -759,7 +964,9 @@ def test():
             if num_samples is not None and num_samples > 0:
                 original_count = len(samples)
                 samples = samples[:num_samples]
-                print(f"Limited to {len(samples)} samples for validation (from {original_count} total)")
+                print(
+                    f"Limited to {len(samples)} samples for validation (from {original_count} total)"
+                )
 
             # Test with first sample if available
             if len(samples) > 0:
@@ -773,17 +980,34 @@ def test():
                         },
                         {"role": "user", "content": input_content},
                     ]
-                    test_output, _ = model.generate(test_conversation, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0)
+                    test_output = model.generate(
+                        test_conversation,
+                        max_steps=max_new_tokens,
+                        topp_=1.0,
+                        topk_=1,
+                        temperature_=1.0,
+                    )
                 elif benchmark == "mmlu":
-                    question = sample['question']
-                    choices = sample['choices']
-                    test_output, _ = model.generate(question, choices, max_steps=max_new_tokens, topp_=1.0, topk_=1, temperature_=1.0)
+                    question = sample["question"]
+                    choices = sample["choices"]
+                    test_output = model.generate(
+                        question,
+                        choices,
+                        max_steps=max_new_tokens,
+                        topp_=1.0,
+                        topk_=1,
+                        temperature_=1.0,
+                    )
                 print(f"\nTest output: {test_output}\n")
 
             # Evaluate samples for this subject
-            result = evaluate_samples(model, samples, benchmark, max_new_tokens, actual_subj_name)
+            result = evaluate_samples(
+                model, samples, benchmark, max_new_tokens, actual_subj_name
+            )
             all_results.append(result)
-            print(f"\nSubject '{actual_subj_name}' completed: {result['correct']}/{result['total']} = {result['accuracy']:.2%}")
+            print(
+                f"\nSubject '{actual_subj_name}' completed: {result['correct']}/{result['total']} = {result['accuracy']:.2%}"
+            )
 
         except Exception as e:
             print(f"Error evaluating subject '{subj}': {e}")
@@ -792,27 +1016,44 @@ def test():
     model.destroy_model_instance()
 
     # Calculate overall results
-    overall_correct = sum(r['correct'] for r in all_results)
-    overall_total = sum(r['total'] for r in all_results)
+    overall_correct = sum(r["correct"] for r in all_results)
+    overall_total = sum(r["total"] for r in all_results)
     overall_accuracy = overall_correct / overall_total if overall_total > 0 else 0.0
 
     print(f"\n{'='*60}")
     print("OVERALL RESULTS")
     print(f"{'='*60}")
     if benchmark == "ceval":
-        print(f"Overall 成绩: {overall_correct}/{overall_total} = {overall_accuracy:.2%}")
+        print(
+            f"Overall 成绩: {overall_correct}/{overall_total} = {overall_accuracy:.2%}"
+        )
     else:
-        print(f"Overall Accuracy: {overall_correct}/{overall_total} = {overall_accuracy:.2%}")
+        print(
+            f"Overall Accuracy: {overall_correct}/{overall_total} = {overall_accuracy:.2%}"
+        )
+
+    print(f"Total Latency: {TOTAL_TIME} seconds")
+    print(f"Total Tokens Processed: {TOTAL_TOKENS} tokens")
+    print(f"Overall Throughput: {TOTAL_TOKENS/TOTAL_TIME:.2f} tokens/s")
 
     # Write CSV if output path is specified
     if output_csv:
         print(f"\nWriting results to CSV: {output_csv}")
-        with open(output_csv, 'w', newline='', encoding='utf-8') as csvfile:
+        with open(output_csv, "w", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(['Subject', 'Correct', 'Total', 'Accuracy'])
+            writer.writerow(["Subject", "Correct", "Total", "Accuracy"])
             for result in all_results:
-                writer.writerow([result['subject'], result['correct'], result['total'], f"{result['accuracy']:.4f}"])
-            writer.writerow(['Overall', overall_correct, overall_total, f"{overall_accuracy:.4f}"])
+                writer.writerow(
+                    [
+                        result["subject"],
+                        result["correct"],
+                        result["total"],
+                        f"{result['accuracy']:.4f}",
+                    ]
+                )
+            writer.writerow(
+                ["Overall", overall_correct, overall_total, f"{overall_accuracy:.4f}"]
+            )
         print(f"CSV file written successfully: {output_csv}")
 
 
