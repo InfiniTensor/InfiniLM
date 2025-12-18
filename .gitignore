@@ -27,3 +27,6 @@ cache/
 # *.txt
 
 *.http
+
+#log
+log
