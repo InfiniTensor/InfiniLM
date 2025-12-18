@@ -11,6 +11,7 @@ import transformers
 from transformers import AutoProcessor
 import ctypes
 from ctypes import c_int, c_void_p, c_uint, byref
+import numpy as np
 # from PIL import Image
 # import numpy as np
 
@@ -1211,6 +1212,28 @@ class LLaVAForCauslLM:
             self.dev_ids,                            # 设备ID列表
             self.ndev                               # 设备数量
         )
+    
+    def debug_image(self, ptr, pixel_values, num):
+        print("tensor数组:", pixel_values.flatten()[:num].tolist())
+        num_values = pixel_values.numel()
+        # 数值数组
+        values_list = []
+        # 二进制表示（uint16或二进制字符串）
+        binary_list = []
+
+        for i in range(num_values):
+            addr = ptr + i * 2
+            raw_uint16 = ctypes.c_uint16.from_address(addr).value
+            
+            # 正确解读位模式为float16
+            float16_val = np.array([raw_uint16], dtype=np.uint16).view(np.float16)[0]
+            
+            values_list.append(float(float16_val))  # 转为Python float
+            binary_list.append(f"{raw_uint16:016b}")
+
+        print("数值数组:", values_list[:num])
+        print("二进制数组:", binary_list[:num])
+
 
     def drop_kv_cache(self, kv_cache):
         """删除 LLaVA 的 KV Cache"""
@@ -1221,15 +1244,16 @@ class LLaVAForCauslLM:
         """阶段1: Vision Encoder - 将图像编码为视觉特征"""
         if pixel_values is None:
             return None
-
-        print("=== LLaVA Vision Encoding ===")
+        print(f"pixels value:{pixel_values.flatten()[:2000].tolist()}")
 
         # 将torch tensor转换为连续的字节数据
         if hasattr(pixel_values, 'contiguous'):
             pixel_values = pixel_values.contiguous()
 
         # 获取图像数据指针
-        image_data = pixel_values.to(torch.float16).data_ptr()
+        image_data_fp16 = pixel_values.to(torch.float16).cpu()
+        image_data = image_data_fp16.data_ptr()
+        # self.debug_image(image_data, image_data_fp16, 100)
         print(f"pixel_values shape: {pixel_values.shape}")
         print(f"image_data pointer: {hex(image_data)}")
         batch_size = pixel_values.shape[0] if len(pixel_values.shape) > 0 else 1
@@ -1242,6 +1266,7 @@ class LLaVAForCauslLM:
 
         # 准备输出缓冲区
         output_buffer = vision_features_output.data_ptr()
+
 
         # 调用C++层的 infer_batch_vision 函数
         self.llava_model.infer_batch_vision(

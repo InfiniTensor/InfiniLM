@@ -185,9 +185,8 @@ inline void conv2d(std::shared_ptr<Tensor> y,
 
 inline void quickGelu(Tensor* out, Tensor* in){
     size_t N = in->numel(); // 总元素数
-    float* in_ptr = in->data();
-    float* out_ptr = out->data();
-    #pragma omp parallel for
+    float* in_ptr = static_cast<float*>(in->data());
+    float* out_ptr = static_cast<float*>(out->data());
     for (size_t i = 0; i < N; ++i) {
         float x = in_ptr[i];
         out_ptr[i] = x / (1.0f + expf(-1.702f * x)); // sigmoid(1.702*x)
