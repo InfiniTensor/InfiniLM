@@ -673,7 +673,7 @@ class LLaDAMoESparseMoeBlock(nn.Module):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
         # router_logits: (batch * sequence_length, n_experts)
-        router_logits = self.gate(hidden_states)
+        router_logits = self.gate(hidden_states) #
 
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
 

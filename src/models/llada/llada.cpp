@@ -52,7 +52,7 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
             getFFNNorm(meta, weights, layer)
         );
         w_expert_router.push_back(
-            getExpertRouter(meta, weights, layer, idev, ndev)
+            getExpertRouter(meta, weights, layer, idev, ndev, meta->num_experts)
         );
 
         w_expert_gate.push_back(
@@ -68,6 +68,10 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
         // w_ffn_down.push_back(
         //     getFFNDown(meta, weights, layer, idev, ndev));
     }
+    std::cout << "Check out expert router size " << "Routers have " << w_expert_router.size() << " Shape is " << w_expert_router[0]->info() << std::endl; 
+
+
+
 
     std::cout << "Set Memory Pool" << std::endl;
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
@@ -269,7 +273,9 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                 rmsnorm(attn_input, hidden_states, rsrc.w_attn_norm[layer_idx], meta.epsilon);
 
                 std::shared_ptr<Tensor> qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
-
+                std::cout << "linear debug " << "qkv buf " << qkv_buf->info() << std::endl;
+                std::cout << "linear debug " << "attn buf " << attn_input->info() << std::endl;
+                std::cout << "linear debug " << "weight buff  " << rsrc.w_attn_qkv[layer_idx]->info() << std::endl;
                 linear(qkv_buf, attn_input, rsrc.w_attn_qkv[layer_idx], 1.0, 0.0, nullptr, nullptr);
     
                 
@@ -330,8 +336,14 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                 // w_expert_router {}
                 // 2. FFN Expert LLaDAMoESparseMoeBlock Wrong Shape Split gate and UP
                 // o_buffer [24, 2048] w_expert_gate [64, 2048]
-                std::cout << rsrc.w_expert_router[layer_idx]->info() << std::endl;
-                linear(router_logits_buf, o_buf, rsrc.w_expert_router[layer_idx], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr);                   //router_logits = self.gate(hidden_states)
+                // w_epert [1024, 2048]
+                std::cout << "rsrc info is " << rsrc.w_expert_router[layer_idx]->info() << std::endl;
+                std::cout << "o buffer info is " <<  o_buf->info() << std::endl;
+                // router_logits_buf [24, 64] which mean the router weights of each expert 
+                linear(router_logits_buf, o_buf, rsrc.w_expert_router[layer_idx], 1.0, 0.0, nullptr, nullptr); 
+
+                //TopK-Router Select //router_logits = self.gate(hidden_states)
+                softmax()
         
         }
         RUN_INFINI(infinirtStreamSynchronize(stream));

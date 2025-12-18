@@ -168,23 +168,20 @@ inline std::shared_ptr<Tensor> getFFNNorm(
 inline std::shared_ptr<Tensor> getExpertRouter(
     LLaDAMeta const *meta,
     LLaDAWeights const *w,
-    size_t layer, size_t idev, size_t ndev) {
+    size_t layer, size_t idev, size_t ndev, size_t num_experts) {
     auto shape = std::vector<size_t>({meta->d});
     auto di = meta->di_expert; // TODO: 具体di还要区分
     auto d = meta->d;
-    std::cout << "Expert Di " << di << std::endl;
-    std::cout << "Expert D  " << d  << std::endl;
-    std::cout << "Layer " << layer << "offset is " << idev * (di  * d / ndev ) * meta->num_experts * dsize(w->dt_mat) << std::endl;
     size_t offset = 0;
     if (w->transpose_linear_weights != 0) {
-        auto shape = std::vector<size_t>({di, d});
+        auto shape = std::vector<size_t>({num_experts, d});
         return Tensor::weight((char *)(w->expert_router[layer]) + offset,
                               w->dt_mat, shape)
             ->permute({1, 0});
     } else {
-        auto shape = std::vector<size_t>({di, d});
+        auto shape = std::vector<size_t>({num_experts, d});
         return Tensor::weight((char *)(w->expert_router[layer]) + offset,
-                              w->dt_mat, shape);
+                              w->dt_mat, shape)->permute({1, 0});
     }
 }
 

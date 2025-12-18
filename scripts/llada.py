@@ -423,6 +423,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             router_list = []
             for i in range(nlayer):
                 gate_weight = state_dict[naming.router(i)].to(torch_dt_mat)
+                print(f"router size {gate_weight.size()}")
                 router_list.append(gate_weight)
             
             return router_list   # list of num_experts tensors
