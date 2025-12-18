@@ -39,8 +39,11 @@ class LLaDAWeightsCStruct(Structure):
         ("attn_k_norm", POINTER(c_void_p)),
         ("attn_o", POINTER(c_void_p)),
         ("ffn_norm", POINTER(c_void_p)),
-        ("ffn_gate_up", POINTER(c_void_p)),
-        ("ffn_down", POINTER(c_void_p)),
+
+        ("expert_gate", POINTER(c_void_p)),
+        ("expert_up", POINTER(c_void_p)),
+        ("expert_down", POINTER(c_void_p)),
+        ("router", POINTER(c_void_p)),
     ]
 
 class LLaDAModelCStruct(Structure):

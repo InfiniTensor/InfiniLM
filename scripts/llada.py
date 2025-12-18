@@ -64,14 +64,17 @@ class LLaDAWeifghtsNaming:
     def ffn_norm(self, i):
         return f"model.layers.{i}.post_attention_layernorm.weight"
 
-    def gate(self, i, j):
-        return f"model.layers.{i}.mlp.expert.gate_proj.{j}.weight"
+    def router(self, i):
+        return f"model.layers.{i}.mlp.gate.weight"
 
-    def up(self, i, j):
-        return f"model.layers.{i}.mlp.expert.up_proj.{j}.weight"
+    def expert_gate(self, i, j):
+        return f"model.layers.{i}.mlp.experts.{j}.gate_proj.weight"
 
-    def down(self, i):
-        return f"model.layers.{i}.mlp.down_proj.weight"
+    def expert_up(self, i, j):
+        return f"model.layers.{i}.mlp.experts.{j}.up_proj.weight"
+
+    def down(self, i, j):
+        return f"model.layers.{i}.mlp.experts.{j}.down_proj.weight"
 
 
 
@@ -336,49 +339,54 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         ]
         self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
 
-        def expert_gate_up_slices(layer_id, num_experts):
+        def expert_gate_slices(layer_id, num_experts):
             """
             Extract expert gate and up weights for one layer.
             Compatible with keys like:
             model.layers.{i}.mlp.experts.{e}.gate_proj.weight
             model.layers.{i}.mlp.experts.{e}.up_proj.weight
             """
-            gate_up_list = []
+            gate_list = []
 
             for e in range(num_experts):
-                gate_key = f"model.layers.{layer_id}.mlp.experts.{e}.gate_proj.weight"
-                up_key   = f"model.layers.{layer_id}.mlp.experts.{e}.up_proj.weight"
-
+                gate_key = naming.expert_gate(layer_id, e)
                 gate_w = state_dict[gate_key]     # shape: [1024, 2048]
-                up_w   = state_dict[up_key]       # shape: [1024, 2048]
+                gate_list.append(gate_w)
+            return gate_list   # list of num_experts tensors
+        
+        def expert_up_slices(layer_id, num_experts):
+            """
+            Extract expert gate and up weights for one layer.
+            Compatible with keys like:
+            model.layers.{i}.mlp.experts.{e}.gate_proj.weight
+            model.layers.{i}.mlp.experts.{e}.up_proj.weight
+            """
+            up_list = []
 
-                # concat gate + up along dim 0 → shape: [2048, 2048]
-                # this matches your previous behavior
-                gate_up = torch.cat([gate_w, up_w], dim=0)
-
-                gate_up_list.append(gate_up)
-
-            return gate_up_list   # list of num_experts tensors
-                
-        self.gate_up_tensors = [
-            torch.concat(expert_gate_up_slices(i, num_experts), dim=0).to(torch_dt_mat)
+            for e in range(num_experts):
+                up_key = naming.expert_up
+                up_key   = f"model.layers.{layer_id}.mlp.experts.{e}.up_proj.weight"
+                up_w = state_dict[up_key]     # shape: [1024, 2048]
+                up_list.append(up_w)
+            return up_list   # list of num_experts tensors
+        
+        # memory: [gate_layer0_expert_gate0]...[gate_layer0_expert_gate63]......[gate_layer15_expert_gate63]
+        self.expert_gate_tensors = [
+            torch.concat(expert_gate_slices(i, num_experts), dim=0).to(torch_dt_mat)
             for i in range(nlayer)
         ]
-        # self.gate_up_tensors = [
-        #     [t.to(torch_dt_mat) for t in expert_gate_up_slices(i, num_experts)]
-        #     for i in range(nlayer)
-        # ]
-        # if not transpose_weight:
-        #     for i in range(nlayer):
-        #         self.gate_up_tensors[i] = (
-        #             self.gate_up_tensors[i]
-        #             .reshape(ndev, 2 * di_expert // ndev, d)
-        #             .transpose(1, 2)
-        #             .contiguous()
-        #         ) #TODO: 具体切分设计
-        self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
-        self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
+
+        # memory: [gate_layer0_expert_up0]...[gate_layer0_expert_up63]......[gate_layer15_expert_up63]
+        self.expert_up_tensors = [
+            torch.concat(expert_up_slices(i, num_experts), dim=0).to(torch_dt_mat)
+            for i in range(nlayer)
+        ]
+
+        self.expert_gate_ptrs = [self.expert_gate_tensors[i].data_ptr() for i in range(nlayer)]
+        self.expert_gate = (c_void_p * nlayer)(*self.expert_gate_ptrs)
         
+        self.expert_up_ptrs = [self.expert_up_tensors[i].data_ptr() for i in range(nlayer)]
+        self.expert_up    = (c_void_p * nlayer)(*self.expert_up_ptrs)
 
         def expert_down_slices(layer_id, num_experts):
             """
@@ -390,36 +398,41 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             down_list = []
 
             for e in range(num_experts):
-                down_key = f"model.layers.{layer_id}.mlp.experts.{e}.down_proj.weight"
+                down_key = naming.down(layer_id, e)
                 down_w = state_dict[down_key]     # shape: [1024, 2048]
                 # concat gate + up along dim 0 → shape: [2048, 2048]
-                # this matches your previous behavior
                 down_list.append(down_w)
-
             return down_list   # list of num_experts tensors
         
-        # self.ffn_down_tensor = [
-        #     (
-        #         state_dict[naming.down(i)]
-        #         # .to(torch_dt_mat)
-        #         # .reshape([d, ndev, di_expert // ndev])
-        #         # .transpose(0, 1)
-        #         # .contiguous()
-        #         # if transpose_weight
-        #         # else state_dict[naming.down(i)]
-        #         # .transpose(0, 1)
-        #         # .to(torch_dt_mat)
-        #         # .contiguous() #TODO: 内存切分设计
-        #     )
-        #     * scale_down
-        #     for i in range(nlayer)
-        # ]
-        self.ffn_down_tensor = [
+        # memory: [gate_layer0_expert_down0]...[gate_layer0_expert_down63]......[gate_layer15_expert_down63]
+        self.expert_down_tensor = [
             torch.concat(expert_down_slices(i, num_experts), dim=0).to(torch_dt_mat)
             for i in range(nlayer)
         ]
-        self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
-        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
+        self.expert_down_ptrs = [self.expert_down_tensor[i].data_ptr() for i in range(nlayer)]
+        self.expert_down = (c_void_p * nlayer)(*self.expert_down_ptrs)
+
+        # Impl Python gate 
+        def router_slices():
+            """
+            Extract expert gate and up weights for one layer.
+            Compatible with keys like:
+            model.layers.{i}.mlp.experts.{e}.gate_proj.weight
+            model.layers.{i}.mlp.experts.{e}.up_proj.weight
+            """
+            router_list = []
+            for i in range(nlayer):
+                gate_weight = state_dict[naming.router(i)].to(torch_dt_mat)
+                router_list.append(gate_weight)
+            
+            return router_list   # list of num_experts tensors
+        
+
+        self.router_gate_tensor = router_slices()
+        # memory: [gate_layer0_router]......[gate_layer15_router]
+        self.router_ptrs = [self.router_gate_tensor[i].data_ptr() for i in range(nlayer)]
+        self.router = (c_void_p * nlayer)(*self.router_ptrs)
+        
 
 
 class LLaDABatchedTask:

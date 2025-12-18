@@ -28,4 +28,5 @@ cache/
 
 *.http
 
-#weight
+#weight_analyse
+weight_analyse/

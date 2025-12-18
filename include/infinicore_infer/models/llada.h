@@ -46,9 +46,14 @@ typedef struct{
     // nlayer * [d]
     const void *const *ffn_norm;
     // nlayer * [ndev, 2 * di / ndev, d]
-    const void *const *ffn_gate_up;
-    // nlayer * [ndev, d, di / ndev]
-    const void *const *ffn_down;
+
+    const void *const *expert_gate;
+
+    const void *const *expert_up;
+
+    const void *const *expert_down;
+
+    const void *const *expert_router;
 } LLaDAWeights;
 
 // 改进后的权重加载器结构体

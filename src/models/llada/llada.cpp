@@ -28,7 +28,7 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
 
     std::cout << "Set Weight" << std::endl; // 逐层获取权重
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
-        w_ffn_norm, w_ffn_gate_up, w_ffn_down;
+        w_ffn_norm, w_ffn_gate_up, w_ffn_down, w_expert_router, w_expert_gate, w_expert_up, w_expert_down;
     for (size_t layer = 0; layer < meta->nlayer; layer++) {
         w_attn_norm.push_back(
             getAttnNorm(meta, weights, layer));
@@ -36,7 +36,7 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
             getAttnQKV(meta, weights, layer, idev, ndev));
         if (weights->attn_qkv_b != nullptr) {
             b_attn_qkv.push_back(
-                getAttnQKVBias(meta, weights, layer, idev, ndev));
+            getAttnQKVBias(meta, weights, layer, idev, ndev));
         }
 
         if (weights->attn_q_norm != nullptr) {
@@ -46,13 +46,27 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
                 getAttnKNorm(meta, weights, layer));
         }
         w_attn_out.push_back(
-            getAttnO(meta, weights, layer, idev, ndev));
+            getAttnO(meta, weights, layer, idev, ndev)
+        );
         w_ffn_norm.push_back(
-            getFFNNorm(meta, weights, layer));
-        w_ffn_gate_up.push_back(
-            getFFNGateUp(meta, weights, layer, idev, ndev));
-        w_ffn_down.push_back(
-            getFFNDown(meta, weights, layer, idev, ndev));
+            getFFNNorm(meta, weights, layer)
+        );
+        w_expert_router.push_back(
+            getExpertRouter(meta, weights, layer, idev, ndev)
+        );
+
+        w_expert_gate.push_back(
+            getExpertGate(meta, weights, layer, idev, ndev)
+        );
+        w_expert_down.push_back(
+            getExpertDown(meta, weights, layer, idev, ndev)
+        );
+        w_expert_up.push_back(
+            getExpertUp(meta, weights, layer, idev, ndev)
+        );
+
+        // w_ffn_down.push_back(
+        //     getFFNDown(meta, weights, layer, idev, ndev));
     }
 
     std::cout << "Set Memory Pool" << std::endl;
@@ -77,9 +91,10 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
         .w_attn_k_norm = w_attn_k_norm,
         .w_attn_out = w_attn_out,
         .w_ffn_norm = w_ffn_norm,
-        .w_ffn_gate_up = w_ffn_gate_up,
-        .w_ffn_down = w_ffn_down,
-
+        .w_expert_gate   = w_expert_gate,
+        .w_expert_up     = w_expert_up,
+        .w_expert_down   = w_expert_down,
+        .w_expert_router = w_expert_router,
         .stream = stream,
         .comm = comm,
         .memory_pool = memory_pool,
@@ -183,8 +198,8 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
         auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
         auto result_cpu = std::vector<int64_t>(nreq);
-
-        auto router_logits_buf = Tensor::buffer(dt_logits, {di_dense, nexperts}, rsrc.memory_pool);
+        
+        auto router_logits_buf = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool);
         
         std::cout << "Slice Qkv buffer" << std::endl;
         auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
@@ -301,7 +316,7 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                     rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
                     token_offset += seq_len;
                 }
-                 // o_proj
+                 // o_proj {ntok, nh * dh}
                 linear(logits_in, o_buf, rsrc.w_attn_out[layer_idx], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
                         // All_reduce if distributed
                 if (rsrc.comm != nullptr) {
@@ -310,9 +325,13 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                         INFINICCL_SUM, rsrc.comm, stream));
                     RUN_INFINI(infinirtStreamSynchronize(stream));
                 }
-        
-                // 2. FFN Expert LLaDAMoESparseMoeBlock
-                // linear()                   //router_logits = self.gate(hidden_states)
+                std::cout << "Expert logits generate" << std::endl;
+                // o_buf   {ntok, nh * dh}
+                // w_expert_router {}
+                // 2. FFN Expert LLaDAMoESparseMoeBlock Wrong Shape Split gate and UP
+                // o_buffer [24, 2048] w_expert_gate [64, 2048]
+                std::cout << rsrc.w_expert_router[layer_idx]->info() << std::endl;
+                linear(router_logits_buf, o_buf, rsrc.w_expert_router[layer_idx], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr);                   //router_logits = self.gate(hidden_states)
         
         }
         RUN_INFINI(infinirtStreamSynchronize(stream));
@@ -407,42 +426,6 @@ void launchDevice(const LLaDAMeta & meta, const LLaDAWeights *weights, LLaDADevi
     //     state.cv_done.notify_one();
     // }
 
-    // Debug: Output token information
-    std::cout << "[DEBUG] Token Information:" << std::endl;
-    std::cout << "[DEBUG] Number of requests (nreq): " << req.nreq << std::endl;
-    std::cout << "[DEBUG] Total number of tokens (ntok): " << req.ntok << std::endl;
-    std::cout << "[DEBUG] Tokens pointer: " << static_cast<const void*>(req.tokens) << std::endl;
-    std::cout << "[DEBUG] Request lens pointer: " << static_cast<const void*>(req.req_lens) << std::endl;
-    std::cout << "[DEBUG] Request pos pointer: " << static_cast<const void*>(req.req_pos) << std::endl;
-
-    // Check for null pointers
-    if (req.req_lens == nullptr) {
-        std::cout << "[ERROR] req.req_lens is null!" << std::endl;
-        return; // Early exit to prevent segfault
-    }
-    if (req.req_pos == nullptr) {
-        std::cout << "[ERROR] req.req_pos is null!" << std::endl;
-        return; // Early exit to prevent segfault
-    }
-    if (req.tokens == nullptr) {
-        std::cout << "[ERROR] req.tokens is null!" << std::endl;
-        return; // Early exit to prevent segfault
-    }
-
-    std::cout << "[DEBUG] Request lengths (req_lens): ";
-    for (uint32_t i = 0; i < req.nreq; ++i) {
-        std::cout << req.req_lens[i];
-        if (i < req.nreq - 1) std::cout << ", ";
-    }
-    std::cout << std::endl;
-
-    std::cout << "[DEBUG] Request positions (req_pos): ";
-    for (uint32_t i = 0; i < req.nreq; ++i) {
-        std::cout << req.req_pos[i];
-        if (i < req.nreq - 1) std::cout << ", ";
-    }
-    std::cout << std::endl;
-
     // Check for potential out-of-bounds issues before accessing
     std::cout << "[DEBUG] Checking for potential issues:" << std::endl;
     for (uint32_t i = 0; i < req.nreq; ++i) {
@@ -462,7 +445,6 @@ void launchDevice(const LLaDAMeta & meta, const LLaDAWeights *weights, LLaDADevi
         // Output first few tokens for each request
         for (uint32_t i = 0; i < req.nreq; ++i) {
             if (req.req_pos[i] >= 0 && req.req_pos[i] < req.ntok) {
-                std::cout << "[DEBUG] Request " << i << " tokens (first 10): ";
                 uint32_t start_idx = req.req_pos[i];
                 uint32_t available_tokens = req.ntok - start_idx;
                 uint32_t tokens_to_show = std::min(static_cast<uint32_t>(10), std::min(available_tokens, req.req_lens[i]));
@@ -472,13 +454,9 @@ void launchDevice(const LLaDAMeta & meta, const LLaDAWeights *weights, LLaDADevi
                 }
                 if (req.req_lens[i] > tokens_to_show) std::cout << "...";
                 std::cout << std::endl;
-            } else {
-                std::cout << "[DEBUG] Request " << i << ": Invalid position " << req.req_pos[i] << std::endl;
-            }
+            } 
         }
-    } else {
-        std::cout << "[DEBUG] No tokens to display (ntok = 0)" << std::endl;
-    }
+    } 
 
     inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                          req.req_lens, req.nreq, req.req_pos, req.kv_caches,
