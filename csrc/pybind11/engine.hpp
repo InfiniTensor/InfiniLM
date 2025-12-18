@@ -110,8 +110,8 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def(
-            "generate", [](InferEngine &self, py::object input_ids, py::object position_ids) -> infinicore::Tensor {
-                return self.generate(input_ids.cast<infinicore::Tensor>(), position_ids.cast<infinicore::Tensor>());
+            "forward", [](InferEngine &self, py::object input_ids, py::object position_ids) -> infinicore::Tensor {
+                return self.forward(input_ids.cast<infinicore::Tensor>(), position_ids.cast<infinicore::Tensor>());
             },
             "Run inference on all ranks with arbitrary arguments")
         .def("reset_cache", py::overload_cast<size_t>(&InferEngine::reset_cache), py::arg("pos") = 0, "Reset the internal cache in all workers to a specific position")
