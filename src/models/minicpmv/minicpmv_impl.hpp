@@ -10,6 +10,8 @@ struct MiniCPMVModel {
     const MiniCPMVWeights *weights;
     infiniDevice_t device;
     std::vector<int> dev_ids;
+    infiniopHandle_t op_handle = nullptr;
+    infinirtStream_t stream = nullptr;
 
     MiniCPMVModel(const MiniCPMVMeta *meta_,
                   const MiniCPMVWeights *weights_,

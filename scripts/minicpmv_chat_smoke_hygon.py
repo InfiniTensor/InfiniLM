@@ -11,7 +11,9 @@ from safetensors.torch import safe_open
 from libinfinicore_infer import (
     DataType,
     DeviceType,
+    JiugeModel,
     KVCacheCStruct,
+    KVCompressionConfigCStruct,
     MiniCPMVLanguageMetaCStruct,
     MiniCPMVMetaCStruct,
     MiniCPMVModel,
@@ -20,6 +22,16 @@ from libinfinicore_infer import (
     MiniCPMVWeightsCStruct,
     MiniCPMVSiglipLayerWeightsCStruct,
 )
+
+
+def _dtype_from_dt_logits(dt_logits: DataType):
+    if dt_logits == DataType.INFINI_DTYPE_F32:
+        return torch.float32
+    if dt_logits == DataType.INFINI_DTYPE_BF16:
+        return torch.bfloat16
+    if dt_logits == DataType.INFINI_DTYPE_F16:
+        return torch.float16
+    raise ValueError(f"Unsupported dt_logits: {dt_logits}")
 
 
 def _load_tensor(model_dir: Path, weight_map: dict, key: str) -> torch.Tensor:
@@ -34,10 +46,8 @@ def _load_tensor(model_dir: Path, weight_map: dict, key: str) -> torch.Tensor:
         return f.get_tensor(key)
 
 
-def _make_siglip_layer_struct(
-    model_dir: Path, weight_map: dict, layer_idx: int, torch_dt
-) -> tuple[MiniCPMVSiglipLayerWeightsCStruct, dict]:
-    keepalive: dict[str, torch.Tensor] = {}
+def _make_siglip_layer_struct(model_dir: Path, weight_map: dict, layer_idx: int, torch_dt) -> tuple:
+    keepalive = {}
 
     def to_dt(x: torch.Tensor) -> torch.Tensor:
         return x.detach().to(dtype=torch_dt).contiguous()
@@ -47,26 +57,10 @@ def _make_siglip_layer_struct(
         return to_dt(w.transpose(0, 1))
 
     lw = MiniCPMVSiglipLayerWeightsCStruct()
-    keepalive["ln1_w"] = to_dt(
-        _load_tensor(
-            model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.layer_norm1.weight"
-        )
-    )
-    keepalive["ln1_b"] = to_dt(
-        _load_tensor(
-            model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.layer_norm1.bias"
-        )
-    )
-    keepalive["ln2_w"] = to_dt(
-        _load_tensor(
-            model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.layer_norm2.weight"
-        )
-    )
-    keepalive["ln2_b"] = to_dt(
-        _load_tensor(
-            model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.layer_norm2.bias"
-        )
-    )
+    keepalive["ln1_w"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.layer_norm1.weight"))
+    keepalive["ln1_b"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.layer_norm1.bias"))
+    keepalive["ln2_w"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.layer_norm2.weight"))
+    keepalive["ln2_b"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.layer_norm2.bias"))
     lw.layer_norm1_weight = keepalive["ln1_w"].data_ptr()
     lw.layer_norm1_bias = keepalive["ln1_b"].data_ptr()
     lw.layer_norm2_weight = keepalive["ln2_w"].data_ptr()
@@ -76,26 +70,10 @@ def _make_siglip_layer_struct(
     keepalive["k_w_t"] = t_weight(f"vpm.encoder.layers.{layer_idx}.self_attn.k_proj.weight")
     keepalive["v_w_t"] = t_weight(f"vpm.encoder.layers.{layer_idx}.self_attn.v_proj.weight")
     keepalive["o_w_t"] = t_weight(f"vpm.encoder.layers.{layer_idx}.self_attn.out_proj.weight")
-    keepalive["q_b"] = to_dt(
-        _load_tensor(
-            model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.self_attn.q_proj.bias"
-        )
-    )
-    keepalive["k_b"] = to_dt(
-        _load_tensor(
-            model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.self_attn.k_proj.bias"
-        )
-    )
-    keepalive["v_b"] = to_dt(
-        _load_tensor(
-            model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.self_attn.v_proj.bias"
-        )
-    )
-    keepalive["o_b"] = to_dt(
-        _load_tensor(
-            model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.self_attn.out_proj.bias"
-        )
-    )
+    keepalive["q_b"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.self_attn.q_proj.bias"))
+    keepalive["k_b"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.self_attn.k_proj.bias"))
+    keepalive["v_b"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.self_attn.v_proj.bias"))
+    keepalive["o_b"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.self_attn.out_proj.bias"))
     lw.q_weight = keepalive["q_w_t"].data_ptr()
     lw.q_bias = keepalive["q_b"].data_ptr()
     lw.k_weight = keepalive["k_w_t"].data_ptr()
@@ -107,12 +85,8 @@ def _make_siglip_layer_struct(
 
     keepalive["fc1_w_t"] = t_weight(f"vpm.encoder.layers.{layer_idx}.mlp.fc1.weight")
     keepalive["fc2_w_t"] = t_weight(f"vpm.encoder.layers.{layer_idx}.mlp.fc2.weight")
-    keepalive["fc1_b"] = to_dt(
-        _load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.mlp.fc1.bias")
-    )
-    keepalive["fc2_b"] = to_dt(
-        _load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.mlp.fc2.bias")
-    )
+    keepalive["fc1_b"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.mlp.fc1.bias"))
+    keepalive["fc2_b"] = to_dt(_load_tensor(model_dir, weight_map, f"vpm.encoder.layers.{layer_idx}.mlp.fc2.bias"))
     lw.fc1_weight = keepalive["fc1_w_t"].data_ptr()
     lw.fc1_bias = keepalive["fc1_b"].data_ptr()
     lw.fc2_weight = keepalive["fc2_w_t"].data_ptr()
@@ -121,7 +95,7 @@ def _make_siglip_layer_struct(
     return lw, keepalive
 
 
-def _build_vision_model(model_dir: Path, torch_dt_logits, dt_logits: DataType, device: DeviceType):
+def _build_minicpmv_vision_model(model_dir: Path, torch_dt_logits, dt_logits: DataType, device: DeviceType):
     config = json.loads((model_dir / "config.json").read_text())
     index = json.loads((model_dir / "model.safetensors.index.json").read_text())
     weight_map = index["weight_map"]
@@ -170,8 +144,9 @@ def _build_vision_model(model_dir: Path, torch_dt_logits, dt_logits: DataType, d
         vision_meta=vision_meta, resampler_meta=resampler_meta, language_meta=language_meta
     )
 
-    keepalive: dict[str, object] = {}
+    keepalive = {}
 
+    # Vision weights
     keepalive["patch_w"] = _load_tensor(model_dir, weight_map, "vpm.embeddings.patch_embedding.weight").detach().to(dtype=torch_dt_logits).contiguous()
     keepalive["patch_b"] = _load_tensor(model_dir, weight_map, "vpm.embeddings.patch_embedding.bias").detach().to(dtype=torch_dt_logits).contiguous()
     keepalive["pos_emb"] = _load_tensor(model_dir, weight_map, "vpm.embeddings.position_embedding.weight").detach().to(dtype=torch_dt_logits).contiguous()
@@ -187,6 +162,7 @@ def _build_vision_model(model_dir: Path, torch_dt_logits, dt_logits: DataType, d
     keepalive["post_ln_w"] = _load_tensor(model_dir, weight_map, "vpm.post_layernorm.weight").detach().to(dtype=torch_dt_logits).contiguous()
     keepalive["post_ln_b"] = _load_tensor(model_dir, weight_map, "vpm.post_layernorm.bias").detach().to(dtype=torch_dt_logits).contiguous()
 
+    # Resampler weights (linear weights must be transposed to [in, out])
     def t(key: str) -> torch.Tensor:
         return _load_tensor(model_dir, weight_map, key).detach().to(dtype=torch_dt_logits).transpose(0, 1).contiguous()
 
@@ -223,7 +199,7 @@ def _build_vision_model(model_dir: Path, torch_dt_logits, dt_logits: DataType, d
     weights.resampler_ln_post_bias = keepalive["ln_post_b"].data_ptr()
     weights.resampler_proj = keepalive["res_proj"].data_ptr()
 
-    # Language weights unused
+    # Language weights unused here
     weights.nlayer = 0
     weights.dt_norm = dt_logits
     weights.dt_mat = dt_logits
@@ -241,7 +217,7 @@ def _build_vision_model(model_dir: Path, torch_dt_logits, dt_logits: DataType, d
     weights.ffn_gate_up = None
     weights.ffn_down = None
 
-    # Keep ctypes objects alive (C++ holds pointers to them).
+    # Keep ctypes objects alive: MiniCPMVModel stores pointers to `weights` and `vpm_layers`.
     keepalive["layers_arr"] = layers_arr
     keepalive["weights_struct"] = weights
 
@@ -254,29 +230,28 @@ def _build_vision_model(model_dir: Path, torch_dt_logits, dt_logits: DataType, d
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-dir", required=True)
-    ap.add_argument("--image", action="append", required=True, help="Repeatable image path")
-    ap.add_argument("--question", default="请描述图片内容。")
-    ap.add_argument("--max-steps", type=int, default=64)
-    ap.add_argument("--max-tokens", type=int, default=4096)
-    ap.add_argument("--temperature", type=float, default=1.0)
-    ap.add_argument("--topk", type=int, default=1)
-    ap.add_argument("--topp", type=float, default=1.0)
-    ap.add_argument("--max-slice-nums", type=int, default=None)
-    ap.add_argument("--vision-f32", action="store_true", help="Compute vision in FP32 then cast to LLM dtype")
-    ap.add_argument("--hygon", action="store_true", help="Run on Hygon device")
+    ap.add_argument("--image", required=True)
+    ap.add_argument("--question", default="图片是什么？")
+    ap.add_argument("--max-steps", type=int, default=128)
+    ap.add_argument("--max-tokens", type=int, default=2048)
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--kv-compress", action="store_true", help="Enable in-place KV cache compression after prefill.")
+    ap.add_argument("--kv-compress-bin", default="", help="Path to compressor .bin weights.")
+    ap.add_argument("--kv-compress-factor", type=int, default=5)
+    ap.add_argument("--kv-compress-min-seq-len", type=int, default=2)
+    ap.add_argument("--kv-compress-image-len", type=int, default=0, help="Prefix tokens treated as image KV (0 for Hybrid text-only).")
     args = ap.parse_args()
-
-    debug = args.debug
+    debug = args.debug or os.environ.get("MINICPMV_DEBUG", "0") == "1"
 
     model_dir = Path(args.model_dir)
 
-    # LLM loader (Jiuge)
+    # LLM (Jiuge) loader
     from jiuge import JiugeForCauslLM
 
-    device = DeviceType.DEVICE_TYPE_HYGON if args.hygon else DeviceType.DEVICE_TYPE_CPU
+    dev_name = os.environ.get("MINICPMV_DEVICE", "hygon").lower().strip()
+    device = DeviceType.DEVICE_TYPE_HYGON if dev_name == "hygon" else DeviceType.DEVICE_TYPE_CPU
+    dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_HYGON else None
 
-    dtype_override = torch.float16 if args.hygon else None
     llm = JiugeForCauslLM(
         str(model_dir),
         device=device,
@@ -285,7 +260,7 @@ def main():
         dtype_override=dtype_override,
     )
 
-    # HF processor
+    # Build processor using the same tokenizer
     preproc_cfg = json.loads((model_dir / "preprocessor_config.json").read_text())
     from minicpmv_config.image_processing_minicpmv import MiniCPMVImageProcessor
     from minicpmv_config.processing_minicpmv import MiniCPMVProcessor
@@ -293,9 +268,9 @@ def main():
     image_processor = MiniCPMVImageProcessor(**preproc_cfg)
     processor = MiniCPMVProcessor(image_processor=image_processor, tokenizer=llm.tokenizer)
 
-    # Build user content with one tag per image (pattern required by processor: `(<image>./</image>)`)
-    tags = "\n".join(["<image>./</image>" for _ in args.image])
-    user_content = f"{tags}\n{args.question}"
+    # The vendored HF processor searches for the literal pattern `(<image>./</image>)`,
+    # so we must include exactly one char + '/' inside the image tag.
+    user_content = f"<image>./</image>\n{args.question}"
     prompt = llm.tokenizer.apply_chat_template(
         conversation=[
             {"role": "system", "content": "You are a helpful assistant."},
@@ -305,59 +280,65 @@ def main():
         tokenize=False,
     )
 
-    images = [Image.open(p).convert("RGB") for p in args.image]
-    batch = processor(
-        text=prompt,
-        images=images,
-        max_slice_nums=args.max_slice_nums,
-        return_tensors="pt",
-    )
+    img = Image.open(args.image).convert("RGB")
+    batch = processor(text=prompt, images=[img], return_tensors="pt")
 
     input_ids = batch["input_ids"][0].to(dtype=torch.int64)
     attn = batch["attention_mask"][0].to(dtype=torch.bool)
     pad_left = int((~attn).sum().item())
     tokens = input_ids[pad_left:].to(dtype=torch.int32)
 
-    bounds_all = (batch["image_bound"][0].to(dtype=torch.int64) - pad_left)
+    bounds = batch["image_bound"][0].to(dtype=torch.int64)
+    bounds = bounds - pad_left
+    if bounds.shape[0] > 0:
+        if debug:
+            print("DEBUG pad_left:", pad_left)
+            print("DEBUG tokens_len:", int(tokens.numel()))
+            print("DEBUG bounds_all:", bounds.tolist())
+
     pixel_values_slices = batch["pixel_values"][0]
     tgt_sizes = batch["tgt_sizes"][0]
 
+    # `image_bound` may include non-vision spans (e.g., <image_id>...</image_id>), which are not 64-token features.
     feature_len = int(preproc_cfg.get("image_feature_size", 64))
-    bounds = torch.stack(
-        [b for b in bounds_all if int((b[1] - b[0]).item()) == feature_len], dim=0
-    )
+    bounds_all = bounds
+    bounds = torch.stack([b for b in bounds_all if int((b[1] - b[0]).item()) == feature_len], dim=0)
 
-    if debug:
-        print("pad_left:", pad_left, "tokens_len:", int(tokens.numel()))
-        print("image_bound_all:", bounds_all.tolist())
-        print("image_bound_kept:", bounds.tolist())
-        print("num_slices:", len(pixel_values_slices))
+    if bounds.shape[0] != bounds_all.shape[0]:
+        if debug:
+            print(
+                f"INFO: filtered image_bound: total={bounds_all.shape[0]} feature_len={feature_len} kept={bounds.shape[0]}"
+            )
+            print("  image_bound_all (after left-pad adjust):", bounds_all.tolist())
+            print("  image_bound_kept:", bounds.tolist())
 
     if len(pixel_values_slices) != bounds.shape[0]:
+        if debug:
+            print(f"WARNING: slice count mismatch: slices={len(pixel_values_slices)} bounds={bounds.shape[0]}")
+        # Proceed by truncating to the common prefix (processor constructs placeholders in slice order).
         n = min(len(pixel_values_slices), int(bounds.shape[0]))
         bounds = bounds[:n]
         pixel_values_slices = pixel_values_slices[:n]
         tgt_sizes = tgt_sizes[:n]
-        if debug:
-            print("WARNING: truncated to", n, "slices to match bounds")
 
     if len(pixel_values_slices) == 0:
         raise SystemExit("No image slices to run vision.")
 
-    # Vision dtype: optionally compute in f32 for stability.
+
+    # Vision can be computed in f32 for numerical stability, then cast to LLM dtype for injection.
     llm_torch_dt = llm.meta.torch_dtype_logits
     llm_dt = llm.meta.dt_logits
-    vision_f32 = bool(args.vision_f32) and not args.hygon
-    vision_torch_dt = torch.float32 if vision_f32 else llm_torch_dt
-    vision_dt = DataType.INFINI_DTYPE_F32 if vision_f32 else llm_dt
+    vision_force_f32 = os.environ.get("MINICPMV_VISION_FORCE_F32", "0") == "1"
+    vision_torch_dt = torch.float32 if vision_force_f32 else llm_torch_dt
+    vision_dt = DataType.INFINI_DTYPE_F32 if vision_force_f32 else llm_dt
 
-    vision_model, vision_handle, vision_meta, vision_keepalive = _build_vision_model(
+    vision_model, vision_handle, vision_meta, vision_keepalive = _build_minicpmv_vision_model(
         model_dir, vision_torch_dt, vision_dt, device
     )
 
-    # Compute per-slice vision embeddings
-    patch = int(preproc_cfg.get("patch_size", 14))
+    # Compute per-slice vision embeddings [num_slices, 64, 3584]
     slice_embeds = []
+    patch = int(preproc_cfg.get("patch_size", 14))
     for i, x in enumerate(pixel_values_slices):
         th, tw = int(tgt_sizes[i][0].item()), int(tgt_sizes[i][1].item())
         seq_len = th * tw
@@ -370,29 +351,40 @@ def main():
             (vision_meta.resampler_meta.num_queries, vision_meta.resampler_meta.embed_dim),
             dtype=vision_torch_dt,
         )
-        vision_model.infer_vision_resampler(
-            vision_handle, packed.data_ptr(), seq_len, th, tw, out.data_ptr()
-        )
+        vision_model.infer_vision_resampler(vision_handle, packed.data_ptr(), seq_len, th, tw, out.data_ptr())
         if torch.isnan(out).any():
-            raise SystemExit(f"vision output contains NaNs (slice {i})")
+            nan_cnt = int(torch.isnan(out).sum().item())
+            print(f"ERROR: vision out has NaN: slice={i} tgt_h={th} tgt_w={tw} nan_cnt={nan_cnt}")
+            print(
+                "  vision_out_abs_max/mean:",
+                float(out.float().abs().max().item()),
+                float(out.float().abs().mean().item()),
+            )
+            raise SystemExit("vision output contains NaNs")
         if out.dtype != llm_torch_dt:
             out = out.to(dtype=llm_torch_dt)
         slice_embeds.append(out.contiguous())
 
-    # Build overrides (positions + embeddings)
-    override_pos_list: list[int] = []
-    override_embed_list: list[torch.Tensor] = []
+    # Flatten override positions and embeddings according to image_bound.
+    override_pos_list = []
+    override_embed_list = []
     for i in range(bounds.shape[0]):
         s = int(bounds[i][0].item())
         e = int(bounds[i][1].item())
-        if e - s != int(vision_meta.resampler_meta.num_queries):
-            raise SystemExit(f"unexpected bound length: {e-s}")
+        if e - s != vision_meta.resampler_meta.num_queries:
+            raise SystemExit(f"unexpected bound length: {e-s} (expected {vision_meta.resampler_meta.num_queries})")
         override_pos_list.extend(list(range(s, e)))
         override_embed_list.append(slice_embeds[i])
     override_embeds = torch.cat(override_embed_list, dim=0).contiguous()
-    override_pos = (c_uint * len(override_pos_list))(*override_pos_list)
+    if debug:
+        print(
+            "DEBUG override_embeds stats:",
+            float(override_embeds.float().abs().max().item()),
+            float(override_embeds.float().abs().mean().item()),
+            override_embeds.dtype,
+        )
 
-    # Sanity: override positions should be <unk> tokens.
+    # Sanity: all override positions should correspond to `<unk>` tokens.
     unk_id = getattr(llm.tokenizer, "unk_token_id", None)
     if unk_id is not None:
         override_tok = tokens[torch.tensor(override_pos_list, dtype=torch.long)]
@@ -403,7 +395,9 @@ def main():
                 print("  unk_id:", int(unk_id))
                 print("  override_token_ids_unique:", [int(x) for x in uniq[:16]])
 
-    # Prefill + decode
+    override_pos = (c_uint * len(override_pos_list))(*override_pos_list)
+
+    # Prefill with overrides
     ntok = int(tokens.numel())
     tokens_c = (c_uint * ntok)(*tokens.tolist())
     req_lens = (c_uint * 1)(ntok)
@@ -423,11 +417,11 @@ def main():
     )
     kv_caches = (POINTER(KVCacheCStruct) * 1)(kv)
 
-    temperature = (c_float * 1)(float(args.temperature))
-    topk = (c_uint * 1)(int(args.topk))
-    topp = (c_float * 1)(float(args.topp))
-    out = (c_uint * 1)()
+    temperature = (c_float * 1)(1.0)
+    topk = (c_uint * 1)(1)
+    topp = (c_float * 1)(1.0)
 
+    out = (c_uint * 1)()
     llm.jiuge_model.infer_batch_with_overrides(
         llm.model_instance,
         tokens_c,
@@ -444,32 +438,70 @@ def main():
         topp,
         out,
     )
+    if debug:
+        print("DEBUG prefill next_token:", int(out[0]))
 
     generated = [int(out[0])]
-    cur_pos = ntok
+    rope_pos = ntok
+    kv_pos = ntok
     eos_ids = set(llm.eos_token_id)
-    for _ in range(int(args.max_steps) - 1):
+
+    if args.kv_compress:
+        if not args.kv_compress_bin:
+            raise SystemExit("--kv-compress requires --kv-compress-bin")
+        cfg = KVCompressionConfigCStruct(
+            enable=1,
+            compression_factor=int(args.kv_compress_factor),
+            min_seq_len=int(args.kv_compress_min_seq_len),
+            image_kv_len=int(args.kv_compress_image_len),
+            weight_path=args.kv_compress_bin.encode("utf-8"),
+        )
+        kv_pos = int(llm.jiuge_model.compress_kv_cache_inplace(kv, ntok, cfg))
+        if debug:
+            print("DEBUG kv_compress:", {"rope_pos": int(rope_pos), "kv_pos": int(kv_pos)})
+
+    for _ in range(args.max_steps - 1):
         if generated[-1] in eos_ids:
             break
         req_lens = (c_uint * 1)(1)
-        req_pos = (c_uint * 1)(cur_pos)
+        req_pos = (c_uint * 1)(rope_pos)
+        kv_pos_c = (c_uint * 1)(kv_pos)
         tokens_c = (c_uint * 1)(generated[-1])
-        llm.jiuge_model.infer_batch(
-            llm.model_instance,
-            tokens_c,
-            1,
-            req_lens,
-            1,
-            req_pos,
-            kv_caches,
-            temperature,
-            topk,
-            topp,
-            out,
-        )
+        if args.kv_compress:
+            llm.jiuge_model.infer_batch_ex(
+                llm.model_instance,
+                tokens_c,
+                1,
+                req_lens,
+                1,
+                req_pos,
+                kv_pos_c,
+                kv_caches,
+                temperature,
+                topk,
+                topp,
+                out,
+            )
+        else:
+            llm.jiuge_model.infer_batch(
+                llm.model_instance,
+                tokens_c,
+                1,
+                req_lens,
+                1,
+                req_pos,
+                kv_caches,
+                temperature,
+                topk,
+                topp,
+                out,
+            )
         generated.append(int(out[0]))
-        cur_pos += 1
+        rope_pos += 1
+        kv_pos += 1
 
+    if debug:
+        print("DEBUG generated_ids:", generated)
     text = llm.tokenizer.decode(generated, skip_special_tokens=False)
     print(text)
 

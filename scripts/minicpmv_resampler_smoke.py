@@ -45,9 +45,14 @@ def main():
     weight_map = index["weight_map"]
 
     force_f32 = os.environ.get("MINICPMV_FORCE_F32", "0") == "1"
+    dev_name = os.environ.get("MINICPMV_DEVICE", "cpu").lower().strip()
+    device = DeviceType.DEVICE_TYPE_HYGON if dev_name == "hygon" else DeviceType.DEVICE_TYPE_CPU
     torch_dt_logits, dt_logits = _dtype_from_config(config.get("torch_dtype", "bfloat16"))
     if force_f32:
         torch_dt_logits, dt_logits = torch.float32, DataType.INFINI_DTYPE_F32
+    # if device == DeviceType.DEVICE_TYPE_HYGON and dt_logits == DataType.INFINI_DTYPE_BF16:
+    #     # Current Hygon softmax backend does not support BF16; use FP16 for this smoke.
+    #     torch_dt_logits, dt_logits = torch.float16, DataType.INFINI_DTYPE_F16
     torch.set_default_dtype(torch.float32)
 
     # Build meta (only fields used by resampler path are required, but keep consistent).
@@ -167,7 +172,7 @@ def main():
 
     model = MiniCPMVModel()
     dev_ids = (c_int * 1)(0)
-    model_handle = model.create_model(meta, weights, DeviceType.DEVICE_TYPE_CPU, 1, dev_ids)
+    model_handle = model.create_model(meta, weights, device, 1, dev_ids)
 
     # Build a no-padding test input: seq_len = tgt_h * tgt_w.
     tgt_h, tgt_w = 14, 14

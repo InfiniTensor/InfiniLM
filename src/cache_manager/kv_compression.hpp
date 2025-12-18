@@ -42,6 +42,10 @@ public:
     // Compress device-local KV; returns compressed structure or nullptr on failure.
     std::unique_ptr<CompressedKV> compress(const KVCache &kv, uint32_t seq_len);
 
+    // Compress into temporary buffers and write back into `kv`'s preallocated storage (prefix [0,new_len)).
+    // Returns the new logical KV length (<= seq_len); returns seq_len on no-op or failure.
+    uint32_t compressInplace(KVCache &kv, uint32_t seq_len);
+
     // Decompress into temporary buffers for attention use; returns false on failure.
     bool decompress(const CompressedKV &ckv,
                     std::vector<std::shared_ptr<Tensor>> &k_out,

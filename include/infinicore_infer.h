@@ -2,6 +2,7 @@
 #define INFINICORE_INFER_H
 
 #include "infinicore_infer/cache.h"
+#include "infinicore_infer/kv_compression.h"
 #include "infinicore_infer/weights_loader.h"
 
 #include "infinicore_infer/models/deepseek.h"

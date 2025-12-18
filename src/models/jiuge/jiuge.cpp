@@ -121,16 +121,18 @@ void releaseDeviceResource(JiugeDeviceResource &res) {
     res.comm = nullptr;
 }
 
-void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
-                      uint32_t idev, uint32_t ndev,
-                      const uint32_t *tokens, uint32_t ntok,
-                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                      struct KVCache **kv_caches,
-                      uint32_t n_override,
-                      const uint32_t *override_pos,
-                      const void *override_embeds,
-                      const float *temperature, const uint32_t *topk, const float *topp,
-                      uint32_t *output, void *last_logits) {
+static void inferDeviceBatchEx(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
+                               uint32_t idev, uint32_t ndev,
+                               const uint32_t *tokens, uint32_t ntok,
+                               const uint32_t *req_lens, uint32_t nreq,
+                               const uint32_t *req_pos,
+                               const uint32_t *kv_pos,
+                               struct KVCache **kv_caches,
+                               uint32_t n_override,
+                               const uint32_t *override_pos,
+                               const void *override_embeds,
+                               const float *temperature, const uint32_t *topk, const float *topp,
+                               uint32_t *output, void *last_logits) {
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
@@ -207,7 +209,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     size_t max_seq_len = 0;
 
     for (uint32_t req = 0; req < nreq; req++) {
-        auto past_len = req_pos[req];
+        auto past_len = kv_pos[req];
         auto seq_len = req_lens[req];
         auto total_len = past_len + seq_len;
 
@@ -244,7 +246,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
 
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
-            auto past_len = req_pos[req];
+            auto past_len = kv_pos[req];
             auto seq_len = req_lens[req];
             auto total_len = past_len + seq_len;
             auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
@@ -370,6 +372,7 @@ inferBatchJiuge(struct JiugeModel *model,
     model->req.req_lens = req_lens;
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
+    model->req.kv_pos = req_pos;
     model->req.kv_caches = kv_caches;
     model->req.n_override = 0;
     model->req.override_pos = nullptr;
@@ -398,6 +401,45 @@ inferBatchJiuge(struct JiugeModel *model,
 }
 
 __C void
+inferBatchJiugeEx(struct JiugeModel *model,
+                  const uint32_t *tokens, uint32_t ntok,
+                  const uint32_t *req_lens, uint32_t nreq,
+                  const uint32_t *req_pos,
+                  const uint32_t *kv_pos,
+                  struct KVCache **kv_caches,
+                  const float *temperature, const uint32_t *topk, const float *topp,
+                  uint32_t *output) {
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_pos = kv_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.n_override = 0;
+    model->req.override_pos = nullptr;
+    model->req.override_embeds = nullptr;
+    model->req.output = output;
+    model->req.logits = nullptr;
+    model->req.temperature = temperature;
+    model->req.topk = topk;
+    model->req.topp = topp;
+
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
 forwardBatchJiuge(struct JiugeModel *model,
                   const uint32_t *tokens, uint32_t ntok,
                   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -408,6 +450,7 @@ forwardBatchJiuge(struct JiugeModel *model,
     model->req.req_lens = req_lens;
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
+    model->req.kv_pos = req_pos;
     model->req.kv_caches = kv_caches;
     model->req.n_override = 0;
     model->req.override_pos = nullptr;
@@ -435,6 +478,44 @@ forwardBatchJiuge(struct JiugeModel *model,
 }
 
 __C void
+forwardBatchJiugeEx(struct JiugeModel *model,
+                    const uint32_t *tokens, uint32_t ntok,
+                    const uint32_t *req_lens, uint32_t nreq,
+                    const uint32_t *req_pos,
+                    const uint32_t *kv_pos,
+                    struct KVCache **kv_caches,
+                    void *logits) {
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_pos = kv_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.n_override = 0;
+    model->req.override_pos = nullptr;
+    model->req.override_embeds = nullptr;
+    model->req.output = nullptr;
+    model->req.logits = logits;
+    model->req.temperature = nullptr;
+    model->req.topk = nullptr;
+    model->req.topp = nullptr;
+
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
 inferBatchJiugeWithOverrides(struct JiugeModel *model,
                              const uint32_t *tokens, uint32_t ntok,
                              const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -449,6 +530,7 @@ inferBatchJiugeWithOverrides(struct JiugeModel *model,
     model->req.req_lens = req_lens;
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
+    model->req.kv_pos = req_pos;
     model->req.kv_caches = kv_caches;
     model->req.n_override = n_override;
     model->req.override_pos = override_pos;
@@ -475,6 +557,48 @@ inferBatchJiugeWithOverrides(struct JiugeModel *model,
 }
 
 __C void
+inferBatchJiugeWithOverridesEx(struct JiugeModel *model,
+                               const uint32_t *tokens, uint32_t ntok,
+                               const uint32_t *req_lens, uint32_t nreq,
+                               const uint32_t *req_pos,
+                               const uint32_t *kv_pos,
+                               struct KVCache **kv_caches,
+                               uint32_t n_override,
+                               const uint32_t *override_pos,
+                               const void *override_embeds,
+                               const float *temperature, const uint32_t *topk, const float *topp,
+                               uint32_t *output) {
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_pos = kv_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.n_override = n_override;
+    model->req.override_pos = override_pos;
+    model->req.override_embeds = override_embeds;
+    model->req.output = output;
+    model->req.logits = nullptr;
+    model->req.temperature = temperature;
+    model->req.topk = topk;
+    model->req.topp = topp;
+
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
 forwardBatchJiugeWithOverrides(struct JiugeModel *model,
                                const uint32_t *tokens, uint32_t ntok,
                                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -488,6 +612,48 @@ forwardBatchJiugeWithOverrides(struct JiugeModel *model,
     model->req.req_lens = req_lens;
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
+    model->req.kv_pos = req_pos;
+    model->req.kv_caches = kv_caches;
+    model->req.n_override = n_override;
+    model->req.override_pos = override_pos;
+    model->req.override_embeds = override_embeds;
+    model->req.output = nullptr;
+    model->req.logits = logits;
+    model->req.temperature = nullptr;
+    model->req.topk = nullptr;
+    model->req.topp = nullptr;
+
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
+forwardBatchJiugeWithOverridesEx(struct JiugeModel *model,
+                                 const uint32_t *tokens, uint32_t ntok,
+                                 const uint32_t *req_lens, uint32_t nreq,
+                                 const uint32_t *req_pos,
+                                 const uint32_t *kv_pos,
+                                 struct KVCache **kv_caches,
+                                 uint32_t n_override,
+                                 const uint32_t *override_pos,
+                                 const void *override_embeds,
+                                 void *logits) {
+    model->req.tokens = tokens;
+    model->req.ntok = ntok;
+    model->req.req_lens = req_lens;
+    model->req.nreq = nreq;
+    model->req.req_pos = req_pos;
+    model->req.kv_pos = kv_pos;
     model->req.kv_caches = kv_caches;
     model->req.n_override = n_override;
     model->req.override_pos = override_pos;
@@ -545,10 +711,10 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDevic
 
         // 这里是关键：真正执行推理的地方！
         // 只有收到信号才会执行到这里！
-        inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
-                         req.req_lens, req.nreq, req.req_pos, req.kv_caches,
-                         req.n_override, req.override_pos, req.override_embeds,
-                         req.temperature, req.topk, req.topp, req.output, req.logits);
+        inferDeviceBatchEx(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
+                           req.req_lens, req.nreq, req.req_pos, req.kv_pos, req.kv_caches,
+                           req.n_override, req.override_pos, req.override_embeds,
+                           req.temperature, req.topk, req.topp, req.output, req.logits);
 
         state.proceed = false;  // 重置信号
         lock.unlock();

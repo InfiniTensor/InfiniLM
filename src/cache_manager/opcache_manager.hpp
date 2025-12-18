@@ -158,12 +158,15 @@ public:
     DECLARE_OP_CACHE(RoPE)
     DECLARE_OP_CACHE(Rearrange)
     DECLARE_OP_CACHE(CausalSoftmax)
+    DECLARE_OP_CACHE(Softmax)
     DECLARE_OP_CACHE(Topkrouter)
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(DequantizeAWQ)
     DECLARE_OP_CACHE(Conv)
     DECLARE_OP_CACHE(Relu)
+    DECLARE_OP_CACHE(GeluTanh)
+    DECLARE_OP_CACHE(LayerNorm)
 
     CacheManager(size_t capacity = 100)
         : Add_cache(capacity, DESTROY_FUNC(Add)),
@@ -172,12 +175,16 @@ public:
           RoPE_cache(capacity, DESTROY_FUNC(RoPE)),
           Rearrange_cache(capacity, DESTROY_FUNC(Rearrange)),
           CausalSoftmax_cache(capacity, DESTROY_FUNC(CausalSoftmax)),
+          Softmax_cache(capacity, DESTROY_FUNC(Softmax)),
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)),
           Conv_cache(capacity, DESTROY_FUNC(Conv)),
-          Relu_cache(capacity, DESTROY_FUNC(Relu)) {}
+          Relu_cache(capacity, DESTROY_FUNC(Relu)),
+          GeluTanh_cache(capacity, DESTROY_FUNC(GeluTanh)),
+          LayerNorm_cache(capacity, DESTROY_FUNC(LayerNorm))
+           {}
 
     template <typename... Tensors>
     static size_t createDescriptorKey(Tensors... tensors) {

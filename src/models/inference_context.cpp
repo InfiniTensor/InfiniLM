@@ -145,6 +145,27 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
                                      y->data(), x->data(), stream));
 }
 
+
+void InferenceContext::Softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int axis) {
+    size_t key = CacheManager::createDescriptorKey(y, x);
+    hash_combine(key, std::hash<int>()(axis));
+
+    infiniopSoftmaxDescriptor_t desc;
+    if (!cache_manager->getSoftmaxDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateSoftmaxDescriptor(
+            op_handle, &desc, y->desc(), x->desc(), axis));
+        cache_manager->putSoftmaxDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSoftmaxWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopSoftmax(desc, workspace, workspace_size,
+                               y->data(), x->data(), stream));
+}
+
 void InferenceContext::topkrouter(std::shared_ptr<Tensor> values,  // F32
                                   std::shared_ptr<Tensor> indices, // I32
                                   std::shared_ptr<Tensor> x,
@@ -214,7 +235,121 @@ void InferenceContext::relu(std::shared_ptr<Tensor> y,
                             y->data(), x->data(), stream));
 }
 
+void InferenceContext::geluTanh(std::shared_ptr<Tensor> y,
+                                 std::shared_ptr<Tensor> x) {
+    size_t key = CacheManager::createDescriptorKey(y, x);
 
+    infiniopGeluTanhDescriptor_t desc;
+    if (!cache_manager->getGeluTanhDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateGeluTanhDescriptor(op_handle, &desc, y->desc(), x->desc()));
+        cache_manager->putGeluTanhDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetGeluTanhWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+    
+    RUN_INFINI(infiniopGeluTanh(desc,
+                                workspace,
+                                workspace_size,
+                                y->data(), x->data(), stream));
+}
+
+void InferenceContext::layerNorm(std::shared_ptr<Tensor> y,
+                                 std::shared_ptr<Tensor> x,
+                                 std::shared_ptr<Tensor> w,
+                                 std::shared_ptr<Tensor> beta,
+                                 float epsilon) {
+    ASSERT_VALID_PTR(y);
+    ASSERT_VALID_PTR(x);
+    ASSERT_VALID_PTR(w);
+    ASSERT_VALID_PTR(beta);
+
+    // Some implementations do not support in-place LayerNorm (output aliases input).
+    // Keep call sites simple by handling it here.
+    std::shared_ptr<Tensor> y_out = y;
+    std::shared_ptr<Tensor> y_tmp;
+    if (y.get() == x.get() || y->data() == x->data()) {
+        y_tmp = Tensor::buffer(y->dtype(), y->shape(), memory_pool);
+        y_out = y_tmp;
+    }
+
+    // LayerNorm produces two extra outputs (standardization + std deviation). We don't
+    // expose them to callers, but descriptors require them, so we allocate temporaries.
+    //
+    // Keep intermediates in the same dtype as input to support device execution (e.g. Hygon)
+    // and avoid dtype-specific assumptions in backend implementations.
+    const infiniDtype_t inter_dt = x->dtype();
+
+    // CPU LayerNorm kernel assumes 3D input [B, L, D]. Adapt common 2D tensors [L, D]
+    // into [1, L, D] via views to avoid out-of-bounds access.
+    std::shared_ptr<Tensor> x_desc = x;
+    std::shared_ptr<Tensor> y_desc = y_out;
+    std::shared_ptr<Tensor> input_standardization;
+    std::shared_ptr<Tensor> input_std_deviation;
+
+    if (x->deviceType() == INFINI_DEVICE_CPU && x->ndim() == 2) {
+        const auto &sh = x->shape();
+        const auto &st = x->strides();
+        const size_t L = sh[0];
+        const size_t D = sh[1];
+        const ptrdiff_t s0 = st[0];
+        const ptrdiff_t s1 = st[1];
+        x_desc = x->view_as({1, L, D}, {static_cast<ptrdiff_t>(L) * s0, s0, s1});
+        y_desc = y_out->view_as({1, L, D}, {static_cast<ptrdiff_t>(L) * s0, s0, s1});
+        input_standardization = Tensor::buffer(inter_dt, {1, L, D}, memory_pool);
+        input_std_deviation = Tensor::buffer(inter_dt, {1, L}, memory_pool);
+    } else {
+        input_standardization = Tensor::buffer(inter_dt, x->shape(), memory_pool);
+        std::vector<size_t> std_shape = x->shape();
+        if (!std_shape.empty()) {
+            std_shape.pop_back(); // stddev drops the normalized (last) dimension
+        }
+        if (std_shape.empty()) {
+            std_shape.push_back(1);
+        }
+        input_std_deviation = Tensor::buffer(inter_dt, std_shape, memory_pool);
+    }
+
+    size_t key = CacheManager::createDescriptorKey(y_desc, x_desc, w, beta);
+    uint32_t eps_bits = 0;
+    std::memcpy(&eps_bits, &epsilon, sizeof(eps_bits));
+    hash_combine(key, std::hash<uint32_t>()(eps_bits));
+
+    infiniopLayerNormDescriptor_t desc;
+    if (!cache_manager->getLayerNormDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateLayerNormDescriptor(
+            op_handle, &desc,
+            y_desc->desc(),
+            input_standardization->desc(),
+            input_std_deviation->desc(),
+            x_desc->desc(),
+            w->desc(),
+            beta->desc(),
+            epsilon));
+        cache_manager->putLayerNormDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetLayerNormWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopLayerNorm(
+        desc, workspace, workspace_size,
+        y_desc->data(),
+        input_standardization->data(),
+        input_std_deviation->data(),
+        x_desc->data(),
+        w->data(),
+        beta->data(),
+        stream));
+
+    if (y_tmp) {
+        rearrange(y, y_tmp);
+    }
+}
 
 
 void InferenceContext::randomSample(std::shared_ptr<Tensor> out,

@@ -13,6 +13,7 @@ from libinfinicore_infer import (
     DeviceType,
     JiugeModel,
     KVCacheCStruct,
+    KVCompressionConfigCStruct,
     MiniCPMVLanguageMetaCStruct,
     MiniCPMVMetaCStruct,
     MiniCPMVModel,
@@ -230,10 +231,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model-dir", required=True)
     ap.add_argument("--image", required=True)
-    ap.add_argument("--question", default="请描述这张图片。")
+    ap.add_argument("--question", default="图片是什么？")
     ap.add_argument("--max-steps", type=int, default=16)
     ap.add_argument("--max-tokens", type=int, default=2048)
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--kv-compress", action="store_true", help="Enable in-place KV cache compression after prefill.")
+    ap.add_argument("--kv-compress-bin", default="", help="Path to compressor .bin weights.")
+    ap.add_argument("--kv-compress-factor", type=int, default=5)
+    ap.add_argument("--kv-compress-min-seq-len", type=int, default=2)
+    ap.add_argument("--kv-compress-image-len", type=int, default=0, help="Prefix tokens treated as image KV (0 for Hybrid text-only).")
     args = ap.parse_args()
     debug = args.debug or os.environ.get("MINICPMV_DEBUG", "0") == "1"
 
@@ -312,6 +318,7 @@ def main():
 
     if len(pixel_values_slices) == 0:
         raise SystemExit("No image slices to run vision.")
+
 
     # Vision can be computed in f32 for numerical stability, then cast to LLM dtype for injection.
     llm_torch_dt = llm.meta.torch_dtype_logits
@@ -392,7 +399,7 @@ def main():
     req_pos = (c_uint * 1)(0)
     dev_ids = (c_int * 1)(0)
 
-    kv_base = llm.jiuge_model.create_kv_cache(
+    kv = llm.jiuge_model.create_kv_cache(
         llm.meta.nlayer,
         llm.meta.dctx,
         llm.meta.nkvh,
@@ -403,41 +410,13 @@ def main():
         dev_ids,
         1,
     )
-    kv_vision = llm.jiuge_model.create_kv_cache(
-        llm.meta.nlayer,
-        llm.meta.dctx,
-        llm.meta.nkvh,
-        llm.meta.dh,
-        llm.meta.dh,
-        llm.meta.dt_logits,
-        DeviceType.DEVICE_TYPE_CPU,
-        dev_ids,
-        1,
-    )
-    kv_caches_base = (POINTER(KVCacheCStruct) * 1)(kv_base)
-    kv_caches_vision = (POINTER(KVCacheCStruct) * 1)(kv_vision)
+    kv_caches = (POINTER(KVCacheCStruct) * 1)(kv)
 
     temperature = (c_float * 1)(1.0)
     topk = (c_uint * 1)(1)
     topp = (c_float * 1)(1.0)
 
     out = (c_uint * 1)()
-    llm.jiuge_model.infer_batch(
-        llm.model_instance,
-        tokens_c,
-        ntok,
-        req_lens,
-        1,
-        req_pos,
-        kv_caches_base,
-        temperature,
-        topk,
-        topp,
-        out,
-    )
-    if debug:
-        print("DEBUG prefill no-vision next_token:", int(out[0]))
-
     llm.jiuge_model.infer_batch_with_overrides(
         llm.model_instance,
         tokens_c,
@@ -445,7 +424,7 @@ def main():
         req_lens,
         1,
         req_pos,
-        kv_caches_vision,
+        kv_caches,
         len(override_pos_list),
         override_pos,
         override_embeds.data_ptr(),
@@ -455,41 +434,73 @@ def main():
         out,
     )
     if debug:
-        print("DEBUG prefill vision next_token:", int(out[0]))
+        print("DEBUG prefill next_token:", int(out[0]))
 
     generated = [int(out[0])]
-    cur_pos = ntok
+    rope_pos = ntok
+    kv_pos = ntok
     eos_ids = set(llm.eos_token_id)
+
+    if args.kv_compress:
+        if not args.kv_compress_bin:
+            raise SystemExit("--kv-compress requires --kv-compress-bin")
+        cfg = KVCompressionConfigCStruct(
+            enable=1,
+            compression_factor=int(args.kv_compress_factor),
+            min_seq_len=int(args.kv_compress_min_seq_len),
+            image_kv_len=int(args.kv_compress_image_len),
+            weight_path=args.kv_compress_bin.encode("utf-8"),
+        )
+        kv_pos = int(llm.jiuge_model.compress_kv_cache_inplace(kv, ntok, cfg))
+        if debug:
+            print("DEBUG kv_compress:", {"rope_pos": int(rope_pos), "kv_pos": int(kv_pos)})
 
     for _ in range(args.max_steps - 1):
         if generated[-1] in eos_ids:
             break
         req_lens = (c_uint * 1)(1)
-        req_pos = (c_uint * 1)(cur_pos)
+        req_pos = (c_uint * 1)(rope_pos)
+        kv_pos_c = (c_uint * 1)(kv_pos)
         tokens_c = (c_uint * 1)(generated[-1])
-        llm.jiuge_model.infer_batch(
-            llm.model_instance,
-            tokens_c,
-            1,
-            req_lens,
-            1,
-            req_pos,
-            kv_caches_vision,
-            temperature,
-            topk,
-            topp,
-            out,
-        )
+        if args.kv_compress:
+            llm.jiuge_model.infer_batch_ex(
+                llm.model_instance,
+                tokens_c,
+                1,
+                req_lens,
+                1,
+                req_pos,
+                kv_pos_c,
+                kv_caches,
+                temperature,
+                topk,
+                topp,
+                out,
+            )
+        else:
+            llm.jiuge_model.infer_batch(
+                llm.model_instance,
+                tokens_c,
+                1,
+                req_lens,
+                1,
+                req_pos,
+                kv_caches,
+                temperature,
+                topk,
+                topp,
+                out,
+            )
         generated.append(int(out[0]))
-        cur_pos += 1
+        rope_pos += 1
+        kv_pos += 1
 
     if debug:
         print("DEBUG generated_ids:", generated)
     text = llm.tokenizer.decode(generated, skip_special_tokens=False)
     print(text)
 
-    llm.jiuge_model.drop_kv_cache(kv_base)
-    llm.jiuge_model.drop_kv_cache(kv_vision)
+    llm.jiuge_model.drop_kv_cache(kv)
     vision_model.destroy_model(vision_handle)
     llm.jiuge_model.destroy_model(llm.model_instance)
 

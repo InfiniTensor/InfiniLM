@@ -438,7 +438,12 @@ class JiugeBatchedTask:
 
 class JiugeForCauslLM:
     def __init__(
-        self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
+        self,
+        model_dir_path,
+        device=DeviceType.DEVICE_TYPE_CPU,
+        ndev=1,
+        max_tokens=None,
+        dtype_override=None,
     ):
         def load_all_safetensors_from_dir(dir_path_: str):
             tensors_ = {}
@@ -551,13 +556,16 @@ class JiugeForCauslLM:
             naming_prefix = "llm."
             if not LlamaWeightsNaming.match(state_dict, prefix=naming_prefix):
                 raise ValueError("Unsupported MiniCPM-V LLM weight naming")
-            torch_dtype_str = config.get("torch_dtype", "float16")
-            dtype_map = {
-                "bfloat16": torch.bfloat16,
-                "float16": torch.float16,
-                "float32": torch.float32,
-            }
-            llm_dtype = dtype_map.get(torch_dtype_str, torch.float16)
+            if dtype_override is not None:
+                llm_dtype = dtype_override
+            else:
+                torch_dtype_str = config.get("torch_dtype", "float16")
+                dtype_map = {
+                    "bfloat16": torch.bfloat16,
+                    "float16": torch.float16,
+                    "float32": torch.float32,
+                }
+                llm_dtype = dtype_map.get(torch_dtype_str, torch.float16)
             self.meta = JiugeMetaFromLlama(config, dtype=llm_dtype, max_tokens=max_tokens)
             naming = LlamaWeightsNaming(prefix=naming_prefix)
             self.weights = JiugeWeightsImpl(

@@ -1,4 +1,4 @@
-from .base import BaseModel, DataType, DeviceType, KVCacheCStruct, register_model
+from .base import BaseModel, DataType, DeviceType, KVCacheCStruct, KVCompressionConfigCStruct, register_model
 from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER, Structure, byref
 
 
@@ -74,6 +74,13 @@ class JiugeModel(BaseModel):
 
         lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
 
+        lib.compressKVCacheInplace.argtypes = [
+            POINTER(KVCacheCStruct),
+            c_uint,
+            POINTER(KVCompressionConfigCStruct),
+        ]
+        lib.compressKVCacheInplace.restype = c_uint
+
         lib.inferBatchJiuge.argtypes = [
             POINTER(JiugeModelCStruct),
             POINTER(c_uint),
@@ -81,6 +88,21 @@ class JiugeModel(BaseModel):
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
+            POINTER(POINTER(KVCacheCStruct)),
+            POINTER(c_float),
+            POINTER(c_uint),
+            POINTER(c_float),
+            POINTER(c_uint),
+        ]
+
+        lib.inferBatchJiugeEx.argtypes = [
+            POINTER(JiugeModelCStruct),
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),  # req_pos (RoPE)
+            POINTER(c_uint),  # kv_pos (cache)
             POINTER(POINTER(KVCacheCStruct)),
             POINTER(c_float),
             POINTER(c_uint),
@@ -99,6 +121,18 @@ class JiugeModel(BaseModel):
             c_void_p,
         ]
 
+        lib.forwardBatchJiugeEx.argtypes = [
+            POINTER(JiugeModelCStruct),
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),  # req_pos (RoPE)
+            POINTER(c_uint),  # kv_pos (cache)
+            POINTER(POINTER(KVCacheCStruct)),
+            c_void_p,
+        ]
+
         lib.inferBatchJiugeWithOverrides.argtypes = [
             POINTER(JiugeModelCStruct),
             POINTER(c_uint),
@@ -106,6 +140,24 @@ class JiugeModel(BaseModel):
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
+            POINTER(POINTER(KVCacheCStruct)),
+            c_uint,  # n_override
+            POINTER(c_uint),  # override_pos
+            c_void_p,  # override_embeds
+            POINTER(c_float),
+            POINTER(c_uint),
+            POINTER(c_float),
+            POINTER(c_uint),
+        ]
+
+        lib.inferBatchJiugeWithOverridesEx.argtypes = [
+            POINTER(JiugeModelCStruct),
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),  # req_pos (RoPE)
+            POINTER(c_uint),  # kv_pos (cache)
             POINTER(POINTER(KVCacheCStruct)),
             c_uint,  # n_override
             POINTER(c_uint),  # override_pos
@@ -130,6 +182,21 @@ class JiugeModel(BaseModel):
             c_void_p,  # logits
         ]
 
+        lib.forwardBatchJiugeWithOverridesEx.argtypes = [
+            POINTER(JiugeModelCStruct),
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),
+            c_uint,
+            POINTER(c_uint),  # req_pos (RoPE)
+            POINTER(c_uint),  # kv_pos (cache)
+            POINTER(POINTER(KVCacheCStruct)),
+            c_uint,  # n_override
+            POINTER(c_uint),  # override_pos
+            c_void_p,  # override_embeds
+            c_void_p,  # logits
+        ]
+
     def create_model(self, meta, weights, device_type, ndev, dev_ids):
         return self.lib.createJiugeModel(meta, weights, device_type, ndev, dev_ids)
 
@@ -146,6 +213,9 @@ class JiugeModel(BaseModel):
 
     def drop_kv_cache(self, kv_cache):
         self.lib.dropKVCache(kv_cache)
+
+    def compress_kv_cache_inplace(self, kv_cache, seq_len, cfg: KVCompressionConfigCStruct):
+        return self.lib.compressKVCacheInplace(kv_cache, seq_len, byref(cfg))
 
     def infer_batch(
         self,
@@ -175,11 +245,48 @@ class JiugeModel(BaseModel):
             output,
         )
 
+    def infer_batch_ex(
+        self,
+        model,
+        tokens,
+        ntok,
+        req_lens,
+        nreq,
+        req_pos,
+        kv_pos,
+        kv_caches,
+        temperature,
+        topk,
+        topp,
+        output,
+    ):
+        self.lib.inferBatchJiugeEx(
+            model,
+            tokens,
+            ntok,
+            req_lens,
+            nreq,
+            req_pos,
+            kv_pos,
+            kv_caches,
+            temperature,
+            topk,
+            topp,
+            output,
+        )
+
     def forward_batch(
         self, model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
     ):
         self.lib.forwardBatchJiuge(
             model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
+        )
+
+    def forward_batch_ex(
+        self, model, tokens, ntok, req_lens, nreq, req_pos, kv_pos, kv_caches, logits
+    ):
+        self.lib.forwardBatchJiugeEx(
+            model, tokens, ntok, req_lens, nreq, req_pos, kv_pos, kv_caches, logits
         )
 
     def infer_batch_with_overrides(
@@ -216,6 +323,42 @@ class JiugeModel(BaseModel):
             output,
         )
 
+    def infer_batch_with_overrides_ex(
+        self,
+        model,
+        tokens,
+        ntok,
+        req_lens,
+        nreq,
+        req_pos,
+        kv_pos,
+        kv_caches,
+        n_override,
+        override_pos,
+        override_embeds,
+        temperature,
+        topk,
+        topp,
+        output,
+    ):
+        self.lib.inferBatchJiugeWithOverridesEx(
+            model,
+            tokens,
+            ntok,
+            req_lens,
+            nreq,
+            req_pos,
+            kv_pos,
+            kv_caches,
+            n_override,
+            override_pos,
+            override_embeds,
+            temperature,
+            topk,
+            topp,
+            output,
+        )
+
     def forward_batch_with_overrides(
         self,
         model,
@@ -237,6 +380,36 @@ class JiugeModel(BaseModel):
             req_lens,
             nreq,
             req_pos,
+            kv_caches,
+            n_override,
+            override_pos,
+            override_embeds,
+            logits,
+        )
+
+    def forward_batch_with_overrides_ex(
+        self,
+        model,
+        tokens,
+        ntok,
+        req_lens,
+        nreq,
+        req_pos,
+        kv_pos,
+        kv_caches,
+        n_override,
+        override_pos,
+        override_embeds,
+        logits,
+    ):
+        self.lib.forwardBatchJiugeWithOverridesEx(
+            model,
+            tokens,
+            ntok,
+            req_lens,
+            nreq,
+            req_pos,
+            kv_pos,
             kv_caches,
             n_override,
             override_pos,

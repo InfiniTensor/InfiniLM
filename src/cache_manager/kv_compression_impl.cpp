@@ -6,6 +6,7 @@
 #include <infinirt.h>
 
 #include <sstream>
+#include <vector>
 
 namespace {
 // Transpose a 2D weight (out, in) -> (in, out) into a contiguous buffer.
@@ -17,6 +18,44 @@ std::shared_ptr<Tensor> make_transposed(std::shared_ptr<Tensor> w, InferenceCont
     out->copyFrom(view_t, ctx->op_handle, ctx->stream);
     return out;
 }
+
+std::shared_ptr<Tensor> cast_weight_cpu(std::shared_ptr<Tensor> w, infiniDtype_t target_dtype) {
+    if (!w) return nullptr;
+    if (w->dtype() == target_dtype) return w;
+    if (w->deviceType() != INFINI_DEVICE_CPU) {
+        return nullptr;
+    }
+    const size_t n = w->numel();
+    std::vector<float> tmp(n);
+
+    if (w->dtype() == INFINI_DTYPE_F16) {
+        auto *p = reinterpret_cast<const uint16_t *>(w->data());
+        for (size_t i = 0; i < n; ++i) tmp[i] = f16_to_f32(p[i]);
+    } else if (w->dtype() == INFINI_DTYPE_BF16) {
+        auto *p = reinterpret_cast<const uint16_t *>(w->data());
+        for (size_t i = 0; i < n; ++i) tmp[i] = bf16_to_f32(p[i]);
+    } else if (w->dtype() == INFINI_DTYPE_F32) {
+        auto *p = reinterpret_cast<const float *>(w->data());
+        std::copy(p, p + n, tmp.begin());
+    } else {
+        return nullptr;
+    }
+
+    if (target_dtype == INFINI_DTYPE_F16) {
+        std::vector<uint16_t> out(n);
+        for (size_t i = 0; i < n; ++i) out[i] = f32_to_f16(tmp[i]);
+        return Tensor::weight(out.data(), target_dtype, w->shape());
+    }
+    if (target_dtype == INFINI_DTYPE_BF16) {
+        std::vector<uint16_t> out(n);
+        for (size_t i = 0; i < n; ++i) out[i] = f32_to_bf16(tmp[i]);
+        return Tensor::weight(out.data(), target_dtype, w->shape());
+    }
+    if (target_dtype == INFINI_DTYPE_F32) {
+        return Tensor::weight(tmp.data(), target_dtype, w->shape());
+    }
+    return nullptr;
+}
 } // namespace
 
 std::unique_ptr<CompressedKV> Compressor::compress(const KVCache &kv, uint32_t seq_len) {
@@ -27,7 +66,7 @@ std::unique_ptr<CompressedKV> Compressor::compress(const KVCache &kv, uint32_t s
         std::cerr << "Compressor::compress: weights are empty" << std::endl;
         return nullptr;
     }
-    if (seq_len < config_.min_seq_len) {
+    if (seq_len == 0) {
         return nullptr;
     }
 
@@ -80,17 +119,69 @@ std::unique_ptr<CompressedKV> Compressor::compress(const KVCache &kv, uint32_t s
         auto fallback = std::make_unique<CompressedKV>();
         fallback->layers.resize(nlayers);
         for (size_t layer = 0; layer < nlayers; ++layer) {
-            fallback->layers[layer].k_comp = kv.k[0][layer];
-            fallback->layers[layer].v_comp = kv.v[0][layer];
-            fallback->layers[layer].orig_seq_len = static_cast<uint32_t>(kv.k[0][layer]->shape()[0]);
-            fallback->layers[layer].comp_seq_len = fallback->layers[layer].orig_seq_len;
+            auto k_tensor = kv.k[0][layer];
+            auto v_tensor = kv.v[0][layer];
+            if (!k_tensor || !v_tensor) {
+                return nullptr;
+            }
+            const uint32_t max_seq = static_cast<uint32_t>(k_tensor->shape()[0]);
+            const uint32_t seq = std::min<uint32_t>(seq_len, max_seq);
+            fallback->layers[layer].k_comp = k_tensor->slice(0, 0, seq);
+            fallback->layers[layer].v_comp = v_tensor->slice(0, 0, seq);
+            fallback->layers[layer].orig_seq_len = seq;
+            fallback->layers[layer].comp_seq_len = seq;
         }
         return fallback;
     }
-    config_.compression_factor = 5;
-    config_.image_kv_len = 8;
     const uint32_t factor = config_.compression_factor > 0 ? config_.compression_factor : 1;
-    std::cout << factor << std::endl;
+    if (factor <= 1) {
+        return nullptr;
+    }
+
+    // Ensure weight/bias dtypes match KV dtype on CPU to avoid Rearrange/Gemm dtype mismatches.
+    const auto kv_dtype = kv.k[0][0]->dtype();
+    if (!layered_weights_.empty() && !layered_weights_[0].empty()) {
+        const auto w_dtype = layered_weights_[0][0].weight ? layered_weights_[0][0].weight->dtype() : kv_dtype;
+        if (w_dtype != kv_dtype) {
+            if (kv.k[0][0]->deviceType() != INFINI_DEVICE_CPU) {
+                std::cerr << "compress: weight dtype != kv dtype on non-CPU device; disable compression" << std::endl;
+                return nullptr;
+            }
+            for (auto &layer : layered_weights_) {
+                for (auto &lw : layer) {
+                    auto casted_w = cast_weight_cpu(lw.weight, kv_dtype);
+                    if (!casted_w) {
+                        std::cerr << "compress: failed to cast weights to kv dtype" << std::endl;
+                        return nullptr;
+                    }
+                    lw.weight = casted_w;
+                    if (lw.bias) {
+                        auto casted_b = cast_weight_cpu(lw.bias, kv_dtype);
+                        if (!casted_b) {
+                            std::cerr << "compress: failed to cast bias to kv dtype" << std::endl;
+                            return nullptr;
+                        }
+                        lw.bias = casted_b;
+                    }
+                }
+            }
+        }
+    }
+
+    auto has_prefix_mlp = [&](uint32_t prefix_idx) -> bool {
+        if (layered_weights_.empty()) return false;
+        for (uint32_t slot = 0; slot < 3; ++slot) {
+            auto wb = getLinearWithBias(0, prefix_idx, slot);
+            if (!wb.first) return false;
+        }
+        return true;
+    };
+    const bool has_text_mlp = has_prefix_mlp(0) && has_prefix_mlp(1);
+    const bool has_image_mlp = has_prefix_mlp(2) && has_prefix_mlp(3);
+    if (!has_text_mlp) {
+        std::cerr << "compress: missing text MLP weights (compress_tk/tv)" << std::endl;
+        return nullptr;
+    }
 
     for (size_t layer = 0; layer < nlayers; ++layer) {
         auto k_tensor = kv.k[0][layer];
@@ -102,9 +193,13 @@ std::unique_ptr<CompressedKV> Compressor::compress(const KVCache &kv, uint32_t s
         if (shape.size() != 3) {
             return nullptr;
         }
-        const uint32_t seq = static_cast<uint32_t>(shape[0]);
+        const uint32_t max_seq = static_cast<uint32_t>(shape[0]);
+        const uint32_t seq = std::min<uint32_t>(seq_len, max_seq);
         const uint32_t nkvh = static_cast<uint32_t>(shape[1]);
         const uint32_t dk = static_cast<uint32_t>(shape[2]);
+
+        auto k_view = k_tensor->slice(0, 0, seq);
+        auto v_view = v_tensor->slice(0, 0, seq);
 
         auto fetch = [&](uint32_t prefix, uint32_t slot) -> std::pair<std::shared_ptr<Tensor>, std::shared_ptr<Tensor>> {
             return getLinearWithBias(static_cast<uint32_t>(layer), prefix, slot);
@@ -248,16 +343,22 @@ std::unique_ptr<CompressedKV> Compressor::compress(const KVCache &kv, uint32_t s
 
 
         //这里可能有坑
-        auto k_img = img_len > 0 ? k_tensor->slice(0, 0, img_len) : nullptr;
-        auto v_img = img_len > 0 ? v_tensor->slice(0, 0, img_len) : nullptr;
-        auto k_txt = txt_len > 0 ? k_tensor->slice(0, img_len, txt_len) : nullptr;
-        auto v_txt = txt_len > 0 ? v_tensor->slice(0, img_len, txt_len) : nullptr;
+        auto k_img = img_len > 0 ? k_view->slice(0, 0, img_len) : nullptr;
+        auto v_img = img_len > 0 ? v_view->slice(0, 0, img_len) : nullptr;
+        auto k_txt = txt_len > 0 ? k_view->slice(0, img_len, txt_len) : nullptr;
+        auto v_txt = txt_len > 0 ? v_view->slice(0, img_len, txt_len) : nullptr;
 
         std::shared_ptr<Tensor> k_img_comp, v_img_comp, k_txt_comp, v_txt_comp;
         if (img_len > 0) {
-            auto res = compress_segment(k_img, v_img, 2); // compress_ik/iv
-            k_img_comp = res.first;
-            v_img_comp = res.second;
+            if (has_image_mlp) {
+                auto res = compress_segment(k_img, v_img, 2); // compress_ik/iv
+                k_img_comp = res.first;
+                v_img_comp = res.second;
+            } else {
+                // Hybrid (text-only) weights: retain image KV prefix uncompressed.
+                k_img_comp = k_img;
+                v_img_comp = v_img;
+            }
         }
         if (txt_len > 0) {
             auto res = compress_segment(k_txt, v_txt, 0); // compress_tk/tv
@@ -291,6 +392,63 @@ std::unique_ptr<CompressedKV> Compressor::compress(const KVCache &kv, uint32_t s
     }
 
     return compressed;
+}
+
+uint32_t Compressor::compressInplace(KVCache &kv, uint32_t seq_len) {
+    if (!config_.enable) {
+        return seq_len;
+    }
+    if (seq_len == 0) {
+        return 0;
+    }
+    if (kv.k.empty() || kv.v.empty()) {
+        return seq_len;
+    }
+    if (kv.k.size() != 1 || kv.v.size() != 1) {
+        std::cerr << "compressInplace: only single-device KVCache is supported for now" << std::endl;
+        return seq_len;
+    }
+
+    auto ckv = compress(kv, seq_len);
+    if (!ckv) {
+        return seq_len;
+    }
+    if (ckv->layers.empty()) {
+        return seq_len;
+    }
+
+    auto *ctx_ptr = maybe_get_context();
+    if (!ctx_ptr || ctx_ptr->op_handle == nullptr) {
+        std::cerr << "compressInplace: inference context not initialized" << std::endl;
+        return seq_len;
+    }
+
+    const size_t nlayers = kv.k[0].size();
+    if (ckv->layers.size() != nlayers) {
+        std::cerr << "compressInplace: layer count mismatch" << std::endl;
+        return seq_len;
+    }
+
+    uint32_t new_len = ckv->layers[0].comp_seq_len;
+    for (size_t layer = 0; layer < nlayers; ++layer) {
+        if (!ckv->layers[layer].k_comp || !ckv->layers[layer].v_comp) {
+            std::cerr << "compressInplace: missing compressed tensor at layer " << layer << std::endl;
+            return seq_len;
+        }
+        if (ckv->layers[layer].comp_seq_len != new_len) {
+            std::cerr << "compressInplace: inconsistent compressed length across layers" << std::endl;
+            return seq_len;
+        }
+    }
+
+    for (size_t layer = 0; layer < nlayers; ++layer) {
+        auto k_dst = kv.k[0][layer]->slice(0, 0, new_len);
+        auto v_dst = kv.v[0][layer]->slice(0, 0, new_len);
+        k_dst->copyFrom(ckv->layers[layer].k_comp, ctx_ptr->op_handle, ctx_ptr->stream);
+        v_dst->copyFrom(ckv->layers[layer].v_comp, ctx_ptr->op_handle, ctx_ptr->stream);
+    }
+
+    return new_len;
 }
 
 
