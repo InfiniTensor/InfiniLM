@@ -164,6 +164,13 @@ public:
     DECLARE_OP_CACHE(DequantizeAWQ)
     DECLARE_OP_CACHE(Conv)
     DECLARE_OP_CACHE(LayerNorm)
+    DECLARE_OP_CACHE(Softmax)
+    DECLARE_OP_CACHE(QuickGelu)
+    DECLARE_OP_CACHE(Sigmoid)
+    // DECLARE_OP_CACHE(Gelu)
+    // DECLARE_OP_CACHE(Gelutanh)
+    // DECLARE_OP_CACHE(Tanh)
+
 
     CacheManager(size_t capacity = 100)
         : Add_cache(capacity, DESTROY_FUNC(Add)),
@@ -177,7 +184,10 @@ public:
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)),
           Conv_cache(capacity, DESTROY_FUNC(Conv)),
-          LayerNorm_cache(capacity, DESTROY_FUNC(LayerNorm)) {}
+          LayerNorm_cache(capacity, DESTROY_FUNC(LayerNorm)),
+          Softmax_cache(capacity, DESTROY_FUNC(Softmax)),
+          QuickGelu_cache(capacity, DESTROY_FUNC(QuickGelu)),
+          Sigmoid_cache(capacity, DESTROY_FUNC(Sigmoid)) {}
 
     template <typename... Tensors>
     static size_t createDescriptorKey(Tensors... tensors) {

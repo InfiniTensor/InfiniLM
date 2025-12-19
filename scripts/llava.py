@@ -1244,7 +1244,7 @@ class LLaVAForCauslLM:
         """阶段1: Vision Encoder - 将图像编码为视觉特征"""
         if pixel_values is None:
             return None
-        print(f"pixels value:{pixel_values.flatten()[:2000].tolist()}")
+        # print(f"pixels value:{pixel_values.flatten()[:2000].tolist()}")
 
         # 将torch tensor转换为连续的字节数据
         if hasattr(pixel_values, 'contiguous'):

@@ -74,6 +74,12 @@ struct InferenceContext {
                 std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> b,
                 std::vector<size_t> pads, std::vector<size_t> strides,
                 std::vector<size_t> dilations);
+
+    void sigmoid(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x);
+
+    void softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int axis);
+    
+    void quickGelu(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x);
 };
 
 namespace {
@@ -183,12 +189,14 @@ inline void conv2d(std::shared_ptr<Tensor> y,
     getInferenceContext().conv2d(y, x, w, b, pads, strides, dilations);
 }
 
-inline void quickGelu(Tensor* out, Tensor* in){
-    size_t N = in->numel(); // 总元素数
-    float* in_ptr = static_cast<float*>(in->data());
-    float* out_ptr = static_cast<float*>(out->data());
-    for (size_t i = 0; i < N; ++i) {
-        float x = in_ptr[i];
-        out_ptr[i] = x / (1.0f + expf(-1.702f * x)); // sigmoid(1.702*x)
-    }
+inline void quickGelu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in){
+    getInferenceContext().quickGelu(out, in);
+}
+
+inline void sigmoid(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in){
+    getInferenceContext().sigmoid(out, in);
+}
+
+inline void softmax(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in, int axis){
+    getInferenceContext().softmax(out, in, axis);
 }

@@ -385,3 +385,95 @@ void InferenceContext::conv2d(std::shared_ptr<Tensor> y,
         desc, workspace, workspace_size,
         y->data(), x->data(), w->data(), b_desc, stream));
 }
+
+void InferenceContext::quickGelu(std::shared_ptr<Tensor> y,
+                                 std::shared_ptr<Tensor> x) {
+    // 步骤1: 创建缓存键 - QuickGelu只依赖输入输出张量
+    size_t key = CacheManager::createDescriptorKey(y, x);
+
+    // 步骤2: 尝试从缓存中获取描述符
+    infiniopQuickGeluDescriptor_t desc;
+    if (!cache_manager->getQuickGeluDescriptor(key, desc)) {
+        // 步骤3: 创建新的描述符
+        RUN_INFINI(infiniopCreateQuickGeluDescriptor(
+            op_handle, &desc, y->desc(), x->desc()));
+
+        // 缓存描述符以便复用
+        cache_manager->putQuickGeluDescriptor(key, desc);
+    }
+
+    // 步骤4: 获取工作空间大小
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetQuickGeluWorkspaceSize(desc, &workspace_size));
+
+    // 步骤5: 确保工作空间充足
+    ensure_workspace(workspace_size);
+    void* workspace = workspace_storage->memory();
+
+    // 步骤6: 执行 QuickGelu 算子
+    RUN_INFINI(infiniopQuickGelu(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), stream));
+}
+
+
+void InferenceContext::softmax(std::shared_ptr<Tensor> y,
+                                std::shared_ptr<Tensor> x,
+                                int axis) {
+    // 步骤1: 创建缓存键 - 包含影响算子行为的参数（y, x, axis）
+    size_t key = CacheManager::createDescriptorKey(y, x);
+    hash_combine(key, std::hash<int>()(axis)); // 将 axis 也纳入 key
+
+    // 步骤2: 查找 Softmax 描述符缓存
+    infiniopSoftmaxDescriptor_t desc;
+    if (!cache_manager->getSoftmaxDescriptor(key, desc)) {
+        // 步骤3: 创建新描述符
+        RUN_INFINI(infiniopCreateSoftmaxDescriptor(
+            op_handle, &desc, y->desc(), x->desc(), axis));
+        // 可以选择缓存
+        // cache_manager->putSoftmaxDescriptor(key, desc);
+    }
+
+    // 步骤4: 获取工作空间大小
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSoftmaxWorkspaceSize(desc, &workspace_size));
+
+    // 步骤5: 确保工作空间充足
+    ensure_workspace(workspace_size);
+    void* workspace = workspace_storage->memory();
+
+    // 步骤6: 执行 Softmax 算子
+    RUN_INFINI(infiniopSoftmax(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), stream));
+}
+
+void InferenceContext::sigmoid(std::shared_ptr<Tensor> y,
+                                std::shared_ptr<Tensor> x) {
+    // 步骤1: 创建缓存键（y 和 x 决定算子行为）
+    size_t key = CacheManager::createDescriptorKey(y, x);
+
+    // 步骤2: 尝试从缓存获取描述符
+    infiniopSigmoidDescriptor_t desc;
+    if (!cache_manager->getSigmoidDescriptor(key, desc)) {
+        // 步骤3: 创建新的描述符
+        RUN_INFINI(infiniopCreateSigmoidDescriptor(
+            op_handle, &desc, y->desc(), x->desc()));
+
+        // 缓存以供复用
+        cache_manager->putSigmoidDescriptor(key, desc);
+    }
+
+    // 步骤4: 获取工作空间大小
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSigmoidWorkspaceSize(desc, &workspace_size));
+
+    // 步骤5: 确保工作空间充足
+    ensure_workspace(workspace_size);
+    void* workspace = workspace_storage->memory();
+
+    // 步骤6: 执行 Sigmoid 算子
+    RUN_INFINI(infiniopSigmoid(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), stream));
+}

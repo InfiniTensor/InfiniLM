@@ -225,7 +225,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
 
     // debug_fp16_data_u16(image_data, 100); 
 
-    std::cout << "image_data pointer from cpp: " << image_data << std::endl;
+    // std::cout << "image_data pointer from cpp: " << image_data << std::endl;
 
     // === 1. 准备参数 ===
     auto vision_embed_dim = meta.vision_meta.vision_embed_dim; // 1024
@@ -318,8 +318,8 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // embeddings->debug_first_n(20000);
     // rsrc.vision_position_embedding->debug_first_n(20000);
     add(embeddings, embeddings, rsrc.vision_position_embedding);
-    // printf("DEBUG: embeddings after add position embedding:\n");
-    // embeddings->debug_first_n(10);
+    printf("DEBUG: embeddings after add position embedding:\n");
+    embeddings->debug_first_n(10);
     // embeddings->debug();
 
     // (pre_layrnorm): LayerNorm((1024,), eps=1e-05, elementwise_affine=True) # 暂未实现
@@ -336,7 +336,8 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // printf("DEBUG: pre_layernorm after LayerNorm_1\n");
     // pre_layernorm->debug_first_n(10);
 
-
+    printf("DEBUG: pre_layernorm:\n");
+    pre_layernorm->debug_first_n(10);
 
     // for (uint32_t layer = 0; layer < vision_num_layers; layer++) {
     for (uint32_t layer = 0; layer < 1; layer++) {
@@ -355,8 +356,6 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         // (layer_norm1): LayerNorm((1024,), eps=1e-05, elementwise_affine=True))
 
         // std::cout << "q_buf->info()" << q_buf->info() << std::endl;
-        // printf("DEBUG: pre_layernorm:\n");
-        // pre_layernorm->debug_first_n(20000);
         layernorm(/*out_put*/ in_layer_pre_norm,
                     /*input_standardization*/ input_standardization,
                     /*input_std_deviation*/ input_std_deviation,
@@ -364,26 +363,11 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
                     /*weight*/ rsrc.vision_in_layer_pre_norm_weights[layer],
                     /*bias*/ rsrc.vision_in_layer_pre_norm_biases[layer],
                     meta.vision_meta.vision_epsilon); // 1e-5
-        // printf("layer_norm1 output:\n");
-        // in_layer_pre_norm->debug_first_n(20000);
-        // printf("DEBUG: in_layer_pre_norm after LayerNorm_2\n");
-        // in_layer_pre_norm->debug_first_n(10); 
-        // debug: 不考虑中间两行，这里是对的了。(== hidden_states at encoder_layer start__3)
-
-        // // 测试二维的linear和三维的linear是否一样
-        // std::cout << "q_buf->info()" << q_buf->info() << std::endl;
-        // // shape[ 1 577 1024 ]
-        // std::cout << "pre_layernorm->info()" << pre_layernorm->info() << std::endl;
-        // // shape[ 1 577 1024 ]
-        // std::cout << "rsrc.vision_q_weights[layer]->info()" << rsrc.vision_q_weights[layer]->info() << std::endl;
-        // // shape[ 1024 1024 ]
-        // // bias应该是 shape[ 1024 ]，正确性debug的时候可以去linear里看看bias被拓展成什么形状了
-        // // 当前这么乘，跟降维后的结果，还是只有两行不一样……好奇怪，但应该还是最开始那个啥导致的。
-
+        printf("layer_norm1 output:\n");
+        in_layer_pre_norm->debug_first_n(10);
 
         // // 线性投影
         linear(q_buf, in_layer_pre_norm, rsrc.vision_q_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_q_biases[layer]);
-        // printf("DEBUG: q_buf after linear projection:\n");
         // // debug: 不考虑中间两行，这里是对的了。(== queries (first 10 elements): )
 
 
@@ -398,26 +382,19 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         auto k_rearr = Tensor::buffer(dt_logits, {1, vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
         auto v_rearr = Tensor::buffer(dt_logits, {1, vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
         
-        // std::cout << "q_rearr->info()" << q_rearr->info() << std::endl;
-        // printf("DEBUG: Rearranging Q/K/V tensors\n");
-        // auto test = q_buf->view({1, vision_seq, vision_nh, vision_dh});
-        // std::cout << "test->info()" << test->info() << std::endl;
-        // auto test_perm = test->permute({0,2,1,3});
-        // std::cout << "test_perm->info()" << test_perm->info() << std::endl;
-        // printf("DEBUG: Rearranging Q/K/V tensors\n");
 
         rearrange(q_rearr, q_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
         rearrange(k_rearr, k_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
         rearrange(v_rearr, v_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
 
         // printf("[DEBUG] Q output:\n");
-        // q_rearr->debug_first_n(2000);
+        // q_rearr->debug_first_n(10);
 
         // printf("[DEBUG] K output:\n");
-        // k_rearr->debug_first_n(2000);
+        // k_rearr->debug_first_n(10);
 
         // printf("[DEBUG] V output:\n");
-        // v_rearr->debug_first_n(2000);
+        // v_rearr->debug_first_n(10);
 
         // 2) 准备 QK = [vision_nh, vision_seq, vision_seq]
         auto qk_buf = Tensor::buffer(dt_logits, {vision_nh, vision_seq, vision_seq}, rsrc.memory_pool);
@@ -435,15 +412,15 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
             nullptr
         );
 
-        printf("[DEBUG] attn_weights before softmax:\n");
-        qk_buf->debug_first_n(10);
+        // printf("[DEBUG] attn_weights before softmax:\n");
+        // qk_buf->debug_first_n(10);
 
         // 4) softmax (你还没实现，用 causalSoftmax 临时代替)
         auto qk_softmax = qk_buf->view({vision_nh, vision_seq, vision_seq});
-        causalSoftmax(qk_softmax, qk_softmax);  // debug: FIXME: non-causal softmax required
+        softmax(qk_softmax, qk_softmax, -1);  // debug: FIXME: non-causal softmax required
 
-        printf("[DEBUG] qk_softmax after softmax:\n");
-        qk_softmax->debug_first_n(5);
+        // printf("[DEBUG] qk_softmax after softmax:\n");
+        // qk_softmax->debug_first_n(5);
 
         // 5) Attn * V
         auto attn_val_buf = Tensor::buffer(dt_logits, {vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
@@ -478,7 +455,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         auto attn_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
         linear(attn_out, o, rsrc.vision_proj_weight[layer]->permute({1, 0}), 1.0f, 0.0f, nullptr, rsrc.vision_proj_bias[layer]);
         printf("attn hidden_stats:\n");
-        attn_out->debug_first_n(3);
+        attn_out->debug_first_n(10);
         // === Attention residual add ===   // 复用 pre_layernorm 作为输出 buffer
         // hidden_states = residual + hidden_states
         add(pre_layernorm, attn_out, vision_residual);
@@ -496,7 +473,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
             meta.vision_meta.vision_epsilon
         );
         printf("layer norm2 output:\n");
-        post_attn_norm->debug_first_n(3);
+        post_attn_norm->debug_first_n(10);
         // === MLP ===
         // FC1: 1024 -> 4096
         auto mlp_fc1_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_intermediate_size}, rsrc.memory_pool);
@@ -505,14 +482,14 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
 
         // QuickGELU Activation
         auto mlp_activated_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_intermediate_size}, rsrc.memory_pool);
-        quickGelu(mlp_activated_out.get(), mlp_fc1_out.get());
+        quickGelu(mlp_activated_out, mlp_fc1_out);
 
         // FC2: 4096 -> 1024
         auto mlp_fc2_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
         linear(mlp_fc2_out, mlp_activated_out, rsrc.vision_mlp_fc2_weight[layer]->permute({1, 0}),
             1.0f, 0.0f, nullptr, rsrc.vision_mlp_fc2_bias[layer]);
         printf("mlp output:\n");
-        mlp_fc2_out->debug_first_n(3);
+        mlp_fc2_out->debug_first_n(10);
 
         // === 第二次残差连接：MLP ===
         add(pre_layernorm, mlp_fc2_out, vision_residual);
