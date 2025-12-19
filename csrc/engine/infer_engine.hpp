@@ -19,7 +19,7 @@ public:
     };
 
     struct Output {
-        infinicore::Tensor hidden_states;
+        infinicore::Tensor logits;
     };
 
     // Updated constructor: accept CacheConfig instead of CacheType

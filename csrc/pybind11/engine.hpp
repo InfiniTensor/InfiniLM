@@ -125,7 +125,7 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("input_ids"), py::arg("position_ids"));
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
-        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Output tensor");
+        .def_readwrite("logits", &InferEngine::Output::logits, "Output tensor");
 }
 
 } // namespace infinilm::engine
