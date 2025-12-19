@@ -37,16 +37,10 @@ public:
     /**
      * @brief Forward pass: compute language modeling logits
      *
-     * @param input_ids Token IDs tensor of shape [batch, seq_len]
-     * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param kv_cache Optional model-level KV cache for incremental decoding
-     * @return Logits tensor of shape [batch, seq_len, vocab_size]
+     * @param input Encapsulated input tensors and other parameters
+     * @return Output structure containing the result
      */
-    infinicore::Tensor forward(const infinicore::Tensor &input_ids,
-                               const infinicore::Tensor &position_ids,
-                               void *kv_cache = nullptr) const;
-
-    infinicore::Tensor forward(std::vector<std::any> args) const override;
+    Output forward(const Input &input) const;
 
     // Reset internal cache position
     void reset_cache(size_t pos = 0) override;

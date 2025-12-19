@@ -86,7 +86,7 @@ std::unordered_map<std::string, infinicore::nn::Parameter> RankWorker::state_dic
 //------------------------------------------------------
 // run -- asynchronous
 //------------------------------------------------------
-void RankWorker::run(const std::vector<std::any> &args) {
+void RankWorker::run(const InfinilmModel::Input &args) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (should_exit_) {
@@ -164,7 +164,7 @@ void RankWorker::close() {
 //------------------------------------------------------
 // get_output (thread safe)
 //------------------------------------------------------
-infinicore::Tensor RankWorker::get_output() {
+InfinilmModel::Output RankWorker::get_output() {
     std::lock_guard<std::mutex> lock(mutex_);
     return output_;
 }
@@ -194,7 +194,7 @@ void RankWorker::thread_loop() {
             Command local_cmd = Command::INIT;
             std::string local_param_name;
             infinicore::Tensor local_param;
-            std::vector<std::any> local_args;
+            InfinilmModel::Input local_args;
             size_t local_reset_pos = 0;
             cache::CacheConfig local_reset_config;
 

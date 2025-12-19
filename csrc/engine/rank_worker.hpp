@@ -36,7 +36,7 @@ public:
     std::unordered_map<std::string, infinicore::nn::Parameter> state_dict();
 
     // Submit a run (forward) job.
-    void run(const std::vector<std::any> &args);
+    void run(const InfinilmModel::Input &args);
 
     // Reset the internal cache in the model (clears state between generations)
     void reset_cache(size_t pos = 0);
@@ -51,7 +51,7 @@ public:
     void close();
 
     // Thread-safe accessor for last output produced by RUN.
-    infinicore::Tensor get_output();
+    InfinilmModel::Output get_output();
 
     std::string info() const;
 
@@ -77,12 +77,12 @@ private:
     // Task payloads (protected by mutex)
     std::string pending_param_name_;
     infinicore::Tensor pending_param_;
-    std::vector<std::any> pending_args_;
+    InfinilmModel::Input pending_args_;
     size_t pending_reset_pos_ = 0;
     cache::CacheConfig pending_cache_config_;
 
     // Output (protected by mutex)
-    infinicore::Tensor output_;
+    InfinilmModel::Output output_;
 
     // Thread sync
     std::thread thread_;

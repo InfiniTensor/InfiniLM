@@ -80,14 +80,14 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
 
     // Trigger each worker to run inference
     for (auto &worker : workers_) {
-        worker->run(std::vector<std::any>({input_ids, position_ids}));
+        worker->run({input_ids, position_ids});
     }
     // Wait for all workers
     for (auto &worker : workers_) {
         worker->wait();
     }
 
-    return {workers_[0]->get_output()};
+    return {workers_[0]->get_output().logits};
 }
 
 //------------------------------------------------------
