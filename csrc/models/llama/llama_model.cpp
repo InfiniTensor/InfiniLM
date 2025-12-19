@@ -43,9 +43,9 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
     }
 }
 
-LlamaModel::Output LlamaModel::forward(const Input &input) const {
-    const auto &[input_ids, position_ids, kv_cache] = input;
-
+infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
+                                       const infinicore::Tensor &position_ids,
+                                       void *kv_cache) const {
     // Use persistent internal cache if no external cache is provided
     // This matches Python backend behavior: if use_cache and past_key_values is None, create DynamicCache
     // The cache persists across forward calls to enable incremental decoding
@@ -91,7 +91,7 @@ LlamaModel::Output LlamaModel::forward(const Input &input) const {
     // Normalize only the last token (matches Python backend)
     auto normalized_last_token = norm_->forward(last_token);
 
-    return {normalized_last_token};
+    return normalized_last_token;
 }
 
 void LlamaModel::reset_cache(size_t pos) const {

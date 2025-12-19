@@ -29,7 +29,7 @@ infinicore::Tensor LlamaForCausalLM::forward(const infinicore::Tensor &input_ids
                                              void *kv_cache) const {
     // 1. Forward through base model to get hidden states
     auto position_ids_device = position_ids->to(device_);
-    auto hidden_states = model_->forward({input_ids, position_ids_device, kv_cache}).hidden_states;
+    auto hidden_states = model_->forward(input_ids, position_ids_device, kv_cache);
 
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);
