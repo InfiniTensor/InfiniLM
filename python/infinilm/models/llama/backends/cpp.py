@@ -108,10 +108,9 @@ class LlamaForCausalLM(GenerationMixin):
         #     self._model.forward(input_ids, position_ids, kv_caches)
         # )
         return infinicore.Tensor(
-            self._model.generate(
-                input_ids._underlying,
-                position_ids._underlying,
-            )
+            self._model.forward(
+                self._model.Input(input_ids._underlying, position_ids._underlying)
+            ).logits
         )
 
     def __call__(self, input_ids, position_ids, *args, **kwargs):
