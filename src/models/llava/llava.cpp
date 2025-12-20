@@ -541,6 +541,40 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // printf("DEBUG: Final vision model output (CLS token):\n");
     // cls_output->debug_first_n(10);
 
+    // 7. Multi Modal Projector 处理
+    auto mm_linear1_out = Tensor::buffer(dt_logits, {1, 1, 4096}, rsrc.memory_pool);
+
+    // FC1: 1024 -> 4096
+    linear(
+        mm_linear1_out,
+        cls_output,  // [1, 1, 1024]
+        rsrc.mm_proj_linear1_weight->permute({1, 0}), // 转置权重以符合 GEMM 输入
+        1.0f,
+        0.0f,
+        nullptr,
+        rsrc.mm_proj_linear1_bias
+    );
+
+    // GELU / QuickGELU 激活
+    auto mm_activated_out = Tensor::buffer(dt_logits, {1, 1, 4096}, rsrc.memory_pool);
+    quickGelu(mm_activated_out, mm_linear1_out);
+
+    // FC2: 4096 -> 4096
+    auto mm_linear2_out = Tensor::buffer(dt_logits, {1, 1, 4096}, rsrc.memory_pool);
+    linear(
+        mm_linear2_out,
+        mm_activated_out, // [1, 1, 4096]
+        rsrc.mm_proj_linear2_weight->permute({1, 0}),
+        1.0f,
+        0.0f,
+        nullptr,
+        rsrc.mm_proj_linear2_bias
+    );
+
+    // mm_linear2_out 即 MultiModal Projector 的最终输出
+    printf("MultiModal Projector output:\n");
+    mm_linear2_out->debug_first_n(10);
+
 }
 
 

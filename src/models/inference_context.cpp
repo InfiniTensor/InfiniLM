@@ -477,3 +477,4 @@ void InferenceContext::sigmoid(std::shared_ptr<Tensor> y,
         desc, workspace, workspace_size,
         y->data(), x->data(), stream));
 }
+
