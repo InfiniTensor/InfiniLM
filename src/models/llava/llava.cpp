@@ -562,21 +562,21 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     printf("post_layernorm output:\n");
     post_layernorm_output->debug_first_n(10);
 
-    auto projector_input = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+    auto projector_input = Tensor::buffer(dt_logits, {1, vision_seq - 1, vision_embed_dim}, rsrc.memory_pool);
     int second_last_idx = all_hidden_states.size() - 2;
-    projector_input = all_hidden_states[second_last_idx]->slice(1, 1, vision_seq - 1);
+    rearrange(projector_input, all_hidden_states[second_last_idx]->slice(1, 1, vision_seq - 1));
 
     // 准备projector的buffer
-    auto projector_linear1_out = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
-    auto projector_gelu_out = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
-    auto projector_final_out = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
+    auto projector_linear1_out = Tensor::buffer(dt_logits, {1, vision_seq - 1, 4096}, rsrc.memory_pool);
+    auto projector_gelu_out = Tensor::buffer(dt_logits, {1, vision_seq - 1, 4096}, rsrc.memory_pool);
+    auto projector_final_out = Tensor::buffer(dt_logits, {1, vision_seq - 1, 4096}, rsrc.memory_pool);
 
     // printf("projector weight 1:\n");
     // rsrc.projector_weight_1->debug_first_n(10);
     // printf("projector bias 1:\n");
     // rsrc.projector_bias_1->debug_first_n(10);
     printf("projector_input:\n");
-    projector_input->debug_first_n(10000);
+    projector_input->debug_first_n(10);
     // 到此正确
     
     // Linear 1: 1024 -> 4096
@@ -611,6 +611,8 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     
     printf("projector final output:\n");
     projector_final_out->debug_first_n(10);
+    
+    //TODO: 把结果写回output指针
 }
 
 

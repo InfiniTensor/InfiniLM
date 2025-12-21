@@ -109,6 +109,10 @@ void InferenceContext::gemm(std::shared_ptr<Tensor> c,
                             std::shared_ptr<Tensor> a,
                             std::shared_ptr<Tensor> b,
                             float alpha, float beta) {
+    // printf("--------------------------------------------\n");
+    // printf("%s\n", a->info().c_str()); // for debug
+    // printf("%s\n", b->info().c_str()); // for debug
+    // printf("%s\n", c->info().c_str()); // for debug
     size_t key = CacheManager::createDescriptorKey(c, a, b);
 
     infiniopGemmDescriptor_t desc;
@@ -268,6 +272,7 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
                               float alpha, float beta,
                               std::shared_ptr<Tensor> residual,
                               std::shared_ptr<Tensor> bias) {
+
     bool residual_flag = residual != nullptr;
 // bias && !residual
 // residual
@@ -286,18 +291,22 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
     if (residual) {
         if (residual->data() == c->data()) {
             if (beta == 0.0) {
+                // std::cout << "1";
                 gemm(c, a, b, alpha, 1.0);
             } else {
                 auto c_copy = Tensor::buffer(c->dtype(), c->shape(), memory_pool);
                 c_copy->copyFrom(c, op_handle, stream);
+                // std::cout << "2";
                 gemm(c, a, b, alpha, beta);
                 add(c, c, c_copy);
             }
         } else {
+            // std::cout << "3";
             gemm(c, a, b, alpha, beta);
             add(c, c, residual);
         }
     } else {
+        // std::cout << "4";
         gemm(c, a, b, alpha, beta);
     }
 
