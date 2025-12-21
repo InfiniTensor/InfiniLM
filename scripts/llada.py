@@ -748,7 +748,7 @@ class LLaDAForCauslLM:
 def test():
  
     model_path = "/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/snapshots/783d3467f108d28ac0a78d3e41af16ab05cabd8d"
-    device_type = DeviceType.DEVICE_TYPE_CPU
+    device_type = DeviceType.DEVICE_TYPE_NVIDIA
     verbose = True
 
     # Number of devices

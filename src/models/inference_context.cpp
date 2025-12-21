@@ -143,6 +143,27 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
                                      y->data(), x->data(), stream));
 }
 
+void InferenceContext::softmax(std::shared_ptr<Tensor> y,  
+                               std::shared_ptr<Tensor> x, int dim) {  
+    size_t key = CacheManager::createDescriptorKey(y, x);  
+  
+    infiniopSoftmaxDescriptor_t desc;  
+    if (!cache_manager->getSoftmaxDescriptor(key, desc)) {  
+        RUN_INFINI(infiniopCreateSoftmaxDescriptor(  
+            op_handle, &desc, y->desc(), x->desc(), dim));  
+        cache_manager->putSoftmaxDescriptor(key, desc);  
+    }  
+  
+    size_t workspace_size = 0;  
+    RUN_INFINI(infiniopGetSoftmaxWorkspaceSize(desc, &workspace_size));  
+    ensure_workspace(workspace_size);  
+    void *workspace = workspace_storage->memory();  
+  
+    RUN_INFINI(infiniopSoftmax(desc, workspace, workspace_size,  
+                                y->data(), x->data(), stream));  
+}
+
+
 void InferenceContext::topkrouter(std::shared_ptr<Tensor> values,  // F32
                                   std::shared_ptr<Tensor> indices, // I32
                                   std::shared_ptr<Tensor> x,

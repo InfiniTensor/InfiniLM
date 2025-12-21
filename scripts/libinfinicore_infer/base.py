@@ -64,6 +64,7 @@ class BaseModel:
         register_lib_functions(self.lib)
 
     def _load_library(self):
+        
         lib_path = os.path.join(
             os.environ.get("INFINI_ROOT"), "lib", "libinfinicore_infer.so"
         )

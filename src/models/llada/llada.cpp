@@ -204,6 +204,17 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         auto result_cpu = std::vector<int64_t>(nreq);
         
         auto router_logits_buf = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool);
+        // 申请GPU内存
+        auto values_gpu = Tensor::buffer(
+            dt_logits,  // float32类型
+            {ntok, 8},                       // 形状：[ntok * 8]
+            rsrc.memory_pool
+        );
+        auto indices_gpu = Tensor::buffer(
+            dt_logits,  // int32类型
+            {ntok, 8},                       // 形状：[ntok * 8]
+            rsrc.memory_pool
+        );
         
         std::cout << "Slice Qkv buffer" << std::endl;
         auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
@@ -341,9 +352,20 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                 std::cout << "o buffer info is " <<  o_buf->info() << std::endl;
                 // router_logits_buf [24, 64] which mean the router weights of each expert 
                 linear(router_logits_buf, o_buf, rsrc.w_expert_router[layer_idx], 1.0, 0.0, nullptr, nullptr); 
-
-                //TopK-Router Select //router_logits = self.gate(hidden_states)
-                softmax()
+                std::cout << router_logits_buf->info() << std::endl; //dtype->19
+                // TopK-Router Select //router_logits = self.gate(hidden_sta
+                // auto gate_correction_bias = weights->w_layers[layer].route->b;
+                auto zero_bias = Tensor::buffer(INFINI_DTYPE_BF16, {64});
+                std::vector<float> zeros_data(64, 0.0f);
+                zero_bias->load(zeros_data.data());
+                std::cout << "router_logits_buf: " << router_logits_buf->info() << std::endl;
+                std::cout << "values_gpu shape: " << values_gpu->info() << std::endl;
+                std::cout << "indices_gpu shape: " << indices_gpu->info() << std::endl;
+                std::cout << "zero_bias shape: " << zero_bias->info() << std::endl;
+                //std::cout << "Device type: " << rsrc.handle->device << std::endl; 
+                topkrouter(values_gpu, indices_gpu, router_logits_buf, zero_bias, 
+                        1.0, 8);
+                auto expert_rou
         
         }
         RUN_INFINI(infinirtStreamSynchronize(stream));
