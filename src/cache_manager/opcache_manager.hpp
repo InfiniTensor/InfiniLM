@@ -167,7 +167,7 @@ public:
     DECLARE_OP_CACHE(Softmax)
     DECLARE_OP_CACHE(QuickGelu)
     DECLARE_OP_CACHE(Sigmoid)
-    // DECLARE_OP_CACHE(Gelu)
+    DECLARE_OP_CACHE(Gelu)
     // DECLARE_OP_CACHE(Gelutanh)
     // DECLARE_OP_CACHE(Tanh)
 
@@ -187,7 +187,8 @@ public:
           LayerNorm_cache(capacity, DESTROY_FUNC(LayerNorm)),
           Softmax_cache(capacity, DESTROY_FUNC(Softmax)),
           QuickGelu_cache(capacity, DESTROY_FUNC(QuickGelu)),
-          Sigmoid_cache(capacity, DESTROY_FUNC(Sigmoid)) {}
+          Sigmoid_cache(capacity, DESTROY_FUNC(Sigmoid)),
+          Gelu_cache(capacity, DESTROY_FUNC(Gelu)){}
 
     template <typename... Tensors>
     static size_t createDescriptorKey(Tensors... tensors) {

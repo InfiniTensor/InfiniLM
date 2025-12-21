@@ -271,6 +271,37 @@ inline std::shared_ptr<Tensor> getVisionMLPFC2Bias(
                           INFINI_DTYPE_F16, {dim});
 }
 
+// MultiModal Projector (two-layer MLP)
+inline std::shared_ptr<Tensor> getProjectorWeight1(
+    LlavaMeta const *meta, LlavaWeights const *weights) {
+    auto vision_dim = meta->projector_meta.vision_embed_dim;
+    auto hidden_dim = meta->projector_meta.projector_hidden_size;
+    return Tensor::weight((char *)weights->projector_weight_1,
+                          INFINI_DTYPE_F16, {hidden_dim, vision_dim});
+}
+
+inline std::shared_ptr<Tensor> getProjectorBias1(
+    LlavaMeta const *meta, LlavaWeights const *weights) {
+    auto hidden_dim = meta->projector_meta.projector_hidden_size;
+    return Tensor::weight((char *)weights->projector_bias_1,
+                          INFINI_DTYPE_F16, {hidden_dim});
+}
+
+inline std::shared_ptr<Tensor> getProjectorWeight2(
+    LlavaMeta const *meta, LlavaWeights const *weights) {
+    auto text_dim = meta->projector_meta.text_embed_dim;
+    auto hidden_dim = meta->projector_meta.projector_hidden_size;
+    return Tensor::weight((char *)weights->projector_weight_2,
+                          INFINI_DTYPE_F16, {text_dim, hidden_dim});
+}
+
+inline std::shared_ptr<Tensor> getProjectorBias2(
+    LlavaMeta const *meta, LlavaWeights const *weights) {
+    auto text_dim = meta->projector_meta.text_embed_dim;
+    return Tensor::weight((char *)weights->projector_bias_2,
+                          INFINI_DTYPE_F16, {text_dim});
+}
+
 
 // inline std::shared_ptr<Tensor> createClassEmbedding(LlavaMeta const *meta) {
 //     auto vision_embed_dim = meta->vision_meta.vision_embed_dim;

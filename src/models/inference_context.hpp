@@ -80,6 +80,8 @@ struct InferenceContext {
     void softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int axis);
     
     void quickGelu(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x);
+
+    void gelu(std::shared_ptr<Tensor> output, std::shared_ptr<Tensor> input);
 };
 
 namespace {
@@ -199,4 +201,8 @@ inline void sigmoid(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in){
 
 inline void softmax(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in, int axis){
     getInferenceContext().softmax(out, in, axis);
+}
+
+inline void gelu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in){
+    getInferenceContext().gelu(out, in);
 }

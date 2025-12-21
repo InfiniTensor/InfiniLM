@@ -84,8 +84,10 @@ typedef struct {
 
 
     // MultiModal Projector Weights
-    const void *projector_weight;  // [text_embed_dim, vision_embed_dim]
-    const void *projector_bias;    // [text_embed_dim]
+    const void *projector_weight_1;  // linear_1: [projector_hidden_size, vision_embed_dim]
+    const void *projector_bias_1;    // linear_1: [projector_hidden_size]
+    const void *projector_weight_2;  // linear_2: [text_embed_dim, projector_hidden_size]
+    const void *projector_bias_2;    // linear_2: [text_embed_dim]
 
     // Language Model Weights (reuses Jiuge structure)
     size_t nlayer;

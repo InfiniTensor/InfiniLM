@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iomanip>
 #include <bitset>
+#include <cstring>
 
 // LLaVA设备资源创建函数，模仿jiuge.cpp的createDeviceResource
 void createLlavaDeviceResource(LlavaDeviceResource *rsrc, const LlavaMeta *meta,
@@ -40,6 +41,12 @@ void createLlavaDeviceResource(LlavaDeviceResource *rsrc, const LlavaMeta *meta,
 
     auto vision_post_layernorm_weight = getVisionPostLNWeight(meta, weights);
     auto vision_post_layernorm_bias   = getVisionPostLNBias(meta, weights);
+
+    // 初始化Projector权重
+    auto projector_weight_1 = getProjectorWeight1(meta, weights);
+    auto projector_bias_1 = getProjectorBias1(meta, weights);
+    auto projector_weight_2 = getProjectorWeight2(meta, weights);
+    auto projector_bias_2 = getProjectorBias2(meta, weights);
 
     std::vector<std::shared_ptr<Tensor>> vision_q_weights, vision_q_biases,
         vision_k_weights, vision_k_biases,
@@ -126,6 +133,8 @@ void createLlavaDeviceResource(LlavaDeviceResource *rsrc, const LlavaMeta *meta,
         vision_in_layer_post_norm_weight, vision_post_norm_bias,
         vision_mlp_fc1_weight, vision_mlp_fc1_bias,
         vision_mlp_fc2_weight, vision_mlp_fc2_bias,
+        projector_weight_1, projector_bias_1,
+        projector_weight_2, projector_bias_2,
         stream,
         comm,
         memory_pool,
@@ -169,6 +178,10 @@ void releaseDeviceResource(LlavaDeviceResource &res) {
         t.reset();
     }
     res.w_ffn_down.clear();
+    res.projector_weight_1.reset();
+    res.projector_bias_1.reset();
+    res.projector_weight_2.reset();
+    res.projector_bias_2.reset();
     infiniopDestroyHandle(res.handle);
     res.handle = nullptr;
     infinirtStreamDestroy(res.stream);
@@ -178,19 +191,47 @@ void releaseDeviceResource(LlavaDeviceResource &res) {
 }
 
 float fp16_to_fp32(uint16_t h) {
-    // 简单转换 FP16 -> FP32（IEEE 754 半精度）
-    uint16_t h_exp = (h & 0x7C00) >> 10;
-    uint16_t h_frac = (h & 0x03FF);
-    uint16_t sign = (h & 0x8000) >> 15;
+    // 完整处理零、非规格化、Inf、NaN 的 FP16 -> FP32 转换
+    uint32_t sign = (static_cast<uint32_t>(h) & 0x8000u) << 16;
+    uint32_t exp = (h >> 10) & 0x1Fu;
+    uint32_t frac = h & 0x03FFu;
 
-    float frac = h_exp == 0
-        ? h_frac / 1024.0f / 2.0f
-        : (1.0f + h_frac / 1024.0f);
+    uint32_t f_exp = 0;
+    uint32_t f_frac = 0;
 
-    int exp = h_exp - 15 + 127; // 对齐到 float32 指数偏移
-    uint32_t bits = ((uint32_t)sign << 31) | ((uint32_t)exp << 23) | ((uint32_t)(frac * (1<<23)) & 0x7FFFFF);
-    float* f = reinterpret_cast<float*>(&bits);
-    return *f;
+    if (exp == 0) {
+        if (frac == 0) {
+            // zero
+            f_exp = 0;
+            f_frac = 0;
+        } else {
+            // subnormal: normalize
+            uint32_t e = 1;
+            while ((frac & 0x0400u) == 0) {
+                frac <<= 1;
+                e--;
+            }
+            frac &= 0x03FFu;
+            f_exp = (e + (127 - 15)) << 23;
+            f_frac = frac << 13;
+        }
+    } else if (exp == 0x1Fu) {
+        // Inf/NaN
+        f_exp = 0xFFu << 23;
+        f_frac = frac << 13;
+        if (f_frac != 0) {
+            f_frac |= 0x1u; // preserve a quiet NaN payload bit
+        }
+    } else {
+        // normal
+        f_exp = (exp + (127 - 15)) << 23;
+        f_frac = frac << 13;
+    }
+
+    uint32_t bits = sign | f_exp | f_frac;
+    float out = 0.0f;
+    std::memcpy(&out, &bits, sizeof(out));
+    return out;
 }
 
 void debug_fp16_data_u16(const void* data, size_t count) {
@@ -234,7 +275,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     auto patch_size = meta.vision_meta.patch_size; // 14
     auto dt_logits = meta.language_meta.dt_logits; // F16
     auto stream = rsrc.stream;
-    // auto vision_num_layers = meta.vision_meta.vision_num_layers; // 24
+    auto vision_num_layers = meta.vision_meta.vision_num_layers; // 24
     // 计算patches数量
     auto patches_per_dim = image_size / patch_size; // 24
     auto total_patches = patches_per_dim * patches_per_dim; // 576
@@ -318,8 +359,8 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // embeddings->debug_first_n(20000);
     // rsrc.vision_position_embedding->debug_first_n(20000);
     add(embeddings, embeddings, rsrc.vision_position_embedding);
-    printf("DEBUG: embeddings after add position embedding:\n");
-    embeddings->debug_first_n(10);
+    // printf("DEBUG: embeddings after add position embedding:\n");
+    // embeddings->debug_first_n(10);
     // embeddings->debug();
 
     // (pre_layrnorm): LayerNorm((1024,), eps=1e-05, elementwise_affine=True) # 暂未实现
@@ -336,20 +377,34 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // printf("DEBUG: pre_layernorm after LayerNorm_1\n");
     // pre_layernorm->debug_first_n(10);
 
-    printf("DEBUG: pre_layernorm:\n");
-    pre_layernorm->debug_first_n(10);
+    // printf("DEBUG: pre_layernorm:\n");
+    // pre_layernorm->debug_first_n(10);
 
-    // for (uint32_t layer = 0; layer < vision_num_layers; layer++) {
-    for (uint32_t layer = 0; layer < 1; layer++) {
+    auto layer_input = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto layer_output = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+
+    RUN_INFINI(infinirtMemcpyAsync(layer_input->data(),
+                              pre_layernorm->data(),
+                              sizeof(uint16_t) * (1 + total_patches) * vision_embed_dim,
+                              INFINIRT_MEMCPY_D2D, stream));
+
+    // 用来存每层 hidden_states
+    std::vector<std::shared_ptr<Tensor>> all_hidden_states;
+    all_hidden_states.reserve(vision_num_layers + 1); // 多预留一个
+
+    all_hidden_states.push_back(layer_input);
+
+    for (uint32_t layer = 0; layer < vision_num_layers; layer++) {
+    // for (uint32_t layer = 0; layer < 1; layer++) {
 
         // residual = hidden_states
         // vision_residual = pre_layernorm;
         RUN_INFINI(infinirtMemcpyAsync(vision_residual->data(),
-                                    pre_layernorm->data(),
+                                    layer_input->data(),
                                     sizeof(dt_logits) * (1 + total_patches) * vision_embed_dim,
                                     INFINIRT_MEMCPY_D2D, stream));
-        // printf("DEBUG: pre_layernorm:\n");
-        // pre_layernorm->debug_first_n(10);
+        printf("DEBUG: pre_layernorm:\n");
+        pre_layernorm->debug_first_n(10);
         // printf("DEBUG: vision_residual:\n");
         // vision_residual->debug_first_n(10);
 
@@ -359,7 +414,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         layernorm(/*out_put*/ in_layer_pre_norm,
                     /*input_standardization*/ input_standardization,
                     /*input_std_deviation*/ input_std_deviation,
-                    /*input*/ pre_layernorm,
+                    /*input*/ layer_input,
                     /*weight*/ rsrc.vision_in_layer_pre_norm_weights[layer],
                     /*bias*/ rsrc.vision_in_layer_pre_norm_biases[layer],
                     meta.vision_meta.vision_epsilon); // 1e-5
@@ -427,10 +482,6 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         // auto v_gemm = v_rearr->permute({0,1,3,2});   // [vision_nh, vision_dh, vision_seq]
         auto v_gemm = v_rearr->permute({0,1,2,3});   // debug
 
-        // std::cout << "attn_val_buf->info()" << attn_val_buf->info() << std::endl;
-        // std::cout << "qk_softmax->info()" << qk_softmax->info() << std::endl;
-        // std::cout << "v_gemm->slice(0, 0, 1)->view({vision_nh, vision_dh, vision_seq})->info()" << v_gemm->slice(0, 0, 1)->view({vision_nh, vision_dh, vision_seq})->info() << std::endl;
-
         linear(
             attn_val_buf, // debug: shape[ 16 577 64 ] strides[ 36928 64 1 ]
             qk_softmax, // debug: shape[ 16 577 577 ] strides[ 332929 577 1 ] 
@@ -458,16 +509,14 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         attn_out->debug_first_n(10);
         // === Attention residual add ===   // 复用 pre_layernorm 作为输出 buffer
         // hidden_states = residual + hidden_states
-        add(pre_layernorm, attn_out, vision_residual);
-        // std::cout << pre_layernorm->info() << std::endl;
-        // 此时 pre_layernorm = attention block 的输出
-        // hidden_states = self.layer_norm2(hidden_states)
+        auto attn_residual_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        add(attn_residual_out, attn_out, vision_residual);
         auto post_attn_norm = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
         layernorm(
             /*out*/ post_attn_norm,
             /*input_standardization*/ input_standardization,
             /*input_std_deviation*/ input_std_deviation,
-            /*input*/ pre_layernorm,
+            /*input*/ attn_residual_out,
             /*weight*/ rsrc.vision_in_layer_post_norm_weight[layer],
             /*bias*/  rsrc.vision_post_norm_bias[layer],
             meta.vision_meta.vision_epsilon
@@ -492,89 +541,76 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
         mlp_fc2_out->debug_first_n(10);
 
         // === 第二次残差连接：MLP ===
-        add(pre_layernorm, mlp_fc2_out, vision_residual);
+        add(layer_output, mlp_fc2_out, attn_residual_out);
+        
+        // 为下一层做准备
+        std::swap(layer_input, layer_output);
 
-        // if(layer == 0) {
-        //     printf("DEBUG: After first layer linear projections shapes:\n");
-        //     std::cout << flat_q_buf->info() << std::endl;
-        //     std::cout << flat_embeddings->info() << std::endl;
-        //     std::cout << rsrc.vision_q_weights[layer]->info() << std::endl;
-        //     std::cout << rsrc.vision_q_biases[layer]->info() << std::endl;
-        //     printf("DEBUG: vision_q_weights");
-        //     rsrc.vision_q_weights[layer]->debug_first_n(10);
-        //     printf("DEBUG: vision_q_biases");
-        //     rsrc.vision_q_biases[layer]->debug_first_n(10);
-        //     printf("DEBUG: vision_k_weights");
-        //     rsrc.vision_k_weights[layer]->debug_first_n(10);
-        //     printf("DEBUG: vision_k_biases");
-        //     rsrc.vision_k_biases[layer]->debug_first_n(10);
-        //     rsrc.vision_v_weights[layer]->debug_first_n(10);
-        //     printf("DEBUG: vision_v_biases");
-        //     rsrc.vision_v_biases[layer]->debug_first_n(10);
-
-        //     printf("DEBUG: After first layer linear projections:\n");
-        //     q_buf->debug_first_n(10);
-        //     k_buf->debug_first_n(10);
-        //     v_buf->debug_first_n(10);
-        //     q_buf->debug();
-        //     printf("\n\n\n\n\n");
-        //     k_buf->debug();
-        //     printf("\n\n\n\n\n");
-        //     v_buf->debug();
-        // }
+        all_hidden_states.push_back(layer_input);
     }
+
     // auto fake_output = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
     auto post_layernorm_output = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
     layernorm(post_layernorm_output,
               input_standardization,
               input_std_deviation,
-              pre_layernorm,  // 所有encoder层的输出
+              layer_input,  // 所有encoder层的输出
               rsrc.vision_post_layernorm_weight,  // 需要在资源中添加这个权重
               rsrc.vision_post_layernorm_bias,    // 需要在资源中添加这个偏置
               meta.vision_meta.vision_epsilon
             );
+    printf("post_layernorm output:\n");
+    post_layernorm_output->debug_first_n(10);
 
-    // === 6. 输出处理 ===
-    // 通常只需要 [CLS] token 的特征，即 post_layernorm_output[:, 0, :]
-    auto cls_output = post_layernorm_output->slice(1, 0, 1); // shape: [1, 1, 1024]
+    auto projector_input = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+    int second_last_idx = all_hidden_states.size() - 2;
+    projector_input = all_hidden_states[second_last_idx]->slice(1, 1, vision_seq - 1);
+
+    // 准备projector的buffer
+    auto projector_linear1_out = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
+    auto projector_gelu_out = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
+    auto projector_final_out = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
+
+    // printf("projector weight 1:\n");
+    // rsrc.projector_weight_1->debug_first_n(10);
+    // printf("projector bias 1:\n");
+    // rsrc.projector_bias_1->debug_first_n(10);
+    printf("projector_input:\n");
+    projector_input->debug_first_n(10000);
+    // 到此正确
     
-    // printf("DEBUG: Final vision model output (CLS token):\n");
-    // cls_output->debug_first_n(10);
+    // Linear 1: 1024 -> 4096
+    linear(projector_linear1_out, 
+           projector_input, 
+           rsrc.projector_weight_1->permute({1, 0}),
+           1.0f, 0.0f, 
+           nullptr, 
+           rsrc.projector_bias_1);
+    
+    printf("projector linear1 output:\n");
+    projector_linear1_out->debug_first_n(10);
+    
+    // GELU Activation
+    gelu(projector_gelu_out, projector_linear1_out);
+    
+    printf("projector gelu output:\n");
+    projector_gelu_out->debug_first_n(10);
 
-    // 7. Multi Modal Projector 处理
-    auto mm_linear1_out = Tensor::buffer(dt_logits, {1, 1, 4096}, rsrc.memory_pool);
-
-    // FC1: 1024 -> 4096
-    linear(
-        mm_linear1_out,
-        cls_output,  // [1, 1, 1024]
-        rsrc.mm_proj_linear1_weight->permute({1, 0}), // 转置权重以符合 GEMM 输入
-        1.0f,
-        0.0f,
-        nullptr,
-        rsrc.mm_proj_linear1_bias
-    );
-
-    // GELU / QuickGELU 激活
-    auto mm_activated_out = Tensor::buffer(dt_logits, {1, 1, 4096}, rsrc.memory_pool);
-    quickGelu(mm_activated_out, mm_linear1_out);
-
-    // FC2: 4096 -> 4096
-    auto mm_linear2_out = Tensor::buffer(dt_logits, {1, 1, 4096}, rsrc.memory_pool);
-    linear(
-        mm_linear2_out,
-        mm_activated_out, // [1, 1, 4096]
-        rsrc.mm_proj_linear2_weight->permute({1, 0}),
-        1.0f,
-        0.0f,
-        nullptr,
-        rsrc.mm_proj_linear2_bias
-    );
-
-    // mm_linear2_out 即 MultiModal Projector 的最终输出
-    printf("MultiModal Projector output:\n");
-    mm_linear2_out->debug_first_n(10);
-
+    // printf("projector weight 2:\n");
+    // rsrc.projector_weight_2->debug_first_n(10);
+    // printf("projector bias 2:\n");
+    // rsrc.projector_bias_2->debug_first_n(10);
+    
+    // Linear 2: 4096 -> 4096
+    linear(projector_final_out, 
+           projector_gelu_out, 
+           rsrc.projector_weight_2->permute({1, 0}),
+           1.0f, 0.0f, 
+           nullptr, 
+           rsrc.projector_bias_2);
+    
+    printf("projector final output:\n");
+    projector_final_out->debug_first_n(10);
 }
 
 

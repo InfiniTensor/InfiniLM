@@ -51,6 +51,12 @@ struct LlavaDeviceResource {
         vision_mlp_fc1_weight, vision_mlp_fc1_bias,
         vision_mlp_fc2_weight, vision_mlp_fc2_bias;
 
+    // MultiModal Projector Weights
+    std::shared_ptr<Tensor> projector_weight_1;
+    std::shared_ptr<Tensor> projector_bias_1;
+    std::shared_ptr<Tensor> projector_weight_2;
+    std::shared_ptr<Tensor> projector_bias_2;
+
     // Vision Transformer Layers (复用language结构存储)
     // 注意：这里先只实现patch embedding部分
 

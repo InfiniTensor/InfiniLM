@@ -523,12 +523,12 @@ class LlavaWeightsNaming:
         """视觉编码器最终归一化偏置名"""
         return "vision_tower.vision_model.post_layernorm.bias"
 
-    def projector_weight(self):
-        """多模态投影器权重名"""
+    def projector_weight_1(self):
+        """多模态投影器第一层权重名"""
         return "multi_modal_projector.linear_1.weight"
 
-    def projector_bias(self):
-        """多模态投影器偏置名"""
+    def projector_bias_1(self):
+        """多模态投影器第一层偏置名"""
         return "multi_modal_projector.linear_1.bias"
 
     def projector_weight_2(self):
@@ -610,6 +610,7 @@ class LlavaMetaFromLlava(LlavaMetaCStruct):
 
         # Vision encoder meta (from vision_config)
         vision_config = config.get("vision_config", {})
+        print(f"[LlavaMetaFromLlava] vision_config: {vision_config}")
         vision_meta = LlavaVisionMetaCStruct(
             image_size=vision_config.get("image_size", 336),
             patch_size=vision_config.get("patch_size", 14),
@@ -935,17 +936,29 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
 
 
         # === 多模态投影器权重 ===
-        if naming.projector_weight() in state_dict:
-            self.projector_weight_tensor = state_dict[naming.projector_weight()].to(torch_dt_mat)
-            self.projector_weight = self.projector_weight_tensor.data_ptr()
+        if naming.projector_weight_1() in state_dict:
+            self.projector_weight_1_tensor = state_dict[naming.projector_weight_1()].to(torch_dt_mat)
+            self.projector_weight_1 = self.projector_weight_1_tensor.data_ptr()
         else:
-            self.projector_weight = 0
+            self.projector_weight_1 = 0
 
-        if naming.projector_bias() in state_dict:
-            self.projector_bias_tensor = state_dict[naming.projector_bias()].to(torch_dt_mat)
-            self.projector_bias = self.projector_bias_tensor.data_ptr()
+        if naming.projector_bias_1() in state_dict:
+            self.projector_bias_1_tensor = state_dict[naming.projector_bias_1()].to(torch_dt_mat)
+            self.projector_bias_1 = self.projector_bias_1_tensor.data_ptr()
         else:
-            self.projector_bias = 0
+            self.projector_bias_1 = 0
+
+        if naming.projector_weight_2() in state_dict:
+            self.projector_weight_2_tensor = state_dict[naming.projector_weight_2()].to(torch_dt_mat)
+            self.projector_weight_2 = self.projector_weight_2_tensor.data_ptr()
+        else:
+            self.projector_weight_2 = 0
+
+        if naming.projector_bias_2() in state_dict:
+            self.projector_bias_2_tensor = state_dict[naming.projector_bias_2()].to(torch_dt_mat)
+            self.projector_bias_2 = self.projector_bias_2_tensor.data_ptr()
+        else:
+            self.projector_bias_2 = 0
 
         # === 语言模型权重 (按照Jiuge模式) ===
         # 输入输出嵌入
@@ -1117,6 +1130,7 @@ class LLaVAForCauslLM:
                 data_ = safetensors.safe_open(file, "pt")
                 for name_ in data_.keys():
                     tensors_[name_] = data_.get_tensor(name_)
+            
             return tensors_
 
 
@@ -1258,11 +1272,12 @@ class LLaVAForCauslLM:
         print(f"image_data pointer: {hex(image_data)}")
         batch_size = pixel_values.shape[0] if len(pixel_values.shape) > 0 else 1
 
-        # 准备输出缓冲区（视觉特征）
-        vision_features_size = self.meta.vision_meta.vision_embed_dim * self.meta.vision_meta.num_patches
-        vision_features_output = torch.zeros(vision_features_size, dtype=torch.float16)
+        # 准备输出缓冲区（projector 输出，按全序列）
+        vision_seq = self.meta.vision_meta.num_patches + 1
+        text_dim = self.meta.projector_meta.text_embed_dim
+        vision_features_output = torch.zeros((vision_seq, text_dim), dtype=torch.float32)
 
-        print(f"Vision encoding: input shape {pixel_values.shape} -> features size {vision_features_size}")
+        print(f"Vision encoding: input shape {pixel_values.shape} -> features size {vision_seq * text_dim}")
 
         # 准备输出缓冲区
         output_buffer = vision_features_output.data_ptr()

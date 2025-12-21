@@ -86,8 +86,10 @@ class LlavaWeightsCStruct(Structure):
 
 
         # MultiModal Projector Weights
-        ("projector_weight", c_void_p),
-        ("projector_bias", c_void_p),
+        ("projector_weight_1", c_void_p),
+        ("projector_bias_1", c_void_p),
+        ("projector_weight_2", c_void_p),
+        ("projector_bias_2", c_void_p),
 
         # Language Model Weights (reuse Jiuge structure)
         ("nlayer", c_size_t),

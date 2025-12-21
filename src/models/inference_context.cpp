@@ -478,3 +478,36 @@ void InferenceContext::sigmoid(std::shared_ptr<Tensor> y,
         y->data(), x->data(), stream));
 }
 
+void InferenceContext::gelu(std::shared_ptr<Tensor> output,
+                             std::shared_ptr<Tensor> input) {
+    // 构造 descriptor key（只需要用 output 和 input 参与 key）
+    size_t key = CacheManager::createDescriptorKey(output, input);
+
+    infiniopGeluDescriptor_t desc;
+    if (!cache_manager->getGeluDescriptor(key, desc)) {
+        // 创建 GELU descriptor
+        RUN_INFINI(infiniopCreateGeluDescriptor(
+            op_handle,
+            &desc,
+            output->desc(),   // output_desc
+            input->desc()     // input_desc
+        ));
+        cache_manager->putGeluDescriptor(key, desc);
+    }
+
+    // 获取 workspace 大小并确保 workspace 足够
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetGeluWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    // 调用 GELU kernel
+    RUN_INFINI(infiniopGelu(
+        desc,
+        workspace,
+        workspace_size,
+        output->data(),
+        input->data(),
+        stream));
+}
+
