@@ -84,7 +84,7 @@ class LlamaWeightsNaming:
 
 
 class JiugeMetaFromLlama(JiugeMetaCStruct):
-    def __init__(self, config, dtype=torch.bfloat16, max_tokens=None):
+    def __init__(self, config, dtype=torch.float16, max_tokens=None):
         if dtype == torch.float16:
             dt_ = DataType.INFINI_DTYPE_F16
         elif dtype == torch.float32:
@@ -146,7 +146,7 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
         meta,
         naming,
         state_dict,
-        torch_dt_mat=torch.bfloat16,
+        torch_dt_mat=torch.float16,
         torch_dt_norm=torch.float32,
         ndev=1,
         transpose_weight=True,
