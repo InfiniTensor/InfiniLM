@@ -42,6 +42,16 @@ class KVCacheCStruct(ctypes.Structure):
     pass
 
 
+class KVCompressionConfigCStruct(ctypes.Structure):
+    _fields_ = [
+        ("enable", c_uint),
+        ("compression_factor", c_uint),
+        ("min_seq_len", c_uint),
+        ("image_kv_len", c_uint),
+        ("weight_path", c_char_p),
+    ]
+
+
 # Model registration system
 _model_registry = []
 

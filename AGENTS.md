@@ -1,7 +1,6 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-
 - `src/`: C++ inference runtime and model implementations (e.g., `src/models/jiuge/`, `src/models/llava/`).
 - `include/`: Public C/C++ headers exported to `INFINI_ROOT` on install (e.g., `include/infinicore_infer/models/*.h`).
 - `scripts/`: Python entry points, ctypes bindings (`scripts/libinfinicore_infer/`), and smoke/perf scripts.

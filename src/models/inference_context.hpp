@@ -45,6 +45,8 @@ struct InferenceContext {
               infiniopRoPEAlgo_t algo);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
+    
+    void Softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int axis);
 
     void topkrouter(std::shared_ptr<Tensor> values,  // F32
                     std::shared_ptr<Tensor> indices, // I32
@@ -56,6 +58,18 @@ struct InferenceContext {
     void swiglu(std::shared_ptr<Tensor> out,
                 std::shared_ptr<Tensor> up,
                 std::shared_ptr<Tensor> gate);
+    void relu(std::shared_ptr<Tensor> y,
+              std::shared_ptr<Tensor> x);
+    
+    void layerNorm(std::shared_ptr<Tensor> y,
+                   std::shared_ptr<Tensor> x,
+                   std::shared_ptr<Tensor> w,
+                   std::shared_ptr<Tensor> beta,
+                   float epsilon);
+    
+    void geluTanh(std::shared_ptr<Tensor> y,
+                     std::shared_ptr<Tensor> x);
+
     void randomSample(std::shared_ptr<Tensor> out,
                       std::shared_ptr<Tensor> prob,
                       float random_val, float top_p, uint32_t top_k, float temperature);
@@ -84,9 +98,8 @@ struct InferenceContext {
     void gelu(std::shared_ptr<Tensor> output, std::shared_ptr<Tensor> input);
 };
 
-namespace {
-thread_local InferenceContext *tls_inference_context = nullptr;
-}
+extern thread_local InferenceContext *tls_inference_context;
+inline InferenceContext *maybe_get_context() { return tls_inference_context; }
 
 inline InferenceContext &getInferenceContext() {
     assert(tls_inference_context != nullptr && "InferenceContext not set for this thread");
@@ -141,6 +154,10 @@ inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) 
     getInferenceContext().causalSoftmax(y, x);
 }
 
+inline void Softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int axis) {
+    getInferenceContext().Softmax(y, x, axis);
+}
+
 inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
                        std::shared_ptr<Tensor> indices, // I32
                        std::shared_ptr<Tensor> x,
@@ -159,6 +176,20 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
                    std::shared_ptr<Tensor> gate) {
     getInferenceContext().swiglu(out, up, gate);
+}
+
+inline void relu(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().relu(y, x);
+}
+
+inline void layerNorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
+                      std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> beta,
+                      float epsilon) {
+    getInferenceContext().layerNorm(y, x, w, beta, epsilon);
+}
+
+inline void geluTanh(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().geluTanh(y, x);
 }
 
 inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> prob,

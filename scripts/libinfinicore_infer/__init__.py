@@ -1,4 +1,4 @@
-from .base import DataType, DeviceType, KVCacheCStruct
+from .base import DataType, DeviceType, KVCacheCStruct, KVCompressionConfigCStruct
 from .jiuge import JiugeModel, JiugeMetaCStruct, JiugeWeightsCStruct
 from .jiuge_awq import JiugeAWQModel, JiugeAWQMetaCStruct, ModelWeightsCStruct
 from .deepseek_v3 import (
@@ -17,11 +17,21 @@ from .llava import (
     LlavaLanguageMetaCStruct,
     LlavaProjectorMetaCStruct,
 )
+from .minicpmv import (
+    MiniCPMVModel,
+    MiniCPMVMetaCStruct,
+    MiniCPMVWeightsCStruct,
+    MiniCPMVVisionMetaCStruct,
+    MiniCPMVResamplerMetaCStruct,
+    MiniCPMVLanguageMetaCStruct,
+    MiniCPMVSiglipLayerWeightsCStruct,
+)
 
 __all__ = [
     "DataType",
     "DeviceType",
     "KVCacheCStruct",
+    "KVCompressionConfigCStruct",
     "JiugeModel",
     "JiugeMetaCStruct",
     "JiugeWeightsCStruct",
@@ -40,5 +50,12 @@ __all__ = [
     "LlavaVisionMetaCStruct",
     "LlavaLanguageMetaCStruct",
     "LlavaProjectorMetaCStruct",
+    "MiniCPMVModel",
+    "MiniCPMVMetaCStruct",
+    "MiniCPMVWeightsCStruct",
+    "MiniCPMVVisionMetaCStruct",
+    "MiniCPMVResamplerMetaCStruct",
+    "MiniCPMVLanguageMetaCStruct",
+    "MiniCPMVSiglipLayerWeightsCStruct",
     "ModelRegister",
 ]
