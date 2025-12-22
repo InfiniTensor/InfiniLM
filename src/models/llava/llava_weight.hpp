@@ -7,6 +7,16 @@
 
 #include <memory>
 #include <cstring>  // for memcpy
+#include <cstdlib>
+
+inline bool llava_debug_enabled_in_weighthpp() {
+    static int cached = -1;
+    if (cached == -1) {
+        const char *env = std::getenv("LLAVA_DEBUG");
+        cached = (env != nullptr && std::strcmp(env, "0") != 0) ? 1 : 0;
+    }
+    return cached != 0;
+}
 
 // Vision weight getters
 inline std::shared_ptr<Tensor> getPatchEmbedWeight(
@@ -22,7 +32,9 @@ inline std::shared_ptr<Tensor> getPatchEmbedWeight(
     // Patch embedding卷积核形状: [vision_embed_dim, input_channels, patch_size, patch_size]
     auto shape = std::vector<size_t>{vision_embed_dim, input_channels, patch_size, patch_size};
 
-    printf("[CPP getClassToken] vision_patch_embed_weight pointer: %p\n", weights->vision_patch_embed_weight);
+    if (llava_debug_enabled_in_weighthpp()) {
+        printf("[CPP getPatchEmbedWeight] vision_patch_embed_weight pointer: %p\n", weights->vision_patch_embed_weight);
+    }
     auto vision_patch_embed_device_tensor =
     Tensor::weight(
         (char *)weights->vision_patch_embed_weight,  // 权重数据指针
@@ -43,7 +55,9 @@ inline std::shared_ptr<Tensor> createPositionEmbedding(LlavaMeta const *meta,
     // CLIP ViT通常还需要class token，所以位置编码长度是 num_patches + 1
     auto pos_embed_length = num_patches + 1;  // 576 + 1 = 577
 
-    printf("[CPP createPositionEmbedding] Shape: [1， %zu, %zu]\n", pos_embed_length, vision_embed_dim);
+    if (llava_debug_enabled_in_weighthpp()) {
+        printf("[CPP createPositionEmbedding] Shape: [1, %zu, %zu]\n", pos_embed_length, vision_embed_dim);
+    }
 
     return Tensor::weight((char *)weights->vision_position_embedding, INFINI_DTYPE_F16, {1, pos_embed_length, vision_embed_dim});
 }
@@ -53,7 +67,9 @@ inline std::shared_ptr<Tensor> getClassToken(LlavaMeta const *meta,
     LlavaWeights const *weights) {
     auto vision_embed_dim = meta->vision_meta.vision_embed_dim;
     
-    printf("[CPP getClassToken] vision_class_token pointer: %p\n", weights->vision_class_token);
+    if (llava_debug_enabled_in_weighthpp()) {
+        printf("[CPP getClassToken] vision_class_token pointer: %p\n", weights->vision_class_token);
+    }
     auto vision_class_token_device_tensor = 
         Tensor::weight((char *)weights->vision_class_token, 
         INFINI_DTYPE_F16, 
@@ -143,7 +159,9 @@ inline std::shared_ptr<Tensor> getVisionPreLNWeight(
     LlavaMeta const *meta,
     LlavaWeights const *weights) {
 
-    printf("[CPP getVisionPreLNWeight] vision_pre_layernorm_weight pointer: %p\n", weights->vision_pre_layernorm_weight);
+    if (llava_debug_enabled_in_weighthpp()) {
+        printf("[CPP getVisionPreLNWeight] vision_pre_layernorm_weight pointer: %p\n", weights->vision_pre_layernorm_weight);
+    }
     auto dim = meta->vision_meta.vision_embed_dim;
 
     return Tensor::weight(

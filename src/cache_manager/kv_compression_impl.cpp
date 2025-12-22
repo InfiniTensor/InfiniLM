@@ -239,6 +239,11 @@ std::unique_ptr<CompressedKV> Compressor::compress(const KVCache &kv, uint32_t s
             relu(out1, out1);
 
             linear(out2, out1, w2, 1.0f, 0.0f, nullptr, l2.second);
+            // NOTE: The compression path uses MemoryPool for temporary tensors.
+            // Infini op kernels are enqueued asynchronously on `ctx_ptr->stream`, and MemoryPool blocks
+            // are immediately reusable on tensor destruction. Synchronize here to ensure all kernels
+            // finish before intermediate buffers (w0/w1/w2/out0/out1) get released back to the pool.
+            RUN_INFINI(infinirtStreamSynchronize(ctx_ptr->stream));
             return out2;
         };
 
@@ -287,8 +292,11 @@ std::unique_ptr<CompressedKV> Compressor::compress(const KVCache &kv, uint32_t s
                 return {nullptr, nullptr};
             }
 
-            auto k_comp_head = k_comp2d->view({compress_len / factor, nkvh, dk});
-            auto v_comp_head = v_comp2d->view({compress_len / factor, nkvh, dk});
+            // k_comp2d/v_comp2d rows are laid out as [nkvh, compressed_seq_len] (head-major),
+            // but KV cache storage expects [compressed_seq_len, nkvh, dk] (seq-major).
+            // Reshape to [nkvh, compressed_seq_len, dk] then permute to [compressed_seq_len, nkvh, dk].
+            auto k_comp_head = k_comp2d->view({nkvh, compress_len / factor, dk})->permute({1, 0, 2});
+            auto v_comp_head = v_comp2d->view({nkvh, compress_len / factor, dk})->permute({1, 0, 2});
 
             if (remainder_len == 0) {
                 return {k_comp_head, v_comp_head};
@@ -447,6 +455,8 @@ uint32_t Compressor::compressInplace(KVCache &kv, uint32_t seq_len) {
         k_dst->copyFrom(ckv->layers[layer].k_comp, ctx_ptr->op_handle, ctx_ptr->stream);
         v_dst->copyFrom(ckv->layers[layer].v_comp, ctx_ptr->op_handle, ctx_ptr->stream);
     }
+    // Ensure the in-place KV writes are visible to subsequent decoding on other streams/threads.
+    RUN_INFINI(infinirtStreamSynchronize(ctx_ptr->stream));
 
     return new_len;
 }

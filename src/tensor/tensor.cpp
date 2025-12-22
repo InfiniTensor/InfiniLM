@@ -285,12 +285,12 @@ void print_data_first_n(T *data, size_t total_elements, size_t n) {
 
 // F16特化版本，显示hex值和近似float值
 void print_data_first_n_f16(uint16_t const *data, size_t total_elements, size_t n) {
-    size_t elements_to_print = std::min(total_elements, n);
-    std::cout << "前" << elements_to_print << "个F16数据: " << std::endl;
-    for (size_t i = 0; i < elements_to_print; i++) {
-        std::cout << f16_to_f32(data[i]) << " ";
-    }
-    std::cout << std::endl;
+    // size_t elements_to_print = std::min(total_elements, n);
+    // std::cout << "前" << elements_to_print << "个F16数据: " << std::endl;
+    // for (size_t i = 0; i < elements_to_print; i++) {
+    //     std::cout << f16_to_f32(data[i]) << " ";
+    // }
+    // std::cout << std::endl;
 }
 
 // BF16特化版本 - 使用不同的函数名避免与F16冲突
@@ -459,8 +459,8 @@ void Tensor::debug() const { this->debug(""); }
 void Tensor::debug_first_n(size_t n) const {
     RUN_INFINI(infinirtDeviceSynchronize());
 
-    std::cout << "=== Tensor Debug (First " << n << " Elements) ===" << std::endl;
-    std::cout << info() << std::endl;
+    // std::cout << "=== Tensor Debug (First " << n << " Elements) ===" << std::endl;
+    // std::cout << info() << std::endl;
 
     void const *cpu_data;
     void *allocated_memory = nullptr;
@@ -471,17 +471,17 @@ void Tensor::debug_first_n(size_t n) const {
         RUN_INFINI(infinirtMemcpy(allocated_memory, this->_storage->memory(),
                                   this->_storage->size(), INFINIRT_MEMCPY_D2H));
         cpu_data = allocated_memory;
-        std::cout << "数据已从设备内存复制到主机内存" << std::endl;
+        //std::cout << "数据已从设备内存复制到主机内存" << std::endl;
     } else {
         cpu_data = this->_storage->memory();
-        std::cout << "数据直接在主机内存中" << std::endl;
+        //std::cout << "数据直接在主机内存中" << std::endl;
     }
 
     // 计算总元素数量
     size_t total_elements = numel();
-    std::cout << "总元素数量: " << total_elements << std::endl;
-    std::cout << "数据类型大小: " << dsize(this->dtype()) << " 字节" << std::endl;
-    std::cout << "存储总大小: " << this->_storage->size() << " 字节" << std::endl;
+    // std::cout << "总元素数量: " << total_elements << std::endl;
+    // std::cout << "数据类型大小: " << dsize(this->dtype()) << " 字节" << std::endl;
+    // std::cout << "存储总大小: " << this->_storage->size() << " 字节" << std::endl;
 
     // 根据数据类型打印前n个元素
     const char* data_ptr = static_cast<const char*>(cpu_data) + dataOffset();
@@ -518,5 +518,4 @@ void Tensor::debug_first_n(size_t n) const {
         std::free(allocated_memory);
     }
 
-    std::cout << "=== Debug End ===" << std::endl;
 }

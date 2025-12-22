@@ -111,6 +111,19 @@ typedef struct {
 
 struct LlavaKVCache;
 
+// Vision debug stages for alignment with HF.
+// Output dtype is always meta.language_meta.dt_logits.
+// - PRE_LN:       [1, 577, 1024]
+// - SELECT_ALL:   [1, 577, 1024]  (vision_feature_layer = -2, includes class token)
+// - SELECT_PATCH: [1, 576, 1024]  (vision_feature_layer = -2, patch-only)
+// - PROJECTOR:    [1, 576, 4096]  (projector on patch-only tokens)
+// - PROJECTOR_ALL:[1, 577, 4096]  (projector on all tokens, for debugging)
+#define LLAVA_VISION_STAGE_PRE_LN 0u
+#define LLAVA_VISION_STAGE_SELECT_ALL 1u
+#define LLAVA_VISION_STAGE_SELECT_PATCH 2u
+#define LLAVA_VISION_STAGE_PROJECTOR 3u
+#define LLAVA_VISION_STAGE_PROJECTOR_ALL 4u
+
 //////////////////// APIs ///////////////////////
 /// @brief 创建LLaVA模型
 /// @param vision_meta 视觉编码器元信息
@@ -149,6 +162,14 @@ __C __export void
 inferBatchLlavaVison(struct LlavaModel *model,
                    const void *image_data,
                    void *output);
+
+/// @brief Batch vision forward for intermediate alignment (HF nodes).
+/// @param stage One of LLAVA_VISION_STAGE_*.
+__C __export void
+inferBatchLlavaVisionStage(struct LlavaModel *model,
+                           const void *image_data,
+                           uint32_t stage,
+                           void *output);
 
 /// @brief 多模态投影前向推理
 /// @param model 模型实例

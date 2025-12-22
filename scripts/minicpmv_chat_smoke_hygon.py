@@ -262,8 +262,8 @@ def main():
 
     # Build processor using the same tokenizer
     preproc_cfg = json.loads((model_dir / "preprocessor_config.json").read_text())
-    from minicpmv_config.image_processing_minicpmv import MiniCPMVImageProcessor
-    from minicpmv_config.processing_minicpmv import MiniCPMVProcessor
+    from image_processing_minicpmv import MiniCPMVImageProcessor
+    from processing_minicpmv import MiniCPMVProcessor
 
     image_processor = MiniCPMVImageProcessor(**preproc_cfg)
     processor = MiniCPMVProcessor(image_processor=image_processor, tokenizer=llm.tokenizer)

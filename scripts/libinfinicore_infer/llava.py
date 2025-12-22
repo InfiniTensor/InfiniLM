@@ -163,6 +163,14 @@ class LlavaModel(BaseModel):
         ]
         lib.inferBatchLlavaVison.restype = None
 
+        lib.inferBatchLlavaVisionStage.argtypes = [
+            POINTER(LlavaModelCStruct),  # model
+            c_void_p,  # image_data
+            c_uint,  # stage
+            c_void_p,  # output
+        ]
+        lib.inferBatchLlavaVisionStage.restype = None
+
         # lib.encodeVision.argtypes = [
         #     POINTER(c_void_p),  # model
         #     c_void_p,  # image_tensor
@@ -217,6 +225,9 @@ class LlavaModel(BaseModel):
     def infer_batch_vision(self, model, image_data, output):
         """LLaVA Vision Encoding - 对应Python中的infer_batch_vision"""
         self.lib.inferBatchLlavaVison(model, image_data, output)
+
+    def infer_batch_vision_stage(self, model, image_data, stage, output):
+        self.lib.inferBatchLlavaVisionStage(model, image_data, stage, output)
 
     def encode_vision(self, model, image_tensor, output):
         self.lib.encodeVision(model, image_tensor, output)

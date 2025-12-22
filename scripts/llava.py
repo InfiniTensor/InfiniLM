@@ -1,4 +1,4 @@
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 import math
 import os
 from pathlib import Path
@@ -10,15 +10,19 @@ import torch
 import transformers
 from transformers import AutoProcessor
 import ctypes
-from ctypes import c_int, c_void_p, c_uint, byref
+from ctypes import c_int, c_void_p, c_uint, byref, POINTER, c_float
 import numpy as np
 # from PIL import Image
 # import numpy as np
 
 
+
 from libinfinicore_infer import (
+    JiugeModel,
     JiugeMetaCStruct,
     JiugeWeightsCStruct,
+    KVCacheCStruct,
+    KVCompressionConfigCStruct,
     LlavaMetaCStruct,
     LlavaVisionMetaCStruct,
     LlavaLanguageMetaCStruct,
@@ -136,7 +140,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             ),
             dvoc=32064,
             epsilon=1e-05,
-            theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
+            theta=(config["rope_theta"] if "rope_theta" in config else 10000.0),
             end_token=2,
         )
         self.torch_dtype_logits = dtype
@@ -750,7 +754,7 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
             # print(f"[Python LlavaWeightsImpl] vision_class_token_tensor shape: {self.vision_class_token_tensor.shape} " )
             # print(f"[Python LlavaWeightsImpl] vision_class_token_tensor dtype: {self.vision_class_token_tensor.dtype} " )
             self.vision_class_token = self.vision_class_token_tensor.data_ptr()
-            print(f"[Python LlavaWeightsImpl] vision_class_token pointer: {hex(self.vision_class_token)} ")
+            #print(f"[Python LlavaWeightsImpl] vision_class_token pointer: {hex(self.vision_class_token)} ")
         else:
             self.vision_class_token = 0
 
@@ -758,7 +762,7 @@ class LlavaWeightsImpl(LlavaWeightsCStruct):
         if naming.vision_pre_layernorm_weight() in state_dict:
             self.vision_pre_layernorm_weight_tensor = state_dict[naming.vision_pre_layernorm_weight()].to(torch_dt_mat)
             self.vision_pre_layernorm_weight = self.vision_pre_layernorm_weight_tensor.data_ptr()
-            print(f"[Python LlavaWeightsImpl] vision_pre_layernorm_weight pointer: {hex(self.vision_pre_layernorm_weight)} ")
+            #print(f"[Python LlavaWeightsImpl] vision_pre_layernorm_weight pointer: {hex(self.vision_pre_layernorm_weight)} ")
         else:
             self.vision_pre_layernorm_weight = 0
 
@@ -1139,15 +1143,15 @@ class LLaVAForCauslLM:
         # self.vision_encoder = LLaVAVisionEncoder(model_dir_path, device_type, ndev)
         # self.mm_projector = LLaVAMultiModalProjector(model_dir_path, device_type, ndev)
         # self.language_model = JiugeForCauslLM(model_dir_path, device_type, ndev)  # ✅ 复用
-        print("Loading model weights to host...")
+        #print("Loading model weights to host...")
         load_start_time = time.time()
 
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             config = json.load(f)
             self.config = config
         self.eos_token_id = [2]
-        print(f"Model config: {self.config}")
-        print(f"Model eos_token_id: {self.eos_token_id}")
+        # print(f"Model config: {self.config}")
+        # print(f"Model eos_token_id: {self.eos_token_id}")
 
         # transpose_weight = (
         #     device != DeviceType.DEVICE_TYPE_ASCEND
@@ -1157,9 +1161,9 @@ class LLaVAForCauslLM:
         self.llava_model = LlavaModel()
 
         if "llava" == config["model_type"]:
-            print("Loading LLaVA model...")
+            #print("Loading LLaVA model...")
             state_dict = load_all_safetensors_from_dir(model_dir_path)
-            print(f"state_dict keys: {list(state_dict.keys())[:10]} ...")
+            #print(f"state_dict keys: {list(state_dict.keys())[:10]} ...")
             self.meta = LlavaMetaFromLlava(config, max_tokens=max_tokens)
             # print(f"meta type: {type(self.meta)}") # meta type: <class '__main__.LlavaMetaFromLlava'>
             # print(f"meta value: {self.meta}") # meta value: <__main__.LlavaMetaFromLlava object at 0x7fda3c5e91c0>
@@ -1190,8 +1194,8 @@ class LLaVAForCauslLM:
             # print(f"weights type: {type(self.weights)}") # weights type: <class '__main__.LlavaWeightsImpl'>
             # print(f"weights value: {self.weights}") # weights value: <__main__.LlavaWeightsImpl object at 0x7fda3c5e9340>
         load_end_time = time.time()
-        print(f"Time used: {load_end_time - load_start_time:.3f}s")
-        print(f"Creating model on {ndev} devices...")
+        # print(f"Time used: {load_end_time - load_start_time:.3f}s")
+        # print(f"Creating model on {ndev} devices...")
         self.dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
         self.ndev = ndev
         self.device = device
@@ -1199,6 +1203,16 @@ class LLaVAForCauslLM:
         self.model_instance = self.llava_model.create_model(
             byref(self.meta),
             byref(self.weights),
+            device,
+            ndev,
+            self.dev_ids,
+        )
+
+        # Language model (Jiuge) instance for end-to-end generation (reuses WithOverrides injection).
+        self.jiuge_model = JiugeModel()
+        self.language_model_instance = self.jiuge_model.create_model(
+            byref(self.language_meta),
+            byref(self.language_weights),
             device,
             ndev,
             self.dev_ids,
@@ -1254,55 +1268,53 @@ class LLaVAForCauslLM:
         self.llava_model.drop_kv_cache(kv_cache)
 
     # === LLaVA四阶段推理方法 ===
-    def batch_infer_encode(self, pixel_values, input_tokens_list):
-        """阶段1: Vision Encoder - 将图像编码为视觉特征"""
+    LLAVA_VISION_STAGE_PRE_LN = 0
+    LLAVA_VISION_STAGE_SELECT_ALL = 1
+    LLAVA_VISION_STAGE_SELECT_PATCH = 2
+    LLAVA_VISION_STAGE_PROJECTOR = 3
+    LLAVA_VISION_STAGE_PROJECTOR_ALL = 4
+
+    def _alloc_vision_stage_output(self, stage: int) -> torch.Tensor:
+        vision_seq = int(self.meta.vision_meta.num_patches) + 1
+        vision_dim = int(self.meta.vision_meta.vision_embed_dim)
+        text_dim = int(self.meta.projector_meta.text_embed_dim)
+        if stage == self.LLAVA_VISION_STAGE_PRE_LN:
+            shape = (vision_seq, vision_dim)
+        elif stage == self.LLAVA_VISION_STAGE_SELECT_ALL:
+            shape = (vision_seq, vision_dim)
+        elif stage == self.LLAVA_VISION_STAGE_SELECT_PATCH:
+            shape = (vision_seq - 1, vision_dim)
+        elif stage == self.LLAVA_VISION_STAGE_PROJECTOR:
+            shape = (vision_seq - 1, text_dim)
+        elif stage == self.LLAVA_VISION_STAGE_PROJECTOR_ALL:
+            shape = (vision_seq, text_dim)
+        else:
+            raise ValueError(f"Unknown vision stage: {stage}")
+        return torch.empty(shape, dtype=torch.float16, device="cpu")
+
+    def batch_infer_vision_stage(self, pixel_values, stage: int):
         if pixel_values is None:
             return None
-        # print(f"pixels value:{pixel_values.flatten()[:2000].tolist()}")
-
-        # 将torch tensor转换为连续的字节数据
-        if hasattr(pixel_values, 'contiguous'):
+        if hasattr(pixel_values, "contiguous"):
             pixel_values = pixel_values.contiguous()
+        if len(pixel_values.shape) != 4 or int(pixel_values.shape[0]) != 1:
+            raise ValueError(f"Only batch_size=1 supported, got shape={tuple(pixel_values.shape)}")
 
-        # 获取图像数据指针
         image_data_fp16 = pixel_values.to(torch.float16).cpu()
         image_data = image_data_fp16.data_ptr()
-        # self.debug_image(image_data, image_data_fp16, 100)
-        print(f"pixel_values shape: {pixel_values.shape}")
-        print(f"image_data pointer: {hex(image_data)}")
-        batch_size = pixel_values.shape[0] if len(pixel_values.shape) > 0 else 1
+        out = self._alloc_vision_stage_output(stage)
 
-        # 准备输出缓冲区（projector 输出，按全序列）
-        vision_seq = self.meta.vision_meta.num_patches + 1
-        text_dim = self.meta.projector_meta.text_embed_dim
-        vision_features_output = torch.zeros((vision_seq, text_dim), dtype=torch.float32)
-
-        print(f"Vision encoding: input shape {pixel_values.shape} -> features size {vision_seq * text_dim}")
-
-        # 准备输出缓冲区
-        output_buffer = vision_features_output.data_ptr()
-
-
-        # 调用C++层的 infer_batch_vision 函数
-        self.llava_model.infer_batch_vision(
+        self.llava_model.infer_batch_vision_stage(
             self.model_instance,
             image_data,
-            output_buffer
+            stage,
+            out.data_ptr(),
         )
-        print(f"output_buffer pointer: {hex(output_buffer)}")
-        # print(f"output_buffer: {list(output_buffer)}")
-        # # # # # # # # # # # # # # # # # # 
-        # try:
-        #     flat = pixel_values.detach().cpu().flatten()
-        #     first10 = flat[:10].tolist()
-        #     formatted = ", ".join(f"{float(x):.6f}" for x in first10)
-        #     print(f"pixel_values first 10: {formatted}")
-        # except Exception:
-        #     # Fallback if not a tensor or other error
-        #     print(f"pixel_values: {pixel_values}")
-        # # # # # # # # # # # # # # # # # # 
+        return out
 
-        return vision_features_output
+    def batch_infer_encode(self, pixel_values, input_tokens_list):
+        """阶段1: Vision Encoder - 将图像编码为视觉特征"""
+        return self.batch_infer_vision_stage(pixel_values, self.LLAVA_VISION_STAGE_PROJECTOR)
 
 
     def batch_infer_compressor(self, features, kv_caches):
@@ -1318,15 +1330,120 @@ class LLaVAForCauslLM:
 
         return kv_caches
 
+    def _find_image_token_positions(self, input_ids: torch.Tensor) -> list[int]:
+        image_token_index = int(self.config.get("image_token_index", 32000))
+        ids = input_ids[0].to(dtype=torch.int64)
+        return (ids == image_token_index).nonzero(as_tuple=False).flatten().tolist()
+
+    def _prefill_with_overrides(self, input_ids: torch.Tensor, pixel_values: torch.Tensor,
+                                temperature_: float, topk_: int, topp_: float):
+        # 1) image embeds (projector output)
+        img_embeds = self.batch_infer_vision_stage(pixel_values, self.LLAVA_VISION_STAGE_PROJECTOR).contiguous()
+        # 2) override positions: processor already expands to 576 image tokens for v1.5
+        pos = self._find_image_token_positions(input_ids)
+        if len(pos) != int(img_embeds.shape[0]):
+            raise ValueError(f"image token count mismatch: pos={len(pos)} embeds={int(img_embeds.shape[0])}")
+        override_pos = (c_uint * len(pos))(*pos)
+
+        # 3) tokens
+        tokens = input_ids[0].to(dtype=torch.int32).tolist()
+        ntok = len(tokens)
+        tokens_c = (c_uint * ntok)(*tokens)
+        req_lens = (c_uint * 1)(ntok)
+        req_pos = (c_uint * 1)(0)
+
+        # 4) kv cache
+        kv = self.jiuge_model.create_kv_cache(
+            self.language_meta.nlayer,
+            self.language_meta.dctx,
+            self.language_meta.nkvh,
+            self.language_meta.dh,
+            self.language_meta.dh,
+            self.language_meta.dt_logits,
+            self.device,
+            self.dev_ids,
+            self.ndev,
+        )
+        kv_caches = (POINTER(KVCacheCStruct) * 1)(kv)
+
+        # 5) sampling
+        temperature = (c_float * 1)(float(temperature_))
+        topk = (c_uint * 1)(int(topk_))
+        topp = (c_float * 1)(float(topp_))
+        out = (c_uint * 1)()
+
+        self.jiuge_model.infer_batch_with_overrides(
+            self.language_model_instance,
+            tokens_c,
+            ntok,
+            req_lens,
+            1,
+            req_pos,
+            kv_caches,
+            len(pos),
+            override_pos,
+            img_embeds.data_ptr(),
+            temperature,
+            topk,
+            topp,
+            out,
+        )
+        return int(out[0]), kv, kv_caches, ntok
+
+    def _decode_one(self, last_token_id: int, rope_pos: int, kv_caches,
+                    temperature_: float, topk_: int, topp_: float,
+                    kv_pos: Optional[int] = None) -> int:
+        req_lens = (c_uint * 1)(1)
+        req_pos = (c_uint * 1)(rope_pos)
+        tokens_c = (c_uint * 1)(int(last_token_id))
+        temperature = (c_float * 1)(float(temperature_))
+        topk = (c_uint * 1)(int(topk_))
+        topp = (c_float * 1)(float(topp_))
+        out = (c_uint * 1)()
+        if kv_pos is None:
+            self.jiuge_model.infer_batch(
+                self.language_model_instance,
+                tokens_c,
+                1,
+                req_lens,
+                1,
+                req_pos,
+                kv_caches,
+                temperature,
+                topk,
+                topp,
+                out,
+            )
+        else:
+            kv_pos_c = (c_uint * 1)(int(kv_pos))
+            self.jiuge_model.infer_batch_ex(
+                self.language_model_instance,
+                tokens_c,
+                1,
+                req_lens,
+                1,
+                req_pos,
+                kv_pos_c,
+                kv_caches,
+                temperature,
+                topk,
+                topp,
+                out,
+            )
+        return int(out[0])
 
     def generate(
         self, 
         messages, 
-        # max_steps, // jiuge有，我暂时没有
+        max_new_tokens=128,
         topp_=1.0,
         topk_=1,
         temperature_=1.0,
-        verbose=False):
+        verbose=False,
+        kv_compress: bool = False,
+        kv_compress_bin: str = "",
+        kv_compress_factor: int = 5,
+        kv_compress_min_seq_len: int = 2):
         mm_inputs = self.preprocessor.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -1337,7 +1454,7 @@ class LLaVAForCauslLM:
         pixel_values = mm_inputs.pixel_values
         attention_mask = mm_inputs.attention_mask
         input_ids = mm_inputs.input_ids
-        print(f"Input token IDs shape: {input_ids.shape}")
+        #print(f"Input token IDs shape: {input_ids.shape}")
 
         # 将torch tensor转换为Python列表，就像jiuge.py那样
         if hasattr(input_ids, 'flatten'):
@@ -1345,75 +1462,61 @@ class LLaVAForCauslLM:
         else:
             input_ids_list = input_ids.tolist()
 
-        infer_task = InferTask(
-            0,
-            input_ids_list,  # 使用列表而不是tensor
-            self.max_context_len(),
-            temperature_,
-            topk_,
-            topp_,
-            end_tokens=self.eos_token_id,
+        if verbose:
+            print("pixel_values.shape:", tuple(pixel_values.shape))
+            print("attention_mask.shape:", tuple(attention_mask.shape))
+            print("input_ids_len:", int(input_ids.shape[1]))
+
+        # Prefill with image embedding overrides
+        first_token, kv, kv_caches, ntok = self._prefill_with_overrides(
+            input_ids, pixel_values, temperature_, topk_, topp_
         )
-        print(f"KV Cache: {infer_task.kvcache()}")
 
-        # # 更详细的调试信息
-        # print("\n=== InferTask 详细信息 ===")
-        # print(repr(infer_task))
+        generated = [first_token]
+        rope_pos = ntok
+        #import pdb;pdb.set_trace()
+        kv_pos: Optional[int] = None
+        if kv_compress:
+            if self.ndev != 1:
+                raise ValueError("KV compression currently requires ndev=1 (compressKVCacheInplace is single-device).")
+            if not kv_compress_bin:
+                raise ValueError("kv_compress=True requires kv_compress_bin (path to llava_mlp.bin)")
 
-        # infer_task.bind_kvcache(KVCache(self))
+            # Approx strategy: treat everything before the end of the image token block as "image prefix".
+            # This includes a small text prefix before the image tokens (e.g., 'USER:'), but keeps the
+            # API contract (image_kv_len is prefix length).
+            image_pos = self._find_image_token_positions(input_ids)
+            image_kv_len = int(max(image_pos) + 1) if image_pos else 0
+            if verbose:
+                print("kv_compress:", {"image_kv_len": image_kv_len, "image_token_count": len(image_pos), "ntok": ntok})
 
-        # print("\n=== bind_kvcache 后 KV Cache 详细信息 ===")
-        # print(repr(infer_task.kvcache()))
+            cfg = KVCompressionConfigCStruct(
+                enable=1,
+                compression_factor=int(kv_compress_factor),
+                min_seq_len=int(kv_compress_min_seq_len),
+                image_kv_len=int(image_kv_len),
+                weight_path=kv_compress_bin.encode("utf-8"),
+            )
+            kv_pos = int(self.jiuge_model.compress_kv_cache_inplace(kv, int(ntok), cfg))
+            if verbose:
+                print("kv_compress_done:", {"kv_pos": kv_pos, "rope_pos": int(rope_pos)})
 
-        steps = 0
-        total_time = 0
-        prefill_time = 0
-        decode_time = 0
-        output_content = ""
-
-        # === LLaVA四阶段推理流程 ===
-        # 阶段1: Vision Encoder - 将图像编码为视觉特征
-        output_encode = self.batch_infer_encode(pixel_values, input_ids_list)
-        print(f"Output encode shape: {output_encode.shape if output_encode is not None else 'None'}")
-        print(f"Output encode: {output_encode if output_encode is not None else 'None'}")
-
-
-        output_encode = self.batch_infer_llm(pixel_values, input_ids_list)
-
-
-
-        # # 阶段2: MultiModal Projector - 将视觉特征投影到文本嵌入空间
-        # projected_features = self.batch_infer_projector(output_encode, input_ids_list)
-
-        # # 阶段3: Language Model - 处理文本tokens和投影的视觉特征
-        # output_tokens = self.batch_infer_language([input_ids_list], [infer_task.kvcache()], projected_features)
-
-        # # 阶段4: KV-Cache Compression - 压缩KV缓存 (可选)
-        # compressed_kv_cache = self.batch_infer_compressor(projected_features, [infer_task.kvcache()])
-        # steps += 1
-
-
-        output_str = self.tokenizer.decode(output_tokens[0])
-        print(f"Decoded output from prefill: {output_str}\n")
-        output_content += output_str
-        print(output_str, end="", flush=True)
-        if output_tokens[0] in self.eos_token_id:
-
-            total_tokens = len(tokens) + 1  # input tokens + first output token
-
-            return output_content, total_time * 1000
-
-        infer_task.next(output_tokens[0])
-        for step_i in range(1, max_steps):
-            output_tokens = self.batch_infer_one_round([infer_task])
-            steps += 1
-            output_str = self.tokenizer.decode(output_tokens[0])
-            output_content += output_str
-            if output_tokens[0] in self.eos_token_id:
+        for _ in range(int(max_new_tokens) - 1):
+            if generated[-1] in self.eos_token_id:
                 break
-            infer_task.next(output_tokens[0])
+            nxt = self._decode_one(generated[-1], rope_pos, kv_caches, temperature_, topk_, topp_, kv_pos=kv_pos)
+            generated.append(nxt)
+            rope_pos += 1
+            if kv_pos is not None:
+                kv_pos += 1
 
-        steps += 1
+        text = self.tokenizer.decode(generated, skip_special_tokens=False)
+        if verbose:
+            print("generated_token_ids:", generated)
+            print("decoded:", text)
+
+        self.jiuge_model.drop_kv_cache(kv)
+        return text
 
 
 

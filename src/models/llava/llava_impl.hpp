@@ -89,7 +89,7 @@ struct LlavaInferState {
     uint32_t ntok = 0;
     uint32_t nreq = 0;
     uint32_t batch_size = 0;
-    uint32_t* output = nullptr;
+    void* output = nullptr;
     void* vision_features = nullptr;
     void* projected_features = nullptr;
 };
@@ -113,7 +113,8 @@ struct LlavaRequest {
     uint32_t ntok;
     uint32_t nreq;
     uint32_t batch_size;
-    uint32_t* output;
+    void* output;
+    uint32_t vision_stage = 0;
 };
 
 struct LlavaModel {

@@ -144,7 +144,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             ),
             dvoc=config["vocab_size"],
             epsilon=config["rms_norm_eps"],
-            theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
+            theta=(config["rope_theta"] if "rope_theta" in config else 10000.0),
             end_token=2,
         )
         self.torch_dtype_logits = dtype
@@ -581,7 +581,7 @@ class JiugeForCauslLM:
             )
         elif "qwen2" == config["model_type"] or "qwen3" == config["model_type"]:
             state_dict = load_all_safetensors_from_dir(model_dir_path)
-            print(f"state_dict keys: {list(state_dict.keys())[:50]} ...")
+            #print(f"state_dict keys: {list(state_dict.keys())[:50]} ...")
             if LlamaWeightsNaming.match(state_dict):
                 self.meta = JiugeMetaFromLlama(config, max_tokens=max_tokens)
                 self.weights = JiugeWeightsImpl(
