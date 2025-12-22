@@ -267,7 +267,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // debug_fp16_data_u16(image_data, 100); 
 
     // std::cout << "image_data pointer from cpp: " << image_data << std::endl;
-
+    // vision_tower部分
     // === 1. 准备参数 ===
     auto vision_embed_dim = meta.vision_meta.vision_embed_dim; // 1024
     auto vision_nh   = meta.vision_meta.vision_num_heads; // 16
@@ -562,6 +562,8 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     printf("post_layernorm output:\n");
     post_layernorm_output->debug_first_n(10);
 
+    // multi_modal_projector部分
+
     auto projector_input = Tensor::buffer(dt_logits, {1, vision_seq - 1, vision_embed_dim}, rsrc.memory_pool);
     int second_last_idx = all_hidden_states.size() - 2;
     rearrange(projector_input, all_hidden_states[second_last_idx]->slice(1, 1, vision_seq - 1));
@@ -577,7 +579,6 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     // rsrc.projector_bias_1->debug_first_n(10);
     printf("projector_input:\n");
     projector_input->debug_first_n(10);
-    // 到此正确
     
     // Linear 1: 1024 -> 4096
     linear(projector_linear1_out, 
@@ -612,7 +613,7 @@ void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
     printf("projector final output:\n");
     projector_final_out->debug_first_n(10);
     
-    //TODO: 把结果写回output指针
+    //TODO: 把projector_final_out传回主机端output
 }
 
 
