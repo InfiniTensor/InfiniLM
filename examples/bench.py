@@ -317,7 +317,7 @@ if __name__ == "__main__":
         # reset cache for each case
         initial_capacity = input_len + output_len + 100
         test.model.reset_cache(
-            batch_size=batch_size, pos=0, initial_capacity=initial_capacity
+            batch_size=batch_size, initial_capacity=initial_capacity
         )
 
         # run test one case

@@ -50,7 +50,8 @@ public:
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                const infinicore::Tensor &position_ids,
-                               void *kv_cache = nullptr) const;
+                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                               const infinicore::Tensor &cache_positions) const;
 
     /**
      * @brief Get the layer index

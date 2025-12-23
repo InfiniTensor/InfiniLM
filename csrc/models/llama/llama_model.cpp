@@ -10,9 +10,8 @@ namespace infinilm::models::llama {
 LlamaModel::LlamaModel(const LlamaConfig &config,
                        const infinicore::Device &device,
                        engine::distributed::RankInfo rank_info)
-    : config_(config) {
+    : config_(config), rank_info_(rank_info) {
     const auto &dtype{config.dtype};
-
     // Initialize token embeddings
     INFINICORE_NN_MODULE_INIT(embed_tokens, config.vocab_size, config.hidden_size,
                               std::nullopt, dtype, device);
@@ -46,72 +45,46 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
 
 infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
                                        const infinicore::Tensor &position_ids,
-                                       void *kv_cache) const {
-    // Use persistent internal cache if no external cache is provided
-    // This matches Python backend behavior: if use_cache and past_key_values is None, create DynamicCache
-    // The cache persists across forward calls to enable incremental decoding
-    void *cache_to_use = kv_cache;
-
-    if (cache_to_use == nullptr) {
-        // Create or reuse persistent internal cache at model level
-        // This ensures the cache persists across multiple forward calls (prefill -> decode -> decode...)
-        if (external_cache_ != nullptr) {
-            cache_to_use = external_cache_;
-        } else {
-            // Fall back to internal cache
-            if (!internal_cache_) {
-                internal_cache_ = std::make_unique<infinilm::cache::DynamicCache>(
-                    config_.num_hidden_layers,
-                    config_.max_position_embeddings);
-            }
-            cache_to_use = internal_cache_.get();
-        }
-    }
-
+                                       const infinicore::Tensor &cache_positions) const {
     // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
     auto hidden_states = embed_tokens_->forward(input_ids);
 
     // 2. Process through all decoder layers
     size_t num_layers = layers_.size();
     for (size_t i = 0; i < num_layers; ++i) {
-        // Pass model-level cache (layer index is now a property of the layer)
-        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, cache_to_use);
-
-        // DEBUG: Disabled previous final layer logging
-        // Logging moved to decoder layer for post-attention normalization
+        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, cache_positions);
     }
 
     // 3. Apply final layer normalization to last token only (aligns with transformers)
-
     // Narrow to last token: [batch, seq_len, hidden_size] -> [batch, 1, hidden_size]
     auto shape = hidden_states->shape();
     size_t seq_len = shape[1];
     auto last_token = hidden_states->narrow({{1, seq_len - 1, 1}});
 
-    // DEBUG: Disabled previous final layer normalization logging
-    // Normalize only the last token (matches Python backend)
     auto normalized_last_token = norm_->forward(last_token);
 
     return normalized_last_token;
 }
 
-void LlamaModel::reset_cache(size_t pos) const {
-    if (internal_cache_) {
-        internal_cache_->reset(pos);
+void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
+    if (cache_config == nullptr) {
+        kv_cache_ = nullptr;
+        return;
     }
-    if (external_cache_) {
-        external_cache_->reset(pos);
-    }
-}
+    if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
+        kv_cache_ = std::make_shared<cache::StaticKVCache>(
+            config_.head_dim,
+            config_.head_dim,
+            config_.num_key_value_heads,
+            config_.num_key_value_heads,
+            config_.num_hidden_layers,
+            config_.max_position_embeddings,
+            config_.dtype,
+            *kv_cache_config,
+            rank_info_);
 
-void LlamaModel::reset_cache(const cache::CacheConfig &new_config, size_t pos) const {
-    if (internal_cache_) {
-        internal_cache_->update_config(new_config);
-        internal_cache_->reset(pos);
-    }
-    if (external_cache_) {
-        external_cache_->update_config(new_config);
-        external_cache_->reset(pos);
+    } else {
+        throw std::runtime_error("Unsupported cache type");
     }
 }
 

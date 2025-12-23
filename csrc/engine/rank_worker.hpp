@@ -19,14 +19,13 @@ class RankWorker {
         LOAD,
         RUN,
         RESET_CACHE,
-        RESET_CACHE_WITH_CONFIG,
         STOP
     };
 
 public:
     RankWorker(const InfinilmModel::Config &model_config,
                const distributed::RankInfo &rank_info,
-               const cache::CacheConfig &cache_config);
+               const cache::CacheConfig *cache_config);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
@@ -38,11 +37,8 @@ public:
     // Submit a run (forward) job.
     void run(const InfinilmModel::Input &args);
 
-    // Reset the internal cache in the model (clears state between generations)
-    void reset_cache(size_t pos = 0);
-
     // Reset the internal cache with a new configuration
-    void reset_cache(const cache::CacheConfig &new_config, size_t pos = 0);
+    void reset_cache(const cache::CacheConfig *new_config);
 
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
@@ -63,7 +59,7 @@ private:
     const InfinilmModel::Config &model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
-    std::shared_ptr<cache::DynamicCache> cache_ptr_;
+    std::shared_ptr<cache::Cache> cache_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;
@@ -78,8 +74,7 @@ private:
     std::string pending_param_name_;
     infinicore::Tensor pending_param_;
     InfinilmModel::Input pending_args_;
-    size_t pending_reset_pos_ = 0;
-    cache::CacheConfig pending_cache_config_;
+    std::unique_ptr<cache::CacheConfig> pending_cache_config_;
 
     // Output (protected by mutex)
     InfinilmModel::Output output_;

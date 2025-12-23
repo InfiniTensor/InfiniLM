@@ -3,22 +3,23 @@
 
 #include <cstring>
 #include <iostream>
+#include <spdlog/spdlog.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-inline void assertTrue(int expr, const char *msg, const char *file, int line) {
+inline void assertTrue(int expr, const char *msg, const char *function, const char *file, int line) {
     if (!expr) {
-        fprintf(stderr, "\033[31mAssertion failed:\033[0m %s at file %s, line %d\n", msg, file, line);
-        exit(EXIT_FAILURE);
+        spdlog::error("Assertion failed: {} in function {} at file {}, line {}", msg, function, file, line);
+        throw std::runtime_error("Assertion failed");
     }
 }
 
-#define ASSERT(expr) assertTrue((expr), #expr " is false", __FILE__, __LINE__)
-#define ASSERT_EQ(a, b) assertTrue((a) == (b), #a " != " #b, __FILE__, __LINE__)
-#define ASSERT_VALID_PTR(a) assertTrue((a) != nullptr, #a " is nullptr", __FILE__, __LINE__)
+#define ASSERT(expr) assertTrue((expr), #expr " is false", __func__, __FILE__, __LINE__)
+#define ASSERT_EQ(a, b) assertTrue((a) == (b), #a " != " #b, __func__, __FILE__, __LINE__)
+#define ASSERT_VALID_PTR(a) assertTrue((a) != nullptr, #a " is nullptr", __func__, __FILE__, __LINE__)
 
-#define PANIC(EXPR)                                             \
-    printf("Error at %s:%d - %s\n", __FILE__, __LINE__, #EXPR); \
+#define PANIC(EXPR)                                                                               \
+    spdlog::error("Error at {} in function {} at file {}, line {}", #EXPR, function, file, line); \
     exit(EXIT_FAILURE)
 
 #define RUN_INFINI(API)                                                         \
@@ -28,7 +29,7 @@ inline void assertTrue(int expr, const char *msg, const char *file, int line) {
             std::cerr << "Error Code " << api_result_ << " in `" << #API << "`" \
                       << " from " << __func__                                   \
                       << " at " << __FILE__ << ":" << __LINE__ << std::endl;    \
-            exit(EXIT_FAILURE);                                                 \
+            throw std::runtime_error("InfiniCore C API Error");                 \
         }                                                                       \
     } while (0)
 

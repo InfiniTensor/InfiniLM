@@ -141,14 +141,21 @@ def test(
         )
         for prompt in prompts
     ]
-    print(input_contents[0], end="", flush=True)
+
     input_ids_list = tokenizer.batch_encode_plus(input_contents)[
         "input_ids"
     ]  # List: [[1, 1128, 526, 366, 29892]]
 
+    # 根据输入长度和最长输出长度创建KVCache
+    model.reset_cache(
+        1 if prompts is str else len(prompts),
+        max_new_tokens + len(input_ids_list[0]),
+    )
+
     # ---------------------------------------------------------------------------- #
     #                        自回归生成
     # ---------------------------------------------------------------------------- #
+    print(input_contents[0], end="", flush=True)
     input_ids_infini = infinicore.from_list(input_ids_list)
 
     t1 = time.time()

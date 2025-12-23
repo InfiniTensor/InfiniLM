@@ -26,11 +26,11 @@ LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
 }
 
 LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
-    const auto &[input_ids, position_ids, kv_cache] = input;
+    const auto &[input_ids, position_ids, cache_position] = input;
 
     // 1. Forward through base model to get hidden states
     auto position_ids_device = position_ids->to(device_);
-    auto hidden_states = model_->forward(input_ids, position_ids_device, kv_cache);
+    auto hidden_states = model_->forward(input_ids, position_ids_device, cache_position);
 
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);
@@ -38,12 +38,8 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     return {logits};
 }
 
-void LlamaForCausalLM::reset_cache(size_t pos) {
-    model_->reset_cache(pos);
-}
-
-void LlamaForCausalLM::reset_cache(const cache::CacheConfig &new_config, size_t pos) {
-    model_->reset_cache(new_config, pos);
+void LlamaForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
+    model_->reset_cache(cache_config);
 }
 
 } // namespace infinilm::models::llama

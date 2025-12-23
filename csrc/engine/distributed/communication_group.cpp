@@ -38,7 +38,7 @@ int CommunicationGroup::get_world_size() const {
 CommunicationGroup::~CommunicationGroup() {
     if (communicators_.size() > 1) {
         for (auto &comm : communicators_) {
-            RUN_INFINI(infinicclCommDestroy(comm));
+            infinicclCommDestroy(comm);
         }
     }
 }

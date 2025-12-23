@@ -69,16 +69,18 @@ class GenerationMixin:
             model_inputs["past_key_values"] = past_key_values
 
         # -------------------------------------------------------------------------- #
-        #                     计算所需的，position_ids
+        #                     计算所需的: position_ids
         # -------------------------------------------------------------------------- #
         current_position_ids = kwargs.get("position_ids", None)
         if current_position_ids is None:
             # prill阶段
             bs, seq_len = kwargs["input_ids"].shape[0:2]
             model_inputs["position_ids"] = self._get_initial_position_ids(bs, seq_len)
-
+            model_inputs["cache_positions"] = infinicore.from_list(
+                [0], dtype=infinicore.int64
+            )
         else:
-            # decoder 阶段
+            # decode 阶段
             bs, seq_len = current_position_ids.shape
             last_position = current_position_ids.narrow(1, seq_len - 1, 1)
 
@@ -90,7 +92,13 @@ class GenerationMixin:
 
             next_position = one_value + last_position
             model_inputs["position_ids"] = next_position
-
+            model_inputs["cache_positions"] = kwargs[
+                "cache_positions"
+            ] + infinicore.from_list(
+                [seq_len],
+                dtype=last_position.dtype,
+                device=last_position.device,
+            )
         # -------------------------------------------------------------------- #
         #                 所需的: token的input_ids
         # -------------------------------------------------------------------- #
@@ -119,29 +127,14 @@ class GenerationMixin:
     ):
         model_kwargs = kwargs
 
-        # -------------------------------------------------------------------- #
-        # CRITICAL: Reset internal cache before each new generation
-        # This prevents state from persisting between different questions/prompts
-        # -------------------------------------------------------------------- #
         # Check if this is a cpp backend model (has _model attribute with reset_cache method)
-        if hasattr(self, "_model") and hasattr(self._model, "reset_cache"):
-            try:
-                self._model.reset_cache()
-            except Exception as e:
-                # If reset_cache fails, log but continue (shouldn't happen)
-                import warnings
-
-                warnings.warn(f"Failed to reset cache: {e}")
-
-        # -------------------------------------------------------------------- #
-        #                       创建 cache                                      #
-        # -------------------------------------------------------------------- #
-        if self.use_cache:
-            model_kwargs["use_cache"] = True
-            model_kwargs["past_key_values"] = DynamicCache(config=self.config)
-        else:
-            model_kwargs["use_cache"] = False
-            model_kwargs["past_key_values"] = None
+        if not (hasattr(self, "_model") and hasattr(self._model, "reset_cache")):
+            if self.use_cache:
+                model_kwargs["use_cache"] = True
+                model_kwargs["past_key_values"] = DynamicCache(config=self.config)
+            else:
+                model_kwargs["use_cache"] = False
+                model_kwargs["past_key_values"] = None
 
         # -------------------------------------------------------------------- #
         #                       _sample函数                                     #
@@ -204,6 +197,7 @@ class GenerationMixin:
             model_inputs = self.prepare_inputs_for_generation(**model_kwargs)
 
             model_kwargs["position_ids"] = model_inputs["position_ids"]
+            model_kwargs["cache_positions"] = model_inputs["cache_positions"]
 
             # -------------------------------------------------------------------------- #
             #                     计算一次

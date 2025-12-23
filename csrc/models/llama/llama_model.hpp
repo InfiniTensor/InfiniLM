@@ -47,40 +47,18 @@ public:
      *
      * @param input_ids Token IDs tensor of shape [batch, seq_len]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param kv_cache Optional model-level KV cache for incremental decoding
+     * @param cache_positions Cache positions tensor of shape [n_req]
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
                                const infinicore::Tensor &position_ids,
-                               void *kv_cache = nullptr) const;
+                               const infinicore::Tensor &cache_positions) const;
+
+    void reset_cache(const cache::CacheConfig *cache_config);
 
     // Module information
     const LlamaConfig &config() const { return config_; }
     size_t num_layers() const { return config_.num_hidden_layers; }
-
-    /**
-     * @brief Reset the internal cache to a specific position
-     * This should be called when starting a new generation sequence to prevent state
-     * from persisting between different questions/prompts
-     * @param pos Position to reset to (defaults to 0)
-     */
-    void reset_cache(size_t pos = 0) const;
-
-    /**
-     * @brief Reset the internal cache with a new configuration and position
-     * This should be called when changing cache parameters (e.g., initial capacity)
-     * @param new_config New cache configuration
-     * @param pos Position to reset to
-     */
-    void reset_cache(const cache::CacheConfig &new_config, size_t pos = 0) const;
-
-    /**
-     * @brief Set external cache for the model
-     * @param cache Pointer to external cache (managed by CacheManager)
-     */
-    void set_external_cache(std::shared_ptr<cache::DynamicCache> cache) {
-        external_cache_ = cache.get();
-    }
 
 protected:
     // Token embeddings
@@ -95,13 +73,12 @@ protected:
     // Rotary Position Embeddings (shared across all layers)
     INFINICORE_NN_MODULE(infinicore::nn::RoPE, rotary_emb);
 
+    engine::distributed::RankInfo rank_info_;
+
+    std::shared_ptr<cache::Cache> kv_cache_;
+
 private:
     LlamaConfig config_;
-    // Persistent cache for when no external cache is provided
-    // Mutable because it's not part of the model's learned parameters,
-    // but needs to persist across forward calls for incremental decoding
-    mutable std::unique_ptr<infinilm::cache::DynamicCache> internal_cache_;
-    cache::DynamicCache *external_cache_ = nullptr;
 };
 
 } // namespace infinilm::models::llama

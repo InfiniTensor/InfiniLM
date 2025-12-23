@@ -51,7 +51,8 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
 
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
                                            const infinicore::Tensor &position_ids,
-                                           void *kv_cache) const {
+                                           std::shared_ptr<cache::Cache> kv_cache,
+                                           const infinicore::Tensor &cache_positions) const {
     if (!rotary_emb_) {
         throw std::runtime_error("LlamaAttention: rotary_emb not configured");
     }
@@ -97,16 +98,15 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
     q_reshaped = q_rope->permute({0, 2, 1, 3});          // [bs, n_q_head, seq_len, head_dim]
     auto k_permuted = k_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
-    infinilm::cache::DynamicCache *external_cache = static_cast<infinilm::cache::DynamicCache *>(kv_cache);
-    infinicore::Tensor k_total; // [bs, n_kv_head, total_seq_len, head_dim]
-    infinicore::Tensor v_total; // [bs, n_kv_head, total_seq_len, head_dim]
-    if (external_cache != nullptr) {
-        auto [k_total_tmp, v_total_tmp] = external_cache->update(layer_idx_, k_permuted, v_permuted);
+    infinicore::Tensor k_total;                          // [bs, n_kv_head, total_seq_len, head_dim]
+    infinicore::Tensor v_total;                          // [bs, n_kv_head, total_seq_len, head_dim]
+    if (auto static_kv_cache = std::dynamic_pointer_cast<cache::StaticKVCache>(kv_cache)) {
+        auto [k_total_tmp, v_total_tmp] = static_kv_cache->update(layer_idx_, k_permuted, v_permuted, cache_positions);
         k_total = k_total_tmp;
         v_total = v_total_tmp;
     } else {
-        // No external cache - this shouldn't happen in normal operation, but handle gracefully
-        throw std::runtime_error("LlamaAttention: kv_cache is required but nullptr provided");
+
+        throw std::runtime_error("LlamaAttention: Unsupported kvcache type");
     }
     auto total_seq_len = k_total->shape()[2];
 
