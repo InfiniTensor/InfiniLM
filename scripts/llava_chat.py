@@ -9,7 +9,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--dev",
-        choices=["hygon"],
+        choices=["hygon", "moore"],
         default="hygon",
         help="Device backend (currently only hygon is supported for this script).",
     )
@@ -20,7 +20,7 @@ def main():
     ap.add_argument("--max-new-tokens", type=int, default=128)
     ap.add_argument("--topk", type=int, default=1)
     ap.add_argument("--topp", type=float, default=1.0)
-    ap.add_argument("--temperature", type=float, default=0.0)
+    ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--kv-compress", action="store_true", help="Enable in-place KV cache compression after prefill.")
     ap.add_argument("--kv-compress-bin", default="", help="Path to llava_mlp.bin compressor weights.")
@@ -28,7 +28,7 @@ def main():
     ap.add_argument("--kv-compress-min-seq-len", type=int, default=2)
     args = ap.parse_args()
 
-    if args.dev != "hygon":
+    if args.dev not in  ["hygon", "moore"]:
         raise SystemExit("Only --dev hygon is supported right now.")
     if args.kv_compress:
         if args.ndev != 1:
@@ -46,9 +46,11 @@ def main():
         }
     ]
 
+    device_type = DeviceType.DEVICE_TYPE_HYGON if args.dev == "hygon" else DeviceType.DEVICE_TYPE_CPU
+    device_type = DeviceType.DEVICE_TYPE_MOORE if args.dev == "moore" else DeviceType.DEVICE_TYPE_CPU
     model = LLaVAForCauslLM(
         args.model_dir,
-        device=DeviceType.DEVICE_TYPE_HYGON,
+        device= device_type,
         ndev=args.ndev,
     )
     text = model.generate(

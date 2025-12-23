@@ -250,7 +250,10 @@ def main():
 
     dev_name = os.environ.get("MINICPMV_DEVICE", "hygon").lower().strip()
     device = DeviceType.DEVICE_TYPE_HYGON if dev_name == "hygon" else DeviceType.DEVICE_TYPE_CPU
+    device = DeviceType.DEVICE_TYPE_MOORE if dev_name == "moore" else DeviceType.DEVICE_TYPE_CPU
+
     dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_HYGON else None
+    dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_MOORE else None
 
     llm = JiugeForCauslLM(
         str(model_dir),
