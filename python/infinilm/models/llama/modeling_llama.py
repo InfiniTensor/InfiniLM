@@ -98,15 +98,16 @@ class LlamaMLP(infinicore.nn.Module):
         hidden_size = config.hidden_size
         intermediate_size = config.intermediate_size
         mlp_bias = config.mlp_bias
+        dtype = config.dtype
 
         self.gate_proj = infinicore.nn.Linear(
-            hidden_size, intermediate_size, bias=mlp_bias, **kwargs
+            hidden_size, intermediate_size, bias=mlp_bias, dtype=dtype, **kwargs
         )
         self.up_proj = infinicore.nn.Linear(
-            hidden_size, intermediate_size, bias=mlp_bias, **kwargs
+            hidden_size, intermediate_size, bias=mlp_bias, dtype=dtype, **kwargs
         )
         self.down_proj = infinicore.nn.Linear(
-            intermediate_size, hidden_size, bias=mlp_bias, **kwargs
+            intermediate_size, hidden_size, bias=mlp_bias, dtype=dtype, **kwargs
         )
         self.act_fn = infinicore.nn.functional.silu
 
@@ -133,10 +134,13 @@ class LlamaAttention(infinicore.nn.Module):
 
         self.scaling = self.head_dim**-0.5
 
+        dtype = config.dtype
+
         self.q_proj = infinicore.nn.Linear(
             self.hidden_size,
             self.num_attention_heads * self.head_dim,
             bias=attention_bias,
+            dtype=dtype,
             **kwargs,
         )
 
@@ -144,6 +148,7 @@ class LlamaAttention(infinicore.nn.Module):
             self.hidden_size,
             self.num_key_value_heads * self.head_dim,
             bias=attention_bias,
+            dtype=dtype,
             **kwargs,
         )
 
@@ -151,6 +156,7 @@ class LlamaAttention(infinicore.nn.Module):
             self.hidden_size,
             self.num_key_value_heads * self.head_dim,
             bias=attention_bias,
+            dtype=dtype,
             **kwargs,
         )
 
@@ -158,6 +164,7 @@ class LlamaAttention(infinicore.nn.Module):
             self.num_attention_heads * self.head_dim,
             self.hidden_size,
             bias=False,
+            dtype=dtype,
             **kwargs,
         )
 
@@ -258,13 +265,16 @@ class LlamaDecoderLayer(infinicore.nn.Module):
         super().__init__()
         hidden_size = config.hidden_size
         rms_norm_eps = config.rms_norm_eps
+        dtype = config.dtype
 
         self.self_attn = LlamaAttention(config=config, layer_idx=layer_idx, **kwargs)
         self.mlp = LlamaMLP(config=config, **kwargs)
 
-        self.input_layernorm = LlamaRMSNorm(hidden_size, eps=rms_norm_eps, **kwargs)
+        self.input_layernorm = LlamaRMSNorm(
+            hidden_size, eps=rms_norm_eps, dtype=dtype, **kwargs
+        )
         self.post_attention_layernorm = LlamaRMSNorm(
-            hidden_size, eps=rms_norm_eps, **kwargs
+            hidden_size, eps=rms_norm_eps, dtype=dtype, **kwargs
         )
 
     def forward(
@@ -317,7 +327,7 @@ class LlamaModel(infinicore.nn.Module):
         )
 
         self.embed_tokens = infinicore.nn.Embedding(
-            config.vocab_size, config.hidden_size, **kwargs
+            config.vocab_size, config.hidden_size, dtype=config.dtype, **kwargs
         )
 
         self.layers = infinicore.nn.ModuleList(
@@ -326,12 +336,15 @@ class LlamaModel(infinicore.nn.Module):
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps, **kwargs)
+        self.norm = LlamaRMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps, dtype=config.dtype, **kwargs
+        )
 
         self.rope_instance = infinicore.nn.RoPE(
             max_position_embeddings=config.max_position_embeddings,
             rope_theta=config.rope_theta,
             head_dim=head_dim,
+            dtype=config.dtype,
             **kwargs,
         )
 
@@ -394,6 +407,7 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
             config.hidden_size,
             config.vocab_size,
             bias=False,
+            dtype=config.dtype,
             **kwargs,
         )
         self.device = kwargs.get("device", infinicore.device("cpu"))
@@ -420,7 +434,6 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
         cls,
         model_path: Optional[Union[str, os.PathLike]],
         device: infinicore.device,
-        dtype=infinicore.dtype,
     ):
         def load_config_json(dir_path_: str):
             with open(os.path.join(dir_path_, "config.json"), "r") as f:
@@ -430,4 +443,4 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
         config_dict = load_config_json(os.path.join(model_path))
         config = LlamaConfig(**config_dict)
 
-        return LlamaForCausalLM(config, device=device, dtype=dtype)
+        return LlamaForCausalLM(config, device=device)

@@ -77,7 +77,6 @@ class InfiniLMBenchmark(BaseBenchmark):
         # When CUDA_VISIBLE_DEVICES=5 is set, CUDA only sees device 5 as device 0
         # So device index 0 will automatically map to the first visible device
         self.device = infinicore.device(device_name, 0)
-        self.dtype = infinicore.bfloat16
 
         # Load config and tokenizer
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
@@ -117,7 +116,6 @@ class InfiniLMBenchmark(BaseBenchmark):
         self.model = AutoLlamaModel.from_pretrained(
             model_dir_path,
             device=self.device,
-            dtype=self.dtype,
             backend=backend,
             distributed_config=DistConfig(ndev),
         )
@@ -130,7 +128,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         load_model_state_dict_by_file(
             self.model,
             model_dir_path,
-            dtype=self.dtype,
+            dtype=self.model.config.dtype,
         )
         print("Model loaded successfully")
 

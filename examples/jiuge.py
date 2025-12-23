@@ -59,12 +59,6 @@ def get_args():
         help="python or cpp model",
     )
     parser.add_argument(
-        "--dtype",
-        type=str,
-        default="bfloat16",
-        help="float32, float16, bfloat16",
-    )
-    parser.add_argument(
         "--batch-size",
         type=int,
         default=1,
@@ -90,7 +84,6 @@ def test(
     prompts: str | list[str],
     model_path,
     max_new_tokens=100,
-    infini_dtype=infinicore.bfloat16,
     infini_device=infinicore.device("cpu", 0),
     backend="python",
     tp=1,
@@ -102,7 +95,6 @@ def test(
     model = infinilm.AutoLlamaModel.from_pretrained(
         model_path,
         device=infini_device,
-        dtype=infini_dtype,
         backend=backend,
         distributed_config=DistConfig(tp),
     )
@@ -110,7 +102,7 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        加载权重
     # ---------------------------------------------------------------------------- #
-    load_model_state_dict_by_file(model, model_path, dtype=infini_dtype)
+    load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
 
     # ---------------------------------------------------------------------------- #
     #                        创建 tokenizer
@@ -203,21 +195,12 @@ if __name__ == "__main__":
     tp = args.tp
 
     infini_device = infinicore.device(device_str, 0)
-    if args.dtype == "float32":
-        infini_dtype = infinicore.float32
-    elif args.dtype == "bfloat16":
-        infini_dtype = infinicore.bfloat16
-    elif args.dtype == "float16":
-        infini_dtype = infinicore.float16
-    else:
-        raise ValueError(f"Unsupported dtype: {args.dtype}")
 
     test(
         prompts,
         model_path,
         max_new_tokens,
         infini_device=infini_device,
-        infini_dtype=infini_dtype,
         backend=backend,
         tp=tp,
     )

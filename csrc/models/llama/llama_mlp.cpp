@@ -6,11 +6,11 @@ namespace infinilm::models::llama {
 
 LlamaMLP::LlamaMLP(const LlamaConfig &config,
                    const infinicore::Device &device,
-                   infinicore::DataType dtype,
                    engine::distributed::RankInfo rank_info)
     : hidden_size_(config.hidden_size),
       intermediate_size_(config.intermediate_size),
       use_bias_(config.mlp_bias), rank_info_(rank_info) {
+    const auto &dtype{config.dtype};
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;

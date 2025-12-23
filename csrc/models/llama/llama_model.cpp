@@ -9,9 +9,10 @@ namespace infinilm::models::llama {
 
 LlamaModel::LlamaModel(const LlamaConfig &config,
                        const infinicore::Device &device,
-                       infinicore::DataType dtype,
                        engine::distributed::RankInfo rank_info)
     : config_(config) {
+    const auto &dtype{config.dtype};
+
     // Initialize token embeddings
     INFINICORE_NN_MODULE_INIT(embed_tokens, config.vocab_size, config.hidden_size,
                               std::nullopt, dtype, device);
@@ -23,7 +24,7 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
     layers_.reserve(config.num_hidden_layers);
     for (size_t i = 0; i < config.num_hidden_layers; ++i) {
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
-            "layers." + std::to_string(i), config, device, i, dtype, rank_info));
+            "layers." + std::to_string(i), config, device, i, rank_info));
     }
 
     // Initialize final layer normalization
