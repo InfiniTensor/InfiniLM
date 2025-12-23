@@ -38,7 +38,6 @@ public:
     LlamaAttention(const LlamaConfig &config,
                    const infinicore::Device &device,
                    size_t layer_idx,
-                   infinicore::DataType dtype = infinicore::DataType::F32,
                    engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**

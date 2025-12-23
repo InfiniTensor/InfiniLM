@@ -15,6 +15,8 @@
 
 """LLaMA model configuration"""
 
+import infinicore
+
 from infinilm.lib import _infinilm
 
 from ...configuration_utils import PretrainedConfig
@@ -179,6 +181,7 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
         attention_dropout=0.0,
         mlp_bias=False,
         head_dim=None,
+        torch_dtype=None,
         **kwargs,
     ):
         _infinilm.LlamaConfig.__init__(self)
@@ -224,6 +227,12 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
         if self.rope_scaling is not None and "type" in self.rope_scaling:
             self.rope_scaling["rope_type"] = self.rope_scaling["type"]
         # rope_config_validation(self)
+
+        if torch_dtype in {"float32", "bfloat16", "float16"}:
+            self.dtype = getattr(infinicore, torch_dtype)
+            self._dtype = self.dtype._underlying
+        else:
+            raise ValueError(f"Unsupported dtype: {torch_dtype}")
 
         PretrainedConfig.__init__(
             pad_token_id=pad_token_id,

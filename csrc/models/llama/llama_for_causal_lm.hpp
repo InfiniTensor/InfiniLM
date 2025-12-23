@@ -27,11 +27,9 @@ public:
      *
      * @param config Model configuration
      * @param device Device to create tensors on
-     * @param dtype Optional data type for model parameters (defaults to BF16)
      */
     LlamaForCausalLM(const LlamaConfig &config,
                      const infinicore::Device &device,
-                     infinicore::DataType dtype = infinicore::DataType::BF16,
                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**

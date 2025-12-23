@@ -8,14 +8,15 @@ namespace infinilm::models::llama {
 
 LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
                                    const infinicore::Device &device,
-                                   infinicore::DataType dtype,
                                    engine::distributed::RankInfo rank_info) {
 
     // Initialize module's device_ member
     device_ = device;
 
+    const auto &dtype{config.dtype};
+
     // Initialize base model
-    INFINICORE_NN_MODULE_INIT(model, config, device, dtype, rank_info);
+    INFINICORE_NN_MODULE_INIT(model, config, device, rank_info);
 
     // Initialize language modeling head
     // Note: If tie_word_embeddings is true, we would share weights with embed_tokens

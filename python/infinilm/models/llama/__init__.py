@@ -30,7 +30,6 @@ class AutoLlamaModel:
             instance = modeling_llama.LlamaForCausalLM.from_pretrained(
                 model_path,
                 device=device,
-                dtype=dtype,
                 **kwargs,
             )
 
@@ -45,7 +44,6 @@ class AutoLlamaModel:
             instance = cpp.LlamaForCausalLM.from_pretrained(
                 model_path,
                 device=device,
-                dtype=dtype,
                 **kwargs,
             )
         else:

@@ -141,14 +141,6 @@ def get_args():
         required=True,
         help="model path",
     )
-
-    parser.add_argument(
-        "--dtype",
-        type=str,
-        default="bfloat16",
-        help="bfloat16",
-    )
-
     parser.add_argument(
         "--batch-size",
         type=parse_list,
@@ -195,7 +187,6 @@ class TestModel:
     def __init__(
         self,
         model_path,
-        infini_dtype=infinicore.bfloat16,
         infini_device=infinicore.device("cpu", 0),
         tp=1,
     ) -> None:
@@ -206,7 +197,6 @@ class TestModel:
         model = infinilm.AutoLlamaModel.from_pretrained(
             model_path,
             device=infini_device,
-            dtype=infini_dtype,
             backend="cpp",
             distributed_config=DistConfig(tp),
         )
@@ -214,7 +204,7 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        加载权重
         # ---------------------------------------------------------------------------- #
-        load_model_state_dict_by_file(model, model_path, dtype=infini_dtype)
+        load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
 
         # ---------------------------------------------------------------------------- #
         #                        创建 tokenizer
@@ -289,14 +279,6 @@ if __name__ == "__main__":
     model_path = args.model
 
     infini_device = infinicore.device(device_str, 0)
-    if args.dtype == "float32":
-        infini_dtype = infinicore.float32
-    elif args.dtype == "bfloat16":
-        infini_dtype = infinicore.bfloat16
-    elif args.dtype == "float16":
-        infini_dtype = infinicore.float16
-    else:
-        raise ValueError(f"Unsupported dtype: {args.dtype}")
 
     tp = args.tensor_parallel_size
 
@@ -321,7 +303,6 @@ if __name__ == "__main__":
 
     test = TestModel(
         model_path,
-        infini_dtype=infini_dtype,
         infini_device=infini_device,
         tp=tp,
     )

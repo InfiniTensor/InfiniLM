@@ -45,6 +45,8 @@ inline void bind_llama(py::module &m) {
     py::class_<LlamaConfig, InfinilmModel::Config> llama_config(m, "LlamaConfig");
     llama_config
         .def(py::init<>())
+        // TODO: Change this to `dtype` after updating InfiniCore pybind11 exposing mechanism.
+        .def_readwrite("_dtype", &LlamaConfig::dtype)
         .def_readwrite("vocab_size", &LlamaConfig::vocab_size)
         .def_readwrite("hidden_size", &LlamaConfig::hidden_size)
         .def_readwrite("intermediate_size", &LlamaConfig::intermediate_size)

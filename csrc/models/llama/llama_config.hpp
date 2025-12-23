@@ -16,6 +16,9 @@ namespace infinilm::models::llama {
  * It follows the same structure as HuggingFace's LlamaConfig.
  */
 struct LlamaConfig : public InfinilmModel::Config {
+    // Data type
+    infinicore::DataType dtype = infinicore::DataType::F32;
+
     // Vocabulary and embedding
     size_t vocab_size = 32000;              // Vocabulary size
     size_t hidden_size = 4096;               // Hidden dimension size

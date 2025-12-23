@@ -16,7 +16,6 @@ namespace infinilm::models::llama {
 LlamaAttention::LlamaAttention(const LlamaConfig &config,
                                const infinicore::Device &device,
                                size_t layer_idx,
-                               infinicore::DataType dtype,
                                engine::distributed::RankInfo rank_info)
     : layer_idx_(layer_idx),
       hidden_size_(config.hidden_size),
@@ -27,6 +26,7 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
       use_bias_(config.attention_bias),
       use_output_bias_(config.attention_output_bias),
       max_position_embeddings_(config.max_position_embeddings), rank_info_(rank_info) {
+    const auto &dtype{config.dtype};
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;

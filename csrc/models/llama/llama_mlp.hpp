@@ -35,7 +35,6 @@ public:
      */
     LlamaMLP(const LlamaConfig &config,
              const infinicore::Device &device,
-             infinicore::DataType dtype = infinicore::DataType::F32,
              engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
