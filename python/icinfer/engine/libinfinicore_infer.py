@@ -34,6 +34,9 @@ class DeviceType(ctypes.c_int):
     DEVICE_TYPE_METAX = 4
     DEVICE_TYPE_MOORE = 5
     DEVICE_TYPE_ILUVATAR = 6
+    DEVICE_TYPE_KUNLUN = 7
+    DEVICE_TYPE_HYGON = 8
+    DEVICE_TYPE_QY = 9
 
 
 class JiugeMetaCStruct(ctypes.Structure):

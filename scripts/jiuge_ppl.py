@@ -14,6 +14,7 @@ DEVICE_TYPE_MAP = {
     "iluvatar": DeviceType.DEVICE_TYPE_ILUVATAR,
     "kunlun": DeviceType.DEVICE_TYPE_KUNLUN,
     "hygon": DeviceType.DEVICE_TYPE_HYGON,
+    "qy": DeviceType.DEVICE_TYPE_QY,
 }
 
 TORCH_DEVICE_TYPE_MAP = {
@@ -26,6 +27,7 @@ TORCH_DEVICE_TYPE_MAP = {
     "iluvatar": "cuda",
     "kunlun": "cuda",
     "hygon": "cuda",
+    "qy": "cuda",
 }
 
 

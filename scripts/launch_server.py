@@ -28,6 +28,7 @@ DEVICE_TYPE_MAP = {
     "iluvatar": DeviceType.DEVICE_TYPE_ILUVATAR,
     "kunlun": DeviceType.DEVICE_TYPE_KUNLUN,
     "hygon": DeviceType.DEVICE_TYPE_HYGON,
+    "qy": DeviceType.DEVICE_TYPE_QY,
 }
 
 
