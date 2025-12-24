@@ -240,6 +240,7 @@ def main():
     ap.add_argument("--kv-compress-factor", type=int, default=5)
     ap.add_argument("--kv-compress-min-seq-len", type=int, default=2)
     ap.add_argument("--kv-compress-image-len", type=int, default=0, help="Prefix tokens treated as image KV (0 for Hybrid text-only).")
+    ap.add_argument("--perplexity", action="store_true", help="Collect logits for perplexity calculation")
     args = ap.parse_args()
     debug = args.debug or os.environ.get("MINICPMV_DEBUG", "0") == "1"
 
@@ -251,9 +252,11 @@ def main():
     dev_name = os.environ.get("MINICPMV_DEVICE", "hygon").lower().strip()
     device = DeviceType.DEVICE_TYPE_HYGON if dev_name == "hygon" else DeviceType.DEVICE_TYPE_CPU
     device = DeviceType.DEVICE_TYPE_MOORE if dev_name == "moore" else DeviceType.DEVICE_TYPE_CPU
+    device = DeviceType.DEVICE_TYPE_NVIDIA if dev_name == "nvidia" else DeviceType.DEVICE_TYPE_CPU
 
     dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_HYGON else None
     dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_MOORE else None
+    dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_NVIDIA else None
 
     llm = JiugeForCauslLM(
         str(model_dir),
@@ -262,6 +265,7 @@ def main():
         max_tokens=args.max_tokens,
         dtype_override=dtype_override,
     )
+
 
     # Build processor using the same tokenizer
     preproc_cfg = json.loads((model_dir / "preprocessor_config.json").read_text())
@@ -301,6 +305,7 @@ def main():
 
     pixel_values_slices = batch["pixel_values"][0]
     tgt_sizes = batch["tgt_sizes"][0]
+
 
     # `image_bound` may include non-vision spans (e.g., <image_id>...</image_id>), which are not 64-token features.
     feature_len = int(preproc_cfg.get("image_feature_size", 64))
@@ -424,8 +429,39 @@ def main():
     topk = (c_uint * 1)(1)
     topp = (c_float * 1)(1.0)
 
+    prefill_logits = None
+    all_logits = []
+
     out = (c_uint * 1)()
-    llm.jiuge_model.infer_batch_with_overrides(
+
+    if args.perplexity:
+        prefill_logits = torch.zeros((ntok, llm.meta.dvoc), dtype=llm.meta.torch_dtype_logits)
+        print(f"准备收集 prefill logits: shape {prefill_logits.shape}")
+
+        # 使用 infer_batch_with_overrides_with_logits 传递 logits
+        llm.jiuge_model.infer_batch_with_overrides_with_logits(
+            llm.model_instance,
+            tokens_c,
+            ntok,
+            req_lens,
+            1,
+            req_pos,
+            kv_caches,
+            len(override_pos_list),
+            override_pos,
+            override_embeds.data_ptr(),
+            temperature,
+            topk,
+            topp,
+            out,
+            prefill_logits.data_ptr(),  # 传递 logits 指针
+        )
+
+        # 保存 prefill logits
+        all_logits.append(prefill_logits.clone())
+        print(f"Collected prefill logits: shape {prefill_logits.shape}")
+    else:
+        llm.jiuge_model.infer_batch_with_overrides(
         llm.model_instance,
         tokens_c,
         ntok,
@@ -440,7 +476,7 @@ def main():
         topk,
         topp,
         out,
-    )
+        )
     if debug:
         print("DEBUG prefill next_token:", int(out[0]))
 
@@ -470,35 +506,96 @@ def main():
         req_pos = (c_uint * 1)(rope_pos)
         kv_pos_c = (c_uint * 1)(kv_pos)
         tokens_c = (c_uint * 1)(generated[-1])
-        if args.kv_compress:
-            llm.jiuge_model.infer_batch_ex(
-                llm.model_instance,
-                tokens_c,
-                1,
-                req_lens,
-                1,
-                req_pos,
-                kv_pos_c,
-                kv_caches,
-                temperature,
-                topk,
-                topp,
-                out,
-            )
+        # if args.kv_compress:
+        #     llm.jiuge_model.infer_batch_ex(
+        #         llm.model_instance,
+        #         tokens_c,
+        #         1,
+        #         req_lens,
+        #         1,
+        #         req_pos,
+        #         kv_pos_c,
+        #         kv_caches,
+        #         temperature,
+        #         topk,
+        #         topp,
+        #         out,
+        #     )
+
+        if args.perplexity:
+            # 收集 decode 阶段的 logits
+            decode_logits = torch.zeros((1, llm.meta.dvoc), dtype=llm.meta.torch_dtype_logits)
+
+            if args.kv_compress:
+                # 使用 infer_batch_ex_with_logits 收集logits（KV压缩模式）
+                llm.jiuge_model.infer_batch_ex_with_logits(
+                    llm.model_instance,
+                    tokens_c,
+                    1,
+                    req_lens,
+                    1,
+                    req_pos,
+                    kv_pos_c,
+                    kv_caches,
+                    temperature,
+                    topk,
+                    topp,
+                    out,
+                    decode_logits.data_ptr(),  # 传递 logits 指针
+                )
+            else:
+                # 使用 infer_batch_with_logits 一次性完成推理和 logits 收集
+                llm.jiuge_model.infer_batch_with_logits(
+                    llm.model_instance,
+                    tokens_c,
+                    1,
+                    req_lens,
+                    1,
+                    req_pos,
+                    kv_caches,
+                    temperature,
+                    topk,
+                    topp,
+                    out,
+                    decode_logits.data_ptr(),  # 传递 logits 指针
+                )
+
+            # 保存 decode logits（两种模式都保存）
+            all_logits.append(decode_logits.clone())
+            print(f"Collected decode logits step {_+1}: shape {decode_logits.shape}")
+
         else:
-            llm.jiuge_model.infer_batch(
-                llm.model_instance,
-                tokens_c,
-                1,
-                req_lens,
-                1,
-                req_pos,
-                kv_caches,
-                temperature,
-                topk,
-                topp,
-                out,
-            )
+            # 原有的推理方式
+            if args.kv_compress:
+                llm.jiuge_model.infer_batch_ex(
+                    llm.model_instance,
+                    tokens_c,
+                    1,
+                    req_lens,
+                    1,
+                    req_pos,
+                    kv_pos_c,
+                    kv_caches,
+                    temperature,
+                    topk,
+                    topp,
+                    out,
+                )
+            else:
+                llm.jiuge_model.infer_batch(
+                    llm.model_instance,
+                    tokens_c,
+                    1,
+                    req_lens,
+                    1,
+                    req_pos,
+                    kv_caches,
+                    temperature,
+                    topk,
+                    topp,
+                    out,
+                )
+
         generated.append(int(out[0]))
         rope_pos += 1
         kv_pos += 1
@@ -507,6 +604,120 @@ def main():
         print("DEBUG generated_ids:", generated)
     text = llm.tokenizer.decode(generated, skip_special_tokens=False)
     print(text)
+
+
+  # 计算困惑度（如果启用了logits收集）
+    if args.perplexity and len(all_logits) > 0:
+        print("\n" + "="*60)
+        print("🎯 计算多模态模型困惑度...")
+
+        import math
+
+        total_nll = 0.0  # 负对数似然
+        total_tokens = 0
+
+        print(f"📊 收集到的logits数量: {len(all_logits)}")
+        print(f"📊 生成的token序列: {generated}")
+
+        # 处理 prefill logits
+        if len(all_logits) > 0 and len(all_logits[0].shape) == 2:
+            prefill_logits = all_logits[0]  # [ntok, vocab_size]
+            print(f"📊 Prefill logits shape: {prefill_logits.shape}")
+
+            # prefill阶段：对于输入序列中的每个位置，计算对下一个token的预测概率
+            # 输入序列的长度是prefill_logits.shape[0]
+            # 第一个生成的token是generated[0]
+            input_seq_len = prefill_logits.shape[0]
+
+            # 对于输入序列中的每个位置i，它应该预测generated[i]（如果i==0）或输入序列的下一个token
+            for i in range(input_seq_len):
+                if i < input_seq_len - 1:
+                    # 对于输入序列中的位置i（除了最后一个），应该预测输入序列的下一个token
+                    # 但我们不知道原始输入序列，所以只计算第一个位置对第一个生成token的预测
+                    if i == 0:
+                        target_token_id = generated[0]  # 第一个位置预测第一个生成的token
+                        current_logits = prefill_logits[i]  # [vocab_size]
+
+                        # 计算log概率
+                        log_probs = torch.nn.functional.log_softmax(current_logits, dim=-1)
+                        token_log_prob = log_probs[target_token_id].item()
+
+                        total_nll += -token_log_prob  # 负对数似然
+                        total_tokens += 1
+
+                        if total_tokens <= 3:  # 只显示前3个详细信息
+                            prob_value = math.exp(token_log_prob)
+                            predicted_token = llm.tokenizer.decode([target_token_id])
+                            print(f"  Prefill位置 {i}: 预测 '{predicted_token}' log_prob={token_log_prob:.4f} prob={prob_value:.4f}")
+                else:
+                    # 输入序列的最后一个位置，预测第一个生成的token
+                    target_token_id = generated[0]
+                    current_logits = prefill_logits[i]  # [vocab_size]
+
+                    log_probs = torch.nn.functional.log_softmax(current_logits, dim=-1)
+                    token_log_prob = log_probs[target_token_id].item()
+
+                    total_nll += -token_log_prob
+                    total_tokens += 1
+
+                    prob_value = math.exp(token_log_prob)
+                    predicted_token = llm.tokenizer.decode([target_token_id])
+                    print(f"  Prefill位置 {i}: 预测 '{predicted_token}' log_prob={token_log_prob:.4f} prob={prob_value:.4f}")
+
+        # 处理 decode logits
+        decode_start_idx = 1  # 跳过 prefill logits
+        for step_idx, logits in enumerate(all_logits[decode_start_idx:]):
+            if len(logits.shape) == 2:
+                decode_logits = logits[0]  # [vocab_size]
+            else:
+                decode_logits = logits  # [vocab_size]
+
+            # decode阶段：第step_idx步应该预测generated[step_idx+1]
+            if step_idx + 1 < len(generated):
+                target_token_id = generated[step_idx + 1]
+
+                # 计算log概率
+                log_probs = torch.nn.functional.log_softmax(decode_logits, dim=-1)
+                token_log_prob = log_probs[target_token_id].item()
+
+                total_nll += -token_log_prob
+                total_tokens += 1
+
+                # 显示前几步的详细信息
+                if step_idx < 5:
+                    prob_value = math.exp(token_log_prob)
+                    predicted_token = llm.tokenizer.decode([target_token_id])
+                    print(f"  Decode步骤 {step_idx+1}: 预测 '{predicted_token}' log_prob={token_log_prob:.4f} prob={prob_value:.4f}")
+            else:
+                print(f"  警告：Decode步骤 {step_idx+1} 没有对应的目标token")
+
+        if total_tokens > 0:
+            # 计算困惑度
+            avg_nll = total_nll / total_tokens
+            perplexity = math.exp(avg_nll)
+
+            print(f"\n📊 总token数: {total_tokens}")
+            print(f"📊 总负对数似然: {total_nll:.4f}")
+            print(f"📊 平均负对数似然: {avg_nll:.4f}")
+            print(f"🎯 多模态模型困惑度 (PPL): {perplexity:.4f}")
+
+            # 解释困惑度
+            if perplexity < 10:
+                print("✅ 很好的困惑度 - 多模态模型预测很准确")
+            elif perplexity < 50:
+                print("🟡 中等困惑度 - 多模态模型预测还可以")
+            elif perplexity < 100:
+                print("🟠 较高的困惑度 - 多模态模型对文本不太确定")
+            else:
+                print("❌ 非常高的困惑度 - 多模态模型预测质量差")
+
+            print(f"📈 收集的logits数量: {len(all_logits)}")
+            print(f"📈 生成的token数: {len(generated)}")
+        else:
+            print("❌ 没有计算任何token的困惑度")
+
+        print("="*60)
+
 
     llm.jiuge_model.drop_kv_cache(kv)
     vision_model.destroy_model(vision_handle)

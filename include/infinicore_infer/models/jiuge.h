@@ -97,6 +97,30 @@ inferBatchJiugeEx(struct JiugeModel *,
                   const float *temperature, const uint32_t *topk, const float *topp,
                   uint32_t *output);
 
+/// @brief 批次推理一轮，并采样出新的 token，同时输出 logits
+/// @param logits 输出 logits 数组
+__C __export void
+inferBatchJiugeWithLogits(struct JiugeModel *,
+                         const uint32_t *tokens, uint32_t ntok,
+                         const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                         struct KVCache **kv_caches,
+                         const float *temperature, const uint32_t *topk, const float *topp,
+                         uint32_t *output, void *logits);
+
+/// @brief 批次推理一轮（RoPE 位置与 KV 写入位置可解耦），同时输出 logits
+/// @param req_pos 位置 id 基址（用于 RoPE/pos_ids 计算）
+/// @param kv_pos KVCache 写入/读取基址（用于 past_len/total_len 计算）
+/// @param logits 输出 logits 数组
+__C __export void
+inferBatchJiugeExWithLogits(struct JiugeModel *,
+                            const uint32_t *tokens, uint32_t ntok,
+                            const uint32_t *req_lens, uint32_t nreq,
+                            const uint32_t *req_pos,
+                            const uint32_t *kv_pos,
+                            struct KVCache **kv_caches,
+                            const float *temperature, const uint32_t *topk, const float *topp,
+                            uint32_t *output, void *logits);
+
 /// @brief 批次推理一轮，输出 output embedding 后的 logits
 /// @param tokens 输入 token 地址
 /// @param ntok 输入 token 数量
@@ -151,6 +175,32 @@ inferBatchJiugeWithOverridesEx(struct JiugeModel *,
                                const void *override_embeds,
                                const float *temperature, const uint32_t *topk, const float *topp,
                                uint32_t *output);
+
+/// @brief 批次推理一轮，支持 embedding 覆盖，同时输出 logits
+__C __export void
+inferBatchJiugeWithOverridesWithLogits(struct JiugeModel *,
+                                       const uint32_t *tokens, uint32_t ntok,
+                                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                                       struct KVCache **kv_caches,
+                                       uint32_t n_override,
+                                       const uint32_t *override_pos,
+                                       const void *override_embeds,
+                                       const float *temperature, const uint32_t *topk, const float *topp,
+                                       uint32_t *output, void *logits);
+
+// /// @brief 批次推理一轮（RoPE 位置与 KV 写入位置可解耦），支持 embedding 覆盖，同时输出 logits
+// __C __export void
+// inferBatchJiugeWithOverridesExWithLogits(struct JiugeModel *,
+//                                           const uint32_t *tokens, uint32_t ntok,
+//                                           const uint32_t *req_lens, uint32_t nreq,
+//                                           const uint32_t *req_pos,
+//                                           const uint32_t *kv_pos,
+//                                           struct KVCache **kv_caches,
+//                                           uint32_t n_override,
+//                                           const uint32_t *override_pos,
+//                                           const void *override_embeds,
+//                                           const float *temperature, const uint32_t *topk, const float *topp,
+//                                           uint32_t *output, void *logits);
 
 /// @brief 批次推理一轮，输出 logits，支持对指定 token 位置的输入 embedding 做覆盖
 __C __export void

@@ -4,7 +4,6 @@ target("infinicore_infer")
     set_kind("shared")
     set_symbols("debug")     -- add debug symbols
 
-    set_symbols("debug")
     add_includedirs("include", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })
 

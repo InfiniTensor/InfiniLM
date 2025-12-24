@@ -26,6 +26,7 @@ def main():
     ap.add_argument("--kv-compress-bin", default="", help="Path to llava_mlp.bin compressor weights.")
     ap.add_argument("--kv-compress-factor", type=int, default=5)
     ap.add_argument("--kv-compress-min-seq-len", type=int, default=2)
+    ap.add_argument("--perplexity", action="store_true", help="Collect logits for perplexity calculation")
     args = ap.parse_args()
 
     if args.dev not in  ["hygon", "moore"]:
