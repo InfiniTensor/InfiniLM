@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import time
 from ctypes import POINTER, c_float, c_int, c_uint
 from pathlib import Path
 
@@ -229,6 +230,12 @@ def _build_minicpmv_vision_model(model_dir: Path, torch_dt_logits, dt_logits: Da
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--dev",
+        choices=["cpu", "nvidia", "hygon", "moore"],
+        default="cpu",
+        help="Device backend for inference.",
+    )
     ap.add_argument("--model-dir", required=True)
     ap.add_argument("--image", required=True)
     ap.add_argument("--question", default="图片是什么？")
@@ -241,6 +248,7 @@ def main():
     ap.add_argument("--kv-compress-min-seq-len", type=int, default=2)
     ap.add_argument("--kv-compress-image-len", type=int, default=0, help="Prefix tokens treated as image KV (0 for Hybrid text-only).")
     ap.add_argument("--perplexity", action="store_true", help="Collect logits for perplexity calculation")
+    ap.add_argument("--time", action="store_true", help="Print timing metrics (time per step, etc.)")
     args = ap.parse_args()
     debug = args.debug or os.environ.get("MINICPMV_DEBUG", "0") == "1"
 
@@ -249,14 +257,23 @@ def main():
     # LLM (Jiuge) loader
     from jiuge import JiugeForCauslLM
 
-    dev_name = os.environ.get("MINICPMV_DEVICE", "hygon").lower().strip()
-    device = DeviceType.DEVICE_TYPE_HYGON if dev_name == "hygon" else DeviceType.DEVICE_TYPE_CPU
-    device = DeviceType.DEVICE_TYPE_MOORE if dev_name == "moore" else DeviceType.DEVICE_TYPE_CPU
-    device = DeviceType.DEVICE_TYPE_NVIDIA if dev_name == "nvidia" else DeviceType.DEVICE_TYPE_CPU
-
-    dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_HYGON else None
-    dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_MOORE else None
-    dtype_override = torch.float16 if device == DeviceType.DEVICE_TYPE_NVIDIA else None
+    device_map = {
+        "cpu": DeviceType.DEVICE_TYPE_CPU,
+        "nvidia": DeviceType.DEVICE_TYPE_NVIDIA,
+        "hygon": DeviceType.DEVICE_TYPE_HYGON,
+        "moore": DeviceType.DEVICE_TYPE_MOORE,
+    }
+    device = device_map[args.dev]
+    dtype_override = (
+        torch.float16
+        if device
+        in {
+            DeviceType.DEVICE_TYPE_HYGON,
+            DeviceType.DEVICE_TYPE_MOORE,
+            DeviceType.DEVICE_TYPE_NVIDIA,
+        }
+        else None
+    )
 
     llm = JiugeForCauslLM(
         str(model_dir),
@@ -347,6 +364,7 @@ def main():
     # Compute per-slice vision embeddings [num_slices, 64, 3584]
     slice_embeds = []
     patch = int(preproc_cfg.get("patch_size", 14))
+    vision_infer_start_time = time.time()
     for i, x in enumerate(pixel_values_slices):
         th, tw = int(tgt_sizes[i][0].item()), int(tgt_sizes[i][1].item())
         seq_len = th * tw
@@ -372,6 +390,8 @@ def main():
         if out.dtype != llm_torch_dt:
             out = out.to(dtype=llm_torch_dt)
         slice_embeds.append(out.contiguous())
+    vision_infer_end_time = time.time()
+    vision_infer_time = float(vision_infer_end_time - vision_infer_start_time)
 
     # Flatten override positions and embeddings according to image_bound.
     override_pos_list = []
@@ -438,6 +458,7 @@ def main():
         prefill_logits = torch.zeros((ntok, llm.meta.dvoc), dtype=llm.meta.torch_dtype_logits)
         print(f"准备收集 prefill logits: shape {prefill_logits.shape}")
 
+        prefill_start_time = time.time()
         # 使用 infer_batch_with_overrides_with_logits 传递 logits
         llm.jiuge_model.infer_batch_with_overrides_with_logits(
             llm.model_instance,
@@ -456,11 +477,14 @@ def main():
             out,
             prefill_logits.data_ptr(),  # 传递 logits 指针
         )
+        prefill_end_time = time.time()
+        prefill_time = float(prefill_end_time - prefill_start_time)
 
         # 保存 prefill logits
         all_logits.append(prefill_logits.clone())
         print(f"Collected prefill logits: shape {prefill_logits.shape}")
     else:
+        prefill_start_time = time.time()
         llm.jiuge_model.infer_batch_with_overrides(
         llm.model_instance,
         tokens_c,
@@ -477,6 +501,8 @@ def main():
         topp,
         out,
         )
+        prefill_end_time = time.time()
+        prefill_time = float(prefill_end_time - prefill_start_time)
     if debug:
         print("DEBUG prefill next_token:", int(out[0]))
 
@@ -499,6 +525,7 @@ def main():
         if debug:
             print("DEBUG kv_compress:", {"rope_pos": int(rope_pos), "kv_pos": int(kv_pos)})
 
+    decode_start_time = time.time()
     for _ in range(args.max_steps - 1):
         if generated[-1] in eos_ids:
             break
@@ -599,6 +626,8 @@ def main():
         generated.append(int(out[0]))
         rope_pos += 1
         kv_pos += 1
+    decode_end_time = time.time()
+    decode_time = float(decode_end_time - decode_start_time)
 
     if debug:
         print("DEBUG generated_ids:", generated)
@@ -722,6 +751,16 @@ def main():
     llm.jiuge_model.drop_kv_cache(kv)
     vision_model.destroy_model(vision_handle)
     llm.jiuge_model.destroy_model(llm.model_instance)
+    if args.time:
+        steps = int(len(generated))
+        llm_total_time = float(prefill_time + decode_time)
+        avg_time_per_step = (
+            llm_total_time * 1000 / (steps - 1) if steps > 1 else llm_total_time * 1000
+        )
+        print(f"Vision time: {vision_infer_time * 1000:.3f}ms")
+        print(f"Prefill time: {prefill_time * 1000:.3f}ms")
+        print(f"Decode time: {decode_time * 1000:.3f}ms")
+        print(f"Time per step: {avg_time_per_step:.3f}ms")
 
 
 if __name__ == "__main__":

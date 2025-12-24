@@ -9,9 +9,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--dev",
-        choices=["hygon", "moore"],
-        default="hygon",
-        help="Device backend (currently only hygon is supported for this script).",
+        choices=["cpu", "nvidia", "hygon", "moore"],
+        default="cpu",
+        help="Device backend for inference.",
     )
     ap.add_argument("--ndev", type=int, default=1)
     ap.add_argument("--model-dir", required=True)
@@ -27,10 +27,9 @@ def main():
     ap.add_argument("--kv-compress-factor", type=int, default=5)
     ap.add_argument("--kv-compress-min-seq-len", type=int, default=2)
     ap.add_argument("--perplexity", action="store_true", help="Collect logits for perplexity calculation")
+    ap.add_argument("--time", action="store_true", help="Print timing metrics (time per step, etc.)")
     args = ap.parse_args()
 
-    if args.dev not in ["hygon", "moore"]:
-        raise SystemExit("Only --dev hygon/moore is supported for this script.")
     if args.kv_compress:
         if args.ndev != 1:
             ap.error("--kv-compress currently requires --ndev 1")
@@ -47,14 +46,16 @@ def main():
         }
     ]
 
-    device_type = (
-        DeviceType.DEVICE_TYPE_HYGON
-        if args.dev == "hygon"
-        else DeviceType.DEVICE_TYPE_MOORE
-    )
+    device_map = {
+        "cpu": DeviceType.DEVICE_TYPE_CPU,
+        "nvidia": DeviceType.DEVICE_TYPE_NVIDIA,
+        "hygon": DeviceType.DEVICE_TYPE_HYGON,
+        "moore": DeviceType.DEVICE_TYPE_MOORE,
+    }
+    device_type = device_map[args.dev]
     model = LLaVAForCauslLM(
         args.model_dir,
-        device= device_type,
+        device=device_type,
         ndev=args.ndev,
     )
     text = model.generate(
@@ -69,6 +70,7 @@ def main():
         kv_compress_factor=int(args.kv_compress_factor),
         kv_compress_min_seq_len=int(args.kv_compress_min_seq_len),
         perplexity=bool(args.perplexity),
+        time_stats=bool(args.time),
     )
     sys.stdout.write(text + "\n")
 

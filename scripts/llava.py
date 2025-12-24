@@ -1339,7 +1339,12 @@ class LLaVAForCauslLM:
                                 temperature_: float, topk_: int, topp_: float,
                                 logits: Optional[torch.Tensor] = None):
         # 1) image embeds (projector output)
-        img_embeds = self.batch_infer_vision_stage(pixel_values, self.LLAVA_VISION_STAGE_PROJECTOR).contiguous()
+        vision_start_time = time.time()
+        img_embeds = self.batch_infer_vision_stage(
+            pixel_values, self.LLAVA_VISION_STAGE_PROJECTOR
+        ).contiguous()
+        vision_end_time = time.time()
+        vision_time = float(vision_end_time - vision_start_time)
         # 2) override positions: processor already expands to 576 image tokens for v1.5
         pos = self._find_image_token_positions(input_ids)
         if len(pos) != int(img_embeds.shape[0]):
@@ -1373,6 +1378,7 @@ class LLaVAForCauslLM:
         topp = (c_float * 1)(float(topp_))
         out = (c_uint * 1)()
 
+        prefill_start_time = time.time()
         if logits is None:
             self.jiuge_model.infer_batch_with_overrides(
                 self.language_model_instance,
@@ -1408,7 +1414,9 @@ class LLaVAForCauslLM:
                 out,
                 logits.data_ptr(),
             )
-        return int(out[0]), kv, kv_caches, ntok
+        prefill_end_time = time.time()
+        prefill_time = float(prefill_end_time - prefill_start_time)
+        return int(out[0]), kv, kv_caches, ntok, vision_time, prefill_time
 
     def _decode_one(self, last_token_id: int, rope_pos: int, kv_caches,
                     temperature_: float, topk_: int, topp_: float,
@@ -1499,7 +1507,8 @@ class LLaVAForCauslLM:
         kv_compress_factor: int = 5,
         kv_compress_min_seq_len: int = 2,
         perplexity: bool = False,
-        perplexity_verbose_steps: int = 5):
+        perplexity_verbose_steps: int = 5,
+        time_stats: bool = False):
         import math
 
         def token_log_prob(logits_1d: torch.Tensor, token_id: int) -> float:
@@ -1543,7 +1552,7 @@ class LLaVAForCauslLM:
                 device="cpu",
             )
 
-        first_token, kv, kv_caches, ntok = self._prefill_with_overrides(
+        first_token, kv, kv_caches, ntok, vision_time, prefill_time = self._prefill_with_overrides(
             input_ids,
             pixel_values,
             temperature_,
@@ -1591,6 +1600,7 @@ class LLaVAForCauslLM:
                 tok_str = self.tokenizer.decode([int(first_token)], skip_special_tokens=False)
                 print(f"[ppl] step=0 token={int(first_token)} text={tok_str!r} log_prob={lp0:.6f}")
 
+        decode_start_time = time.time()
         for _ in range(int(max_new_tokens) - 1):
             if generated[-1] in self.eos_token_id:
                 break
@@ -1624,6 +1634,7 @@ class LLaVAForCauslLM:
             rope_pos += 1
             if kv_pos is not None:
                 kv_pos += 1
+        decode_end_time = time.time()
 
         text = self.tokenizer.decode(generated, skip_special_tokens=False)
         if verbose:
@@ -1631,6 +1642,20 @@ class LLaVAForCauslLM:
             print("decoded:", text)
 
         self.jiuge_model.drop_kv_cache(kv)
+        if time_stats:
+            steps = int(len(generated))
+            decode_time = float(decode_end_time - decode_start_time)
+            llm_total_time = float(prefill_time + decode_time)
+            avg_time_per_step = (
+                llm_total_time * 1000 / (steps - 1)
+                if steps > 1
+                else llm_total_time * 1000
+            )
+            # Mirror scripts/jiuge.py's primary metric, but also expose vision time for multimodal runs.
+            print(f"Vision time: {vision_time * 1000:.3f}ms")
+            print(f"Prefill time: {prefill_time * 1000:.3f}ms")
+            print(f"Decode time: {decode_time * 1000:.3f}ms")
+            print(f"Time per step: {avg_time_per_step:.3f}ms")
         if perplexity and total_tokens > 0:
             ppl = math.exp(total_nll / total_tokens)
             print(f"Perplexity: {ppl:.4f}")
