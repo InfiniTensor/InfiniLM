@@ -34,18 +34,14 @@ class AutoLlamaModel:
             )
 
         elif backend == "cpp":
-            from .backends import cpp
+            from infinilm.infer_engine import InferEngine
 
             print("\n***************************************************************")
             print("\t Loading Llama Model with C++ Backend")
             print(f"\t Device: {device}, DType: {dtype}")
             print("***************************************************************\n")
             print(" create model ......")
-            instance = cpp.LlamaForCausalLM.from_pretrained(
-                model_path,
-                device=device,
-                **kwargs,
-            )
+            instance = InferEngine(model_path, device=device, **kwargs)
         else:
             raise KeyError("invalid backend")
 
