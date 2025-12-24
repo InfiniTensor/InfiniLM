@@ -1,13 +1,10 @@
-import json
-import os
-
 import infinicore
 
+from infinilm.auto_config import AutoConfig
 from infinilm.cache import StaticKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.generation.utils import GenerationMixin
 from infinilm.lib import _infinilm
-from infinilm.models.llama.configuration_llama import LlamaConfig
 
 
 class InferEngine(_infinilm.InferEngine, GenerationMixin):
@@ -18,15 +15,7 @@ class InferEngine(_infinilm.InferEngine, GenerationMixin):
         distributed_config=DistConfig(1),
         cache_config=None,
     ):
-        config_path = os.path.join(model_path, "config.json")
-
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"`{config_path}` not found")
-
-        with open(config_path) as f:
-            config_dict = json.load(f)
-
-        self.config = LlamaConfig(**config_dict)
+        self.config = AutoConfig.from_pretrained(model_path)
 
         if device is None:
             device = infinicore.device()
