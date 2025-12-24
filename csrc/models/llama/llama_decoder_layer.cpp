@@ -35,17 +35,17 @@ infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_s
     auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache, cache_positions);
 
     // Add residual and apply post-attention layer normalization (fused)
-    // Use fused add_rms_norm operator to reduce kernel launch overhead
-    // Fused operator: compute normalized result
-    normed_states = infinicore::op::add_rms_norm(
+    // Use add_rms_norm to get both normalized result and add result
+    // This avoids redundant add computation - add is computed only once in the fused kernel
+    auto [normed_states_result, add_result] = infinicore::op::add_rms_norm(
         residual, attn_output, 
         post_attention_layernorm_->weight(), 
         static_cast<float>(post_attention_layernorm_->eps()));
     
-    // IMPORTANT: Save residual for MLP must be the ADD result (before normalization),
-    // not the normalized result. This matches the behavior of separate operators.
-    auto output = infinicore::op::add(residual, attn_output);
-    residual = output;
+    normed_states = normed_states_result;
+    // Save residual for MLP (add result before normalization)
+    residual = add_result;
+    auto output = add_result;
 
     // 4. MLP with residual connection
     auto mlp_output = mlp_->forward(normed_states);
