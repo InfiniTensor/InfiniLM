@@ -638,62 +638,34 @@ def main():
   # 计算困惑度（如果启用了logits收集）
     if args.perplexity and len(all_logits) > 0:
         print("\n" + "="*60)
-        print("🎯 计算多模态模型困惑度...")
+        print("Computing perplexity...")
 
         import math
 
-        total_nll = 0.0  # 负对数似然
+        total_nll = 0.0
         total_tokens = 0
-
-        print(f"📊 收集到的logits数量: {len(all_logits)}")
-        print(f"📊 生成的token序列: {generated}")
 
         # 处理 prefill logits
         if len(all_logits) > 0 and len(all_logits[0].shape) == 2:
             prefill_logits = all_logits[0]  # [ntok, vocab_size]
-            print(f"📊 Prefill logits shape: {prefill_logits.shape}")
-
-            # prefill阶段：对于输入序列中的每个位置，计算对下一个token的预测概率
-            # 输入序列的长度是prefill_logits.shape[0]
-            # 第一个生成的token是generated[0]
+            # prefill阶段：只计算输入序列最后一个位置对第一个生成token的预测
+            # 这与llava.py的实现一致：line 1596
             input_seq_len = prefill_logits.shape[0]
+            last_position_logits = prefill_logits[input_seq_len - 1]  # 最后一个位置的logits
+            target_token_id = generated[0]  # 预测第一个生成的token
 
-            # 对于输入序列中的每个位置i，它应该预测generated[i]（如果i==0）或输入序列的下一个token
-            for i in range(input_seq_len):
-                if i < input_seq_len - 1:
-                    # 对于输入序列中的位置i（除了最后一个），应该预测输入序列的下一个token
-                    # 但我们不知道原始输入序列，所以只计算第一个位置对第一个生成token的预测
-                    if i == 0:
-                        target_token_id = generated[0]  # 第一个位置预测第一个生成的token
-                        current_logits = prefill_logits[i]  # [vocab_size]
+            # 计算log概率
+            log_probs = torch.nn.functional.log_softmax(last_position_logits, dim=-1)
+            token_log_prob = log_probs[target_token_id].item()
 
-                        # 计算log概率
-                        log_probs = torch.nn.functional.log_softmax(current_logits, dim=-1)
-                        token_log_prob = log_probs[target_token_id].item()
+            total_nll += -token_log_prob
+            total_tokens += 1
 
-                        total_nll += -token_log_prob  # 负对数似然
-                        total_tokens += 1
-
-                        if total_tokens <= 3:  # 只显示前3个详细信息
-                            prob_value = math.exp(token_log_prob)
-                            predicted_token = llm.tokenizer.decode([target_token_id])
-                            print(f"  Prefill位置 {i}: 预测 '{predicted_token}' log_prob={token_log_prob:.4f} prob={prob_value:.4f}")
-                else:
-                    # 输入序列的最后一个位置，预测第一个生成的token
-                    target_token_id = generated[0]
-                    current_logits = prefill_logits[i]  # [vocab_size]
-
-                    log_probs = torch.nn.functional.log_softmax(current_logits, dim=-1)
-                    token_log_prob = log_probs[target_token_id].item()
-
-                    total_nll += -token_log_prob
-                    total_tokens += 1
-
-                    prob_value = math.exp(token_log_prob)
-                    predicted_token = llm.tokenizer.decode([target_token_id])
-                    print(f"  Prefill位置 {i}: 预测 '{predicted_token}' log_prob={token_log_prob:.4f} prob={prob_value:.4f}")
+            print(f"  Prefill pos {input_seq_len-1}: token={llm.tokenizer.decode([target_token_id])} log_prob={token_log_prob:.4f}")
 
         # 处理 decode logits
+        # decode阶段：第step_idx步的logits应该预测generated[step_idx+1]
+        # 这与llava.py的实现一致：line 1628
         decode_start_idx = 1  # 跳过 prefill logits
         for step_idx, logits in enumerate(all_logits[decode_start_idx:]):
             if len(logits.shape) == 2:
@@ -701,7 +673,8 @@ def main():
             else:
                 decode_logits = logits  # [vocab_size]
 
-            # decode阶段：第step_idx步应该预测generated[step_idx+1]
+            # decode阶段：第step_idx步预测generated[step_idx+1]
+            # 因为generated[0]已经在prefill阶段被预测了
             if step_idx + 1 < len(generated):
                 target_token_id = generated[step_idx + 1]
 
@@ -712,38 +685,20 @@ def main():
                 total_nll += -token_log_prob
                 total_tokens += 1
 
-                # 显示前几步的详细信息
-                if step_idx < 5:
-                    prob_value = math.exp(token_log_prob)
-                    predicted_token = llm.tokenizer.decode([target_token_id])
-                    print(f"  Decode步骤 {step_idx+1}: 预测 '{predicted_token}' log_prob={token_log_prob:.4f} prob={prob_value:.4f}")
-            else:
-                print(f"  警告：Decode步骤 {step_idx+1} 没有对应的目标token")
+                # 显示前3步的详细信息
+                if step_idx < 3:
+                    print(f"  Decode step {step_idx+1}: token={llm.tokenizer.decode([target_token_id])} log_prob={token_log_prob:.4f}")
 
         if total_tokens > 0:
             # 计算困惑度
             avg_nll = total_nll / total_tokens
             perplexity = math.exp(avg_nll)
 
-            print(f"\n📊 总token数: {total_tokens}")
-            print(f"📊 总负对数似然: {total_nll:.4f}")
-            print(f"📊 平均负对数似然: {avg_nll:.4f}")
-            print(f"🎯 多模态模型困惑度 (PPL): {perplexity:.4f}")
-
-            # 解释困惑度
-            if perplexity < 10:
-                print("✅ 很好的困惑度 - 多模态模型预测很准确")
-            elif perplexity < 50:
-                print("🟡 中等困惑度 - 多模态模型预测还可以")
-            elif perplexity < 100:
-                print("🟠 较高的困惑度 - 多模态模型对文本不太确定")
-            else:
-                print("❌ 非常高的困惑度 - 多模态模型预测质量差")
-
-            print(f"📈 收集的logits数量: {len(all_logits)}")
-            print(f"📈 生成的token数: {len(generated)}")
+            print(f"\nTotal tokens: {total_tokens}")
+            print(f"Total NLL: {total_nll:.4f}")
+            print(f"Perplexity: {perplexity:.4f}")
         else:
-            print("❌ 没有计算任何token的困惑度")
+            print("No tokens computed for perplexity")
 
         print("="*60)
 
