@@ -2,11 +2,11 @@ from ....generation.utils import GenerationMixin
 import infinicore
 from infinilm.models.llama.configuration_llama import LlamaConfig
 from infinilm.lib import _infinilm
+from infinilm.cache import StaticKVCacheConfig
 from infinilm.distributed import DistConfig
 import json
 import os
 from typing import Optional, Union
-from collections import OrderedDict
 
 
 class LlamaForCausalLM(GenerationMixin):
@@ -18,6 +18,7 @@ class LlamaForCausalLM(GenerationMixin):
         device=None,
         dtype=None,
         distributed_config=DistConfig(1),
+        cache_config=None,
     ):
         """
         Create LlamaForCausalLM
@@ -51,18 +52,19 @@ class LlamaForCausalLM(GenerationMixin):
         #     config._underlying, device._underlying, dtype
         # )
         self._model = _infinilm.InferEngine(
-            config, distributed_config._underlying, device._underlying.type
+            config,
+            distributed_config._underlying,
+            device._underlying.type,
+            cache_config,
         )
 
-    def reset_cache(self, batch_size: int, pos: int = 0, initial_capacity: int = 1024):
+    def reset_cache(self, batch_size: int, initial_capacity: int = 1024):
         """Reset the cache for the model"""
         infinicore.sync_device()
 
-        cache_config = self._model.get_cache_config()
-        cache_config.initial_batch_size = batch_size
-        cache_config.initial_capacity = initial_capacity
+        cache_config = StaticKVCacheConfig(batch_size, initial_capacity)
 
-        self._model.reset_cache(cache_config, pos)
+        self._model.reset_cache(cache_config)
 
     def state_dict_keyname(self):
         """Get model key name."""
@@ -102,19 +104,25 @@ class LlamaForCausalLM(GenerationMixin):
         # like get_text_config() used by DynamicCache
         return self._config
 
-    def forward(self, input_ids, position_ids, *args, **kwargs):
-        kv_caches = None
-        # return infinicore.Tensor(
-        #     self._model.forward(input_ids, position_ids, kv_caches)
-        # )
+    def forward(self, input_ids, position_ids, cache_positions, *args, **kwargs):
         return infinicore.Tensor(
             self._model.forward(
-                self._model.Input(input_ids._underlying, position_ids._underlying)
+                self._model.Input(
+                    input_ids._underlying,
+                    position_ids._underlying,
+                    cache_positions._underlying,
+                )
             ).logits
         )
 
-    def __call__(self, input_ids, position_ids, *args, **kwargs):
-        return self.forward(input_ids=input_ids, position_ids=position_ids)
+    def __call__(self, input_ids, position_ids, cache_positions, *args, **kwargs):
+        return self.forward(
+            input_ids=input_ids,
+            position_ids=position_ids,
+            cache_positions=cache_positions,
+            *args,
+            **kwargs,
+        )
 
     @classmethod
     def from_pretrained(

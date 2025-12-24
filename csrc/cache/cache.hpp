@@ -1,4 +1,4 @@
 #pragma once
 
-#include "cache_config.hpp"
+#include "base_cache.hpp"
 #include "kv_cache.hpp"

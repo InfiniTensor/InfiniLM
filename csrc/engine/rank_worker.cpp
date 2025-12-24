@@ -10,15 +10,17 @@ namespace infinilm::engine {
 
 RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
-                       const cache::CacheConfig &cache_config)
+                       const cache::CacheConfig *cache_config)
     : model_config_(model_config),
       rank_info_(rank_info),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
       should_exit_(false),
-      init_done_(false),
-      pending_cache_config_(cache_config) {
+      init_done_(false) {
+    if (cache_config != nullptr) {
+        pending_cache_config_ = cache_config->unique_copy();
+    }
     // start the thread
     thread_ = std::thread(&RankWorker::thread_loop, this);
 
@@ -80,7 +82,14 @@ void RankWorker::load_param(const std::string &name,
 // state_dict --
 //------------------------------------------------------
 std::unordered_map<std::string, infinicore::nn::Parameter> RankWorker::state_dict() {
-    return this->model_->state_dict();
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return init_done_ || should_exit_; });
+
+    if (!model_) {
+        throw std::runtime_error("state_dict called before model initialization");
+    }
+
+    return model_->state_dict();
 }
 
 //------------------------------------------------------
@@ -113,32 +122,15 @@ void RankWorker::wait() {
     }
 }
 
-//------------------------------------------------------
-// reset_cache -- synchronous by default, async optional (unstable)
-//------------------------------------------------------
-void RankWorker::reset_cache(size_t pos) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (should_exit_) {
-        throw std::runtime_error("RankWorker is closing; cannot reset_cache");
-    }
-
-    pending_reset_pos_ = pos;
-    job_cmd_ = Command::RESET_CACHE;
-    has_job_ = true;
-    job_done_ = false;
-    cv_.notify_all();
-}
-
-void RankWorker::reset_cache(const cache::CacheConfig &new_config, size_t pos) {
+void RankWorker::reset_cache(const cache::CacheConfig *new_config) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (should_exit_) {
         throw std::runtime_error("RankWorker is closing; cannot reset_cache");
     }
 
     // Store both the position and the new config
-    pending_reset_pos_ = pos;
-    pending_cache_config_ = new_config;
-    job_cmd_ = Command::RESET_CACHE_WITH_CONFIG;
+    pending_cache_config_ = new_config->unique_copy();
+    job_cmd_ = Command::RESET_CACHE;
     has_job_ = true;
     job_done_ = false;
     cv_.notify_all();
@@ -174,17 +166,17 @@ InfinilmModel::Output RankWorker::get_output() {
 //------------------------------------------------------
 void RankWorker::thread_loop() {
     try {
-        // Initialize device & model outside of holding the main mutex to avoid blocking callers.
-        infinicore::context::setDevice(rank_info_.device);
-
-        cache_ptr_ = std::make_shared<cache::DynamicCache>(pending_cache_config_);
-
-        // Create model using factory (may be expensive)
-        model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, cache_ptr_);
-
-        // Signal that initialization is done
         {
             std::lock_guard<std::mutex> lk(mutex_);
+
+            // Initialize device & model outside of holding the main mutex to avoid blocking callers.
+            infinicore::context::setDevice(rank_info_.device);
+
+            // Create model using factory (may be expensive)
+            model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            if (!model_) {
+                throw std::runtime_error("Failed to create model");
+            }
             init_done_ = true;
         }
         cv_.notify_all();
@@ -195,8 +187,7 @@ void RankWorker::thread_loop() {
             std::string local_param_name;
             infinicore::Tensor local_param;
             InfinilmModel::Input local_args;
-            size_t local_reset_pos = 0;
-            cache::CacheConfig local_reset_config;
+            std::unique_ptr<cache::CacheConfig> local_cache_config;
 
             // Wait for a job or exit
             {
@@ -215,12 +206,10 @@ void RankWorker::thread_loop() {
                 } else if (local_cmd == Command::RUN) {
                     local_args = pending_args_;
                 } else if (local_cmd == Command::RESET_CACHE) {
-                    local_reset_pos = pending_reset_pos_;
-                } else if (local_cmd == Command::RESET_CACHE_WITH_CONFIG) {
-                    local_reset_pos = pending_reset_pos_;
-                    local_reset_config = pending_cache_config_;
+                    if (pending_cache_config_ != nullptr) {
+                        local_cache_config = pending_cache_config_->unique_copy();
+                    }
                 }
-
                 // mark job as being processed
                 has_job_ = false;
                 job_done_ = false;
@@ -270,14 +259,7 @@ void RankWorker::thread_loop() {
                 }
             } else if (local_cmd == Command::RESET_CACHE) {
                 try {
-                    // Option 1: Use model's reset_cache if it handles cache
-                    model_->reset_cache(local_reset_pos);
-
-                    // Option 2: Reset cache directly if we have access
-                    // if (cache_ptr_ != nullptr) {
-                    //     auto* dynamic_cache = static_cast<cache::DynamicCache*>(cache_ptr_);
-                    //     dynamic_cache->reset(local_reset_pos);
-                    // }
+                    model_->reset_cache(local_cache_config != nullptr ? local_cache_config.get() : nullptr);
 
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -291,25 +273,6 @@ void RankWorker::thread_loop() {
                     job_done_ = true;
                     cv_.notify_all();
                     spdlog::error("[{}] exception during reset_cache: {}\n", info(), e.what());
-                    break;
-                }
-            } else if (local_cmd == Command::RESET_CACHE_WITH_CONFIG) {
-                try {
-                    // Use model's reset_cache with new configuration
-                    model_->reset_cache(local_reset_config, local_reset_pos);
-
-                    {
-                        std::lock_guard<std::mutex> lk(mutex_);
-                        job_done_ = true;
-                    }
-                    cv_.notify_all();
-
-                } catch (const std::exception &e) {
-                    std::lock_guard<std::mutex> lk(mutex_);
-                    should_exit_ = true;
-                    job_done_ = true;
-                    cv_.notify_all();
-                    spdlog::error("[{}] exception during reset_cache with config: {}\n", info(), e.what());
                     break;
                 }
             } else {
