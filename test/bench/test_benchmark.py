@@ -63,7 +63,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         device_map = {
             "cpu": "cpu",
             "nvidia": "cuda",
-            "cambricon": "cambricon",
+            "cambricon": "mlu",
             "ascend": "ascend",
             "metax": "metax",
             "moore": "moore",
@@ -210,6 +210,8 @@ class TorchBenchmark(BaseBenchmark):
             self.device = torch.device("cuda")
         elif device_type_str == "cpu":
             self.device = torch.device("cpu")
+        elif device_type_str == "cambricon":
+            self.device = torch.device("mlu")
         else:
             raise ValueError(
                 f"Torch backend unsupported device type: {device_type_str}"

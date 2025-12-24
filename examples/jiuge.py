@@ -41,6 +41,11 @@ def get_args():
         help="Run iluvatar test",
     )
     parser.add_argument(
+        "--cambricon",
+        action="store_true",
+        help="Run cambricon test",
+    )
+    parser.add_argument(
         "--model_path",
         type=str,
         required=True,
@@ -188,6 +193,8 @@ if __name__ == "__main__":
         device_str = "musa"
     elif args.iluvatar:
         device_str = "cuda"
+    elif args.cambricon:
+        device_str = "mlu"
     else:
         print(
             "Usage:  python examples/jiuge.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>\n"
