@@ -37,6 +37,8 @@ def main():
         device_type = DeviceType.DEVICE_TYPE_MOORE
     elif args.device_type == "iluvatar":
         device_type = DeviceType.DEVICE_TYPE_ILUVATAR
+    elif args.device_type == "qy":
+        device_type = DeviceType.DEVICE_TYPE_QY
     else:
         raise ValueError("Error: --device_type is required.")
 
