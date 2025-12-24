@@ -1336,7 +1336,8 @@ class LLaVAForCauslLM:
         return (ids == image_token_index).nonzero(as_tuple=False).flatten().tolist()
 
     def _prefill_with_overrides(self, input_ids: torch.Tensor, pixel_values: torch.Tensor,
-                                temperature_: float, topk_: int, topp_: float):
+                                temperature_: float, topk_: int, topp_: float,
+                                logits: Optional[torch.Tensor] = None):
         # 1) image embeds (projector output)
         img_embeds = self.batch_infer_vision_stage(pixel_values, self.LLAVA_VISION_STAGE_PROJECTOR).contiguous()
         # 2) override positions: processor already expands to 576 image tokens for v1.5
@@ -1372,27 +1373,47 @@ class LLaVAForCauslLM:
         topp = (c_float * 1)(float(topp_))
         out = (c_uint * 1)()
 
-        self.jiuge_model.infer_batch_with_overrides(
-            self.language_model_instance,
-            tokens_c,
-            ntok,
-            req_lens,
-            1,
-            req_pos,
-            kv_caches,
-            len(pos),
-            override_pos,
-            img_embeds.data_ptr(),
-            temperature,
-            topk,
-            topp,
-            out,
-        )
+        if logits is None:
+            self.jiuge_model.infer_batch_with_overrides(
+                self.language_model_instance,
+                tokens_c,
+                ntok,
+                req_lens,
+                1,
+                req_pos,
+                kv_caches,
+                len(pos),
+                override_pos,
+                img_embeds.data_ptr(),
+                temperature,
+                topk,
+                topp,
+                out,
+            )
+        else:
+            self.jiuge_model.infer_batch_with_overrides_with_logits(
+                self.language_model_instance,
+                tokens_c,
+                ntok,
+                req_lens,
+                1,
+                req_pos,
+                kv_caches,
+                len(pos),
+                override_pos,
+                img_embeds.data_ptr(),
+                temperature,
+                topk,
+                topp,
+                out,
+                logits.data_ptr(),
+            )
         return int(out[0]), kv, kv_caches, ntok
 
     def _decode_one(self, last_token_id: int, rope_pos: int, kv_caches,
                     temperature_: float, topk_: int, topp_: float,
-                    kv_pos: Optional[int] = None) -> int:
+                    kv_pos: Optional[int] = None,
+                    logits: Optional[torch.Tensor] = None) -> int:
         req_lens = (c_uint * 1)(1)
         req_pos = (c_uint * 1)(rope_pos)
         tokens_c = (c_uint * 1)(int(last_token_id))
@@ -1401,35 +1422,68 @@ class LLaVAForCauslLM:
         topp = (c_float * 1)(float(topp_))
         out = (c_uint * 1)()
         if kv_pos is None:
-            self.jiuge_model.infer_batch(
-                self.language_model_instance,
-                tokens_c,
-                1,
-                req_lens,
-                1,
-                req_pos,
-                kv_caches,
-                temperature,
-                topk,
-                topp,
-                out,
-            )
+            if logits is None:
+                self.jiuge_model.infer_batch(
+                    self.language_model_instance,
+                    tokens_c,
+                    1,
+                    req_lens,
+                    1,
+                    req_pos,
+                    kv_caches,
+                    temperature,
+                    topk,
+                    topp,
+                    out,
+                )
+            else:
+                self.jiuge_model.infer_batch_with_logits(
+                    self.language_model_instance,
+                    tokens_c,
+                    1,
+                    req_lens,
+                    1,
+                    req_pos,
+                    kv_caches,
+                    temperature,
+                    topk,
+                    topp,
+                    out,
+                    logits.data_ptr(),
+                )
         else:
             kv_pos_c = (c_uint * 1)(int(kv_pos))
-            self.jiuge_model.infer_batch_ex(
-                self.language_model_instance,
-                tokens_c,
-                1,
-                req_lens,
-                1,
-                req_pos,
-                kv_pos_c,
-                kv_caches,
-                temperature,
-                topk,
-                topp,
-                out,
-            )
+            if logits is None:
+                self.jiuge_model.infer_batch_ex(
+                    self.language_model_instance,
+                    tokens_c,
+                    1,
+                    req_lens,
+                    1,
+                    req_pos,
+                    kv_pos_c,
+                    kv_caches,
+                    temperature,
+                    topk,
+                    topp,
+                    out,
+                )
+            else:
+                self.jiuge_model.infer_batch_ex_with_logits(
+                    self.language_model_instance,
+                    tokens_c,
+                    1,
+                    req_lens,
+                    1,
+                    req_pos,
+                    kv_pos_c,
+                    kv_caches,
+                    temperature,
+                    topk,
+                    topp,
+                    out,
+                    logits.data_ptr(),
+                )
         return int(out[0])
 
     def generate(
@@ -1443,7 +1497,18 @@ class LLaVAForCauslLM:
         kv_compress: bool = False,
         kv_compress_bin: str = "",
         kv_compress_factor: int = 5,
-        kv_compress_min_seq_len: int = 2):
+        kv_compress_min_seq_len: int = 2,
+        perplexity: bool = False,
+        perplexity_verbose_steps: int = 5):
+        import math
+
+        def token_log_prob(logits_1d: torch.Tensor, token_id: int) -> float:
+            lp = torch.nn.functional.log_softmax(logits_1d.float(), dim=-1)[int(token_id)]
+            return float(lp.item())
+
+        total_nll = 0.0
+        total_tokens = 0
+
         mm_inputs = self.preprocessor.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -1467,9 +1532,24 @@ class LLaVAForCauslLM:
             print("attention_mask.shape:", tuple(attention_mask.shape))
             print("input_ids_len:", int(input_ids.shape[1]))
 
-        # Prefill with image embedding overrides
+        # Prefill with image embedding overrides (+ optional logits capture)
+        prefill_logits = None
+        if perplexity:
+            dvoc = int(self.language_meta.dvoc)
+            ntok = int(input_ids.shape[1])
+            prefill_logits = torch.empty(
+                (ntok, dvoc),
+                dtype=self.language_meta.torch_dtype_logits,
+                device="cpu",
+            )
+
         first_token, kv, kv_caches, ntok = self._prefill_with_overrides(
-            input_ids, pixel_values, temperature_, topk_, topp_
+            input_ids,
+            pixel_values,
+            temperature_,
+            topk_,
+            topp_,
+            logits=prefill_logits,
         )
 
         generated = [first_token]
@@ -1501,11 +1581,46 @@ class LLaVAForCauslLM:
             if verbose:
                 print("kv_compress_done:", {"kv_pos": kv_pos, "rope_pos": int(rope_pos)})
 
+        if perplexity:
+            if prefill_logits is None or int(prefill_logits.shape[0]) != int(ntok):
+                raise RuntimeError("prefill_logits missing or shape mismatch")
+            lp0 = token_log_prob(prefill_logits[int(ntok) - 1], first_token)
+            total_nll += -lp0
+            total_tokens += 1
+            if int(perplexity_verbose_steps) > 0:
+                tok_str = self.tokenizer.decode([int(first_token)], skip_special_tokens=False)
+                print(f"[ppl] step=0 token={int(first_token)} text={tok_str!r} log_prob={lp0:.6f}")
+
         for _ in range(int(max_new_tokens) - 1):
             if generated[-1] in self.eos_token_id:
                 break
-            nxt = self._decode_one(generated[-1], rope_pos, kv_caches, temperature_, topk_, topp_, kv_pos=kv_pos)
+            decode_logits = None
+            if perplexity:
+                decode_logits = torch.empty(
+                    (1, int(self.language_meta.dvoc)),
+                    dtype=self.language_meta.torch_dtype_logits,
+                    device="cpu",
+                )
+            nxt = self._decode_one(
+                generated[-1],
+                rope_pos,
+                kv_caches,
+                temperature_,
+                topk_,
+                topp_,
+                kv_pos=kv_pos,
+                logits=decode_logits,
+            )
             generated.append(nxt)
+            if perplexity:
+                if decode_logits is None:
+                    raise RuntimeError("decode_logits missing")
+                lp = token_log_prob(decode_logits[0], nxt)
+                total_nll += -lp
+                total_tokens += 1
+                if total_tokens <= int(perplexity_verbose_steps):
+                    tok_str = self.tokenizer.decode([int(nxt)], skip_special_tokens=False)
+                    print(f"[ppl] step={total_tokens-1} token={int(nxt)} text={tok_str!r} log_prob={lp:.6f}")
             rope_pos += 1
             if kv_pos is not None:
                 kv_pos += 1
@@ -1516,6 +1631,9 @@ class LLaVAForCauslLM:
             print("decoded:", text)
 
         self.jiuge_model.drop_kv_cache(kv)
+        if perplexity and total_tokens > 0:
+            ppl = math.exp(total_nll / total_tokens)
+            print(f"Perplexity: {ppl:.4f}")
         return text
 
 

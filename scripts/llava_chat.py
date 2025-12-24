@@ -29,8 +29,8 @@ def main():
     ap.add_argument("--perplexity", action="store_true", help="Collect logits for perplexity calculation")
     args = ap.parse_args()
 
-    if args.dev not in  ["hygon", "moore"]:
-        raise SystemExit("Only --dev hygon is supported right now.")
+    if args.dev not in ["hygon", "moore"]:
+        raise SystemExit("Only --dev hygon/moore is supported for this script.")
     if args.kv_compress:
         if args.ndev != 1:
             ap.error("--kv-compress currently requires --ndev 1")
@@ -47,8 +47,11 @@ def main():
         }
     ]
 
-    device_type = DeviceType.DEVICE_TYPE_HYGON if args.dev == "hygon" else DeviceType.DEVICE_TYPE_CPU
-    device_type = DeviceType.DEVICE_TYPE_MOORE if args.dev == "moore" else DeviceType.DEVICE_TYPE_CPU
+    device_type = (
+        DeviceType.DEVICE_TYPE_HYGON
+        if args.dev == "hygon"
+        else DeviceType.DEVICE_TYPE_MOORE
+    )
     model = LLaVAForCauslLM(
         args.model_dir,
         device= device_type,
@@ -65,6 +68,7 @@ def main():
         kv_compress_bin=str(args.kv_compress_bin),
         kv_compress_factor=int(args.kv_compress_factor),
         kv_compress_min_seq_len=int(args.kv_compress_min_seq_len),
+        perplexity=bool(args.perplexity),
     )
     sys.stdout.write(text + "\n")
 
