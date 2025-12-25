@@ -153,6 +153,7 @@ public:
 class CacheManager {
 public:
     DECLARE_OP_CACHE(Add)
+    DECLARE_OP_CACHE(Mul)
     DECLARE_OP_CACHE(RMSNorm)
     DECLARE_OP_CACHE(Gemm)
     DECLARE_OP_CACHE(RoPE)
@@ -160,11 +161,13 @@ public:
     DECLARE_OP_CACHE(CausalSoftmax)
     DECLARE_OP_CACHE(Topkrouter)
     DECLARE_OP_CACHE(SwiGLU)
+    DECLARE_OP_CACHE(Silu)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(DequantizeAWQ)
 
     CacheManager(size_t capacity = 100)
         : Add_cache(capacity, DESTROY_FUNC(Add)),
+          Mul_cache(capacity, DESTROY_FUNC(Mul)),
           RMSNorm_cache(capacity, DESTROY_FUNC(RMSNorm)),
           Gemm_cache(capacity, DESTROY_FUNC(Gemm)),
           RoPE_cache(capacity, DESTROY_FUNC(RoPE)),
@@ -172,6 +175,7 @@ public:
           CausalSoftmax_cache(capacity, DESTROY_FUNC(CausalSoftmax)),
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
+          Silu_cache(capacity, DESTROY_FUNC(Silu)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)) {}
 

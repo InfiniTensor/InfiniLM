@@ -103,8 +103,8 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
     size_t req_start = 0;
     for (uint32_t req = 0; req < nreq; req++) {
-        for (uint32_t i = 0; i < req_lens[req]; i++) {
-            batch_pos_ids[req_start + i] = req_pos[req] + i;
+        for (uint32_t i = 0; i < req_lens[req]; i++) { // req_len 本次query长度，req_pos 历史长度
+            batch_pos_ids[req_start + i] = req_pos[req] + i;  //batch_pos_ids 展平后每个token的pos
         }
         req_start += req_lens[req];
     }

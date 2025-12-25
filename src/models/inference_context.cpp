@@ -33,6 +33,27 @@ void InferenceContext::add(std::shared_ptr<Tensor> c,
         c->data(), a->data(), b->data(), stream));
 }
 
+void InferenceContext::mul(std::shared_ptr<Tensor> c,
+                           std::shared_ptr<Tensor> a,
+                           std::shared_ptr<Tensor> b) {
+    size_t key = CacheManager::createDescriptorKey(c, a, b);
+
+    infiniopMulDescriptor_t desc;
+    if (!cache_manager->getMulDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateMulDescriptor(op_handle, &desc, c->desc(), a->desc(), b->desc()));
+        cache_manager->putMulDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetMulWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopMul(
+        desc, workspace, workspace_size,
+        c->data(), a->data(), b->data(), stream));
+}
+
 void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
                                std::shared_ptr<Tensor> x,
                                std::shared_ptr<Tensor> w,
@@ -187,6 +208,26 @@ void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
 
     RUN_INFINI(infiniopSwiGLU(desc, workspace, workspace_size,
                               out->data(), up->data(), gate->data(), stream));
+}
+
+void InferenceContext::silu(std::shared_ptr<Tensor> out,
+                            std::shared_ptr<Tensor> input) {
+    size_t key = CacheManager::createDescriptorKey(out, input);
+
+    infiniopSiluDescriptor_t desc;
+    if (!cache_manager->getSiluDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateSiluDescriptor(
+            op_handle, &desc, out->desc(), input->desc()));
+        cache_manager->putSiluDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSiluWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopSilu(desc, workspace, workspace_size,
+                            out->data(), input->data(), stream));
 }
 
 void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
