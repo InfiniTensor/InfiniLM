@@ -1,6 +1,7 @@
 #include "llama_decoder_layer.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
+#include <optional>
 
 namespace infinilm::models::llama {
 
@@ -21,34 +22,50 @@ LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
     INFINICORE_NN_MODULE_INIT(mlp, config, device, rank_info_);
 }
 
-infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_states,
-                                              const infinicore::Tensor &position_ids,
-                                              std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                                              const infinicore::Tensor &cache_positions) const {
-    // Save residual for attention
-    auto residual = hidden_states;
-
-    // 1. Pre-attention layer normalization
-    auto normed_states = input_layernorm_->forward(hidden_states);
+std::pair<infinicore::Tensor, infinicore::Tensor> LlamaDecoderLayer::forward(
+    const infinicore::Tensor &hidden_states,
+    const infinicore::Tensor &position_ids,
+    std::shared_ptr<infinilm::cache::Cache> kv_cache,
+    const infinicore::Tensor &cache_positions,
+    const std::optional<infinicore::Tensor> &residual_in) const {
+    
+    infinicore::Tensor normed_states;
+    infinicore::Tensor residual;
+    
+    // 1. Pre-attention layer normalization with optional residual add from previous layer
+    if (residual_in.has_value()) {
+        // Fuse previous layer's MLP residual add with current layer's input normalization
+        // This avoids a separate add operation: residual_in + hidden_states
+        auto [normed_result, add_result] = infinicore::op::add_rms_norm(
+            residual_in.value(), hidden_states,
+            input_layernorm_->weight(),
+            static_cast<float>(input_layernorm_->eps()));
+        normed_states = normed_result;
+        residual = add_result;  // This is residual_in + hidden_states
+    } else {
+        // First layer: no residual to add, just normalize
+        normed_states = input_layernorm_->forward(hidden_states);
+        residual = hidden_states;
+    }
 
     // 2. Self-attention with residual connection
     auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache, cache_positions);
 
-    // Add residual: hidden_states = hidden_states + attn_output
-    auto output = infinicore::op::add(residual, attn_output);
-    // Save residual for MLP
-    residual = output;
+    // 3. Add attention residual and apply post-attention layer normalization (fused)
+    auto [normed_states_result, add_result] = infinicore::op::add_rms_norm(
+        residual, attn_output, 
+        post_attention_layernorm_->weight(), 
+        static_cast<float>(post_attention_layernorm_->eps()));
+    
+    normed_states = normed_states_result;
+    residual = add_result;  // Save for MLP residual connection
 
-    // 3. Post-attention layer normalization
-    normed_states = post_attention_layernorm_->forward(output);
-
-    // 4. MLP with residual connection
+    // 4. MLP
     auto mlp_output = mlp_->forward(normed_states);
 
-    // Add residual: output = output + mlp_output
-    output = infinicore::op::add(residual, mlp_output);
-
-    return output;
+    // Return (mlp_output, residual) WITHOUT doing the final add
+    // Next layer will fuse this add with its input_layernorm using add_rms_norm
+    return std::make_pair(mlp_output, residual);
 }
 
 } // namespace infinilm::models::llama

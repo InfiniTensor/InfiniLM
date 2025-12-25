@@ -9,6 +9,7 @@
 #include "llama_mlp.hpp"
 
 #include "../../engine/distributed/distributed.hpp"
+#include <optional>
 
 namespace infinilm::models::llama {
 
@@ -44,12 +45,16 @@ public:
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
      * @param kv_cache Optional KV cache for incremental decoding
-     * @return Output tensor of shape [batch, seq_len, hidden_size]
+     * @param cache_positions Cache positions tensor
+     * @param residual Optional residual tensor from previous layer (for MLP residual connection)
+     * @return Pair of (output, residual) tensors, where residual can be reused by next layer
      */
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinicore::Tensor &position_ids,
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                               const infinicore::Tensor &cache_positions) const;
+    std::pair<infinicore::Tensor, infinicore::Tensor> forward(
+        const infinicore::Tensor &hidden_states,
+        const infinicore::Tensor &position_ids,
+        std::shared_ptr<infinilm::cache::Cache> kv_cache,
+        const infinicore::Tensor &cache_positions,
+        const std::optional<infinicore::Tensor> &residual = std::nullopt) const;
 
     /**
      * @brief Get the layer index
