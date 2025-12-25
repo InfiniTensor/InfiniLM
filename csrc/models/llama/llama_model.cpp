@@ -50,18 +50,36 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     auto hidden_states = embed_tokens_->forward(input_ids);
 
     // 2. Process through all decoder layers
+    // Reuse residual across layers to avoid redundant add operations
     size_t num_layers = layers_.size();
+    std::optional<infinicore::Tensor> residual = std::nullopt;
     for (size_t i = 0; i < num_layers; ++i) {
-        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, cache_positions);
+        auto [output, next_residual] = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, cache_positions, residual);
+        hidden_states = output;
+        residual = next_residual;
     }
 
     // 3. Apply final layer normalization to last token only (aligns with transformers)
     // Narrow to last token: [batch, seq_len, hidden_size] -> [batch, 1, hidden_size]
     auto shape = hidden_states->shape();
     size_t seq_len = shape[1];
-    auto last_token = hidden_states->narrow({{1, seq_len - 1, 1}});
-
-    auto normalized_last_token = norm_->forward(last_token);
+    
+    // Narrow both residual and mlp_output to last token before fusing add and norm
+    // Note: narrow() creates a view (no data copy), so this is equivalent to:
+    //   narrow(add(residual, mlp_output)) == add(narrow(residual), narrow(mlp_output))
+    // But doing narrow first allows us to:
+    //   1. Only compute add for the last token (not the entire sequence) - saves computation
+    //   2. Fuse add with norm in a single kernel using add_rms_norm - avoids separate add kernel
+    auto residual_last_token = residual.value()->narrow({{1, seq_len - 1, 1}});
+    auto mlp_output_last_token = hidden_states->narrow({{1, seq_len - 1, 1}});
+    
+    // Fuse final residual add with layer normalization using add_rms_norm
+    // This avoids a separate add operation - add and norm are computed in one fused kernel
+    // Result is mathematically equivalent to: norm(add(residual, mlp_output))[last_token]
+    auto [normalized_last_token, _] = infinicore::op::add_rms_norm(
+        residual_last_token, mlp_output_last_token,
+        norm_->weight(),
+        static_cast<float>(norm_->eps()));
 
     return normalized_last_token;
 }
