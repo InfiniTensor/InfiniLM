@@ -17,7 +17,7 @@ def main():
     ap.add_argument("--model-dir", required=True)
     ap.add_argument("--image", required=True)
     ap.add_argument("--question", default="Describe this image.")
-    ap.add_argument("--max-new-tokens", type=int, default=128)
+    ap.add_argument("--max-new-tokens", type=int, default=60)
     ap.add_argument("--topk", type=int, default=1)
     ap.add_argument("--topp", type=float, default=1.0)
     ap.add_argument("--temperature", type=float, default=1.0)

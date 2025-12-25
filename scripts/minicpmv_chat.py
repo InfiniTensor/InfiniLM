@@ -589,7 +589,7 @@ def main():
 
             # 保存 decode logits（两种模式都保存）
             all_logits.append(decode_logits.clone())
-            print(f"Collected decode logits step {_+1}: shape {decode_logits.shape}")
+            # print(f"Collected decode logits step {_+1}: shape {decode_logits.shape}")
 
         else:
             # 原有的推理方式
