@@ -126,6 +126,9 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
+                      const float *repetition_penalty,
+                      const uint32_t *const *previous_tokens_per_req,
+                      const uint32_t *previous_tokens_len_per_req,
                       uint32_t *output, void *last_logits) {
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
@@ -280,10 +283,10 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
-            
+
             auto log_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             logSoftmax(log_logits_buf, last_logits_buf);
-            
+
             RUN_INFINI(infinirtStreamSynchronize(stream));
             RUN_INFINI(infinirtMemcpy(last_logits, log_logits_buf->data(), dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
         }
@@ -304,9 +307,19 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             for (uint32_t req = 0; req < nreq; req++) {
                 auto seq_len = req_lens[req];
                 float random_val = std::uniform_real_distribution<float>(0, 1)(gen);
+                float rep_penalty_val = (repetition_penalty != nullptr) ? repetition_penalty[req] : 1.0f;
+                // Get unique tokens for this request (vLLM-style)
+                const uint32_t *prev_tokens = nullptr;
+                size_t prev_tokens_len = 0;
+                if (previous_tokens_per_req != nullptr && previous_tokens_per_req[req] != nullptr) {
+                    prev_tokens = previous_tokens_per_req[req];
+                    prev_tokens_len = (previous_tokens_len_per_req != nullptr) ? previous_tokens_len_per_req[req] : 0;
+                }
                 randomSample(result_buf->slice(0, req, 1)->view_as({}, {}),
                              prob_buf->slice(0, req, 1)->view_as({dvoc}, {1}),
-                             random_val, topp[req], topk[req], temperature[req]);
+                             random_val, topp[req], topk[req], temperature[req],
+                             rep_penalty_val,
+                             prev_tokens, prev_tokens_len);
                 token_offset += seq_len;
             }
             RUN_INFINI(infinirtStreamSynchronize(stream));
@@ -327,6 +340,9 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                       const int32_t *block_tables,
                       const int32_t *slot_mapping,
                       const float *temperature, const uint32_t *topk, const float *topp,
+                      const float *repetition_penalty,
+                      const uint32_t *const *previous_tokens_per_req,
+                      const uint32_t *previous_tokens_len_per_req,
                       const uint32_t is_prefill, const bool enable_paged_attn,
                       uint32_t *output, void *last_logits) {
     auto nlayer = meta.nlayer;
@@ -425,7 +441,7 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
-    
+
     // MLP buffers
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
@@ -451,7 +467,7 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             auto k = qkv_rope->slice({ {0, 0, ntok}, {1, nh, nkvh} });
             auto v = qkv_rope->slice({ {0, 0, ntok}, {1, nh + nkvh, nkvh} });
 
-            auto k_cache_pool = kv_caches[0]->k[idev][layer]; 
+            auto k_cache_pool = kv_caches[0]->k[idev][layer];
             auto v_cache_pool = kv_caches[0]->v[idev][layer];
             pagedCaching(k, v, k_cache_pool, v_cache_pool, slot_mapping_buf);
 
@@ -481,10 +497,10 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                 auto o = o_buf->slice({{0, 0, ntok}})->view({ntok, nh, dh});
                 auto q_batch = qkv_rope->slice({ {0, 0, ntok}, {1, 0, nh} })->view({ntok, nh, dh});
                 float scale = 1.f / float(sqrt(dh));
-                pagedAttention(o, q_batch, k_cache_pool, v_cache_pool, 
+                pagedAttention(o, q_batch, k_cache_pool, v_cache_pool,
                                block_tables_buf, seq_lens_buf, nullptr /* alibi_slopes */, scale);
-                               
-                
+
+
             }
 
         } else {
@@ -550,10 +566,10 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
-            
+
             auto log_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             logSoftmax(log_logits_buf, last_logits_buf);
-            
+
             RUN_INFINI(infinirtStreamSynchronize(stream));
             RUN_INFINI(infinirtMemcpy(last_logits, log_logits_buf->data(), dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
         }
@@ -574,9 +590,19 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             for (uint32_t req = 0; req < nreq; req++) {
                 auto seq_len = req_lens[req];
                 float random_val = std::uniform_real_distribution<float>(0, 1)(gen);
+                float rep_penalty_val = (repetition_penalty != nullptr) ? repetition_penalty[req] : 1.0f;
+                // Get unique tokens for this request (vLLM-style)
+                const uint32_t *prev_tokens = nullptr;
+                size_t prev_tokens_len = 0;
+                if (previous_tokens_per_req != nullptr && previous_tokens_per_req[req] != nullptr) {
+                    prev_tokens = previous_tokens_per_req[req];
+                    prev_tokens_len = (previous_tokens_len_per_req != nullptr) ? previous_tokens_len_per_req[req] : 0;
+                }
                 randomSample(result_buf->slice(0, req, 1)->view_as({}, {}),
                              prob_buf->slice(0, req, 1)->view_as({dvoc}, {1}),
-                             random_val, topp[req], topk[req], temperature[req]);
+                             random_val, topp[req], topk[req], temperature[req],
+                             rep_penalty_val,
+                             prev_tokens, prev_tokens_len);
                 token_offset += seq_len;
             }
             RUN_INFINI(infinirtStreamSynchronize(stream));
@@ -595,6 +621,9 @@ inferBatchJiuge(struct JiugeModel *model,
                 const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                 struct KVCache **kv_caches,
                 const float *temperature, const uint32_t *topk, const float *topp,
+                const float *repetition_penalty,
+                const uint32_t *const *previous_tokens_per_req,
+                const uint32_t *previous_tokens_len_per_req,
                 uint32_t *output) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
@@ -607,6 +636,9 @@ inferBatchJiuge(struct JiugeModel *model,
     model->req.temperature = temperature;
     model->req.topk = topk;
     model->req.topp = topp;
+    model->req.repetition_penalty = repetition_penalty;
+    model->req.previous_tokens_per_req = previous_tokens_per_req;
+    model->req.previous_tokens_len_per_req = previous_tokens_len_per_req;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -639,6 +671,7 @@ forwardBatchJiuge(struct JiugeModel *model,
     model->req.temperature = nullptr;
     model->req.topk = nullptr;
     model->req.topp = nullptr;
+    model->req.repetition_penalty = nullptr;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -658,10 +691,13 @@ __C void
 inferBatch(struct JiugeModel *model,
            const uint32_t *tokens, uint32_t ntok,
            const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-           struct KVCache **kv_caches, 
+           struct KVCache **kv_caches,
            const int32_t *block_tables,
            const int32_t *slot_mapping,
            const float *temperature, const uint32_t *topk, const float *topp,
+           const float *repetition_penalty,
+           const uint32_t *const *previous_tokens_per_req,
+           const uint32_t *previous_tokens_len_per_req,
            const uint32_t is_prefill, const bool enable_paged_attn,
            uint32_t *output) {
     model->req.tokens = tokens;
@@ -677,6 +713,9 @@ inferBatch(struct JiugeModel *model,
     model->req.temperature = temperature;
     model->req.topk = topk;
     model->req.topp = topp;
+    model->req.repetition_penalty = repetition_penalty;
+    model->req.previous_tokens_per_req = previous_tokens_per_req;
+    model->req.previous_tokens_len_per_req = previous_tokens_len_per_req;
     model->req.is_prefill = is_prefill;
     model->req.enable_paged_attn = enable_paged_attn;
 
@@ -716,6 +755,7 @@ forwardBatch(struct JiugeModel *model,
     model->req.temperature = nullptr;
     model->req.topk = nullptr;
     model->req.topp = nullptr;
+    model->req.repetition_penalty = nullptr;
     model->req.is_prefill = is_prefill;
     model->req.enable_paged_attn = enable_paged_attn;
 
@@ -764,15 +804,18 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDevic
         if (enable_paged){
             inferDeviceBatchPaged(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                 req.req_lens, req.nreq, req.req_pos, req.kv_caches,
-                req.block_tables, req.slot_mapping, 
-                req.temperature, req.topk, req.topp, 
+                req.block_tables, req.slot_mapping,
+                req.temperature, req.topk, req.topp, req.repetition_penalty,
+                req.previous_tokens_per_req, req.previous_tokens_len_per_req,
                 req.is_prefill, req.enable_paged_attn,
                 req.output, req.logits);
         }
         else{
             inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                 req.req_lens, req.nreq, req.req_pos, req.kv_caches,
-                req.temperature, req.topk, req.topp, req.output, req.logits);
+                req.temperature, req.topk, req.topp, req.repetition_penalty,
+                req.previous_tokens_per_req, req.previous_tokens_len_per_req,
+                req.output, req.logits);
 
         }
 
@@ -800,7 +843,7 @@ JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infi
     }
 
     for (int i = 0; i < ndev; i++) {
-        
+
         threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
     for (int i = 0; i < ndev; i++) {
