@@ -78,7 +78,6 @@ def test(
     model_path,
     max_new_tokens=100,
     infini_device=infinicore.device("cpu", 0),
-    backend="python",
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -87,7 +86,6 @@ def test(
     model = infinilm.AutoLlamaModel.from_pretrained(
         model_path,
         device=infini_device,
-        backend=backend,
     )
 
     # ---------------------------------------------------------------------------- #
@@ -192,6 +190,9 @@ if __name__ == "__main__":
     max_new_tokens = args.max_new_tokens
     backend = args.backend
 
+    if backend != "python":
+        raise ValueError(f"Unsupported backend: {backend}.")
+
     infini_device = infinicore.device(device_str, 0)
 
     test(
@@ -199,5 +200,4 @@ if __name__ == "__main__":
         model_path,
         max_new_tokens,
         infini_device=infini_device,
-        backend=backend,
     )

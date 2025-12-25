@@ -1,8 +1,8 @@
 import infinicore
 from transformers import AutoTokenizer
 from infinilm.modeling_utils import load_model_state_dict_by_file
-import infinilm
 from infinilm.distributed import DistConfig
+from infinilm.infer_engine import InferEngine
 import argparse
 import sys
 import time
@@ -205,10 +205,9 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        创建模型,
         # ---------------------------------------------------------------------------- #
-        model = infinilm.AutoLlamaModel.from_pretrained(
+        model = InferEngine(
             model_path,
             device=infini_device,
-            backend="cpp",
             distributed_config=DistConfig(tp),
         )
 
