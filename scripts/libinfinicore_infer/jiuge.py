@@ -86,6 +86,9 @@ class JiugeModel(BaseModel):
             POINTER(c_float),
             POINTER(c_uint),
             POINTER(c_float),
+            POINTER(c_float),
+            POINTER(POINTER(c_uint)),  # previous_tokens_per_req: array of pointers
+            POINTER(c_uint),           # previous_tokens_len_per_req: array of lengths
             POINTER(c_uint),
         ]
 
@@ -128,6 +131,9 @@ class JiugeModel(BaseModel):
         temperature,
         topk,
         topp,
+        repetition_penalty,
+        previous_tokens_per_req,
+        previous_tokens_len_per_req,
         output,
     ):
         self.lib.inferBatchJiuge(
@@ -141,6 +147,9 @@ class JiugeModel(BaseModel):
             temperature,
             topk,
             topp,
+            repetition_penalty,
+            previous_tokens_per_req,
+            previous_tokens_len_per_req,
             output,
         )
 

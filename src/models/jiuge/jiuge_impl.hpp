@@ -50,6 +50,9 @@ struct InferRequest {
     const float *temperature;
     const uint32_t *topk;
     const float *topp;
+    const float *repetition_penalty;
+    const uint32_t *const *previous_tokens_per_req;  // Array of pointers to unique tokens per request (vLLM-style)
+    const uint32_t *previous_tokens_len_per_req;    // Array of lengths per request
     uint32_t *output;
     uint32_t is_prefill;
     bool enable_paged_attn;
