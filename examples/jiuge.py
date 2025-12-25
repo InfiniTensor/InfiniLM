@@ -2,8 +2,8 @@ import infinicore
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import load_model_state_dict_by_file
-import infinilm
 from infinilm.distributed import DistConfig
+from infinilm.infer_engine import InferEngine
 import argparse
 import sys
 import time
@@ -90,17 +90,15 @@ def test(
     model_path,
     max_new_tokens=100,
     infini_device=infinicore.device("cpu", 0),
-    backend="python",
     tp=1,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
     #                        创建模型,
     # ---------------------------------------------------------------------------- #
-    model = infinilm.AutoLlamaModel.from_pretrained(
+    model = InferEngine(
         model_path,
         device=infini_device,
-        backend=backend,
         distributed_config=DistConfig(tp),
     )
 
@@ -208,6 +206,9 @@ if __name__ == "__main__":
     backend = args.backend
     tp = args.tp
 
+    if backend != "cpp":
+        raise ValueError(f"Unsupported backend: {backend}.")
+
     infini_device = infinicore.device(device_str, 0)
 
     test(
@@ -215,6 +216,5 @@ if __name__ == "__main__":
         model_path,
         max_new_tokens,
         infini_device=infini_device,
-        backend=backend,
         tp=tp,
     )
