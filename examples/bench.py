@@ -2,13 +2,14 @@ import infinicore
 from transformers import AutoTokenizer
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
-from infinilm.infer_engine import InferEngine
+from infinilm.infer_engine import GenerationConfig, InferEngine
 import argparse
 import sys
 import time
 import os
 import json
 from collections import OrderedDict
+import numpy as np
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
@@ -256,13 +257,16 @@ class TestModel:
 
         t1 = time.time()
         print("=================== start generate ====================")
-        self.model.generate(
+        output_ids = self.model.generate(
             input_ids_infini,
-            max_new_tokens=output_len,
-            tokenizer=self.tokenizer,
-            stop_on_eos=False,
+            GenerationConfig(max_new_tokens=output_len, eos_token_id=[]),
         )
         t2 = time.time()
+
+        numpy_output_ids = np.array(
+            [output_id.to_numpy()[0] for output_id in output_ids]
+        )
+        print(self.tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
 
         print(
             f"total_time: {round((t2 - t1) * 1000, 2)} ms",
