@@ -30,6 +30,23 @@ inline void bind_cache(py::module &m) {
         .def("__repr__", [](const infinilm::cache::StaticKVCacheConfig &) {
             return "<StaticKVCacheConfig>";
         });
+
+    py::class_<infinilm::cache::PagedKVCacheConfig,
+               infinilm::cache::CacheConfig,
+               std::shared_ptr<infinilm::cache::PagedKVCacheConfig>>(m, "PagedKVCacheConfig")
+        .def(
+            py::init<size_t, size_t>(),
+            py::arg("max_kv_memory_bytes"),
+            py::arg("block_size") = 16)
+        .def(
+            "max_kv_memory_bytes",
+            &infinilm::cache::PagedKVCacheConfig::max_kv_memory_bytes)
+        .def(
+            "block_size",
+            &infinilm::cache::PagedKVCacheConfig::block_size)
+        .def("__repr__", [](const infinilm::cache::PagedKVCacheConfig &) {
+            return "<PagedKVCacheConfig>";
+        });
 }
 
 } // namespace infinilm::cache
