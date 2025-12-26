@@ -1,12 +1,15 @@
 #include "llama_attention.hpp"
+
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/mul.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <vector>
@@ -52,7 +55,11 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
                                            const infinicore::Tensor &position_ids,
                                            std::shared_ptr<cache::Cache> kv_cache,
-                                           const infinicore::Tensor &cache_positions) const {
+                                           std::optional<infinicore::Tensor> cache_lengths,
+                                           std::optional<infinicore::Tensor> input_lengths,
+                                           std::optional<infinicore::Tensor> input_offsets,
+                                           std::optional<infinicore::Tensor> block_tables,
+                                           std::optional<infinicore::Tensor> slot_mapping) const {
     if (!rotary_emb_) {
         throw std::runtime_error("LlamaAttention: rotary_emb not configured");
     }
@@ -100,12 +107,21 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
     infinicore::Tensor k_total;                          // [bs, n_kv_head, total_seq_len, head_dim]
     infinicore::Tensor v_total;                          // [bs, n_kv_head, total_seq_len, head_dim]
-    if (auto static_kv_cache = std::dynamic_pointer_cast<cache::StaticKVCache>(kv_cache)) {
-        auto [k_total_tmp, v_total_tmp] = static_kv_cache->update(layer_idx_, k_permuted, v_permuted, cache_positions);
+    if (kv_cache == nullptr) {
+        k_total = k_permuted;
+        v_total = v_permuted;
+    } else if (auto static_kv_cache = std::dynamic_pointer_cast<cache::StaticKVCache>(kv_cache)) {
+        auto [k_total_tmp, v_total_tmp] = static_kv_cache->update(layer_idx_, k_permuted, v_permuted, cache_lengths.value());
         k_total = k_total_tmp;
         v_total = v_total_tmp;
-    } else {
+    } else if (auto paged_kv_cache = std::dynamic_pointer_cast<cache::PagedKVCache>(kv_cache)) {
+        auto [k_total_tmp, v_total_tmp] = paged_kv_cache->update(layer_idx_, k_permuted, v_permuted, slot_mapping.value());
+        k_total = k_total_tmp;
+        v_total = v_total_tmp;
 
+        /// @todo Implement paged attention here.
+        throw std::runtime_error("LlamaAttention: Paged attention not implemented");
+    } else {
         throw std::runtime_error("LlamaAttention: Unsupported kvcache type");
     }
     auto total_seq_len = k_total->shape()[2];

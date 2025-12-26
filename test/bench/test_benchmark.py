@@ -10,6 +10,7 @@ import infinilm
 from infinilm.models.llama import AutoLlamaModel
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
+from infinilm.cache import StaticKVCacheConfig
 from abc import ABC, abstractmethod
 
 
@@ -118,6 +119,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             device=self.device,
             backend=backend,
             distributed_config=DistConfig(ndev),
+            cache_config=StaticKVCacheConfig(),
         )
 
         # Enable KV cache for generation

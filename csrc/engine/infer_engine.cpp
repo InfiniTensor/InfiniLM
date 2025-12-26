@@ -57,7 +57,7 @@ std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> InferEng
 // forward
 //------------------------------------------------------
 infinilm::InfinilmModel::Input InferEngine::Input::to_model_input() const {
-    return {input_ids, position_ids, cache_positions};
+    return {input_ids, position_ids, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping};
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {

@@ -61,7 +61,7 @@ public:
     update(size_t layer_idx,
            const infinicore::Tensor &k,
            const infinicore::Tensor &v,
-           const infinicore::Tensor &cache_positions);
+           const infinicore::Tensor &cache_lengths);
 
     ~StaticKVCache() override = default;
 
@@ -79,6 +79,70 @@ private:
     infinicore::Tensor k_caches_;
 
     // [num_layers, max_batch, num_rank_v_heads, max_cache_len, v_dim]
+    infinicore::Tensor v_caches_;
+};
+
+class PagedKVCacheConfig final : public CacheConfig {
+public:
+    PagedKVCacheConfig(
+        size_t max_kv_memory_bytes,
+        size_t block_size = 16);
+
+    std::unique_ptr<CacheConfig> unique_copy() const override;
+    size_t max_kv_memory_bytes() const;
+    size_t block_size() const;
+
+private:
+    size_t max_kv_memory_bytes_;
+    size_t block_size_;
+};
+
+class PagedKVCache final : public Cache {
+public:
+    PagedKVCache(
+
+        infinicore::Size k_dim,
+        infinicore::Size v_dim,
+        infinicore::Size num_k_heads,
+        infinicore::Size num_v_heads,
+        infinicore::Size num_layers,
+        infinicore::DataType dtype,
+        const PagedKVCacheConfig &config,
+        const engine::distributed::RankInfo &rank_info);
+
+    /**
+     * @brief Update Paged KV cache at a given layer given slot info for each token.
+     *
+     * @param layer_idx Which transformer layer
+     * @param k         [num_rank_k_heads, seq_len, k_dim]
+     * @param v         [num_rank_v_heads, seq_len, v_dim]
+     * @param slot_mapping [seq_len]
+     *
+     * @return (full_k, full_v)
+     *         full_k: [num_blocks, num_rank_k_heads, block_size, k_dim]
+     *         full_v: [num_blocks, num_rank_v_heads, block_size, v_dim]
+     */
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    update(size_t layer_idx,
+           const infinicore::Tensor &k,
+           const infinicore::Tensor &v,
+           const infinicore::Tensor &slot_mapping);
+
+    ~PagedKVCache() override = default;
+
+private:
+    infinicore::Size k_dim_;
+    infinicore::Size v_dim_;
+    infinicore::Size num_rank_k_heads_;
+    infinicore::Size num_rank_v_heads_;
+    infinicore::Size rank_num_layers_;
+    infinicore::DataType dtype_;
+    infinicore::Size block_size_;
+    infinicore::Size num_blocks_per_layer_;
+    // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
+    infinicore::Tensor k_caches_;
+
+    // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
     infinicore::Tensor v_caches_;
 };
 
