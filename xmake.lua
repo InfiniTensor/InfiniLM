@@ -1,7 +1,14 @@
 local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 
+add_rules("mode.debug")
+
 target("infinicore_infer")
     set_kind("shared")
+
+    if is_mode("debug") then
+        add_ldflags("-rdynamic", "-g") --调用栈中显示函数名
+        add_cxxflags("-g", "-O0", "-fno-omit-frame-pointer") --获得最佳调试信息
+    end
 
     add_includedirs("include", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })

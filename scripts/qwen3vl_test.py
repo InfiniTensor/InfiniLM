@@ -17,7 +17,7 @@ processor = AutoProcessor.from_pretrained("/home/user/workshop/Qwen3-VL-2B-Instr
 # 设置生成配置以确保确定性生成
 model.generation_config = GenerationConfig.from_pretrained("/home/user/workshop/Qwen3-VL-2B-Instruct/", trust_remote_code=True)
 model.generation_config.do_sample = False  # 关闭采样以确保确定性
-model.generation_config.max_new_tokens = 50
+model.generation_config.max_new_tokens = 200
 
 # 输入消息 - 结合文本和图像（这里仅保留文本示例）
 messages = [

@@ -66,7 +66,6 @@ void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
     assert(meta.text_meta.num_key_value_heads % ndev == 0);
 
     auto dtype = meta.dtype;
-    printf("meta dtype: %d \n",dtype);
     auto nlayer = meta.text_meta.num_hidden_layers;
     size_t nh = meta.text_meta.num_attention_heads / size_t(ndev);
     size_t nkvh = meta.text_meta.num_key_value_heads / size_t(ndev);
@@ -91,6 +90,10 @@ void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
     auto prob_buf = Tensor::buffer(dtype, {nreq, dvoc}, rsrc.memory_pool);
     auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
     auto result_cpu = std::vector<int64_t>(nreq);
+
+    auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
+    auto q_buf = qkv_rope->slice(1, 0, nh);
+    auto k_buf = qkv_rope->slice(1, nh, nkvh);
 
     //Prepare inputs
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
@@ -130,12 +133,11 @@ void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
         max_seq_len = std::max(max_seq_len, size_t(seq_len));
     }
     
-    auto attn_score_buf = Tensor::buffer(dtype, {nh * max_qk_size}, rsrc.memory_pool);
-    auto attn_val_buf = Tensor::buffer(dtype, {nh, max_seq_len, dh}, rsrc.memory_pool);
-    auto rearrange_q_buf = Tensor::buffer(dtype, {nkvh, ngroup, max_seq_len, dh}, rsrc.memory_pool);
-    auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
-    auto q_buf = qkv_rope->slice(1,0,nh);
-    auto k_buf = qkv_rope->slice(1,nh,nkvh);
+    auto qk_buf = Tensor::buffer(dtype, {nh * max_qk_size}, rsrc.memory_pool);
+    auto rearrange_q_buf = Tensor::buffer(dtype, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
+    auto q_rearrange = rearrange_q_buf->view({nkvh, ngroup, max_seq_len, dh});
+    auto attn_val_buf = Tensor::buffer(dtype, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
+    auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
@@ -174,18 +176,17 @@ void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
             auto full_v_buff = caches[req]->v[idev][i]->slice(0,0,total_len)->permute({1,0,2});// [nkvh, total_len, dh]
 
             //self-attn
-            auto attn_score_req = attn_score_buf->slice(0,0,nh*seq_len*total_len)->view({nkvh, ngroup*seq_len, total_len});
-            auto rearrange_q = rearrange_q_buf->slice(2,0,seq_len);
-            rearrange(rearrange_q,q);
+            rearrange(q_rearrange->slice(2, 0, seq_len), q);
+            auto attn_score_req = qk_buf->slice(0,0,nh*seq_len*total_len)->view({nkvh, ngroup*seq_len, total_len});
             // [nkvh, ngroup * seq_len, dh] @ [nkvh, dh, total_len] = [nkvh, ngroup * seq_len, total_len]
-            linear(attn_score_req,rearrange_q->view({nkvh, ngroup * seq_len, dh}),full_k_buff,1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
+            linear(attn_score_req,rearrange_q_buf->slice(1, 0, ngroup * seq_len),full_k_buff,1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
             // softmax
             auto qk_softmax = attn_score_req->view({nh, seq_len, total_len});
             causalSoftmax(qk_softmax,qk_softmax);
-            auto attn_val_req = attn_val_buf->slice(1,0,seq_len)->view({nkvh, ngroup * seq_len, dh});
             // [nkvh, ngroup * seq_len, total_len] @ [nkvh, total_len, dh] = [nkvh, ngroup * seq_len, dh]
-            linear(attn_val_req, attn_score_req, full_v_buff, 1.0, 0.0, nullptr, nullptr);
-            rearrange(o,attn_val_req->view({nkvh, ngroup, seq_len, dh}));
+            linear(attn_val_buf->slice(1, 0, ngroup * seq_len), attn_score_req, full_v_buff, 1.0, 0.0, nullptr, nullptr);
+            //printf("rearrage o; layer[%d]\n",i);
+            rearrange(o,attn_val_gemm->slice(2, 0, seq_len));
             token_offset += seq_len;
         }
         linear(logits_in, o_buf, weights->w_lang->layers[i].attn_o_proj, 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr);
@@ -217,7 +218,7 @@ void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
     // sample and output
     if (idev == 0) {
         if (last_logits != nullptr) {
-            rmsnorm(logits_out, logits_in, weights->w_lang->out_norm, meta.text_meta.rms_norm_eps);
+            rmsnorm(logits_out, logits_in, weights->w_lang->out_norm, epsilon);
             auto last_logits_buf = Tensor::buffer(dtype, {ntok, dvoc}, rsrc.memory_pool);
             linear(last_logits_buf, logits_out, weights->w_lang->out_embd, 1.0, 0.0, nullptr, nullptr);
             RUN_INFINI(infinirtStreamSynchronize(stream));
@@ -231,9 +232,8 @@ void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
                 rmsnorm(logits_out->slice(0, req, 1),
                         logits_in->slice(0, token_offset - 1, 1),
                         weights->w_lang->out_norm,
-                        meta.text_meta.rms_norm_eps);
+                        epsilon);
             }
-            //logits_out->slice(0,0,nreq)->debug(); different from transformers
             linear(prob_buf, logits_out->slice(0, 0, nreq), weights->w_lang->out_embd, 1.0, 0.0, nullptr, nullptr);
             std::random_device _rd;
             std::mt19937 gen(_rd());

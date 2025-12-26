@@ -1,5 +1,4 @@
-from jiuge import JiugeForCauslLM
-from jiuge_awq import JiugeAWQForCausalLM
+from qwen3vl import Qwen3vlForCauslLM
 from libinfinicore_infer import DeviceType
 from infer_task import InferTask
 from kvcache_pool import KVCachePool
@@ -60,13 +59,8 @@ def parse_args():
         "--max-tokens",
         type=int,
         required=False,
-        default=None,
+        default=200,
         help="Max token sequence length that model will handle (follows model config if not provided)",
-    )
-    parser.add_argument(
-        "--awq",
-        action="store_true",
-        help="Whether to use AWQ quantized model (default: False)",
     )
     return parser.parse_args()
 
@@ -76,7 +70,6 @@ device_type = DEVICE_TYPE_MAP[args.dev]
 model_path = args.model_path
 ndev = args.ndev
 max_tokens = args.max_tokens
-USE_AWQ = args.awq
 MAX_BATCH = args.max_batch
 print(
     f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
@@ -93,7 +86,7 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
         "id": id_,
         "object": "chat.completion.chunk",
         "created": int(time.time()),
-        "model": "jiuge",
+        "model": "qwen3vl",
         "system_fingerprint": None,
         "choices": [
             {
@@ -122,14 +115,9 @@ class AsyncInferTask(InferTask):
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    if USE_AWQ:
-        app.state.model = JiugeAWQForCausalLM(
-            model_path, device_type, ndev, max_tokens=max_tokens
-        )
-    else:
-        app.state.model = JiugeForCauslLM(
-            model_path, device_type, ndev, max_tokens=max_tokens
-        )
+    app.state.model = Qwen3vlForCauslLM(
+        model_path, device_type, ndev, max_tokens=max_tokens
+    )
     app.state.kv_cache_pool = KVCachePool(app.state.model, MAX_BATCH)
     app.state.request_queue = janus.Queue()
     worker_thread = threading.Thread(target=worker_loop, args=(app,), daemon=True)
@@ -169,6 +157,8 @@ def worker_loop(app):
                     batch.append(req)
             except queue.Empty:
                 break
+
+        print(f"infering {len(batch)} tasks")
         output_tokens = app.state.model.batch_infer_one_round(batch)
         for task, token in zip(batch, output_tokens):
             task.output(token)
@@ -298,7 +288,7 @@ async def chat_completions(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run(App, host="0.0.0.0", port=8000)
+    uvicorn.run(App, host="0.0.0.0", port=8008)
 
 """
 curl -N -H "Content-Type: application/json" \

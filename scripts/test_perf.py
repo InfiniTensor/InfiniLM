@@ -30,8 +30,8 @@ PROMPTS = [
 
 NUM_REQUESTS = 10
 CONCURRENCY = 5
-API_URL = "http://127.0.0.1:8000"
-MODEL = "FM9G-7B"
+API_URL = "http://127.0.0.1:8008"
+MODEL = "qwen3vl"
 
 
 async def benchmark_user(client, semaphore, queue, results, user_id, verbose):

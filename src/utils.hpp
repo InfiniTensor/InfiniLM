@@ -7,9 +7,37 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef __linux__
+#include <execinfo.h>
+#include <unistd.h>
+
+inline void printStackTrace() {
+    void *buffer[100];
+    int nptrs = backtrace(buffer, 100);
+    char **strings = backtrace_symbols(buffer, nptrs);
+    
+    if (strings == nullptr) {
+        perror("backtrace_symbols");
+        return;
+    }
+    
+    fprintf(stderr, "Stack trace:\n");
+    for (int i = 0; i < nptrs; i++) {
+        fprintf(stderr, "%s\n", strings[i]);
+    }
+    free(strings);
+}
+#else
+// 在非Linux系统上的备用实现
+inline void printStackTrace() {
+    fprintf(stderr, "Stack trace not available on this platform\n");
+}
+#endif
+
 inline void assertTrue(int expr, const char *msg, const char *file, int line) {
     if (!expr) {
         fprintf(stderr, "\033[31mAssertion failed:\033[0m %s at file %s, line %d\n", msg, file, line);
+        printStackTrace();
         exit(EXIT_FAILURE);
     }
 }
@@ -20,6 +48,7 @@ inline void assertTrue(int expr, const char *msg, const char *file, int line) {
 
 #define PANIC(EXPR)                                             \
     printf("Error at %s:%d - %s\n", __FILE__, __LINE__, #EXPR); \
+    printStackTrace();                                          \
     exit(EXIT_FAILURE)
 
 #define RUN_INFINI(API)                                                         \
@@ -29,6 +58,7 @@ inline void assertTrue(int expr, const char *msg, const char *file, int line) {
             std::cerr << "Error Code " << api_result_ << " in `" << #API << "`" \
                       << " from " << __func__                                   \
                       << " at " << __FILE__ << ":" << __LINE__ << std::endl;    \
+            printStackTrace();                                                  \
             exit(EXIT_FAILURE);                                                 \
         }                                                                       \
     } while (0)
@@ -38,21 +68,26 @@ inline float f16_to_f32(uint16_t h) {
     int32_t exponent = (h >> 10) & 0x1F; // Extract the exponent
     uint32_t mantissa = h & 0x3FF;       // Extract the mantissa (fraction part)
 
+    union {
+        uint32_t int_value;
+        float float_value;
+    } converter;
+
     if (exponent == 31) { // Special case for Inf and NaN
         if (mantissa != 0) {
             // NaN: Set float32 NaN
-            uint32_t f32 = sign | 0x7F800000 | (mantissa << 13);
-            return *(float *)&f32;
+            converter.int_value = sign | 0x7F800000 | (mantissa << 13);
+            return converter.float_value;
         } else {
             // Infinity
-            uint32_t f32 = sign | 0x7F800000;
-            return *(float *)&f32;
+            converter.int_value = sign | 0x7F800000;
+            return converter.float_value;
         }
     } else if (exponent == 0) { // Subnormal float16 or zero
         if (mantissa == 0) {
             // Zero (positive or negative)
-            uint32_t f32 = sign; // Just return signed zero
-            return *(float *)&f32;
+            converter.int_value = sign; // Just return signed zero
+            return converter.float_value;
         } else {
             // Subnormal: Convert to normalized float32
             exponent = -14;                   // Set exponent for subnormal numbers
@@ -61,13 +96,13 @@ inline float f16_to_f32(uint16_t h) {
                 exponent--;
             }
             mantissa &= 0x3FF; // Clear the leading 1 bit
-            uint32_t f32 = sign | ((exponent + 127) << 23) | (mantissa << 13);
-            return *(float *)&f32;
+            converter.int_value = sign | ((exponent + 127) << 23) | (mantissa << 13);
+            return converter.float_value;
         }
     } else {
         // Normalized float16
-        uint32_t f32 = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
-        return *(float *)&f32;
+        converter.int_value = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
+        return converter.float_value;
     }
 }
 
