@@ -84,13 +84,28 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<infinicore::Tensor> input_lengths,
                          std::optional<infinicore::Tensor> input_offsets,
                          std::optional<infinicore::Tensor> block_tables,
-                         std::optional<infinicore::Tensor> slot_mapping) {
-                return InferEngine::Input{
+                         std::optional<infinicore::Tensor> slot_mapping,
+                         py::kwargs kwargs) {
+                auto input{InferEngine::Input{
                     std::move(input_ids),
                     std::move(position_ids),
                     std::move(cache_lengths),
                     std::move(block_tables),
-                    std::move(slot_mapping)};
+                    std::move(slot_mapping)}};
+
+                if (kwargs) {
+                    if (kwargs.contains("temperature")) {
+                        input.temperature = kwargs["temperature"].cast<float>();
+                    }
+                    if (kwargs.contains("top_k")) {
+                        input.top_k = kwargs["top_k"].cast<int>();
+                    }
+                    if (kwargs.contains("top_p")) {
+                        input.top_p = kwargs["top_p"].cast<float>();
+                    }
+                }
+
+                return input;
             }),
             py::arg("input_ids") = std::nullopt,
             py::arg("position_ids") = std::nullopt,
@@ -108,7 +123,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
-        .def_readwrite("logits", &InferEngine::Output::logits, "Output tensor");
+        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor");
 }
 
 } // namespace infinilm::engine

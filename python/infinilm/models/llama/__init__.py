@@ -2,6 +2,7 @@ import os
 from typing import Optional, Union
 import infinicore
 import time
+from . import modeling_llama
 
 __all__ = ["AutoLlamaModel"]
 
@@ -13,41 +14,21 @@ class AutoLlamaModel:
         model_path: Optional[Union[str, os.PathLike]],
         device: infinicore.device,
         dtype=infinicore.dtype,
-        backend="python",
         **kwargs,
     ):
         t1 = time.time()
 
-        if backend == "python":
-            from . import modeling_llama
+        print("\n***************************************************************")
+        print("\t Loading Llama Model")
+        print(f"\t Device: {device}, DType: {dtype}")
+        print("***************************************************************\n")
+        print(" create model ......")
 
-            print("\n***************************************************************")
-            print("\t Loading Llama Model with Python Backend")
-            print(f"\t Device: {device}, DType: {dtype}")
-            print("***************************************************************\n")
-            print(" create model ......")
-
-            instance = modeling_llama.LlamaForCausalLM.from_pretrained(
-                model_path,
-                device=device,
-                **kwargs,
-            )
-
-        elif backend == "cpp":
-            from .backends import cpp
-
-            print("\n***************************************************************")
-            print("\t Loading Llama Model with C++ Backend")
-            print(f"\t Device: {device}, DType: {dtype}")
-            print("***************************************************************\n")
-            print(" create model ......")
-            instance = cpp.LlamaForCausalLM.from_pretrained(
-                model_path,
-                device=device,
-                **kwargs,
-            )
-        else:
-            raise KeyError("invalid backend")
+        instance = modeling_llama.LlamaForCausalLM.from_pretrained(
+            model_path,
+            device=device,
+            **kwargs,
+        )
 
         t2 = time.time()
         print(f" create model over! {(t2 - t1) * 1000} ms \n")
