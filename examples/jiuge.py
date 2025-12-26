@@ -3,11 +3,12 @@ from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
-from infinilm.infer_engine import InferEngine
+from infinilm.infer_engine import GenerationConfig, InferEngine
 import argparse
 import sys
 import time
 import os
+import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
@@ -163,12 +164,14 @@ def test(
 
     t1 = time.time()
     print("=================== start generate ====================")
-    model.generate(
+    output_ids = model.generate(
         input_ids_infini,
-        max_new_tokens=max_new_tokens,
-        tokenizer=tokenizer,
+        GenerationConfig(max_new_tokens=max_new_tokens),
     )
     t2 = time.time()
+
+    numpy_output_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
+    print(tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
 
     print(
         f"total_time: {round((t2 - t1) * 1000, 2)} ms",
