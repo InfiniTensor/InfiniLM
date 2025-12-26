@@ -23,6 +23,37 @@ class RankWorker {
     };
 
 public:
+    struct Input {
+        /// Token IDs tensor of shape `[batch, seq_len]`.
+        std::optional<infinicore::Tensor> input_ids;
+        /// Position IDs tensor of shape `[batch, seq_len]` or `[seq_len]`.
+        std::optional<infinicore::Tensor> position_ids;
+        /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
+        std::optional<infinicore::Tensor> cache_lengths;
+        /// Input Lengths of each request in a continous-batched sequence, of shape `[num_requests]`.
+        std::optional<infinicore::Tensor> input_lengths;
+        /// Offsets of each request in a continous-batched sequence, of shape `[num_requests]`.
+        std::optional<infinicore::Tensor> input_offsets;
+        /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
+        std::optional<infinicore::Tensor> block_tables;
+        /// Slot ids for each token `[seq]`. Used for paged cache.
+        std::optional<infinicore::Tensor> slot_mapping;
+
+        float temperature{1};
+
+        int top_k{50};
+
+        float top_p{1};
+
+        float random_val{0.1};
+
+        infinilm::InfinilmModel::Input to_model_input() const;
+    };
+
+    struct Output {
+        infinicore::Tensor output_ids;
+    };
+
     RankWorker(const InfinilmModel::Config &model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config);
@@ -35,7 +66,7 @@ public:
     std::unordered_map<std::string, infinicore::nn::Parameter> state_dict();
 
     // Submit a run (forward) job.
-    void run(const InfinilmModel::Input &args);
+    void run(const Input &args);
 
     // Reset the internal cache with a new configuration
     void reset_cache(const cache::CacheConfig *new_config);
@@ -47,7 +78,7 @@ public:
     void close();
 
     // Thread-safe accessor for last output produced by RUN.
-    InfinilmModel::Output get_output();
+    Output get_output();
 
     std::string info() const;
 
@@ -73,11 +104,11 @@ private:
     // Task payloads (protected by mutex)
     std::string pending_param_name_;
     infinicore::Tensor pending_param_;
-    InfinilmModel::Input pending_args_;
+    Input pending_args_;
     std::unique_ptr<cache::CacheConfig> pending_cache_config_;
 
     // Output (protected by mutex)
-    InfinilmModel::Output output_;
+    Output output_;
 
     // Thread sync
     std::thread thread_;

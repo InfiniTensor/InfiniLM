@@ -2,6 +2,8 @@
 
 #include "../models/model_factory.hpp"
 
+#include "infinicore/ops.hpp"
+
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -95,7 +97,7 @@ std::unordered_map<std::string, infinicore::nn::Parameter> RankWorker::state_dic
 //------------------------------------------------------
 // run -- asynchronous
 //------------------------------------------------------
-void RankWorker::run(const InfinilmModel::Input &args) {
+void RankWorker::run(const Input &args) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (should_exit_) {
@@ -156,7 +158,7 @@ void RankWorker::close() {
 //------------------------------------------------------
 // get_output (thread safe)
 //------------------------------------------------------
-InfinilmModel::Output RankWorker::get_output() {
+RankWorker::Output RankWorker::get_output() {
     std::lock_guard<std::mutex> lock(mutex_);
     return output_;
 }
@@ -204,7 +206,7 @@ void RankWorker::thread_loop() {
                     local_param_name = pending_param_name_;
                     local_param = pending_param_;
                 } else if (local_cmd == Command::RUN) {
-                    local_args = pending_args_;
+                    local_args = pending_args_.to_model_input();
                 } else if (local_cmd == Command::RESET_CACHE) {
                     if (pending_cache_config_ != nullptr) {
                         local_cache_config = pending_cache_config_->unique_copy();
@@ -239,10 +241,31 @@ void RankWorker::thread_loop() {
 
             } else if (local_cmd == Command::RUN) {
                 try {
-                    auto out = model_->forward(local_args);
+                    auto logits{model_->forward(local_args).logits};
                     infinicore::context::syncStream();
 
-                    {
+                    if (rank_info_.tp_rank == 0) {
+                        // Perform random sampling
+                        auto temperature{pending_args_.temperature};
+                        auto top_p{pending_args_.top_p};
+                        auto top_k{pending_args_.top_k};
+                        auto random_val{pending_args_.random_val};
+
+                        const auto &logits_shape{logits->shape()};
+                        const auto &batch_size{logits_shape[0]};
+                        const auto &vocab_size{logits_shape[2]};
+
+                        auto output_ids{infinicore::Tensor::empty({batch_size}, infinicore::DataType::I32, rank_info_.device)};
+
+                        for (auto i{decltype(batch_size)(0)}; i < batch_size; ++i) {
+                            auto score{logits->narrow({{0, i, 1}})->view({vocab_size})};
+                            auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                            infinicore::op::random_sample_(
+                                out, score, random_val, top_p, top_k, temperature);
+                        }
+
+                        auto out{Output{output_ids}};
+
                         std::lock_guard<std::mutex> lk(mutex_);
                         output_ = std::move(out);
                         job_done_ = true;

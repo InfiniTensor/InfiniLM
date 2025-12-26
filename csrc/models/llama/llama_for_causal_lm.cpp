@@ -33,10 +33,6 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     auto input_offsets = input.input_offsets;
     auto block_tables = input.block_tables;
     auto slot_mapping = input.slot_mapping;
-    auto temperature = input.temperature;
-    auto top_p = input.top_p;
-    auto top_k = input.top_k;
-    auto random_val = input.random_val;
 
     // 1. Forward through base model to get hidden states
     auto position_ids_device = position_ids->to(device_);
@@ -45,26 +41,7 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);
 
-    // 3. Perform random sampling
-    const auto &logits_shape{logits->shape()};
-    const auto &batch_size{logits_shape[0]};
-    const auto &vocab_size{logits_shape[2]};
-
-    auto output_ids{infinicore::Tensor::empty({batch_size}, infinicore::DataType::I32, device_)};
-
-    for (auto i{decltype(batch_size)(0)}; i < batch_size; ++i) {
-        auto score{logits->narrow({{0, i, 1}})->view({vocab_size})};
-        auto out{output_ids->narrow({{0, i, 1}})->view({})};
-        infinicore::op::random_sample_(
-            out, score, random_val, top_p, top_k, temperature);
-    }
-
-    // 4. Synchronize
-    if (device_.getType() != infinicore::Device::Type::CPU) {
-        infinicore::context::syncStream();
-    }
-
-    return {output_ids};
+    return {logits};
 }
 
 void LlamaForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
