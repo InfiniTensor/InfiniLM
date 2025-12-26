@@ -29,6 +29,12 @@ public:
         /// Slot ids for each token `[seq]`. Used for paged cache.
         std::optional<infinicore::Tensor> slot_mapping;
 
+        float temperature{1};
+
+        int top_k{50};
+
+        float top_p{1};
+
         infinilm::InfinilmModel::Input to_model_input() const;
     };
 

@@ -166,7 +166,9 @@ def test(
     print("=================== start generate ====================")
     output_ids = model.generate(
         input_ids_infini,
-        GenerationConfig(max_new_tokens=max_new_tokens),
+        GenerationConfig(
+            max_new_tokens=max_new_tokens, temperature=1, top_k=1, top_p=0.8
+        ),
     )
     t2 = time.time()
 

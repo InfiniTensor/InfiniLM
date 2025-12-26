@@ -33,10 +33,10 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     auto input_offsets = input.input_offsets;
     auto block_tables = input.block_tables;
     auto slot_mapping = input.slot_mapping;
-    auto random_val = input.random_val;
-    auto topp = input.topp;
-    auto topk = input.topk;
     auto temperature = input.temperature;
+    auto top_p = input.top_p;
+    auto top_k = input.top_k;
+    auto random_val = input.random_val;
 
     // 1. Forward through base model to get hidden states
     auto position_ids_device = position_ids->to(device_);
@@ -56,7 +56,7 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
         auto score{logits->narrow({{0, i, 1}})->view({vocab_size})};
         auto out{output_ids->narrow({{0, i, 1}})->view({})};
         infinicore::op::random_sample_(
-            out, score, random_val, topp, topk, temperature);
+            out, score, random_val, top_p, top_k, temperature);
     }
 
     // 4. Synchronize

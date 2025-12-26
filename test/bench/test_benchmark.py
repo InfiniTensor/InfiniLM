@@ -184,8 +184,12 @@ class InfiniLMBenchmark(BaseBenchmark):
         # Pass sampling parameters (temperature, topk, topp) via kwargs
         output_ids = self.model.generate(
             input_ids=input_ids,
-            generation_config=GenerationConfig(max_new_tokens=max_steps),
-            # TODO: Handle `topp_, topk_, temperature_`.
+            generation_config=GenerationConfig(
+                max_new_tokens=max_steps,
+                temperature=temperature_,
+                top_k=topk_,
+                top_p=topp_,
+            ),
         )
 
         end_time = time.perf_counter()

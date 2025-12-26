@@ -11,6 +11,11 @@ from infinilm.lib import _infinilm
 @dataclass
 class GenerationConfig:
     max_new_tokens: int
+
+    temperature: float = 1.0
+    top_k: int = 50
+    top_p: float = 1.0
+
     eos_token_id: list[int] | None = None
 
 
@@ -39,7 +44,9 @@ class InferEngine(_infinilm.InferEngine):
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
-    def forward(self, input_ids, position_ids, cache_positions):
+    def forward(
+        self, input_ids, position_ids, cache_positions, *, temperature, top_k, top_p
+    ):
         return infinicore.Tensor(
             super()
             .forward(
@@ -47,6 +54,9 @@ class InferEngine(_infinilm.InferEngine):
                     input_ids._underlying,
                     position_ids._underlying,
                     cache_positions._underlying,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
                 )
             )
             .output_ids
@@ -69,7 +79,14 @@ class InferEngine(_infinilm.InferEngine):
         output_ids = []
 
         for _ in range(0, generation_config.max_new_tokens):
-            output_id = self(input_ids, position_ids, cache_positions)
+            output_id = self(
+                input_ids,
+                position_ids,
+                cache_positions,
+                temperature=generation_config.temperature,
+                top_k=generation_config.top_k,
+                top_p=generation_config.top_p,
+            )
 
             # TODO: Do not only get the first item here.
             output_id_item = output_id.to_numpy()[0]
