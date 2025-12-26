@@ -108,7 +108,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
-        .def_readwrite("logits", &InferEngine::Output::logits, "Output tensor");
+        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor");
 }
 
 } // namespace infinilm::engine
