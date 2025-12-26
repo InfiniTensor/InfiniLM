@@ -32,11 +32,19 @@ public:
         std::optional<infinicore::Tensor> block_tables;
         /// Slot ids for each token `[seq]`. Used for paged cache.
         std::optional<infinicore::Tensor> slot_mapping;
+
+        float random_val{0.1};
+
+        float topp{0.8};
+
+        int topk{1};
+
+        float temperature{1};
     };
 
     struct Output {
-        /// Output tensor of shape [batch, seq_len, vocab_size].
-        infinicore::Tensor logits;
+        /// Output token IDs.
+        infinicore::Tensor output_ids;
     };
 
     virtual ~InfinilmModel() = default;

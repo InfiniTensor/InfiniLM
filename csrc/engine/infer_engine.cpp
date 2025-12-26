@@ -70,7 +70,7 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
         worker->wait();
     }
 
-    return {workers_[0]->get_output().logits};
+    return {workers_[0]->get_output().output_ids};
 }
 
 //------------------------------------------------------

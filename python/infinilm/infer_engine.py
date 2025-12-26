@@ -42,7 +42,7 @@ class InferEngine(_infinilm.InferEngine, GenerationMixin):
                     cache_positions._underlying,
                 )
             )
-            .logits
+            .output_ids
         )
 
     def reset_cache(self, batch_size: int, initial_capacity: int = 1024):

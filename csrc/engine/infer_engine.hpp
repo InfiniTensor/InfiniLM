@@ -33,7 +33,7 @@ public:
     };
 
     struct Output {
-        infinicore::Tensor logits;
+        infinicore::Tensor output_ids;
     };
 
     // Updated constructor: accept CacheConfig instead of CacheType
