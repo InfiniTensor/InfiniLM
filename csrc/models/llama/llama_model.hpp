@@ -45,14 +45,21 @@ public:
     /**
      * @brief Forward pass: process input through the model
      *
-     * @param input_ids Token IDs tensor of shape [batch, seq_len]
+     * @param input_ids Token IDs tensor of shape [batch, seq_len]. Batch is 1 when continuous batch is used,
+     *                 and tokens from all requests are concatenated along seq_len dimension.
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param cache_positions Cache positions tensor of shape [n_req]
+     * @param cache_lengths Cache positions tensor of shape [n_req]
+     * @param input_lengths Input lengths tensor in a continuous batch of shape [n_req]
+     * @param input_offsets Input offsets (starting position) of each request in a continuous batch of shape [n_req]
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
                                const infinicore::Tensor &position_ids,
-                               const infinicore::Tensor &cache_positions) const;
+                               std::optional<infinicore::Tensor> cache_lengths,
+                               std::optional<infinicore::Tensor> input_lengths,
+                               std::optional<infinicore::Tensor> input_offsets,
+                               std::optional<infinicore::Tensor> block_tables,
+                               std::optional<infinicore::Tensor> slot_mapping) const;
 
     void reset_cache(const cache::CacheConfig *cache_config);
 

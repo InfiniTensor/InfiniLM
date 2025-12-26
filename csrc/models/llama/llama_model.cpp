@@ -45,14 +45,18 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
 
 infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
                                        const infinicore::Tensor &position_ids,
-                                       const infinicore::Tensor &cache_positions) const {
+                                       std::optional<infinicore::Tensor> cache_lengths,
+                                       std::optional<infinicore::Tensor> input_lengths,
+                                       std::optional<infinicore::Tensor> input_offsets,
+                                       std::optional<infinicore::Tensor> block_tables,
+                                       std::optional<infinicore::Tensor> slot_mapping) const {
     // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
     auto hidden_states = embed_tokens_->forward(input_ids);
 
     // 2. Process through all decoder layers
     size_t num_layers = layers_.size();
     for (size_t i = 0; i < num_layers; ++i) {
-        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, cache_positions);
+        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping);
     }
 
     // 3. Apply final layer normalization to last token only (aligns with transformers)
@@ -83,6 +87,16 @@ void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
             *kv_cache_config,
             rank_info_);
 
+    } else if (auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config)) {
+        kv_cache_ = std::make_shared<cache::PagedKVCache>(
+            config_.head_dim,
+            config_.head_dim,
+            config_.num_key_value_heads,
+            config_.num_key_value_heads,
+            config_.num_hidden_layers,
+            config_.dtype,
+            *paged_kv_cache_config,
+            rank_info_);
     } else {
         throw std::runtime_error("Unsupported cache type");
     }

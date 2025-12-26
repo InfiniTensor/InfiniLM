@@ -46,9 +46,9 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("distributed_config") = distributed::DistConfig(),
              py::arg("device_type") = infinicore::context::getDevice().getType(),
              py::arg("cache_config") = py::none())
-    .def("load_param", &InferEngine::load_param,
-         py::arg("name"), py::arg("param"),
-         "Load a parameter tensor into all workers (each worker picks its shard)")
+        .def("load_param", &InferEngine::load_param,
+             py::arg("name"), py::arg("param"),
+             "Load a parameter tensor into all workers (each worker picks its shard)")
         .def("state_dict", [](InferEngine &self) {
             py::list state_dict_tp_all;
             for (const auto &state_dict_tp : self.state_dict()) {
@@ -76,10 +76,36 @@ inline void bind_infer_engine(py::module &m) {
         });
 
     py::class_<InferEngine::Input>(infer_engine, "Input")
-        .def(py::init([](const infinicore::Tensor &input_ids, const infinicore::Tensor &position_ids, const infinicore::Tensor &cache_positions) {
-                 return new InferEngine::Input{input_ids, position_ids, cache_positions};
-             }),
-             py::arg("input_ids"), py::arg("position_ids"), py::arg("cache_positions"));
+        .def(
+            py::init([](
+                         std::optional<infinicore::Tensor> input_ids,
+                         std::optional<infinicore::Tensor> position_ids,
+                         std::optional<infinicore::Tensor> cache_lengths,
+                         std::optional<infinicore::Tensor> input_lengths,
+                         std::optional<infinicore::Tensor> input_offsets,
+                         std::optional<infinicore::Tensor> block_tables,
+                         std::optional<infinicore::Tensor> slot_mapping) {
+                return InferEngine::Input{
+                    std::move(input_ids),
+                    std::move(position_ids),
+                    std::move(cache_lengths),
+                    std::move(block_tables),
+                    std::move(slot_mapping)};
+            }),
+            py::arg("input_ids") = std::nullopt,
+            py::arg("position_ids") = std::nullopt,
+            py::arg("cache_lengths") = std::nullopt,
+            py::arg("input_lengths") = std::nullopt,
+            py::arg("input_offsets") = std::nullopt,
+            py::arg("block_tables") = std::nullopt,
+            py::arg("slot_mapping") = std::nullopt)
+        .def_readwrite("input_ids", &InferEngine::Input::input_ids)
+        .def_readwrite("position_ids", &InferEngine::Input::position_ids)
+        .def_readwrite("cache_lengths", &InferEngine::Input::cache_lengths)
+        .def_readwrite("input_lengths", &InferEngine::Input::input_lengths)
+        .def_readwrite("input_offsets", &InferEngine::Input::input_offsets)
+        .def_readwrite("block_tables", &InferEngine::Input::block_tables)
+        .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
         .def_readwrite("logits", &InferEngine::Output::logits, "Output tensor");

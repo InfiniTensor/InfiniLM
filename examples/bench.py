@@ -172,6 +172,11 @@ def get_args():
         default=20,
         help="output tokens",
     )
+    parser.add_argument(
+        "--skip-load",
+        action="store_true",
+        help="skip loading model weights",
+    )
     return parser.parse_args()
 
 
@@ -194,6 +199,7 @@ class TestModel:
         model_path,
         infini_device=infinicore.device("cpu", 0),
         tp=1,
+        skip_load=False,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -209,7 +215,8 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        加载权重
         # ---------------------------------------------------------------------------- #
-        load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
+        if not skip_load:
+            load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
 
         # ---------------------------------------------------------------------------- #
         #                        创建 tokenizer
@@ -289,6 +296,8 @@ if __name__ == "__main__":
 
     tp = args.tensor_parallel_size
 
+    skip_load = args.skip_load
+
     batch_size = args.batch_size
     input_len = args.input_len
     output_len = args.output_len
@@ -312,6 +321,7 @@ if __name__ == "__main__":
         model_path,
         infini_device=infini_device,
         tp=tp,
+        skip_load=skip_load,
     )
 
     for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
@@ -322,10 +332,8 @@ if __name__ == "__main__":
         output_len = case["output_len"]
 
         # reset cache for each case
-        initial_capacity = input_len + output_len + 100
-        test.model.reset_cache(
-            batch_size=batch_size, initial_capacity=initial_capacity
-        )
+        initial_capacity = input_len + output_len
+        test.model.reset_cache(batch_size=batch_size, initial_capacity=initial_capacity)
 
         # run test one case
         test.run(
