@@ -10,7 +10,7 @@ from infinilm.lib import _infinilm
 
 @dataclass
 class GenerationConfig:
-    max_new_tokens: int
+    max_new_tokens: int | None = None
 
     temperature: float = 1.0
     top_k: int = 50
@@ -78,6 +78,11 @@ class InferEngine(_infinilm.InferEngine):
 
         output_ids = []
 
+        if batch_size != 1 and generation_config.max_new_tokens is None:
+            raise ValueError(
+                "When `batch_size > 1`, `max_new_tokens` must be specified."
+            )
+
         for _ in range(0, generation_config.max_new_tokens):
             output_id = self(
                 input_ids,
@@ -88,12 +93,12 @@ class InferEngine(_infinilm.InferEngine):
                 top_p=generation_config.top_p,
             )
 
-            # TODO: Do not only get the first item here.
-            output_id_item = output_id.to_numpy()[0]
+            output_ids.append(output_id)
 
-            output_ids.append(infinicore.from_list([output_id_item]))
-
-            if output_id_item in eos_token_id:
+            if (
+                generation_config.max_new_tokens is not None
+                and output_id.to_numpy()[0] in eos_token_id
+            ):
                 break
 
             seq_len = position_ids.shape[-1]
