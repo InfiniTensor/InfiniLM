@@ -194,7 +194,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         self.transpose_linear_weights = 1 if transpose_weight else 0
         self.nlayer = nlayer
         self.input_embd_tensor = (
-            state_dict[input_embd_naming].to(torch_dt_logits) * scale_input
+            state_dict[input_embd_naming].to(torch_dt_logits)
         )
         self.input_embd = self.input_embd_tensor.data_ptr()
         self.output_norm_tensor = (
@@ -251,39 +251,9 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
         self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
 
-        def qkv_b_slices(_i):
-            _QB = (
-                state_dict[naming.attn_q_b(_i)]
-                .reshape([nh, 2, dh // 2])
-                .transpose(1, 2)
-            )
-            _KB = (
-                state_dict[naming.attn_k_b(_i)]
-                .reshape([nkvh, 2, dh // 2])
-                .transpose(1, 2)
-            )
-            _VB = state_dict[naming.attn_v_b(_i)].reshape([nkvh, dh // 2, 2])
-            _result = []
-            _nh = nh // ndev
-            _nkvh = nkvh // ndev
-            for _idev in range(ndev):
-                _result.append(_QB[_idev * _nh : (_idev + 1) * _nh, :, :].flatten())
-                _result.append(_KB[_idev * _nkvh : (_idev + 1) * _nkvh, :, :].flatten())
-                _result.append(_VB[_idev * _nkvh : (_idev + 1) * _nkvh, :, :].flatten())
-            return _result
-
-        if naming.attn_q_b(0) in state_dict:
-            self.qkv_b_tensors = [
-                torch.concat(qkv_b_slices(i)).to(torch_dt_logits) for i in range(nlayer)
-            ]
-            self.qkv_b_tensor_ptrs = [
-                self.qkv_b_tensors[i].data_ptr() for i in range(nlayer)
-            ]
-            self.attn_qkv_b = (c_void_p * nlayer)(*self.qkv_b_tensor_ptrs)
-        else:
-            self.attn_qkv_b = None
-
+        
         if naming.attn_q_norm(0) in state_dict:
+            print("have norm")
             self.attn_q_norm_tensors = [
                 state_dict[naming.attn_q_norm(i)]
                 .reshape([2, dh // 2])
@@ -423,7 +393,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             router_list = []
             for i in range(nlayer):
                 gate_weight = state_dict[naming.router(i)].to(torch_dt_mat)
-                print(f"router size {gate_weight.size()}")
+                
                 router_list.append(gate_weight)
             
             return router_list   # list of num_experts tensors
@@ -454,11 +424,7 @@ class LLaDABatchedTask:
         self.topks_list = [t.topk for t in tasks]
         self.topps_list = [t.topp for t in tasks]
 
-        # Flatten token lists
-        print(f"token_lists: {token_lists}")
-        print(f"First token_list type: {type(token_lists[0]) if token_lists else 'Empty'}")
-        if token_lists:
-            print(f"First token_list content: {token_lists[0][:5] if isinstance(token_lists[0], list) else 'Not a list'}")
+
 
         flat_tokens = []
         for toks in token_lists:
@@ -471,7 +437,7 @@ class LLaDABatchedTask:
         flat_tokens = [int(tok) for tok in flat_tokens]
 
         self.ntok = len(flat_tokens)
-        print(f"flat_tokens : {flat_tokens}")
+        print(f"Torch : flat_tokens : {flat_tokens}")
 
         # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * self.ntok)(*flat_tokens)
@@ -637,8 +603,8 @@ class LLaDAForCauslLM:
         else:
             # For batch, handle each sequence separately
             tokens = [seq.tolist() for seq in input_ids]
-
-        print(f"Tokens type: {type(tokens)}, content: {tokens[:10] if isinstance(tokens, list) else 'Not a list'}")
+        print(len(tokens))
+        print(f"Pytho Side Tokens type: {type(tokens)}, content: {tokens if isinstance(tokens, list) else 'Not a list'}")
 
         infer_task = InferTask(
             0,
@@ -758,13 +724,10 @@ def test():
     model = LLaDAForCauslLM(model_path, device_type, ndev)
 
     # Test prompts
-    test_prompts = "The capital of France is "
+    test_prompts = "Lily can run 12 kilometers per hour for 4 hours. After that, she runs 6 kilometers per hour."
 
     print("\n=== Testing C++ Model Integration Function ===")
-    # for i, prompt in enumerate(test_prompts):
-    #     print(f"\nTest {i+1}: {prompt}")
-    #     try:
-            # Use the C++ model integration function
+
     result = model.generate(
                 prompts=test_prompts,
                 max_steps=16,  # Reduced for faster testing

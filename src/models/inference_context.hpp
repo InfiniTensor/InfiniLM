@@ -37,6 +37,14 @@ struct InferenceContext {
               infiniopRoPEAlgo_t algo);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
+    
+    void BiAttention(   std::shared_ptr <Tensor> out,
+                        std::shared_ptr <Tensor> q,
+                        std::shared_ptr <Tensor>k,
+                        std::shared_ptr <Tensor> v,
+                        std::shared_ptr <Tensor> k_cache,
+                        std::shared_ptr <Tensor> v_cache,
+                        int pos);
 
     void softmax(std::shared_ptr<Tensor> y,  
              std::shared_ptr<Tensor> x, int dim); //新增
@@ -86,7 +94,6 @@ inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::share
 
 inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
                     std::shared_ptr<Tensor> w, float epsilon) {
-    std::cout << "rmsnorm called in cpp" << std::endl;
     getInferenceContext().rmsnorm(y, x, w, epsilon);
 }
 
@@ -113,6 +120,16 @@ inline void rope_v2(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
 
 inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
     getInferenceContext().causalSoftmax(y, x);
+}
+
+inline void BiAttention(std::shared_ptr <Tensor> out,
+                        std::shared_ptr <Tensor> q,
+                        std::shared_ptr <Tensor>k,
+                        std::shared_ptr <Tensor> v,
+                        std::shared_ptr <Tensor> k_cache,
+                        std::shared_ptr <Tensor> v_cache,
+                        int pos){
+    getInferenceContext().BiAttention(out, q, k, v, k_cache, v_cache, pos);
 }
 
 inline void softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int dim) {  

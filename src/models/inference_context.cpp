@@ -143,6 +143,31 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
                                      y->data(), x->data(), stream));
 }
 
+void InferenceContext::BiAttention(std::shared_ptr <Tensor> out,
+                                    std::shared_ptr <Tensor> q,
+                                    std::shared_ptr <Tensor> k,
+                                    std::shared_ptr <Tensor> v,
+                                    std::shared_ptr <Tensor> k_cache,
+                                    std::shared_ptr <Tensor> v_cache,
+                                    int pos){
+    size_t key = CacheManager::createDescriptorKey(out, q, k, v, k_cache, v_cache);
+    infiniopBiAttentionDescriptor_t desc;
+    if (!cache_manager->getBiAttentionDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateBiAttentionDescriptor(
+            op_handle, &desc, out->desc(), q->desc(), k->desc(), v->desc(), k_cache->desc(), v_cache->desc(), pos));
+        cache_manager->putBiAttentionDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetBiAttentionWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopBiAttention( desc, workspace, workspace_size,
+                                    out->data(), q->data(), k->data(), v->data(), k_cache->data(), v_cache->data(), stream ));
+
+}
+
 void InferenceContext::softmax(std::shared_ptr<Tensor> y,  
                                std::shared_ptr<Tensor> x, int dim) {  
     size_t key = CacheManager::createDescriptorKey(y, x);  

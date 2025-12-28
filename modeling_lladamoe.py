@@ -973,7 +973,7 @@ class LLaDAMoEModel(LLaDAMoEPreTrainedModel):
         if position_ids is None:
             position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = None
+        causal_mask = None #TODO:
         logger.warning_once(
             f"Please note that, unlike autoregressive models, LLaDA MoE employs a bidirectional attention mechanism. "
             f"In the forward code in modeling_lladamoe.py, we set both attention_mask and causal_mask to None, "

@@ -174,6 +174,7 @@ public:
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(DequantizeAWQ)
     DECLARE_OP_CACHE(Softmax)  // 新增  
+    DECLARE_OP_CACHE(BiAttention)
 
 
     CacheManager(size_t capacity = 100)
@@ -187,7 +188,8 @@ public:
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)),
-          Softmax_cache(capacity, DESTROY_FUNC(Softmax)) {}
+          Softmax_cache(capacity, DESTROY_FUNC(Softmax)),
+          BiAttention_cache(capacity, DESTROY_FUNC(BiAttention)){}
 
     template <typename... Tensors>
     static size_t createDescriptorKey(Tensors... tensors) {

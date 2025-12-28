@@ -6,11 +6,14 @@
 
 #include "llada_impl.hpp"
 #include "llada_weight.hpp"
-
 #include <random>
 #include <thread>
 #include <vector>
 #include <algorithm>
+#include <fstream>
+#include <numeric>
+#include <iostream>
+#include <cstring>  // for memcpy
 
 
 // #TODO:这个是草稿版
@@ -34,10 +37,6 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
             getAttnNorm(meta, weights, layer));
         w_attn_qkv.push_back(
             getAttnQKV(meta, weights, layer, idev, ndev));
-        if (weights->attn_qkv_b != nullptr) {
-            b_attn_qkv.push_back(
-            getAttnQKVBias(meta, weights, layer, idev, ndev));
-        }
 
         if (weights->attn_q_norm != nullptr) {
             w_attn_q_norm.push_back(
@@ -90,7 +89,6 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
 
         .w_attn_norm = w_attn_norm,
         .w_attn_qkv = w_attn_qkv,
-        .b_attn_qkv = b_attn_qkv,
         .w_attn_q_norm = w_attn_q_norm,
         .w_attn_k_norm = w_attn_k_norm,
         .w_attn_out = w_attn_out,
@@ -175,17 +173,17 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         InferenceContext ctx(rsrc.handle, rsrc.memory_pool, &cache_manager, rsrc.stream);
         setInferenceContext(&ctx);
 
-        auto nlayer = meta.nlayer;
-        auto nkvh = meta.nkvh / ndev;      // 每个设备的KV头数 (GQA分组查询)
-        auto nh = meta.nh / ndev;          // 每个设备的注意力头数
-        auto ngroup = nh / nkvh;           // 每个设备的组数 (多少个Q头共享一个K/V头)
-        auto dctx = meta.dctx;             // 最大上下文长度
-        auto dh = meta.dh;                 // 每个头的维度
-        auto d = meta.d;                   // 模型隐藏层维度
-        auto dt_logits = meta.dt_logits;   // 输出数据类型
-        auto di_dense = meta.di_dense / ndev;  // 每个设备的密集FFN中间维度
-        auto di_expert = meta.di_expert / ndev; // 每个设备的专家FFN中间维度
-        auto dvoc = meta.dvoc;             // 词汇表大小
+        auto nlayer = meta.nlayer;         // 16
+        auto nkvh = meta.nkvh / ndev;      // 每个设备的KV头数 (GQA分组查询) 16
+        auto nh = meta.nh / ndev;          // 每个设备的注意力头数 16
+        auto ngroup = nh / nkvh;           // 每个设备的组数 (多少个Q头共享一个K/V头) 1
+        auto dctx = meta.dctx;             // 最大上下文长度 8192
+        auto dh = meta.dh;                 // 每个头的维度.  128
+        auto d = meta.d;                   // 模型隐藏层维度 2048(157184 * 2048词表)
+        auto dt_logits = meta.dt_logits;   // 输出数据类型 19
+        auto di_dense = meta.di_dense / ndev;  // 每个设备的密集FFN中间维度 8192
+        auto di_expert = meta.di_expert / ndev; // 每个设备的专家FFN中间维度 1024
+        auto dvoc = meta.dvoc;             // 词汇表大小 157184
         auto stream = rsrc.stream;
         bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;      // 是否有QKV偏置
         bool has_qk_norm = rsrc.w_attn_q_norm.size() > 0 && rsrc.w_attn_k_norm.size() > 0;  // 是否有QK归一化
@@ -202,177 +200,100 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
         auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
         auto result_cpu = std::vector<int64_t>(nreq);
-        
+        auto attention_output = Tensor::buffer(dt_logits, {ntok, nh, dh});
         auto router_logits_buf = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool);
-        // 申请GPU内存
-        auto values_gpu = Tensor::buffer(
-            dt_logits,  // float32类型
-            {ntok, 8},                       // 形状：[ntok * 8]
-            rsrc.memory_pool
-        );
-        auto indices_gpu = Tensor::buffer(
-            dt_logits,  // int32类型
-            {ntok, 8},                       // 形状：[ntok * 8]
-            rsrc.memory_pool
-        );
-        
-        std::cout << "Slice Qkv buffer" << std::endl;
+
+
         auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
         auto shape_qkv = qkv_rope->shape();
-        std::cout << "[";
-        for(size_t element : shape_qkv){
-
-            std::cout << element << ", ";
-        }
-        std::cout << "]" << std::endl;
         auto q_buf = qkv_rope->slice(1, 0, nh);      // 0 ---> nh q
         auto k_buf = qkv_rope->slice(1, nh, nkvh);  //nh  ---> nh+nkvh k_buf
         auto v_buf = qkv_rope->slice(1, nh + nkvh, nkvh); //nh+nkvh  ---> nh+nkvh*2 v_buf
+        
 
-        std::cout << "Allocating  Buffer Finish" << std::endl;
-        // Attention
-        // attention inner
-        size_t max_qk_size = 0;
-        size_t max_seq_len = 0;
-
-        std::cout << "Get Max Seq Len" << std::endl;
-        for (uint32_t req = 0; req < nreq; req++) {
-                auto past_len = req_pos[req];
-                auto seq_len = req_lens[req];
-                auto total_len = past_len + seq_len;
-
-                max_qk_size = std::max(max_qk_size, size_t(seq_len * total_len));
-                max_seq_len = std::max(max_seq_len, size_t(seq_len));
-        }
-
-        std::cout << "Get Attention Buffer "<< std::endl;
-        auto qk_buf = Tensor::buffer(dt_logits, {nh * max_qk_size}, rsrc.memory_pool);
-        auto rearrange_q_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-        auto q_rearrange = rearrange_q_buf->view({nkvh, ngroup, max_seq_len, dh});
-        auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
-        auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
-
-    
+        // Prepare inputs
+        std::cout << "Preparing Input" << std::endl;
         auto batch_pos_ids = std::vector<uint32_t>(ntok);
-        for (uint32_t req_idx = 0; req_idx < nreq; ++req_idx) {
-            uint32_t start_pos = req_pos[req_idx];
-            uint32_t req_len = req_lens[req_idx];
-            for (uint32_t i = 0; i < req_len; ++i) {
-                batch_pos_ids[start_pos + i] = start_pos + i;
+        size_t req_start = 0;
+        for (uint32_t req = 0; req < nreq; req++) {
+            for (uint32_t i = 0; i < req_lens[req]; i++) {
+                batch_pos_ids[req_start + i] = req_pos[req] + i;
             }
+            req_start += req_lens[req];
         }
         std::shared_ptr<Tensor> pos_ids_buf;
-        if (rsrc.device == INFINI_DEVICE_CPU) {
-            pos_ids_buf = Tensor::weight(batch_pos_ids.data(), INFINI_DTYPE_U32, {ntok});
-        } else { // GPU
-            pos_ids_buf = Tensor::buffer(INFINI_DTYPE_U32, {ntok}, rsrc.memory_pool);
-            RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
+        pos_ids_buf = Tensor::buffer(INFINI_DTYPE_U32, {ntok}, rsrc.memory_pool);
+        RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
                                         INFINIRT_MEMCPY_H2D, stream));
-        }
-        std::shared_ptr<Tensor> hidden_states = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
-        for (uint32_t i = 0; i < ntok; i++) {
-            // 查找词嵌入表: [vocab_size, d] -> 输出token i的嵌入向量
-            RUN_INFINI(infinirtMemcpyAsync(hidden_states->data(i * d),
+        // std::shared_ptr<Tensor> hidden_states = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+        // for (uint32_t i = 0; i < ntok; i++) {   
+        //     RUN_INFINI(infinirtMemcpyAsync(hidden_states->data(i * d),
+        //                                 rsrc.w_in_embd->data(tokens[i] * d),
+        //                                 dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
+        // } // embedding weight and python slide is same
+        for (uint32_t i = 0; i < ntok; i++) {   
+            RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
                                         rsrc.w_in_embd->data(tokens[i] * d),
                                         dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
+        } // embedding weight and python slide is same
+
+        for(uint32_t layer = 0; layer < nlayer; layer ++){
+            // 1. Before Attention
+            // rms norm
+            rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
+            // qkv_proj
+            std::cout << "QKV BUF IS " << qkv_buf->info() << std::endl;
+            std::cout << "Logits OUT BUF IS " << logits_out->info() << std::endl;
+            std::cout << "Attentioin BUF IS " << rsrc.w_attn_qkv[layer]->info() << std::endl;
+            linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? rsrc.b_attn_qkv[layer] : nullptr);
+
+            if (has_qk_norm) {
+                rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon);
+                rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon);
+            }
+            // rope 
+            std::cout << "Position Embedding" << std::endl;
+            rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table); // llada modeling_lladamoe.py:390
+
+            std::cout << "q buf info " << q_buf->info() << std::endl; // [54, 16, 128] [ntok, nh, dh]
+            std::cout << "k buf info " << k_buf->info() << std::endl; // [54, 16, 128] [ntok, nh, dh]
+            std::cout << "v buf info " << v_buf->info() << std::endl; // [54, 16, 128] [ntok, nh, dh]
+            std::cout << "cache info " << std::endl;
+            std::cout << "req pos is " << req_pos[0] << std::endl;
+            std::cout << "req len is " << req_lens[0] << std::endl;
+            std::cout << "KV cache info ";
+            std::cout << kv_caches[0]->k[0][0]->permute({1, 0, 2})->info() << std::endl;  // [16， 54， 128]
+            std::cout << "output info " << attention_output->info() << std::endl;
+            BiAttention(attention_output, q_buf->permute({1, 0, 2}), k_buf->permute({1, 0, 2}), v_buf->permute({1, 0, 2}), kv_caches[0]->k[0][0]->permute({1, 0, 2}), kv_caches[0]->v[0][0]->permute({1, 0, 2}), 0);
+
+
+            // 创建新张量来存储 dimMerge 的结果
+            auto o_buf = Tensor::buffer(meta.dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
+            rearrange(o_buf, attention_output->dimMerge(1, 2));
+
+            std::cout << logits_in->info() << std::endl;
+            std::cout << o_buf->info() << std::endl;
+            std::cout << rsrc.w_attn_out[layer]->info() << std::endl;
+            std::cout << "logits_in contiguous: " << logits_in->isContigous() << std::endl;  
+            std::cout << "o_buf contiguous: " << o_buf->isContigous() << std::endl;  
+            std::cout << "weight contiguous: " << rsrc.w_attn_out[layer]->isContigous() << std::endl;
+            linear(logits_in, o_buf, rsrc.w_attn_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); //self.o_proj(attn_output)
+
+            rmsnorm(logits_out, logits_in, rsrc.w_ffn_norm[layer], meta.epsilon);
+            
+            std::cout << gate_up_buf->info() << std::endl;
+            std::cout << logits_out->info() << std::endl;
+            std::cout << rsrc.w_expert_router[layer]->info() << std::endl;
+
+            linear(router_logits_buf, logits_out, rsrc.w_expert_router[layer], 1.0, 0.0, nullptr, nullptr);
+
         }
 
-        for (uint32_t layer_idx = 0; layer_idx < nlayer; ++layer_idx) {
-                std::cout << "Processing layer " << layer_idx << std::endl;
-                std::shared_ptr<Tensor> attn_input = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
 
-                rmsnorm(attn_input, hidden_states, rsrc.w_attn_norm[layer_idx], meta.epsilon);
-
-                std::shared_ptr<Tensor> qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
-                std::cout << "linear debug " << "qkv buf " << qkv_buf->info() << std::endl;
-                std::cout << "linear debug " << "attn buf " << attn_input->info() << std::endl;
-                std::cout << "linear debug " << "weight buff  " << rsrc.w_attn_qkv[layer_idx]->info() << std::endl;
-                linear(qkv_buf, attn_input, rsrc.w_attn_qkv[layer_idx], 1.0, 0.0, nullptr, nullptr);
-    
-                
-                auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
-                auto q_buf = qkv_rope->slice(1, 0, nh);           // [ntok, nh, dh] - Query部分
-                auto k_buf = qkv_rope->slice(1, nh, nkvh);       // [ntok, nkvh, dh] - Key部分
-                auto v_buf = qkv_rope->slice(1, nh+nkvh, nkvh);  // [ntok, nkvh, dh] - Value部分
-
-                
-                if (has_qk_norm) {
-                    std::cout << "Use Qk norm" << std::endl;
-                    rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer_idx], meta.epsilon);
-                    rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer_idx], meta.epsilon);
-                }
-                
-                rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-                rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-                
-                uint32_t token_offset = 0;
-                for(uint32_t req = 0; req < nreq; req ++){
-                    auto past_len = req_pos[req];
-                    auto seq_len  = req_lens[req];
-                    auto total_len = past_len + seq_len;
-                    // 提取当前请求的数据
-                    auto o = o_buf->slice({{0, token_offset, seq_len}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
-                    auto q = qkv_rope->slice({{0, token_offset, seq_len}, {1, 0, nh}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});;
-                    auto k = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
-                    auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
-                    // self attention
-                    // concat
-                    rearrange(kv_caches[req]->k[idev][layer_idx]->slice(0, past_len, seq_len), k);
-                    rearrange(kv_caches[req]->v[idev][layer_idx]->slice(0, past_len, seq_len), v);
-                    // qk
-                    rearrange(q_rearrange->slice(2, 0, seq_len), q);
-                    auto qk_gemm = qk_buf->slice(0, 0, nh * seq_len * total_len)->view({nkvh, ngroup * seq_len, total_len});
-                    auto k_gemm = kv_caches[req]->k[idev][layer_idx]->slice(0, 0, total_len)->permute({1, 2, 0});
-                    linear(qk_gemm, rearrange_q_buf->slice(1, 0, ngroup * seq_len), k_gemm, 1.f / float(sqrt(dh)), 0.f, nullptr, nullptr);
-                    // softmax
-                    auto qk_softmax = qk_gemm->view({nh, seq_len, total_len});
-                    causalSoftmax(qk_softmax, qk_softmax);
-                    auto v_gemm = kv_caches[req]->v[idev][layer_idx]->slice(0, 0, total_len)->permute({1, 0, 2});
-                    linear(attn_val_buf->slice(1, 0, ngroup * seq_len), qk_gemm, v_gemm, 1.f, 0.f, nullptr, nullptr);
-                    // rearrange attn val
-                    rearrange(o, attn_val_gemm->slice(2, 0, seq_len));
-                    token_offset += seq_len;
-                }
-                 // o_proj {ntok, nh * dh}
-                linear(logits_in, o_buf, rsrc.w_attn_out[layer_idx], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); // only rank 0 adds residual
-                        // All_reduce if distributed
-                if (rsrc.comm != nullptr) {
-                    RUN_INFINI(infinicclAllReduce(
-                        logits_in->data(), logits_in->data(), ntok * d, dt_logits,
-                        INFINICCL_SUM, rsrc.comm, stream));
-                    RUN_INFINI(infinirtStreamSynchronize(stream));
-                }
-                std::cout << "Expert logits generate" << std::endl;
-                // o_buf   {ntok, nh * dh}
-                // w_expert_router {}
-                // 2. FFN Expert LLaDAMoESparseMoeBlock Wrong Shape Split gate and UP
-                // o_buffer [24, 2048] w_expert_gate [64, 2048]
-                // w_epert [1024, 2048]
-                std::cout << "rsrc info is " << rsrc.w_expert_router[layer_idx]->info() << std::endl;
-                std::cout << "o buffer info is " <<  o_buf->info() << std::endl;
-                // router_logits_buf [24, 64] which mean the router weights of each expert 
-                linear(router_logits_buf, o_buf, rsrc.w_expert_router[layer_idx], 1.0, 0.0, nullptr, nullptr); 
-                std::cout << router_logits_buf->info() << std::endl; //dtype->19
-                // TopK-Router Select //router_logits = self.gate(hidden_sta
-                // auto gate_correction_bias = weights->w_layers[layer].route->b;
-                auto zero_bias = Tensor::buffer(INFINI_DTYPE_BF16, {64});
-                std::vector<float> zeros_data(64, 0.0f);
-                zero_bias->load(zeros_data.data());
-                std::cout << "router_logits_buf: " << router_logits_buf->info() << std::endl;
-                std::cout << "values_gpu shape: " << values_gpu->info() << std::endl;
-                std::cout << "indices_gpu shape: " << indices_gpu->info() << std::endl;
-                std::cout << "zero_bias shape: " << zero_bias->info() << std::endl;
-                //std::cout << "Device type: " << rsrc.handle->device << std::endl; 
-                topkrouter(values_gpu, indices_gpu, router_logits_buf, zero_bias, 
-                        1.0, 8);
-                auto expert_rou
-        
-        }
         RUN_INFINI(infinirtStreamSynchronize(stream));
-
         // 清理推理上下文
         setInferenceContext(nullptr);
-
         std::cout << "InferDeviceBatch completed" << std::endl;
 }
 __C void
@@ -506,10 +427,8 @@ void launchDevice(const LLaDAMeta & meta, const LLaDAWeights *weights, LLaDADevi
 
 // TODO: not void just for tmp
 LLaDAModel::LLaDAModel(const LLaDAMeta *_meta, const LLaDAWeights *weights, infiniDevice_t device_, std::vector<int> device_ids)  {
-    std::cout << "Starting Distri Deploy Model" << std::endl;
-    //debugPrint(_meta); // Alright Until this place
+    std::cout << "Initing LLaDA model in Cpp side " << std::endl;
     int ndev = int(device_ids.size());
-    std::cout << "The nums of dev is " << ndev << std::endl;
     meta = *_meta;  // Copy meta data
     this->weights = weights;  // Store weights pointer
     device = device_;
@@ -539,11 +458,9 @@ __C struct LLaDAModel * createLLaDAModel(const LLaDAMeta * meta,
                                          const int *dev_ids) {
     std::vector<int> device_ids(ndev);
     std::copy(dev_ids, dev_ids + ndev, device_ids.begin());
-    std::cout << "Take a See!" << std::endl;
-    //debugPrint(meta);
+
     LLaDAModel *model = new LLaDAModel(meta, weights, device, device_ids); // 测试代码编写在该函数体内部
 
-    //1. 测试launchDevice
     return model;
 }
 

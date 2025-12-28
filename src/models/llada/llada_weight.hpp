@@ -37,8 +37,6 @@ void debugPrint(LLaDAMeta const *meta) {
 inline std::shared_ptr<Tensor> getInEmbd(
     LLaDAMeta const * meta,
     LLaDAWeights const * w) {
-    debugPrint(meta);
-    std::cout << "Get In Embd11" << std::endl;
     auto shape = std::vector<size_t>({meta->dvoc, meta->d});
     return Tensor::weight((char *)w->input_embd, meta->dt_logits, shape);
 }
@@ -46,7 +44,7 @@ inline std::shared_ptr<Tensor> getInEmbd(
 inline std::shared_ptr<Tensor> getOutNorm(
     LLaDAMeta const * meta,
     LLaDAWeights const * w){
-    debugPrint(meta);
+
     std::cout << "Get In Embd112" << std::endl;
     auto shape = std::vector<size_t>({meta->d}); //TODO:
     return Tensor::weight((char *)w->output_norm, w->dt_norm, shape);
@@ -93,17 +91,7 @@ inline std::shared_ptr<Tensor> getAttnQKV(
     }
 }
 
-inline std::shared_ptr<Tensor> getAttnQKVBias(
-    LLaDAMeta const *meta,
-    LLaDAWeights const *w,
-    size_t layer, size_t idev, size_t ndev) {
-    auto nkvh = meta->nkvh;
-    auto nh = meta->nh;
-    auto dh = meta->dh;
-    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * dsize(w->dt_mat);
-    auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh});
-    return Tensor::weight((char *)(w->attn_qkv_b[layer]) + offset, w->dt_mat, shape);
-}
+
 
 inline std::shared_ptr<Tensor> getAttnQNorm(
     LLaDAMeta const *meta,
@@ -192,7 +180,6 @@ inline std::shared_ptr<Tensor> getExpertGate(
     auto shape = std::vector<size_t>({meta->d});
     auto di = meta->di_expert; // TODO: 具体di还要区分
     auto d = meta->d;
-    std::cout << "Layer " << layer << "offset is " << idev * (di  * d / ndev ) * meta->num_experts * dsize(w->dt_mat) << std::endl;
     size_t offset = 0;
     if (w->transpose_linear_weights != 0) {
         auto shape = std::vector<size_t>({meta->num_experts, di, d});
@@ -213,7 +200,6 @@ inline std::shared_ptr<Tensor> getExpertUp(
     auto shape = std::vector<size_t>({meta->d});
     auto di = meta->di_expert; // TODO: 具体di还要区分
     auto d = meta->d;
-    std::cout << "Layer " << layer << "offset is " << idev * (di  * d / ndev ) * meta->num_experts * dsize(w->dt_mat) << std::endl;
     size_t offset = 0;
     if (w->transpose_linear_weights != 0) {
         auto shape = std::vector<size_t>({meta->num_experts, di, d});
@@ -253,7 +239,6 @@ inline std::shared_ptr<Tensor> getExpertDown(
 
 inline std::shared_ptr<Tensor> getSinTable(LLaDAMeta const *meta) {
     std::cout << "Get Sin Table" << std::endl;
-    debugPrint(meta);
     auto half_dh = meta->dh / 2;
     auto unit = dsize(meta->dt_logits);
     void *table = std::malloc(meta->dctx * half_dh * unit);

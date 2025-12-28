@@ -1,5 +1,4 @@
 add_requires("pybind11")
-
 local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 
 set_toolchains("gcc")
@@ -16,7 +15,6 @@ target("infinicore_infer")
 
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infiniop", "infinirt", "infiniccl")
-
     set_languages("cxx17")
     set_warnings("all", "error")
     add_files("src/models/*.cpp")
