@@ -241,33 +241,40 @@ void RankWorker::thread_loop() {
 
             } else if (local_cmd == Command::RUN) {
                 try {
-                    auto logits{model_->forward(local_args).logits};
-                    infinicore::context::syncStream();
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
 
-                    if (rank_info_.tp_rank == 0) {
-                        // Perform random sampling
-                        auto temperature{pending_args_.temperature};
-                        auto top_p{pending_args_.top_p};
-                        auto top_k{pending_args_.top_k};
-                        auto random_val{pending_args_.random_val};
+                        auto logits{model_->forward(local_args).logits};
 
-                        const auto &logits_shape{logits->shape()};
-                        const auto &batch_size{logits_shape[0]};
-                        const auto &vocab_size{logits_shape[2]};
+                        if (rank_info_.tp_rank == 0) {
+                            // Perform random sampling.
+                            auto temperature{pending_args_.temperature};
+                            auto top_p{pending_args_.top_p};
+                            auto top_k{pending_args_.top_k};
+                            auto random_val{pending_args_.random_val};
 
-                        auto output_ids{infinicore::Tensor::empty({batch_size}, infinicore::DataType::I32, rank_info_.device)};
+                            const auto &logits_shape{logits->shape()};
+                            const auto &batch_size{logits_shape[0]};
+                            const auto &vocab_size{logits_shape[2]};
 
-                        for (auto i{decltype(batch_size)(0)}; i < batch_size; ++i) {
-                            auto score{logits->narrow({{0, i, 1}})->view({vocab_size})};
-                            auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                            infinicore::op::random_sample_(
-                                out, score, random_val, top_p, top_k, temperature);
+                            auto output_ids{infinicore::Tensor::empty({batch_size}, infinicore::DataType::I32, rank_info_.device)};
+
+                            for (auto i{decltype(batch_size)(0)}; i < batch_size; ++i) {
+                                auto score{logits->narrow({{0, i, 1}})->view({vocab_size})};
+                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                infinicore::op::random_sample_(
+                                    out, score, random_val, top_p, top_k, temperature);
+                            }
+
+                            output_ids = output_ids->to(infinicore::Device::cpu());
+
+                            infinicore::context::syncStream();
+
+                            auto out{Output{output_ids}};
+
+                            output_ = std::move(out);
                         }
 
-                        auto out{Output{output_ids}};
-
-                        std::lock_guard<std::mutex> lk(mutex_);
-                        output_ = std::move(out);
                         job_done_ = true;
                     }
                     cv_.notify_all();
