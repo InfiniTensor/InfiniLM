@@ -13,28 +13,9 @@ namespace infinilm::engine {
 
 class InferEngine {
 public:
-    struct Input {
-        /// Token IDs tensor of shape `[batch, seq_len]`.
-        std::optional<infinicore::Tensor> input_ids;
-        /// Position IDs tensor of shape `[batch, seq_len]` or `[seq_len]`.
-        std::optional<infinicore::Tensor> position_ids;
-        /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
-        std::optional<infinicore::Tensor> cache_lengths;
-        /// Input Lengths of each request in a continous-batched sequence, of shape `[num_requests]`.
-        std::optional<infinicore::Tensor> input_lengths;
-        /// Offsets of each request in a continous-batched sequence, of shape `[num_requests]`.
-        std::optional<infinicore::Tensor> input_offsets;
-        /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
-        std::optional<infinicore::Tensor> block_tables;
-        /// Slot ids for each token `[seq]`. Used for paged cache.
-        std::optional<infinicore::Tensor> slot_mapping;
+    using Input = RankWorker::Input;
 
-        infinilm::InfinilmModel::Input to_model_input() const;
-    };
-
-    struct Output {
-        infinicore::Tensor logits;
-    };
+    using Output = RankWorker::Output;
 
     // Updated constructor: accept CacheConfig instead of CacheType
     InferEngine(

@@ -63,14 +63,14 @@ infinilm::InfinilmModel::Input InferEngine::Input::to_model_input() const {
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     // Trigger each worker to run inference
     for (auto &worker : workers_) {
-        worker->run(input.to_model_input());
+        worker->run(input);
     }
     // Wait for all workers
     for (auto &worker : workers_) {
         worker->wait();
     }
 
-    return {workers_[0]->get_output().logits};
+    return workers_[0]->get_output();
 }
 
 //------------------------------------------------------

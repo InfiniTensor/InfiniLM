@@ -2,12 +2,13 @@ import infinicore
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import load_model_state_dict_by_file
-import infinilm
 from infinilm.distributed import DistConfig
+from infinilm.infer_engine import GenerationConfig, InferEngine
 import argparse
 import sys
 import time
 import os
+import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
@@ -90,17 +91,15 @@ def test(
     model_path,
     max_new_tokens=100,
     infini_device=infinicore.device("cpu", 0),
-    backend="python",
     tp=1,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
     #                        创建模型,
     # ---------------------------------------------------------------------------- #
-    model = infinilm.AutoLlamaModel.from_pretrained(
+    model = InferEngine(
         model_path,
         device=infini_device,
-        backend=backend,
         distributed_config=DistConfig(tp),
     )
 
@@ -165,12 +164,17 @@ def test(
 
     t1 = time.time()
     print("=================== start generate ====================")
-    model.generate(
+    output_ids = model.generate(
         input_ids_infini,
-        max_new_tokens=max_new_tokens,
-        tokenizer=tokenizer,
+        GenerationConfig(
+            max_new_tokens=max_new_tokens, temperature=1, top_k=1, top_p=0.8
+        ),
+        _measure_and_log_time=True,
     )
     t2 = time.time()
+
+    numpy_output_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
+    print(tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
 
     print(
         f"total_time: {round((t2 - t1) * 1000, 2)} ms",
@@ -208,6 +212,9 @@ if __name__ == "__main__":
     backend = args.backend
     tp = args.tp
 
+    if backend != "cpp":
+        raise ValueError(f"Unsupported backend: {backend}.")
+
     infini_device = infinicore.device(device_str, 0)
 
     test(
@@ -215,6 +222,5 @@ if __name__ == "__main__":
         model_path,
         max_new_tokens,
         infini_device=infini_device,
-        backend=backend,
         tp=tp,
     )

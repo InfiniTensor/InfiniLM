@@ -35,7 +35,7 @@ public:
     };
 
     struct Output {
-        /// Output tensor of shape [batch, seq_len, vocab_size].
+        /// Logits.
         infinicore::Tensor logits;
     };
 

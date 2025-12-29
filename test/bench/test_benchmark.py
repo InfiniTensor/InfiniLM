@@ -5,11 +5,12 @@ import time
 import re
 import csv
 from datasets import load_dataset, Dataset
+import numpy as np
 import infinicore
-import infinilm
-from infinilm.models.llama import AutoLlamaModel
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
+from infinilm.cache import StaticKVCacheConfig
+from infinilm.infer_engine import GenerationConfig, InferEngine
 from infinilm.cache import StaticKVCacheConfig
 from abc import ABC, abstractmethod
 
@@ -112,12 +113,14 @@ class InfiniLMBenchmark(BaseBenchmark):
             [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
         )
 
+        if backend != "cpp":
+            raise ValueError(f"Unsupported backend: {backend}.")
+
         # Create model with cpp backend
         print("Loading model with cpp backend...")
-        self.model = AutoLlamaModel.from_pretrained(
+        self.model = InferEngine(
             model_dir_path,
             device=self.device,
-            backend=backend,
             distributed_config=DistConfig(ndev),
             cache_config=StaticKVCacheConfig(),
         )
@@ -175,22 +178,45 @@ class InfiniLMBenchmark(BaseBenchmark):
         input_ids_list = [tokens]
         input_ids = infinicore.from_list(input_ids_list)
 
+        start_time = time.perf_counter()
+
         # Use model's built-in generate() method which properly handles KV cache
         # Pass sampling parameters (temperature, topk, topp) via kwargs
-        result = self.model.generate(
+        output_ids = self.model.generate(
             input_ids=input_ids,
-            max_new_tokens=max_steps,
-            tokenizer=self.tokenizer,
-            stop_on_eos=True,
-            temperature=temperature_,
-            topk=topk_,
-            topp=topp_,
+            generation_config=GenerationConfig(
+                max_new_tokens=max_steps,
+                temperature=temperature_,
+                top_k=topk_,
+                top_p=topp_,
+            ),
         )
-        global TOTAL_TOKENS, TOTAL_TIME
-        TOTAL_TIME += result["total_latency"]
-        TOTAL_TOKENS += result["total_input_tokens"] + result["total_output_tokens"]
 
-        return result["output_content"]
+        end_time = time.perf_counter()
+
+        # ---- post process ----
+        generated_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
+        output_text = self.tokenizer.decode(generated_ids)
+
+        # ---- stats ----
+        input_tokens = len(tokens)
+        new_tokens = generated_ids.size
+        total_tokens = input_tokens + new_tokens
+
+        total_time = end_time - start_time
+        throughput = total_tokens / total_time if total_time > 0 else 0.0
+        print(output_text)
+        print()
+        print(f"Total time: {total_time * 1000:.2f} ms")
+        print(f"Input tokens: {input_tokens}")
+        print(f"New tokens: {new_tokens}")
+        print(f"Total tokens processed: {total_tokens}")
+        print(f"Throughput: {throughput:.2f} tok/s")
+        global TOTAL_TOKENS, TOTAL_TIME
+        TOTAL_TOKENS += total_tokens
+        TOTAL_TIME += total_time
+
+        return output_text
 
     def destroy_model_instance(self):
         # Cleanup if needed
