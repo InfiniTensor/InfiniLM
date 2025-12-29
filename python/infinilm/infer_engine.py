@@ -45,15 +45,39 @@ class InferEngine(_infinilm.InferEngine):
         return self.forward(*args, **kwargs)
 
     def forward(
-        self, input_ids, position_ids, cache_positions, *, temperature, top_k, top_p
+        self,
+        input_ids,
+        *,
+        position_ids=None,
+        cache_lengths=None,
+        input_lengths=None,
+        input_offsets=None,
+        block_tables=None,
+        slot_mapping=None,
+        temperature=None,
+        top_k=None,
+        top_p=None,
     ):
+        # TODO: Remove `_underlying` and simplify the corresponding code.
+        input_ids = input_ids._underlying if input_ids is not None else None
+        position_ids = position_ids._underlying if position_ids is not None else None
+        cache_lengths = cache_lengths._underlying if cache_lengths is not None else None
+        input_lengths = input_lengths._underlying if input_lengths is not None else None
+        input_offsets = input_offsets._underlying if input_offsets is not None else None
+        block_tables = block_tables._underlying if block_tables is not None else None
+        slot_mapping = slot_mapping._underlying if slot_mapping is not None else None
+
         return infinicore.Tensor(
             super()
             .forward(
                 super().Input(
-                    input_ids._underlying,
-                    position_ids._underlying,
-                    cache_positions._underlying,
+                    input_ids,
+                    position_ids=position_ids,
+                    cache_lengths=cache_lengths,
+                    input_lengths=input_lengths,
+                    input_offsets=input_offsets,
+                    block_tables=block_tables,
+                    slot_mapping=slot_mapping,
                     temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
@@ -74,7 +98,7 @@ class InferEngine(_infinilm.InferEngine):
         position_ids = infinicore.from_list(
             [list(range(0, seq_len)) for _ in range(batch_size)], dtype=infinicore.int64
         )
-        cache_positions = infinicore.from_list([0], dtype=infinicore.int64)
+        cache_lengths = infinicore.from_list([0], dtype=infinicore.int64)
 
         output_ids = []
 
@@ -86,8 +110,8 @@ class InferEngine(_infinilm.InferEngine):
         for _ in range(0, generation_config.max_new_tokens):
             output_id = self(
                 input_ids,
-                position_ids,
-                cache_positions,
+                position_ids=position_ids,
+                cache_lengths=cache_lengths,
                 temperature=generation_config.temperature,
                 top_k=generation_config.top_k,
                 top_p=generation_config.top_p,
@@ -111,8 +135,8 @@ class InferEngine(_infinilm.InferEngine):
                 dtype=position_ids.dtype,
                 device=position_ids.device,
             ).view((batch_size, 1)) + position_ids.narrow(1, seq_len - 1, 1)
-            cache_positions += infinicore.from_list(
-                [seq_len], dtype=cache_positions.dtype, device=cache_positions.device
+            cache_lengths += infinicore.from_list(
+                [seq_len], dtype=cache_lengths.dtype, device=cache_lengths.device
             )
 
         return output_ids
