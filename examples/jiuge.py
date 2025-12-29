@@ -169,6 +169,7 @@ def test(
         GenerationConfig(
             max_new_tokens=max_new_tokens, temperature=1, top_k=1, top_p=0.8
         ),
+        _measure_and_log_time=True,
     )
     t2 = time.time()
 

@@ -1,3 +1,4 @@
+import time
 from dataclasses import dataclass
 
 import infinicore
@@ -86,7 +87,7 @@ class InferEngine(_infinilm.InferEngine):
             .output_ids
         )
 
-    def generate(self, input_ids, generation_config):
+    def generate(self, input_ids, generation_config, *, _measure_and_log_time=False):
         if generation_config.eos_token_id is None:
             eos_token_id = self.config.eos_token_id
         else:
@@ -107,7 +108,13 @@ class InferEngine(_infinilm.InferEngine):
                 "When `batch_size > 1`, `max_new_tokens` must be specified."
             )
 
+        if _measure_and_log_time:
+            time_measurements = []
+
         for _ in range(0, generation_config.max_new_tokens):
+            if _measure_and_log_time:
+                start_time = time.perf_counter()
+
             output_id = self(
                 input_ids,
                 position_ids=position_ids,
@@ -138,6 +145,26 @@ class InferEngine(_infinilm.InferEngine):
             cache_lengths += infinicore.from_list(
                 [seq_len], dtype=cache_lengths.dtype, device=cache_lengths.device
             )
+
+            if _measure_and_log_time:
+                end_time = time.perf_counter()
+
+                time_measurements.append((end_time - start_time))
+
+        if _measure_and_log_time:
+            print(
+                f"\n\n\n Generation completed in {round(sum(time_measurements) * 1000, 2)} ms"
+            )
+            print(
+                f" Batchsize={batch_size}  Per_Batch_Input_Len={seq_len}  Per_Batch_New_Tokens={len(time_measurements)}\n"
+            )
+            print(
+                f" Prefill TTFT: {round(time_measurements[0], 2)}ms  Throughput: {round((batch_size * seq_len) / time_measurements[0], 2)}tok/s\n",
+            )
+            if len(time_measurements) > 1:
+                print(
+                    f" Decode  Avg ITL: {round(sum(time_measurements[1:]) * 1000 / (len(time_measurements) - 1), 2)}ms   Throughput: {round((batch_size * (len(time_measurements) - 1)) / sum(time_measurements[1:]), 2)}tok/s\n",
+                )
 
         return output_ids
 
