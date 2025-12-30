@@ -191,7 +191,6 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
     auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
     auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
 
-    /// @todo: implement paged cache update here
     auto k_shape = k->shape();
     auto b = k_shape[0];
     auto s = k_shape[1];

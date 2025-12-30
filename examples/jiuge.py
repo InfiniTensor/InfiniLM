@@ -9,7 +9,7 @@ import sys
 import time
 import os
 import numpy as np
-from infinilm.cache import StaticKVCacheConfig,PagedKVCacheConfig
+from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
@@ -89,6 +89,13 @@ def get_args():
         help="use paged cache",
     )
 
+    parser.add_argument(
+        "--max-kvcache-size",
+        type=int,
+        default=8 * 1024 * 1024 * 1024,
+        help="max size (in bytes) allocated to paged kv cache",
+    )
+
     return parser.parse_args()
 
 
@@ -98,7 +105,7 @@ def test(
     max_new_tokens=100,
     infini_device=infinicore.device("cpu", 0),
     tp=1,
-    enable_paged_attn=False
+    enable_paged_attn=False,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -108,7 +115,6 @@ def test(
         model_path,
         device=infini_device,
         distributed_config=DistConfig(tp),
-        enable_paged_attn=enable_paged_attn,
     )
 
     # ---------------------------------------------------------------------------- #
@@ -161,18 +167,15 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        创建KVCache
     # ---------------------------------------------------------------------------- #
-    if args.enable_paged_attn:
-        block_size=256 
+    if enable_paged_attn:
         cache_config = PagedKVCacheConfig(
-            max_kv_memory_bytes=8 * 1024 * 1024 * 1024, # 8GB
-            block_size=block_size
+            max_kv_memory_bytes=args.max_kvcache_size, block_size=16
         )
     else:
         batch_size = 1 if prompts is str else len(prompts)
         initial_capacity = max_new_tokens + len(input_ids_list[0])
         cache_config = StaticKVCacheConfig(
-            max_batch_size=batch_size,
-            max_cache_len=initial_capacity
+            max_batch_size=batch_size, max_cache_len=initial_capacity
         )
 
     model.reset_cache(cache_config)
@@ -244,5 +247,5 @@ if __name__ == "__main__":
         max_new_tokens,
         infini_device=infini_device,
         tp=tp,
-        enable_paged_attn=enable_paged_attn
+        enable_paged_attn=enable_paged_attn,
     )

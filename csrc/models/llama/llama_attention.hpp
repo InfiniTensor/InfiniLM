@@ -74,10 +74,10 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 private:
-    infinicore::Tensor forward_static_(const infinicore::Tensor &hidden_states,
-                                       const infinicore::Tensor &position_ids,
-                                       std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                                       std::optional<infinicore::Tensor> cache_lengths) const;
+    infinicore::Tensor forward_(const infinicore::Tensor &hidden_states,
+                                const infinicore::Tensor &position_ids,
+                                std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                                std::optional<infinicore::Tensor> cache_lengths) const;
 
     infinicore::Tensor forward_paged_(const infinicore::Tensor &hidden_states,
                                       const infinicore::Tensor &position_ids,

@@ -1,5 +1,6 @@
 #include "llama_attention.hpp"
 
+#include "../../utils.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
@@ -53,10 +54,10 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
                               dtype, device, tp_rank, tp_size, rank_info.comm);
 }
 
-infinicore::Tensor LlamaAttention::forward_static_(const infinicore::Tensor &hidden_states,
-                                                   const infinicore::Tensor &position_ids,
-                                                   std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                                                   std::optional<infinicore::Tensor> cache_lengths) const {
+infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_states,
+                                            const infinicore::Tensor &position_ids,
+                                            std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                                            std::optional<infinicore::Tensor> cache_lengths) const {
     // Input shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();
@@ -120,8 +121,7 @@ infinicore::Tensor LlamaAttention::forward_static_(const infinicore::Tensor &hid
 
     auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
 
-    float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
-    auto attn_weight = infinicore::op::matmul(Q, K_transposed, scaling); // [bs * n_kv_head, ng * seq_len, total_seq_len]
+    auto attn_weight = infinicore::op::matmul(Q, K_transposed, scaling_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
 
     auto attn_weight_softmax = attn_weight->view({batch_size * num_attention_heads_, seq_len, total_seq_len});
     infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
@@ -146,9 +146,9 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                                                   std::optional<infinicore::Tensor> input_offsets,
                                                   std::optional<infinicore::Tensor> block_tables,
                                                   std::optional<infinicore::Tensor> slot_mapping) const {
-    if (!block_tables.has_value() or !input_lengths.has_value() or !slot_mapping.has_value()) {
-        throw std::runtime_error("LlamaAttention::forward_paged: block_tables or input_lengths or slot_mapping is not set");
-    }
+    ASSERT(block_tables.has_value());
+    ASSERT(input_lengths.has_value());
+    ASSERT(slot_mapping.has_value());
 
     // Input shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
@@ -156,8 +156,10 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     size_t batch_size = shape[0];
     size_t seq_len = shape[1];
 
+    // Only support batchsize==1, all requests should be flattened along seqlen dimension
+    ASSERT_EQ(batch_size, 1);
+    // Decode only if total_len == num_requests
     bool is_prefill = (batch_size * seq_len != input_lengths.value()->shape()[0]);
-    assert(batch_size == 1);
 
     // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
@@ -172,76 +174,59 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     auto v_reshaped = v->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
 
     // 3. Prepare position_ids for RoPE - align with Python pattern
-
     auto pos_shape = position_ids->shape();
     infinicore::Tensor pos_ids_for_rope = position_ids;
     if (pos_shape.size() == 2) {
         auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
-        pos_ids_for_rope = pos_narrowed->contiguous()->view({pos_shape[1]});
+        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
     } else if (pos_shape.size() == 1) {
-        pos_ids_for_rope = position_ids->contiguous();
+        pos_ids_for_rope = position_ids;
     } else {
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
     // 4. Apply RoPE to Q and K
-    auto q_rope = infinicore::Tensor::empty({batch_size, num_attention_heads_, seq_len, head_dim_}, q_reshaped->dtype(), q_reshaped->device())->permute({0, 2, 1, 3});
-    auto k_rope = infinicore::Tensor::empty({batch_size, num_key_value_heads_, seq_len, head_dim_}, q_reshaped->dtype(), q_reshaped->device())->permute({0, 2, 1, 3});
-    rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope); // [bs, seq_len, n_q_head, head_dim]
-    rotary_emb_->forward(k_rope, k_reshaped, pos_ids_for_rope); // [bs, seq_len, n_kv_head, head_dim]
+    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true); // [bs, seq_len, n_q_head, head_dim]
+    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true); // [bs, seq_len, n_kv_head, head_dim]
 
     //  5. Prepare KV caches
     //  Ensure contiguous after permute for F16 compatibility with cache operations
     auto [k_total, v_total] = paged_kv_cache->update(layer_idx_,
-                                                     k_rope->contiguous(), // 如果不contiguous，报错Incompatible shape for view operation.
+                                                     k_reshaped,
                                                      v_reshaped,
                                                      slot_mapping.value());
 
     // 6. Compute attention
-    infinicore::Tensor attn_output;
+    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
+    ;
     if (is_prefill) {
-        q_reshaped = q_rope->permute({0, 2, 1, 3});          // [bs, n_q_head, seq_len, head_dim]
-        auto k_permuted = k_rope->permute({0, 2, 1, 3});     // [bs, n_kv_head, seq_len, head_dim]
-        auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
-
-        auto total_seq_len = k_permuted->shape()[2];
-        size_t ngroup = num_attention_heads_ / num_key_value_heads_;
-
-        auto Q = q_reshaped->view({batch_size * num_key_value_heads_, ngroup * seq_len, head_dim_});
-        auto K = k_permuted->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
-        auto V = v_permuted->contiguous()->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
-
-        auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
-
-        auto attn_weight = infinicore::op::matmul(Q, K_transposed, scaling_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
-
-        auto attn_weight_softmax = attn_weight->view({batch_size * num_attention_heads_, seq_len, total_seq_len});
-        infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
-
-        auto out = infinicore::op::matmul(attn_weight, V); // [bs * n_kv_head, ng * seq_len, head_dim]
-
-        attn_output = out->view({batch_size, num_attention_heads_, seq_len, head_dim_})
-                          ->permute({0, 2, 1, 3})
-                          ->contiguous()
-                          ->view({batch_size, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
+        infinicore::op::paged_attention_prefill_(
+            attn_output,
+            q_reshaped,
+            k_total,
+            v_total,
+            block_tables.value(),
+            cache_lengths.value(),
+            input_lengths.value(),
+            input_offsets.value(),
+            std::nullopt,
+            scaling_);
 
     } else {
-        q_reshaped = q_rope->contiguous()->view({1 * seq_len, num_attention_heads_, head_dim_}); // q_reshaped需要是contiguous
-        auto out = infinicore::Tensor::empty({1 * seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
-        infinicore::op::paged_attention_(out,
-                                         q_reshaped,
-                                         k_total,
-                                         v_total,
-                                         block_tables.value(),
-                                         input_lengths.value(),
-                                         std::nullopt,
-                                         scaling_);
-
-        attn_output = out->view({1, seq_len, num_attention_heads_, head_dim_})->view({1, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
+        infinicore::op::paged_attention_(
+            attn_output,
+            q_reshaped,
+            k_total,
+            v_total,
+            block_tables.value(),
+            cache_lengths.value(),
+            std::nullopt,
+            scaling_);
     }
 
     // 7. Project output
-    return o_proj_->forward(attn_output); // [ 1 13 3584 ] => [ 1 13 4096 ]
+    attn_output = attn_output->view({1, seq_len, num_attention_heads_ * head_dim_});
+    return o_proj_->forward(attn_output);
 }
 
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
@@ -261,7 +246,7 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
         output = forward_paged_(hidden_states, position_ids, paged_kv_cache, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping);
     } else {
 
-        output = forward_static_(hidden_states, position_ids, kv_cache, cache_lengths);
+        output = forward_(hidden_states, position_ids, kv_cache, cache_lengths);
     }
     return output;
 }
