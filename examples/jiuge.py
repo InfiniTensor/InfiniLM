@@ -9,6 +9,7 @@ import sys
 import time
 import os
 import numpy as np
+from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
@@ -82,6 +83,18 @@ def get_args():
         default=1,
         help="total rank for tensor parallel",
     )
+    parser.add_argument(
+        "--enable-paged-attn",
+        action="store_true",
+        help="use paged cache",
+    )
+
+    parser.add_argument(
+        "--max-kvcache-size",
+        type=int,
+        default=8 * 1024 * 1024 * 1024,
+        help="max size (in bytes) allocated to paged kv cache",
+    )
 
     return parser.parse_args()
 
@@ -92,6 +105,7 @@ def test(
     max_new_tokens=100,
     infini_device=infinicore.device("cpu", 0),
     tp=1,
+    enable_paged_attn=False,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -150,11 +164,21 @@ def test(
         "input_ids"
     ]  # List: [[1, 1128, 526, 366, 29892]]
 
-    # 根据输入长度和最长输出长度创建KVCache
-    model.reset_cache(
-        1 if prompts is str else len(prompts),
-        max_new_tokens + len(input_ids_list[0]),
-    )
+    # ---------------------------------------------------------------------------- #
+    #                        创建KVCache
+    # ---------------------------------------------------------------------------- #
+    if enable_paged_attn:
+        cache_config = PagedKVCacheConfig(
+            max_kv_memory_bytes=args.max_kvcache_size, block_size=16
+        )
+    else:
+        batch_size = 1 if prompts is str else len(prompts)
+        initial_capacity = max_new_tokens + len(input_ids_list[0])
+        cache_config = StaticKVCacheConfig(
+            max_batch_size=batch_size, max_cache_len=initial_capacity
+        )
+
+    model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #
     #                        自回归生成
@@ -211,7 +235,7 @@ if __name__ == "__main__":
     max_new_tokens = args.max_new_tokens
     backend = args.backend
     tp = args.tp
-
+    enable_paged_attn = args.enable_paged_attn
     if backend != "cpp":
         raise ValueError(f"Unsupported backend: {backend}.")
 
@@ -223,4 +247,5 @@ if __name__ == "__main__":
         max_new_tokens,
         infini_device=infini_device,
         tp=tp,
+        enable_paged_attn=enable_paged_attn,
     )

@@ -13,6 +13,8 @@ def infini_to_ctype_dtype(infini_dtype):
         return ctypes.c_int32
     elif infini_dtype == infinicore.float32:
         return ctypes.c_float
+    elif infini_dtype == infinicore.int64:
+        return ctypes.c_int64
     else:
         raise ValueError(f"Unsupported py_dtype: {infini_dtype}")
 

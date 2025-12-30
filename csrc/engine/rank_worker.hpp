@@ -47,7 +47,7 @@ public:
 
         float random_val{0.1};
 
-        infinilm::InfinilmModel::Input to_model_input() const;
+        infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
 
     struct Output {

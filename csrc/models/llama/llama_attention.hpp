@@ -55,7 +55,7 @@ public:
                                std::optional<infinicore::Tensor> input_lengths,
                                std::optional<infinicore::Tensor> input_offsets,
                                std::optional<infinicore::Tensor> block_tables,
-                               std::optional<infinicore::Tensor> slot_mappin) const;
+                               std::optional<infinicore::Tensor> slot_mapping) const;
 
     /**
      * @brief Get the layer index
@@ -72,6 +72,21 @@ public:
     size_t num_kv_heads() const { return num_key_value_heads_; }
     size_t head_dim() const { return head_dim_; }
     size_t hidden_size() const { return hidden_size_; }
+
+private:
+    infinicore::Tensor forward_(const infinicore::Tensor &hidden_states,
+                                const infinicore::Tensor &position_ids,
+                                std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                                std::optional<infinicore::Tensor> cache_lengths) const;
+
+    infinicore::Tensor forward_paged_(const infinicore::Tensor &hidden_states,
+                                      const infinicore::Tensor &position_ids,
+                                      std::shared_ptr<infinilm::cache::PagedKVCache> kv_cache,
+                                      std::optional<infinicore::Tensor> cache_lengths,
+                                      std::optional<infinicore::Tensor> input_lengths,
+                                      std::optional<infinicore::Tensor> input_offsets,
+                                      std::optional<infinicore::Tensor> block_tables,
+                                      std::optional<infinicore::Tensor> slot_mapping) const;
 
 protected:
     // Projection layers
@@ -93,6 +108,8 @@ private:
     bool use_bias_;                  // Bias for Q/K/V projections
     bool use_output_bias_;           // Bias for output projection (o_proj)
     size_t max_position_embeddings_; // For cache initialization (deprecated, kept for compatibility)
+
+    float scaling_;
 };
 
 } // namespace infinilm::models::llama
