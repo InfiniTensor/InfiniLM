@@ -206,7 +206,7 @@ void RankWorker::thread_loop() {
                     local_param_name = pending_param_name_;
                     local_param = pending_param_;
                 } else if (local_cmd == Command::RUN) {
-                    local_args = pending_args_.to_model_input();
+                    local_args = pending_args_.to_model_input(rank_info_.device);
                 } else if (local_cmd == Command::RESET_CACHE) {
                     if (pending_cache_config_ != nullptr) {
                         local_cache_config = pending_cache_config_->unique_copy();

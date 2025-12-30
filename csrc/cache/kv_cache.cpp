@@ -1,7 +1,7 @@
 #include "kv_cache.hpp"
 
 #include "../utils.hpp"
-
+#include "infinicore/ops.hpp"
 #include <stdexcept>
 
 namespace infinilm::cache {
@@ -155,6 +155,7 @@ PagedKVCache::PagedKVCache(
     num_blocks_per_layer_ = config.max_kv_memory_bytes()
                           / (k_dim * num_rank_k_heads_ + v_dim * num_rank_v_heads_)
                           / block_size_
+                          / rank_num_layers_
                           / infinicore::dsize(dtype_);
     if (num_blocks_per_layer_ == 0) {
         throw std::runtime_error("Not enough memory for KV cache");
@@ -190,8 +191,11 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
     auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
     auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
 
-    /// @todo: implement paged cache update here
-
+    infinicore::op::paged_caching_(k,
+                                   v,
+                                   k_cache_layer,
+                                   v_cache_layer,
+                                   slot_mapping);
     return {k_cache_layer, v_cache_layer};
 }
 } // namespace infinilm::cache

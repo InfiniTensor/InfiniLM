@@ -90,6 +90,8 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(input_ids),
                     std::move(position_ids),
                     std::move(cache_lengths),
+                    std::move(input_lengths),
+                    std::move(input_offsets),
                     std::move(block_tables),
                     std::move(slot_mapping)}};
 
