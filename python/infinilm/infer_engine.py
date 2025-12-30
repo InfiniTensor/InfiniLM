@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import infinicore
 
 from infinilm.auto_config import AutoConfig
-from infinilm.cache import StaticKVCacheConfig
+from infinilm.cache import StaticKVCacheConfig,PagedKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
@@ -18,6 +18,7 @@ class GenerationConfig:
     top_p: float = 1.0
 
     eos_token_id: list[int] | None = None
+    stop_on_eos: bool = True
 
 
 class InferEngine(_infinilm.InferEngine):
@@ -27,6 +28,7 @@ class InferEngine(_infinilm.InferEngine):
         device=None,
         distributed_config=DistConfig(1),
         cache_config=None,
+        enable_paged_attn=False
     ):
         self.config = AutoConfig.from_pretrained(model_path)
 
@@ -41,6 +43,9 @@ class InferEngine(_infinilm.InferEngine):
         )
 
         self.use_cache = False
+
+        self.enable_paged_attn = enable_paged_attn
+        self.is_prefill = True
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -115,10 +120,27 @@ class InferEngine(_infinilm.InferEngine):
             if _measure_and_log_time:
                 start_time = time.perf_counter()
 
+   
+            if self.enable_paged_attn:
+                input_ids_, position_ids_, cache_lengths_, input_lengths_, block_tables_, slot_mapping_ = self.update_paged_data(input_ids, position_ids,cache_lengths)
+                input_offsets_=None
+            else:
+                input_ids_=input_ids
+                position_ids_=position_ids
+                cache_lengths_=cache_lengths
+                input_lengths_=None
+                input_offsets_=None
+                block_tables_=None
+                slot_mapping_=None
+
             output_id = self(
-                input_ids,
-                position_ids=position_ids,
-                cache_lengths=cache_lengths,
+                input_ids = input_ids_,
+                position_ids=position_ids_,
+                cache_lengths=cache_lengths_,
+                input_lengths=input_lengths_,
+                input_offsets=input_offsets_,
+                block_tables=block_tables_,
+                slot_mapping=slot_mapping_,
                 temperature=generation_config.temperature,
                 top_k=generation_config.top_k,
                 top_p=generation_config.top_p,
@@ -126,7 +148,7 @@ class InferEngine(_infinilm.InferEngine):
 
             output_ids.append(output_id)
 
-            if (
+            if (generation_config.stop_on_eos and
                 generation_config.max_new_tokens is not None
                 and output_id.to_numpy()[0] in eos_token_id
             ):
@@ -167,12 +189,68 @@ class InferEngine(_infinilm.InferEngine):
                 )
 
         return output_ids
+    
+    def update_paged_data(self, input_ids, position_ids, cache_lengths):
+        position_ids_np = position_ids.to_numpy()
+        seq_num = len(position_ids_np)  # 表示seq的数量
 
-    def reset_cache(self, batch_size: int, initial_capacity: int = 1024):
+        # ------------------------------------------------------ #
+        #             模拟 slot_mapping
+        # ------------------------------------------------------ #
+        slot_mapping_list = position_ids_np[0].tolist() * seq_num
+        slot_mapping = infinicore.from_list(
+            slot_mapping_list,
+            dtype=infinicore.int32,
+            device=infinicore.device("cpu", 0),
+        )
+
+        # ------------------------------------------------------ #
+        #             模拟 block_tables
+        # ------------------------------------------------------ #
+        block_tables_list = [list(range(0, seq_num))] * seq_num
+        block_tables = infinicore.from_list(
+            block_tables_list,
+            dtype=infinicore.int32,
+            device=infinicore.device("cpu", 0),
+        )
+
+        # ------------------------------------------------------ #
+        #             模拟 seq_lens
+        # ------------------------------------------------------ #
+        seq_lens_list = [position_ids_np[0][-1] + 1] * seq_num
+        seq_lens = infinicore.from_list(
+            seq_lens_list,
+            dtype=infinicore.int32,
+            device=infinicore.device("cpu", 0),
+        )
+        input_lengths = seq_lens
+
+        # ------------------------------------------------------ #
+        #             在decode阶段时，进行拼接
+        # ------------------------------------------------------ #
+        if self.is_prefill:
+            self.is_prefill = False
+        else:
+            input_ids_np = input_ids.to_numpy()
+            input_ids_list = [input_ids_np[0].tolist() * seq_num]
+            input_ids = infinicore.from_list(
+                input_ids_list,
+                dtype=infinicore.int64,
+                device=infinicore.device("cpu", 0),
+            )
+
+            position_ids_list = [position_ids_np[0].tolist() * seq_num]
+            position_ids = infinicore.from_list(
+                position_ids_list,
+                dtype=infinicore.int64,
+                device=infinicore.device("cpu", 0),
+            )
+        
+        return input_ids, position_ids, cache_lengths, input_lengths, block_tables, slot_mapping
+
+
+    def reset_cache(self, cache_config):
         infinicore.sync_device()
-
-        cache_config = StaticKVCacheConfig(batch_size, initial_capacity)
-
         super().reset_cache(cache_config)
 
     def state_dict_keyname(self):
