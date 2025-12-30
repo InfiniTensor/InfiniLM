@@ -159,7 +159,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     // Only support batchsize==1, all requests should be flattened along seqlen dimension
     ASSERT_EQ(batch_size, 1);
     // Decode only if total_len == num_requests
-    bool is_prefill = (batch_size * seq_len != input_lengths.value()->shape()[0]);
+    bool is_prefill = (seq_len != input_lengths.value()->shape()[0]);
 
     // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
@@ -169,9 +169,9 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     // Reshape Q, K, V to include batch dimension
     // Python: query_states = self.q_proj(hidden_states).view(querys_shape)
     // The view operation requires the tensor to be contiguous in the required dimensions
-    auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
-    auto k_reshaped = k->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
-    auto v_reshaped = v->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
+    auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
+    auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
+    auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
 
     // 3. Prepare position_ids for RoPE - align with Python pattern
     auto pos_shape = position_ids->shape();
@@ -198,8 +198,21 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
 
     // 6. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
-    ;
+
     if (is_prefill) {
+        infinicore::context::syncDevice();
+        spdlog::info("1");
+        spdlog::info(
+            "\n att_ouput {}\n q_reshaped {}\n k_total {}\n v_total {}\n block_tables {}\n cache_lengths {}\n input_lengths {}\n input_offsets {}\n",
+            attn_output->info(),
+            q_reshaped->info(),
+            k_total->info(),
+            v_total->info(),
+            block_tables.value()->info(),
+            cache_lengths.value()->info(),
+            input_lengths.value()->info(),
+            input_offsets.value()->info()
+        );
         infinicore::op::paged_attention_prefill_(
             attn_output,
             q_reshaped,
@@ -211,6 +224,8 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             input_offsets.value(),
             std::nullopt,
             scaling_);
+        infinicore::context::syncDevice();
+        spdlog::info("2");
 
     } else {
         infinicore::op::paged_attention_(

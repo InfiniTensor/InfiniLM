@@ -191,14 +191,8 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
     auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
     auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
 
-    auto k_shape = k->shape();
-    auto b = k_shape[0];
-    auto s = k_shape[1];
-    auto n = k_shape[2];
-    auto d = k_shape[3];
-
-    infinicore::op::paged_caching_(k->view({b * s, n, d}),
-                                   v->view({b * s, n, d}),
+    infinicore::op::paged_caching_(k,
+                                   v,
                                    k_cache_layer,
                                    v_cache_layer,
                                    slot_mapping);
