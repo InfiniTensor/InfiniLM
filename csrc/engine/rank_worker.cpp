@@ -206,7 +206,7 @@ void RankWorker::thread_loop() {
                     local_param_name = pending_param_name_;
                     local_param = pending_param_;
                 } else if (local_cmd == Command::RUN) {
-                    local_args = pending_args_.to_model_input();
+                    local_args = pending_args_.to_model_input(rank_info_.device);
                 } else if (local_cmd == Command::RESET_CACHE) {
                     if (pending_cache_config_ != nullptr) {
                         local_cache_config = pending_cache_config_->unique_copy();
@@ -254,13 +254,18 @@ void RankWorker::thread_loop() {
                             auto random_val{pending_args_.random_val};
 
                             const auto &logits_shape{logits->shape()};
-                            const auto &batch_size{logits_shape[0]};
                             const auto &vocab_size{logits_shape[2]};
+                            const auto &total_len{logits_shape[1]};
+                            const auto &batch_size{logits_shape[0]};
 
-                            auto output_ids{infinicore::Tensor::empty({batch_size}, infinicore::DataType::I32, rank_info_.device)};
+                            auto n_req = pending_args_.input_offsets.value()->size(0);
+                            int64_t *input_lengths = (int64_t *)pending_args_.input_lengths.value()->data();
+                            int64_t *input_offsets = (int64_t *)pending_args_.input_offsets.value()->data();
 
-                            for (auto i{decltype(batch_size)(0)}; i < batch_size; ++i) {
-                                auto score{logits->narrow({{0, i, 1}})->view({vocab_size})};
+                            auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
+
+                            for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
+                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i] + input_lengths[i] - 1), 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
                                 infinicore::op::random_sample_(
                                     out, score, random_val, top_p, top_k, temperature);
