@@ -113,7 +113,7 @@ public:
     /**
      * @brief Update Paged KV cache at a given layer given slot info for each token.
      *
-     * @param layer_idx Which transformer layer
+     * @param layer_idx Which paged attention layer
      * @param k         [num_rank_k_heads, seq_len, k_dim]
      * @param v         [num_rank_v_heads, seq_len, v_dim]
      * @param slot_mapping [seq_len]
@@ -128,7 +128,41 @@ public:
            const infinicore::Tensor &v,
            const infinicore::Tensor &slot_mapping);
 
-    ~PagedKVCache() override = default;
+    /**
+     * @brief Get Paged KV cache at a given layer.
+     *
+     * @param layer_idx Which paged attention layer
+     *
+     * @return (full_k, full_v)
+     *         full_k: [num_blocks, num_rank_k_heads, block_size, k_dim]
+     *         full_v: [num_blocks, num_rank_v_heads, block_size, v_dim]
+     */
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    get_paged_kv(size_t layer_idx);
+
+    /**
+     * @brief Get contiguous KV cache at a given layer, given the request info
+     * among a continuous request batch.
+     *
+     * @param layer_idx Which paged attention layer
+     * @param block_tables [num_requests, max_blocks_per_request]
+     * @param cache_lens [num_requests]
+     * @param input_offsets [num_requests + 1]
+     * @param request_id Which request among a continuous batch of requests
+     *
+     * @return (full_k, full_v)
+     *         full_k: [num_rank_k_heads, total_len, k_dim]
+     *         full_v: [num_rank_v_heads, total_len, v_dim]
+     */
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    get_contiguous_kv(size_t layer_idx,
+                      const infinicore::Tensor block_tables,
+                      const infinicore::Tensor cache_lens,
+                      const infinicore::Tensor input_offsets,
+                      size_t request_id = 0);
+
+    ~PagedKVCache() override
+        = default;
 
 private:
     infinicore::Size k_dim_;
