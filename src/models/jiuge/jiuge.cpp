@@ -279,10 +279,15 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     }
     // Sample and Output
     if (idev == 0) {
+        // Calculate output scale: if dim_model_base != d, scale by dim_model_base/d, else no scaling
+        float output_scale = 1.0f;
+        if (meta.dim_model_base > 0 && meta.dim_model_base != meta.d && meta.d > 0) {
+            output_scale = meta.dim_model_base / float(meta.d);
+        }
         if (last_logits != nullptr) {
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
-            linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            linear(last_logits_buf, logits_out, rsrc.w_out_embd, output_scale, 0.0, nullptr, nullptr);
 
             auto log_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             logSoftmax(log_logits_buf, last_logits_buf);
@@ -300,7 +305,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                         rsrc.w_out_norm,
                         meta.epsilon);
             }
-            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, output_scale, 0.0, nullptr, nullptr);
             std::random_device _rd;
             std::mt19937 gen(_rd());
             token_offset = 0;
@@ -562,10 +567,15 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
 
     // Sample and Output
     if (idev == 0) {
+        // Calculate output scale: if dim_model_base != d, scale by dim_model_base/d, else no scaling
+        float output_scale = 1.0f;
+        if (meta.dim_model_base > 0 && meta.dim_model_base != meta.d && meta.d > 0) {
+            output_scale = meta.dim_model_base / float(meta.d);
+        }
         if (last_logits != nullptr) {
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
-            linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            linear(last_logits_buf, logits_out, rsrc.w_out_embd, output_scale, 0.0, nullptr, nullptr);
 
             auto log_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             logSoftmax(log_logits_buf, last_logits_buf);
@@ -583,7 +593,7 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                         rsrc.w_out_norm,
                         meta.epsilon);
             }
-            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, output_scale, 0.0, nullptr, nullptr);
             std::random_device _rd;
             std::mt19937 gen(_rd());
             token_offset = 0;

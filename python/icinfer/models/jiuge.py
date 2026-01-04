@@ -122,6 +122,9 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 config["num_hidden_layers"]
             )
 
+        dim_model_base = (
+            config["dim_model_base"] if "dim_model_base" in config else config["hidden_size"]
+        )
         super().__init__(
             dt_logits=dt_,
             nlayer=config["num_hidden_layers"],
@@ -138,7 +141,8 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 config["max_position_embeddings"] if max_tokens is None else max_tokens
             ),
             dvoc=config["vocab_size"],
-            block_size=config["block_size"],
+            kvcache_block_size=config["block_size"],
+            dim_model_base=dim_model_base,
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             end_token=2,
@@ -206,7 +210,7 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
         )
         self.input_embd = self.input_embd_tensor.data_ptr()
         self.output_norm_tensor = (
-            state_dict[naming.output_norm()].to(torch_dt_norm) * scale_output
+            state_dict[naming.output_norm()].to(torch_dt_norm)
         )
         self.output_norm = self.output_norm_tensor.data_ptr()
         self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_mat)

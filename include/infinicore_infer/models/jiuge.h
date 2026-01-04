@@ -12,7 +12,7 @@ struct JiugeModel;
 typedef struct
 {
     infiniDtype_t dt_logits;
-    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc, kvcache_block_size;
+    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc, kvcache_block_size, dim_model_base;
     float epsilon, theta;
     uint32_t end_token;
 } JiugeMeta;

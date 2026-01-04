@@ -14,6 +14,7 @@ class JiugeMetaCStruct(Structure):
         ("dctx", c_size_t),
         ("dvoc", c_size_t),
         ("kvcache_block_size", c_size_t),
+        ("dim_model_base", c_size_t),
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
