@@ -295,6 +295,29 @@ void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
         stream));
 }
 
+void InferenceContext::applyRepetitionPenalty(std::shared_ptr<Tensor> logits,
+                                               std::shared_ptr<Tensor> mask,
+                                               const float *repetition_penalties) {
+    size_t key = CacheManager::createDescriptorKey(logits, mask);
+
+    infiniopRepetitionPenaltyDescriptor_t desc;
+    if (!cache_manager->getRepetitionPenaltyDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateRepetitionPenaltyDescriptor(
+            op_handle, &desc, logits->desc(), mask->desc()));
+        cache_manager->putRepetitionPenaltyDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetRepetitionPenaltyWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopApplyRepetitionPenalty(
+        desc, workspace, workspace_size,
+        logits->data(), mask->data(), repetition_penalties,
+        stream));
+}
+
 void InferenceContext::linear(std::shared_ptr<Tensor> c,
                               std::shared_ptr<Tensor> a,
                               std::shared_ptr<Tensor> b,
@@ -374,7 +397,7 @@ void InferenceContext::pagedCaching(std::shared_ptr<Tensor> k,
     infiniopPagedCachingDescriptor_t desc;
     if (!cache_manager->getPagedCachingDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreatePagedCachingDescriptor(
-            op_handle, &desc, k->desc(), v->desc(), 
+            op_handle, &desc, k->desc(), v->desc(),
             k_cache->desc(), v_cache->desc(), slot_mapping->desc()));
         cache_manager->putPagedCachingDescriptor(key, desc);
     }
@@ -416,7 +439,7 @@ void InferenceContext::pagedAttention(std::shared_ptr<Tensor> out,
     RUN_INFINI(infiniopGetPagedAttentionWorkspaceSize(desc, &workspace_size));
     ensure_workspace(workspace_size);
     void *workspace = workspace_storage->memory();
-    
+
     const void* alibi_data = alibi_slopes ? alibi_slopes->data() : nullptr;
     RUN_INFINI(infiniopPagedAttention(
         desc, workspace, workspace_size,
@@ -424,10 +447,3 @@ void InferenceContext::pagedAttention(std::shared_ptr<Tensor> out,
         block_tables->data(), seq_lens->data(), alibi_data,
         stream));
 }
-
-
-
-
-
-
-

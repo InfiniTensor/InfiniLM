@@ -14,6 +14,7 @@ class JiugeMetaCStruct(Structure):
         ("dctx", c_size_t),
         ("dvoc", c_size_t),
         ("kvcache_block_size", c_size_t),
+        ("dim_model_base", c_size_t),
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
@@ -86,6 +87,9 @@ class JiugeModel(BaseModel):
             POINTER(c_float),
             POINTER(c_uint),
             POINTER(c_float),
+            POINTER(c_float),  # repetition_penalty
+            POINTER(c_uint),  # full_tokens
+            c_uint,  # full_ntok
             POINTER(c_uint),
         ]
 
@@ -128,6 +132,9 @@ class JiugeModel(BaseModel):
         temperature,
         topk,
         topp,
+        repetition_penalty,
+        full_tokens,
+        full_ntok,
         output,
     ):
         self.lib.inferBatchJiuge(
@@ -141,6 +148,9 @@ class JiugeModel(BaseModel):
             temperature,
             topk,
             topp,
+            repetition_penalty,
+            full_tokens,
+            full_ntok,
             output,
         )
 

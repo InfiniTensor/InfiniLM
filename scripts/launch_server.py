@@ -110,8 +110,8 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
 
 # A wrapper for InferTask that supports async output queue
 class AsyncInferTask(InferTask):
-    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens):
-        super().__init__(id, tokens, max_tokens, temperature, topk, topp, end_tokens)
+    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens, repetition_penalty=1.0):
+        super().__init__(id, tokens, max_tokens, temperature, topk, topp, end_tokens, repetition_penalty)
         self.output_queue = janus.Queue()
         print(f"[INFO] Create InferTask {self.id}")
 
@@ -197,15 +197,16 @@ def build_task(id_, request_data, request: Request):
         prompt = request_data.get("prompt", "")
         tokens = request.app.state.model.tokenizer.encode(prompt)
         max_tokens = request_data.get("max_tokens", 0)
-    
+
     return AsyncInferTask(
         id_,
         tokens,
         max_tokens,
         request_data.get("temperature", 1.0),
-        request_data.get("top_k", 1),
+        request_data.get("top_k", 0),
         request_data.get("top_p", 1.0),
         request.app.state.model.eos_token_id,
+        request_data.get("repetition_penalty", 1.0),
     )
 
 
@@ -318,16 +319,16 @@ async def completion(id_, request_data, request: Request):
         max_tokens = request_data.get("max_tokens", 0)
         if max_tokens > 0:
             return JSONResponse(
-                content={"error": "max_tokens > 0 is not supported yet. Please use max_tokens=0 for logprobs calculation."}, 
+                content={"error": "max_tokens > 0 is not supported yet. Please use max_tokens=0 for logprobs calculation."},
                 status_code=400
             )
-        
+
         infer_task = build_task(id_, request_data, request)
         await request.app.state.kv_cache_pool.acquire(infer_task)
-        
+
         output = []
         logprobs = []
-        
+
         # Handle echo and logprobs calculation
         echo = request_data.get("echo", False)
         if echo:
@@ -340,12 +341,12 @@ async def completion(id_, request_data, request: Request):
                     .replace("<0x0A>", "\n")
                 )
                 output.append(content)
-            
+
             # Calculate logprobs for input tokens
             from jiuge import JiugeBatchedTask
             batch_inputs = JiugeBatchedTask([infer_task])
             log_probs = torch.zeros(
-                (batch_inputs.ntok, request.app.state.model.meta.dvoc), 
+                (batch_inputs.ntok, request.app.state.model.meta.dvoc),
                 dtype=request.app.state.model.meta.torch_dtype_logits
             )
             request.app.state.model.jiuge_model.forward_batch(
@@ -358,39 +359,39 @@ async def completion(id_, request_data, request: Request):
                 batch_inputs.kv_caches,
                 log_probs.data_ptr(),
             )
-            
+
             log_probs = log_probs.float()
-            
+
             # Calculate correct logprobs for input tokens
             token_logprobs = []
             for i in range(len(infer_task.tokens) - 1):  # Only up to second-to-last token
                 next_token = infer_task.tokens[i+1]      # Next token to predict
                 logprob = log_probs[i, next_token].item() # Use position i logits to predict position i+1 token
                 token_logprobs.append(logprob)
-            
+
             # First token has no context, so logprob is None
             logprobs = [None] + token_logprobs
         else:
             # echo=false: don't calculate logprobs since user can't see input text
             logprobs = []
-        
+
         # For max_tokens=0, we need to manually release the KV cache since we don't go through worker
         await request.app.state.kv_cache_pool.release(infer_task)
         print(f"[DEBUG] {id_} Released KV cache for max_tokens=0")
 
         output_text = "".join(output).strip()
-        
+
         # Prepare tokens list for logprobs
         tokens_list = []
         text_offset_list = []
         current_offset = 0
-        
+
         # Build tokens list and text offsets
         for i, content in enumerate(output):
             tokens_list.append(content)
             text_offset_list.append(current_offset)
             current_offset += len(content)
-        
+
         # Build response according to DeepSeek API completion format
         response = {
             "id": id_,
@@ -440,7 +441,7 @@ async def completions(request: Request):
 
     id_ = f"cmpl-{uuid.uuid4().hex}"
     response = await completion(id_, data, request)
-    
+
     # Check if response is already a JSONResponse (error case)
     if isinstance(response, JSONResponse):
         return response
@@ -451,17 +452,16 @@ if __name__ == "__main__":
     uvicorn.run(App, host="0.0.0.0", port=8000)
 
 """
-curl -N -H "Content-Type: application/json" \
-     -X POST http://127.0.0.1:8000/chat/completions \
-     -d '{
+curl -N -H "Content-Type: application/json"      -X POST http://127.0.0.1:8000/chat/completions      -d '{
        "model": "jiuge",
        "messages": [
-         {"role": "user", "content": "山东最高的山是？"}
+         {"role": "system", "content": "你是一个由启元实验室开发的九格助手，你擅长 中英文对话，能够理解并处理各种问题，提供安全、有帮助、准确的回答。当前时间：2025-12-24#注意：回复之前注意结合上下文和工具返回内容进行回复"},
+         {"role": "user", "content": "你是谁"}
        ],
-       "temperature": 1.0,
-       "top_k": 50,
-       "top_p": 0.8,
-       "max_tokens": 512,
-       "stream": true
+       "temperature": 0.7,
+       "top_p": 0.7,
+       "max_tokens": 1024,
+       "repetition_penalty": 1.2,
+       "stream": false
      }'
 """

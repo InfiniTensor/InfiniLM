@@ -122,6 +122,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 config["num_hidden_layers"]
             )
 
+        dim_model_base = config.get("dim_model_base", config["hidden_size"])
         super().__init__(
             dt_logits=dt_,
             nlayer=config["num_hidden_layers"],
@@ -139,6 +140,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             ),
             dvoc=config["vocab_size"],
             block_size=config["block_size"],
+            dim_model_base=dim_model_base,
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             end_token=2,

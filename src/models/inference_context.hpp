@@ -63,6 +63,10 @@ struct InferenceContext {
                       std::shared_ptr<Tensor> prob,
                       float random_val, float top_p, uint32_t top_k, float temperature);
 
+    void applyRepetitionPenalty(std::shared_ptr<Tensor> logits,
+                                std::shared_ptr<Tensor> mask,
+                                const float *repetition_penalties);
+
     void linear(std::shared_ptr<Tensor> c,
                 std::shared_ptr<Tensor> a,
                 std::shared_ptr<Tensor> b,
@@ -79,7 +83,7 @@ struct InferenceContext {
                       std::shared_ptr<Tensor> k_cache,
                       std::shared_ptr<Tensor> v_cache,
                       std::shared_ptr<Tensor> slot_mapping);
-    
+
     void pagedAttention(std::shared_ptr<Tensor> out,
                         std::shared_ptr<Tensor> q,
                         std::shared_ptr<Tensor> k_cache,
@@ -184,6 +188,12 @@ inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> pr
     getInferenceContext().randomSample(out, prob, random_val, top_p, top_k, temperature);
 }
 
+inline void applyRepetitionPenalty(std::shared_ptr<Tensor> logits,
+                                   std::shared_ptr<Tensor> mask,
+                                   const float *repetition_penalties) {
+    getInferenceContext().applyRepetitionPenalty(logits, mask, repetition_penalties);
+}
+
 inline void linear(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
                    std::shared_ptr<Tensor> b, float alpha, float beta,
                    std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> bias) {
@@ -211,5 +221,3 @@ inline void pagedAttention(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> 
                            std::shared_ptr<Tensor> alibi_slopes, float scale) {
     getInferenceContext().pagedAttention(out, q, k_cache, v_cache, block_tables, seq_lens, alibi_slopes, scale);
 }
-
-

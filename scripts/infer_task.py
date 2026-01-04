@@ -1,5 +1,5 @@
 class InferTask:
-    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens):
+    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens, repetition_penalty=1.0):
         self.id = id
         self.finish_reason = None
         self.tokens = tokens
@@ -7,6 +7,7 @@ class InferTask:
         self.temperature = temperature
         self.topk = topk
         self.topp = topp
+        self.repetition_penalty = repetition_penalty
         self.end_tokens = end_tokens
         self._kv_cache = None
         self.pos = 0
@@ -25,9 +26,18 @@ class InferTask:
         return self._kv_cache
 
     def next(self, out_token):
+        # Update cache with current tokens (input tokens for this round)
         self._kv_cache.update_tokens(self.tokens, self.pos)
 
+        # Increment position by the number of tokens we just processed
         self.pos += len(self.tokens)
+
+        # Write the newly generated output token to the cache at the current position
+        # This ensures the output token is in the cache for the next iteration
+        if out_token is not None:
+            self._kv_cache.update_tokens([out_token], self.pos)
+            self.pos += 1
+
         if out_token == None or out_token in self.end_tokens:
             self.finish_reason = "stop"
         elif self.pos >= self.max_tokens:

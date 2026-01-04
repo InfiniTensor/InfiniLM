@@ -119,6 +119,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             self.scale_o = config.scale_depth / math.sqrt(config.num_hidden_layers)
             self.scale_down = config.scale_depth / math.sqrt(config.num_hidden_layers)
 
+        dim_model_base = getattr(config, "dim_model_base", config.hidden_size)
         super().__init__(
             dt_logits=dt_,
             nlayer=config.num_hidden_layers,
@@ -134,6 +135,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             dctx=(config.max_position_embeddings if max_tokens is None else max_tokens),
             dvoc=config.vocab_size,
             kvcache_block_size=config.kvcache_block_size,
+            dim_model_base=dim_model_base,
             epsilon=config.rms_norm_eps,
             theta=(config.rope_theta if hasattr(config, "rope_theta") else 100000.0),
             end_token=2,

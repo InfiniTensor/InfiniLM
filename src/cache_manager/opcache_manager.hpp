@@ -164,6 +164,7 @@ public:
     DECLARE_OP_CACHE(Topksoftmax)
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(RandomSample)
+    DECLARE_OP_CACHE(RepetitionPenalty)
     DECLARE_OP_CACHE(DequantizeAWQ)
     DECLARE_OP_CACHE(PagedCaching)
     DECLARE_OP_CACHE(PagedAttention)
@@ -181,6 +182,7 @@ public:
           Topksoftmax_cache(capacity, DESTROY_FUNC(Topksoftmax)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
+          RepetitionPenalty_cache(capacity, DESTROY_FUNC(RepetitionPenalty)),
           DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)),
           PagedCaching_cache(capacity, DESTROY_FUNC(PagedCaching)),
           PagedAttention_cache(capacity, DESTROY_FUNC(PagedAttention)) {}

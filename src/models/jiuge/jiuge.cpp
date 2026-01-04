@@ -11,6 +11,7 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include <cstdlib>
 
 void createDeviceResource(JiugeDeviceResource *rsrc, const JiugeMeta *meta,
                           const JiugeWeights *weights,
@@ -126,7 +127,15 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
+                      const float *repetition_penalty,
+                      const uint32_t *full_tokens, uint32_t full_ntok,
                       uint32_t *output, void *last_logits) {
+    // #region agent log - Function entry
+    static bool debug_func_entry = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+    if (debug_func_entry && idev == 0 && nreq > 0 && req_pos[0] == 0) {
+        std::cerr << "[FUNC_ENTRY] inferDeviceBatch called" << std::endl;
+    }
+    // #endregion agent log
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
@@ -276,14 +285,27 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     }
     // Sample and Output
     if (idev == 0) {
+        // Calculate output scaling factor: dim_model_base / hidden_size
+        // This matches PyTorch: logits = lm_head(hidden_states / (hidden_size / dim_model_base))
+        float output_scale = meta.dim_model_base > 0 ? (float)meta.dim_model_base / (float)meta.d : 1.0f;
+
+        // #region agent log
+        static bool debug_scaling = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+        if (debug_scaling && nreq > 0 && req_pos[0] == 0) {
+            std::cerr << "[SCALING_DEBUG] dim_model_base=" << meta.dim_model_base
+                      << " hidden_size=" << meta.d
+                      << " output_scale=" << output_scale << std::endl;
+        }
+        // #endregion agent log
+
         if (last_logits != nullptr) {
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
-            linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
-            
+            linear(last_logits_buf, logits_out, rsrc.w_out_embd, output_scale, 0.0, nullptr, nullptr);
+
             auto log_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             logSoftmax(log_logits_buf, last_logits_buf);
-            
+
             RUN_INFINI(infinirtStreamSynchronize(stream));
             RUN_INFINI(infinirtMemcpy(last_logits, log_logits_buf->data(), dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
         }
@@ -297,9 +319,415 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                         rsrc.w_out_norm,
                         meta.epsilon);
             }
-            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
-            std::random_device _rd;
-            std::mt19937 gen(_rd());
+
+            // #region agent log - Investigate hidden state and weight magnitudes
+            static bool debug_investigate = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+            if (debug_investigate && nreq > 0 && (req_pos[0] == 0 || (req_pos[0] >= 1345 && req_pos[0] < 1380))) {
+                RUN_INFINI(infinirtStreamSynchronize(stream));
+                size_t last_token_idx = token_offset - 1;
+                auto sample_size = std::min(100UL, d);
+                auto hidden_before = std::vector<float>(sample_size);
+                auto hidden_after = std::vector<float>(sample_size);
+                auto weight_sample = std::vector<float>(sample_size);
+
+                // Sample hidden states before RMSNorm
+                if (dt_logits == INFINI_DTYPE_F32) {
+                    RUN_INFINI(infinirtMemcpy(hidden_before.data(), logits_in->data(last_token_idx * d), sample_size * sizeof(float), INFINIRT_MEMCPY_D2H));
+                    RUN_INFINI(infinirtMemcpy(hidden_after.data(), logits_out->slice(0, 0, 1)->data(), sample_size * sizeof(float), INFINIRT_MEMCPY_D2H));
+                } else if (dt_logits == INFINI_DTYPE_F16) {
+                    auto raw_before = std::vector<uint16_t>(sample_size);
+                    auto raw_after = std::vector<uint16_t>(sample_size);
+                    RUN_INFINI(infinirtMemcpy(raw_before.data(), logits_in->data(last_token_idx * d), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    RUN_INFINI(infinirtMemcpy(raw_after.data(), logits_out->slice(0, 0, 1)->data(), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    for (size_t i = 0; i < sample_size; i++) {
+                        hidden_before[i] = f16_to_f32(raw_before[i]);
+                        hidden_after[i] = f16_to_f32(raw_after[i]);
+                    }
+                } else if (dt_logits == INFINI_DTYPE_BF16) {
+                    auto raw_before = std::vector<uint16_t>(sample_size);
+                    auto raw_after = std::vector<uint16_t>(sample_size);
+                    RUN_INFINI(infinirtMemcpy(raw_before.data(), logits_in->data(last_token_idx * d), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    RUN_INFINI(infinirtMemcpy(raw_after.data(), logits_out->slice(0, 0, 1)->data(), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    for (size_t i = 0; i < sample_size; i++) {
+                        hidden_before[i] = bf16_to_f32(raw_before[i]);
+                        hidden_after[i] = bf16_to_f32(raw_after[i]);
+                    }
+                }
+
+                // Sample output embedding weights
+                auto weight_dtype = rsrc.w_out_embd->dtype();
+                if (weight_dtype == INFINI_DTYPE_F32) {
+                    RUN_INFINI(infinirtMemcpy(weight_sample.data(), rsrc.w_out_embd->data(0), sample_size * sizeof(float), INFINIRT_MEMCPY_D2H));
+                } else if (weight_dtype == INFINI_DTYPE_F16) {
+                    auto raw = std::vector<uint16_t>(sample_size);
+                    RUN_INFINI(infinirtMemcpy(raw.data(), rsrc.w_out_embd->data(0), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    for (size_t i = 0; i < sample_size; i++) weight_sample[i] = f16_to_f32(raw[i]);
+                } else if (weight_dtype == INFINI_DTYPE_BF16) {
+                    auto raw = std::vector<uint16_t>(sample_size);
+                    RUN_INFINI(infinirtMemcpy(raw.data(), rsrc.w_out_embd->data(0), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    for (size_t i = 0; i < sample_size; i++) weight_sample[i] = bf16_to_f32(raw[i]);
+                }
+
+                float max_hb = *std::max_element(hidden_before.begin(), hidden_before.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
+                float max_ha = *std::max_element(hidden_after.begin(), hidden_after.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
+                float max_w = *std::max_element(weight_sample.begin(), weight_sample.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
+
+                std::cerr << "[INVESTIGATE] req_pos=" << req_pos[0]
+                          << " hidden_before_rmsnorm_max_abs=" << std::abs(max_hb)
+                          << " hidden_after_rmsnorm_max_abs=" << std::abs(max_ha)
+                          << " output_embd_weight_max_abs=" << std::abs(max_w)
+                          << " output_scale=" << output_scale << std::endl;
+            }
+            // #endregion agent log
+
+            // #region agent log - Keep output_scale to compensate for removing scale_output from norm weights
+            // We removed scale_output from norm weights, so we need to apply scaling in linear projection
+            // This matches PyTorch: logits = lm_head(hidden_states / (hidden_size / dim_model_base))
+            // #endregion agent log
+            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, output_scale, 0.0, nullptr, nullptr);
+
+            // Apply repetition penalty if needed
+            if (repetition_penalty != nullptr) {
+                // Check if any penalty != 1.0
+                bool need_penalty = false;
+                for (uint32_t req = 0; req < nreq; req++) {
+                    if (repetition_penalty[req] != 1.0f) {
+                        need_penalty = true;
+                        break;
+                    }
+                }
+
+                if (need_penalty) {
+                    // Create boolean mask [nreq, dvoc] on host
+                    // Use uint8_t instead of bool because std::vector<bool> doesn't have data() method
+                    std::vector<uint8_t> mask_host(nreq * dvoc, 0);
+
+                    // Extract previous tokens and set mask
+                    // tokens array contains only NEW tokens (for embedding lookup - keep separate!)
+                    // full_tokens array contains full token history (for repetition penalty mask only)
+                    if (full_tokens != nullptr && full_ntok > 0) {
+                        // Use full token history for repetition penalty mask
+                        size_t req_token_start = 0;
+                        for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+                            // Calculate where this request's tokens start in the full tokens array
+                            // For single request (nreq=1), req_token_start should always be 0
+                            // For multiple requests, accumulate the lengths of previous requests
+                            if (req_idx > 0) {
+                                req_token_start += req_pos[req_idx - 1] + req_lens[req_idx - 1];
+                            }
+
+                            // Mark all tokens from 0 to req_pos[req_idx] + req_lens[req_idx] - 1 (excluding last)
+                            // total_seq_len = current position + new tokens in this batch
+                            uint32_t total_seq_len = req_pos[req_idx] + req_lens[req_idx];
+                            // actual_len = number of tokens to mark (all previous tokens, excluding the one being predicted)
+                            uint32_t actual_len = total_seq_len - 1;
+
+                            // Ensure we don't exceed the full_tokens array bounds
+                            if (req_token_start + actual_len > full_ntok) {
+                                actual_len = (req_token_start < full_ntok) ? (full_ntok - req_token_start) : 0;
+                            }
+
+                            // #region agent log - Trace mask creation (dynamic token tracking)
+                            static bool debug_mask = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+                            bool should_trace = debug_mask && req_idx == 0 && (req_pos[req_idx] >= 1345 && req_pos[req_idx] < 1380);
+                            // #endregion agent log
+
+                            // Mark tokens in mask
+                            for (uint32_t i = 0; i < actual_len; i++) {
+                                if (req_token_start + i < full_ntok) {
+                                    uint32_t token_id = full_tokens[req_token_start + i];
+                                    if (token_id < dvoc) {
+                                        mask_host[req_idx * dvoc + token_id] = 1;
+                                    }
+                                }
+                            }
+
+                            // #region agent log - Trace mask creation details
+                            if (should_trace) {
+                                std::cerr << "[MASK_TRACE] req_pos=" << req_pos[req_idx]
+                                          << " req_lens=" << req_lens[req_idx]
+                                          << " req_token_start=" << req_token_start
+                                          << " total_seq_len=" << total_seq_len
+                                          << " actual_len=" << actual_len
+                                          << " full_ntok=" << full_ntok << std::endl;
+                                // Count tokens in full_tokens range
+                                std::map<uint32_t, uint32_t> token_counts;
+                                for (uint32_t i = 0; i < actual_len && req_token_start + i < full_ntok; i++) {
+                                    uint32_t token_id = full_tokens[req_token_start + i];
+                                    if (token_id < dvoc) {
+                                        token_counts[token_id]++;
+                                    }
+                                }
+                                // Find most frequent token
+                                uint32_t most_freq_token = 0;
+                                uint32_t most_freq_count = 0;
+                                for (const auto& pair : token_counts) {
+                                    if (pair.second > most_freq_count) {
+                                        most_freq_count = pair.second;
+                                        most_freq_token = pair.first;
+                                    }
+                                }
+                                std::cerr << "[MASK_TRACE] Most frequent token in range: " << most_freq_token
+                                          << " (appears " << most_freq_count << " times)" << std::endl;
+                                std::cerr << "[MASK_TRACE] mask_host[" << most_freq_token << "] = "
+                                          << (int)mask_host[req_idx * dvoc + most_freq_token] << std::endl;
+                                // Check last few tokens in full_tokens
+                                uint32_t check_start = (req_token_start + actual_len > 10) ? (req_token_start + actual_len - 10) : req_token_start;
+                                std::cerr << "[MASK_TRACE] Last 10 tokens in range: ";
+                                for (uint32_t i = check_start; i < req_token_start + actual_len && i < full_ntok; i++) {
+                                    std::cerr << full_tokens[i] << " ";
+                                }
+                                std::cerr << std::endl;
+                            }
+                            // #endregion agent log
+                        }
+                    } else {
+                        // Fallback: only penalize tokens in current batch if full_tokens not available
+                        size_t token_offset = 0;
+                        for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+                            if (req_lens[req_idx] > 1) {
+                                for (uint32_t i = 0; i < req_lens[req_idx] - 1; i++) {
+                                    uint32_t token_id = tokens[token_offset + i];
+                                    if (token_id < dvoc) {
+                                        mask_host[req_idx * dvoc + token_id] = 1;
+                                    }
+                                }
+                            }
+                            token_offset += req_lens[req_idx];
+                        }
+                    }
+
+                    // Create mask tensor and copy from host
+                    auto mask_buf = Tensor::buffer(INFINI_DTYPE_BOOL, {nreq, dvoc}, rsrc.memory_pool);
+                    RUN_INFINI(infinirtMemcpyAsync(mask_buf->data(), mask_host.data(),
+                                                  nreq * dvoc * sizeof(uint8_t),
+                                                  INFINIRT_MEMCPY_H2D, stream));
+
+                    // Allocate device buffer for penalties
+                    auto d_penalties = Tensor::buffer(INFINI_DTYPE_F32, {nreq}, rsrc.memory_pool);
+                    RUN_INFINI(infinirtMemcpyAsync(d_penalties->data(), repetition_penalty,
+                                                  nreq * sizeof(float),
+                                                  INFINIRT_MEMCPY_H2D, stream));
+
+                    // Debug logging (enable with REPETITION_PENALTY_DEBUG=1)
+                    static bool debug_enabled = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+                    bool should_log = false;
+                    if (debug_enabled && nreq > 0) {
+                        // Log at regular intervals to track logit magnitude over time
+                        should_log = (req_pos[0] % 50 == 0) || (req_pos[0] >= 1345 && req_pos[0] < 1380);
+                    }
+
+                    // Sample logits before penalty to track magnitude
+                    std::vector<float> logits_before;
+                    std::vector<std::pair<float, uint32_t>> logit_pairs_before;  // Save for after-penalty comparison
+                    uint32_t repeating_tokens[] = {18867, 6686, 6783, 59466, 59566};
+                    if (should_log) {
+                        RUN_INFINI(infinirtStreamSynchronize(stream));
+
+                        // Read logits and convert to float based on dtype
+                        auto prob_host = std::vector<float>(nreq * dvoc);
+                        if (dt_logits == INFINI_DTYPE_F32) {
+                            RUN_INFINI(infinirtMemcpy(prob_host.data(), prob_buf->data(),
+                                                      nreq * dvoc * sizeof(float),
+                                                      INFINIRT_MEMCPY_D2H));
+                        } else {
+                            auto raw_buf = std::vector<uint8_t>(nreq * dvoc * dsize(dt_logits));
+                            RUN_INFINI(infinirtMemcpy(raw_buf.data(), prob_buf->data(),
+                                                      nreq * dvoc * dsize(dt_logits),
+                                                      INFINIRT_MEMCPY_D2H));
+                            if (dt_logits == INFINI_DTYPE_F16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t h = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = f16_to_f32(h);
+                                }
+                            } else if (dt_logits == INFINI_DTYPE_BF16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t b = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = bf16_to_f32(b);
+                                }
+                            }
+                        }
+
+                        // Calculate logit statistics
+                        float max_logit = prob_host[0];
+                        float min_logit = prob_host[0];
+                        float sum_logit = 0.0f;
+                        for (size_t i = 0; i < nreq * dvoc; i++) {
+                            if (prob_host[i] > max_logit) max_logit = prob_host[i];
+                            if (prob_host[i] < min_logit) min_logit = prob_host[i];
+                            sum_logit += prob_host[i];
+                        }
+                        float avg_logit = sum_logit / (nreq * dvoc);
+
+                        // Find top 5 logits
+                        logit_pairs_before.clear();
+                        for (uint32_t i = 0; i < dvoc; i++) {
+                            logit_pairs_before.push_back({prob_host[0 * dvoc + i], i});
+                        }
+                        std::sort(logit_pairs_before.begin(), logit_pairs_before.end(),
+                                  [](const auto& a, const auto& b) { return a.first > b.first; });
+
+                        for (uint32_t tidx = 0; tidx < 5; tidx++) {
+                            uint32_t token_id = repeating_tokens[tidx];
+                            if (token_id < dvoc) {
+                                logits_before.push_back(prob_host[0 * dvoc + token_id]);
+                            }
+                        }
+
+                        uint32_t mask_ones = 0;
+                        for (uint32_t i = 0; i < nreq * dvoc; i++) {
+                            if (mask_host[i] != 0) mask_ones++;
+                        }
+
+                        std::cerr << "[REP_PENALTY] req_pos=" << req_pos[0]
+                                  << " logits: max=" << max_logit << " min=" << min_logit
+                                  << " avg=" << avg_logit
+                                  << " mask=" << mask_ones << " marked"
+                                  << " penalty=" << repetition_penalty[0] << std::endl;
+
+                        // Log top 5 logits to see which tokens are dominant
+                        if (req_pos[0] >= 1345 && req_pos[0] < 1380) {
+                            std::cerr << "  Top 5 logits BEFORE penalty: ";
+                            for (uint32_t i = 0; i < 5 && i < logit_pairs_before.size(); i++) {
+                                std::cerr << "token[" << logit_pairs_before[i].second << "]=" << logit_pairs_before[i].first << " ";
+                            }
+                            std::cerr << std::endl;
+                        }
+                    }
+
+                    // #region agent log - Verify mask before applying penalty (dynamic top token tracking)
+                    static bool debug_mask_before = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+                    if (debug_mask_before && nreq > 0 && (req_pos[0] >= 1345 && req_pos[0] < 1380)) {
+                        RUN_INFINI(infinirtStreamSynchronize(stream));
+                        // Read logits to find top token
+                        auto prob_host = std::vector<float>(nreq * dvoc);
+                        if (dt_logits == INFINI_DTYPE_F32) {
+                            RUN_INFINI(infinirtMemcpy(prob_host.data(), prob_buf->data(),
+                                                      nreq * dvoc * sizeof(float),
+                                                      INFINIRT_MEMCPY_D2H));
+                        } else {
+                            auto raw_buf = std::vector<uint8_t>(nreq * dvoc * dsize(dt_logits));
+                            RUN_INFINI(infinirtMemcpy(raw_buf.data(), prob_buf->data(),
+                                                      nreq * dvoc * dsize(dt_logits),
+                                                      INFINIRT_MEMCPY_D2H));
+                            if (dt_logits == INFINI_DTYPE_F16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t h = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = f16_to_f32(h);
+                                }
+                            } else if (dt_logits == INFINI_DTYPE_BF16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t b = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = bf16_to_f32(b);
+                                }
+                            }
+                        }
+                        // Find top token
+                        uint32_t top_token = 0;
+                        float max_logit = prob_host[0];
+                        for (uint32_t i = 1; i < dvoc; i++) {
+                            if (prob_host[i] > max_logit) {
+                                max_logit = prob_host[i];
+                                top_token = i;
+                            }
+                        }
+                        // Copy mask back from device to verify
+                        std::vector<uint8_t> mask_check(nreq * dvoc);
+                        RUN_INFINI(infinirtMemcpy(mask_check.data(), mask_buf->data(),
+                                                  nreq * dvoc * sizeof(uint8_t),
+                                                  INFINIRT_MEMCPY_D2H));
+                        std::cerr << "[MASK_VERIFY] req_pos=" << req_pos[0]
+                                  << " top_token=" << top_token
+                                  << " top_logit=" << max_logit
+                                  << " mask[" << top_token << "]=" << (int)mask_check[top_token] << std::endl;
+                    }
+                    // #endregion agent log
+
+                    // Apply repetition penalty
+                    applyRepetitionPenalty(prob_buf, mask_buf,
+                                          static_cast<const float *>(d_penalties->data()));
+
+                    // Sample logits after penalty
+                    if (should_log) {
+                        RUN_INFINI(infinirtStreamSynchronize(stream));
+
+                        auto prob_host = std::vector<float>(nreq * dvoc);
+                        if (dt_logits == INFINI_DTYPE_F32) {
+                            RUN_INFINI(infinirtMemcpy(prob_host.data(), prob_buf->data(),
+                                                      nreq * dvoc * sizeof(float),
+                                                      INFINIRT_MEMCPY_D2H));
+                        } else {
+                            auto raw_buf = std::vector<uint8_t>(nreq * dvoc * dsize(dt_logits));
+                            RUN_INFINI(infinirtMemcpy(raw_buf.data(), prob_buf->data(),
+                                                      nreq * dvoc * dsize(dt_logits),
+                                                      INFINIRT_MEMCPY_D2H));
+                            if (dt_logits == INFINI_DTYPE_F16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t h = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = f16_to_f32(h);
+                                }
+                            } else if (dt_logits == INFINI_DTYPE_BF16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t b = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = bf16_to_f32(b);
+                                }
+                            }
+                        }
+
+                        // #region agent log - Log top 5 tokens before/after penalty
+                        if (req_pos[0] >= 1345 && req_pos[0] < 1380) {
+                            // Find top 5 tokens after penalty
+                            std::vector<std::pair<float, uint32_t>> logit_pairs_after;
+                            for (uint32_t i = 0; i < dvoc; i++) {
+                                logit_pairs_after.push_back({prob_host[0 * dvoc + i], i});
+                            }
+                            std::sort(logit_pairs_after.begin(), logit_pairs_after.end(),
+                                      [](const auto& a, const auto& b) { return a.first > b.first; });
+
+                            std::cerr << "[REP_PENALTY_AFTER] req_pos=" << req_pos[0] << " Top 5 tokens AFTER penalty:" << std::endl;
+                            for (uint32_t i = 0; i < 5 && i < logit_pairs_after.size(); i++) {
+                                uint32_t token_id = logit_pairs_after[i].second;
+                                float logit_after = logit_pairs_after[i].first;
+                                // Find corresponding before value from logit_pairs
+                                float logit_before = 0.0f;
+                                for (const auto& pair : logit_pairs_before) {
+                                    if (pair.second == token_id) {
+                                        logit_before = pair.first;
+                                        break;
+                                    }
+                                }
+                                bool is_marked = (mask_host[0 * dvoc + token_id] != 0);
+                                float change = logit_after - logit_before;
+                                std::cerr << "  token[" << token_id << "]: " << logit_before
+                                          << " -> " << logit_after << " (Δ" << change << ") "
+                                          << (is_marked ? "[MARKED]" : "[NOT MARKED]") << std::endl;
+                            }
+                        }
+                        // #endregion agent log
+
+                        std::cerr << "[REP_PENALTY] Operator called. Logit changes:" << std::endl;
+                        for (uint32_t tidx = 0; tidx < 5; tidx++) {
+                            uint32_t token_id = repeating_tokens[tidx];
+                            if (token_id < dvoc && tidx < logits_before.size()) {
+                                float logit_after = prob_host[0 * dvoc + token_id];
+                                float logit_before = logits_before[tidx];
+                                float change = logit_after - logit_before;
+                                bool is_marked = (mask_host[0 * dvoc + token_id] != 0);
+
+                                std::cerr << "  Token " << token_id
+                                          << ": " << logit_before << " -> " << logit_after
+                                          << " (Δ" << change << ")"
+                                          << (is_marked ? " [MARKED]" : " [NOT MARKED]") << std::endl;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // #region agent log - Use fixed seed for deterministic testing
+            static bool use_fixed_seed = (getenv("FIXED_RANDOM_SEED") != nullptr);
+            static thread_local std::mt19937 gen(use_fixed_seed ? 42 : std::random_device{}());
+            // #endregion agent log
             token_offset = 0;
             for (uint32_t req = 0; req < nreq; req++) {
                 auto seq_len = req_lens[req];
@@ -327,6 +755,8 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                       const int32_t *block_tables,
                       const int32_t *slot_mapping,
                       const float *temperature, const uint32_t *topk, const float *topp,
+                      const float *repetition_penalty,
+                      const uint32_t *full_tokens, uint32_t full_ntok,
                       const uint32_t is_prefill, const bool enable_paged_attn,
                       uint32_t *output, void *last_logits) {
     auto nlayer = meta.nlayer;
@@ -425,7 +855,7 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto attn_val_buf = Tensor::buffer(dt_logits, {nkvh, ngroup * max_seq_len, dh}, rsrc.memory_pool);
     auto attn_val_gemm = attn_val_buf->view({nkvh, ngroup, max_seq_len, dh});
 
-    
+
     // MLP buffers
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
@@ -451,7 +881,7 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             auto k = qkv_rope->slice({ {0, 0, ntok}, {1, nh, nkvh} });
             auto v = qkv_rope->slice({ {0, 0, ntok}, {1, nh + nkvh, nkvh} });
 
-            auto k_cache_pool = kv_caches[0]->k[idev][layer]; 
+            auto k_cache_pool = kv_caches[0]->k[idev][layer];
             auto v_cache_pool = kv_caches[0]->v[idev][layer];
             pagedCaching(k, v, k_cache_pool, v_cache_pool, slot_mapping_buf);
 
@@ -481,10 +911,10 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                 auto o = o_buf->slice({{0, 0, ntok}})->view({ntok, nh, dh});
                 auto q_batch = qkv_rope->slice({ {0, 0, ntok}, {1, 0, nh} })->view({ntok, nh, dh});
                 float scale = 1.f / float(sqrt(dh));
-                pagedAttention(o, q_batch, k_cache_pool, v_cache_pool, 
+                pagedAttention(o, q_batch, k_cache_pool, v_cache_pool,
                                block_tables_buf, seq_lens_buf, nullptr /* alibi_slopes */, scale);
-                               
-                
+
+
             }
 
         } else {
@@ -546,14 +976,27 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
 
     // Sample and Output
     if (idev == 0) {
+        // Calculate output scaling factor: dim_model_base / hidden_size
+        // This matches PyTorch: logits = lm_head(hidden_states / (hidden_size / dim_model_base))
+        float output_scale = meta.dim_model_base > 0 ? (float)meta.dim_model_base / (float)meta.d : 1.0f;
+
+        // #region agent log
+        static bool debug_scaling_paged = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+        if (debug_scaling_paged && nreq > 0 && req_pos[0] == 0) {
+            std::cerr << "[SCALING_DEBUG_PAGED] dim_model_base=" << meta.dim_model_base
+                      << " hidden_size=" << meta.d
+                      << " output_scale=" << output_scale << std::endl;
+        }
+        // #endregion agent log
+
         if (last_logits != nullptr) {
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
-            linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
-            
+            linear(last_logits_buf, logits_out, rsrc.w_out_embd, output_scale, 0.0, nullptr, nullptr);
+
             auto log_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             logSoftmax(log_logits_buf, last_logits_buf);
-            
+
             RUN_INFINI(infinirtStreamSynchronize(stream));
             RUN_INFINI(infinirtMemcpy(last_logits, log_logits_buf->data(), dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
         }
@@ -567,9 +1010,415 @@ void inferDeviceBatchPaged(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                         rsrc.w_out_norm,
                         meta.epsilon);
             }
-            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
-            std::random_device _rd;
-            std::mt19937 gen(_rd());
+
+            // #region agent log - Investigate hidden state and weight magnitudes
+            static bool debug_investigate = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+            if (debug_investigate && nreq > 0 && (req_pos[0] == 0 || (req_pos[0] >= 1345 && req_pos[0] < 1380))) {
+                RUN_INFINI(infinirtStreamSynchronize(stream));
+                size_t last_token_idx = token_offset - 1;
+                auto sample_size = std::min(100UL, d);
+                auto hidden_before = std::vector<float>(sample_size);
+                auto hidden_after = std::vector<float>(sample_size);
+                auto weight_sample = std::vector<float>(sample_size);
+
+                // Sample hidden states before RMSNorm
+                if (dt_logits == INFINI_DTYPE_F32) {
+                    RUN_INFINI(infinirtMemcpy(hidden_before.data(), logits_in->data(last_token_idx * d), sample_size * sizeof(float), INFINIRT_MEMCPY_D2H));
+                    RUN_INFINI(infinirtMemcpy(hidden_after.data(), logits_out->slice(0, 0, 1)->data(), sample_size * sizeof(float), INFINIRT_MEMCPY_D2H));
+                } else if (dt_logits == INFINI_DTYPE_F16) {
+                    auto raw_before = std::vector<uint16_t>(sample_size);
+                    auto raw_after = std::vector<uint16_t>(sample_size);
+                    RUN_INFINI(infinirtMemcpy(raw_before.data(), logits_in->data(last_token_idx * d), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    RUN_INFINI(infinirtMemcpy(raw_after.data(), logits_out->slice(0, 0, 1)->data(), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    for (size_t i = 0; i < sample_size; i++) {
+                        hidden_before[i] = f16_to_f32(raw_before[i]);
+                        hidden_after[i] = f16_to_f32(raw_after[i]);
+                    }
+                } else if (dt_logits == INFINI_DTYPE_BF16) {
+                    auto raw_before = std::vector<uint16_t>(sample_size);
+                    auto raw_after = std::vector<uint16_t>(sample_size);
+                    RUN_INFINI(infinirtMemcpy(raw_before.data(), logits_in->data(last_token_idx * d), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    RUN_INFINI(infinirtMemcpy(raw_after.data(), logits_out->slice(0, 0, 1)->data(), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    for (size_t i = 0; i < sample_size; i++) {
+                        hidden_before[i] = bf16_to_f32(raw_before[i]);
+                        hidden_after[i] = bf16_to_f32(raw_after[i]);
+                    }
+                }
+
+                // Sample output embedding weights
+                auto weight_dtype = rsrc.w_out_embd->dtype();
+                if (weight_dtype == INFINI_DTYPE_F32) {
+                    RUN_INFINI(infinirtMemcpy(weight_sample.data(), rsrc.w_out_embd->data(0), sample_size * sizeof(float), INFINIRT_MEMCPY_D2H));
+                } else if (weight_dtype == INFINI_DTYPE_F16) {
+                    auto raw = std::vector<uint16_t>(sample_size);
+                    RUN_INFINI(infinirtMemcpy(raw.data(), rsrc.w_out_embd->data(0), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    for (size_t i = 0; i < sample_size; i++) weight_sample[i] = f16_to_f32(raw[i]);
+                } else if (weight_dtype == INFINI_DTYPE_BF16) {
+                    auto raw = std::vector<uint16_t>(sample_size);
+                    RUN_INFINI(infinirtMemcpy(raw.data(), rsrc.w_out_embd->data(0), sample_size * sizeof(uint16_t), INFINIRT_MEMCPY_D2H));
+                    for (size_t i = 0; i < sample_size; i++) weight_sample[i] = bf16_to_f32(raw[i]);
+                }
+
+                float max_hb = *std::max_element(hidden_before.begin(), hidden_before.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
+                float max_ha = *std::max_element(hidden_after.begin(), hidden_after.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
+                float max_w = *std::max_element(weight_sample.begin(), weight_sample.end(), [](float a, float b) { return std::abs(a) < std::abs(b); });
+
+                std::cerr << "[INVESTIGATE] req_pos=" << req_pos[0]
+                          << " hidden_before_rmsnorm_max_abs=" << std::abs(max_hb)
+                          << " hidden_after_rmsnorm_max_abs=" << std::abs(max_ha)
+                          << " output_embd_weight_max_abs=" << std::abs(max_w)
+                          << " output_scale=" << output_scale << std::endl;
+            }
+            // #endregion agent log
+
+            // #region agent log - Keep output_scale to compensate for removing scale_output from norm weights
+            // We removed scale_output from norm weights, so we need to apply scaling in linear projection
+            // This matches PyTorch: logits = lm_head(hidden_states / (hidden_size / dim_model_base))
+            // #endregion agent log
+            linear(prob_buf, logits_out->slice(0, 0, nreq), rsrc.w_out_embd, output_scale, 0.0, nullptr, nullptr);
+
+            // Apply repetition penalty if needed
+            if (repetition_penalty != nullptr) {
+                // Check if any penalty != 1.0
+                bool need_penalty = false;
+                for (uint32_t req = 0; req < nreq; req++) {
+                    if (repetition_penalty[req] != 1.0f) {
+                        need_penalty = true;
+                        break;
+                    }
+                }
+
+                if (need_penalty) {
+                    // Create boolean mask [nreq, dvoc] on host
+                    // Use uint8_t instead of bool because std::vector<bool> doesn't have data() method
+                    std::vector<uint8_t> mask_host(nreq * dvoc, 0);
+
+                    // Extract previous tokens and set mask
+                    // tokens array contains only NEW tokens (for embedding lookup - keep separate!)
+                    // full_tokens array contains full token history (for repetition penalty mask only)
+                    if (full_tokens != nullptr && full_ntok > 0) {
+                        // Use full token history for repetition penalty mask
+                        size_t req_token_start = 0;
+                        for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+                            // Calculate where this request's tokens start in the full tokens array
+                            // For single request (nreq=1), req_token_start should always be 0
+                            // For multiple requests, accumulate the lengths of previous requests
+                            if (req_idx > 0) {
+                                req_token_start += req_pos[req_idx - 1] + req_lens[req_idx - 1];
+                            }
+
+                            // Mark all tokens from 0 to req_pos[req_idx] + req_lens[req_idx] - 1 (excluding last)
+                            // total_seq_len = current position + new tokens in this batch
+                            uint32_t total_seq_len = req_pos[req_idx] + req_lens[req_idx];
+                            // actual_len = number of tokens to mark (all previous tokens, excluding the one being predicted)
+                            uint32_t actual_len = total_seq_len - 1;
+
+                            // Ensure we don't exceed the full_tokens array bounds
+                            if (req_token_start + actual_len > full_ntok) {
+                                actual_len = (req_token_start < full_ntok) ? (full_ntok - req_token_start) : 0;
+                            }
+
+                            // #region agent log - Trace mask creation (dynamic token tracking)
+                            static bool debug_mask = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+                            bool should_trace = debug_mask && req_idx == 0 && (req_pos[req_idx] >= 1345 && req_pos[req_idx] < 1380);
+                            // #endregion agent log
+
+                            // Mark tokens in mask
+                            for (uint32_t i = 0; i < actual_len; i++) {
+                                if (req_token_start + i < full_ntok) {
+                                    uint32_t token_id = full_tokens[req_token_start + i];
+                                    if (token_id < dvoc) {
+                                        mask_host[req_idx * dvoc + token_id] = 1;
+                                    }
+                                }
+                            }
+
+                            // #region agent log - Trace mask creation details
+                            if (should_trace) {
+                                std::cerr << "[MASK_TRACE] req_pos=" << req_pos[req_idx]
+                                          << " req_lens=" << req_lens[req_idx]
+                                          << " req_token_start=" << req_token_start
+                                          << " total_seq_len=" << total_seq_len
+                                          << " actual_len=" << actual_len
+                                          << " full_ntok=" << full_ntok << std::endl;
+                                // Count tokens in full_tokens range
+                                std::map<uint32_t, uint32_t> token_counts;
+                                for (uint32_t i = 0; i < actual_len && req_token_start + i < full_ntok; i++) {
+                                    uint32_t token_id = full_tokens[req_token_start + i];
+                                    if (token_id < dvoc) {
+                                        token_counts[token_id]++;
+                                    }
+                                }
+                                // Find most frequent token
+                                uint32_t most_freq_token = 0;
+                                uint32_t most_freq_count = 0;
+                                for (const auto& pair : token_counts) {
+                                    if (pair.second > most_freq_count) {
+                                        most_freq_count = pair.second;
+                                        most_freq_token = pair.first;
+                                    }
+                                }
+                                std::cerr << "[MASK_TRACE] Most frequent token in range: " << most_freq_token
+                                          << " (appears " << most_freq_count << " times)" << std::endl;
+                                std::cerr << "[MASK_TRACE] mask_host[" << most_freq_token << "] = "
+                                          << (int)mask_host[req_idx * dvoc + most_freq_token] << std::endl;
+                                // Check last few tokens in full_tokens
+                                uint32_t check_start = (req_token_start + actual_len > 10) ? (req_token_start + actual_len - 10) : req_token_start;
+                                std::cerr << "[MASK_TRACE] Last 10 tokens in range: ";
+                                for (uint32_t i = check_start; i < req_token_start + actual_len && i < full_ntok; i++) {
+                                    std::cerr << full_tokens[i] << " ";
+                                }
+                                std::cerr << std::endl;
+                            }
+                            // #endregion agent log
+                        }
+                    } else {
+                        // Fallback: only penalize tokens in current batch if full_tokens not available
+                        size_t token_offset = 0;
+                        for (uint32_t req_idx = 0; req_idx < nreq; req_idx++) {
+                            if (req_lens[req_idx] > 1) {
+                                for (uint32_t i = 0; i < req_lens[req_idx] - 1; i++) {
+                                    uint32_t token_id = tokens[token_offset + i];
+                                    if (token_id < dvoc) {
+                                        mask_host[req_idx * dvoc + token_id] = 1;
+                                    }
+                                }
+                            }
+                            token_offset += req_lens[req_idx];
+                        }
+                    }
+
+                    // Create mask tensor and copy from host
+                    auto mask_buf = Tensor::buffer(INFINI_DTYPE_BOOL, {nreq, dvoc}, rsrc.memory_pool);
+                    RUN_INFINI(infinirtMemcpyAsync(mask_buf->data(), mask_host.data(),
+                                                  nreq * dvoc * sizeof(uint8_t),
+                                                  INFINIRT_MEMCPY_H2D, stream));
+
+                    // Allocate device buffer for penalties
+                    auto d_penalties = Tensor::buffer(INFINI_DTYPE_F32, {nreq}, rsrc.memory_pool);
+                    RUN_INFINI(infinirtMemcpyAsync(d_penalties->data(), repetition_penalty,
+                                                  nreq * sizeof(float),
+                                                  INFINIRT_MEMCPY_H2D, stream));
+
+                    // Debug logging (enable with REPETITION_PENALTY_DEBUG=1)
+                    static bool debug_enabled = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+                    bool should_log = false;
+                    if (debug_enabled && nreq > 0) {
+                        // Log at regular intervals to track logit magnitude over time
+                        should_log = (req_pos[0] % 50 == 0) || (req_pos[0] >= 1345 && req_pos[0] < 1380);
+                    }
+
+                    // Sample logits before penalty to track magnitude
+                    std::vector<float> logits_before;
+                    std::vector<std::pair<float, uint32_t>> logit_pairs_before;  // Save for after-penalty comparison
+                    uint32_t repeating_tokens[] = {18867, 6686, 6783, 59466, 59566};
+                    if (should_log) {
+                        RUN_INFINI(infinirtStreamSynchronize(stream));
+
+                        // Read logits and convert to float based on dtype
+                        auto prob_host = std::vector<float>(nreq * dvoc);
+                        if (dt_logits == INFINI_DTYPE_F32) {
+                            RUN_INFINI(infinirtMemcpy(prob_host.data(), prob_buf->data(),
+                                                      nreq * dvoc * sizeof(float),
+                                                      INFINIRT_MEMCPY_D2H));
+                        } else {
+                            auto raw_buf = std::vector<uint8_t>(nreq * dvoc * dsize(dt_logits));
+                            RUN_INFINI(infinirtMemcpy(raw_buf.data(), prob_buf->data(),
+                                                      nreq * dvoc * dsize(dt_logits),
+                                                      INFINIRT_MEMCPY_D2H));
+                            if (dt_logits == INFINI_DTYPE_F16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t h = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = f16_to_f32(h);
+                                }
+                            } else if (dt_logits == INFINI_DTYPE_BF16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t b = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = bf16_to_f32(b);
+                                }
+                            }
+                        }
+
+                        // Calculate logit statistics
+                        float max_logit = prob_host[0];
+                        float min_logit = prob_host[0];
+                        float sum_logit = 0.0f;
+                        for (size_t i = 0; i < nreq * dvoc; i++) {
+                            if (prob_host[i] > max_logit) max_logit = prob_host[i];
+                            if (prob_host[i] < min_logit) min_logit = prob_host[i];
+                            sum_logit += prob_host[i];
+                        }
+                        float avg_logit = sum_logit / (nreq * dvoc);
+
+                        // Find top 5 logits
+                        logit_pairs_before.clear();
+                        for (uint32_t i = 0; i < dvoc; i++) {
+                            logit_pairs_before.push_back({prob_host[0 * dvoc + i], i});
+                        }
+                        std::sort(logit_pairs_before.begin(), logit_pairs_before.end(),
+                                  [](const auto& a, const auto& b) { return a.first > b.first; });
+
+                        for (uint32_t tidx = 0; tidx < 5; tidx++) {
+                            uint32_t token_id = repeating_tokens[tidx];
+                            if (token_id < dvoc) {
+                                logits_before.push_back(prob_host[0 * dvoc + token_id]);
+                            }
+                        }
+
+                        uint32_t mask_ones = 0;
+                        for (uint32_t i = 0; i < nreq * dvoc; i++) {
+                            if (mask_host[i] != 0) mask_ones++;
+                        }
+
+                        std::cerr << "[REP_PENALTY] req_pos=" << req_pos[0]
+                                  << " logits: max=" << max_logit << " min=" << min_logit
+                                  << " avg=" << avg_logit
+                                  << " mask=" << mask_ones << " marked"
+                                  << " penalty=" << repetition_penalty[0] << std::endl;
+
+                        // Log top 5 logits to see which tokens are dominant
+                        if (req_pos[0] >= 1345 && req_pos[0] < 1380) {
+                            std::cerr << "  Top 5 logits BEFORE penalty: ";
+                            for (uint32_t i = 0; i < 5 && i < logit_pairs_before.size(); i++) {
+                                std::cerr << "token[" << logit_pairs_before[i].second << "]=" << logit_pairs_before[i].first << " ";
+                            }
+                            std::cerr << std::endl;
+                        }
+                    }
+
+                    // #region agent log - Verify mask before applying penalty (dynamic top token tracking)
+                    static bool debug_mask_before = (getenv("REPETITION_PENALTY_DEBUG") != nullptr);
+                    if (debug_mask_before && nreq > 0 && (req_pos[0] >= 1345 && req_pos[0] < 1380)) {
+                        RUN_INFINI(infinirtStreamSynchronize(stream));
+                        // Read logits to find top token
+                        auto prob_host = std::vector<float>(nreq * dvoc);
+                        if (dt_logits == INFINI_DTYPE_F32) {
+                            RUN_INFINI(infinirtMemcpy(prob_host.data(), prob_buf->data(),
+                                                      nreq * dvoc * sizeof(float),
+                                                      INFINIRT_MEMCPY_D2H));
+                        } else {
+                            auto raw_buf = std::vector<uint8_t>(nreq * dvoc * dsize(dt_logits));
+                            RUN_INFINI(infinirtMemcpy(raw_buf.data(), prob_buf->data(),
+                                                      nreq * dvoc * dsize(dt_logits),
+                                                      INFINIRT_MEMCPY_D2H));
+                            if (dt_logits == INFINI_DTYPE_F16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t h = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = f16_to_f32(h);
+                                }
+                            } else if (dt_logits == INFINI_DTYPE_BF16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t b = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = bf16_to_f32(b);
+                                }
+                            }
+                        }
+                        // Find top token
+                        uint32_t top_token = 0;
+                        float max_logit = prob_host[0];
+                        for (uint32_t i = 1; i < dvoc; i++) {
+                            if (prob_host[i] > max_logit) {
+                                max_logit = prob_host[i];
+                                top_token = i;
+                            }
+                        }
+                        // Copy mask back from device to verify
+                        std::vector<uint8_t> mask_check(nreq * dvoc);
+                        RUN_INFINI(infinirtMemcpy(mask_check.data(), mask_buf->data(),
+                                                  nreq * dvoc * sizeof(uint8_t),
+                                                  INFINIRT_MEMCPY_D2H));
+                        std::cerr << "[MASK_VERIFY] req_pos=" << req_pos[0]
+                                  << " top_token=" << top_token
+                                  << " top_logit=" << max_logit
+                                  << " mask[" << top_token << "]=" << (int)mask_check[top_token] << std::endl;
+                    }
+                    // #endregion agent log
+
+                    // Apply repetition penalty
+                    applyRepetitionPenalty(prob_buf, mask_buf,
+                                          static_cast<const float *>(d_penalties->data()));
+
+                    // Sample logits after penalty
+                    if (should_log) {
+                        RUN_INFINI(infinirtStreamSynchronize(stream));
+
+                        auto prob_host = std::vector<float>(nreq * dvoc);
+                        if (dt_logits == INFINI_DTYPE_F32) {
+                            RUN_INFINI(infinirtMemcpy(prob_host.data(), prob_buf->data(),
+                                                      nreq * dvoc * sizeof(float),
+                                                      INFINIRT_MEMCPY_D2H));
+                        } else {
+                            auto raw_buf = std::vector<uint8_t>(nreq * dvoc * dsize(dt_logits));
+                            RUN_INFINI(infinirtMemcpy(raw_buf.data(), prob_buf->data(),
+                                                      nreq * dvoc * dsize(dt_logits),
+                                                      INFINIRT_MEMCPY_D2H));
+                            if (dt_logits == INFINI_DTYPE_F16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t h = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = f16_to_f32(h);
+                                }
+                            } else if (dt_logits == INFINI_DTYPE_BF16) {
+                                for (size_t i = 0; i < nreq * dvoc; i++) {
+                                    uint16_t b = *reinterpret_cast<uint16_t*>(&raw_buf[i * 2]);
+                                    prob_host[i] = bf16_to_f32(b);
+                                }
+                            }
+                        }
+
+                        // #region agent log - Log top 5 tokens before/after penalty
+                        if (req_pos[0] >= 1345 && req_pos[0] < 1380) {
+                            // Find top 5 tokens after penalty
+                            std::vector<std::pair<float, uint32_t>> logit_pairs_after;
+                            for (uint32_t i = 0; i < dvoc; i++) {
+                                logit_pairs_after.push_back({prob_host[0 * dvoc + i], i});
+                            }
+                            std::sort(logit_pairs_after.begin(), logit_pairs_after.end(),
+                                      [](const auto& a, const auto& b) { return a.first > b.first; });
+
+                            std::cerr << "[REP_PENALTY_AFTER] req_pos=" << req_pos[0] << " Top 5 tokens AFTER penalty:" << std::endl;
+                            for (uint32_t i = 0; i < 5 && i < logit_pairs_after.size(); i++) {
+                                uint32_t token_id = logit_pairs_after[i].second;
+                                float logit_after = logit_pairs_after[i].first;
+                                // Find corresponding before value from logit_pairs
+                                float logit_before = 0.0f;
+                                for (const auto& pair : logit_pairs_before) {
+                                    if (pair.second == token_id) {
+                                        logit_before = pair.first;
+                                        break;
+                                    }
+                                }
+                                bool is_marked = (mask_host[0 * dvoc + token_id] != 0);
+                                float change = logit_after - logit_before;
+                                std::cerr << "  token[" << token_id << "]: " << logit_before
+                                          << " -> " << logit_after << " (Δ" << change << ") "
+                                          << (is_marked ? "[MARKED]" : "[NOT MARKED]") << std::endl;
+                            }
+                        }
+                        // #endregion agent log
+
+                        std::cerr << "[REP_PENALTY] Operator called. Logit changes:" << std::endl;
+                        for (uint32_t tidx = 0; tidx < 5; tidx++) {
+                            uint32_t token_id = repeating_tokens[tidx];
+                            if (token_id < dvoc && tidx < logits_before.size()) {
+                                float logit_after = prob_host[0 * dvoc + token_id];
+                                float logit_before = logits_before[tidx];
+                                float change = logit_after - logit_before;
+                                bool is_marked = (mask_host[0 * dvoc + token_id] != 0);
+
+                                std::cerr << "  Token " << token_id
+                                          << ": " << logit_before << " -> " << logit_after
+                                          << " (Δ" << change << ")"
+                                          << (is_marked ? " [MARKED]" : " [NOT MARKED]") << std::endl;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // #region agent log - Use fixed seed for deterministic testing
+            static bool use_fixed_seed = (getenv("FIXED_RANDOM_SEED") != nullptr);
+            static thread_local std::mt19937 gen(use_fixed_seed ? 42 : std::random_device{}());
+            // #endregion agent log
             token_offset = 0;
             for (uint32_t req = 0; req < nreq; req++) {
                 auto seq_len = req_lens[req];
@@ -595,6 +1444,8 @@ inferBatchJiuge(struct JiugeModel *model,
                 const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                 struct KVCache **kv_caches,
                 const float *temperature, const uint32_t *topk, const float *topp,
+                const float *repetition_penalty,
+                const uint32_t *full_tokens, uint32_t full_ntok,
                 uint32_t *output) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
@@ -607,6 +1458,9 @@ inferBatchJiuge(struct JiugeModel *model,
     model->req.temperature = temperature;
     model->req.topk = topk;
     model->req.topp = topp;
+    model->req.repetition_penalty = repetition_penalty;
+    model->req.full_tokens = full_tokens;
+    model->req.full_ntok = full_ntok;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -658,7 +1512,7 @@ __C void
 inferBatch(struct JiugeModel *model,
            const uint32_t *tokens, uint32_t ntok,
            const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-           struct KVCache **kv_caches, 
+           struct KVCache **kv_caches,
            const int32_t *block_tables,
            const int32_t *slot_mapping,
            const float *temperature, const uint32_t *topk, const float *topp,
@@ -764,15 +1618,20 @@ void launchDevice(const JiugeMeta &meta, const JiugeWeights *weights, JiugeDevic
         if (enable_paged){
             inferDeviceBatchPaged(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                 req.req_lens, req.nreq, req.req_pos, req.kv_caches,
-                req.block_tables, req.slot_mapping, 
-                req.temperature, req.topk, req.topp, 
+                req.block_tables, req.slot_mapping,
+                req.temperature, req.topk, req.topp,
+                req.repetition_penalty,
+                req.full_tokens, req.full_ntok,
                 req.is_prefill, req.enable_paged_attn,
                 req.output, req.logits);
         }
         else{
             inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
                 req.req_lens, req.nreq, req.req_pos, req.kv_caches,
-                req.temperature, req.topk, req.topp, req.output, req.logits);
+                req.temperature, req.topk, req.topp,
+                req.repetition_penalty,
+                req.full_tokens, req.full_ntok,
+                req.output, req.logits);
 
         }
 
@@ -800,7 +1659,7 @@ JiugeModel::JiugeModel(const JiugeMeta *_meta, const JiugeWeights *weights, infi
     }
 
     for (int i = 0; i < ndev; i++) {
-        
+
         threads[i] = std::thread(launchDevice, std::cref(meta), weights, &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
     }
     for (int i = 0; i < ndev; i++) {

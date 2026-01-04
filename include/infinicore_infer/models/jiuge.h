@@ -12,7 +12,7 @@ struct JiugeModel;
 typedef struct
 {
     infiniDtype_t dt_logits;
-    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc, kvcache_block_size;
+    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc, kvcache_block_size, dim_model_base;
     float epsilon, theta;
     uint32_t end_token;
 } JiugeMeta;
@@ -110,6 +110,8 @@ inferBatchJiuge(struct JiugeModel *,
                 const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                 struct KVCache **kv_caches,
                 const float *temperature, const uint32_t *topk, const float *topp,
+                const float *repetition_penalty,
+                const uint32_t *full_tokens, uint32_t full_ntok,
                 uint32_t *output);
 
 __C __export void

@@ -113,6 +113,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 config["num_hidden_layers"]
             )
 
+        dim_model_base = config.get("dim_model_base", config["hidden_size"])
         super().__init__(
             dt_logits=dt_,
             nlayer=config["num_hidden_layers"],
@@ -130,6 +131,7 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             ),
             dvoc=config["vocab_size"],
             kvcache_block_size=0,
+            dim_model_base=dim_model_base,
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             end_token=2,
@@ -196,8 +198,12 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
             state_dict[input_embd_naming].to(torch_dt_logits) * scale_input
         )
         self.input_embd = self.input_embd_tensor.data_ptr()
+        # #region agent log - Remove scale_output from output_norm weights
+        # The scaling should be applied to hidden states before RMSNorm, not to the norm weights
+        # This matches PyTorch: logits = lm_head(hidden_states / (hidden_size / dim_model_base))
+        # #endregion agent log
         self.output_norm_tensor = (
-            state_dict[naming.output_norm()].to(torch_dt_norm) * scale_output
+            state_dict[naming.output_norm()].to(torch_dt_norm)  # Removed: * scale_output
         )
         self.output_norm = self.output_norm_tensor.data_ptr()
         self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_mat)
@@ -395,19 +401,76 @@ class JiugeBatchedTask:
         self.temperaturas_list = [t.temperature for t in tasks]
         self.topks_list = [t.topk for t in tasks]
         self.topps_list = [t.topp for t in tasks]
+        self.repetition_penalties_list = [t.repetition_penalty for t in tasks]
 
-        # Flatten token lists
+        # Flatten token lists (only new tokens for embedding lookup)
         flat_tokens = [tok for toks in token_lists for tok in toks]
         self.ntok = len(flat_tokens)
 
+        # For repetition penalty: get full token history from KV cache separately
+        # Build full_token_lists containing [prev_tokens + new_tokens] for each request
+        full_token_lists = []
+        for t in tasks:
+            kv_cache = t.kvcache()
+            if kv_cache is not None and hasattr(kv_cache, 'tokens'):
+                # Get tokens from position 0 to req_pos (previous tokens)
+                # t.pos represents the current position in the sequence (how many tokens have been processed)
+                # IMPORTANT: After InferTask.next() is called, the output token is written to the cache
+                # at position t.pos, and then t.pos is incremented. So kv_cache.tokens[:t.pos] includes
+                # all tokens up to and including the output token from the previous iteration.
+                # t.tokens contains the input tokens for the current iteration, which is the same as
+                # the output token from the previous iteration (for autoregressive generation).
+                # So we should use kv_cache.tokens[:t.pos] which already includes all tokens.
+                prev_tokens = list(kv_cache.tokens[:t.pos]) if t.pos > 0 else []
+                # For autoregressive generation, t.tokens contains the output token from previous iteration
+                # which should already be in kv_cache.tokens[:t.pos] if next() was called correctly.
+                # However, we need to ensure all tokens are included for the repetition penalty mask.
+                # The key insight: t.pos represents the number of tokens processed so far.
+                # After next() is called, the output token is written to cache at position t.pos-1,
+                # and t.pos is incremented. So cache[:t.pos] should include all tokens including the last output.
+                # t.tokens contains the input for the current iteration, which is the same as the last output.
+                # So we should use cache[:t.pos] which already includes everything.
+                # Only add t.tokens if they're not already in the cache (for first iteration or batch processing).
+                if prev_tokens and t.tokens:
+                    # Check if the last token in prev_tokens matches the first token in t.tokens
+                    if prev_tokens[-1] == t.tokens[0]:
+                        # The output token is already in prev_tokens, so we skip the first token in t.tokens
+                        full_tokens = prev_tokens + list(t.tokens[1:])
+                    else:
+                        # No overlap, include all tokens (might be first iteration or batch processing)
+                        full_tokens = prev_tokens + list(t.tokens)
+                elif prev_tokens:
+                    # Only prev_tokens available
+                    full_tokens = prev_tokens
+                elif t.tokens:
+                    # Only t.tokens available (no cache yet)
+                    full_tokens = list(t.tokens)
+                else:
+                    # Empty
+                    full_tokens = []
+            else:
+                # Fallback to just new tokens if no KV cache
+                full_tokens = list(t.tokens)
+            full_token_lists.append(full_tokens)
+
+        # Flatten full token lists for repetition penalty mask
+        flat_full_tokens = [tok for toks in full_token_lists for tok in toks]
+        self.full_ntok = len(flat_full_tokens)
+
         # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * self.ntok)(*flat_tokens)
+        # Full token history for repetition penalty (separate from embedding lookup)
+        self.full_tokens = (c_uint * self.full_ntok)(*flat_full_tokens) if self.full_ntok > 0 else None
         self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
         self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
         self.kv_caches = (POINTER(KVCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
         self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
         self.topks = (c_uint * self.nreq)(*self.topks_list)
         self.topps = (c_float * self.nreq)(*self.topps_list)
+        self.repetition_penalties = (c_float * self.nreq)(*self.repetition_penalties_list)
+
+        # Full token history for repetition penalty (separate from embedding lookup)
+        self.full_tokens = (c_uint * self.full_ntok)(*flat_full_tokens) if self.full_ntok > 0 else None
 
     def input_args(self):
         return (
@@ -420,6 +483,9 @@ class JiugeBatchedTask:
             self.temperaturas,
             self.topks,
             self.topps,
+            self.repetition_penalties,
+            self.full_tokens if self.full_ntok > 0 else None,
+            self.full_ntok,
         )
 
 
@@ -534,7 +600,7 @@ class JiugeForCauslLM:
         else:
             raise ValueError("Unsupported model architecture")
 
-        
+
         if "llama" == config["model_type"]:
             from tokenizers import decoders as _dec
             backend = getattr(self.tokenizer, "backend_tokenizer", None)

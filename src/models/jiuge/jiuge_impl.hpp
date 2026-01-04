@@ -39,7 +39,7 @@ struct InferState {
 };
 
 struct InferRequest {
-    const uint32_t *tokens;
+    const uint32_t *tokens;  // New tokens only (for embedding lookup)
     uint32_t ntok;
     const uint32_t *req_lens;
     uint32_t nreq;
@@ -50,6 +50,9 @@ struct InferRequest {
     const float *temperature;
     const uint32_t *topk;
     const float *topp;
+    const float *repetition_penalty;
+    const uint32_t *full_tokens;  // Full token history (for repetition penalty mask only)
+    uint32_t full_ntok;  // Total tokens in full_tokens array
     uint32_t *output;
     uint32_t is_prefill;
     bool enable_paged_attn;
