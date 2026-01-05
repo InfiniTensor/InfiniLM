@@ -3,6 +3,7 @@ from typing import List, Sequence
 from sympy import true
 
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import ctypes
 import os
 from pathlib import Path
 import safetensors
@@ -125,6 +126,42 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
         dim_model_base = (
             config["dim_model_base"] if "dim_model_base" in config else config["hidden_size"]
         )
+
+        # Load longrope configuration
+        rope_type = 0  # 0 = standard, 1 = longrope
+        original_max_position_embeddings = 0
+        short_factor_ptr = None
+        long_factor_ptr = None
+        self._short_factor_array = None  # Keep reference to prevent GC
+        self._long_factor_array = None   # Keep reference to prevent GC
+
+        rope_scaling = config.get("rope_scaling", {})
+        if isinstance(rope_scaling, dict):
+            rope_scaling_type = rope_scaling.get("rope_type") or rope_scaling.get("type", "")
+            if rope_scaling_type == "longrope":
+                rope_type = 1
+                original_max_position_embeddings = rope_scaling.get(
+                    "original_max_position_embeddings",
+                    config.get("original_max_position_embeddings", 0)
+                )
+
+                short_factor_list = rope_scaling.get("short_factor", [])
+                long_factor_list = rope_scaling.get("long_factor", [])
+
+                if short_factor_list and long_factor_list:
+                    # Convert to ctypes arrays
+                    half_dh = (config["hidden_size"] // config["num_attention_heads"]) // 2
+                    if len(short_factor_list) == half_dh and len(long_factor_list) == half_dh:
+                        self._short_factor_array = (c_float * half_dh)(*short_factor_list)
+                        self._long_factor_array = (c_float * half_dh)(*long_factor_list)
+                        short_factor_ptr = ctypes.cast(self._short_factor_array, POINTER(c_float))
+                        long_factor_ptr = ctypes.cast(self._long_factor_array, POINTER(c_float))
+                    else:
+                        logger.warning(
+                            f"Longrope factor arrays have wrong length: "
+                            f"short={len(short_factor_list)}, long={len(long_factor_list)}, expected={half_dh}"
+                        )
+
         super().__init__(
             dt_logits=dt_,
             nlayer=config["num_hidden_layers"],
@@ -146,6 +183,10 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             end_token=2,
+            rope_type=rope_type,
+            original_max_position_embeddings=original_max_position_embeddings,
+            short_factor=short_factor_ptr,
+            long_factor=long_factor_ptr,
         )
         self.torch_dtype_logits = dtype
 

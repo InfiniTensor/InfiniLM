@@ -52,6 +52,10 @@ class JiugeMetaCStruct(ctypes.Structure):
         ("epsilon", c_float),
         ("theta", c_float),
         ("end_token", c_uint),
+        ("rope_type", c_uint),
+        ("original_max_position_embeddings", c_size_t),
+        ("short_factor", POINTER(c_float)),
+        ("long_factor", POINTER(c_float)),
     ]
 
 

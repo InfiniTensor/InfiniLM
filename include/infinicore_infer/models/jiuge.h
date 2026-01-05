@@ -15,6 +15,11 @@ typedef struct
     size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc, kvcache_block_size, dim_model_base;
     float epsilon, theta;
     uint32_t end_token;
+    // Longrope support
+    uint32_t rope_type;  // 0 = standard, 1 = longrope
+    size_t original_max_position_embeddings;
+    const float *short_factor;  // Array of dh/2 floats, nullptr if not longrope
+    const float *long_factor;   // Array of dh/2 floats, nullptr if not longrope
 } JiugeMeta;
 
 typedef struct
