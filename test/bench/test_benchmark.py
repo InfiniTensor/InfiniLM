@@ -72,6 +72,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             "iluvatar": "iluvatar",
             "kunlun": "kunlun",
             "hygon": "hygon",
+            "qy": "cuda",
         }
 
         device_name = device_map.get(device_type_str.lower(), "cpu")
@@ -235,6 +236,8 @@ class TorchBenchmark(BaseBenchmark):
 
         # Device
         if device_type_str == "nvidia":
+            self.device = torch.device("cuda")
+        elif device_type_str == "qy":
             self.device = torch.device("cuda")
         elif device_type_str == "cpu":
             self.device = torch.device("cpu")
@@ -646,7 +649,7 @@ def test():
     # Parse arguments manually to handle device flags properly
     if len(sys.argv) < 4:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --qy | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -725,9 +728,11 @@ def test():
         device_type_str = "kunlun"
     elif device_flag == "--hygon":
         device_type_str = "hygon"
+    elif device_flag == "--qy":
+        device_type_str = "qy"
     else:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --qy | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
