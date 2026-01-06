@@ -7,7 +7,7 @@ import torch
 
 import argparse
 import queue
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 import contextlib
 import uvicorn
@@ -16,6 +16,8 @@ import uuid
 import json
 import threading
 import janus
+import os
+import signal
 
 
 DEVICE_TYPE_MAP = {
@@ -81,6 +83,12 @@ def parse_args():
         default="0.0.0.0",
         help="Host to bind the server to (default: 0.0.0.0)",
     )
+    parser.add_argument(
+        "--request-timeout",
+        type=int,
+        default=30,
+        help="Request timeout in seconds. Process will exit if a request hangs longer than this (default: 30)",
+    )
     return parser.parse_args()
 
 
@@ -93,8 +101,12 @@ USE_AWQ = args.awq
 MAX_BATCH = args.max_batch
 SERVER_PORT = args.port
 SERVER_HOST = args.host
+REQUEST_TIMEOUT = args.request_timeout
 print(
     f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
+)
+print(
+    f"Request timeout: {REQUEST_TIMEOUT}s. Process will exit if a request hangs longer than this."
 )
 
 
@@ -124,14 +136,28 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
 
 # A wrapper for InferTask that supports async output queue
 class AsyncInferTask(InferTask):
-    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens, repetition_penalty=1.0):
+    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens, repetition_penalty=1.0, test_hang_seconds=0):
         super().__init__(id, tokens, max_tokens, temperature, topk, topp, end_tokens, repetition_penalty)
         self.output_queue = janus.Queue()
-        print(f"[INFO] Create InferTask {self.id}")
+        self.last_activity_time = time.time()  # Track when task was last active
+        self.test_hang_seconds = test_hang_seconds  # Test parameter: sleep for this many seconds to simulate hang (set to 0 after first use)
+        self.timed_out = False  # Flag to mark if task has timed out
+        print(f"[INFO] Create InferTask {self.id}" + (f" (TEST: will hang for {test_hang_seconds}s once)" if test_hang_seconds > 0 else ""))
 
     def output(self, out_token):
         self.next(out_token)
+        self.last_activity_time = time.time()  # Update activity time when output is generated
         self.output_queue.sync_q.put(out_token)
+
+    def signal_timeout(self):
+        """Signal that this task has timed out"""
+        self.timed_out = True
+        self.finish_reason = "timeout"
+
+    def signal_internal_error(self):
+        """Signal that an internal error occurred (process will be killed)"""
+        self.timed_out = True  # Reuse timed_out flag to trigger error response
+        self.finish_reason = "internal_error"
 
 
 @contextlib.asynccontextmanager
@@ -147,8 +173,14 @@ async def lifespan(app: FastAPI):
         )
     app.state.kv_cache_pool = KVCachePool(app.state.model, MAX_BATCH)
     app.state.request_queue = janus.Queue()
+    app.state.active_tasks = {}  # Track active tasks: task_id -> task object
+    app.state.task_lock = threading.Lock()  # Lock for accessing active_tasks
     worker_thread = threading.Thread(target=worker_loop, args=(app,), daemon=True)
     worker_thread.start()
+
+    # Start timeout checker thread
+    timeout_checker_thread = threading.Thread(target=timeout_checker_loop, args=(app,), daemon=True)
+    timeout_checker_thread.start()
 
     try:
         yield  # The app runs here
@@ -165,6 +197,61 @@ async def lifespan(app: FastAPI):
 App = FastAPI(lifespan=lifespan)
 
 
+# Timeout checker: monitors active tasks and kills process if any task hangs
+def timeout_checker_loop(app):
+    """Monitor active tasks and kill the process if any task hangs beyond timeout"""
+    while True:
+        try:
+            time.sleep(5)  # Check every 5 seconds
+
+            current_time = time.time()
+            hung_tasks = []
+
+            with app.state.task_lock:
+                # Check all active tasks for timeout
+                for task_id, task in list(app.state.active_tasks.items()):
+                    time_since_activity = current_time - task.last_activity_time
+                    if time_since_activity > REQUEST_TIMEOUT:
+                        hung_tasks.append((task_id, time_since_activity))
+
+            # If we found hung tasks, signal all active tasks and then kill the process
+            if hung_tasks:
+                print(f"[ERROR] Detected {len(hung_tasks)} hung task(s) exceeding timeout of {REQUEST_TIMEOUT}s:")
+                for task_id, hang_time in hung_tasks:
+                    print(f"  - Task {task_id}: hung for {hang_time:.1f}s")
+
+                # Signal all active tasks (not just hung ones) to send error responses to clients
+                # This ensures all processing requests get error responses before process is killed
+                with app.state.task_lock:
+                    all_active_tasks = list(app.state.active_tasks.items())
+                    print(f"[ERROR] Signaling {len(all_active_tasks)} active task(s) to send error responses...")
+                    for task_id, task in all_active_tasks:
+                        if task_id in [tid for tid, _ in hung_tasks]:
+                            # Hung tasks get timeout error
+                            task.signal_timeout()
+                            print(f"[ERROR] Signaled timeout to hung task {task_id}")
+                        else:
+                            # Other active tasks get internal error (process will be killed)
+                            task.signal_internal_error()
+                            print(f"[ERROR] Signaled internal error to active task {task_id}")
+
+                # Give a short time for error responses to be sent to clients
+                print(f"[ERROR] Waiting 2 seconds for error responses to be sent to clients...")
+                time.sleep(2)
+
+                print(f"[ERROR] Killing process to trigger recovery mechanism...")
+                # Kill the process - this will be detected by the babysitter and trigger restart
+                os.kill(os.getpid(), signal.SIGTERM)
+                # If SIGTERM doesn't work, use SIGKILL as fallback after a delay
+                time.sleep(2)
+                os.kill(os.getpid(), signal.SIGKILL)
+                break
+
+        except Exception as e:
+            print(f"[ERROR] Exception in timeout checker: {e}")
+            time.sleep(5)
+
+
 # App loop: take requests from the queue, do inference, and put unfinished requests back into the queue.
 def worker_loop(app):
     while True:
@@ -176,22 +263,65 @@ def worker_loop(app):
         if task is None:
             return
 
+        # Register task as active
+        with app.state.task_lock:
+            app.state.active_tasks[task.id] = task
+            task.last_activity_time = time.time()
+
         batch = [task]
         while len(batch) < MAX_BATCH:
             try:
                 req = app.state.request_queue.sync_q.get_nowait()
                 if req is not None:
                     batch.append(req)
+                    # Register additional tasks as active
+                    with app.state.task_lock:
+                        app.state.active_tasks[req.id] = req
+                        req.last_activity_time = time.time()
             except queue.Empty:
                 break
+
+        # Update activity time before inference
+        batch_start_time = time.time()
+        with app.state.task_lock:
+            for t in batch:
+                t.last_activity_time = batch_start_time
+
+        # Test hang simulation: if any task has test_hang_seconds > 0, sleep to simulate hang
+        # Only apply once per task by setting test_hang_seconds to 0 after use
+        tasks_needing_hang = [t for t in batch if t.test_hang_seconds > 0]
+        if tasks_needing_hang:
+            max_hang_time = max(t.test_hang_seconds for t in tasks_needing_hang)
+            print(f"[TEST] Simulating hang for {max_hang_time}s (task will exceed timeout if timeout < {max_hang_time}s)")
+            time.sleep(max_hang_time)
+            print(f"[TEST] Hang simulation complete, continuing with inference...")
+            # Reset test_hang_seconds to 0 for all tasks that used it (so it won't hang again)
+            for t in tasks_needing_hang:
+                t.test_hang_seconds = 0
+
         output_tokens = app.state.model.batch_infer_one_round(batch)
+
+        # Update activity time after inference (critical: if batch_infer_one_round hangs,
+        # this won't execute, and timeout checker will detect it)
+        batch_end_time = time.time()
+        with app.state.task_lock:
+            for task, token in zip(batch, output_tokens):
+                task.last_activity_time = batch_end_time
+                task.output(token)
+                if task.finish_reason is None:
+                    # Task continues, keep it tracked but update activity time
+                    # It will be put back in queue and processed again
+                    pass
+                else:
+                    print(f"[INFO] Task {task.id} finished infer.")
+                    app.state.kv_cache_pool.release_sync(task)
+                    # Remove task from active tracking when finished
+                    app.state.active_tasks.pop(task.id, None)
+
+        # Put unfinished tasks back in queue (outside lock to avoid deadlock)
         for task, token in zip(batch, output_tokens):
-            task.output(token)
             if task.finish_reason is None:
                 app.state.request_queue.sync_q.put(task)
-            else:
-                print(f"[INFO] Task {task.id} finished infer.")
-                app.state.kv_cache_pool.release_sync(task)
 
 
 def build_task(id_, request_data, request: Request):
@@ -217,6 +347,12 @@ def build_task(id_, request_data, request: Request):
         tokens = request.app.state.model.tokenizer.encode(prompt)
         max_tokens = request_data.get("max_tokens", 0)
 
+    # Test parameter: test_hang_seconds - sleep for this many seconds to simulate hang
+    # This is useful for testing the timeout checker mechanism.
+    # Example: Set "test_hang_seconds": 350 in request to test timeout (if timeout is 300s)
+    # The sleep happens in the worker loop before batch_infer_one_round, simulating a hang
+    test_hang_seconds = request_data.get("test_hang_seconds", 0)
+
     return AsyncInferTask(
         id_,
         tokens,
@@ -226,13 +362,30 @@ def build_task(id_, request_data, request: Request):
         request_data.get("top_p", 1.0),
         request.app.state.model.eos_token_id,
         request_data.get("repetition_penalty", 1.0),
+        test_hang_seconds=test_hang_seconds,
     )
 
 
 async def chat_stream(id_, request_data, request: Request):
     try:
         infer_task = build_task(id_, request_data, request)
+        # Track task from creation
+        with request.app.state.task_lock:
+            request.app.state.active_tasks[infer_task.id] = infer_task
+            infer_task.last_activity_time = time.time()
+
         await request.app.state.kv_cache_pool.acquire(infer_task)
+
+        # Check if task already timed out before starting stream
+        if infer_task.timed_out:
+            raise HTTPException(
+                status_code=504,
+                detail={
+                    "message": f"Request timeout: task exceeded {REQUEST_TIMEOUT}s timeout",
+                    "type": "timeout_error",
+                    "code": "timeout"
+                }
+            )
 
         # Initial empty content
         chunk = json.dumps(
@@ -250,12 +403,38 @@ async def chat_stream(id_, request_data, request: Request):
                 infer_task.finish_reason is not None
                 and infer_task.output_queue.async_q.empty()
             ):
-                chunk = json.dumps(
-                    chunk_json(id_, finish_reason=infer_task.finish_reason),
-                    ensure_ascii=False,
-                )
-                yield f"data: {chunk}\n\n"
+                # Check if timed out or internal error - raise HTTPException for proper error code
+                if infer_task.timed_out:
+                    # Both timeout and internal_error result in internal error response
+                    # because the process will be killed and restarted
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "message": "Internal server error: process will be restarted",
+                            "type": "internal_error",
+                            "code": "internal_error"
+                        }
+                    )
+                else:
+                    chunk = json.dumps(
+                        chunk_json(id_, finish_reason=infer_task.finish_reason),
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {chunk}\n\n"
                 break
+
+            # Check for timeout or internal error before getting next token
+            if infer_task.timed_out:
+                # Both timeout and internal_error result in internal error response
+                # because the process will be killed and restarted
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "message": "Internal server error: process will be restarted",
+                        "type": "internal_error",
+                        "code": "internal_error"
+                    }
+                )
 
             token = await infer_task.output_queue.async_q.get()
             content = request.app.state.model.tokenizer.decode(token)
@@ -263,16 +442,36 @@ async def chat_stream(id_, request_data, request: Request):
             chunk = json.dumps(chunk_json(id_, content=content), ensure_ascii=False)
             yield f"data: {chunk}\n\n"
 
+    except HTTPException:
+        # Re-raise HTTPException to propagate error status code
+        raise
     except Exception as e:
         print(f"[Error] ID : {id_} Exception: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": str(e),
+                "type": "internal_error",
+                "code": "internal_error"
+            }
+        )
     finally:
-        if infer_task.finish_reason is None:
-            infer_task.finish_reason = "cancel"
+        if infer_task:
+            if infer_task.finish_reason is None:
+                infer_task.finish_reason = "cancel"
+            # Clean up task from active tracking
+            with request.app.state.task_lock:
+                request.app.state.active_tasks.pop(infer_task.id, None)
 
 
 async def chat(id_, request_data, request: Request):
     try:
         infer_task = build_task(id_, request_data, request)
+        # Track task from creation
+        with request.app.state.task_lock:
+            request.app.state.active_tasks[infer_task.id] = infer_task
+            infer_task.last_activity_time = time.time()
+
         await request.app.state.kv_cache_pool.acquire(infer_task)
         request.app.state.request_queue.sync_q.put(infer_task)
         output = []
@@ -283,9 +482,39 @@ async def chat(id_, request_data, request: Request):
             ):
                 break
 
+            # Check for timeout or internal error before getting next token
+            if infer_task.timed_out:
+                # Both timeout and internal_error result in internal error response
+                # because the process will be killed and restarted
+                return JSONResponse(
+                    content={
+                        "error": {
+                            "message": "Internal server error: process will be restarted",
+                            "type": "internal_error",
+                            "code": "internal_error"
+                        }
+                    },
+                    status_code=500  # Internal Server Error
+                )
+
             token = await infer_task.output_queue.async_q.get()
             content = request.app.state.model.tokenizer.decode(token)
             output.append(content)
+
+        # Check if timed out or internal error before returning response
+        if infer_task.timed_out:
+            # Both timeout and internal_error result in internal error response
+            # because the process will be killed and restarted
+            return JSONResponse(
+                content={
+                    "error": {
+                        "message": "Internal server error: process will be restarted",
+                        "type": "internal_error",
+                        "code": "internal_error"
+                    }
+                },
+                status_code=500  # Internal Server Error
+            )
 
         output_text = "".join(output).strip()
         response = chunk_json(
@@ -302,6 +531,9 @@ async def chat(id_, request_data, request: Request):
     finally:
         if infer_task.finish_reason is None:
             infer_task.finish_reason = "cancel"
+        # Clean up task from active tracking
+        with request.app.state.task_lock:
+            request.app.state.active_tasks.pop(infer_task.id, None)
 
 
 @App.post("/chat/completions")
@@ -320,11 +552,15 @@ async def chat_completions(request: Request):
     stream = data.get("stream", False)
     id_ = f"cmpl-{uuid.uuid4().hex}"
     if stream:
+        # FastAPI's exception handler will catch HTTPException raised from the generator
         return StreamingResponse(
             chat_stream(id_, data, request), media_type="text/event-stream"
         )
     else:
         response = await chat(id_, data, request)
+        # If response is already a JSONResponse (error case), return it directly
+        if isinstance(response, JSONResponse):
+            return response
         return JSONResponse(content=response)
 
 
@@ -541,6 +777,22 @@ curl -N -H "Content-Type: application/json" \
        "repetition_penalty": 1.1,
        "stream": false,
         "chat_template_kwargs": {"enable_thinking": false}
+     }'
+
+# Test timeout checker: simulate a hang that exceeds the timeout
+# This will cause the process to be killed by the timeout checker
+# (assuming --request-timeout is set to a value less than test_hang_seconds)
+# Example: if --request-timeout=300, use test_hang_seconds=350 to trigger timeout
+curl -N -H "Content-Type: application/json" \
+     -X POST http://127.0.0.1:8000/chat/completions \
+     -d '{
+       "model": "jiuge",
+       "messages": [
+         {"role": "user", "content": "Hello"}
+       ],
+       "temperature": 0.7,
+       "test_hang_seconds": 350,
+       "stream": false
      }'
 
 
