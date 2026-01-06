@@ -29,13 +29,12 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     auto input_ids = input.input_ids.value();
     auto position_ids = input.position_ids.value();
     auto cache_lengths = input.cache_lengths;
-    auto input_lengths = input.input_lengths;
     auto input_offsets = input.input_offsets;
     auto block_tables = input.block_tables;
     auto slot_mapping = input.slot_mapping;
 
     // 1. Forward through base model to get hidden states
-    auto hidden_states = model_->forward(input_ids, position_ids, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping);
+    auto hidden_states = model_->forward(input_ids, position_ids, cache_lengths, input_offsets, block_tables, slot_mapping);
 
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);

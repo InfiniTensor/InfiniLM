@@ -54,7 +54,6 @@ class InferEngine(_infinilm.InferEngine):
         *,
         position_ids=None,
         cache_lengths=None,
-        input_lengths=None,
         input_offsets=None,
         block_tables=None,
         slot_mapping=None,
@@ -66,7 +65,6 @@ class InferEngine(_infinilm.InferEngine):
         input_ids = input_ids._underlying if input_ids is not None else None
         position_ids = position_ids._underlying if position_ids is not None else None
         cache_lengths = cache_lengths._underlying if cache_lengths is not None else None
-        input_lengths = input_lengths._underlying if input_lengths is not None else None
         input_offsets = input_offsets._underlying if input_offsets is not None else None
         block_tables = block_tables._underlying if block_tables is not None else None
         slot_mapping = slot_mapping._underlying if slot_mapping is not None else None
@@ -78,7 +76,6 @@ class InferEngine(_infinilm.InferEngine):
                     input_ids,
                     position_ids=position_ids,
                     cache_lengths=cache_lengths,
-                    input_lengths=input_lengths,
                     input_offsets=input_offsets,
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
@@ -125,12 +122,9 @@ class InferEngine(_infinilm.InferEngine):
                 cache_lengths = infinicore.from_list(
                     [past_seq_len] * batch_size, dtype=infinicore.int64
                 )
-                input_lengths = infinicore.from_list(
-                    [seq_len] * batch_size, dtype=infinicore.int64
-                )
 
                 input_offsets = infinicore.from_list(
-                    [seq_len * i for i in range(batch_size)], dtype=infinicore.int64
+                    [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int64
                 )
                 block_tables = infinicore.from_list(
                     [
@@ -160,15 +154,15 @@ class InferEngine(_infinilm.InferEngine):
                     ],
                     dtype=infinicore.int64,
                 )
+
                 cache_lengths = infinicore.from_list(
                     [past_seq_len], dtype=infinicore.int64
                 )
-                input_lengths = infinicore.from_list(
-                    [seq_len] * batch_size, dtype=infinicore.int64
-                )
+
                 input_offsets = infinicore.from_list(
-                    [seq_len * i for i in range(batch_size)], dtype=infinicore.int64
+                    [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int64
                 )
+
                 block_tables = None
                 slot_mapping = None
 
@@ -176,7 +170,6 @@ class InferEngine(_infinilm.InferEngine):
                 input_ids=input_ids,
                 position_ids=position_ids,
                 cache_lengths=cache_lengths,
-                input_lengths=input_lengths,
                 input_offsets=input_offsets,
                 block_tables=block_tables,
                 slot_mapping=slot_mapping,
@@ -188,7 +181,8 @@ class InferEngine(_infinilm.InferEngine):
             output_ids.append(output_id)
 
             if (
-                generation_config.stop_on_eos
+                initial_batch_size == 1
+                and generation_config.stop_on_eos
                 and generation_config.max_new_tokens is not None
                 and output_id.to_numpy()[0] in eos_token_id
             ):

@@ -24,9 +24,7 @@ public:
         std::optional<infinicore::Tensor> position_ids;
         /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
         std::optional<infinicore::Tensor> cache_lengths;
-        /// Input Lengths of each request in a continous-batched sequence, of shape `[num_requests]`.
-        std::optional<infinicore::Tensor> input_lengths;
-        /// Offsets of each request in a continous-batched sequence, of shape `[num_requests]`.
+        /// Offsets of each request in a continous-batched sequence, of shape `[num_requests + 1]`.
         std::optional<infinicore::Tensor> input_offsets;
         /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
         std::optional<infinicore::Tensor> block_tables;

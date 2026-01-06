@@ -72,11 +72,6 @@ infinilm::InfinilmModel::Input InferEngine::Input::to_model_input(infinicore::De
         }
     }
 
-    std::optional<infinicore::Tensor> input_lengths_on_device;
-    if (input_lengths.has_value()) {
-        input_lengths_on_device = input_lengths.value()->to(device);
-    }
-
     std::optional<infinicore::Tensor> input_offsets_on_device;
     if (input_offsets.has_value()) {
         input_offsets_on_device = input_offsets.value()->to(device);
@@ -96,7 +91,6 @@ infinilm::InfinilmModel::Input InferEngine::Input::to_model_input(infinicore::De
         input_ids, // @todo: on device in the future
         position_ids_on_device,
         cache_lengths_on_device,
-        input_lengths_on_device,
         input_offsets_on_device,
         block_tables_on_device,
         slot_mapping_on_device};

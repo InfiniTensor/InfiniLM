@@ -81,7 +81,6 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<infinicore::Tensor> input_ids,
                          std::optional<infinicore::Tensor> position_ids,
                          std::optional<infinicore::Tensor> cache_lengths,
-                         std::optional<infinicore::Tensor> input_lengths,
                          std::optional<infinicore::Tensor> input_offsets,
                          std::optional<infinicore::Tensor> block_tables,
                          std::optional<infinicore::Tensor> slot_mapping,
@@ -90,7 +89,6 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(input_ids),
                     std::move(position_ids),
                     std::move(cache_lengths),
-                    std::move(input_lengths),
                     std::move(input_offsets),
                     std::move(block_tables),
                     std::move(slot_mapping)}};
@@ -112,14 +110,12 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("input_ids") = std::nullopt,
             py::arg("position_ids") = std::nullopt,
             py::arg("cache_lengths") = std::nullopt,
-            py::arg("input_lengths") = std::nullopt,
             py::arg("input_offsets") = std::nullopt,
             py::arg("block_tables") = std::nullopt,
             py::arg("slot_mapping") = std::nullopt)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
         .def_readwrite("position_ids", &InferEngine::Input::position_ids)
         .def_readwrite("cache_lengths", &InferEngine::Input::cache_lengths)
-        .def_readwrite("input_lengths", &InferEngine::Input::input_lengths)
         .def_readwrite("input_offsets", &InferEngine::Input::input_offsets)
         .def_readwrite("block_tables", &InferEngine::Input::block_tables)
         .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping);

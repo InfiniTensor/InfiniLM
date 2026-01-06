@@ -142,12 +142,10 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                                                   const infinicore::Tensor &position_ids,
                                                   std::shared_ptr<infinilm::cache::PagedKVCache> paged_kv_cache,
                                                   std::optional<infinicore::Tensor> cache_lengths,
-                                                  std::optional<infinicore::Tensor> input_lengths,
                                                   std::optional<infinicore::Tensor> input_offsets,
                                                   std::optional<infinicore::Tensor> block_tables,
                                                   std::optional<infinicore::Tensor> slot_mapping) const {
     ASSERT(block_tables.has_value());
-    ASSERT(input_lengths.has_value());
     ASSERT(slot_mapping.has_value());
 
     // Input shape: [batch, seq_len, hidden_size]
@@ -159,7 +157,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     // Only support batchsize==1, all requests should be flattened along seqlen dimension
     ASSERT_EQ(batch_size, 1);
     // Decode only if total_len == num_requests
-    bool is_prefill = (seq_len != input_lengths.value()->shape()[0]);
+    bool is_prefill = (seq_len != cache_lengths.value()->shape()[0]);
 
     // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
@@ -207,7 +205,6 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             v_total,
             block_tables.value(),
             cache_lengths.value(),
-            input_lengths.value(),
             input_offsets.value(),
             std::nullopt,
             scaling_);
@@ -233,7 +230,6 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
                                            const infinicore::Tensor &position_ids,
                                            std::shared_ptr<cache::Cache> kv_cache,
                                            std::optional<infinicore::Tensor> cache_lengths,
-                                           std::optional<infinicore::Tensor> input_lengths,
                                            std::optional<infinicore::Tensor> input_offsets,
                                            std::optional<infinicore::Tensor> block_tables,
                                            std::optional<infinicore::Tensor> slot_mapping) const {
@@ -243,7 +239,7 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
 
     infinicore::Tensor output;
     if (auto paged_kv_cache = std::dynamic_pointer_cast<cache::PagedKVCache>(kv_cache)) {
-        output = forward_paged_(hidden_states, position_ids, paged_kv_cache, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping);
+        output = forward_paged_(hidden_states, position_ids, paged_kv_cache, cache_lengths, input_offsets, block_tables, slot_mapping);
     } else {
 
         output = forward_(hidden_states, position_ids, kv_cache, cache_lengths);
