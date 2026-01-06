@@ -71,7 +71,7 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
   - 单次推理测试
     - llama示例
     ```bash
-    python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>
+    python examples/llama.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>
     ```
     - 例如：
     ```bash
@@ -113,7 +113,7 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
   - 运行推理基准测试（C-Eval/MMLU）
 
     ```bash
-    python test/bench/test_benchmark.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]
+    python test/bench/test_benchmark.py [--cpu | --nvidia | --qy | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]
     ```
 
     - 参数说明：
