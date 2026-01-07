@@ -403,18 +403,31 @@ async def chat_stream(id_, request_data, request: Request):
                 infer_task.finish_reason is not None
                 and infer_task.output_queue.async_q.empty()
             ):
-                # Check if timed out or internal error - raise HTTPException for proper error code
+                # Check if timed out or internal error - yield error chunk instead of raising HTTPException
+                # (can't raise HTTPException after streaming has started)
                 if infer_task.timed_out:
                     # Both timeout and internal_error result in internal error response
                     # because the process will be killed and restarted
-                    raise HTTPException(
-                        status_code=500,
-                        detail={
+                    # Yield error chunk in SSE format
+                    error_chunk = {
+                        "id": id_,
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": "unknown",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": None
+                        }],
+                        "error": {
                             "message": "Internal server error: process will be restarted",
                             "type": "internal_error",
                             "code": "internal_error"
                         }
-                    )
+                    }
+                    chunk = json.dumps(error_chunk, ensure_ascii=False)
+                    yield f"data: {chunk}\n\n"
+                    yield "data: [DONE]\n\n"
                 else:
                     chunk = json.dumps(
                         chunk_json(id_, finish_reason=infer_task.finish_reason),
@@ -427,14 +440,27 @@ async def chat_stream(id_, request_data, request: Request):
             if infer_task.timed_out:
                 # Both timeout and internal_error result in internal error response
                 # because the process will be killed and restarted
-                raise HTTPException(
-                    status_code=500,
-                    detail={
+                # Yield error chunk in SSE format (can't raise HTTPException after streaming started)
+                error_chunk = {
+                    "id": id_,
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "unknown",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": None
+                    }],
+                    "error": {
                         "message": "Internal server error: process will be restarted",
                         "type": "internal_error",
                         "code": "internal_error"
                     }
-                )
+                }
+                chunk = json.dumps(error_chunk, ensure_ascii=False)
+                yield f"data: {chunk}\n\n"
+                yield "data: [DONE]\n\n"
+                break
 
             token = await infer_task.output_queue.async_q.get()
             content = request.app.state.model.tokenizer.decode(token)
