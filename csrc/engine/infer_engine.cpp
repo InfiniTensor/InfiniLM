@@ -56,44 +56,23 @@ std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> InferEng
 //------------------------------------------------------
 // forward
 //------------------------------------------------------
-infinilm::InfinilmModel::Input InferEngine::Input::to_model_input(infinicore::Device device) const {
+infinilm::InfinilmModel::Input
+InferEngine::Input::to_model_input(infinicore::Device device) const {
 
-    std::optional<infinicore::Tensor> position_ids_on_device;
-    if (position_ids.has_value()) {
-        position_ids_on_device = position_ids.value()->to(device);
-    }
-
-    std::optional<infinicore::Tensor> cache_lengths_on_device;
-    if (cache_lengths.has_value()) {
-        if (block_tables.has_value()) {
-            cache_lengths_on_device = cache_lengths.value()->to(device);
-        } else { // @todo: only paged kv cache support device tensor so far
-            cache_lengths_on_device = cache_lengths.value();
-        }
-    }
-
-    std::optional<infinicore::Tensor> input_offsets_on_device;
-    if (input_offsets.has_value()) {
-        input_offsets_on_device = input_offsets.value()->to(device);
-    }
-
-    std::optional<infinicore::Tensor> block_tables_on_device;
-    if (block_tables.has_value()) {
-        block_tables_on_device = block_tables.value()->to(device);
-    }
-
-    std::optional<infinicore::Tensor> slot_mapping_on_device;
-    if (slot_mapping.has_value()) {
-        slot_mapping_on_device = slot_mapping.value()->to(device);
-    }
+    auto to_device = [&](const std::optional<infinicore::Tensor> &t)
+        -> std::optional<infinicore::Tensor> {
+        return t.has_value() ? t.value()->to(device) : t;
+    };
 
     return {
         input_ids, // @todo: on device in the future
-        position_ids_on_device,
-        cache_lengths_on_device,
-        input_offsets_on_device,
-        block_tables_on_device,
-        slot_mapping_on_device};
+        to_device(position_ids),
+        past_sequence_lengths, // @todo: on device in the future
+        to_device(total_sequence_lengths),
+        to_device(input_offsets),
+        to_device(block_tables),
+        to_device(slot_mapping),
+    };
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {

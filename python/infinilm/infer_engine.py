@@ -53,7 +53,8 @@ class InferEngine(_infinilm.InferEngine):
         input_ids,
         *,
         position_ids=None,
-        cache_lengths=None,
+        past_kv_lengths=None,
+        total_kv_lengths=None,
         input_offsets=None,
         block_tables=None,
         slot_mapping=None,
@@ -64,7 +65,12 @@ class InferEngine(_infinilm.InferEngine):
         # TODO: Remove `_underlying` and simplify the corresponding code.
         input_ids = input_ids._underlying if input_ids is not None else None
         position_ids = position_ids._underlying if position_ids is not None else None
-        cache_lengths = cache_lengths._underlying if cache_lengths is not None else None
+        past_kv_lengths = (
+            past_kv_lengths._underlying if past_kv_lengths is not None else None
+        )
+        total_kv_lengths = (
+            total_kv_lengths._underlying if past_kv_lengths is not None else None
+        )
         input_offsets = input_offsets._underlying if input_offsets is not None else None
         block_tables = block_tables._underlying if block_tables is not None else None
         slot_mapping = slot_mapping._underlying if slot_mapping is not None else None
@@ -75,7 +81,8 @@ class InferEngine(_infinilm.InferEngine):
                 super().Input(
                     input_ids,
                     position_ids=position_ids,
-                    cache_lengths=cache_lengths,
+                    past_sequence_lengths=past_kv_lengths,
+                    total_sequence_lengths=total_kv_lengths,
                     input_offsets=input_offsets,
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
@@ -87,7 +94,14 @@ class InferEngine(_infinilm.InferEngine):
             .output_ids
         )
 
-    def generate(self, input_ids, generation_config, *, _measure_and_log_time=False):
+    def generate(
+        self,
+        input_ids,
+        generation_config,
+        *,
+        _measure_and_log_time=False,
+        paged_block_size=16,
+    ):
         if generation_config.eos_token_id is None:
             eos_token_id = self.config.eos_token_id
         else:
@@ -119,31 +133,30 @@ class InferEngine(_infinilm.InferEngine):
                     list(range(past_seq_len, past_seq_len + seq_len)) * batch_size,
                     dtype=infinicore.int64,
                 )
-                cache_lengths = infinicore.from_list(
-                    [past_seq_len] * batch_size, dtype=infinicore.int64
-                )
-
-                input_offsets = infinicore.from_list(
-                    [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int64
-                )
-                block_tables = infinicore.from_list(
+                block_tables_list = [
                     [
-                        [
-                            i * batch_size + b
-                            for i in range((past_seq_len + seq_len + 15) // 16)
-                        ]
-                        for b in range(batch_size)
-                    ],
+                        i * batch_size + b
+                        for i in range(
+                            (past_seq_len + seq_len + paged_block_size - 1)
+                            // paged_block_size
+                        )
+                    ]
+                    for b in range(batch_size)
+                ]
+                slot_mapping_list = [
+                    (((past_seq_len + i) // paged_block_size) * batch_size + b)
+                    * paged_block_size
+                    + (past_seq_len + i) % paged_block_size
+                    for b in range(batch_size)
+                    for i in range(seq_len)
+                ]
+
+                block_tables = infinicore.from_list(
+                    block_tables_list,
                     dtype=infinicore.int64,
                 )
                 slot_mapping = infinicore.from_list(
-                    [
-                        ((past_seq_len + i + 15) // 16) * batch_size
-                        + b
-                        + (past_seq_len + i + 15) % 16
-                        for i in range(seq_len)
-                        for b in range(batch_size)
-                    ],
+                    slot_mapping_list,
                     dtype=infinicore.int64,
                 )
             else:
@@ -155,21 +168,25 @@ class InferEngine(_infinilm.InferEngine):
                     dtype=infinicore.int64,
                 )
 
-                cache_lengths = infinicore.from_list(
-                    [past_seq_len], dtype=infinicore.int64
-                )
-
-                input_offsets = infinicore.from_list(
-                    [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int64
-                )
-
                 block_tables = None
                 slot_mapping = None
+
+            past_kv_lengths = infinicore.from_list(
+                [past_seq_len] * batch_size, dtype=infinicore.int64
+            )
+            total_kv_lengths = infinicore.from_list(
+                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int64
+            )
+
+            input_offsets = infinicore.from_list(
+                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int64
+            )
 
             output_id = self(
                 input_ids=input_ids,
                 position_ids=position_ids,
-                cache_lengths=cache_lengths,
+                past_kv_lengths=past_kv_lengths,
+                total_kv_lengths=total_kv_lengths,
                 input_offsets=input_offsets,
                 block_tables=block_tables,
                 slot_mapping=slot_mapping,

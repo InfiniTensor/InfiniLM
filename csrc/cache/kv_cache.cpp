@@ -80,12 +80,12 @@ std::tuple<infinicore::Tensor, infinicore::Tensor>
 StaticKVCache::update(size_t layer_idx,
                       const infinicore::Tensor &k,
                       const infinicore::Tensor &v,
-                      const infinicore::Tensor &cache_lengths) {
+                      const infinicore::Tensor &past_sequence_lengths) {
     ASSERT(layer_idx < rank_num_layers_);
 
     auto batch_size = k->size(0);
     auto update_len = k->size(2);
-    size_t cache_pos = reinterpret_cast<int64_t *>(cache_lengths->to(infinicore::Device::cpu())->data())[0];
+    size_t cache_pos = reinterpret_cast<int64_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
     auto result_len = cache_pos + update_len;
 
     ASSERT(result_len <= cache_len_);

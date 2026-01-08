@@ -51,7 +51,8 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                const infinicore::Tensor &position_ids,
                                std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                               std::optional<infinicore::Tensor> cache_lengths,
+                               std::optional<infinicore::Tensor> past_sequence_lengths,
+                               std::optional<infinicore::Tensor> total_sequence_lengths,
                                std::optional<infinicore::Tensor> input_offsets,
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mapping) const;
@@ -76,12 +77,13 @@ private:
     infinicore::Tensor forward_(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &position_ids,
                                 std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                                std::optional<infinicore::Tensor> cache_lengths) const;
+                                std::optional<infinicore::Tensor> past_sequence_lengths,
+                                std::optional<infinicore::Tensor> total_sequence_lengths) const;
 
     infinicore::Tensor forward_paged_(const infinicore::Tensor &hidden_states,
                                       const infinicore::Tensor &position_ids,
                                       std::shared_ptr<infinilm::cache::PagedKVCache> kv_cache,
-                                      std::optional<infinicore::Tensor> cache_lengths,
+                                      std::optional<infinicore::Tensor> total_sequence_lengths,
                                       std::optional<infinicore::Tensor> input_offsets,
                                       std::optional<infinicore::Tensor> block_tables,
                                       std::optional<infinicore::Tensor> slot_mapping) const;

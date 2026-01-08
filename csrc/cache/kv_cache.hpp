@@ -61,7 +61,7 @@ public:
     update(size_t layer_idx,
            const infinicore::Tensor &k,
            const infinicore::Tensor &v,
-           const infinicore::Tensor &cache_lengths);
+           const infinicore::Tensor &past_sequence_lengths);
 
     ~StaticKVCache() override = default;
 
