@@ -137,7 +137,11 @@ print(
 )
 
 
-def chunk_json(id_, content=None, role=None, finish_reason=None):
+def chunk_json(id_, content=None, role=None, finish_reason=None, model="jiuge"):
+    """
+    Generate SSE chunk format for streaming responses.
+    Used for Server-Sent Events (SSE) streaming mode.
+    """
     delta = {}
     if content:
         delta["content"] = content
@@ -147,17 +151,46 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
         "id": id_,
         "object": "chat.completion.chunk",
         "created": int(time.time()),
-        "model": "jiuge",
+        "model": model,
         "system_fingerprint": None,
         "choices": [
             {
                 "index": 0,
-                "text": content,
                 "delta": delta,
                 "logprobs": None,
                 "finish_reason": finish_reason,
             }
         ],
+    }
+
+
+def chat_completion_json(id_, content, role="assistant", finish_reason=None, prompt_tokens=0, completion_tokens=0, model="jiuge"):
+    """
+    Generate OpenAI-compatible non-streaming chat completion response.
+    Used for non-streaming (stream=False) mode.
+    """
+    return {
+        "id": id_,
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "system_fingerprint": None,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": role,
+                    "content": content
+                },
+                "logprobs": None,
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens
+        }
     }
 
 
@@ -169,11 +202,15 @@ class AsyncInferTask(InferTask):
         self.last_activity_time = time.time()  # Track when task was last active
         self.test_hang_seconds = test_hang_seconds  # Test parameter: sleep for this many seconds to simulate hang (set to 0 after first use)
         self.timed_out = False  # Flag to mark if task has timed out
+        self.initial_prompt_tokens = len(tokens)  # Track initial prompt token count for usage statistics
+        self.generated_tokens = []  # Track generated token IDs for counting completion tokens
         print(f"[INFO] Create InferTask {self.id}" + (f" (TEST: will hang for {test_hang_seconds}s once)" if test_hang_seconds > 0 else ""))
 
     def output(self, out_token):
         self.next(out_token)
         self.last_activity_time = time.time()  # Update activity time when output is generated
+        if out_token is not None:  # Track non-None tokens for completion count
+            self.generated_tokens.append(out_token)
         self.output_queue.sync_q.put(out_token)
 
     def signal_timeout(self):
@@ -414,9 +451,12 @@ async def chat_stream(id_, request_data, request: Request):
                 }
             )
 
+        # Get model name from request or use global MODEL_NAME
+        model_name = request_data.get("model", MODEL_NAME or "jiuge")
+
         # Initial empty content
         chunk = json.dumps(
-            chunk_json(id_, content="", role="assistant"), ensure_ascii=False
+            chunk_json(id_, content="", role="assistant", model=model_name), ensure_ascii=False
         )
         yield f"data: {chunk}\n\n"
 
@@ -440,7 +480,7 @@ async def chat_stream(id_, request_data, request: Request):
                         "id": id_,
                         "object": "chat.completion.chunk",
                         "created": int(time.time()),
-                        "model": "unknown",
+                        "model": model_name,
                         "choices": [{
                             "index": 0,
                             "delta": {},
@@ -456,11 +496,14 @@ async def chat_stream(id_, request_data, request: Request):
                     yield f"data: {chunk}\n\n"
                     yield "data: [DONE]\n\n"
                 else:
+                    # Final chunk: empty delta with finish_reason (OpenAI API spec)
                     chunk = json.dumps(
-                        chunk_json(id_, finish_reason=infer_task.finish_reason),
+                        chunk_json(id_, finish_reason=infer_task.finish_reason, model=model_name),
                         ensure_ascii=False,
                     )
                     yield f"data: {chunk}\n\n"
+                    # Send [DONE] marker to indicate stream completion (OpenAI API spec)
+                    yield "data: [DONE]\n\n"
                 break
 
             # Check for timeout or internal error before getting next token
@@ -472,7 +515,7 @@ async def chat_stream(id_, request_data, request: Request):
                     "id": id_,
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
-                    "model": "unknown",
+                    "model": model_name,
                     "choices": [{
                         "index": 0,
                         "delta": {},
@@ -490,9 +533,21 @@ async def chat_stream(id_, request_data, request: Request):
                 break
 
             token = await infer_task.output_queue.async_q.get()
+
+            # Skip EOS tokens - don't include them in the stream
+            # The finish_reason will be set in the final chunk
+            if token is None:
+                continue
+            # Handle end_tokens as list, tuple, or single value
+            if isinstance(infer_task.end_tokens, (list, tuple)):
+                if token in infer_task.end_tokens:
+                    continue
+            elif token == infer_task.end_tokens:
+                continue
+
             content = request.app.state.model.tokenizer.decode(token)
 
-            chunk = json.dumps(chunk_json(id_, content=content), ensure_ascii=False)
+            chunk = json.dumps(chunk_json(id_, content=content, model=model_name), ensure_ascii=False)
             yield f"data: {chunk}\n\n"
 
     except HTTPException:
@@ -551,6 +606,17 @@ async def chat(id_, request_data, request: Request):
                 )
 
             token = await infer_task.output_queue.async_q.get()
+
+            # Skip EOS tokens - don't include them in the output
+            if token is None:
+                continue
+            # Handle end_tokens as list, tuple, or single value
+            if isinstance(infer_task.end_tokens, (list, tuple)):
+                if token in infer_task.end_tokens:
+                    continue
+            elif token == infer_task.end_tokens:
+                continue
+
             content = request.app.state.model.tokenizer.decode(token)
             output.append(content)
 
@@ -570,11 +636,45 @@ async def chat(id_, request_data, request: Request):
             )
 
         output_text = "".join(output).strip()
-        response = chunk_json(
+
+        # Strip EOS token strings from the end of output (defensive check)
+        # Decode EOS tokens to get their string representations
+        eos_token_strings = []
+        end_tokens_list = []
+        if isinstance(infer_task.end_tokens, (list, tuple)):
+            end_tokens_list = list(infer_task.end_tokens)
+        else:
+            end_tokens_list = [infer_task.end_tokens]
+
+        for eos_token_id in end_tokens_list:
+            try:
+                eos_str = request.app.state.model.tokenizer.decode([eos_token_id])
+                if eos_str:
+                    eos_token_strings.append(eos_str)
+            except Exception:
+                pass
+
+        # Remove EOS token strings from the end of output
+        for eos_str in eos_token_strings:
+            if output_text.endswith(eos_str):
+                output_text = output_text[:-len(eos_str)].rstrip()
+
+        # Calculate token usage
+        prompt_tokens = infer_task.initial_prompt_tokens
+        completion_tokens = len(infer_task.generated_tokens)
+
+        # Get model name from request data or use global MODEL_NAME
+        model_name = request_data.get("model", MODEL_NAME or "jiuge")
+
+        # Use correct OpenAI-compatible format for non-streaming response
+        response = chat_completion_json(
             id_,
             content=output_text,
             role="assistant",
             finish_reason=infer_task.finish_reason or "stop",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            model=model_name
         )
         return response
 
