@@ -18,6 +18,7 @@ import threading
 import janus
 import os
 import signal
+from pathlib import Path
 
 
 DEVICE_TYPE_MAP = {
@@ -89,6 +90,12 @@ def parse_args():
         default=30,
         help="Request timeout in seconds. Process will exit if a request hangs longer than this (default: 30)",
     )
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default=None,
+        help="Model name to return in /models endpoint. If not specified, will use the directory name from --model-path (like vLLM/llama.cpp)",
+    )
     return parser.parse_args()
 
 
@@ -102,6 +109,26 @@ MAX_BATCH = args.max_batch
 SERVER_PORT = args.port
 SERVER_HOST = args.host
 REQUEST_TIMEOUT = args.request_timeout
+
+# Derive model name from model path directory name (like vLLM and llama.cpp)
+# Use --model-name if explicitly provided, otherwise use directory name
+if args.model_name:
+    MODEL_NAME = args.model_name
+elif model_path:
+    # Extract directory name from model path
+    # This follows the same convention as vLLM and llama.cpp
+    model_path_obj = Path(model_path).resolve()  # Resolve to absolute path
+    if model_path_obj.is_dir():
+        MODEL_NAME = model_path_obj.name
+    elif model_path_obj.is_file():
+        # If it's a file, use the parent directory name
+        MODEL_NAME = model_path_obj.parent.name
+    else:
+        # Path doesn't exist yet, but extract name from path string
+        # Use the last component of the path
+        MODEL_NAME = model_path_obj.name or model_path_obj.parent.name
+else:
+    MODEL_NAME = None
 print(
     f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
 )
@@ -734,22 +761,34 @@ async def completions(request: Request):
 async def list_models(request: Request):
     """
     OpenAI-compatible /models endpoint.
-    Returns a list of available models.
+    Returns a list of available models (single model specified by --model-name argument).
     """
     try:
-        # Get model information from app state
-        model = request.app.state.model
-        model_id = "jiuge"  # Default model ID
+        # Check if model is loaded (server is ready)
+        if not hasattr(request.app.state, 'model') or request.app.state.model is None:
+            # Server not ready yet - return 503 Service Unavailable
+            return JSONResponse(
+                content={"error": "Service not ready yet, model still loading"},
+                status_code=503
+            )
 
-        # Try to get model name from config if available
-        if hasattr(model, 'config') and model.config:
-            # Try model_type first
-            model_id = model.config.get("model_type", "jiuge")
-            # If model_type is not informative, try architectures
-            if model_id == "jiuge" and "architectures" in model.config:
-                architectures = model.config.get("architectures", [])
-                if architectures:
-                    model_id = architectures[0].lower()
+        # Use model name from argument/directory name, otherwise try to detect from config
+        model_id = MODEL_NAME
+
+        if not model_id:
+            # Get model information from app state
+            model = request.app.state.model
+            model_id = "unknown"  # Default model ID
+
+            # Try to get model name from config if available
+            if hasattr(model, 'config') and model.config:
+                # Try model_type first
+                model_id = model.config.get("model_type", "unknown")
+                # If model_type is not informative, try architectures
+                if model_id == "unknown" and "architectures" in model.config:
+                    architectures = model.config.get("architectures", [])
+                    if architectures:
+                        model_id = architectures[0].lower()
 
         return JSONResponse(content={
             "object": "list",
@@ -765,6 +804,13 @@ async def list_models(request: Request):
                 }
             ]
         })
+    except AttributeError as e:
+        # Model not loaded yet
+        print(f"[Error] Model not loaded in /models: {e}")
+        return JSONResponse(
+            content={"error": "Service not ready yet, model still loading"},
+            status_code=503
+        )
     except Exception as e:
         print(f"[Error] Exception in /models: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
