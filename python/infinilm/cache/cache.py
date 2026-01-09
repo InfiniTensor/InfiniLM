@@ -16,11 +16,11 @@ class StaticKVCacheConfig(CacheConfig, _infinilm.StaticKVCacheConfig):
 class PagedKVCacheConfig(CacheConfig, _infinilm.PagedKVCacheConfig):
     def __init__(
         self,
-        max_kv_memory_bytes: int,
+        num_blocks: int,
         block_size: int = 16,
     ):
         _infinilm.PagedKVCacheConfig.__init__(
             self,
-            max_kv_memory_bytes,
+            num_blocks,
             block_size,
         )

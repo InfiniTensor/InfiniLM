@@ -89,13 +89,6 @@ def get_args():
         help="use paged cache",
     )
 
-    parser.add_argument(
-        "--max-kvcache-size",
-        type=int,
-        default=8 * 1024 * 1024 * 1024,
-        help="max size (in bytes) allocated to paged kv cache",
-    )
-
     return parser.parse_args()
 
 
@@ -109,7 +102,7 @@ def test(
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
-    #                        创建模型,
+    #                        Create Model
     # ---------------------------------------------------------------------------- #
     model = InferEngine(
         model_path,
@@ -118,12 +111,12 @@ def test(
     )
 
     # ---------------------------------------------------------------------------- #
-    #                        加载权重
+    #                        Load Weights
     # ---------------------------------------------------------------------------- #
     load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
 
     # ---------------------------------------------------------------------------- #
-    #                        创建 tokenizer
+    #                        create tokenizer
     # ---------------------------------------------------------------------------- #
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
@@ -146,7 +139,7 @@ def test(
             )
 
     # ---------------------------------------------------------------------------- #
-    #                        token编码
+    #                        tokenize
     # ---------------------------------------------------------------------------- #
     # prompt = "山东最高的山是？"
     if isinstance(prompts, str):
@@ -165,11 +158,13 @@ def test(
     ]  # List: [[1, 1128, 526, 366, 29892]]
 
     # ---------------------------------------------------------------------------- #
-    #                        创建KVCache
+    #                       Create KVCache
     # ---------------------------------------------------------------------------- #
     if enable_paged_attn:
+        batch_size = 1 if prompts is str else len(prompts)
+        max_total_tokens = max_new_tokens + len(input_ids_list[0])
         cache_config = PagedKVCacheConfig(
-            max_kv_memory_bytes=args.max_kvcache_size, block_size=16
+            num_blocks=(max_total_tokens // 16 + 1) * batch_size, block_size=16
         )
     else:
         batch_size = 1 if prompts is str else len(prompts)
@@ -181,7 +176,7 @@ def test(
     model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #
-    #                        自回归生成
+    #                        Generate
     # ---------------------------------------------------------------------------- #
     print(input_contents[0], end="", flush=True)
     input_ids_infini = infinicore.from_list(input_ids_list)

@@ -111,9 +111,9 @@ StaticKVCache::update(size_t layer_idx,
 // PagedKVCacheConfig
 // ==========================
 PagedKVCacheConfig::PagedKVCacheConfig(
-    size_t max_kv_memory_bytes,
+    size_t num_blocks,
     size_t block_size)
-    : max_kv_memory_bytes_(max_kv_memory_bytes),
+    : num_blocks_(num_blocks),
       block_size_(block_size) {
 }
 
@@ -123,8 +123,8 @@ PagedKVCacheConfig::unique_copy() const {
 }
 
 size_t
-PagedKVCacheConfig::max_kv_memory_bytes() const {
-    return max_kv_memory_bytes_;
+PagedKVCacheConfig::num_blocks() const {
+    return num_blocks_;
 }
 
 size_t
@@ -151,16 +151,8 @@ PagedKVCache::PagedKVCache(
       num_rank_v_heads_(num_v_heads / rank_info.tp_size),
       rank_num_layers_(num_layers),
       dtype_(dtype),
+      num_blocks_per_layer_(config.num_blocks()),
       block_size_(config.block_size()) {
-    num_blocks_per_layer_ = config.max_kv_memory_bytes()
-                          / (k_dim * num_rank_k_heads_ + v_dim * num_rank_v_heads_)
-                          / block_size_
-                          / rank_num_layers_
-                          / infinicore::dsize(dtype_);
-    if (num_blocks_per_layer_ == 0) {
-        throw std::runtime_error("Not enough memory for KV cache");
-    }
-
     // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
     k_caches_ = infinicore::Tensor::empty(
         {rank_num_layers_,
@@ -190,11 +182,12 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
 
     auto &&[k_cache_layer, v_cache_layer] = get_paged_kv(layer_idx);
 
-    infinicore::op::paged_caching_(k,
-                                   v,
-                                   k_cache_layer,
-                                   v_cache_layer,
-                                   slot_mapping);
+    infinicore::op::paged_caching_(
+        k_cache_layer,
+        v_cache_layer,
+        k,
+        v,
+        slot_mapping);
     return {k_cache_layer, v_cache_layer};
 }
 
