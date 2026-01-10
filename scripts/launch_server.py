@@ -462,6 +462,12 @@ async def chat_stream(id_, request_data, request: Request):
 
         request.app.state.request_queue.sync_q.put(infer_task)
 
+        # For streaming: accumulate tokens and decode incrementally to handle UTF-8 properly
+        # We maintain a buffer and decode the full buffer each time, only yielding new characters
+        # This ensures multi-byte UTF-8 sequences (emojis, etc.) are decoded correctly
+        token_buffer = []
+        last_yielded_length = 0
+
         while True:
             if await request.is_disconnected():
                 print("Client disconnected. Aborting stream.")
@@ -470,6 +476,17 @@ async def chat_stream(id_, request_data, request: Request):
                 infer_task.finish_reason is not None
                 and infer_task.output_queue.async_q.empty()
             ):
+                # Decode any remaining tokens in buffer before finishing
+                if token_buffer:
+                    try:
+                        decoded_text = request.app.state.model.tokenizer.decode(token_buffer, skip_special_tokens=False)
+                        remaining_content = decoded_text[last_yielded_length:]
+                        if remaining_content:
+                            chunk = json.dumps(chunk_json(id_, content=remaining_content, model=model_name), ensure_ascii=False)
+                            yield f"data: {chunk}\n\n"
+                    except Exception:
+                        pass
+
                 # Check if timed out or internal error - yield error chunk instead of raising HTTPException
                 # (can't raise HTTPException after streaming has started)
                 if infer_task.timed_out:
@@ -545,10 +562,40 @@ async def chat_stream(id_, request_data, request: Request):
             elif token == infer_task.end_tokens:
                 continue
 
-            content = request.app.state.model.tokenizer.decode(token)
+            # Accumulate token in buffer
+            token_buffer.append(token)
 
-            chunk = json.dumps(chunk_json(id_, content=content, model=model_name), ensure_ascii=False)
-            yield f"data: {chunk}\n\n"
+            # Decode the entire buffer each time to ensure proper UTF-8 handling
+            # The tokenizer handles multi-byte sequences correctly when decoding token lists
+            try:
+                decoded_text = request.app.state.model.tokenizer.decode(token_buffer, skip_special_tokens=False)
+
+                # Calculate new content by comparing current decode with what we've already yielded
+                if len(decoded_text) > last_yielded_length:
+                    new_content = decoded_text[last_yielded_length:]
+
+                    # Only yield if we have new content
+                    if new_content:
+                        chunk = json.dumps(chunk_json(id_, content=new_content, model=model_name), ensure_ascii=False)
+                        yield f"data: {chunk}\n\n"
+                        last_yielded_length = len(decoded_text)
+
+                # Prevent buffer from growing too large by periodically flushing
+                # Keep last 5 tokens for multi-token character sequences
+                if len(token_buffer) > 20:
+                    # Keep last 5 tokens and adjust last_yielded_length accordingly
+                    tokens_to_keep = token_buffer[-5:]
+                    decoded_kept = request.app.state.model.tokenizer.decode(tokens_to_keep, skip_special_tokens=False)
+                    # Adjust: subtract the length of removed tokens' decoded text
+                    removed_text = request.app.state.model.tokenizer.decode(token_buffer[:-5], skip_special_tokens=False)
+                    last_yielded_length = len(decoded_text) - len(removed_text)
+                    token_buffer = tokens_to_keep
+
+            except Exception as e:
+                # If decoding fails, skip this token and log (don't break the stream)
+                print(f"[Warning] Failed to decode token {token}: {e}")
+                if len(token_buffer) > 0:
+                    token_buffer.pop()  # Remove the problematic token
 
     except HTTPException:
         # Re-raise HTTPException to propagate error status code
@@ -582,7 +629,8 @@ async def chat(id_, request_data, request: Request):
 
         await request.app.state.kv_cache_pool.acquire(infer_task)
         request.app.state.request_queue.sync_q.put(infer_task)
-        output = []
+        # Collect all tokens first, then decode at once to preserve UTF-8 sequences
+        tokens = []
         while True:
             if (
                 infer_task.finish_reason is not None
@@ -617,8 +665,8 @@ async def chat(id_, request_data, request: Request):
             elif token == infer_task.end_tokens:
                 continue
 
-            content = request.app.state.model.tokenizer.decode(token)
-            output.append(content)
+            # Collect tokens - decode all at once to preserve multi-byte UTF-8 characters
+            tokens.append(token)
 
         # Check if timed out or internal error before returning response
         if infer_task.timed_out:
@@ -635,7 +683,12 @@ async def chat(id_, request_data, request: Request):
                 status_code=500  # Internal Server Error
             )
 
-        output_text = "".join(output).strip()
+        # Decode all tokens at once to preserve multi-byte UTF-8 sequences (emojis, etc.)
+        # This is critical for proper handling of characters that span multiple tokens
+        if tokens:
+            output_text = request.app.state.model.tokenizer.decode(tokens, skip_special_tokens=False).strip()
+        else:
+            output_text = ""
 
         # Strip EOS token strings from the end of output (defensive check)
         # Decode EOS tokens to get their string representations
