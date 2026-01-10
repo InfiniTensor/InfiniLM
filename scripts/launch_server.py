@@ -18,6 +18,7 @@ import threading
 import janus
 import os
 import signal
+import asyncio
 from pathlib import Path
 
 
@@ -96,6 +97,19 @@ def parse_args():
         default=None,
         help="Model name to return in /models endpoint. If not specified, will use the directory name from --model-path (like vLLM/llama.cpp)",
     )
+    parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=None,
+        help="Maximum number of concurrent requests. Requests exceeding this limit will wait in queue. Default: unlimited",
+    )
+    parser.add_argument(
+        "--fix-replacement-chars",
+        type=lambda x: x.lower() in ('true', '1', 'yes', 'on'),
+        default=None,
+        help="Whether to automatically remove replacement characters (U+FFFD) from responses. "
+             "Default: True. Set to false to only log detections without removing them.",
+    )
     return parser.parse_args()
 
 
@@ -109,6 +123,15 @@ MAX_BATCH = args.max_batch
 SERVER_PORT = args.port
 SERVER_HOST = args.host
 REQUEST_TIMEOUT = args.request_timeout
+MAX_CONCURRENCY = args.max_concurrency
+
+# Fix replacement characters config: CLI arg takes precedence, then env var, default to False
+if args.fix_replacement_chars is not None:
+    FIX_REPLACEMENT_CHARS = args.fix_replacement_chars
+else:
+    # Check environment variable, default to False if not set
+    env_value = os.environ.get("FIX_REPLACEMENT_CHARS", "false").lower()
+    FIX_REPLACEMENT_CHARS = env_value in ('true', '1', 'yes', 'on')
 
 # Derive model name from model path directory name (like vLLM and llama.cpp)
 # Use --model-name if explicitly provided, otherwise use directory name
@@ -135,6 +158,11 @@ print(
 print(
     f"Request timeout: {REQUEST_TIMEOUT}s. Process will exit if a request hangs longer than this."
 )
+if MAX_CONCURRENCY is not None and MAX_CONCURRENCY > 0:
+    print(f"Max concurrency: {MAX_CONCURRENCY}. Requests exceeding this limit will wait in queue.")
+else:
+    print("Max concurrency: unlimited")
+print(f"Fix replacement characters: {FIX_REPLACEMENT_CHARS} (U+FFFD will be {'removed' if FIX_REPLACEMENT_CHARS else 'logged only'})")
 
 
 def chunk_json(id_, content=None, role=None, finish_reason=None, model="jiuge"):
@@ -239,6 +267,15 @@ async def lifespan(app: FastAPI):
     app.state.request_queue = janus.Queue()
     app.state.active_tasks = {}  # Track active tasks: task_id -> task object
     app.state.task_lock = threading.Lock()  # Lock for accessing active_tasks
+
+    # Initialize concurrency control semaphore
+    if MAX_CONCURRENCY is not None and MAX_CONCURRENCY > 0:
+        app.state.concurrency_semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
+        print(f"Max concurrency: {MAX_CONCURRENCY}. Requests exceeding this limit will wait in queue.")
+    else:
+        app.state.concurrency_semaphore = None
+        print("Max concurrency: unlimited")
+
     worker_thread = threading.Thread(target=worker_loop, args=(app,), daemon=True)
     worker_thread.start()
 
@@ -317,6 +354,66 @@ def timeout_checker_loop(app):
 
 
 # App loop: take requests from the queue, do inference, and put unfinished requests back into the queue.
+def detect_and_fix_replacement_character(text, context="", request_id=None, fix=True):
+    """
+    Detect and optionally fix replacement character (U+FFFD, ) in text.
+
+    Args:
+        text: Text to check for replacement characters
+        context: Context string for logging (e.g., "streaming response", "non-streaming response")
+        request_id: Optional request ID for logging
+        fix: If True, remove replacement characters from the text. If False, only detect and log.
+
+    Returns:
+        tuple: (cleaned_text: str, has_replacement: bool)
+    """
+    replacement_char = '\ufffd'  # U+FFFD
+    positions = []
+
+    for i, char in enumerate(text):
+        if ord(char) == 0xFFFD:  # Unicode replacement character
+            positions.append(i)
+
+    if positions:
+        # Log detailed information about replacement characters
+        log_prefix = f"[REPLACEMENT_CHAR_DETECTED]"
+        if request_id:
+            log_prefix += f" Request ID: {request_id}"
+        if context:
+            log_prefix += f" Context: {context}"
+
+        print(f"{log_prefix} Found {len(positions)} replacement character(s) (U+FFFD)")
+        print(f"  Positions: {positions[:10]}{'...' if len(positions) > 10 else ''}")
+
+        # Collect and log context samples around first few replacement characters
+        for pos in positions[:3]:  # Log first 3 occurrences
+            start = max(0, pos - 30)
+            end = min(len(text), pos + 30)
+            context_sample = text[start:end]
+            before = text[max(0, pos-10):pos] if pos > 0 else ''
+            after = text[pos+1:min(len(text), pos+11)] if pos < len(text)-1 else ''
+            print(f"  Position {pos}:")
+            print(f"    Before: {repr(before)}")
+            print(f"    After: {repr(after)}")
+            print(f"    Full context: {repr(context_sample)}")
+
+        # Also print a snippet of the text for debugging
+        snippet_start = max(0, positions[0] - 100)
+        snippet_end = min(len(text), positions[0] + 100)
+        print(f"  Text snippet (around first occurrence): {repr(text[snippet_start:snippet_end])}")
+
+        # Fix: Remove all replacement characters
+        if fix:
+            # Remove all U+FFFD characters
+            cleaned_text = ''.join(char for char in text if ord(char) != 0xFFFD)
+            print(f"  [FIXED] Removed {len(positions)} replacement character(s) from output")
+            return cleaned_text, True
+        else:
+            return text, True
+
+    return text, False
+
+
 def worker_loop(app):
     while True:
         try:
@@ -431,6 +528,21 @@ def build_task(id_, request_data, request: Request):
 
 
 async def chat_stream(id_, request_data, request: Request):
+    # Acquire concurrency semaphore if configured (waits if max concurrency reached)
+    semaphore = request.app.state.concurrency_semaphore
+    if semaphore:
+        await semaphore.acquire()
+        try:
+            async for item in _chat_stream_impl(id_, request_data, request):
+                yield item
+        finally:
+            semaphore.release()
+    else:
+        async for item in _chat_stream_impl(id_, request_data, request):
+            yield item
+
+
+async def _chat_stream_impl(id_, request_data, request: Request):
     try:
         infer_task = build_task(id_, request_data, request)
         # Track task from creation
@@ -480,6 +592,12 @@ async def chat_stream(id_, request_data, request: Request):
                 if token_buffer:
                     try:
                         decoded_text = request.app.state.model.tokenizer.decode(token_buffer, skip_special_tokens=False)
+
+                        # Detect and fix replacement characters in the decoded text
+                        decoded_text, has_replacement = detect_and_fix_replacement_character(
+                            decoded_text, context="streaming response (final)", request_id=id_, fix=FIX_REPLACEMENT_CHARS
+                        )
+
                         remaining_content = decoded_text[last_yielded_length:]
                         if remaining_content:
                             chunk = json.dumps(chunk_json(id_, content=remaining_content, model=model_name), ensure_ascii=False)
@@ -570,6 +688,12 @@ async def chat_stream(id_, request_data, request: Request):
             try:
                 decoded_text = request.app.state.model.tokenizer.decode(token_buffer, skip_special_tokens=False)
 
+                # Detect and fix replacement characters in the decoded text
+                # We fix the entire decoded_text to maintain consistency with last_yielded_length tracking
+                decoded_text, has_replacement = detect_and_fix_replacement_character(
+                    decoded_text, context="streaming response chunk", request_id=id_, fix=FIX_REPLACEMENT_CHARS
+                )
+
                 # Calculate new content by comparing current decode with what we've already yielded
                 if len(decoded_text) > last_yielded_length:
                     new_content = decoded_text[last_yielded_length:]
@@ -582,14 +706,43 @@ async def chat_stream(id_, request_data, request: Request):
 
                 # Prevent buffer from growing too large by periodically flushing
                 # Keep last 5 tokens for multi-token character sequences
+                # CRITICAL: When trimming, we need to calculate how many characters from the kept tokens
+                # have already been yielded. We do this by:
+                # 1. Calculating what portion of the full decoded text corresponds to removed tokens
+                # 2. The remaining portion (kept tokens) may have already been partially yielded
+                # 3. When we decode only the kept tokens, we need to figure out which portion was already sent
                 if len(token_buffer) > 20:
-                    # Keep last 5 tokens and adjust last_yielded_length accordingly
-                    tokens_to_keep = token_buffer[-5:]
-                    decoded_kept = request.app.state.model.tokenizer.decode(tokens_to_keep, skip_special_tokens=False)
-                    # Adjust: subtract the length of removed tokens' decoded text
-                    removed_text = request.app.state.model.tokenizer.decode(token_buffer[:-5], skip_special_tokens=False)
-                    last_yielded_length = len(decoded_text) - len(removed_text)
-                    token_buffer = tokens_to_keep
+                    # Calculate what portion of decoded_text corresponds to removed tokens
+                    num_removed = len(token_buffer) - 5
+                    removed_tokens = token_buffer[:num_removed]
+                    kept_tokens = token_buffer[-5:]
+
+                    # Decode removed and kept portions separately
+                    try:
+                        removed_text = request.app.state.model.tokenizer.decode(removed_tokens, skip_special_tokens=False)
+                        # The removed portion starts from the beginning, so its length is what we've already fully processed
+                        # Calculate how many characters from kept tokens were already yielded
+                        # We know: decoded_text = removed_text + kept_portion_from_full_decode
+                        # And we've yielded up to last_yielded_length characters
+                        if last_yielded_length > len(removed_text):
+                            # Some portion of the kept tokens was already yielded
+                            # Calculate the offset into the kept portion that was already sent
+                            chars_yielded_from_kept = last_yielded_length - len(removed_text)
+                        else:
+                            # Nothing from kept tokens was yielded yet
+                            chars_yielded_from_kept = 0
+
+                        # Decode the kept tokens to get their full text
+                        decoded_kept = request.app.state.model.tokenizer.decode(kept_tokens, skip_special_tokens=False)
+
+                        # Update last_yielded_length to point to the character position in the new buffer
+                        # that corresponds to what we've already sent
+                        last_yielded_length = min(chars_yielded_from_kept, len(decoded_kept))
+                        token_buffer = kept_tokens
+                    except Exception:
+                        # If decoding fails during trimming, don't trim (safer to keep buffer)
+                        # Log but continue with current buffer
+                        print(f"[Warning] Failed to decode during buffer trim, keeping full buffer")
 
             except Exception as e:
                 # If decoding fails, skip this token and log (don't break the stream)
@@ -620,6 +773,19 @@ async def chat_stream(id_, request_data, request: Request):
 
 
 async def chat(id_, request_data, request: Request):
+    # Acquire concurrency semaphore if configured (waits if max concurrency reached)
+    semaphore = request.app.state.concurrency_semaphore
+    if semaphore:
+        await semaphore.acquire()
+        try:
+            return await _chat_impl(id_, request_data, request)
+        finally:
+            semaphore.release()
+    else:
+        return await _chat_impl(id_, request_data, request)
+
+
+async def _chat_impl(id_, request_data, request: Request):
     try:
         infer_task = build_task(id_, request_data, request)
         # Track task from creation
@@ -685,8 +851,39 @@ async def chat(id_, request_data, request: Request):
 
         # Decode all tokens at once to preserve multi-byte UTF-8 sequences (emojis, etc.)
         # This is critical for proper handling of characters that span multiple tokens
+        # CRITICAL: Ensure proper UTF-8 handling to avoid replacement characters in markdown references
         if tokens:
-            output_text = request.app.state.model.tokenizer.decode(tokens, skip_special_tokens=False).strip()
+            try:
+                # Decode tokens to string - tokenizer should handle UTF-8 correctly
+                decoded_output = request.app.state.model.tokenizer.decode(tokens, skip_special_tokens=False)
+                # Handle both bytes and str return types from tokenizer
+                if isinstance(decoded_output, bytes):
+                    # If tokenizer returns bytes, decode with UTF-8
+                    output_text = decoded_output.decode('utf-8', errors='strict').strip()
+                else:
+                    # If tokenizer returns str, verify it's valid UTF-8 by re-encoding/decoding
+                    # This catches any invalid surrogate pairs or other UTF-8 issues
+                    # Use 'surrogatepass' to preserve surrogates, then 'strict' for final decode
+                    try:
+                        # Validate UTF-8 by encoding and decoding - if it fails, there's an issue
+                        validated = decoded_output.encode('utf-8', errors='strict').decode('utf-8', errors='strict')
+                        output_text = validated.strip()
+                    except UnicodeError:
+                        # If validation fails, try with error handling to recover
+                        print(f"[Warning] UTF-8 validation failed, using replacement for invalid sequences")
+                        output_text = decoded_output.encode('utf-8', errors='replace').decode('utf-8', errors='replace').strip()
+            except Exception as e:
+                print(f"[Error] Token decoding error: {e}")
+                # Last resort: try with error replacement
+                try:
+                    decoded_output = request.app.state.model.tokenizer.decode(tokens, skip_special_tokens=False)
+                    if isinstance(decoded_output, bytes):
+                        output_text = decoded_output.decode('utf-8', errors='replace').strip()
+                    else:
+                        output_text = decoded_output.encode('utf-8', errors='replace').decode('utf-8', errors='replace').strip()
+                except Exception as e2:
+                    print(f"[Error] Failed to decode tokens even with error handling: {e2}")
+                    output_text = ""
         else:
             output_text = ""
 
@@ -711,6 +908,11 @@ async def chat(id_, request_data, request: Request):
         for eos_str in eos_token_strings:
             if output_text.endswith(eos_str):
                 output_text = output_text[:-len(eos_str)].rstrip()
+
+        # Detect and fix replacement characters (U+FFFD) in output
+        output_text, has_replacement = detect_and_fix_replacement_character(
+            output_text, context="non-streaming response", request_id=id_, fix=FIX_REPLACEMENT_CHARS
+        )
 
         # Calculate token usage
         prompt_tokens = infer_task.initial_prompt_tokens
@@ -841,6 +1043,11 @@ async def completion(id_, request_data, request: Request):
         print(f"[DEBUG] {id_} Released KV cache for max_tokens=0")
 
         output_text = "".join(output).strip()
+
+        # Detect and fix replacement characters in completion output
+        output_text, has_replacement = detect_and_fix_replacement_character(
+            output_text, context="completion response", request_id=id_, fix=FIX_REPLACEMENT_CHARS
+        )
 
         # Prepare tokens list for logprobs
         tokens_list = []
@@ -1019,6 +1226,33 @@ curl -N -H "Content-Type: application/json" \
        "test_hang_seconds": 350,
        "stream": false
      }'
+
+# Test UTF-8 decoding fix: Markdown reference with special characters
+# This validates that characters don't appear in markdown references
+curl -s -X POST http://127.0.0.1:8000/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen3-32B",
+    "messages": [
+      {"role": "user", "content": "请写一段包含markdown链接的文本，例如 [链接文本](https://example.com) 和引用 [^1]"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "stream": false
+  }' | python3 -c "import sys, json; data = json.load(sys.stdin); content = data['choices'][0]['message']['content'] if 'choices' in data else ''; print('PASS' if '' not in content and '' not in content else 'FAIL: Found replacement characters'); print(content[:200])"
+
+# Test UTF-8 decoding: Chinese with emojis
+curl -s -X POST http://127.0.0.1:8000/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "jiuge",
+    "messages": [
+      {"role": "user", "content": "请用中文回答：什么是人工智能？使用一些表情符号。"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 150,
+    "stream": false
+  }' | python3 -c "import sys, json; data = json.load(sys.stdin); content = data['choices'][0]['message']['content'] if 'choices' in data else ''; print('PASS' if '' not in content and '' not in content else 'FAIL: Found replacement characters'); print(content[:200])"
 
 
 """
