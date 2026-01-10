@@ -33,8 +33,9 @@ if __name__ == "__main__":
 
         # endcode, chunk and decode
         tokens = tokenizer.encode(text, add_special_tokens=False)
-        for i in range(0, len(tokens), CHUNK_SIZE):
-            chunk_tokens = tokens[i : min(i + CHUNK_SIZE, len(tokens))]
+        # 使用与jiuge_ppl.py相同的分割逻辑，只处理完整的chunk
+        for i in range(0, len(tokens) - CHUNK_SIZE + 1, CHUNK_SIZE):
+            chunk_tokens = tokens[i : i + CHUNK_SIZE]
             chunk_text = tokenizer.decode(chunk_tokens)
 
             resp = requests.post(
