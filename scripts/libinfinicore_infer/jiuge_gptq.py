@@ -12,7 +12,7 @@ from ctypes import (
 )
 
 
-class JiugeAWQMetaCStruct(Structure):
+class JiugeGPTQMetaCStruct(Structure):
     _fields_ = [
         ("dt_logits", DataType),
         ("dt_linear_w", DataType),
@@ -38,30 +38,30 @@ class ModelWeightsCStruct(Structure):
     pass
 
 
-class JiugeAWQModelCStruct(Structure):
+class JiugeGPTQModelCStruct(Structure):
     pass
 
 
 @register_model
-class JiugeAWQModel(BaseModel):
+class JiugeGPTQModel(BaseModel):
     @classmethod
     def register_lib(cls, lib):
-        """Register JiugeAWQ model functions with the library"""
-        lib.createJiugeAWQWeights.restype = POINTER(ModelWeightsCStruct)
-        lib.createJiugeAWQWeights.argtypes = [
-            POINTER(JiugeAWQMetaCStruct),
+        """Register JiugeGPTQ model functions with the library"""
+        lib.createJiugeGPTQWeights.restype = POINTER(ModelWeightsCStruct)
+        lib.createJiugeGPTQWeights.argtypes = [
+            POINTER(JiugeGPTQMetaCStruct),
             DeviceType,
             c_int,
             POINTER(c_int),
         ]
 
-        lib.createJiugeAWQModel.restype = POINTER(JiugeAWQModelCStruct)
-        lib.createJiugeAWQModel.argtypes = [
-            POINTER(JiugeAWQMetaCStruct),
+        lib.createJiugeGPTQModel.restype = POINTER(JiugeGPTQModelCStruct)
+        lib.createJiugeGPTQModel.argtypes = [
+            POINTER(JiugeGPTQMetaCStruct),
             POINTER(ModelWeightsCStruct),
         ]
 
-        lib.destroyJiugeAWQModel.argtypes = [POINTER(JiugeAWQModelCStruct)]
+        lib.destroyJiugeGPTQModel.argtypes = [POINTER(JiugeGPTQModelCStruct)]
 
         lib.createKVCache.argtypes = [
             c_size_t,
@@ -78,8 +78,8 @@ class JiugeAWQModel(BaseModel):
 
         lib.dropKVCache.argtypes = [POINTER(KVCacheCStruct)]
 
-        lib.inferBatchJiugeAWQ.argtypes = [
-            POINTER(JiugeAWQModelCStruct),
+        lib.inferBatchJiugeGPTQ.argtypes = [
+            POINTER(JiugeGPTQModelCStruct),
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
@@ -92,8 +92,8 @@ class JiugeAWQModel(BaseModel):
             POINTER(c_uint),
         ]
 
-        lib.forwardBatchJiugeAWQ.argtypes = [
-            POINTER(JiugeAWQModelCStruct),
+        lib.forwardBatchJiugeGPTQ.argtypes = [
+            POINTER(JiugeGPTQModelCStruct),
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
@@ -103,20 +103,20 @@ class JiugeAWQModel(BaseModel):
             c_void_p,
         ]
 
-        lib.JiugeAWQLoadWeight.argtypes = [
+        lib.JiugeGPTQLoadWeight.argtypes = [
             POINTER(ModelWeightsCStruct),
             c_char_p,
             c_void_p,
         ]
 
     def create_weights(self, meta, device_type, ndev, dev_ids):
-        return self.lib.createJiugeAWQWeights(meta, device_type, ndev, dev_ids)
+        return self.lib.createJiugeGPTQWeights(meta, device_type, ndev, dev_ids)
 
     def create_model(self, meta, weights):
-        return self.lib.createJiugeAWQModel(meta, weights)
+        return self.lib.createJiugeGPTQModel(meta, weights)
 
     def destroy_model(self, model):
-        self.lib.destroyJiugeAWQModel(model)
+        self.lib.destroyJiugeGPTQModel(model)
 
     def create_kv_cache(
         self, nlayer, max_len, nkvh, dk, dv, dtype, device, dev_ids, ndev
@@ -129,7 +129,7 @@ class JiugeAWQModel(BaseModel):
         self.lib.dropKVCache(kv_cache)
 
     def load_weight(self, weights, name, data):
-        self.lib.JiugeAWQLoadWeight(weights, name.encode("utf-8"), data)
+        self.lib.JiugeGPTQLoadWeight(weights, name.encode("utf-8"), data)
 
     def infer_batch(
         self,
@@ -145,7 +145,7 @@ class JiugeAWQModel(BaseModel):
         topp,
         output,
     ):
-        self.lib.inferBatchJiugeAWQ(
+        self.lib.inferBatchJiugeGPTQ(
             model,
             tokens,
             ntok,
@@ -162,6 +162,6 @@ class JiugeAWQModel(BaseModel):
     def forward_batch(
         self, model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
     ):
-        self.lib.forwardBatchJiugeAWQ(
+        self.lib.forwardBatchJiugeGPTQ(
             model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
         )
