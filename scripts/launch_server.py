@@ -103,13 +103,6 @@ def parse_args():
         default=None,
         help="Maximum number of concurrent requests. Requests exceeding this limit will wait in queue. Default: unlimited",
     )
-    parser.add_argument(
-        "--fix-replacement-chars",
-        type=lambda x: x.lower() in ('true', '1', 'yes', 'on'),
-        default=None,
-        help="Whether to automatically remove replacement characters (U+FFFD) from responses. "
-             "Default: True. Set to false to only log detections without removing them.",
-    )
     return parser.parse_args()
 
 
@@ -124,14 +117,6 @@ SERVER_PORT = args.port
 SERVER_HOST = args.host
 REQUEST_TIMEOUT = args.request_timeout
 MAX_CONCURRENCY = args.max_concurrency
-
-# Fix replacement characters config: CLI arg takes precedence, then env var, default to False
-if args.fix_replacement_chars is not None:
-    FIX_REPLACEMENT_CHARS = args.fix_replacement_chars
-else:
-    # Check environment variable, default to False if not set
-    env_value = os.environ.get("FIX_REPLACEMENT_CHARS", "false").lower()
-    FIX_REPLACEMENT_CHARS = env_value in ('true', '1', 'yes', 'on')
 
 # Derive model name from model path directory name (like vLLM and llama.cpp)
 # Use --model-name if explicitly provided, otherwise use directory name
@@ -162,7 +147,6 @@ if MAX_CONCURRENCY is not None and MAX_CONCURRENCY > 0:
     print(f"Max concurrency: {MAX_CONCURRENCY}. Requests exceeding this limit will wait in queue.")
 else:
     print("Max concurrency: unlimited")
-print(f"Fix replacement characters: {FIX_REPLACEMENT_CHARS} (U+FFFD will be {'removed' if FIX_REPLACEMENT_CHARS else 'logged only'})")
 
 
 def chunk_json(id_, content=None, role=None, finish_reason=None, model="jiuge"):
@@ -354,85 +338,6 @@ def timeout_checker_loop(app):
 
 
 # App loop: take requests from the queue, do inference, and put unfinished requests back into the queue.
-def detect_and_fix_replacement_character(text, context="", request_id=None, fix=True, verbose_log=True):
-    """
-    Detect and optionally fix replacement character (U+FFFD, ) in text.
-    Optimized for performance - fast path when no replacement chars found.
-
-    Args:
-        text: Text to check for replacement characters
-        context: Context string for logging (e.g., "streaming response", "non-streaming response")
-        request_id: Optional request ID for logging
-        fix: If True, remove replacement characters from the text. If False, only detect and log.
-        verbose_log: If False, only log a brief message (for streaming chunks)
-
-    Returns:
-        tuple: (cleaned_text: str, has_replacement: bool)
-    """
-    # Fast path: Use in operator first (faster than character-by-character scan for most cases)
-    if '\ufffd' not in text:
-        return text, False
-
-    # Found potential replacement chars, now count and get positions
-    replacement_char = '\ufffd'  # U+FFFD
-    positions = []
-
-    # Optimize: Use faster method to find all positions
-    # Using str.find in a loop is faster than enumerate for long strings
-    start = 0
-    while True:
-        pos = text.find(replacement_char, start)
-        if pos == -1:
-            break
-        positions.append(pos)
-        start = pos + 1
-
-    if positions:
-        # Logging (only if verbose_log is True, or for non-streaming responses)
-        if verbose_log:
-            log_prefix = f"[REPLACEMENT_CHAR_DETECTED]"
-            if request_id:
-                log_prefix += f" Request ID: {request_id}"
-            if context:
-                log_prefix += f" Context: {context}"
-
-            print(f"{log_prefix} Found {len(positions)} replacement character(s) (U+FFFD)")
-            print(f"  Positions: {positions[:10]}{'...' if len(positions) > 10 else ''}")
-
-            # Collect and log context samples around first few replacement characters
-            for pos in positions[:3]:  # Log first 3 occurrences
-                start = max(0, pos - 30)
-                end = min(len(text), pos + 30)
-                context_sample = text[start:end]
-                before = text[max(0, pos-10):pos] if pos > 0 else ''
-                after = text[pos+1:min(len(text), pos+11)] if pos < len(text)-1 else ''
-                print(f"  Position {pos}:")
-                print(f"    Before: {repr(before)}")
-                print(f"    After: {repr(after)}")
-                print(f"    Full context: {repr(context_sample)}")
-
-            # Also print a snippet of the text for debugging
-            snippet_start = max(0, positions[0] - 100)
-            snippet_end = min(len(text), positions[0] + 100)
-            print(f"  Text snippet (around first occurrence): {repr(text[snippet_start:snippet_end])}")
-        else:
-            # # Brief log for streaming chunks
-            # print(f"[REPLACEMENT_CHAR_DETECTED] {len(positions)} replacement char(s) in {context} (Request: {request_id or 'N/A'})")
-            pass
-
-        # Fix: Remove all replacement characters
-        if fix:
-            # Optimize: Use str.replace which is faster than list comprehension for this case
-            cleaned_text = text.replace(replacement_char, '')
-            if verbose_log:
-                print(f"  [FIXED] Removed {len(positions)} replacement character(s) from output")
-            return cleaned_text, True
-        else:
-            return text, True
-
-    return text, False
-
-
 def worker_loop(app):
     while True:
         try:
@@ -612,14 +517,13 @@ async def _chat_stream_impl(id_, request_data, request: Request):
                     try:
                         decoded_text = request.app.state.model.tokenizer.decode(token_buffer, skip_special_tokens=False)
 
-                        # Detect and fix replacement characters in the decoded text
-                        # Use verbose_log=False for streaming to reduce logging overhead
-                        decoded_text, has_replacement = detect_and_fix_replacement_character(
-                            decoded_text, context="streaming response (final)", request_id=id_, fix=FIX_REPLACEMENT_CHARS, verbose_log=False
-                        )
-
+                        # On final chunk, yield everything including any trailing replacement chars
+                        # (they're no longer incomplete sequences since this is the end)
                         remaining_content = decoded_text[last_yielded_length:]
                         if remaining_content:
+                            # Log if replacement chars present (for monitoring)
+                            if '\ufffd' in remaining_content:
+                                print(f"[REPLACEMENT_CHAR_DETECTED] Found replacement char(s) in final streaming chunk (Request: {id_})")
                             chunk = json.dumps(chunk_json(id_, content=remaining_content, model=model_name), ensure_ascii=False)
                             yield f"data: {chunk}\n\n"
                     except Exception:
@@ -708,31 +612,33 @@ async def _chat_stream_impl(id_, request_data, request: Request):
             try:
                 decoded_text = request.app.state.model.tokenizer.decode(token_buffer, skip_special_tokens=False)
 
-                # Detect and fix replacement characters in the decoded text
-                # We fix the entire decoded_text to maintain consistency with last_yielded_length tracking
-                # Use verbose_log=False for streaming chunks to reduce logging overhead
-                decoded_text, has_replacement = detect_and_fix_replacement_character(
-                    decoded_text, context="streaming response chunk", request_id=id_, fix=FIX_REPLACEMENT_CHARS, verbose_log=False
-                )
+                # vLLM-style UTF-8 buffering: if text ends with replacement char (),
+                # it's likely an incomplete UTF-8 byte sequence - hold it back until more tokens arrive
+                # Only check the end, not the middle (middle replacement chars are real invalid tokens)
+                holds_back_incomplete_utf8 = False
+                if decoded_text and decoded_text.endswith('\ufffd'):
+                    # Incomplete UTF-8 sequence - hold back this chunk
+                    holds_back_incomplete_utf8 = True
+                else:
+                    # Calculate new content by comparing current decode with what we've already yielded
+                    if len(decoded_text) > last_yielded_length:
+                        new_content = decoded_text[last_yielded_length:]
 
-                # Calculate new content by comparing current decode with what we've already yielded
-                if len(decoded_text) > last_yielded_length:
-                    new_content = decoded_text[last_yielded_length:]
-
-                    # Only yield if we have new content
-                    if new_content:
-                        chunk = json.dumps(chunk_json(id_, content=new_content, model=model_name), ensure_ascii=False)
-                        yield f"data: {chunk}\n\n"
-                        last_yielded_length = len(decoded_text)
+                        # Only yield if we have new content
+                        if new_content:
+                            chunk = json.dumps(chunk_json(id_, content=new_content, model=model_name), ensure_ascii=False)
+                            yield f"data: {chunk}\n\n"
+                            last_yielded_length = len(decoded_text)
 
                 # Prevent buffer from growing too large by periodically flushing
                 # Keep last 5 tokens for multi-token character sequences
-                # CRITICAL: When trimming, we need to calculate how many characters from the kept tokens
+                # CRITICAL: Don't trim if we're holding back incomplete UTF-8 (could break sequence)
+                # When trimming, we need to calculate how many characters from the kept tokens
                 # have already been yielded. We do this by:
                 # 1. Calculating what portion of the full decoded text corresponds to removed tokens
                 # 2. The remaining portion (kept tokens) may have already been partially yielded
                 # 3. When we decode only the kept tokens, we need to figure out which portion was already sent
-                if len(token_buffer) > 20:
+                if not holds_back_incomplete_utf8 and len(token_buffer) > 20:
                     # Calculate what portion of decoded_text corresponds to removed tokens
                     num_removed = len(token_buffer) - 5
                     removed_tokens = token_buffer[:num_removed]
@@ -930,10 +836,12 @@ async def _chat_impl(id_, request_data, request: Request):
             if output_text.endswith(eos_str):
                 output_text = output_text[:-len(eos_str)].rstrip()
 
-        # Detect and fix replacement characters (U+FFFD) in output
-        output_text, has_replacement = detect_and_fix_replacement_character(
-            output_text, context="non-streaming response", request_id=id_, fix=FIX_REPLACEMENT_CHARS
-        )
+        # vLLM-style: Log replacement characters for monitoring
+        # Replacement chars at the end would have been incomplete UTF-8, but for non-streaming
+        # we decode the full sequence, so any replacement chars are real invalid tokens
+        if '\ufffd' in output_text:
+            # Log for monitoring/debugging
+            print(f"[REPLACEMENT_CHAR_DETECTED] Found replacement char(s) in non-streaming response (Request: {id_})")
 
         # Calculate token usage
         prompt_tokens = infer_task.initial_prompt_tokens
@@ -1065,10 +973,9 @@ async def completion(id_, request_data, request: Request):
 
         output_text = "".join(output).strip()
 
-        # Detect and fix replacement characters in completion output
-        output_text, has_replacement = detect_and_fix_replacement_character(
-            output_text, context="completion response", request_id=id_, fix=FIX_REPLACEMENT_CHARS
-        )
+        # vLLM-style: Log replacement characters for monitoring
+        if '\ufffd' in output_text:
+            print(f"[REPLACEMENT_CHAR_DETECTED] Found replacement char(s) in completion response (Request: {id_})")
 
         # Prepare tokens list for logprobs
         tokens_list = []
