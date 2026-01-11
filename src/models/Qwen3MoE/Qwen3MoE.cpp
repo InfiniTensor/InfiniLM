@@ -13,19 +13,6 @@
 #include <iostream>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
-
-extern "C" void launch_fill_zero(void* data, size_t n_bytes, void* stream);
-extern "C" void launch_prefill_softmax(
-    void* data, 
-    int total_rows,      // NumHeads * CurSeqLen
-    int padded_len,      // Stride
-    int total_seq_len,   // Past + Cur
-    int cur_seq_len,     // Cur
-    int head_num, 
-    void* stream
-);
-extern "C" void launch_decode_softmax(void* data, int rows, int cols, int stride, void* stream);
-
 // =============================================================================
 // Helper Declarations & Utils
 // =============================================================================
@@ -186,7 +173,6 @@ void inferBatchQwen3MoE(const Qwen3MoEAttentionMeta &meta,
         
         // [RESTORED STANDARD LOGIC]
         // 只有当指针为空，或者形状不匹配时，才重新分配！
-        // 这样才能保留 inject_cache 注入的数据
         bool need_alloc = false;
         if (!kv_cache_layer.first || !kv_cache_layer.second) {
             need_alloc = true;
@@ -201,16 +187,19 @@ void inferBatchQwen3MoE(const Qwen3MoEAttentionMeta &meta,
         }
         size_t unit_size = dsize(dt_logits);
         if (need_alloc) {
-            // 只有第一次（或Batch变大时）才进来
             kv_cache_layer.first = Tensor::buffer(dt_logits, {static_cast<size_t>(batch_size), num_kv_head, max_seq_len, head_dim}, memory_pool);
             kv_cache_layer.second = Tensor::buffer(dt_logits, {static_cast<size_t>(batch_size), num_kv_head, max_seq_len, head_dim}, memory_pool);
             
-            //  先 forward 一次 warmup 分配内存 -> 然后 inject -> 然后正式 run）
-            size_t unit_size = dsize(dt_logits);
+            // [REVERTED] Use cudaMemsetAsync (Stable)
             size_t num_elements = static_cast<size_t>(batch_size) * num_kv_head * max_seq_len * head_dim;
-            cudaMemsetAsync(kv_cache_layer.first->data(), 0, num_elements * unit_size, (cudaStream_t)stream);
-            cudaMemsetAsync(kv_cache_layer.second->data(), 0, num_elements * unit_size, (cudaStream_t)stream);
-        } //TODO: 把cudaMemsetAsync 0 改为launch fill zero （但是会出现精度问题？）
+            size_t total_bytes = num_elements * unit_size;
+            
+            // [SAFEGUARD] Check size > 0
+            if (total_bytes > 0) {
+                cudaMemsetAsync(kv_cache_layer.first->data(), 0, total_bytes, (cudaStream_t)stream);
+                cudaMemsetAsync(kv_cache_layer.second->data(), 0, total_bytes, (cudaStream_t)stream);
+            }
+        } 
 
         auto k_cache_all = kv_cache_layer.first;
         auto v_cache_all = kv_cache_layer.second;
@@ -265,8 +254,10 @@ void inferBatchQwen3MoE(const Qwen3MoEAttentionMeta &meta,
     auto k_padded_gather = Tensor::buffer(dt_logits, {num_kv_head, padded_len, head_dim}, memory_pool);
     size_t kv_gather_bytes = num_kv_head * padded_len * head_dim * unit_size;
 
-    //  Clear gather buffer
-    cudaMemsetAsync(k_padded_gather->data(), 0, kv_gather_bytes, (cudaStream_t)stream);
+    // [REVERTED] Use cudaMemsetAsync
+    if (kv_gather_bytes > 0) {
+        cudaMemsetAsync(k_padded_gather->data(), 0, kv_gather_bytes, (cudaStream_t)stream);
+    }
 
     char* k_gather_src_base = k_cache_base + b * stride_batch_bytes;
     size_t gather_bytes_per_head = total_len * head_dim * unit_size;
@@ -274,7 +265,10 @@ void inferBatchQwen3MoE(const Qwen3MoEAttentionMeta &meta,
     for (size_t h = 0; h < num_kv_head; h++) {
     char* k_src = k_gather_src_base + h * stride_head_bytes;
     char* k_dst = (char*)k_padded_gather->data() + h * dst_head_stride_bytes;
-    cudaMemcpyAsync(k_dst, (void*)k_src, gather_bytes_per_head, cudaMemcpyDeviceToDevice, (cudaStream_t)stream);
+    // Keep size check for memcpy
+    if (gather_bytes_per_head > 0) {
+        cudaMemcpyAsync(k_dst, (void*)k_src, gather_bytes_per_head, cudaMemcpyDeviceToDevice, (cudaStream_t)stream);
+    }
     }
 
     auto k_gemm_in = Tensor::buffer(dt_logits, {num_kv_head, head_dim, padded_len}, memory_pool);
@@ -283,15 +277,14 @@ void inferBatchQwen3MoE(const Qwen3MoEAttentionMeta &meta,
     // 3. GEMM 1: Q * K
     auto scores_padded = Tensor::buffer(dt_logits, {num_kv_head, ngroup * cur_seq_len, padded_len}, memory_pool);
 
+    // [Scheme A] Zero out the buffer safely
+    size_t scores_bytes = num_kv_head * ngroup * cur_seq_len * padded_len * unit_size;
+    cudaMemsetAsync(scores_padded->data(), 0, scores_bytes, (cudaStream_t)stream);
+
     float scale_factor = 1.0f / sqrt(128.0f); 
     linear(scores_padded, q_gemm, k_gemm_in, scale_factor, 0.f, nullptr, nullptr);
 
-    // 4. Softmax+Scaling+Masking (fused_kernel for NVIDIA)
-    // if (cur_seq_len > 1) {
-    // launch_prefill_softmax(scores_padded->data(), num_heads * cur_seq_len, padded_len, total_len, cur_seq_len, num_heads, (void*)stream);
-    // } else {
-    // launch_decode_softmax(scores_padded->data(), num_heads * cur_seq_len, total_len, padded_len, (void*)stream);
-    // }
+    // 4. Softmax+Scaling+Masking
     auto scores_view = scores_padded->view({num_heads, cur_seq_len, padded_len});
     auto scores_in = scores_view->slice(2, 0, total_len);
     causalSoftmax(scores_in, scores_in);
@@ -300,18 +293,28 @@ void inferBatchQwen3MoE(const Qwen3MoEAttentionMeta &meta,
         size_t pitch = padded_len * unit_size;
         size_t width = (padded_len - total_len) * unit_size;
         char* dst_ptr = (char*)scores_padded->data() + total_len * unit_size;
-        cudaMemset2DAsync(dst_ptr, pitch, 0, width, num_heads * cur_seq_len, (cudaStream_t)stream);
+        // Keep size check for 2D Memset
+        if (width > 0) {
+            cudaMemset2DAsync(dst_ptr, pitch, 0, width, num_heads * cur_seq_len, (cudaStream_t)stream);
+        }
     }
-   
+    
 
     // 5. GEMM 2
     auto v_padded_gather = Tensor::buffer(dt_logits, {num_kv_head, padded_len, head_dim}, memory_pool);
-    cudaMemsetAsync(v_padded_gather->data(), 0, kv_gather_bytes, (cudaStream_t)stream);
+    // [REVERTED] Use cudaMemsetAsync
+    if (kv_gather_bytes > 0) {
+        cudaMemsetAsync(v_padded_gather->data(), 0, kv_gather_bytes, (cudaStream_t)stream);
+    }
+
     char* v_gather_src_base = v_cache_base + b * stride_batch_bytes;
     for (size_t h = 0; h < num_kv_head; h++) {
     char* v_src = v_gather_src_base + h * stride_head_bytes;
     char* v_dst = (char*)v_padded_gather->data() + h * dst_head_stride_bytes;
-    cudaMemcpyAsync(v_dst, (void*)v_src, gather_bytes_per_head, cudaMemcpyDeviceToDevice, (cudaStream_t)stream);
+    // Keep size check for memcpy
+    if (gather_bytes_per_head > 0) {
+        cudaMemcpyAsync(v_dst, (void*)v_src, gather_bytes_per_head, cudaMemcpyDeviceToDevice, (cudaStream_t)stream);
+    }
     }
 
     auto attn_out_b = Tensor::buffer(dt_logits, {num_kv_head, ngroup * cur_seq_len, head_dim}, memory_pool);
@@ -523,11 +526,12 @@ __C __export void injectQwen3CacheKV(
             std::memcpy(k_dst_addr, k_src_addr, bytes_to_copy_per_head);
             std::memcpy(v_dst_addr, v_src_addr, bytes_to_copy_per_head);
         } else {
-            // [CUDA] Raw API
-            RUN_INFINI(infinirtMemcpyAsync(k_dst_addr, (void*)k_src_addr,
+            if (bytes_to_copy_per_head > 0) {
+                RUN_INFINI(infinirtMemcpyAsync(k_dst_addr, (void*)k_src_addr,
                             bytes_to_copy_per_head, INFINIRT_MEMCPY_H2D, stream));
-            RUN_INFINI(infinirtMemcpyAsync(v_dst_addr, (void*)v_src_addr,
+                RUN_INFINI(infinirtMemcpyAsync(v_dst_addr, (void*)v_src_addr,
                             bytes_to_copy_per_head, INFINIRT_MEMCPY_H2D, stream));
+            }
         }
     }
     RUN_INFINI(infinirtStreamSynchronize(stream));
@@ -564,7 +568,6 @@ extern "C" void customInjectCacheKV(
     // 2. 获取 C++ 视角的形状信息
     auto shape = layer.first->shape(); 
     // shape: [Batch, NumKV, MaxSeq, HeadDim]
-    size_t batch_size = shape[0];
     size_t num_kv = shape[1];
     size_t max_seq = shape[2]; // 这里是关键！它是 8192
     size_t head_dim = shape[3]; // 这里应该是 128
@@ -597,10 +600,17 @@ extern "C" void customInjectCacheKV(
         char* k_dst = k_dst_base + h * stride_head ;
         char* v_dst = v_dst_base + h * stride_head ;
 
-        RUN_INFINI(infinirtMemcpyAsync(k_dst, k_src, copy_bytes_per_head, INFINIRT_MEMCPY_H2D, (infinirtStream_t)stream));
-        RUN_INFINI(infinirtMemcpyAsync(v_dst, v_src, copy_bytes_per_head, INFINIRT_MEMCPY_H2D, (infinirtStream_t)stream));
+        // 检查指针是否对齐和越界（简单保护）
+        if (past_len > 0) {
+             RUN_INFINI(infinirtMemcpyAsync(k_dst, k_src, copy_bytes_per_head, INFINIRT_MEMCPY_H2D, (infinirtStream_t)stream));
+             RUN_INFINI(infinirtMemcpyAsync(v_dst, v_src, copy_bytes_per_head, INFINIRT_MEMCPY_H2D, (infinirtStream_t)stream));
+        }
     }
     
     // 简单同步确保写入完成
     RUN_INFINI(infinirtStreamSynchronize((infinirtStream_t)stream));
+    auto err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("DEBUG: Error at customInjectCacheKV end: %s\n", cudaGetErrorString(err));
+    }
 }
