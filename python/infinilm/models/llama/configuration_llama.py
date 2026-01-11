@@ -15,14 +15,10 @@
 
 """LLaMA model configuration"""
 
-import infinicore
-
-from infinilm.lib import _infinilm
-
 from ...configuration_utils import PretrainedConfig
 
 
-class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
+class LlamaConfig(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`LlamaModel`]. It is used to instantiate an LLaMA
     model according to the specified arguments, defining the model architecture. Instantiating a configuration with the
@@ -170,22 +166,19 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
         initializer_range=0.02,
         rms_norm_eps=1e-6,
         use_cache=True,
-        pad_token_id=-1,
+        pad_token_id=None,
         bos_token_id=1,
         eos_token_id=2,
         pretraining_tp=1,
         tie_word_embeddings=False,
         rope_theta=10000.0,
         rope_scaling=None,
-        attention_bias=True,
+        attention_bias=False,
         attention_dropout=0.0,
         mlp_bias=False,
         head_dim=None,
-        torch_dtype=None,
         **kwargs,
     ):
-        _infinilm.LlamaConfig.__init__(self)
-
         # ---
         self.model_type = "llama"
         self.name_or_path = ""
@@ -228,13 +221,7 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
             self.rope_scaling["rope_type"] = self.rope_scaling["type"]
         # rope_config_validation(self)
 
-        if torch_dtype in {"float32", "bfloat16", "float16"}:
-            self.dtype = getattr(infinicore, torch_dtype)
-            self._dtype = self.dtype._underlying
-        else:
-            raise ValueError(f"Unsupported dtype: {torch_dtype}")
-
-        PretrainedConfig.__init__(
+        super().__init__(
             pad_token_id=pad_token_id,
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,

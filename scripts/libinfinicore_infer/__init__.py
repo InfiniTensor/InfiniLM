@@ -8,6 +8,14 @@ from .deepseek_v3 import (
     DeepSeekV3WeightLoaderCStruct,
     DeepSeekV3CacheCStruct,
 )
+from .qwen3_moe import (
+    Qwen3MoEModel,
+    Qwen3MoEAttentionMetaCStruct,
+    Qwen3MoEWeightsCStruct,
+    Qwen3MoEWeightLoaderCStruct,
+    Qwen3MoEAttentionCStruct,
+    Qwen3CacheCStruct,
+)
 
 __all__ = [
     "DataType",
@@ -23,5 +31,11 @@ __all__ = [
     "DeepSeekV3MetaCStruct",
     "DeepSeekV3WeightsCStruct",
     "DeepSeekV3WeightLoaderCStruct",
+    "Qwen3MoEModel",
+    "Qwen3MoEAttentionMetaCStruct",
+    "Qwen3MoEWeightsCStruct",
+    "Qwen3MoEWeightLoaderCStruct",
+    "Qwen3MoEAttentionCStruct",
+    "Qwen3CacheCStruct",
     "ModelRegister",
 ]

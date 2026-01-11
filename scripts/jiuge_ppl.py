@@ -7,7 +7,6 @@ from libinfinicore_infer import DeviceType
 DEVICE_TYPE_MAP = {
     "cpu": DeviceType.DEVICE_TYPE_CPU,
     "nvidia": DeviceType.DEVICE_TYPE_NVIDIA,
-    "qy": DeviceType.DEVICE_TYPE_QY,
     "cambricon": DeviceType.DEVICE_TYPE_CAMBRICON,
     "ascend": DeviceType.DEVICE_TYPE_ASCEND,
     "metax": DeviceType.DEVICE_TYPE_METAX,
@@ -20,7 +19,6 @@ DEVICE_TYPE_MAP = {
 TORCH_DEVICE_TYPE_MAP = {
     "cpu": "cpu",
     "nvidia": "cuda",
-    "qy": "cuda",
     "cambricon": "mlu",
     "ascend": "npu",
     "metax": "cuda",

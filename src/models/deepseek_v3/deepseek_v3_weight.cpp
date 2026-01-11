@@ -1,7 +1,6 @@
 #include "deepseek_v3_impl.hpp"
 
 #include <cmath>
-
 inline std::shared_ptr<Tensor> getInEmbd(
     const DeepSeekV3Meta *meta) {
     auto shape = std::vector<size_t>({meta->dvoc, meta->d});

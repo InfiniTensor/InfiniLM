@@ -1,7 +1,6 @@
 # Xmake cache
 .xmake/
 build/
-python/infinilm/lib/*.so
 
 # MacOS Cache
 .DS_Store
@@ -11,13 +10,12 @@ python/infinilm/lib/*.so
 
 # Python
 __pycache__/
-*.egg-info/
 
 # Log
 *.log
 
 # Cache
-.cache/
+cache/
 
 # JSON
 *.json

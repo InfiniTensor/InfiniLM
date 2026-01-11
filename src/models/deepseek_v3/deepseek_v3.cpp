@@ -8,7 +8,6 @@
 #include <random>
 #include <thread>
 #include <vector>
-
 void createDeviceResource(DeepSeekV3DeviceResource *rsrc, const DeepSeekV3Meta *meta,
                           std::shared_ptr<DeepSeekV3DeviceWeights> weights,
                           infiniDevice_t device, int idev,

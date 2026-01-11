@@ -64,6 +64,21 @@ void InferenceContext::gemm(std::shared_ptr<Tensor> c,
 
     infiniopGemmDescriptor_t desc;
     if (!cache_manager->getGemmDescriptor(key, desc)) {
+        // Debug: print tensor metadata to help diagnose descriptor creation errors
+        auto print_tensor = [&](const std::shared_ptr<Tensor>& t, const char* name) {
+
+            auto s = t->strides();
+            
+        };
+
+        try {
+            print_tensor(c, "C");
+            print_tensor(a, "A");
+            print_tensor(b, "B");
+        } catch (...) {
+            std::cout << "[InferenceContext::gemm] Failed to print tensor metadata" << std::endl;
+        }
+
         RUN_INFINI(infiniopCreateGemmDescriptor(op_handle, &desc, c->desc(), a->desc(), b->desc()));
         cache_manager->putGemmDescriptor(key, desc);
     }
