@@ -8,7 +8,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-    
 struct DeepSeekV3Weights;
 
 // Function pointer signatures

@@ -1,6 +1,8 @@
 import os
 from typing import Optional, Union
 import infinicore
+import time
+from . import modeling_llama
 
 __all__ = ["AutoLlamaModel"]
 
@@ -12,24 +14,23 @@ class AutoLlamaModel:
         model_path: Optional[Union[str, os.PathLike]],
         device: infinicore.device,
         dtype=infinicore.dtype,
-        backend="python",
+        **kwargs,
     ):
-        if backend == "python":
-            from . import modeling_llama
+        t1 = time.time()
 
-            return modeling_llama.LlamaForCausalLM.from_pretrained(
-                model_path,
-                device=device,
-                dtype=dtype,
-            )
+        print("\n***************************************************************")
+        print("\t Loading Llama Model")
+        print(f"\t Device: {device}, DType: {dtype}")
+        print("***************************************************************\n")
+        print(" create model ......")
 
-        elif backend == "cpp":
-            from .backends import cpp
+        instance = modeling_llama.LlamaForCausalLM.from_pretrained(
+            model_path,
+            device=device,
+            **kwargs,
+        )
 
-            return cpp.LlamaForCausalLM.from_pretrained(
-                model_path,
-                device=device,
-                dtype=dtype,
-            )
+        t2 = time.time()
+        print(f" create model over! {(t2 - t1) * 1000} ms \n")
 
-        raise KeyError("invalid backend")
+        return instance

@@ -65,12 +65,12 @@ class DynamicLayer(CacheLayerMixin):
             self.max_seq_len = max(self.max_position_embeddings, seq_len)
 
             self.keys = infinicore.empty(
-                [batch_size, self.max_seq_len, num_heads, head_dim],
+                (batch_size, self.max_seq_len, num_heads, head_dim),
                 dtype=dtype,
                 device=device,
             )
             self.values = infinicore.empty(
-                [batch_size, self.max_seq_len, num_heads, head_dim],
+                (batch_size, self.max_seq_len, num_heads, head_dim),
                 dtype=dtype,
                 device=device,
             )
@@ -80,12 +80,12 @@ class DynamicLayer(CacheLayerMixin):
             self.max_seq_len = max(self.max_seq_len * 2, self.cache_position + seq_len)
 
             keys_new = infinicore.empty(
-                [batch_size, self.max_seq_len, num_heads, head_dim],
+                (batch_size, self.max_seq_len, num_heads, head_dim),
                 dtype=dtype,
                 device=device,
             )
             values_new = infinicore.empty(
-                [batch_size, self.max_seq_len, num_heads, head_dim],
+                (batch_size, self.max_seq_len, num_heads, head_dim),
                 dtype=dtype,
                 device=device,
             )
