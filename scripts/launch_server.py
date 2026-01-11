@@ -354,59 +354,78 @@ def timeout_checker_loop(app):
 
 
 # App loop: take requests from the queue, do inference, and put unfinished requests back into the queue.
-def detect_and_fix_replacement_character(text, context="", request_id=None, fix=True):
+def detect_and_fix_replacement_character(text, context="", request_id=None, fix=True, verbose_log=True):
     """
     Detect and optionally fix replacement character (U+FFFD, ) in text.
+    Optimized for performance - fast path when no replacement chars found.
 
     Args:
         text: Text to check for replacement characters
         context: Context string for logging (e.g., "streaming response", "non-streaming response")
         request_id: Optional request ID for logging
         fix: If True, remove replacement characters from the text. If False, only detect and log.
+        verbose_log: If False, only log a brief message (for streaming chunks)
 
     Returns:
         tuple: (cleaned_text: str, has_replacement: bool)
     """
+    # Fast path: Use in operator first (faster than character-by-character scan for most cases)
+    if '\ufffd' not in text:
+        return text, False
+
+    # Found potential replacement chars, now count and get positions
     replacement_char = '\ufffd'  # U+FFFD
     positions = []
 
-    for i, char in enumerate(text):
-        if ord(char) == 0xFFFD:  # Unicode replacement character
-            positions.append(i)
+    # Optimize: Use faster method to find all positions
+    # Using str.find in a loop is faster than enumerate for long strings
+    start = 0
+    while True:
+        pos = text.find(replacement_char, start)
+        if pos == -1:
+            break
+        positions.append(pos)
+        start = pos + 1
 
     if positions:
-        # Log detailed information about replacement characters
-        log_prefix = f"[REPLACEMENT_CHAR_DETECTED]"
-        if request_id:
-            log_prefix += f" Request ID: {request_id}"
-        if context:
-            log_prefix += f" Context: {context}"
+        # Logging (only if verbose_log is True, or for non-streaming responses)
+        if verbose_log:
+            log_prefix = f"[REPLACEMENT_CHAR_DETECTED]"
+            if request_id:
+                log_prefix += f" Request ID: {request_id}"
+            if context:
+                log_prefix += f" Context: {context}"
 
-        print(f"{log_prefix} Found {len(positions)} replacement character(s) (U+FFFD)")
-        print(f"  Positions: {positions[:10]}{'...' if len(positions) > 10 else ''}")
+            print(f"{log_prefix} Found {len(positions)} replacement character(s) (U+FFFD)")
+            print(f"  Positions: {positions[:10]}{'...' if len(positions) > 10 else ''}")
 
-        # Collect and log context samples around first few replacement characters
-        for pos in positions[:3]:  # Log first 3 occurrences
-            start = max(0, pos - 30)
-            end = min(len(text), pos + 30)
-            context_sample = text[start:end]
-            before = text[max(0, pos-10):pos] if pos > 0 else ''
-            after = text[pos+1:min(len(text), pos+11)] if pos < len(text)-1 else ''
-            print(f"  Position {pos}:")
-            print(f"    Before: {repr(before)}")
-            print(f"    After: {repr(after)}")
-            print(f"    Full context: {repr(context_sample)}")
+            # Collect and log context samples around first few replacement characters
+            for pos in positions[:3]:  # Log first 3 occurrences
+                start = max(0, pos - 30)
+                end = min(len(text), pos + 30)
+                context_sample = text[start:end]
+                before = text[max(0, pos-10):pos] if pos > 0 else ''
+                after = text[pos+1:min(len(text), pos+11)] if pos < len(text)-1 else ''
+                print(f"  Position {pos}:")
+                print(f"    Before: {repr(before)}")
+                print(f"    After: {repr(after)}")
+                print(f"    Full context: {repr(context_sample)}")
 
-        # Also print a snippet of the text for debugging
-        snippet_start = max(0, positions[0] - 100)
-        snippet_end = min(len(text), positions[0] + 100)
-        print(f"  Text snippet (around first occurrence): {repr(text[snippet_start:snippet_end])}")
+            # Also print a snippet of the text for debugging
+            snippet_start = max(0, positions[0] - 100)
+            snippet_end = min(len(text), positions[0] + 100)
+            print(f"  Text snippet (around first occurrence): {repr(text[snippet_start:snippet_end])}")
+        else:
+            # # Brief log for streaming chunks
+            # print(f"[REPLACEMENT_CHAR_DETECTED] {len(positions)} replacement char(s) in {context} (Request: {request_id or 'N/A'})")
+            pass
 
         # Fix: Remove all replacement characters
         if fix:
-            # Remove all U+FFFD characters
-            cleaned_text = ''.join(char for char in text if ord(char) != 0xFFFD)
-            print(f"  [FIXED] Removed {len(positions)} replacement character(s) from output")
+            # Optimize: Use str.replace which is faster than list comprehension for this case
+            cleaned_text = text.replace(replacement_char, '')
+            if verbose_log:
+                print(f"  [FIXED] Removed {len(positions)} replacement character(s) from output")
             return cleaned_text, True
         else:
             return text, True
@@ -594,8 +613,9 @@ async def _chat_stream_impl(id_, request_data, request: Request):
                         decoded_text = request.app.state.model.tokenizer.decode(token_buffer, skip_special_tokens=False)
 
                         # Detect and fix replacement characters in the decoded text
+                        # Use verbose_log=False for streaming to reduce logging overhead
                         decoded_text, has_replacement = detect_and_fix_replacement_character(
-                            decoded_text, context="streaming response (final)", request_id=id_, fix=FIX_REPLACEMENT_CHARS
+                            decoded_text, context="streaming response (final)", request_id=id_, fix=FIX_REPLACEMENT_CHARS, verbose_log=False
                         )
 
                         remaining_content = decoded_text[last_yielded_length:]
@@ -690,8 +710,9 @@ async def _chat_stream_impl(id_, request_data, request: Request):
 
                 # Detect and fix replacement characters in the decoded text
                 # We fix the entire decoded_text to maintain consistency with last_yielded_length tracking
+                # Use verbose_log=False for streaming chunks to reduce logging overhead
                 decoded_text, has_replacement = detect_and_fix_replacement_character(
-                    decoded_text, context="streaming response chunk", request_id=id_, fix=FIX_REPLACEMENT_CHARS
+                    decoded_text, context="streaming response chunk", request_id=id_, fix=FIX_REPLACEMENT_CHARS, verbose_log=False
                 )
 
                 # Calculate new content by comparing current decode with what we've already yielded
