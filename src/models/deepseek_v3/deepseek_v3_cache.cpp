@@ -1,6 +1,5 @@
 #include "deepseek_v3_impl.hpp"
 
-
 __C struct DeepSeekV3Cache *
 createDeepSeekV3Cache(const struct DeepSeekV3Model *model) {
     DeepSeekV3Cache *cache = new DeepSeekV3Cache();
