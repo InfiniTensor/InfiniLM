@@ -43,6 +43,10 @@ class KVCacheCStruct(ctypes.Structure):
     pass
 
 
+class ModelWeightsCStruct(ctypes.Structure):
+    pass
+
+
 # Model registration system
 _model_registry = []
 

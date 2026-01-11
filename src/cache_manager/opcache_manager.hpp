@@ -9,6 +9,9 @@
 #include "../tensor.hpp"
 #include "../utils.hpp"
 #include "infinicore_infer.h"
+#include "infiniop/ops/conv.h"
+#include "infiniop/ops/gelu.h"
+#include "infiniop/ops/layer_norm.h"
 
 class IDescriptorDestroyer {
 public:
@@ -154,25 +157,37 @@ class CacheManager {
 public:
     DECLARE_OP_CACHE(Add)
     DECLARE_OP_CACHE(RMSNorm)
+    DECLARE_OP_CACHE(LayerNorm)
     DECLARE_OP_CACHE(Gemm)
     DECLARE_OP_CACHE(RoPE)
+    DECLARE_OP_CACHE(MRoPE2D)
+    DECLARE_OP_CACHE(MRoPE3D)
     DECLARE_OP_CACHE(Rearrange)
     DECLARE_OP_CACHE(CausalSoftmax)
+    DECLARE_OP_CACHE(Softmax)
     DECLARE_OP_CACHE(Topkrouter)
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(DequantizeAWQ)
+    DECLARE_OP_CACHE(Conv)
+    DECLARE_OP_CACHE(Gelu)
 
     CacheManager(size_t capacity = 100)
         : Add_cache(capacity, DESTROY_FUNC(Add)),
           RMSNorm_cache(capacity, DESTROY_FUNC(RMSNorm)),
+          LayerNorm_cache(capacity, DESTROY_FUNC(LayerNorm)),
           Gemm_cache(capacity, DESTROY_FUNC(Gemm)),
           RoPE_cache(capacity, DESTROY_FUNC(RoPE)),
+          MRoPE2D_cache(capacity, DESTROY_FUNC(MRoPE2D)),
+          MRoPE3D_cache(capacity, DESTROY_FUNC(MRoPE3D)),
           Rearrange_cache(capacity, DESTROY_FUNC(Rearrange)),
           CausalSoftmax_cache(capacity, DESTROY_FUNC(CausalSoftmax)),
+          Softmax_cache(capacity, DESTROY_FUNC(Softmax)),
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
+          Conv_cache(capacity, DESTROY_FUNC(Conv)),
+          Gelu_cache(capacity, DESTROY_FUNC(Gelu)),
           DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)) {}
 
     template <typename... Tensors>
