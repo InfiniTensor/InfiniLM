@@ -1,16 +1,14 @@
+import infinicore
+from transformers import AutoTokenizer
+from tokenizers import decoders as _dec
+from infinilm.modeling_utils import get_model_state_dict
+import infinilm
+import argparse
 import sys
 import time
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
-
-import argparse
-import infinilm
-from infinilm.modeling_utils import get_model_state_dict
-from tokenizers import decoders as _dec
-from transformers import AutoTokenizer
-
-import infinicore
 
 
 def get_args():
@@ -59,22 +57,35 @@ def get_args():
         default="python",
         help="python or cpp model",
     )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="number of prompts in a batch",
+    )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="How are you",
+        help="input prompt",
+    )
+
     return parser.parse_args()
 
 
 def test(
-    prompt,
+    prompts: str | list[str],
     model_path,
     max_new_tokens=100,
-    infini_dtype=infinicore.bfloat16,
     infini_device=infinicore.device("cpu", 0),
-    backend="python",
 ):
+    model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
     #                        创建模型,
     # ---------------------------------------------------------------------------- #
     model = infinilm.AutoLlamaModel.from_pretrained(
-        model_path, device=infini_device, dtype=infini_dtype, backend=backend
+        model_path,
+        device=infini_device,
     )
 
     # ---------------------------------------------------------------------------- #
@@ -83,19 +94,17 @@ def test(
     model_param_infini = get_model_state_dict(
         model_path,
         device=infini_device,
-        dtype=infini_dtype,
+        dtype=model.config.dtype,
     )
 
-    model.load_state_dict(model_param_infini)
-
-    config = model.config
+    model.load_state_dict(model_param_infini, strict=True)
 
     # ---------------------------------------------------------------------------- #
     #                        创建 tokenizer
     # ---------------------------------------------------------------------------- #
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
-    if "llama" == config.model_type:
+    if "llama" == model.config.model_type:
         backend = getattr(tokenizer, "backend_tokenizer", None)
         target = getattr(backend, "_tokenizer", backend)
         norm = getattr(target, "normalizer", None)
@@ -112,32 +121,39 @@ def test(
                     _dec.Fuse(),
                 ]
             )
+    else:
+        raise ValueError(f"Unsupported model type: {model.config.model_type}")
 
     # ---------------------------------------------------------------------------- #
     #                        token编码
     # ---------------------------------------------------------------------------- #
     # prompt = "山东最高的山是？"
-    input_content = tokenizer.apply_chat_template(
-        conversation=[{"role": "user", "content": prompt}],
-        add_generation_prompt=True,
-        tokenize=False,
-    )
-    print(input_content, end="", flush=True)
-    input_ids = tokenizer.encode(input_content)
+    if isinstance(prompts, str):
+        prompts = [prompts]
+    input_contents = [
+        tokenizer.apply_chat_template(
+            conversation=[{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        for prompt in prompts
+    ]
+    print(input_contents[0], end="", flush=True)
+    input_ids_list = tokenizer.batch_encode_plus(input_contents)[
+        "input_ids"
+    ]  # List: [[1, 1128, 526, 366, 29892]]
 
     # ---------------------------------------------------------------------------- #
     #                        自回归生成
     # ---------------------------------------------------------------------------- #
-    input_ids_list = [input_ids]  # List: [[1, 1128, 526, 366, 29892]]
     input_ids_infini = infinicore.from_list(input_ids_list)
 
     t1 = time.time()
+    print("=================== start generate ====================")
     model.generate(
         input_ids_infini,
         max_new_tokens=max_new_tokens,
-        device=infini_device,
         tokenizer=tokenizer,
-        config=config,
     )
     t2 = time.time()
 
@@ -168,20 +184,20 @@ if __name__ == "__main__":
             "such as, python examples/llama.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
-    prompt = "山东最高的山是？"
+    prompts = [args.prompt for _ in range(args.batch_size)]
 
     model_path = args.model_path
     max_new_tokens = args.max_new_tokens
     backend = args.backend
 
+    if backend != "python":
+        raise ValueError(f"Unsupported backend: {backend}.")
+
     infini_device = infinicore.device(device_str, 0)
-    infini_dtype = infinicore.bfloat16
 
     test(
-        prompt,
+        prompts,
         model_path,
         max_new_tokens,
         infini_device=infini_device,
-        infini_dtype=infini_dtype,
-        backend=backend,
     )
