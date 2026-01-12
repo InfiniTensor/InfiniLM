@@ -15,7 +15,7 @@ from libinfinicore_infer import (
 )
 from infer_task import InferTask, KVCache
 
-from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref, c_bool
+from ctypes import POINTER, c_float, c_int, c_uint, c_uint16, c_void_p, byref, c_bool
 import os
 from pathlib import Path
 import safetensors
@@ -25,7 +25,6 @@ import json
 import math
 import torch
 import transformers
-
 torch.set_default_device("cpu")
 
 
@@ -451,10 +450,64 @@ class Qwen3vlBatchedTask:
         self.topks = (c_uint * self.nreq)(*self.topks_list)
         self.topps = (c_float * self.nreq)(*self.topps_list)
 
+        # initialize visual encoder inputs
+        self.pixel_values = None
+        self.total_patches = 0
+        self.image_grid_thw = None
+        self.num_images = 0
+        self.pixel_values_videos = None
+        self.total_patches_videos = 0
+        self.video_grid_thw = None
+        self.num_videos = 0
+        self.patch_features = 0
+
+        # Prepare visual encoder inputs
+        all_pixel_values = [t.inputs['pixel_values'] for t in tasks if 'pixel_values' in t.inputs]
+        all_image_grid_thw = [t.inputs['image_grid_thw'] for t in tasks if 'image_grid_thw' in t.inputs]
+        all_pixel_values_videos = [t.inputs['pixel_values_videos'] for t in tasks if 'pixel_values_videos' in t.inputs]
+        all_video_grid_thw = [t.inputs['video_grid_thw'] for t in tasks if 'video_grid_thw' in t.inputs]
+
+        if all_pixel_values:
+            concat_pixel_values = torch.cat(all_pixel_values, dim=0)  # (total_patches, features)
+            self.total_patches = concat_pixel_values.shape[0]
+            self.patch_features = concat_pixel_values.shape[1]
+            self.flat_pixels = concat_pixel_values.flatten().to(torch.bfloat16).contiguous()
+            self.pixel_values = self.flat_pixels.ctypes.data_as(c_void_p)
+
+        if all_image_grid_thw:
+            concat_grid_thw = torch.cat(all_image_grid_thw, dim=0)  # (total_images, 3)
+            self.num_images = concat_grid_thw.shape[0]
+            flat_grid = concat_grid_thw.flatten().to(torch.int32).contiguous()
+            self.image_grid_thw = (c_uint * len(flat_grid))(*flat_grid.tolist())
+
+        if all_pixel_values_videos:
+            concat_pixel_values_videos = torch.cat(all_pixel_values_videos, dim=0)  # (total_patches_videos, features)
+            self.total_patches_videos = concat_pixel_values_videos.shape[0]
+            self.patch_features_videos = concat_pixel_values_videos.shape[1]
+            print(self.patch_features_videos, flush=True)
+            self.flat_pixels_videos = concat_pixel_values_videos.flatten().to(torch.bfloat16).contiguous()
+            self.pixel_values_videos = self.flat_pixels_videos.ctypes.data_as(c_void_p)
+
+        if all_video_grid_thw:
+            concat_grid_thw_videos = torch.cat(all_video_grid_thw, dim=0)  # (total_videos, 3)
+            self.num_videos = concat_grid_thw_videos.shape[0]
+            flat_grid_videos = concat_grid_thw_videos.flatten().to(torch.int32).contiguous()
+            self.video_grid_thw = (c_uint * len(flat_grid_videos))(*flat_grid_videos.tolist())
+
+
     def input_args(self):
         return (
             self.tokens,
             self.ntok,
+            self.pixel_values,
+            self.total_patches,
+            self.image_grid_thw,
+            self.num_images,
+            self.pixel_values_videos,
+            self.total_patches_videos,
+            self.video_grid_thw,
+            self.num_videos,
+            self.patch_features,
             self.req_lens,
             self.nreq,
             self.req_pos,
@@ -483,6 +536,7 @@ class Qwen3vlForCauslLM:
             self.meta = Qwen3vlMeta(
                 config, max_tokens=max_tokens
             )
+            self.processor = transformers.AutoProcessor.from_pretrained(model_dir_path)
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
         else:
             raise ValueError("Unsupported model architecture")
@@ -530,16 +584,17 @@ class Qwen3vlForCauslLM:
         return list(output)
 
     def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
-        input_content = self.tokenizer.apply_chat_template(
-            conversation=[{"role": "user", "content": input_content}],
+        inputs = self.processor.apply_chat_template(
+            conversation = [{"role": "user","content": [{"type": "text", "text": input_content}]}],
+            tokenize=True,
             add_generation_prompt=True,
-            tokenize=False,
+            return_dict=True,
+            return_tensors="pt",
         )
 
-        tokens = self.tokenizer.encode(input_content)
         infer_task = InferTask(
             0,
-            tokens,
+            inputs,
             self.max_context_len(),
             temperature_,
             topk_,
@@ -552,7 +607,7 @@ class Qwen3vlForCauslLM:
         total_time = 0
         output_content = ""
 
-        print(tokens)
+        print(inputs['input_ids'][0].tolist(), flush=True)
 
         for step_i in range(max_steps):
             start_time = time.time()
@@ -572,6 +627,7 @@ class Qwen3vlForCauslLM:
 
         print("\n")
         avg_time = total_time * 1000 / steps if steps > 0 else -1
+        print(output_content, flush=True)
         print(f"Time per step: {avg_time:.3f}ms")
 
         infer_task._kv_cache.drop(self)

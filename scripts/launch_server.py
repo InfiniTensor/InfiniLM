@@ -102,8 +102,8 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
 
 # A wrapper for InferTask that supports async output queue
 class AsyncInferTask(InferTask):
-    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens):
-        super().__init__(id, tokens, max_tokens, temperature, topk, topp, end_tokens)
+    def __init__(self, id, inputs, max_tokens, temperature, topk, topp, end_tokens):
+        super().__init__(id, inputs, max_tokens, temperature, topk, topp, end_tokens)
         self.output_queue = janus.Queue()
         print(f"[INFO] Create InferTask {self.id}")
 
@@ -171,15 +171,18 @@ def worker_loop(app):
 
 def build_task(id_, request_data, request: Request):
     messages = request_data.get("messages", [])
-    input_content = request.app.state.model.tokenizer.apply_chat_template(
-        conversation=messages,
+    inputs = request.app.state.model.processor.apply_chat_template(
+        messages,
+        tokenize=True,
         add_generation_prompt=True,
-        tokenize=False,
+        return_dict=True,
+        return_tensors="pt",
     )
-    tokens = request.app.state.model.tokenizer.encode(input_content)
+    inputs.pop("token_type_ids", None)
+    
     return AsyncInferTask(
         id_,
-        tokens,
+        inputs,
         request_data.get("max_tokens", request.app.state.model.max_context_len()),
         request_data.get("temperature", 1.0),
         request_data.get("top_k", 1),

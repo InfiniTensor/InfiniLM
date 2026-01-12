@@ -67,4 +67,5 @@ class BaseModel:
         lib_path = os.path.join(
             os.environ.get("INFINI_ROOT"), "lib", "libinfinicore_infer.so"
         )
+        print("loaded infini lib!")
         return ctypes.CDLL(lib_path)

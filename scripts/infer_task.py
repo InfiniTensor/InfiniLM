@@ -1,8 +1,9 @@
 class InferTask:
-    def __init__(self, id, tokens, max_tokens, temperature, topk, topp, end_tokens):
+    def __init__(self, id, inputs, max_tokens, temperature, topk, topp, end_tokens):
         self.id = id
         self.finish_reason = None
-        self.tokens = tokens
+        self.inputs = inputs
+        self.tokens = inputs['input_ids'][0].tolist()
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.topk = topk

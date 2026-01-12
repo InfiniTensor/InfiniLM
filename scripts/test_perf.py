@@ -49,7 +49,7 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
                 start_time = time.time()
                 stream = await client.chat.completions.create(
                     model=MODEL,
-                    messages=[{"role": "user", "content": question}],
+                    messages=[{"role": "user","content": [{"type": "text", "text": question}]}],
                     stream=True
                 )
 

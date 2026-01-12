@@ -23,7 +23,7 @@ inline std::shared_ptr<Tensor> getOutEmbd(
 }
 
 inline void getLayerWeight(
-    const Qwen3vlMeta *meta,LayerWeight& layer, int ndev) {
+    const Qwen3vlMeta *meta, Qwen3vlLayerWeight& layer, int ndev) {
     auto nkvh = meta->text_meta.num_key_value_heads;
     auto nh = meta->text_meta.num_attention_heads;
     auto dh = meta->text_meta.head_dim;
@@ -49,7 +49,7 @@ inline void getLayerWeight(
 
 
 inline void getVisualWeight(
-    const Qwen3vlMeta *meta, std::shared_ptr<VisualEncoderWeight> w_vis) {
+    const Qwen3vlMeta *meta, std::shared_ptr<Qwen3vlVisualEncoderWeight> w_vis) {
     Qwen3vlVisMeta vis_meta = meta->vis_meta;
     auto patch_embed_shape = std::vector<size_t>({vis_meta.hidden_size , vis_meta.in_channels, vis_meta.temporal_patch_size, vis_meta.patch_size, vis_meta.patch_size});
     w_vis->patch_embed_weight = Tensor::weight(nullptr, meta->dtype, patch_embed_shape);
@@ -62,7 +62,7 @@ inline void getVisualWeight(
     w_vis->merger->linear_fc2_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.out_hidden_size});
     w_vis->merger->norm_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size});
     w_vis->merger->norm_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size});
-    w_vis->blocks = std::vector<VisBlockWeight>(vis_meta.depth);
+    w_vis->blocks = std::vector<Qwen3vlVisBlockWeight>(vis_meta.depth);
     for (size_t i = 0; i < vis_meta.depth; i++) { 
         w_vis->blocks[i].attn_proj_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size,vis_meta.hidden_size});
         w_vis->blocks[i].attn_proj_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size});
@@ -156,9 +156,8 @@ Qwen3vlWeights::Qwen3vlWeights(
         device_weights[dev]->device = device;
         device_weights[dev]->dev_id = dev_id;
         RUN_INFINI(infinirtStreamCreate(&device_weights[dev]->load_stream));
-
-        device_weights[dev]->w_lang = std::make_shared<LanguageModelWeight>();
-        device_weights[dev]->w_vis = std::make_shared<VisualEncoderWeight>();
+        device_weights[dev]->w_lang = std::make_shared<Qwen3vlLanguageModelWeight>();
+        device_weights[dev]->w_vis = std::make_shared<Qwen3vlVisualEncoderWeight>();
 
         device_weights[dev]->w_lang->in_embd = getInEmbd(meta);
         device_weights[dev]->w_lang->out_norm = getOutNorm(meta);
@@ -166,7 +165,7 @@ Qwen3vlWeights::Qwen3vlWeights(
         device_weights[dev]->sin_table = getSinTable(meta);
         device_weights[dev]->cos_table = getCosTable(meta);
 
-        device_weights[dev]->w_lang->layers = std::vector<LayerWeight>(meta->text_meta.num_hidden_layers);
+        device_weights[dev]->w_lang->layers = std::vector<Qwen3vlLayerWeight>(meta->text_meta.num_hidden_layers);
 
         for (size_t layer = 0; layer < meta->text_meta.num_hidden_layers; layer++) {
             getLayerWeight(meta, device_weights[dev]->w_lang->layers[layer], ndev);
@@ -288,7 +287,7 @@ void load_mlp_norm(Qwen3vlWeights *weights, void *cpu_ptr, size_t layer) {
 void load_mlp_gate_up(Qwen3vlWeights *weights, void *cpu_ptr, size_t layer) {
     std::cout << "Loading mlp gate " << layer << " from " << cpu_ptr << std::endl;
     int ndev = int(weights->device_weights.size());
-    auto di = weights->meta->text_meta.head_dim;
+    auto di = weights->meta->text_meta.intermediate_size;
     auto d = weights->meta->text_meta.hidden_size;
     // [ndev, 2*di // ndev, d]
     for (int idev = 0; idev < ndev; idev++) {
@@ -306,7 +305,7 @@ void load_mlp_gate_up(Qwen3vlWeights *weights, void *cpu_ptr, size_t layer) {
 void load_mlp_down(Qwen3vlWeights *weights, void *cpu_ptr, size_t layer) {
     std::cout << "Loading mlp down " << layer << " from " << cpu_ptr << std::endl;
     int ndev = int(weights->device_weights.size());
-    auto di = weights->meta->text_meta.head_dim;
+    auto di = weights->meta->text_meta.intermediate_size;
     auto d = weights->meta->text_meta.hidden_size;
     //[ndev, d, di // ndev]
     for (int idev = 0; idev < ndev; idev++) {
@@ -624,6 +623,19 @@ createQwen3vlWeights(const Qwen3vlMeta *meta,
                         int ndev,
                         const int *dev_ids,
                         bool transpose_weight) {
+
+    printf("=== C++ createQwen3vlWeights ===\n");
+    printf("sizeof(Qwen3vlTextMeta): %zu\n", sizeof(Qwen3vlTextMeta));
+    printf("sizeof(Qwen3vlVisMeta): %zu\n", sizeof(Qwen3vlVisMeta));
+    printf("sizeof(Qwen3vlMeta): %zu\n", sizeof(Qwen3vlMeta));
+    printf("meta->dtype: %d\n", meta->dtype);
+    printf("meta->text_meta.hidden_size: %zu\n", meta->text_meta.hidden_size);
+    printf("meta->text_meta.num_hidden_layers: %zu\n", meta->text_meta.num_hidden_layers);
+    printf("meta->text_meta.vocab_size: %zu\n", meta->text_meta.vocab_size);
+    printf("meta->vis_meta.depth: %zu\n", meta->vis_meta.depth);
+    printf("device: %d, ndev: %d, dev_ids[0]: %d\n", device, ndev, dev_ids[0]);
+    fflush(stdout);
+
     auto weights = new Qwen3vlWeights(meta, device, ndev, dev_ids, transpose_weight);
     return weights;
 };

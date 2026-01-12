@@ -153,6 +153,7 @@ public:
 class CacheManager {
 public:
     DECLARE_OP_CACHE(Add)
+    DECLARE_OP_CACHE(Conv)
     DECLARE_OP_CACHE(Mul)
     DECLARE_OP_CACHE(RMSNorm)
     DECLARE_OP_CACHE(Gemm)
@@ -167,6 +168,7 @@ public:
 
     CacheManager(size_t capacity = 100)
         : Add_cache(capacity, DESTROY_FUNC(Add)),
+          Conv_cache(capacity, DESTROY_FUNC(Conv)),
           Mul_cache(capacity, DESTROY_FUNC(Mul)),
           RMSNorm_cache(capacity, DESTROY_FUNC(RMSNorm)),
           Gemm_cache(capacity, DESTROY_FUNC(Gemm)),

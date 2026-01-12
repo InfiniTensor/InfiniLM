@@ -12,7 +12,7 @@
 #include <thread>
 #include <vector>
 
-struct LayerWeight {
+struct Qwen3vlLayerWeight {
     std::shared_ptr<Tensor> attn_norm;
     std::shared_ptr<Tensor> attn_qkv_proj;
     std::shared_ptr<Tensor> attn_q_norm;
@@ -20,15 +20,16 @@ struct LayerWeight {
     std::shared_ptr<Tensor> attn_o_proj;
 
     std::shared_ptr<Tensor> mlp_norm;
-    std::shared_ptr<Tensor> mlp_down, mlp_gate_up;
+    std::shared_ptr<Tensor> mlp_gate_up;
+    std::shared_ptr<Tensor> mlp_down;
 };
 
-struct LanguageModelWeight {
+struct Qwen3vlLanguageModelWeight {
     std::shared_ptr<Tensor> in_embd, out_embd, out_norm;
-    std::vector<LayerWeight> layers;
+    std::vector<Qwen3vlLayerWeight> layers;
 };
 
-struct VisBlockWeight {
+struct Qwen3vlVisBlockWeight {
     std::shared_ptr<Tensor> attn_proj_weight, attn_proj_bias, attn_qkv_weight, attn_qkv_bias;
     std::shared_ptr<Tensor> mlp_linear_fc1_weight, mlp_linear_fc1_bias, mlp_linear_fc2_weight, mlp_linear_fc2_bias;
     std::shared_ptr<Tensor> norm1_weight, norm1_bias, norm2_weight, norm2_bias;
@@ -45,9 +46,9 @@ struct MergerWeight {
 };
 
 
-struct VisualEncoderWeight {
+struct Qwen3vlVisualEncoderWeight {
     std::shared_ptr<Tensor> patch_embed_weight, patch_embed_bias, pos_embed_weight;
-    std::vector<VisBlockWeight> blocks;
+    std::vector<Qwen3vlVisBlockWeight> blocks;
     std::vector<DeepstackMergerWeight> deepstack_mergers;
     std::shared_ptr<MergerWeight> merger;
 };
@@ -55,8 +56,8 @@ struct VisualEncoderWeight {
 
 struct Qwen3vlDeviceWeights {
     std::shared_ptr<Tensor> sin_table,cos_table;
-    std::shared_ptr<LanguageModelWeight> w_lang;
-    std::shared_ptr<VisualEncoderWeight> w_vis;
+    std::shared_ptr<Qwen3vlLanguageModelWeight> w_lang;
+    std::shared_ptr<Qwen3vlVisualEncoderWeight> w_vis;
     infiniDevice_t device;
     int dev_id;
     infinirtStream_t load_stream;
@@ -89,7 +90,10 @@ struct Qwen3vlDeviceResource {
     std::shared_ptr<MemoryPool> memory_pool;
 };
 
-struct InferState {
+struct InferState { // qwen3vl namespace
+    inline static std::mutex mtx_sync;
+    inline static int sync_cnt;
+    inline static std::condition_variable cv_sync;
     std::mutex mtx;
     std::condition_variable cv_load, cv_start, cv_done;
     bool loaded = false;
@@ -97,9 +101,18 @@ struct InferState {
     bool exit_flag = false;
 };
 
-struct InferRequest {
+struct InferRequest { // qwen3vl namespace
     const uint32_t *tokens;
     uint32_t ntok;
+    void *pixel_values;
+    uint32_t total_patches;
+    uint32_t *image_grid_thw;
+    uint32_t num_images;
+    void *pixel_values_videos;
+    uint32_t total_patches_videos;
+    uint32_t *video_grid_thw;
+    uint32_t num_videos;
+    uint32_t patch_features;
     const uint32_t *req_lens;
     uint32_t nreq;
     const uint32_t *req_pos;

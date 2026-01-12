@@ -169,11 +169,16 @@ dropQwen3vlCache(const struct Qwen3vlModel *,
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 inferBatchQwen3vl(struct Qwen3vlModel *,
-                     const uint32_t *tokens, uint32_t ntok,
-                     const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                     struct Qwen3vlCache **caches,
-                     const float *temperature, const uint32_t *topk, const float *topp,
-                     uint32_t *output);
+                    const uint32_t *tokens, uint32_t ntok,
+                    void *pixel_values, uint32_t total_patches,
+                    uint32_t *image_grid_thw, uint32_t num_images,
+                    void *pixel_values_videos, uint32_t total_patches_videos,
+                    uint32_t *video_grid_thw, uint32_t num_videos,
+                    uint32_t patch_features,
+                    const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                    struct Qwen3vlCache **caches,
+                    const float *temperature, const uint32_t *topk, const float *topp,
+                    uint32_t *output);
 
 /// @brief 批次推理一轮，输出 output embedding 后的 logits
 /// @param tokens 输入 token 地址
@@ -185,21 +190,14 @@ inferBatchQwen3vl(struct Qwen3vlModel *,
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 forwardBatchQwen3vl(struct Qwen3vlModel *,
-                       const uint32_t *tokens, uint32_t ntok,
-                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                       struct Qwen3vlCache **caches,
-                       void *logits);
+                    const uint32_t *tokens, uint32_t ntok,
+                    void *pixel_values, uint32_t total_patches,
+                    uint32_t *image_grid_thw, uint32_t num_images,
+                    void *pixel_values_videos, uint32_t total_patches_videos,
+                    uint32_t *video_grid_thw, uint32_t num_videos,
+                    uint32_t patch_features,
+                    const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                    struct Qwen3vlCache **caches,
+                    void *logits);
 
 #endif // QWEN3VL_WEIGHTS_H
-
-// self,
-// input_ids: torch.LongTensor = None,
-// attention_mask: Optional[torch.Tensor] = None,
-// position_ids: Optional[torch.LongTensor] = None,
-// past_key_values: Optional[Cache] = None,
-// inputs_embeds: Optional[torch.FloatTensor] = None,
-// pixel_values: Optional[torch.Tensor] = None,
-// pixel_values_videos: Optional[torch.FloatTensor] = None,
-// image_grid_thw: Optional[torch.LongTensor] = None,
-// video_grid_thw: Optional[torch.LongTensor] = None,
-// cache_position: Optional[torch.LongTensor] = None,

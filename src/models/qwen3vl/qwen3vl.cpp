@@ -48,20 +48,279 @@ void releaseDeviceResource(Qwen3vlDeviceResource &res) {
     res.comm = nullptr;
 }
 
-//todo:
-// pd分离
-// flashattn + batching
-// triron跨平台
-// pageattn
+inline std::shared_ptr<Tensor> get_custom_SinTable(const Qwen3vlMeta &meta, std::vector<std::vector<uint32_t>> &pos_ids ,uint32_t dim, size_t theta) {
+    // pos_ids shape:[seq, dim/2] , pos ids acting on each dim
+    auto unit = dsize(meta.dtype);
+    auto half_dim = dim/2;
+    size_t len = pos_ids.size();
+    void *table = std::malloc(len * half_dim * unit);
+
+    for (size_t i = 0; i <len; i++) {
+        for (size_t j = 0; j < half_dim; j++) {
+            float _cos = std::sin(
+                static_cast<float>(pos_ids[i][j]) / std::pow(theta, static_cast<float>(j) / half_dim));
+            if (meta.dtype == INFINI_DTYPE_F16) {
+                ((uint16_t *)table)[i * half_dim + j] = f32_to_f16(_cos);
+            } else if (meta.dtype == INFINI_DTYPE_BF16) {
+                ((uint16_t *)table)[i * half_dim + j] = f32_to_bf16(_cos);
+            } else if (meta.dtype == INFINI_DTYPE_F32) {
+                ((float *)table)[i * half_dim + j] = _cos;
+            } else {
+                std::cout << "unsupported data type" << std::endl;
+                exit(1);
+            }
+        }
+    }
+    auto shape = std::vector<size_t>({len, half_dim});
+    auto tensor = Tensor::weight(table, meta.dtype, shape);
+    std::free(table);
+    return tensor;
+}
+
+inline std::shared_ptr<Tensor> get_custom_CosTable(const Qwen3vlMeta &meta, std::vector<std::vector<uint32_t>> &pos_ids ,uint32_t dim, size_t theta) {
+    // pos_ids shape:[seq, dim/2] , pos ids acting on each dim
+    auto unit = dsize(meta.dtype);
+    auto half_dim = dim/2;
+    size_t len = pos_ids.size();
+    void *table = std::malloc(len * half_dim * unit);
+
+    for (size_t i = 0; i <len; i++) {
+        for (size_t j = 0; j < half_dim; j++) {
+            float _cos = std::cos(
+                static_cast<float>(pos_ids[i][j]) / std::pow(theta, static_cast<float>(j) / half_dim));
+            if (meta.dtype == INFINI_DTYPE_F16) {
+                ((uint16_t *)table)[i * half_dim + j] = f32_to_f16(_cos);
+            } else if (meta.dtype == INFINI_DTYPE_BF16) {
+                ((uint16_t *)table)[i * half_dim + j] = f32_to_bf16(_cos);
+            } else if (meta.dtype == INFINI_DTYPE_F32) {
+                ((float *)table)[i * half_dim + j] = _cos;
+            } else {
+                std::cout << "unsupported data type" << std::endl;
+                exit(1);
+            }
+        }
+    }
+    auto shape = std::vector<size_t>({len, half_dim});
+    auto tensor = Tensor::weight(table, meta.dtype, shape);
+    std::free(table);
+    return tensor;
+}
+
+inline std::shared_ptr<Tensor> fast_pos_embed_interpolate(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc, 
+                                                        uint32_t* grid_thw, uint32_t num_batch, uint32_t total_patches) {
+    auto dtype = meta.dtype;                                        
+    auto num_position_embeddings = meta.vis_meta.num_position_embeddings;
+    auto hidden_size = meta.vis_meta.hidden_size;
+    auto merge_size = meta.vis_meta.spatial_merge_size;
+    auto num_grid_per_side = static_cast<uint32_t>(sqrt(num_position_embeddings));
+
+    uint32_t total_pixels_offset = 0;
+    std::shared_ptr<Tensor> patch_pos_embeds = Tensor::buffer(dtype,{total_patches, hidden_size},rsrc.memory_pool);
+    auto pos_embed_weight = rsrc.weights->w_vis->pos_embed_weight;
+
+    std::vector<std::shared_ptr<Tensor>> pos_embeds(4);
+    for (uint32_t i = 0; i < num_batch; ++i) {
+        uint32_t t = grid_thw[i * 3];
+        uint32_t h = grid_thw[i * 3 + 1];
+        uint32_t w = grid_thw[i * 3 + 2];
+        auto weight_array = std::vector<uint16_t>(h*w*hidden_size);
+        auto weight_tensor = Tensor::buffer(dtype,{h*w, hidden_size},rsrc.memory_pool);
+
+        // 计算插值索引和权重
+        std::vector<std::vector<uint32_t>> indices(4);
+        std::vector<std::vector<float>> weights(4);
+
+        auto linspace = [](float start, float end, uint32_t num_points) -> std::vector<float> {
+            std::vector<float> res(num_points);
+            for (uint32_t i = 0; i < num_points; ++i) {
+                res[i] = start + (end - start) * i / (num_points - 1);
+            }
+            return res;
+        };
+
+        auto h_idxs = linspace(0, num_grid_per_side - 1, h);
+        auto w_idxs = linspace(0, num_grid_per_side - 1, w);
+
+        for (uint32_t ih = 0; ih < h; ++ih) {
+            for (uint32_t iw = 0; iw < w; ++iw) {
+                float h_idx_f = h_idxs[ih], w_idx_f = w_idxs[iw];
+                uint32_t h_idx_floor = static_cast<uint32_t>(floor(h_idx_f)),
+                         w_idx_floor = static_cast<uint32_t>(floor(w_idx_f));
+                uint32_t h_idx_ceil = std::min(static_cast<uint32_t>(ceil(h_idx_f)), num_grid_per_side - 1),
+                         w_idx_ceil = std::min(static_cast<uint32_t>(ceil(w_idx_f)), num_grid_per_side - 1);
+
+                float dh = h_idx_f - h_idx_floor, dw = w_idx_f - w_idx_floor;
+
+                indices[0].push_back((h_idx_floor * num_grid_per_side) + w_idx_floor);
+                indices[1].push_back((h_idx_floor * num_grid_per_side) + w_idx_ceil);
+                indices[2].push_back((h_idx_ceil * num_grid_per_side) + w_idx_floor);
+                indices[3].push_back((h_idx_ceil * num_grid_per_side) + w_idx_ceil);
+
+                weights[0].push_back((1 - dh) * (1 - dw));
+                weights[1].push_back((1 - dh) * dw);
+                weights[2].push_back(dh * (1 - dw));
+                weights[3].push_back(dh * dw);
+            }
+        }
+
+        // 查表并加权求和
+        for (int j = 0; j < 4; ++j) {
+            pos_embeds[j] = Tensor::buffer(dtype,{h*w, hidden_size},rsrc.memory_pool);
+            // 使用索引和权重获取对应位置嵌入，并乘以权重
+            for(size_t i = 0; i < h*w; i++){
+                rearrange(pos_embeds[j]->slice(0,i,1),pos_embed_weight->slice(0,indices[j][i],1));
+            }
+            for(size_t i = 0; i < h*w; i++){
+                uint16_t w_value = f32_to_bf16(weights[j][i]);
+                for(size_t k=0; k < hidden_size; k++){
+                    weight_array[i*hidden_size + k] = w_value;
+                }
+            }
+            RUN_INFINI(infinirtMemcpyAsync(weight_tensor->data(), weight_array.data(), sizeof(uint16_t)*h*w*hidden_size,
+                        INFINIRT_MEMCPY_H2D, rsrc.stream));
+            mul(pos_embeds[j],pos_embeds[j],weight_tensor);
+        }
+
+        // 合并四个方向的结果
+        auto patch_pos_embed = pos_embeds[0]; // [h*w, hidden_size]
+        for (int j = 1; j < 4; ++j) {
+            add(patch_pos_embed,patch_pos_embed, pos_embeds[j]);
+        }
+
+        // 对于视频帧数T>1的情况，重复patch_pos_embed T次
+        if (t > 1) {
+            auto temp_patch_pos_embed = Tensor::buffer(dtype,{t,h*w,hidden_size},rsrc.memory_pool);
+            for(size_t i = 0; i < t; i++){
+                rearrange(temp_patch_pos_embed->slice(0,i,1), patch_pos_embed);
+            }
+            patch_pos_embed = temp_patch_pos_embed;
+        }
+        printf("merge patch pos embed/n");
+        fflush(stdout);
+        patch_pos_embed = patch_pos_embed
+                          ->view({t, h/merge_size, merge_size, w/merge_size, merge_size, hidden_size})
+                          ->permute({0, 1, 3, 2, 4, 5})
+                          ->view({t*h*w, hidden_size}); //可能因为内存不连续无法再view
+
+        rearrange(patch_pos_embeds->slice(0,total_pixels_offset,t*h*w), patch_pos_embed);
+        total_pixels_offset += t*h*w;
+    }
+    return patch_pos_embeds;
+}
+
+inline auto rot_pos_embed(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc, uint32_t* grid_thw, uint32_t num_batch, uint32_t total_patches) {
+    auto dtype = meta.dtype;
+    auto hidden_size = meta.vis_meta.hidden_size;
+    auto num_heads = meta.vis_meta.num_heads;
+    auto head_dim = hidden_size / num_heads;
+    auto merge_size = meta.vis_meta.spatial_merge_size;
+
+    std::vector<std::vector<uint32_t>> pos_ids_table_y (
+        total_patches,
+        std::vector<uint32_t>(head_dim/4) 
+    );
+    std::vector<std::vector<uint32_t>> pos_ids_table_x (
+        total_patches,
+        std::vector<uint32_t>(head_dim/4) 
+    );
+    for (uint32_t b = 0; b < num_batch; ++b) {
+        uint32_t offset = b * 3;
+        uint32_t num_frames = grid_thw[offset + 0];
+        uint32_t height     = grid_thw[offset + 1];
+        uint32_t width      = grid_thw[offset + 2];
+
+        uint32_t merged_h = height / merge_size;
+        uint32_t merged_w = width / merge_size;
+
+        // 遍历所有块和块内位置
+        size_t patch_offset = 0;
+        for (uint32_t bh = 0; bh < merged_h; ++bh) {
+            for (uint32_t bw = 0; bw < merged_w; ++bw) {
+                for (uint32_t ih = 0; ih < merge_size; ++ih) {
+                    for (uint32_t iw = 0; iw < merge_size; ++iw) {
+                        uint32_t row = bh * merge_size + ih;
+                        uint32_t col = bw * merge_size + iw;
+                        // 如果是多帧，重复 num_frames 次
+                        for (uint32_t f = 0; f < num_frames; ++f) {
+                            size_t dim_offset = 0;
+                            for(;dim_offset<head_dim/4;dim_offset++){
+                                pos_ids_table_y[patch_offset][dim_offset] = row;
+                                pos_ids_table_x[patch_offset][dim_offset] = col;
+                            }
+                            patch_offset++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    auto sin = Tensor::buffer(dtype,{total_patches,head_dim/2},rsrc.memory_pool);
+    auto sin_y = get_custom_SinTable(meta,pos_ids_table_y,head_dim/2,10000);
+    rearrange(sin->slice(1,0,head_dim/4),sin_y);
+    auto sin_x = get_custom_SinTable(meta,pos_ids_table_x,head_dim/2,10000);
+    rearrange(sin->slice(1,head_dim/4,head_dim/2),sin_y);
+    auto cos = Tensor::buffer(dtype,{total_patches,head_dim/2},rsrc.memory_pool);
+    auto cos_y = get_custom_CosTable(meta,pos_ids_table_y,head_dim/2,10000);
+    rearrange(cos->slice(1,0,head_dim/4),cos_y);
+    auto cos_x = get_custom_CosTable(meta,pos_ids_table_x,head_dim/2,10000);
+    rearrange(cos->slice(1,head_dim/4,head_dim/2),cos_y);
+
+    return std::pair{sin,cos};
+}
+
+void inferDeviceBatchVision(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
+                            uint32_t idev, uint32_t ndev, InferRequest &req) { 
+    void *pixel_values = req.pixel_values;
+    uint32_t total_patches = req.total_patches;
+    uint32_t *image_grid_thw = req.image_grid_thw;
+    uint32_t num_images = req.num_images;
+    void *pixel_values_videos = req.pixel_values_videos;
+    uint32_t total_patches_videos = req.total_patches_videos;
+    //uint32_t *video_grid_thw = req.video_grid_thw;
+    //uint32_t num_videos = req.num_videos;
+    //uint32_t patch_features = req.patch_features;
+
+    auto dtype = meta.dtype;
+    auto d = meta.vis_meta.hidden_size;
+    auto channels = meta.vis_meta.in_channels;
+    auto patch_size = meta.vis_meta.patch_size;
+    auto temporal_patch_size = meta.vis_meta.temporal_patch_size;
+    //auto stream = rsrc.stream;
+    auto weights = rsrc.weights;
+    
+    auto image_tensor = Tensor::weight(pixel_values, dtype, {total_patches, channels*temporal_patch_size*patch_size*patch_size});
+    auto video_tensor = Tensor::weight(pixel_values_videos, dtype, {total_patches_videos, channels*temporal_patch_size*patch_size*patch_size});
+    auto hidden_states = Tensor::buffer(dtype, {total_patches, d, 1, 1, 1}, rsrc.memory_pool);
+
+    std::vector<size_t> pads = {0, 0, 0};
+    std::vector<ptrdiff_t> strides = {static_cast<long>(temporal_patch_size), static_cast<long>(patch_size), static_cast<long>(patch_size)};
+    std::vector<size_t> dilations = {1, 1, 1};
+    conv(hidden_states, image_tensor, rsrc.weights->w_vis->patch_embed_weight, rsrc.weights->w_vis->patch_embed_bias,
+          pads.data(), strides.data(), dilations.data(), 3);
+    hidden_states = hidden_states->view({total_patches, d});
+
+    auto pos_embeds = fast_pos_embed_interpolate(meta,rsrc,image_grid_thw,num_images,total_patches);
+    add(hidden_states,hidden_states,pos_embeds);
+
+    auto [sin, cos] = rot_pos_embed(meta,rsrc,image_grid_thw,num_images,total_patches);
 
 
-void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
-                      uint32_t idev, uint32_t ndev,
-                      const uint32_t *tokens, uint32_t ntok,
-                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                      struct Qwen3vlCache **caches,
-                      const float *temperature, const uint32_t *topk, const float *topp,
-                      uint32_t *output, void *last_logits) {
+}
+
+void inferDeviceBatchText(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
+                          uint32_t idev, uint32_t ndev, InferRequest &req) {
+    const uint32_t *tokens = req.tokens;
+    uint32_t ntok = req.ntok;
+    const uint32_t *req_lens = req.req_lens;
+    uint32_t nreq = req.nreq;
+    const uint32_t *req_pos = req.req_pos;
+    struct Qwen3vlCache **caches = req.kv_caches;
+    const float *temperature = req.temperature;
+    const uint32_t *topk = req.topk;
+    const float *topp = req.topp;
+    uint32_t *output = req.output;
+    void *last_logits = req.logits;
+
     assert(meta.text_meta.num_attention_heads % ndev == 0);
     assert(meta.text_meta.num_key_value_heads % ndev == 0);
 
@@ -256,15 +515,47 @@ void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
     }
 }
 
+void inferDeviceBatch(const Qwen3vlMeta &meta, Qwen3vlDeviceResource &rsrc,
+                      uint32_t idev, uint32_t ndev, InferState &state, InferRequest &req) {
+    // infer vision + sync
+    if (req.num_images > 0 || req.num_videos > 0){
+        inferDeviceBatchVision(meta, rsrc, idev, ndev, req);
+
+        std::unique_lock<std::mutex> lock(state.mtx_sync);
+        state.sync_cnt--;
+        if (state.sync_cnt == 0) {
+            state.cv_sync.notify_all();
+        } else {
+            state.cv_sync.wait(lock, [&] {return state.sync_cnt == 0;});
+        }
+    }
+    // infer text
+    inferDeviceBatchText(meta, rsrc, idev, ndev, req);
+}
+
 __C void
 inferBatchQwen3vl(struct Qwen3vlModel *model,
                     const uint32_t *tokens, uint32_t ntok,
+                    void *pixel_values, uint32_t total_patches,
+                    uint32_t *image_grid_thw, uint32_t num_images,
+                    void *pixel_values_videos, uint32_t total_patches_videos,
+                    uint32_t *video_grid_thw, uint32_t num_videos,
+                    uint32_t patch_features,
                     const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                     struct Qwen3vlCache **kv_caches,
                     const float *temperature, const uint32_t *topk, const float *topp,
                     uint32_t *output) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
+    model->req.pixel_values = pixel_values;
+    model->req.total_patches = total_patches;
+    model->req.image_grid_thw = image_grid_thw;
+    model->req.num_images = num_images;
+    model->req.pixel_values_videos = pixel_values_videos;
+    model->req.total_patches_videos = total_patches_videos;
+    model->req.video_grid_thw = video_grid_thw;
+    model->req.num_videos = num_videos;
+    model->req.patch_features = patch_features;
     model->req.req_lens = req_lens;
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
@@ -274,6 +565,7 @@ inferBatchQwen3vl(struct Qwen3vlModel *model,
     model->req.temperature = temperature;
     model->req.topk = topk;
     model->req.topp = topp;
+    model->states[0].sync_cnt = model->dev_ids.size();
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -292,11 +584,25 @@ inferBatchQwen3vl(struct Qwen3vlModel *model,
 __C void
 forwardBatchQwen3vl(struct Qwen3vlModel *model,
                     const uint32_t *tokens, uint32_t ntok,
+                    void *pixel_values, uint32_t total_patches,
+                    uint32_t *image_grid_thw, uint32_t num_images,
+                    void *pixel_values_videos, uint32_t total_patches_videos,
+                    uint32_t *video_grid_thw, uint32_t num_videos,
+                    uint32_t patch_features,
                     const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                     struct Qwen3vlCache **kv_caches,
                     void *logits) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
+    model->req.pixel_values = pixel_values;
+    model->req.total_patches = total_patches;
+    model->req.image_grid_thw = image_grid_thw;
+    model->req.num_images = num_images;
+    model->req.pixel_values_videos = pixel_values_videos;
+    model->req.total_patches_videos = total_patches_videos;
+    model->req.video_grid_thw = video_grid_thw;
+    model->req.num_videos = num_videos;
+    model->req.patch_features = patch_features;
     model->req.req_lens = req_lens;
     model->req.nreq = nreq;
     model->req.req_pos = req_pos;
@@ -306,6 +612,7 @@ forwardBatchQwen3vl(struct Qwen3vlModel *model,
     model->req.temperature = nullptr;
     model->req.topk = nullptr;
     model->req.topp = nullptr;
+    model->states[0].sync_cnt = model->dev_ids.size();
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -348,9 +655,7 @@ void launchDevice(const Qwen3vlMeta &meta, std::shared_ptr<Qwen3vlDeviceWeights>
             break;
         }
 
-        inferDeviceBatch(meta, *rsrc, idev, ndev, req.tokens, req.ntok,
-                         req.req_lens, req.nreq, req.req_pos, req.kv_caches,
-                         req.temperature, req.topk, req.topp, req.output, req.logits);
+        inferDeviceBatch(meta, *rsrc, idev, ndev, state, req);
 
         state.proceed = false;
         lock.unlock();

@@ -33,6 +33,40 @@ void InferenceContext::add(std::shared_ptr<Tensor> c,
         c->data(), a->data(), b->data(), stream));
 }
 
+void InferenceContext::conv(std::shared_ptr<Tensor> y,
+                             std::shared_ptr<Tensor> x,
+                             std::shared_ptr<Tensor> w,
+                             std::shared_ptr<Tensor> bias,
+                             void *pads,
+                             void *strides,
+                             void *dilations,
+                             size_t n) {
+    size_t key = CacheManager::createDescriptorKey(y, x, w, bias);
+    // Combine additional parameters into the key for unique identification
+    hash_combine(key, std::hash<void*>()(pads));
+    hash_combine(key, std::hash<void*>()(strides));
+    hash_combine(key, std::hash<void*>()(dilations));
+    hash_combine(key, std::hash<size_t>()(n));
+
+    infiniopConvDescriptor_t desc;
+    if (!cache_manager->getConvDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateConvDescriptor(
+            op_handle, &desc, y->desc(), x->desc(), w->desc(), 
+            bias ? bias->desc() : nullptr, pads, strides, dilations, n));
+        cache_manager->putConvDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetConvWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopConv(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), w->data(), 
+        bias ? bias->data() : nullptr, stream));
+}
+
 void InferenceContext::mul(std::shared_ptr<Tensor> c,
                            std::shared_ptr<Tensor> a,
                            std::shared_ptr<Tensor> b) {

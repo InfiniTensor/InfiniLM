@@ -19,6 +19,11 @@ struct InferenceContext {
     void add(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
+    void conv(std::shared_ptr<Tensor> y,
+              std::shared_ptr<Tensor> x,
+              std::shared_ptr<Tensor> w,
+              std::shared_ptr<Tensor> bias,
+              void *pads, void *strides, void *dilations, size_t n);
     void mul(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
@@ -84,6 +89,11 @@ inline void setInferenceContext(InferenceContext *ctx) {
 
 inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
     getInferenceContext().add(c, a, b);
+}
+
+inline void conv(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> bias,
+                void *pads, void *strides, void *dilations, size_t n) {
+    getInferenceContext().conv(y, x, w, bias, pads, strides, dilations, n);
 }
 
 inline void mul(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {

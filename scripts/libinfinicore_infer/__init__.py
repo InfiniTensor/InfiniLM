@@ -6,7 +6,6 @@ from .deepseek_v3 import (
     DeepSeekV3MetaCStruct,
     DeepSeekV3WeightsCStruct,
     DeepSeekV3WeightLoaderCStruct,
-    DeepSeekV3CacheCStruct,
 )
 from .qwen3vl import (
     Qwen3vlModel,
@@ -42,5 +41,6 @@ __all__ = [
     "Qwen3vlWeightLoaderCStruct",
     "Qwen3vlVisWeightLoaderCStruct",
     "Qwen3vlLangWeightLoaderCStruct",
+    "Qwen3vlCacheCStruct",
     "ModelRegister",
 ]
