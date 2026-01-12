@@ -23,6 +23,18 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
                  float epsilon);
+    void layer_norm(std::shared_ptr<Tensor> y,
+                    std::shared_ptr<Tensor> x,
+                    std::shared_ptr<Tensor> w,
+                    float epsilon);
+    void gelu(std::shared_ptr<Tensor> y,
+              std::shared_ptr<Tensor> x);
+    void conv2d(std::shared_ptr<Tensor> y,
+                std::shared_ptr<Tensor> x,
+                std::shared_ptr<Tensor> w,
+                std::shared_ptr<Tensor> bias,
+                int stride_h, int stride_w,
+                int padding_h, int padding_w);
     void gemm(std::shared_ptr<Tensor> c,
               std::shared_ptr<Tensor> a,
               std::shared_ptr<Tensor> b,
@@ -84,6 +96,21 @@ inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::share
 inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
                     std::shared_ptr<Tensor> w, float epsilon) {
     getInferenceContext().rmsnorm(y, x, w, epsilon);
+}
+
+inline void layer_norm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
+                       std::shared_ptr<Tensor> w, float epsilon) {
+    getInferenceContext().layer_norm(y, x, w, epsilon);
+}
+
+inline void gelu(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().gelu(y, x);
+}
+
+inline void conv2d(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
+                   std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> bias,
+                   int stride_h, int stride_w, int padding_h, int padding_w) {
+    getInferenceContext().conv2d(y, x, w, bias, stride_h, stride_w, padding_h, padding_w);
 }
 
 inline void gemm(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
