@@ -17,15 +17,12 @@ import json
 import os
 from typing import Optional, Union
 
-from transformers.utils import logging
 
 import infinicore
 
 from ...cache_utils import Cache, DynamicCache
 from ...generation.utils import GenerationMixin
 from .configuration_llama import LlamaConfig
-
-logger = logging.get_logger(__name__)
 
 
 def repeat_kv(keys: infinicore.Tensor, values: infinicore.Tensor, ngroup: int):
@@ -62,13 +59,8 @@ def multi_head_attention(
 
     # [num_heads, seq_len, head_dim] @ [ num_heads, head_dim, total_seq_len]
     # => [ num_heads, seq_len, total_seq_len]
-    attn_weight = Q @ K.permute((1, 2, 0))
-
-    scaling = infinicore.from_list(
-        [scaling], dtype=attn_weight.dtype, device=attn_weight.device
-    ).as_strided(attn_weight.shape, [0, 0, 0])
-
-    attn_weight = attn_weight * scaling
+    # Q @ K.T *scaling
+    attn_weight = infinicore.matmul(Q, K.permute((1, 2, 0)), alpha=scaling)
 
     infinicore.nn.functional.causal_softmax(attn_weight, out=attn_weight)
 
@@ -106,15 +98,16 @@ class LlamaMLP(infinicore.nn.Module):
         hidden_size = config.hidden_size
         intermediate_size = config.intermediate_size
         mlp_bias = config.mlp_bias
+        dtype = config.dtype
 
         self.gate_proj = infinicore.nn.Linear(
-            hidden_size, intermediate_size, bias=mlp_bias, **kwargs
+            hidden_size, intermediate_size, bias=mlp_bias, dtype=dtype, **kwargs
         )
         self.up_proj = infinicore.nn.Linear(
-            hidden_size, intermediate_size, bias=mlp_bias, **kwargs
+            hidden_size, intermediate_size, bias=mlp_bias, dtype=dtype, **kwargs
         )
         self.down_proj = infinicore.nn.Linear(
-            intermediate_size, hidden_size, bias=mlp_bias, **kwargs
+            intermediate_size, hidden_size, bias=mlp_bias, dtype=dtype, **kwargs
         )
         self.act_fn = infinicore.nn.functional.silu
 
@@ -141,10 +134,13 @@ class LlamaAttention(infinicore.nn.Module):
 
         self.scaling = self.head_dim**-0.5
 
+        dtype = config.dtype
+
         self.q_proj = infinicore.nn.Linear(
             self.hidden_size,
             self.num_attention_heads * self.head_dim,
             bias=attention_bias,
+            dtype=dtype,
             **kwargs,
         )
 
@@ -152,6 +148,7 @@ class LlamaAttention(infinicore.nn.Module):
             self.hidden_size,
             self.num_key_value_heads * self.head_dim,
             bias=attention_bias,
+            dtype=dtype,
             **kwargs,
         )
 
@@ -159,15 +156,19 @@ class LlamaAttention(infinicore.nn.Module):
             self.hidden_size,
             self.num_key_value_heads * self.head_dim,
             bias=attention_bias,
+            dtype=dtype,
             **kwargs,
         )
 
         self.o_proj = infinicore.nn.Linear(
             self.num_attention_heads * self.head_dim,
             self.hidden_size,
-            bias=attention_bias,
+            bias=False,
+            dtype=dtype,
             **kwargs,
         )
+
+        self.attn_output = None  # Variable reuse
 
     def forward(
         self,
@@ -184,7 +185,7 @@ class LlamaAttention(infinicore.nn.Module):
         values_shape = (bs, seq_len, self.num_key_value_heads, self.head_dim)
 
         # --------------------------------------------------------------------------------------- #
-        #                           对 Q,K，V进行 project
+        #                           对 Q,K,V进行 project
         # --------------------------------------------------------------------------------------- #
         # => [bs, seq_len,  num_attention_heads, head_dim]
         query_states = self.q_proj(hidden_states).view(querys_shape)
@@ -196,13 +197,9 @@ class LlamaAttention(infinicore.nn.Module):
         value_states = self.v_proj(hidden_states).view(values_shape)
 
         # --------------------------------------------------------------------------------------- #
-        #                           对 Q和K， 加上 rope
+        #                           对 Q和K 加上 rope
         # --------------------------------------------------------------------------------------- #
         position_ids = kwargs.pop("position_ids", None)
-        if position_ids is None:
-            raise KeyError("position_ids error")
-        if rope_instance is None:
-            raise KeyError("rope_instance error")
 
         query_states = rope_instance(query_states, position_ids)
         key_states = rope_instance(key_states, position_ids)
@@ -223,7 +220,14 @@ class LlamaAttention(infinicore.nn.Module):
         #                           注意力计算
         # --------------------------------------------------------------------------------------- #
         total_seq_len = key_states_total.shape[1]
-        attn_output = infinicore.empty_like(query_states)
+
+        if self.attn_output is None or self.attn_output.shape[1] != seq_len:
+            self.attn_output = infinicore.empty(
+                (bs, seq_len, self.num_attention_heads, self.head_dim),
+                dtype=query_states.dtype,
+                device=query_states.device,
+            )
+
         for i in range(0, bs):
             query_states_i = query_states.narrow(0, i, 1).view(
                 (seq_len, self.num_attention_heads, self.head_dim)
@@ -235,7 +239,7 @@ class LlamaAttention(infinicore.nn.Module):
                 (total_seq_len, self.num_key_value_heads, self.head_dim)
             )
 
-            attn_output_i = attn_output.narrow(0, i, 1).view(
+            attn_output_i = self.attn_output.narrow(0, i, 1).view(
                 (seq_len, self.num_attention_heads, self.head_dim)
             )
 
@@ -249,8 +253,9 @@ class LlamaAttention(infinicore.nn.Module):
         #                           out project
         # --------------------------------------------------------------------------------------- #
         # ([bs, seq_len, num_attention_heads, head_dim]) ==> [bs, seq_len, hidden_size ]
-        attn_output = attn_output.view(hidden_states_shape)
-
+        attn_output = self.attn_output.view(
+            (bs, seq_len, self.num_attention_heads * self.head_dim)
+        )
         # o_proj
         return self.o_proj(attn_output)
 
@@ -260,13 +265,16 @@ class LlamaDecoderLayer(infinicore.nn.Module):
         super().__init__()
         hidden_size = config.hidden_size
         rms_norm_eps = config.rms_norm_eps
+        dtype = config.dtype
 
         self.self_attn = LlamaAttention(config=config, layer_idx=layer_idx, **kwargs)
         self.mlp = LlamaMLP(config=config, **kwargs)
 
-        self.input_layernorm = LlamaRMSNorm(hidden_size, eps=rms_norm_eps, **kwargs)
+        self.input_layernorm = LlamaRMSNorm(
+            hidden_size, eps=rms_norm_eps, dtype=dtype, **kwargs
+        )
         self.post_attention_layernorm = LlamaRMSNorm(
-            hidden_size, eps=rms_norm_eps, **kwargs
+            hidden_size, eps=rms_norm_eps, dtype=dtype, **kwargs
         )
 
     def forward(
@@ -292,7 +300,7 @@ class LlamaDecoderLayer(infinicore.nn.Module):
             **kwargs,
         )
 
-        hidden_states = residual + hidden_states
+        hidden_states += residual
 
         # ------------------------------------------------ #
         #           Fully Connected
@@ -303,7 +311,7 @@ class LlamaDecoderLayer(infinicore.nn.Module):
 
         hidden_states = self.mlp(hidden_states)
 
-        hidden_states = residual + hidden_states
+        hidden_states += residual
 
         return hidden_states
 
@@ -319,7 +327,7 @@ class LlamaModel(infinicore.nn.Module):
         )
 
         self.embed_tokens = infinicore.nn.Embedding(
-            config.vocab_size, config.hidden_size, **kwargs
+            config.vocab_size, config.hidden_size, dtype=config.dtype, **kwargs
         )
 
         self.layers = infinicore.nn.ModuleList(
@@ -328,12 +336,15 @@ class LlamaModel(infinicore.nn.Module):
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps, **kwargs)
+        self.norm = LlamaRMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps, dtype=config.dtype, **kwargs
+        )
 
         self.rope_instance = infinicore.nn.RoPE(
             max_position_embeddings=config.max_position_embeddings,
             rope_theta=config.rope_theta,
             head_dim=head_dim,
+            dtype=config.dtype,
             **kwargs,
         )
 
@@ -375,7 +386,10 @@ class LlamaModel(infinicore.nn.Module):
         #                    norm
         # --------------------------------------------------------- #
         seq_len = hidden_states.shape[1]
-        last_token = hidden_states.narrow(1, seq_len - 1, 1)
+        if seq_len > 1:
+            last_token = hidden_states.narrow(1, seq_len - 1, 1)
+        else:
+            last_token = hidden_states
 
         return self.norm(last_token)
 
@@ -393,8 +407,10 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
             config.hidden_size,
             config.vocab_size,
             bias=False,
+            dtype=config.dtype,
             **kwargs,
         )
+        self.device = kwargs.get("device", infinicore.device("cpu"))
 
     def forward(
         self,
@@ -406,7 +422,7 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
     ):
         last_token = self.model(
             input_ids,
-            position_ids,
+            position_ids.to(self.device),
             past_key_values=past_key_values,
             use_cache=use_cache,
             **kwargs,
@@ -418,7 +434,6 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
         cls,
         model_path: Optional[Union[str, os.PathLike]],
         device: infinicore.device,
-        dtype=infinicore.dtype,
     ):
         def load_config_json(dir_path_: str):
             with open(os.path.join(dir_path_, "config.json"), "r") as f:
@@ -428,4 +443,4 @@ class LlamaForCausalLM(infinicore.nn.Module, GenerationMixin):
         config_dict = load_config_json(os.path.join(model_path))
         config = LlamaConfig(**config_dict)
 
-        return LlamaForCausalLM(config, device=device, dtype=dtype)
+        return LlamaForCausalLM(config, device=device)

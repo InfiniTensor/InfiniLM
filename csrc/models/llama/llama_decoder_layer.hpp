@@ -1,12 +1,14 @@
 #pragma once
 
-#include "llama_config.hpp"
-#include "llama_attention.hpp"
-#include "llama_mlp.hpp"
+#include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
-#include "infinicore/device.hpp"
+#include "llama_attention.hpp"
+#include "llama_config.hpp"
+#include "llama_mlp.hpp"
+
+#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::llama {
 
@@ -28,10 +30,13 @@ public:
      *
      * @param config Model configuration
      * @param device Device to create tensors on
+     * @param layer_idx Layer index for cache management and debugging
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaDecoderLayer(const LlamaConfig &config, const infinicore::Device &device,
-                     infinicore::DataType dtype = infinicore::DataType::F32);
+    LlamaDecoderLayer(const LlamaConfig &config,
+                      const infinicore::Device &device,
+                      size_t layer_idx,
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: process one decoder layer
@@ -42,15 +47,24 @@ public:
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                                const infinicore::Tensor &position_ids,
-                                void *kv_cache = nullptr) const;
+                               const infinicore::Tensor &position_ids,
+                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                               std::optional<infinicore::Tensor> cache_lengths,
+                               std::optional<infinicore::Tensor> input_lengths,
+                               std::optional<infinicore::Tensor> input_offsets,
+                               std::optional<infinicore::Tensor> block_tables,
+                               std::optional<infinicore::Tensor> slot_mappin) const;
+
+    /**
+     * @brief Get the layer index
+     */
+    size_t layer_idx() const { return layer_idx_; }
 
     void set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) {
         if (self_attn_) {
             self_attn_->set_rotary_emb(rotary_emb);
         }
     }
-
 
 protected:
     // Layer normalization
@@ -60,6 +74,10 @@ protected:
     // Attention and MLP
     INFINICORE_NN_MODULE(LlamaAttention, self_attn);
     INFINICORE_NN_MODULE(LlamaMLP, mlp);
+    engine::distributed::RankInfo rank_info_;
+
+private:
+    size_t layer_idx_; // Layer index for cache management and debugging
 };
 
 } // namespace infinilm::models::llama

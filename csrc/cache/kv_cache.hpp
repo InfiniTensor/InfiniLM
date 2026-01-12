@@ -1,116 +1,149 @@
 #pragma once
 
-#include "infinicore/tensor.hpp"
+#include "base_cache.hpp"
+
+#include "infinicore/context/context.hpp"
 #include "infinicore/device.hpp"
+#include "infinicore/tensor.hpp"
+
 #include <algorithm>
-#include <utility>
+#include <limits>
 #include <memory>
+#include <numeric>
+#include <stdexcept>
+#include <utility>
+
+#include <spdlog/spdlog.h>
 
 namespace infinilm::cache {
+class StaticKVCacheConfig final : public CacheConfig {
+public:
+    StaticKVCacheConfig(
+        infinicore::Size _max_batch_size = 1,
+        infinicore::Size _max_cache_len = std::numeric_limits<infinicore::Size>::max());
 
-/**
- * @brief Simple KV cache structure for incremental decoding
- *
- * Stores key and value caches with shape [n_kv_head, capacity, head_dim]
- * Similar to DynamicLayer in Python cache_utils.py
- *
- * This is a common component that can be used by any model architecture
- * that needs KV caching for attention mechanisms.
- */
-struct KVCache {
-    infinicore::Tensor k_cache;  // [n_kv_head, capacity, head_dim]
-    infinicore::Tensor v_cache;  // [n_kv_head, capacity, head_dim]
-    size_t cache_position;        // Current position in cache
-    size_t max_capacity;          // Maximum capacity of cache
-    bool initialized;             // Whether cache has been initialized
+    std::unique_ptr<CacheConfig> unique_copy() const override;
+    infinicore::Size max_batch_size() const;
+    infinicore::Size max_cache_len() const;
 
-    KVCache()
-        : cache_position(0), max_capacity(0), initialized(false),
-          // Create empty placeholder tensors (will be replaced on first use)
-          k_cache(infinicore::Tensor::empty({1, 1, 1}, infinicore::DataType::F32,
-                                            infinicore::Device(infinicore::Device::Type::CPU, 0))),
-          v_cache(infinicore::Tensor::empty({1, 1, 1}, infinicore::DataType::F32,
-                                            infinicore::Device(infinicore::Device::Type::CPU, 0))) {}
-
-    /**
-     * @brief Initialize or update cache capacity
-     * @param num_kv_heads Number of key-value heads
-     * @param head_dim Head dimension
-     * @param seq_len Sequence length of new tokens
-     * @param dtype Data type
-     * @param device Device
-     */
-    void ensure_capacity(size_t num_kv_heads, size_t head_dim, size_t seq_len,
-                        infinicore::DataType dtype, const infinicore::Device &device) {
-        size_t required_capacity = cache_position + seq_len;
-
-        // Lazy initialization
-        if (!initialized) {
-            max_capacity = std::max(required_capacity, size_t(4096));  // Start with at least 4096
-            k_cache = infinicore::Tensor::empty({num_kv_heads, max_capacity, head_dim},
-                                                dtype, device);
-            v_cache = infinicore::Tensor::empty({num_kv_heads, max_capacity, head_dim},
-                                                dtype, device);
-            cache_position = 0;
-            initialized = true;
-        }
-        // Grow cache if needed (similar to DynamicLayer in Python)
-        else if (required_capacity > max_capacity) {
-            size_t new_capacity = std::max(max_capacity * 2, required_capacity);
-            auto k_new = infinicore::Tensor::empty({num_kv_heads, new_capacity, head_dim},
-                                                   dtype, device);
-            auto v_new = infinicore::Tensor::empty({num_kv_heads, new_capacity, head_dim},
-                                                   dtype, device);
-
-            // Copy existing cache data
-            if (cache_position > 0) {
-                auto k_slice = k_cache->narrow({{1, 0, cache_position}});
-                auto v_slice = v_cache->narrow({{1, 0, cache_position}});
-                k_new->narrow({{1, 0, cache_position}})->copy_from(k_slice);
-                v_new->narrow({{1, 0, cache_position}})->copy_from(v_slice);
-            }
-
-            k_cache = k_new;
-            v_cache = v_new;
-            max_capacity = new_capacity;
-        }
-    }
-
-    /**
-     * @brief Update cache with new key and value states
-     * @param k_new New key states [n_kv_head, seq_len, head_dim]
-     * @param v_new New value states [n_kv_head, seq_len, head_dim]
-     * @return Tuple of (k_total, v_total) with shape [n_kv_head, total_seq_len, head_dim]
-     *
-     * Note: This method writes to the cache. If using with attention op, the attention op
-     * also writes to the cache, so this should be called AFTER attention, not before.
-     */
-    std::pair<infinicore::Tensor, infinicore::Tensor> update(
-        const infinicore::Tensor &k_new,
-        const infinicore::Tensor &v_new) {
-        size_t seq_len = k_new->shape()[1];
-        size_t num_kv_heads = k_new->shape()[0];
-        size_t head_dim = k_new->shape()[2];
-
-        // Ensure capacity
-        ensure_capacity(num_kv_heads, head_dim, seq_len,
-                       k_new->dtype(), k_new->device());
-
-        // Copy new k/v into cache at current position
-        auto k_dst = k_cache->narrow({{1, cache_position, seq_len}});
-        auto v_dst = v_cache->narrow({{1, cache_position, seq_len}});
-        k_dst->copy_from(k_new);
-        v_dst->copy_from(v_new);
-
-        // Update position
-        cache_position += seq_len;
-
-        // Return the total cache up to current position
-        auto k_total = k_cache->narrow({{1, 0, cache_position}});
-        auto v_total = v_cache->narrow({{1, 0, cache_position}});
-
-        return std::make_pair(k_total->contiguous(), v_total->contiguous());
-    }
+private:
+    infinicore::Size max_batch_size_;
+    infinicore::Size max_cache_len_;
 };
 
-} // namespace infinilm::models::common
+class StaticKVCache final : public Cache {
+public:
+    StaticKVCache(
+
+        infinicore::Size k_dim,
+        infinicore::Size v_dim,
+        infinicore::Size num_k_heads,
+        infinicore::Size num_v_heads,
+        infinicore::Size num_layers,
+        infinicore::Size max_positional_embedding,
+        infinicore::DataType dtype,
+        const StaticKVCacheConfig &config,
+        const engine::distributed::RankInfo &rank_info);
+
+    /**
+     * @brief Update KV cache at a given layer and cache position.
+     *
+     * @param layer_idx Which transformer layer
+     * @param k         [batch, num_rank_k_heads, seq_len, k_dim]
+     * @param v         [batch, num_rank_v_heads, seq_len, v_dim]
+     * @param cache_pos Sequence position to write
+     *
+     * @return (full_k, full_v)
+     *         full_k: [batch, num_rank_k_heads, cache_pos + seq_len, k_dim]
+     *         full_v: [batch, num_rank_v_heads, cache_pos + seq_len, v_dim]
+     */
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    update(size_t layer_idx,
+           const infinicore::Tensor &k,
+           const infinicore::Tensor &v,
+           const infinicore::Tensor &cache_lengths);
+
+    ~StaticKVCache() override = default;
+
+private:
+    infinicore::Size k_dim_;
+    infinicore::Size v_dim_;
+    infinicore::Size num_rank_k_heads_;
+    infinicore::Size num_rank_v_heads_;
+    infinicore::Size rank_batch_size_;
+    infinicore::Size cache_len_;
+    infinicore::Size rank_num_layers_;
+    infinicore::DataType dtype_;
+
+    // [num_layers, max_batch, num_rank_k_heads, max_cache_len, k_dim]
+    infinicore::Tensor k_caches_;
+
+    // [num_layers, max_batch, num_rank_v_heads, max_cache_len, v_dim]
+    infinicore::Tensor v_caches_;
+};
+
+class PagedKVCacheConfig final : public CacheConfig {
+public:
+    PagedKVCacheConfig(
+        size_t max_kv_memory_bytes,
+        size_t block_size = 16);
+
+    std::unique_ptr<CacheConfig> unique_copy() const override;
+    size_t max_kv_memory_bytes() const;
+    size_t block_size() const;
+
+private:
+    size_t max_kv_memory_bytes_;
+    size_t block_size_;
+};
+
+class PagedKVCache final : public Cache {
+public:
+    PagedKVCache(
+
+        infinicore::Size k_dim,
+        infinicore::Size v_dim,
+        infinicore::Size num_k_heads,
+        infinicore::Size num_v_heads,
+        infinicore::Size num_layers,
+        infinicore::DataType dtype,
+        const PagedKVCacheConfig &config,
+        const engine::distributed::RankInfo &rank_info);
+
+    /**
+     * @brief Update Paged KV cache at a given layer given slot info for each token.
+     *
+     * @param layer_idx Which transformer layer
+     * @param k         [num_rank_k_heads, seq_len, k_dim]
+     * @param v         [num_rank_v_heads, seq_len, v_dim]
+     * @param slot_mapping [seq_len]
+     *
+     * @return (full_k, full_v)
+     *         full_k: [num_blocks, num_rank_k_heads, block_size, k_dim]
+     *         full_v: [num_blocks, num_rank_v_heads, block_size, v_dim]
+     */
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    update(size_t layer_idx,
+           const infinicore::Tensor &k,
+           const infinicore::Tensor &v,
+           const infinicore::Tensor &slot_mapping);
+
+    ~PagedKVCache() override = default;
+
+private:
+    infinicore::Size k_dim_;
+    infinicore::Size v_dim_;
+    infinicore::Size num_rank_k_heads_;
+    infinicore::Size num_rank_v_heads_;
+    infinicore::Size rank_num_layers_;
+    infinicore::DataType dtype_;
+    infinicore::Size block_size_;
+    infinicore::Size num_blocks_per_layer_;
+    // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
+    infinicore::Tensor k_caches_;
+
+    // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
+    infinicore::Tensor v_caches_;
+};
+
+} // namespace infinilm::cache

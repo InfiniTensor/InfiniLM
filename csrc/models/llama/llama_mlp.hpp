@@ -1,10 +1,15 @@
 #pragma once
 
+#include "../../layers/fused_linear.hpp"
 #include "llama_config.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/nn/linear.hpp"
-#include "infinicore/tensor.hpp"
+
 #include "infinicore/device.hpp"
+#include "infinicore/nn/linear.hpp"
+#include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
+#include "llama_config.hpp"
+
+#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::llama {
 
@@ -28,8 +33,9 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaMLP(const LlamaConfig &config, const infinicore::Device &device,
-             infinicore::DataType dtype = infinicore::DataType::F32);
+    LlamaMLP(const LlamaConfig &config,
+             const infinicore::Device &device,
+             engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: compute MLP output
@@ -44,16 +50,13 @@ public:
     size_t intermediate_size() const { return intermediate_size_; }
 
 protected:
-    // Projection layers
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, gate_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, up_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, down_proj);
+    INFINICORE_NN_MODULE(layers::GateUpParallelLinear, gate_up_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
 
-private:
+    engine::distributed::RankInfo rank_info_;
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
-
 };
 
 } // namespace infinilm::models::llama

@@ -1,10 +1,14 @@
 #pragma once
 
+#include "../infinilm_model.hpp"
 #include "llama_model.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/nn/linear.hpp"
-#include "infinicore/tensor.hpp"
+
 #include "infinicore/device.hpp"
+#include "infinicore/nn/linear.hpp"
+#include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
+
+#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::llama {
 
@@ -16,32 +20,27 @@ namespace infinilm::models::llama {
  *
  * This matches the structure of HuggingFace's LlamaForCausalLM.
  */
-class LlamaForCausalLM : public infinicore::nn::Module {
+class LlamaForCausalLM : public InfinilmModel {
 public:
     /**
      * @brief Construct LlamaForCausalLM module
      *
      * @param config Model configuration
      * @param device Device to create tensors on
-     * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaForCausalLM(const LlamaConfig &config, const infinicore::Device &device,
-                     infinicore::DataType dtype = infinicore::DataType::F32);
+    LlamaForCausalLM(const LlamaConfig &config,
+                     const infinicore::Device &device,
+                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: compute language modeling logits
      *
-     * @param input_ids Token IDs tensor of shape [batch, seq_len]
-     * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param kv_caches Optional KV caches for incremental decoding (one per layer)
-     * @return Logits tensor of shape [batch, seq_len, vocab_size]
-     *
-     * Note: This is a placeholder forward method. The actual implementation
-     * will be added when integrating with the inference engine.
+     * @param input Encapsulated input tensors and other parameters
+     * @return Output structure containing the result
      */
-    infinicore::Tensor forward(const infinicore::Tensor &input_ids,
-                                const infinicore::Tensor &position_ids,
-                                std::vector<void *> *kv_caches = nullptr) const;
+    Output forward(const Input &input) const;
+
+    void reset_cache(const cache::CacheConfig *cache_config) override;
 
     // Module information
     const LlamaConfig &config() const { return model_->config(); }
@@ -54,7 +53,6 @@ protected:
 
     // Language modeling head
     INFINICORE_NN_MODULE(infinicore::nn::Linear, lm_head);
-
 };
 
 } // namespace infinilm::models::llama

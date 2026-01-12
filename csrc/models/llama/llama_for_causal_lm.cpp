@@ -1,13 +1,22 @@
 #include "llama_for_causal_lm.hpp"
+#include "infinicore/context/context.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
+#include <iostream>
 
 namespace infinilm::models::llama {
 
-LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config, const infinicore::Device &device,
-                                   infinicore::DataType dtype) {
+LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
+                                   const infinicore::Device &device,
+                                   engine::distributed::RankInfo rank_info) {
+
+    // Initialize module's device_ member
+    device_ = device;
+
+    const auto &dtype{config.dtype};
+
     // Initialize base model
-    INFINICORE_NN_MODULE_INIT(model, config, device, dtype);
+    INFINICORE_NN_MODULE_INIT(model, config, device, rank_info);
 
     // Initialize language modeling head
     // Note: If tie_word_embeddings is true, we would share weights with embed_tokens
@@ -16,16 +25,27 @@ LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config, const infinicore::
                               dtype, device);
 }
 
-infinicore::Tensor LlamaForCausalLM::forward(const infinicore::Tensor &input_ids,
-                                              const infinicore::Tensor &position_ids,
-                                              std::vector<void *> *kv_caches) const {
+LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
+    auto input_ids = input.input_ids.value();
+    auto position_ids = input.position_ids.value();
+    auto cache_lengths = input.cache_lengths;
+    auto input_lengths = input.input_lengths;
+    auto input_offsets = input.input_offsets;
+    auto block_tables = input.block_tables;
+    auto slot_mapping = input.slot_mapping;
+
     // 1. Forward through base model to get hidden states
-    auto hidden_states = model_->forward(input_ids, position_ids, kv_caches);
+    auto position_ids_device = position_ids->to(device_);
+    auto hidden_states = model_->forward(input_ids, position_ids_device, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping);
 
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);
 
-    return logits;
+    return {logits};
+}
+
+void LlamaForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
+    model_->reset_cache(cache_config);
 }
 
 } // namespace infinilm::models::llama

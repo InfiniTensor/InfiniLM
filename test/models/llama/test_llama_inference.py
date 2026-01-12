@@ -36,7 +36,7 @@ except ImportError as e:
     print(f"Error: InfiniLM Python package not found. Please install it:")
     print(f"  pip install -e .")
     print(f"  or")
-    print(f"  xmake build _infinilm_llama && xmake install _infinilm_llama")
+    print(f"  xmake build _infinilm && xmake install _infinilm")
     print(f"  Error: {e}")
     sys.exit(1)
 
@@ -487,9 +487,6 @@ def validate_inference(
 
 def main():
     """Main test function"""
-    # Default model path
-    # default_model_dir = "/var/qy_home/zenghua/.cache/modelscope/hub/models/LLM-Research/Llama-3.2-1B-Instruct"
-    default_model_dir = "/var/qy_home/zenghua/.cache/modelscope/hub/models/AI-ModelScope/TinyLlama-1.1B-Chat-v1.0"
 
     # Default prompt
     default_prompt = "Hello, how are you?"
@@ -545,8 +542,6 @@ def main():
                 sys.exit(1)
             i += 1
 
-    if model_dir is None:
-        model_dir = default_model_dir
 
     if not os.path.exists(model_dir):
         print(f"Error: Model directory not found: {model_dir}")
@@ -560,11 +555,11 @@ def main():
         )
         print(f"                         Examples: cpu, cuda, cuda:0, cuda:1")
         print(f"\nExamples:")
-        print(f"  {sys.argv[0]} {default_model_dir}")
-        print(f'  {sys.argv[0]} {default_model_dir} --prompt "What is AI?"')
-        print(f"  {sys.argv[0]} {default_model_dir} --device cuda:0")
+        print(f"  {sys.argv[0]} dir/to/model")
+        print(f'  {sys.argv[0]} dir/to/model --prompt "What is AI?"')
+        print(f"  {sys.argv[0]} dir/to/model --device cuda:0")
         print(
-            f'  {sys.argv[0]} {default_model_dir} --prompt "What is AI?" --device cuda:0'
+            f'  {sys.argv[0]} dir/to/model --prompt "What is AI?" --device cuda:0'
         )
         sys.exit(1)
 

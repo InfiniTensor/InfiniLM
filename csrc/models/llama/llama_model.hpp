@@ -1,14 +1,20 @@
 #pragma once
 
+#include "../../cache/kv_cache.hpp"
 #include "llama_config.hpp"
 #include "llama_decoder_layer.hpp"
-#include "infinicore/nn/module.hpp"
+
 #include "infinicore/nn/embedding.hpp"
+#include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
-#include "infinicore/device.hpp"
+#include "llama_config.hpp"
+#include "llama_decoder_layer.hpp"
+#include <memory>
 #include <vector>
+
+#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::llama {
 
@@ -32,24 +38,30 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaModel(const LlamaConfig &config, const infinicore::Device &device,
-               infinicore::DataType dtype = infinicore::DataType::F32);
+    LlamaModel(const LlamaConfig &config,
+               const infinicore::Device &device,
+               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: process input through the model
      *
-     * @param input_ids Token IDs tensor of shape [batch, seq_len]
+     * @param input_ids Token IDs tensor of shape [batch, seq_len]. Batch is 1 when continuous batch is used,
+     *                 and tokens from all requests are concatenated along seq_len dimension.
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param kv_caches Optional KV caches for incremental decoding (one per layer)
+     * @param cache_lengths Cache positions tensor of shape [n_req]
+     * @param input_lengths Input lengths tensor in a continuous batch of shape [n_req]
+     * @param input_offsets Input offsets (starting position) of each request in a continuous batch of shape [n_req]
      * @return Output tensor of shape [batch, seq_len, hidden_size]
-     *
-     * Note: This is a placeholder forward method. The actual implementation
-     * will be added when integrating with the inference engine.
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
-                                const infinicore::Tensor &position_ids,
-                                std::vector<void *> *kv_caches = nullptr) const;
+                               const infinicore::Tensor &position_ids,
+                               std::optional<infinicore::Tensor> cache_lengths,
+                               std::optional<infinicore::Tensor> input_lengths,
+                               std::optional<infinicore::Tensor> input_offsets,
+                               std::optional<infinicore::Tensor> block_tables,
+                               std::optional<infinicore::Tensor> slot_mapping) const;
 
+    void reset_cache(const cache::CacheConfig *cache_config);
 
     // Module information
     const LlamaConfig &config() const { return config_; }
@@ -67,6 +79,10 @@ protected:
 
     // Rotary Position Embeddings (shared across all layers)
     INFINICORE_NN_MODULE(infinicore::nn::RoPE, rotary_emb);
+
+    engine::distributed::RankInfo rank_info_;
+
+    std::shared_ptr<cache::Cache> kv_cache_;
 
 private:
     LlamaConfig config_;
