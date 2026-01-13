@@ -59,6 +59,7 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
 
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 QKVParallelLinear::forward_split(infinicore::Tensor &input) {
+    printf("in QKVParallelLinear forward_split\n");
     auto output = this->forward(input);
 
     auto q_out = output->narrow({{2, 0, q_out_size_}});

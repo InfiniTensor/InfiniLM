@@ -47,6 +47,11 @@ def get_args():
         help="Run cambricon test",
     )
     parser.add_argument(
+        "--ascend",
+        action="store_true",
+        help="Run ascend test",
+    )
+    parser.add_argument(
         "--model_path",
         type=str,
         required=True,
@@ -199,9 +204,11 @@ if __name__ == "__main__":
         device_str = "cuda"
     elif args.cambricon:
         device_str = "mlu"
+    elif args.ascend:
+        device_str = "npu"
     else:
         print(
-            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>\n"
+            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --metax | --moore | --iluvatar | --ascend] --model_path=<path/to/model_dir>\n"
             "such as, python examples/jiuge.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
