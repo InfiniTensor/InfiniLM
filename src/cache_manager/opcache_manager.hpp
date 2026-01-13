@@ -9,6 +9,8 @@
 #include "../tensor.hpp"
 #include "../utils.hpp"
 #include "infinicore_infer.h"
+#include "infiniop/ops/2dmrope.h"
+#include "infiniop/ops/3dmrope.h"
 #include "infiniop/ops/conv.h"
 #include "infiniop/ops/gelu.h"
 #include "infiniop/ops/layer_norm.h"
@@ -186,9 +188,9 @@ public:
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
+          DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)),
           Conv_cache(capacity, DESTROY_FUNC(Conv)),
-          Gelu_cache(capacity, DESTROY_FUNC(Gelu)),
-          DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)) {}
+          Gelu_cache(capacity, DESTROY_FUNC(Gelu)) {}
 
     template <typename... Tensors>
     static size_t createDescriptorKey(Tensors... tensors) {

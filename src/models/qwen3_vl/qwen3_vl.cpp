@@ -538,8 +538,9 @@ void inferDeviceBatch(const Qwen3VLMeta *meta, DeviceResource &rsrc,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits) {
     // DEBUG: 推理开始
-    // printf("[DEBUG] Qwen3VL inferDeviceBatch START: idev=%u, ntok=%u, nreq=%u, has_vision=%s\n",
-    //    idev, ntok, nreq, (pixel_values != nullptr) ? "true" : "false");
+    printf("[DEBUG] Qwen3VL inferDeviceBatch START: idev=%u, ntok=%u, nreq=%u, has_vision=%s\n",
+           idev, ntok, nreq, (pixel_values != nullptr) ? "true" : "false");
+    exit(0);
     auto nlayer = meta->nlayer;
     auto nkvh = meta->nkvh / ndev;
     auto nh = meta->nh / ndev;

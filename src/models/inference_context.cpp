@@ -216,7 +216,7 @@ void InferenceContext::softmax(std::shared_ptr<Tensor> y,
     infiniopSoftmaxDescriptor_t desc;
     if (!cache_manager->getSoftmaxDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreateSoftmaxDescriptor(
-            op_handle, &desc, y->desc(), x->desc()));
+            op_handle, &desc, y->desc(), x->desc(), -1));
         cache_manager->putSoftmaxDescriptor(key, desc);
     }
 

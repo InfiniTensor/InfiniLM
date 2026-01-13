@@ -499,32 +499,16 @@ class Qwen3VLForCausalLM:
         dir_path_ = Path(dir_path_)
         total_keys = 0
 
-        # 创建检查文件夹
-        check_dir = Path("./check")
-        check_dir.mkdir(exist_ok=True)
-
         for file in sorted(dir_path_.glob("*.safetensors")):
             with safetensors.safe_open(file, framework="pt", device="cpu") as f:
                 for key in f.keys():
                     total_keys += 1
-
                     tensor = f.get_tensor(key)
-
-                    # 保存张量
-                    self.save_tensor(key, tensor)
-
-                    # if "o_proj.scales" in key:
-                    #     tensor = tensor * self.meta.scale_o
-                    # elif "down_proj.scales" in key:
-                    #     tensor = tensor * self.meta.scale_down
-                    # elif "embed_tokens.weight" in key:
-                    #     tensor = tensor * self.meta.scale_input
-                    # elif "lm_head.weight" in key:
-                    #     tensor = tensor * self.meta.scale_output
-
                     self.qwen3vl_model.load_weight(
                         self.weights, key, tensor.data_ptr()
                     )
+                    # 保存关键张量用于比对
+                    self.save_tensor(key, tensor)
         print(f"加载的张量 key 总数: {total_keys}")
 
     def save_tensor(self, key: str, tensor, check_dir=None):
@@ -534,81 +518,67 @@ class Qwen3VLForCausalLM:
         # 创建保存目录
         check_dir.mkdir(exist_ok=True)
 
-        # 根据键名生成文件名
+        # 根据键名生成文件名 (以 C++ 的键名为准)
         filename = None
 
         # 1. Patch Embedding
-        if key == "visual.patch_embed.proj.weight":
+        if key == "model.visual.patch_embed.proj.weight":
             filename = "1.patch_embd_w.txt"
-        elif key == "visual.patch_embed.proj.bias":
+        elif key == "model.visual.patch_embed.proj.bias":
             filename = "1.patch_embd_bias.txt"
 
         # 2. Position Embedding
-        elif key == "visual.pos_embed.weight":
+        elif key == "model.visual.pos_embed.weight":
             filename = "2.pos_embd.txt"
 
         # 3. Block0 相关张量
-        elif key == "visual.blocks.0.norm1.weight":
+        elif key == "model.visual.blocks.0.norm1.weight":
             filename = "3.block0.norm1_w.txt"
-        elif key == "visual.blocks.0.norm1.bias":
+        elif key == "model.visual.blocks.0.norm1.bias":
             filename = "3.block0.norm1.bias.txt"
-        elif key == "visual.blocks.0.attn.qkv.weight":
+        elif key == "model.visual.blocks.0.attn.qkv.weight":
             filename = "3.block0.attn.qkv_w.txt"
-        elif key == "visual.blocks.0.attn.qkv.bias":
+        elif key == "model.visual.blocks.0.attn.qkv.bias":
             filename = "3.block0.attn.qkv.bias.txt"
-        elif key == "visual.blocks.0.attn.proj.weight":
+        elif key == "model.visual.blocks.0.attn.proj.weight":
             filename = "3.block0.attn.proj_w.txt"
-        elif key == "visual.blocks.0.attn.proj.bias":
+        elif key == "model.visual.blocks.0.attn.proj.bias":
             filename = "3.block0.attn.proj.bias.txt"
-        elif key == "visual.blocks.0.norm2.weight":
+        elif key == "model.visual.blocks.0.norm2.weight":
             filename = "4.block0.norm2_w.txt"
-        elif key == "visual.blocks.0.norm2.bias":
+        elif key == "model.visual.blocks.0.norm2.bias":
             filename = "4.block0.norm2.bias.txt"
-        elif key == "visual.blocks.0.mlp.linear_fc1.weight":
+        elif key == "model.visual.blocks.0.mlp.linear_fc1.weight":
             filename = "4.block0.mlp.fc1_w.txt"
-        elif key == "visual.blocks.0.mlp.linear_fc1.bias":
+        elif key == "model.visual.blocks.0.mlp.linear_fc1.bias":
             filename = "4.block0.mlp.fc1.bias.txt"
-        elif key == "visual.blocks.0.mlp.linear_fc2.weight":
+        elif key == "model.visual.blocks.0.mlp.linear_fc2.weight":
             filename = "4.block0.mlp.fc2_w.txt"
-        elif key == "visual.blocks.0.mlp.linear_fc2.bias":
+        elif key == "model.visual.blocks.0.mlp.linear_fc2.bias":
             filename = "4.block0.mlp.fc2.bias.txt"
 
         # 5. Merger
-        elif key == "visual.merger.norm.weight":
+        elif key == "model.visual.merger.norm.weight":
             filename = "5.merger.norm_w.txt"
-        elif key == "visual.merger.norm.bias":
+        elif key == "model.visual.merger.norm.bias":
             filename = "5.merger.norm.bias.txt"
-        elif key == "visual.merger.linear_fc1.weight":
+        elif key == "model.visual.merger.linear_fc1.weight":
             filename = "5.merger.fc1_w.txt"
-        elif key == "visual.merger.linear_fc1.bias":
+        elif key == "model.visual.merger.linear_fc1.bias":
             filename = "5.merger.fc1.bias.txt"
-        elif key == "visual.merger.linear_fc2.weight":
+        elif key == "model.visual.merger.linear_fc2.weight":
             filename = "5.merger.fc2_w.txt"
-        elif key == "visual.merger.linear_fc2.bias":
+        elif key == "model.visual.merger.linear_fc2.bias":
             filename = "5.merger.fc2.bias.txt"
 
-        # 兼容原有的merger键名
-        elif key == "visual.merger.ln_q.weight":
-            filename = "5.merger.ln_q_w.txt"
-        elif key == "visual.merger.ln_q.bias":
-            filename = "5.merger.ln_q_bias.txt"
-        elif key == "visual.merger.mlp.0.weight":
-            filename = "5.merger.mlp0_w.txt"
-        elif key == "visual.merger.mlp.0.bias":
-            filename = "5.merger.mlp0_bias.txt"
-        elif key == "visual.merger.mlp.2.weight":
-            filename = "5.merger.mlp2_w.txt"
-        elif key == "visual.merger.mlp.2.bias":
-            filename = "5.merger.mlp2_bias.txt"
-
         # 6. Deepstack Merger List (动态匹配)
-        elif "visual.deepstack_merger_list." in key:
+        elif "model.visual.deepstack_merger_list." in key:
             # 提取索引号
             parts = key.split(".")
-            if len(parts) >= 3:
+            if len(parts) >= 4:
                 try:
-                    idx = int(parts[2])  # deepstack_merger_list.{idx}.xxx
-                    suffix = ".".join(parts[3:])
+                    idx = int(parts[3])  # model.visual.deepstack_merger_list.{idx}.xxx
+                    suffix = ".".join(parts[4:])
                     prefix = f"6.deepstack{idx}"
 
                     if suffix == "norm.weight":
