@@ -188,7 +188,7 @@ void RankWorker::thread_loop() {
             Command local_cmd = Command::INIT;
             std::string local_param_name;
             infinicore::Tensor local_param;
-            InfinilmModel::Input local_args;
+            Input local_args;
             std::unique_ptr<cache::CacheConfig> local_cache_config;
 
             // Wait for a job or exit
@@ -206,7 +206,7 @@ void RankWorker::thread_loop() {
                     local_param_name = pending_param_name_;
                     local_param = pending_param_;
                 } else if (local_cmd == Command::RUN) {
-                    local_args = pending_args_.to_model_input();
+                    local_args = pending_args_;
                 } else if (local_cmd == Command::RESET_CACHE) {
                     if (pending_cache_config_ != nullptr) {
                         local_cache_config = pending_cache_config_->unique_copy();
@@ -244,23 +244,28 @@ void RankWorker::thread_loop() {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
 
-                        auto logits{model_->forward(local_args).logits};
-
+                        auto model_args = local_args.to_model_input(rank_info_.device);
+                        // Forward calculation
+                        auto logits{model_->forward(model_args).logits};
+                        // Random sampling (rank 0 only)
                         if (rank_info_.tp_rank == 0) {
-                            // Perform random sampling.
-                            auto temperature{pending_args_.temperature};
-                            auto top_p{pending_args_.top_p};
-                            auto top_k{pending_args_.top_k};
-                            auto random_val{pending_args_.random_val};
+                            auto temperature{local_args.temperature};
+                            auto top_p{local_args.top_p};
+                            auto top_k{local_args.top_k};
+                            auto random_val{local_args.random_val};
 
                             const auto &logits_shape{logits->shape()};
-                            const auto &batch_size{logits_shape[0]};
                             const auto &vocab_size{logits_shape[2]};
+                            const auto &total_len{logits_shape[1]};
+                            const auto &batch_size{logits_shape[0]};
 
-                            auto output_ids{infinicore::Tensor::empty({batch_size}, infinicore::DataType::I32, rank_info_.device)};
+                            auto n_req = local_args.input_offsets.value()->size(0) - 1;
+                            int64_t *input_offsets = (int64_t *)local_args.input_offsets.value()->data();
 
-                            for (auto i{decltype(batch_size)(0)}; i < batch_size; ++i) {
-                                auto score{logits->narrow({{0, i, 1}})->view({vocab_size})};
+                            auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
+
+                            for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
+                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
                                 infinicore::op::random_sample_(
                                     out, score, random_val, top_p, top_k, temperature);

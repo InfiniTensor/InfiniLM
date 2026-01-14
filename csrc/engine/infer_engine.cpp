@@ -56,8 +56,23 @@ std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> InferEng
 //------------------------------------------------------
 // forward
 //------------------------------------------------------
-infinilm::InfinilmModel::Input InferEngine::Input::to_model_input() const {
-    return {input_ids, position_ids, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping};
+infinilm::InfinilmModel::Input
+InferEngine::Input::to_model_input(infinicore::Device device) const {
+
+    auto to_device = [&](const std::optional<infinicore::Tensor> &t)
+        -> std::optional<infinicore::Tensor> {
+        return t.has_value() ? t.value()->to(device) : t;
+    };
+
+    return {
+        input_ids, // @todo: on device in the future
+        to_device(position_ids),
+        past_sequence_lengths, // @todo: on device in the future
+        to_device(total_sequence_lengths),
+        to_device(input_offsets),
+        to_device(block_tables),
+        to_device(slot_mapping),
+    };
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {

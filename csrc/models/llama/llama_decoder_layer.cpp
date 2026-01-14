@@ -26,8 +26,8 @@ LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
 infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_states,
                                               const infinicore::Tensor &position_ids,
                                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                                              std::optional<infinicore::Tensor> cache_lengths,
-                                              std::optional<infinicore::Tensor> input_lengths,
+                                              std::optional<infinicore::Tensor> past_sequence_lengths,
+                                              std::optional<infinicore::Tensor> total_sequence_lengths,
                                               std::optional<infinicore::Tensor> input_offsets,
                                               std::optional<infinicore::Tensor> block_tables,
                                               std::optional<infinicore::Tensor> slot_mapping) const {
@@ -38,7 +38,7 @@ infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_s
     auto normed_states = input_layernorm_->forward(hidden_states);
 
     // 2. Self-attention with residual connection
-    auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping);
+    auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
 
     // Add residual: hidden_states = hidden_states + attn_output
     auto output = infinicore::op::add(residual, attn_output);

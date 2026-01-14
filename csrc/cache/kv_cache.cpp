@@ -1,7 +1,7 @@
 #include "kv_cache.hpp"
 
 #include "../utils.hpp"
-
+#include "infinicore/ops.hpp"
 #include <stdexcept>
 
 namespace infinilm::cache {
@@ -80,12 +80,12 @@ std::tuple<infinicore::Tensor, infinicore::Tensor>
 StaticKVCache::update(size_t layer_idx,
                       const infinicore::Tensor &k,
                       const infinicore::Tensor &v,
-                      const infinicore::Tensor &cache_lengths) {
+                      const infinicore::Tensor &past_sequence_lengths) {
     ASSERT(layer_idx < rank_num_layers_);
 
     auto batch_size = k->size(0);
     auto update_len = k->size(2);
-    size_t cache_pos = reinterpret_cast<int64_t *>(cache_lengths->to(infinicore::Device::cpu())->data())[0];
+    size_t cache_pos = reinterpret_cast<int64_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
     auto result_len = cache_pos + update_len;
 
     ASSERT(result_len <= cache_len_);
@@ -111,9 +111,9 @@ StaticKVCache::update(size_t layer_idx,
 // PagedKVCacheConfig
 // ==========================
 PagedKVCacheConfig::PagedKVCacheConfig(
-    size_t max_kv_memory_bytes,
+    size_t num_blocks,
     size_t block_size)
-    : max_kv_memory_bytes_(max_kv_memory_bytes),
+    : num_blocks_(num_blocks),
       block_size_(block_size) {
 }
 
@@ -123,8 +123,8 @@ PagedKVCacheConfig::unique_copy() const {
 }
 
 size_t
-PagedKVCacheConfig::max_kv_memory_bytes() const {
-    return max_kv_memory_bytes_;
+PagedKVCacheConfig::num_blocks() const {
+    return num_blocks_;
 }
 
 size_t
@@ -151,15 +151,8 @@ PagedKVCache::PagedKVCache(
       num_rank_v_heads_(num_v_heads / rank_info.tp_size),
       rank_num_layers_(num_layers),
       dtype_(dtype),
+      num_blocks_per_layer_(config.num_blocks()),
       block_size_(config.block_size()) {
-    num_blocks_per_layer_ = config.max_kv_memory_bytes()
-                          / (k_dim * num_rank_k_heads_ + v_dim * num_rank_v_heads_)
-                          / block_size_
-                          / infinicore::dsize(dtype_);
-    if (num_blocks_per_layer_ == 0) {
-        throw std::runtime_error("Not enough memory for KV cache");
-    }
-
     // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
     k_caches_ = infinicore::Tensor::empty(
         {rank_num_layers_,
@@ -187,11 +180,79 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
     const infinicore::Tensor &v,
     const infinicore::Tensor &slot_mapping) {
 
-    auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
-    auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
+    auto &&[k_cache_layer, v_cache_layer] = get_paged_kv(layer_idx);
 
-    /// @todo: implement paged cache update here
-
+    infinicore::op::paged_caching_(
+        k_cache_layer,
+        v_cache_layer,
+        k,
+        v,
+        slot_mapping);
     return {k_cache_layer, v_cache_layer};
 }
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+PagedKVCache::get_paged_kv(size_t layer_idx) {
+    auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
+    auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
+    return {k_cache_layer, v_cache_layer};
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+PagedKVCache::get_contiguous_kv(
+    size_t layer_idx,
+    const infinicore::Tensor block_tables,
+    const infinicore::Tensor cache_lens,
+    const infinicore::Tensor input_offsets,
+    size_t request_id) {
+    ASSERT_EQ(block_tables->dtype(), infinicore::DataType::I64);
+    ASSERT_EQ(cache_lens->dtype(), infinicore::DataType::I64);
+    ASSERT_EQ(input_offsets->dtype(), infinicore::DataType::I64);
+
+    auto nreq = block_tables->size(0);
+    auto block_tables_cpu = block_tables->to(infinicore::Device::cpu());
+    auto cache_lens_cpu = cache_lens->to(infinicore::Device::cpu());
+    auto input_offsets_cpu = input_offsets->to(infinicore::Device::cpu());
+    infinicore::context::syncDevice();
+
+    // [num_blocks, num_rank_v_heads, block_size, v_dim]
+    auto &&[k_cache_layer, v_cache_layer] = get_paged_kv(layer_idx);
+
+    auto req = request_id;
+    auto cache_lens_ptr = reinterpret_cast<const int64_t *>(cache_lens_cpu->data());
+    auto input_offsets_ptr = reinterpret_cast<const int64_t *>(input_offsets_cpu->data());
+    int64_t total_len = cache_lens_ptr[req] + (input_offsets_ptr[req + 1] - input_offsets_ptr[req]);
+
+    auto full_k = infinicore::Tensor::empty(
+        {num_rank_k_heads_, (size_t)total_len, k_dim_},
+        k_cache_layer->dtype(), k_cache_layer->device());
+
+    auto full_v = infinicore::Tensor::empty(
+        {num_rank_v_heads_, (size_t)total_len, v_dim_},
+        v_cache_layer->dtype(), v_cache_layer->device());
+
+    size_t nblocks = total_len / block_size_;
+    size_t r = total_len % block_size_;
+
+    for (size_t b = 0; b < nblocks; b++) {
+        size_t bid = *((int64_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, b, 1}})->data()));
+
+        full_k->narrow({{1, b * block_size_, block_size_}})
+            ->copy_from(k_cache_layer->narrow({{0, bid, 1}})->squeeze(0));
+        full_v->narrow({{1, b * block_size_, block_size_}})
+            ->copy_from(v_cache_layer->narrow({{0, bid, 1}})->squeeze(0));
+    }
+
+    if (r > 0) {
+        size_t bid = *((int64_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, nblocks, 1}})->data()));
+
+        full_k->narrow({{1, nblocks * block_size_, r}})
+            ->copy_from(k_cache_layer->narrow({{0, bid, 1}})->squeeze(0)->narrow({{1, 0, r}}));
+        full_v->narrow({{1, nblocks * block_size_, r}})
+            ->copy_from(v_cache_layer->narrow({{0, bid, 1}})->squeeze(0)->narrow({{1, 0, r}}));
+    }
+
+    return {full_k, full_v};
+}
+
 } // namespace infinilm::cache

@@ -49,8 +49,8 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                const infinicore::Tensor &position_ids,
                                std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                               std::optional<infinicore::Tensor> cache_lengths,
-                               std::optional<infinicore::Tensor> input_lengths,
+                               std::optional<infinicore::Tensor> past_sequence_lengths,
+                               std::optional<infinicore::Tensor> total_sequence_lengths,
                                std::optional<infinicore::Tensor> input_offsets,
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mappin) const;

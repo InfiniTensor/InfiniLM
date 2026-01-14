@@ -80,28 +80,48 @@ inline void bind_infer_engine(py::module &m) {
             py::init([](
                          std::optional<infinicore::Tensor> input_ids,
                          std::optional<infinicore::Tensor> position_ids,
-                         std::optional<infinicore::Tensor> cache_lengths,
-                         std::optional<infinicore::Tensor> input_lengths,
+                         std::optional<infinicore::Tensor> past_sequence_lengths,
+                         std::optional<infinicore::Tensor> total_sequence_lengths,
                          std::optional<infinicore::Tensor> input_offsets,
                          std::optional<infinicore::Tensor> block_tables,
                          std::optional<infinicore::Tensor> slot_mapping,
                          py::kwargs kwargs) {
-                auto input{InferEngine::Input{
+                InferEngine::Input input{
                     std::move(input_ids),
                     std::move(position_ids),
-                    std::move(cache_lengths),
+                    std::move(past_sequence_lengths),
+                    std::move(total_sequence_lengths),
+                    std::move(input_offsets),
                     std::move(block_tables),
-                    std::move(slot_mapping)}};
+                    std::move(slot_mapping),
+                };
 
-                if (kwargs) {
-                    if (kwargs.contains("temperature")) {
-                        input.temperature = kwargs["temperature"].cast<float>();
+                // Explicit defaults
+                input.temperature = 1.0f;
+                input.top_p = 1.0f;
+                input.top_k = 1;
+
+                // Allowed keyword arguments
+                static const std::unordered_set<std::string> allowed_kwargs = {
+                    "temperature",
+                    "top_p",
+                    "top_k",
+                };
+
+                for (auto &item : kwargs) {
+                    const std::string key = py::cast<std::string>(item.first);
+
+                    if (allowed_kwargs.find(key) == allowed_kwargs.end()) {
+                        throw py::value_error(
+                            "InferEngine.Input got an unexpected keyword argument '" + key + "'");
                     }
-                    if (kwargs.contains("top_k")) {
-                        input.top_k = kwargs["top_k"].cast<int>();
-                    }
-                    if (kwargs.contains("top_p")) {
-                        input.top_p = kwargs["top_p"].cast<float>();
+
+                    if (key == "temperature") {
+                        input.temperature = py::cast<float>(item.second);
+                    } else if (key == "top_p") {
+                        input.top_p = py::cast<float>(item.second);
+                    } else if (key == "top_k") {
+                        input.top_k = py::cast<int>(item.second);
                     }
                 }
 
@@ -109,18 +129,21 @@ inline void bind_infer_engine(py::module &m) {
             }),
             py::arg("input_ids") = std::nullopt,
             py::arg("position_ids") = std::nullopt,
-            py::arg("cache_lengths") = std::nullopt,
-            py::arg("input_lengths") = std::nullopt,
+            py::arg("past_sequence_lengths") = std::nullopt,
+            py::arg("total_sequence_lengths") = std::nullopt,
             py::arg("input_offsets") = std::nullopt,
             py::arg("block_tables") = std::nullopt,
             py::arg("slot_mapping") = std::nullopt)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
         .def_readwrite("position_ids", &InferEngine::Input::position_ids)
-        .def_readwrite("cache_lengths", &InferEngine::Input::cache_lengths)
-        .def_readwrite("input_lengths", &InferEngine::Input::input_lengths)
+        .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
+        .def_readwrite("total_sequence_lengths", &InferEngine::Input::total_sequence_lengths)
         .def_readwrite("input_offsets", &InferEngine::Input::input_offsets)
         .def_readwrite("block_tables", &InferEngine::Input::block_tables)
-        .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping);
+        .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping)
+        .def_readwrite("temperature", &InferEngine::Input::temperature)
+        .def_readwrite("top_k", &InferEngine::Input::top_k)
+        .def_readwrite("top_p", &InferEngine::Input::top_p);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
         .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor");

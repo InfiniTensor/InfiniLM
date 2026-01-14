@@ -45,8 +45,8 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
 
 infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
                                        const infinicore::Tensor &position_ids,
-                                       std::optional<infinicore::Tensor> cache_lengths,
-                                       std::optional<infinicore::Tensor> input_lengths,
+                                       std::optional<infinicore::Tensor> past_sequence_lengths,
+                                       std::optional<infinicore::Tensor> total_sequence_lengths,
                                        std::optional<infinicore::Tensor> input_offsets,
                                        std::optional<infinicore::Tensor> block_tables,
                                        std::optional<infinicore::Tensor> slot_mapping) const {
@@ -56,18 +56,10 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     // 2. Process through all decoder layers
     size_t num_layers = layers_.size();
     for (size_t i = 0; i < num_layers; ++i) {
-        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, cache_lengths, input_lengths, input_offsets, block_tables, slot_mapping);
+        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, past_sequence_lengths, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
     }
 
-    // 3. Apply final layer normalization to last token only (aligns with transformers)
-    // Narrow to last token: [batch, seq_len, hidden_size] -> [batch, 1, hidden_size]
-    auto shape = hidden_states->shape();
-    size_t seq_len = shape[1];
-    auto last_token = hidden_states->narrow({{1, seq_len - 1, 1}});
-
-    auto normalized_last_token = norm_->forward(last_token);
-
-    return normalized_last_token;
+    return norm_->forward(hidden_states);
 }
 
 void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {

@@ -48,15 +48,15 @@ public:
      * @param input_ids Token IDs tensor of shape [batch, seq_len]. Batch is 1 when continuous batch is used,
      *                 and tokens from all requests are concatenated along seq_len dimension.
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
-     * @param cache_lengths Cache positions tensor of shape [n_req]
-     * @param input_lengths Input lengths tensor in a continuous batch of shape [n_req]
-     * @param input_offsets Input offsets (starting position) of each request in a continuous batch of shape [n_req]
+     * @param past_sequence_lengths Cache positions tensor of shape [n_req]
+     * @param total_sequence_lengths Total sequence lengths tensor of shape [n_req]
+     * @param input_offsets Input offsets (starting position) of each request in a continuous batch of shape [n_req + 1]
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
                                const infinicore::Tensor &position_ids,
-                               std::optional<infinicore::Tensor> cache_lengths,
-                               std::optional<infinicore::Tensor> input_lengths,
+                               std::optional<infinicore::Tensor> past_sequence_lengths,
+                               std::optional<infinicore::Tensor> total_sequence_lengths,
                                std::optional<infinicore::Tensor> input_offsets,
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mapping) const;

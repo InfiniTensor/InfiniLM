@@ -29,9 +29,9 @@ public:
         /// Position IDs tensor of shape `[batch, seq_len]` or `[seq_len]`.
         std::optional<infinicore::Tensor> position_ids;
         /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
-        std::optional<infinicore::Tensor> cache_lengths;
-        /// Input Lengths of each request in a continous-batched sequence, of shape `[num_requests]`.
-        std::optional<infinicore::Tensor> input_lengths;
+        std::optional<infinicore::Tensor> past_sequence_lengths;
+        /// ToTal Lengths for each request sequence, of shape `[num_requests]`.
+        std::optional<infinicore::Tensor> total_sequence_lengths;
         /// Offsets of each request in a continous-batched sequence, of shape `[num_requests]`.
         std::optional<infinicore::Tensor> input_offsets;
         /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
@@ -47,7 +47,7 @@ public:
 
         float random_val{0.1};
 
-        infinilm::InfinilmModel::Input to_model_input() const;
+        infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
 
     struct Output {
