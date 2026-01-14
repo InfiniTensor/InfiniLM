@@ -540,6 +540,132 @@ void inferDeviceBatch(const Qwen3VLMeta *meta, DeviceResource &rsrc,
     // DEBUG: 推理开始
     printf("[DEBUG] Qwen3VL inferDeviceBatch START: idev=%u, ntok=%u, nreq=%u, has_vision=%s\n",
            idev, ntok, nreq, (pixel_values != nullptr) ? "true" : "false");
+
+    // 打印关键权重张量用于比对
+    auto &w = rsrc.weights;
+
+    // // 保存二进制数据用于调试
+    // w->w_v_pos_embed[0]->debug("check_cpp/2.pos_embd_cpp.bin");
+    // printf("[DEBUG] Saved pos_embd binary from GPU\n");
+
+    // printf("\n=== 1.patch_embd_w ===\n");
+    // w->w_v_patch_embed_proj[0]->debug();
+
+    // printf("\n=== 1.patch_embd_bias ===\n");
+    // w->b_v_patch_embed_proj[0]->debug();
+
+    // printf("\n=== 2.pos_embd ===\n");
+    // w->w_v_pos_embed[0]->debug();
+
+    // printf("\n=== 3.block0.norm1_w ===\n");
+    // w->w_v_norm1[0]->debug();
+
+    // printf("\n=== 3.block0.norm1.bias ===\n");
+    // w->b_v_norm1[0]->debug();
+
+    // printf("\n=== 3.block0.attn.qkv_w ===\n");
+    // w->w_v_attn_qkv[0]->debug();
+
+    // printf("\n=== 3.block0.attn.qkv.bias ===\n");
+    // w->b_v_attn_qkv[0]->debug();
+
+    // printf("\n=== 3.block0.attn.proj_w ===\n");
+    // w->w_v_attn_proj[0]->debug();
+
+    // printf("\n=== 3.block0.attn.proj.bias ===\n");
+    // w->b_v_attn_proj[0]->debug();
+
+    // printf("\n=== 4.block0.norm2_w ===\n");
+    // w->w_v_norm2[0]->debug();
+
+    // printf("\n=== 4.block0.norm2.bias ===\n");
+    // w->b_v_norm2[0]->debug();
+
+    // printf("\n=== 4.block0.mlp.fc1_w ===\n");
+    // w->w_v_mlp_fc1[0]->debug();
+
+    // printf("\n=== 4.block0.mlp.fc1.bias ===\n");
+    // w->b_v_mlp_fc1[0]->debug();
+
+    // printf("\n=== 4.block0.mlp.fc2_w ===\n");
+    // w->w_v_mlp_fc2[0]->debug();
+
+    // printf("\n=== 4.block0.mlp.fc2.bias ===\n");
+    // w->b_v_mlp_fc2[0]->debug();
+
+    // printf("\n=== 5.merger.norm_w ===\n");
+    // w->w_v_merger_ln_q[0]->debug();
+
+    // printf("\n=== 5.merger.norm.bias ===\n");
+    // w->b_v_merger_ln_q[0]->debug();
+
+    // printf("\n=== 5.merger.fc1_w ===\n");
+    // w->w_v_merger_mlp_0[0]->debug();
+
+    // printf("\n=== 5.merger.fc1.bias ===\n");
+    // w->b_v_merger_mlp_0[0]->debug();
+
+    // printf("\n=== 5.merger.fc2_w ===\n");
+    // w->w_v_merger_mlp_2[0]->debug();
+
+    // printf("\n=== 5.merger.fc2.bias ===\n");
+    // w->b_v_merger_mlp_2[0]->debug();
+
+    // printf("\n=== 6.deepstack0.norm_w ===\n");
+    // w->w_v_merger_list_0_ln_q[0]->debug();
+
+    // printf("\n=== 6.deepstack0.norm.bias ===\n");
+    // w->b_v_merger_list_0_ln_q[0]->debug();
+
+    // printf("\n=== 6.deepstack0.fc1_w ===\n");
+    // w->w_v_merger_list_0_mlp_0[0]->debug();
+
+    // printf("\n=== 6.deepstack0.fc1.bias ===\n");
+    // w->b_v_merger_list_0_mlp_0[0]->debug();
+
+    // printf("\n=== 6.deepstack0.fc2_w ===\n");
+    // w->w_v_merger_list_0_mlp_2[0]->debug();
+
+    // printf("\n=== 6.deepstack0.fc2.bias ===\n");
+    // w->b_v_merger_list_0_mlp_2[0]->debug();
+
+    // printf("\n=== 6.deepstack1.norm_w ===\n");
+    // w->w_v_merger_list_1_ln_q[0]->debug();
+
+    // printf("\n=== 6.deepstack1.norm.bias ===\n");
+    // w->b_v_merger_list_1_ln_q[0]->debug();
+
+    // printf("\n=== 6.deepstack1.fc1_w ===\n");
+    // w->w_v_merger_list_1_mlp_0[0]->debug();
+
+    // printf("\n=== 6.deepstack1.fc1.bias ===\n");
+    // w->b_v_merger_list_1_mlp_0[0]->debug();
+
+    // printf("\n=== 6.deepstack1.fc2_w ===\n");
+    // w->w_v_merger_list_1_mlp_2[0]->debug();
+
+    // printf("\n=== 6.deepstack1.fc2.bias ===\n");
+    // w->b_v_merger_list_1_mlp_2[0]->debug();
+
+    // printf("\n=== 6.deepstack2.norm_w ===\n");
+    // w->w_v_merger_list_2_ln_q[0]->debug();
+
+    // printf("\n=== 6.deepstack2.norm.bias ===\n");
+    // w->b_v_merger_list_2_ln_q[0]->debug();
+
+    // printf("\n=== 6.deepstack2.fc1_w ===\n");
+    // w->w_v_merger_list_2_mlp_0[0]->debug();
+
+    // printf("\n=== 6.deepstack2.fc1.bias ===\n");
+    // w->b_v_merger_list_2_mlp_0[0]->debug();
+
+    // printf("\n=== 6.deepstack2.fc2_w ===\n");
+    // w->w_v_merger_list_2_mlp_2[0]->debug();
+
+    // printf("\n=== 6.deepstack2.fc2.bias ===\n");
+    // w->b_v_merger_list_2_mlp_2[0]->debug();
+
+    printf("\n[DEBUG] Key tensors printed. Exiting...\n");
     exit(0);
     auto nlayer = meta->nlayer;
     auto nkvh = meta->nkvh / ndev;

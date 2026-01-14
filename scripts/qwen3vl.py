@@ -530,6 +530,16 @@ class Qwen3VLForCausalLM:
         # 2. Position Embedding
         elif key == "model.visual.pos_embed.weight":
             filename = "2.pos_embd.txt"
+            # # 保存二进制数据用于调试 (bfloat16需要用view转换)
+            # bin_path = check_dir / "2.pos_embd.bin"
+            # with open(bin_path, 'wb') as bf:
+            #     # bfloat16转为uint16再保存
+            #     tensor_bytes = tensor.view(torch.uint16).numpy().tobytes()
+            #     bf.write(tensor_bytes)
+            # print(f"[DEBUG] Saved pos_embd binary to {bin_path}, size: {len(tensor_bytes)} bytes")
+            # # 打印前10个值的hex（20字节，每个bfloat16是2字节）
+            # first_bytes = tensor.flatten()[:10].view(torch.uint16).numpy().tobytes()
+            # print(f"[DEBUG] First 10 values (hex): {first_bytes.hex()}")
 
         # 3. Block0 相关张量
         elif key == "model.visual.blocks.0.norm1.weight":

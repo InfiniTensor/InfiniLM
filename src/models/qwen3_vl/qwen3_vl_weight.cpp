@@ -154,16 +154,16 @@ inline void print_info(const Qwen3VLMeta &meta) {
 //  nlayer : 28
 //  d : 2048
 //  dctx : 1024
-//  dvoc : 152064
+//  dvoc : 151936
 //  epsilon : 0.000001
 //  end_token : 151645
 //  nh : 16
 //  nkvh : 8
 //  dh : 128
 //  theta : 5000000.000000
-//  vision_hidden_size : 768
-//  vision_layers : 12
-//  vision_heads : 12
+//  vision_hidden_size : 1024
+//  vision_layers : 24
+//  vision_heads : 16
 //  patch_size : 16
 //  img_size : 768
 //  image_token_id : 151655
@@ -232,8 +232,6 @@ Qwen3VLWeights::Qwen3VLWeights(
     auto W_VAR = Tensor::weight(nullptr, W_DTYPE, {W_DIM_1, W_DIM_2});                           \
     this->register_weight(W_NAME, W_VAR, i, infinicore::weights::DistributionType::W_DIST_TYPE); \
     weight->W_VAR.push_back(W_VAR);
-
-        // auto W_VAR = Tensor::weight(nullptr, W_DTYPE, {W_DIM_2, W_DIM_1})->permute({1, 0});
 
 #define REGISTER_LAYER_WEIGHT_5D(W_NAME, W_VAR, W_DIM_1, W_DIM_2, W_DIM_3, W_DIM_4, W_DIM_5, W_DTYPE, W_DIST_TYPE) \
     auto W_VAR = Tensor::weight(nullptr, W_DTYPE, {W_DIM_1, W_DIM_2, W_DIM_3, W_DIM_4, W_DIM_5});                  \
