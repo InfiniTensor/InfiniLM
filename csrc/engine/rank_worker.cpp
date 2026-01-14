@@ -10,12 +10,24 @@
 
 namespace infinilm::engine {
 
+/**
+ * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+ *
+ * ⚠️ DEVELOPMENT POLICY:
+ *   - NO new development or feature additions permitted on this interface
+ *   - Only critical bug fixes (security/stability) allowed until removal
+ *   - All new code MUST migrate to the polymorphic overload below
+ *
+ * Replacement: Use the polymorphic overload of this same function name with updated signature
+ * Reason: Legacy signature lacks support for dynamic quantization modes.
+ * Removal target: v0.2.0 (Q2 2026)
+ */
 RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
                        const cache::CacheConfig *cache_config,
                        RankBarrier *barrier,
                        bool enable_graph_compiling)
-    : model_config_(model_config),
+    : legacy_model_config_(model_config),
       rank_info_(rank_info),
       enable_graph_compiling_(enable_graph_compiling),
       job_cmd_(Command::INIT),
@@ -31,6 +43,32 @@ RankWorker::RankWorker(const InfinilmModel::Config &model_config,
     // start the thread
     thread_ = std::thread(&RankWorker::thread_loop, this);
 
+    // Wait until the worker thread finishes initialization (model created)
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return init_done_; });
+}
+
+RankWorker::RankWorker(
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    const distributed::RankInfo &rank_info,
+    const cache::CacheConfig *cache_config,
+    RankBarrier *barrier,
+    bool enable_graph_compiling)
+    : model_config_(model_config),
+      rank_info_(rank_info),
+      enable_graph_compiling_(enable_graph_compiling),
+      job_cmd_(Command::INIT),
+      has_job_(false),
+      job_done_(false),
+      should_exit_(false),
+      init_done_(false),
+      rng_(std::random_device{}()),
+      barrier_(barrier) {
+    if (cache_config != nullptr) {
+        pending_cache_config_ = cache_config->unique_copy();
+    }
+    // start the thread
+    thread_ = std::thread(&RankWorker::thread_loop, this);
     // Wait until the worker thread finishes initialization (model created)
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return init_done_; });
@@ -195,7 +233,13 @@ void RankWorker::thread_loop() {
             infinicore::context::setDevice(rank_info_.device);
 
             // Create model using factory (may be expensive)
-            model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            if (model_config_ == nullptr) {
+                model_ = InfinilmModelFactory::createModel(legacy_model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+
+            } else {
+                model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            }
+
             if (!model_) {
                 throw std::runtime_error("Failed to create model");
             }
