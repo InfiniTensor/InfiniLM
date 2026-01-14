@@ -61,7 +61,7 @@ def get_args():
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=100,
+        default=1000,
         help="max_new_tokens",
     )
     parser.add_argument(
@@ -126,7 +126,7 @@ def get_args():
 def test(
     prompts: str | list[str],
     model_path,
-    max_new_tokens=100,
+    max_new_tokens=5000,
     infini_device=infinicore.device("cpu", 0),
     tp=1,
     enable_paged_attn=False,
@@ -145,7 +145,6 @@ def test(
         distributed_config=DistConfig(tp),
         enable_graph_compiling=enable_graph,
     )
-
     # ---------------------------------------------------------------------------- #
     #                        Load Weights
     # ---------------------------------------------------------------------------- #
@@ -155,7 +154,6 @@ def test(
     #                        create tokenizer
     # ---------------------------------------------------------------------------- #
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
     if "llama" == model.config.model_type:
         backend = getattr(tokenizer, "backend_tokenizer", None)
         target = getattr(backend, "_tokenizer", backend)
