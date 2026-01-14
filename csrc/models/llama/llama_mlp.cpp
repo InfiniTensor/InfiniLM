@@ -1,6 +1,7 @@
 #include "llama_mlp.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
+#include <iostream>
 
 namespace infinilm::models::llama {
 
@@ -16,10 +17,24 @@ LlamaMLP::LlamaMLP(const LlamaConfig &config,
     int tp_size = rank_info.tp_size;
 
     // Initialize projection layers
-    INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
-                                 dtype, device, rank_info_);
-    INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
-                              dtype, device, tp_rank, tp_size, rank_info.comm);
+    if (!config.quant_config.has_value()) {
+        INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
+                                     dtype, device, rank_info_);
+        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+    } else {
+        switch (config.quant_config.value().get_quant_type()) {
+        case infinicore::nn::QuantType::COMPRESSED_TENSOR: {
+            INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
+                                              dtype, device, rank_info_, config.quant_config.value());
+            INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
+                                      dtype, device, tp_rank, tp_size, rank_info.comm, config.quant_config.value());
+            break;
+        }
+        default: {
+        }
+        }
+    }
 }
 
 infinicore::Tensor LlamaMLP::forward(const infinicore::Tensor &hidden_states) const {

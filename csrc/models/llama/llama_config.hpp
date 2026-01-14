@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "../infinilm_model.hpp"
+#include "infinicore/nn/quantization.hpp"
 
 #include <infinicore/nn/rope.hpp>
 
@@ -36,8 +37,6 @@ struct LlamaConfig : public InfinilmModel::Config {
     size_t max_position_embeddings = 2048; // Maximum sequence length
     double rope_theta = 10000.0;           // RoPE base frequency
 
-    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> rope_scaling = nullptr; // RoPE scaling type
-
     // Normalization
     double rms_norm_eps = 1e-6; // RMSNorm epsilon
 
@@ -66,11 +65,16 @@ struct LlamaConfig : public InfinilmModel::Config {
     std::vector<int64_t> bos_token_id = {1}; // Beginning of sequence token ID(s)
     std::vector<int64_t> eos_token_id = {2}; // End of sequence token ID(s)
 
+    // Quant Config
+    // std::optional<infinicore::nn::QuantConfig> quant_config = std::nullopt;
+    std::optional<infinicore::nn::QuantConfig> quant_config = infinicore::nn::QuantConfig(infinicore::nn::QuantType::COMPRESSED_TENSOR);
+
     /**
      * @brief Compute key-value dimension for Grouped Query Attention (GQA)
      * @return The dimension for key/value projections
      */
-    size_t kv_dim() const {
+    size_t
+    kv_dim() const {
         return hidden_size * num_key_value_heads / num_attention_heads;
     }
 

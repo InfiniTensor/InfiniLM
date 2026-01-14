@@ -48,16 +48,26 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
     // Initialize projection layers
-    INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
-                             dtype, device, rank_info);
-    // Output projection uses attention_output_bias (can be different from qkv)
-    INFINICORE_NN_MODULE_INIT(o_proj, num_attention_heads * head_dim_, hidden_size_, use_output_bias_,
-                              dtype, device, tp_rank, tp_size, rank_info.comm);
+    if (!config.quant_config.has_value()) {
+        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
+                                 dtype, device, rank_info);
+        // Output projection uses attention_output_bias (can be different from qkv)
+        INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
 
-    // Initialize qk RMSNorm
-    if (use_qk_norm_) {
-        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, config.rms_norm_eps, dtype, device);
-        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, config.rms_norm_eps, dtype, device);
+    } else {
+        switch (config.quant_config.value().get_quant_type()) {
+        case infinicore::nn::QuantType::COMPRESSED_TENSOR: {
+            INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
+                                          dtype, device, rank_info, config.quant_config.value());
+
+            INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
+                                      dtype, device, tp_rank, tp_size, rank_info.comm, config.quant_config.value());
+            break;
+        }
+        default: {
+        }
+        }
     }
 }
 
