@@ -6,6 +6,7 @@
 #include "../../models/llama/llama_attention.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
+#include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
@@ -69,7 +70,8 @@ inline void bind_llama(py::module &m) {
         .def_readwrite("pretraining_tp", &LlamaConfig::pretraining_tp)
         .def_readwrite("name_or_path", &LlamaConfig::name_or_path)
         .def_readwrite("pad_token_id", &LlamaConfig::pad_token_id)
-        .def_property("bos_token_id", [](const LlamaConfig &self) {
+        .def_property(
+            "bos_token_id", [](const LlamaConfig &self) {
                 // Always return as list to match Python config format
                 return py::cast(self.bos_token_id); }, [](LlamaConfig &self, py::object value) {
                 // Accept both single int and list
@@ -80,7 +82,8 @@ inline void bind_llama(py::module &m) {
                 } else {
                     throw py::type_error("bos_token_id must be int or list of ints");
                 } })
-        .def_property("eos_token_id", [](const LlamaConfig &self) {
+        .def_property(
+            "eos_token_id", [](const LlamaConfig &self) {
                 // Always return as list to match Python config format
                 return py::cast(self.eos_token_id); }, [](LlamaConfig &self, py::object value) {
                 // Accept both single int and list
@@ -91,6 +94,86 @@ inline void bind_llama(py::module &m) {
                 } else {
                     throw py::type_error("eos_token_id must be int or list of ints");
                 } })
+        .def_property(
+            "rope_scaling",
+
+            // ---------- getter ----------
+            [](const LlamaConfig &self) -> py::object {
+                if (!self.rope_scaling) {
+                    return py::none();
+                }
+
+                using ScalingConfig = infinicore::nn::RoPE::ScalingConfig;
+                using LongRopeConfig = infinicore::nn::RoPE::LongRopeConfig;
+
+                py::dict d;
+
+                if (auto *lr = dynamic_cast<const LongRopeConfig *>(self.rope_scaling.get())) {
+                    d["type"] = "longrope";
+                    d["rope_type"] = "longrope";
+                    d["factor"] = lr->factor();
+                    d["original_max_position_embeddings"] = lr->original_max_position_embeddings();
+                    d["short_factor"] = lr->short_factor();
+                    d["long_factor"] = lr->long_factor();
+                } else {
+                    throw std::runtime_error("Unknown RoPE scaling type");
+                }
+
+                return std::move(d);
+            },
+
+            // ---------- setter ----------
+            [](LlamaConfig &self, py::object value) {
+                if (value.is_none()) {
+                    self.rope_scaling.reset();
+                    return;
+                }
+
+                if (!py::isinstance<py::dict>(value)) {
+                    throw py::type_error("rope_scaling must be a dict or None");
+                }
+
+                py::dict d = value.cast<py::dict>();
+
+                auto get_str = [&](const char *k) {
+                    if (!d.contains(k)) {
+                        throw py::key_error(k);
+                    }
+                    return py::cast<std::string>(d[k]);
+                };
+
+                std::string type = d.contains("rope_type")
+                                     ? py::cast<std::string>(d["rope_type"])
+                                     : get_str("type");
+
+                if (type == "longrope") {
+                    using LongRopeConfig = infinicore::nn::RoPE::LongRopeConfig;
+
+                    if (!d.contains("short_factor") || !d.contains("long_factor") || !d.contains("original_max_position_embeddings")) {
+                        throw py::value_error(
+                            "longrope requires short_factor, long_factor, "
+                            "original_max_position_embeddings");
+                    }
+
+                    std::vector<float> short_factor = py::cast<std::vector<float>>(d["short_factor"]);
+                    std::vector<float> long_factor = py::cast<std::vector<float>>(d["long_factor"]);
+
+                    size_t original_max_position_embeddings = py::cast<size_t>(d["original_max_position_embeddings"]);
+
+                    float factor = 1.0f;
+                    if (d.contains("factor")) {
+                        factor = py::cast<float>(d["factor"]);
+                    }
+
+                    self.rope_scaling = std::make_shared<LongRopeConfig>(
+                        std::move(short_factor),
+                        std::move(long_factor),
+                        original_max_position_embeddings,
+                        factor);
+                } else {
+                    throw py::value_error("Unsupported rope_scaling type: " + type);
+                }
+            })
         .def("validate", &LlamaConfig::validate)
         .def("kv_dim", &LlamaConfig::kv_dim)
         // Add __dir__ to make attributes discoverable via dir() in Python
@@ -108,6 +191,7 @@ inline void bind_llama(py::module &m) {
             dir_list.append("hidden_act");
             dir_list.append("model_type");
             dir_list.append("rope_theta");
+            dir_list.append("rope_scaling");
             dir_list.append("attention_bias");
             dir_list.append("attention_output_bias");
             dir_list.append("mlp_bias");

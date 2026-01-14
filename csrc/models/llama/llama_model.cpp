@@ -34,7 +34,7 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
     // Use GPT-J-style inverse frequencies (default) and GPT_NEOX rotation pairing
     INFINICORE_NN_MODULE_INIT(rotary_emb, config.head_dim, config.max_position_embeddings,
                               config.rope_theta, infinicore::nn::RoPE::Algo::GPT_NEOX,
-                              dtype, device);
+                              dtype, device, config.rope_scaling);
 
     for (auto &layer : layers_) {
         if (layer) {
