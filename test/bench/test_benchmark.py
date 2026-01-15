@@ -62,14 +62,15 @@ class InfiniLMBenchmark(BaseBenchmark):
         self.benchmark = benchmark
 
         # Map device type string to infinicore device
+        # Note: metax, moore, iluvatar use CUDA-compatible interfaces
         device_map = {
             "cpu": "cpu",
             "nvidia": "cuda",
             "cambricon": "mlu",
             "ascend": "ascend",
-            "metax": "metax",
-            "moore": "moore",
-            "iluvatar": "iluvatar",
+            "metax": "cuda",
+            "moore": "musa",  # moore uses musa interface
+            "iluvatar": "cuda",
             "kunlun": "kunlun",
             "hygon": "hygon",
         }
@@ -727,7 +728,7 @@ def test():
         device_type_str = "hygon"
     else:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
