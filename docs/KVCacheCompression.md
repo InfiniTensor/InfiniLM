@@ -279,3 +279,26 @@ PagedKVCache 的存储不是连续 `[seq, heads, dim]`，而是 block/page 管�
 ### 8.2 为什么需要 `ndev=1`？
 
 当前 `compressKVCacheInplace()` 仅支持单 device 的 KVCache（用于快速落地）；多卡/TP 的 KV 压缩需要额外的 per-shard 权重切分、同步策略与跨设备一致的长度维护。
+
+---
+
+## 9. 后续工作（Paged Attention 适配建议）
+
+当前实现只覆盖「普通 KVCache」。如果要支持 `PagedKVCache` / paged attention，可参考以下迁移路径：
+
+1. **Paged KV → 连续 KV（gather）**  
+   按 block/page 的 metadata 将有效 token 前缀拼成连续 `[seq, heads, dim]` 张量（每层一份），并转换为压缩器需要的输入 layout。
+
+2. **压缩 + 写回（scatter）**  
+   对连续 KV 执行压缩后，将压缩结果按 block/page 顺序写回 paged KV（只覆盖压缩后的前缀）。
+
+3. **更新有效长度与 slot 映射**  
+   需要在调度/解码路径引入「有效 KV 长度」（类似 `req_pos` vs `kv_pos` 的解耦思路），保证 decode 的写入位置和 attention 的读取位置使用压缩后的长度。
+
+4. **释放多余 block / page**  
+   压缩后可回收多余的 block/page，实现真正的显存回收；同时要维护 block/page 的 ref_count 和 hash 状态（如有）。
+
+5. **多设备支持（可选）**  
+   若启用 TP/多卡，需要在各 shard 上独立压缩，并确保跨设备长度一致与同步。
+
+以上工作完成后，压缩器本身无需变化，只需在 paged KV 的读写与长度管理层做适配。
