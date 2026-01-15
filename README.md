@@ -2,6 +2,12 @@
 
 本项目是基于 [`InfiniCore`](https://github.com/InfiniTensor/InfiniCore) 的推理引擎。
 
+## KV Cache 压缩
+
+KV-cache 压缩（InfiniLM 0.2.0 适配记录、使用方法、单测与吞吐基准）见：
+- `docs/KVCacheCompression.md`
+- 权重二进制格式：`docs/KVCacheCompressionWeightFormat.md`
+
 ## 使用方式
 
 - 编译并安装 `InfiniCore` 。注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）。
