@@ -188,6 +188,31 @@ void InferenceContext::softmax(std::shared_ptr<Tensor> y,
                                 y->data(), x->data(), stream));  
 }
 
+void InferenceContext::topksoftmax(
+                                    std::shared_ptr<Tensor> values,  // F32
+                                    std::shared_ptr<Tensor> indices, // I32
+                                    std::shared_ptr<Tensor> x,
+                                    size_t topk,
+                                    bool norm
+                                 ){
+    size_t key = CacheManager::createDescriptorKey(values, indices, x);
+    hash_combine(key, std::hash<size_t>()(topk));
+    hash_combine(key, std::hash<bool>()(norm));
+
+    infiniopTopksoftmaxDescriptor_t desc;
+    if (!cache_manager->getTopksoftmaxDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateTopksoftmaxDescriptor(op_handle, &desc, x->desc()));
+        cache_manager->putTopksoftmaxDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetTopksoftmaxWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopTopksoftmax(desc, workspace, workspace_size,
+                                   values->data(), indices->data(), x->data(), topk, norm, stream));
+}
 
 void InferenceContext::topkrouter(std::shared_ptr<Tensor> values,  // F32
                                   std::shared_ptr<Tensor> indices, // I32

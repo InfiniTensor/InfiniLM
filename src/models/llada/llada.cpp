@@ -191,7 +191,7 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         auto nexperts = meta.num_experts;
 
         // Allocate buffers
-        std::cout << "Allocating  Buffer " << std::endl;
+
         auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
         auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
         auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
@@ -281,15 +281,163 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             linear(logits_in, o_buf, rsrc.w_attn_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); //self.o_proj(attn_output)
 
             rmsnorm(logits_out, logits_in, rsrc.w_ffn_norm[layer], meta.epsilon);
-            
-            std::cout << gate_up_buf->info() << std::endl;
-            std::cout << logits_out->info() << std::endl;
-            std::cout << rsrc.w_expert_router[layer]->info() << std::endl;
+
+            std::cout << "Starting MoE layer " << layer << std::endl;
+            std::cout << "  logits_out shape: " << logits_out->info() << std::endl;
+            std::cout << "  expert_router weight shape: " << rsrc.w_expert_router[layer]->info() << std::endl;
 
             linear(router_logits_buf, logits_out, rsrc.w_expert_router[layer], 1.0, 0.0, nullptr, nullptr);
 
+            std::cout << "router_logits_buf info:" << router_logits_buf->info() << std::endl;
+            std::cout << "router_logits_buf contiguous: " << router_logits_buf->isContigous() << std::endl;
+            router_logits_buf->debug();
+
+            // ==================== MoE 路由和专家计算 ====================
+            // 参考 modeling_lladamoe.py: LLaDAMoESparseMoeBlock::forward
+            // 路由: hidden_states -> gate -> router_logits -> topkrouter -> expert_indices, expert_weights
+            // 专家: hidden_states -> expert[gate][up] -> swiglu -> expert[down] -> weighted sum
+
+            // 创建路由输出缓冲区: [ntok, 8]
+            auto router_values = Tensor::buffer(meta.dt_logits, {ntok, 8}, rsrc.memory_pool);
+            auto router_indices = Tensor::buffer(INFINI_DTYPE_I32, {ntok, 8}, rsrc.memory_pool);
+
+            // 创建 correction_bias，暂时使用零偏置
+            auto correction_bias = Tensor::buffer(meta.dt_logits, {nexperts}, rsrc.memory_pool);
+            std::vector<float> correction_bias_cpu(nexperts, 0.0f);
+            RUN_INFINI(infinirtMemcpy(correction_bias->data(), correction_bias_cpu.data(),
+                                     nexperts * sizeof(float), INFINIRT_MEMCPY_H2D));
+
+            // 调用 topkrouter 进行路由
+            topkrouter(router_values, router_indices, router_logits_buf,
+                      correction_bias, 1.0f, 8); // topk=8, routed_scaling_factor=2.5
+
+            // 复制路由结果回CPU，用于按 token 顺序遍历专家
+            std::vector<float> router_values_cpu(ntok * 8);
+            std::vector<int> router_indices_cpu(ntok * 8);
+            RUN_INFINI(infinirtMemcpy(router_values_cpu.data(), router_values->data(),
+                                     router_values_cpu.size() * sizeof(float), INFINIRT_MEMCPY_D2H));
+            RUN_INFINI(infinirtMemcpy(router_indices_cpu.data(), router_indices->data(),
+                                     router_indices_cpu.size() * sizeof(int), INFINIRT_MEMCPY_D2H));
+
+            std::cout << "=== MoE Routing Info ===" << std::endl;
+            std::cout << "  ntok: " << ntok << ", nexperts: " << nexperts << ", topk: 8" << std::endl;
+            std::cout << "  router_values shape: " << router_values->info() << std::endl;
+            std::cout << "  router_indices shape: " << router_indices->info() << std::endl;
+
+            // 创建 MoE 输出缓冲区: [ntok, d]
+            auto moe_output = Tensor::buffer(meta.dt_logits, {ntok, d}, rsrc.memory_pool);
+
+            // 创建临时缓冲区用于专家计算
+            auto expert_gate_buf = Tensor::buffer(meta.dt_logits, {1, di_expert}, rsrc.memory_pool); // [1, 64]
+            auto expert_up_buf = Tensor::buffer(meta.dt_logits, {1, di_expert}, rsrc.memory_pool);   // [1, 64]
+            auto expert_down_buf = Tensor::buffer(meta.dt_logits, {1, d}, rsrc.memory_pool);         // [1, 2048]
+
+            // 每个 token 通过 top-k 专家，加权求和
+            // 参考 modeling_lladamoe.py:698-710 的实现
+            for (size_t itok = 0; itok < ntok; ++itok) {
+                // 获取当前 token 的隐藏状态: [1, d]
+                auto hidden_states_i = logits_out->slice(0, itok, 1); //[1, 2048]
+                // 获取当前 token 的 MoE 输出位置: [1, d]
+                auto moe_output_i = moe_output->slice(0, itok, 1);    //[1, 2048]
+                // 获取临时缓冲区: [1, di_expert], [1, d]
+                auto expert_gate_buf_i = expert_gate_buf->slice(0, 0, 1); //
+                auto expert_up_buf_i = expert_up_buf->slice(0, 0, 1);
+                auto expert_down_buf_i = expert_down_buf->slice(0, 0, 1);
+
+                // 遍历 top-k 专家，加权累加
+                for (size_t k = 0; k < 8; ++k) {
+                    // 获取专家索引和权重
+                    int expert_idx = router_indices_cpu[itok * 8 + k];
+                    float expert_weight = router_values_cpu[itok * 8 + k];
+
+                    // 验证 expert_idx 是否在有效范围内
+                    if (expert_idx < 0 || expert_idx >= (int)nexperts) {
+                        std::cerr << "ERROR: Invalid expert_idx=" << expert_idx
+                                  << " for token " << itok << ", expert " << k
+                                  << ", nexperts=" << nexperts << std::endl;
+                        continue;
+                    }
+
+                    // Debug: 打印权重 shape 信息（第一个 token, 第一个专家）
+                    if (itok == 0 && k == 0) {
+                        std::cout << "  expert_gate weight shape: " << rsrc.w_expert_gate[layer]->info() << std::endl;
+                        std::cout << "  expert_up weight shape: " << rsrc.w_expert_up[layer]->info() << std::endl;
+                        std::cout << "  expert_down weight shape: " << rsrc.w_expert_down[layer]->info() << std::endl;
+                        std::cout << "  expert_gate_w after slice: " << rsrc.w_expert_gate[layer]->slice(0, expert_idx, 1)->info() << std::endl;
+                        std::cout << "  expert_up_w after slice: " << rsrc.w_expert_up[layer]->slice(0, expert_idx, 1)->info() << std::endl;
+                        std::cout << "  expert_down_w after slice: " << rsrc.w_expert_down[layer]->slice(0, expert_idx, 1)->info() << std::endl;
+                    }
+
+                    // 计算专家输出: hidden_states @ expert_gate -> silu * expert_up @ expert_down
+                    // gate_proj: [d, di_expert] (从权重中切片并降维)
+                    // 切片后是 [1, d, di_expert]，需要降维为 [d, di_expert]
+                    auto expert_gate_w = rsrc.w_expert_gate[layer]->slice(0, expert_idx, 1)->view({d, di_expert});
+                    // up_proj: [d, di_expert] (从权重中切片并降维)
+                    auto expert_up_w = rsrc.w_expert_up[layer]->slice(0, expert_idx, 1)->view({d, di_expert});
+                    // down_proj: [di_expert, d] (从权重中切片并降维)
+                    auto expert_down_w = rsrc.w_expert_down[layer]->slice(0, expert_idx, 1)->view({di_expert, d});
+
+                    // gate_output = hidden_states @ expert_gate_w: [1, di_expert]
+                    // 注意：这里使用 linear 会自动处理 dtype 转换
+                    std::cout << "=== Before GEMM Call ===" << std::endl;
+                    std::cout << "expert_gate_buf_i (output): " << expert_gate_buf_i->info() << std::endl;
+                    std::cout << "expert_gate_buf_i contiguous: " << expert_gate_buf_i->isContigous() << std::endl;
+                    std::cout << "hidden_states_i (input): " << hidden_states_i->info() << std::endl;
+                    std::cout << "hidden_states_i contiguous: " << hidden_states_i->isContigous() << std::endl;
+                    std::cout << "expert_gate_w (weight): " << expert_gate_w->info() << std::endl;
+                    std::cout << "expert_gate_w contiguous: " << expert_gate_w->isContigous() << std::endl;
+
+                    std::cout << "1111" << std::endl;
+                    linear(expert_gate_buf_i, hidden_states_i, expert_gate_w, 1.0, 0.0, nullptr, nullptr);
+                    // up_output = hidden_states @ expert_up_w: [1, di_expert]
+
+                    std::cout << "1111" << std::endl;
+                    linear(expert_up_buf_i, hidden_states_i, expert_up_w, 1.0, 0.0, nullptr, nullptr);
+                    // swiglu = silu(gate_output) * up_output: [1, di_expert]
+
+                    std::cout << "1111" << std::endl;
+                    swiglu(expert_gate_buf_i, expert_up_buf_i, expert_gate_buf_i);
+
+                    std::cout << "1111" << std::endl;
+                    // expert_output = swiglu @ expert_down_w: [1, d] (带权重)
+                    // 当 k==0 时，直接写入 moe_output_i；当 k>0 时，累加到 moe_output_i
+                    if (k == 0) {
+                        std::cout << "1111" << std::endl;
+                        std::cout << "Calling linear with moe_output_i, k=" << k << ", itok=" << itok << std::endl;
+                        std::cout << "  moe_output_i: " << moe_output_i->info() << std::endl;
+                        std::cout << "  expert_gate_buf_i: " << expert_gate_buf_i->info() << std::endl;
+                        std::cout << "  expert_down_w: " << expert_down_w->info() << std::endl;
+                        // 第一个专家：直接写入，不累加
+                        linear(moe_output_i, expert_gate_buf_i, expert_down_w, expert_weight, 0.0, nullptr, nullptr);
+                        std::cout << "1111" << std::endl;
+                    } else {
+                        std::cout << "1111" << std::endl;
+                        // 后续专家：累加到 moe_output_i
+                        // 先计算 expert_down_buf_i = expert_gate_buf_i @ expert_down_w * expert_weight
+                        linear(expert_down_buf_i, expert_gate_buf_i, expert_down_w, expert_weight, 0.0, nullptr, nullptr);
+                        // 再累加到 moe_output_i
+                        add(moe_output_i, moe_output_i, expert_down_buf_i);
+                    }
+                }
+            }
+            std::cout << "2222" << std::endl;
+            // 残差连接: logits_in = logits_in + moe_output
+            // 直接使用 add 函数进行加法
+            add(logits_in, logits_in, moe_output);
+
+            std::cout << "=== MoE Computation Completed ===" << std::endl;
+            std::cout << "  moe_output shape: " << moe_output->info() << std::endl;
+            std::cout << "  Final logits_in shape: " << logits_in->info() << std::endl;
+            // =====================================================
         }
 
+
+        // 复制最终的 logits 到 host 内存（如果提供了 last_logits）
+        if (last_logits != nullptr) {
+            RUN_INFINI(infinirtMemcpy(last_logits, logits_in->data(),
+                                     logits_in->shape()[0] * logits_in->shape()[1] * dsize(dt_logits),
+                                     INFINIRT_MEMCPY_D2H));
+        }
 
         RUN_INFINI(infinirtStreamSynchronize(stream));
         // 清理推理上下文

@@ -16,6 +16,15 @@ struct InferenceContext {
 
     void ensure_workspace(size_t required_size);
 
+
+    void topksoftmax(
+                std::shared_ptr<Tensor> values,  // F32
+                std::shared_ptr<Tensor> indices, // I32
+                std::shared_ptr<Tensor> x,
+                size_t topk,
+                bool norm
+            );
+            
     void add(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
@@ -149,6 +158,18 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
                                      correction_bias, // F32
                                      routed_scaling_factor,
                                      topk);
+}
+
+inline void topksoftmax(std::shared_ptr<Tensor> values,  // F32
+                        std::shared_ptr<Tensor> indices, // I32
+                        std::shared_ptr<Tensor> x,
+                        size_t topk,
+                        bool norm) {
+    getInferenceContext().topksoftmax(values,
+                                     indices,
+                                     x,
+                                     topk,
+                                     norm);
 }
 
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,

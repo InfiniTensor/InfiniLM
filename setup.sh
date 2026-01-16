@@ -13,3 +13,4 @@ source ./start.sh
 export LD_LIBRARY_PATH=/usr/local/cuda-12.0/lib64:$LD_LIBRARY_PATH
 CUDA12.0 in local environment
 export INFINI_ROOT=/home/featurize/.infini/
+/home/featurize/work/InfiniRefresh/InfiniCore what you need
