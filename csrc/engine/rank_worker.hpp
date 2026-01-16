@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../cache/cache.hpp"
+#include "../config/global_config.hpp"
 #include "../models/model_factory.hpp"
 #include "compiler/general_compiler.hpp"
 #include "distributed/distributed.hpp"
@@ -59,6 +60,7 @@ public:
     RankWorker(const InfinilmModel::Config &model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,
+               const infinilm::config::global_config::GlobalConfig &global_config,
                RankBarrier *barrier,
                bool enable_graph_compiling);
 
@@ -98,6 +100,7 @@ private:
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
+    const infinilm::config::global_config::GlobalConfig &global_config_;
 
     // Graph Compiling
     bool enable_graph_compiling_;
