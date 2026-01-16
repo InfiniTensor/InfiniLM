@@ -43,6 +43,16 @@ class KVCacheCStruct(ctypes.Structure):
     pass
 
 
+class KVCompressionConfigCStruct(ctypes.Structure):
+    _fields_ = [
+        ("enable", c_uint),
+        ("compression_factor", c_uint),
+        ("min_seq_len", c_uint),
+        ("image_kv_len", c_uint),
+        ("weight_path", c_char_p),
+    ]
+
+
 # Model registration system
 _model_registry = []
 
@@ -65,7 +75,8 @@ class BaseModel:
         register_lib_functions(self.lib)
 
     def _load_library(self):
-        lib_path = os.path.join(
-            os.environ.get("INFINI_ROOT"), "lib", "libinfinicore_infer.so"
-        )
+        infini_root = os.environ.get("INFINI_ROOT")
+        if not infini_root:
+            infini_root = os.path.join(os.path.expanduser("~"), ".infini")
+        lib_path = os.path.join(infini_root, "lib", "libinfinicore_infer.so")
         return ctypes.CDLL(lib_path)

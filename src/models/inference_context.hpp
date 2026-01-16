@@ -3,6 +3,7 @@
 #include "../cache_manager/opcache_manager.hpp"
 
 #include <cassert>
+#include <cmath>
 
 struct InferenceContext {
     infiniopHandle_t op_handle;
@@ -23,6 +24,13 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
                  float epsilon);
+    void layernorm(std::shared_ptr<Tensor> output,
+                   std::shared_ptr<Tensor> input_standardization,
+                   std::shared_ptr<Tensor> input_std_deviation,
+                   std::shared_ptr<Tensor> input,
+                   std::shared_ptr<Tensor> weight,
+                   std::shared_ptr<Tensor> bias,
+                   float eps);
     void gemm(std::shared_ptr<Tensor> c,
               std::shared_ptr<Tensor> a,
               std::shared_ptr<Tensor> b,
@@ -37,6 +45,8 @@ struct InferenceContext {
               infiniopRoPEAlgo_t algo);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
+    
+    void Softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int axis);
 
     void topkrouter(std::shared_ptr<Tensor> values,  // F32
                     std::shared_ptr<Tensor> indices, // I32
@@ -48,6 +58,18 @@ struct InferenceContext {
     void swiglu(std::shared_ptr<Tensor> out,
                 std::shared_ptr<Tensor> up,
                 std::shared_ptr<Tensor> gate);
+    void relu(std::shared_ptr<Tensor> y,
+              std::shared_ptr<Tensor> x);
+    
+    void layerNorm(std::shared_ptr<Tensor> y,
+                   std::shared_ptr<Tensor> x,
+                   std::shared_ptr<Tensor> w,
+                   std::shared_ptr<Tensor> beta,
+                   float epsilon);
+    
+    void geluTanh(std::shared_ptr<Tensor> y,
+                     std::shared_ptr<Tensor> x);
+
     void randomSample(std::shared_ptr<Tensor> out,
                       std::shared_ptr<Tensor> prob,
                       float random_val, float top_p, uint32_t top_k, float temperature);
@@ -62,11 +84,22 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> in_w,
                  std::shared_ptr<Tensor> in_s,
                  std::shared_ptr<Tensor> in_z);
+    void conv2d(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
+                std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> b,
+                std::vector<size_t> pads, std::vector<size_t> strides,
+                std::vector<size_t> dilations);
+
+    void sigmoid(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x);
+
+    void softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int axis);
+    
+    void quickGelu(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x);
+
+    void gelu(std::shared_ptr<Tensor> output, std::shared_ptr<Tensor> input);
 };
 
-namespace {
-thread_local InferenceContext *tls_inference_context = nullptr;
-}
+extern thread_local InferenceContext *tls_inference_context;
+inline InferenceContext *maybe_get_context() { return tls_inference_context; }
 
 inline InferenceContext &getInferenceContext() {
     assert(tls_inference_context != nullptr && "InferenceContext not set for this thread");
@@ -84,6 +117,16 @@ inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::share
 inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
                     std::shared_ptr<Tensor> w, float epsilon) {
     getInferenceContext().rmsnorm(y, x, w, epsilon);
+}
+
+inline void layernorm(std::shared_ptr<Tensor> output,
+                      std::shared_ptr<Tensor> input_standardization,
+                      std::shared_ptr<Tensor> input_std_deviation,
+                      std::shared_ptr<Tensor> input,
+                      std::shared_ptr<Tensor> weight,
+                      std::shared_ptr<Tensor> bias,
+                      float eps) {
+    getInferenceContext().layernorm(output, input_standardization, input_std_deviation, input, weight, bias, eps);
 }
 
 inline void gemm(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
@@ -111,6 +154,10 @@ inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) 
     getInferenceContext().causalSoftmax(y, x);
 }
 
+inline void Softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int axis) {
+    getInferenceContext().Softmax(y, x, axis);
+}
+
 inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
                        std::shared_ptr<Tensor> indices, // I32
                        std::shared_ptr<Tensor> x,
@@ -131,6 +178,20 @@ inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
     getInferenceContext().swiglu(out, up, gate);
 }
 
+inline void relu(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().relu(y, x);
+}
+
+inline void layerNorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
+                      std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> beta,
+                      float epsilon) {
+    getInferenceContext().layerNorm(y, x, w, beta, epsilon);
+}
+
+inline void geluTanh(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().geluTanh(y, x);
+}
+
 inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> prob,
                          float random_val, float top_p, uint32_t top_k, float temperature) {
     getInferenceContext().randomSample(out, prob, random_val, top_p, top_k, temperature);
@@ -149,3 +210,31 @@ inline void dequant_linear(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> 
     getInferenceContext().dequant(w, w_w, w_s, w_z);
     getInferenceContext().linear(out, x, w, alpha, beta, residual, bias);
 }
+
+// 新增Conv2d的便捷函数
+inline void conv2d(std::shared_ptr<Tensor> y,
+                   std::shared_ptr<Tensor> x,
+                   std::shared_ptr<Tensor> w,
+                   std::shared_ptr<Tensor> b,
+                   std::vector<size_t>& pads,
+                   std::vector<size_t>& strides,
+                   std::vector<size_t>& dilations) {
+    getInferenceContext().conv2d(y, x, w, b, pads, strides, dilations);
+}
+
+inline void quickGelu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in){
+    getInferenceContext().quickGelu(out, in);
+}
+
+inline void sigmoid(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in){
+    getInferenceContext().sigmoid(out, in);
+}
+
+inline void softmax(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in, int axis){
+    getInferenceContext().softmax(out, in, axis);
+}
+
+inline void gelu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> in){
+    getInferenceContext().gelu(out, in);
+}
+

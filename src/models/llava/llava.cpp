@@ -1,0 +1,1099 @@
+#include "llava_impl.hpp"
+#include "llava_weight.hpp"
+
+#include "../../tensor.hpp"
+#include "../../utils.hpp"
+#include "../inference_context.hpp"
+#include "infinicore_infer/models/llava.h"
+
+#include <random>
+#include <thread>
+#include <vector>
+#include <fstream>
+#include <iomanip>
+#include <bitset>
+#include <cstdlib>
+#include <cstring>
+
+static bool llava_debug_enabled() {
+    static int cached = -1;
+    if (cached == -1) {
+        const char *env = std::getenv("LLAVA_DEBUG");
+        cached = (env != nullptr && std::strcmp(env, "0") != 0) ? 1 : 0;
+    }
+    return cached != 0;
+}
+
+// LLaVA设备资源创建函数，模仿jiuge.cpp的createDeviceResource
+void createLlavaDeviceResource(LlavaDeviceResource *rsrc, const LlavaMeta *meta,
+                             const LlavaWeights *weights,
+                             infiniDevice_t device, int idev, int ndev, int dev_id,
+                             infinicclComm_t comm) {
+    RUN_INFINI(infinirtSetDevice(device, dev_id));
+    infiniopHandle_t handle;
+    infiniopCreateHandle(&handle);
+    infinirtStream_t stream;
+    infinirtStreamCreate(&stream);
+
+    // 初始化memory_pool
+    auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
+
+    // 初始化Language Model权重（暂时为空，复用jiuge结构）
+    std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
+        w_ffn_norm, w_ffn_gate_up, w_ffn_down;
+
+    // 初始化Vision Encoder权重
+    auto vision_patch_embed_weight = getPatchEmbedWeight(meta, weights);
+    auto vision_position_embedding = createPositionEmbedding(meta, weights); // 从meta中获取形状
+    auto vision_class_token = getClassToken(meta, weights); // 从meta中获取形状
+    auto vision_pre_layernorm_weight = getVisionPreLNWeight(meta, weights);
+    auto vision_pre_layernorm_bias   = getVisionPreLNBias(meta, weights);
+
+    auto vision_post_layernorm_weight = getVisionPostLNWeight(meta, weights);
+    auto vision_post_layernorm_bias   = getVisionPostLNBias(meta, weights);
+
+    // 初始化Projector权重
+    auto projector_weight_1 = getProjectorWeight1(meta, weights);
+    auto projector_bias_1 = getProjectorBias1(meta, weights);
+    auto projector_weight_2 = getProjectorWeight2(meta, weights);
+    auto projector_bias_2 = getProjectorBias2(meta, weights);
+
+    std::vector<std::shared_ptr<Tensor>> vision_q_weights, vision_q_biases,
+        vision_k_weights, vision_k_biases,
+        vision_v_weights, vision_v_biases,
+        vision_in_layer_pre_norm_weights, vision_in_layer_pre_norm_biases,
+        vision_proj_weight, vision_proj_bias,
+        vision_in_layer_post_norm_weight, vision_post_norm_bias,
+        vision_mlp_fc1_weight, vision_mlp_fc1_bias,
+        vision_mlp_fc2_weight, vision_mlp_fc2_bias;
+
+
+    for (size_t layer = 0; layer < meta->vision_meta.vision_num_layers; layer++) {
+        vision_q_weights.push_back(
+            getVisionQWeight(meta, weights, layer));
+        vision_q_biases.push_back(
+            getVisionQBias(meta, weights, layer));
+        vision_k_weights.push_back(
+            getVisionKWeight(meta, weights, layer));
+        vision_k_biases.push_back(
+            getVisionKBias(meta, weights, layer));
+        vision_v_weights.push_back(
+            getVisionVWeight(meta, weights, layer));
+        vision_v_biases.push_back(
+            getVisionVBias(meta, weights, layer));
+        // in-layer pre norm
+        vision_in_layer_pre_norm_weights.push_back(
+            getVisionInLayerPreNormWeight(meta, weights, layer));
+        vision_in_layer_pre_norm_biases.push_back(
+            getVisionInLayerPreNormBias(meta, weights, layer));
+
+        // proj
+        vision_proj_weight.push_back(
+            getVisionProjWeight(meta, weights, layer));
+        vision_proj_bias.push_back(
+            getVisionProjBias(meta, weights, layer));
+
+        // post norm
+        vision_in_layer_post_norm_weight.push_back(
+            getVisionInLayerPostNormWeight(meta, weights, layer));
+        vision_post_norm_bias.push_back(
+            getVisionInLayerPostNormBias(meta, weights, layer));
+
+        // MLP fc1
+        vision_mlp_fc1_weight.push_back(
+            getVisionMLPFC1Weight(meta, weights, layer));
+        vision_mlp_fc1_bias.push_back(
+            getVisionMLPFC1Bias(meta, weights, layer));
+
+        // MLP fc2
+        vision_mlp_fc2_weight.push_back(
+            getVisionMLPFC2Weight(meta, weights, layer));
+        vision_mlp_fc2_bias.push_back(
+            getVisionMLPFC2Bias(meta, weights, layer));
+
+    }
+
+
+    // auto vision_class_embedding = getClassToken(meta);
+
+    // 临时创建language model权重（将来应该从weights中加载）
+    std::shared_ptr<Tensor> w_in_embd = nullptr;
+    std::shared_ptr<Tensor> w_out_norm = nullptr;
+    std::shared_ptr<Tensor> w_out_embd = nullptr;
+    std::shared_ptr<Tensor> sin_table = nullptr;
+    std::shared_ptr<Tensor> cos_table = nullptr;
+
+    *rsrc = LlavaDeviceResource{
+        device,
+        dev_id,
+        handle,
+        w_in_embd, w_out_norm, w_out_embd, sin_table, cos_table,
+        w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
+        w_ffn_norm, w_ffn_gate_up, w_ffn_down,
+        vision_patch_embed_weight,
+        vision_position_embedding,
+        vision_class_token,
+        vision_pre_layernorm_weight, vision_pre_layernorm_bias,
+        vision_post_layernorm_weight, vision_post_layernorm_bias,
+        vision_q_weights, vision_q_biases,
+        vision_k_weights, vision_k_biases,
+        vision_v_weights, vision_v_biases,
+        vision_in_layer_pre_norm_weights, vision_in_layer_pre_norm_biases,
+        vision_proj_weight, vision_proj_bias,
+        vision_in_layer_post_norm_weight, vision_post_norm_bias,
+        vision_mlp_fc1_weight, vision_mlp_fc1_bias,
+        vision_mlp_fc2_weight, vision_mlp_fc2_bias,
+        projector_weight_1, projector_bias_1,
+        projector_weight_2, projector_bias_2,
+        stream,
+        comm,
+        memory_pool,
+    };
+    RUN_INFINI(infinirtDeviceSynchronize());
+}
+
+void releaseDeviceResource(LlavaDeviceResource &res) {
+    infinirtDeviceSynchronize();
+    // Release individual Tensors
+    res.w_in_embd.reset();
+    res.w_out_norm.reset();
+    res.w_out_embd.reset();
+    res.sin_table.reset();
+    res.cos_table.reset();
+    for (auto &t : res.w_attn_norm) {
+        t.reset();
+    }
+    res.w_attn_norm.clear();
+    for (auto &t : res.w_attn_qkv) {
+        t.reset();
+    }
+    res.w_attn_qkv.clear();
+    for (auto &t : res.b_attn_qkv) {
+        t.reset();
+    }
+    res.b_attn_qkv.clear();
+    for (auto &t : res.w_attn_out) {
+        t.reset();
+    }
+    res.w_attn_out.clear();
+    for (auto &t : res.w_ffn_norm) {
+        t.reset();
+    }
+    res.w_ffn_norm.clear();
+    for (auto &t : res.w_ffn_gate_up) {
+        t.reset();
+    }
+    res.w_ffn_gate_up.clear();
+    for (auto &t : res.w_ffn_down) {
+        t.reset();
+    }
+    res.w_ffn_down.clear();
+    res.projector_weight_1.reset();
+    res.projector_bias_1.reset();
+    res.projector_weight_2.reset();
+    res.projector_bias_2.reset();
+    infiniopDestroyHandle(res.handle);
+    res.handle = nullptr;
+    infinirtStreamDestroy(res.stream);
+    res.stream = nullptr;
+    infinicclCommDestroy(res.comm);
+    res.comm = nullptr;
+}
+
+float fp16_to_fp32(uint16_t h) {
+    // 完整处理零、非规格化、Inf、NaN 的 FP16 -> FP32 转换
+    uint32_t sign = (static_cast<uint32_t>(h) & 0x8000u) << 16;
+    uint32_t exp = (h >> 10) & 0x1Fu;
+    uint32_t frac = h & 0x03FFu;
+
+    uint32_t f_exp = 0;
+    uint32_t f_frac = 0;
+
+    if (exp == 0) {
+        if (frac == 0) {
+            // zero
+            f_exp = 0;
+            f_frac = 0;
+        } else {
+            // subnormal: normalize
+            uint32_t e = 1;
+            while ((frac & 0x0400u) == 0) {
+                frac <<= 1;
+                e--;
+            }
+            frac &= 0x03FFu;
+            f_exp = (e + (127 - 15)) << 23;
+            f_frac = frac << 13;
+        }
+    } else if (exp == 0x1Fu) {
+        // Inf/NaN
+        f_exp = 0xFFu << 23;
+        f_frac = frac << 13;
+        if (f_frac != 0) {
+            f_frac |= 0x1u; // preserve a quiet NaN payload bit
+        }
+    } else {
+        // normal
+        f_exp = (exp + (127 - 15)) << 23;
+        f_frac = frac << 13;
+    }
+
+    uint32_t bits = sign | f_exp | f_frac;
+    float out = 0.0f;
+    std::memcpy(&out, &bits, sizeof(out));
+    return out;
+}
+
+void debug_fp16_data_u16(const void* data, size_t count) {
+    if (!llava_debug_enabled()) {
+        return;
+    }
+    const uint16_t* ptr = static_cast<const uint16_t*>(data);
+
+    for (size_t i = 0; i < count; ++i) {
+        for (int j = 15; j >= 0; --j) {
+            std::cout << ((ptr[i] >> j) & 1);
+        }
+        std::cout << " ";
+        float val = fp16_to_fp32(ptr[i]);
+        if (std::isnan(val)) {
+            std::cout << i << ": NaN" << std::endl;
+        } else if (std::isinf(val)) {
+            std::cout << i << ": Inf" << std::endl;
+        } else {
+            std::cout << val << std::endl;
+        }
+    }
+}
+
+// LLaVA视觉编码设备层推理函数（模仿inferDeviceBatch）
+void inferDeviceBatchVision(const LlavaMeta &meta, LlavaDeviceResource &rsrc,
+                           uint32_t idev, uint32_t ndev,
+                           const void *image_data, uint32_t stage, void *output) {
+
+    const bool debug = llava_debug_enabled();
+
+    // debug_fp16_data_u16(image_data, 100); 
+
+    // std::cout << "image_data pointer from cpp: " << image_data << std::endl;
+    // vision_tower部分
+    // === 1. 准备参数 ===
+    auto vision_embed_dim = meta.vision_meta.vision_embed_dim; // 1024
+    auto vision_nh   = meta.vision_meta.vision_num_heads; // 16
+    auto image_size = meta.vision_meta.image_size; // 336
+    auto patch_size = meta.vision_meta.patch_size; // 14
+    auto dt_logits = meta.language_meta.dt_logits; // F16
+    auto stream = rsrc.stream;
+    auto vision_num_layers = meta.vision_meta.vision_num_layers; // 24
+    // 计算patches数量
+    auto patches_per_dim = image_size / patch_size; // 24
+    auto total_patches = patches_per_dim * patches_per_dim; // 576
+    auto vision_intermediate_size = meta.vision_meta.vision_intermediate_size; // 4096
+
+    // 假设你已经得到了 q_buf, k_buf, v_buf  shape = [1, seq_len, vision_embed_dim]
+    // 现在 reshape 成多头格式
+    auto vision_dh   = vision_embed_dim / vision_nh;
+    auto vision_seq  = 1 + total_patches; // 577
+    auto scale = 1.0f / std::sqrt(static_cast<float>(vision_dh));
+
+    // === 2. 准备buffer ===
+    // auto input_image_tensor_f32 = Tensor::buffer(INFINI_DTYPE_F32, {1, 3, image_size, image_size}, rsrc.memory_pool);
+    auto input_image_tensor = Tensor::buffer(dt_logits, {1, 3, image_size, image_size}, rsrc.memory_pool);
+    auto patch_embed_output = Tensor::buffer(dt_logits, {1, vision_embed_dim, patches_per_dim, patches_per_dim}, rsrc.memory_pool);
+    // embeddings = torch.cat([class_embeds, patch_embeds], dim=1)
+    auto embeddings = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    // [ 1 577 1024 ]
+    auto pre_layernorm = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto vision_residual = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto in_layer_pre_norm = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    // [ 1 577 1024 ]
+    auto q_buf = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto k_buf = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto v_buf = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto input_standardization = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto input_std_deviation   = Tensor::buffer(dt_logits, {1, 1 + total_patches}, rsrc.memory_pool);
+
+    
+    // 复制输入图像数据
+    RUN_INFINI(infinirtMemcpyAsync(input_image_tensor->data(), image_data,
+                                  image_size * image_size * 3 * sizeof(uint16_t),
+                                  INFINIRT_MEMCPY_H2D, stream));
+
+    // printf("DEBUG: input_image_tensor after memcpy:\n");
+    // input_image_tensor->debug_first_n(10000);
+
+    // === 3. CLIPVisionEmbeddings Forward ===
+    // Step 1: Patch Embedding (Conv2d)
+
+    // printf("DEBUG: Running Conv2d: input [1,3,%ld,%ld] -> output [1,%ld,%ld,%ld]\n",
+    //        image_size, image_size, vision_embed_dim, patches_per_dim, patches_per_dim);
+
+    // 准备卷积参数
+    std::vector<size_t> pads = {0, 0};  // 无padding
+    std::vector<size_t> strides = {static_cast<size_t>(patch_size), static_cast<size_t>(patch_size)};
+    std::vector<size_t> dilations = {1, 1};
+    // input_image_tensor->debug_first_n(10000);
+    // patch_embeds = self.patch_embedding(pixel_values.to(dtype=target_dtype))  # Conv2d
+    conv2d(patch_embed_output, input_image_tensor, rsrc.vision_patch_embed_weight,
+           nullptr, pads, strides, dilations); // （1，1024，24，24）
+
+    // flatten 2D patch -> [batch, embed_dim, total_patches]
+    auto patch_embed_flat = patch_embed_output->view({1, vision_embed_dim, total_patches});
+
+    // transpose -> [batch, total_patches, embed_dim]
+    auto patch_embed_transposed = patch_embed_flat->permute({0, 2, 1});
+    // 创建 class embedding buffer
+    // class_embeds = self.class_embedding.expand(batch_size, 1, -1)
+    // assume batch=1
+
+    auto class_embed_tensor = Tensor::buffer(dt_logits, {1, 1, vision_embed_dim}, rsrc.memory_pool); 
+    // Tensor: shape[ 1 1 1024 ]
+    RUN_INFINI(infinirtMemcpyAsync(class_embed_tensor->data(),
+                                rsrc.vision_class_token->data(),
+                                sizeof(uint16_t) * vision_embed_dim,
+                                INFINIRT_MEMCPY_D2D, stream));
+
+    // printf("DEBUG: class_embed_tensor:\n");
+    // class_embed_tensor->debug_first_n(20000);
+    // 1) 把 class token 放到 embeddings[:, 0:1, :]
+    rearrange(embeddings->slice(1, 0, 1), class_embed_tensor); // 注意：slice(dim=1, start=0, length=1)
+
+    // printf("DEBUG: patch_embed_transposed:\n");
+    // patch_embed_transposed->debug_first_n(20000);
+    // 2) 把所有 patch token 放到 embeddings[:, 1:1+T, :]
+    rearrange(embeddings->slice(1, 1, total_patches), patch_embed_transposed); // 注意：slice(dim=1, start=1, length=total_patches)
+
+    // 3) 加 position embedding （pos tensor 必须是 [1, 1+T, C]）
+    // std::cout << "=== Before add() ===" << std::endl;
+    // embeddings->debug_first_n(20000);
+    // rsrc.vision_position_embedding->debug_first_n(20000);
+    add(embeddings, embeddings, rsrc.vision_position_embedding);
+    // printf("DEBUG: embeddings after add position embedding:\n");
+    // embeddings->debug_first_n(10);
+    // embeddings->debug();
+
+    // (pre_layrnorm): LayerNorm((1024,), eps=1e-05, elementwise_affine=True) # 暂未实现
+    // printf("meta.vision_meta.vision_epsilon: %e\n", meta.vision_meta.vision_epsilon);
+    // std::cout << "=== embeddings first 20000 values ===" << std::endl;
+    // embeddings->debug_first_n(20000);
+    layernorm(/*out_put*/ pre_layernorm,
+                /*input_standardization*/ input_standardization,
+                /*input_std_deviation*/ input_std_deviation,
+                /*input*/ embeddings,
+                /*weight*/ rsrc.vision_pre_layernorm_weight,
+                /*bias*/ rsrc.vision_pre_layernorm_bias,
+                meta.vision_meta.vision_epsilon); // 1e-5
+
+    if (stage == LLAVA_VISION_STAGE_PRE_LN) {
+        ASSERT_VALID_PTR(output);
+        const size_t out_rows = static_cast<size_t>(vision_seq);
+        const size_t out_cols = static_cast<size_t>(vision_embed_dim);
+        const size_t out_bytes = out_rows * out_cols * dsize(dt_logits);
+        RUN_INFINI(infinirtMemcpyAsync(output,
+                                      pre_layernorm->data(),
+                                      out_bytes,
+                                      INFINIRT_MEMCPY_D2H,
+                                      stream));
+        RUN_INFINI(infinirtStreamSynchronize(stream));
+        return;
+    }
+    // printf("DEBUG: pre_layernorm after LayerNorm_1\n");
+    // pre_layernorm->debug_first_n(10);
+
+    // printf("DEBUG: pre_layernorm:\n");
+    // pre_layernorm->debug_first_n(10);
+
+    auto layer_input = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+    auto layer_output = Tensor::buffer(dt_logits, {1, 1 + total_patches, vision_embed_dim}, rsrc.memory_pool);
+
+    RUN_INFINI(infinirtMemcpyAsync(layer_input->data(),
+                              pre_layernorm->data(),
+                              sizeof(uint16_t) * (1 + total_patches) * vision_embed_dim,
+                              INFINIRT_MEMCPY_D2D, stream));
+
+    // 用来存每层 hidden_states
+    std::vector<std::shared_ptr<Tensor>> all_hidden_states;
+    all_hidden_states.reserve(vision_num_layers + 1); // 多预留一个
+
+    all_hidden_states.push_back(layer_input);
+
+    for (uint32_t layer = 0; layer < vision_num_layers; layer++) {
+    // for (uint32_t layer = 0; layer < 1; layer++) {
+
+        // residual = hidden_states
+        // vision_residual = pre_layernorm;
+        RUN_INFINI(infinirtMemcpyAsync(vision_residual->data(),
+                                    layer_input->data(),
+                                    sizeof(dt_logits) * (1 + total_patches) * vision_embed_dim,
+                                    INFINIRT_MEMCPY_D2D, stream));
+        if (debug) {
+            printf("DEBUG: pre_layernorm:\n");
+            pre_layernorm->debug_first_n(10);
+        }
+        // printf("DEBUG: vision_residual:\n");
+        // vision_residual->debug_first_n(10);
+
+        // (layer_norm1): LayerNorm((1024,), eps=1e-05, elementwise_affine=True))
+
+        // std::cout << "q_buf->info()" << q_buf->info() << std::endl;
+        layernorm(/*out_put*/ in_layer_pre_norm,
+                    /*input_standardization*/ input_standardization,
+                    /*input_std_deviation*/ input_std_deviation,
+                    /*input*/ layer_input,
+                    /*weight*/ rsrc.vision_in_layer_pre_norm_weights[layer],
+                    /*bias*/ rsrc.vision_in_layer_pre_norm_biases[layer],
+                    meta.vision_meta.vision_epsilon); // 1e-5
+        if (debug) {
+            printf("layer_norm1 output:\n");
+            in_layer_pre_norm->debug_first_n(10);
+        }
+
+        // // 线性投影
+        linear(q_buf, in_layer_pre_norm, rsrc.vision_q_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_q_biases[layer]);
+        // // debug: 不考虑中间两行，这里是对的了。(== queries (first 10 elements): )
+
+
+
+        // q_buf->debug();
+        linear(k_buf, in_layer_pre_norm, rsrc.vision_k_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_k_biases[layer]);        
+        linear(v_buf, in_layer_pre_norm, rsrc.vision_v_weights[layer]->permute({1, 0}), 1.0, 0.0, nullptr, rsrc.vision_v_biases[layer]);
+
+
+        // 1) rearrange Q/K/V → [vision_nh, vision_seq, vision_dh]
+        auto q_rearr = Tensor::buffer(dt_logits, {1, vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
+        auto k_rearr = Tensor::buffer(dt_logits, {1, vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
+        auto v_rearr = Tensor::buffer(dt_logits, {1, vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
+        
+
+        rearrange(q_rearr, q_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
+        rearrange(k_rearr, k_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
+        rearrange(v_rearr, v_buf->view({1, vision_seq, vision_nh, vision_dh})->permute({0,2,1,3}));
+
+        // printf("[DEBUG] Q output:\n");
+        // q_rearr->debug_first_n(10);
+
+        // printf("[DEBUG] K output:\n");
+        // k_rearr->debug_first_n(10);
+
+        // printf("[DEBUG] V output:\n");
+        // v_rearr->debug_first_n(10);
+
+        // 2) 准备 QK = [vision_nh, vision_seq, vision_seq]
+        auto qk_buf = Tensor::buffer(dt_logits, {vision_nh, vision_seq, vision_seq}, rsrc.memory_pool);
+
+        // 3) Q * K^T + scaling
+        auto k_T = k_rearr->permute({0,1,3,2});  // [vision_nh, vision_dh, vision_seq]
+
+        linear(
+            qk_buf,
+            q_rearr->slice(0, 0, 1)->view({vision_nh, vision_seq, vision_dh}),
+            k_T->slice(0, 0, 1)->view({vision_nh, vision_dh, vision_seq}),
+            /*alpha=*/scale,
+            /*beta=*/0.0,
+            nullptr,
+            nullptr
+        );
+
+        // printf("[DEBUG] attn_weights before softmax:\n");
+        // qk_buf->debug_first_n(10);
+
+        // 4) softmax (你还没实现，用 causalSoftmax 临时代替)
+        auto qk_softmax = qk_buf->view({vision_nh, vision_seq, vision_seq});
+        softmax(qk_softmax, qk_softmax, -1);  // non-causal softmax (vision)
+
+        // printf("[DEBUG] qk_softmax after softmax:\n");
+        // qk_softmax->debug_first_n(5);
+
+        // 5) Attn * V
+        auto attn_val_buf = Tensor::buffer(dt_logits, {vision_nh, vision_seq, vision_dh}, rsrc.memory_pool);
+        // auto v_gemm = v_rearr->permute({0,1,3,2});   // [vision_nh, vision_dh, vision_seq]
+        auto v_gemm = v_rearr->permute({0,1,2,3});   // debug
+
+        linear(
+            attn_val_buf, // debug: shape[ 16 577 64 ] strides[ 36928 64 1 ]
+            qk_softmax, // debug: shape[ 16 577 577 ] strides[ 332929 577 1 ] 
+            v_gemm->slice(0, 0, 1)->view({vision_nh, vision_seq, vision_dh}), // debug: 注意这里的 view, 可能不对【shape[ 16 64 577 ] strides[ 36928 577 1 ]】
+            /*alpha=*/1.0,
+            /*beta=*/0.0,
+            nullptr,
+            nullptr
+        );
+
+        // 6) 合头 → o: [1, vision_seq, vision_embed_dim]
+        auto o_tmp = Tensor::buffer(dt_logits, {1, vision_seq, vision_nh, vision_dh}, rsrc.memory_pool);
+        rearrange(o_tmp, attn_val_buf->view({1, vision_nh, vision_seq, vision_dh})->permute({0,2,1,3}));
+        // std::cout << "o_tmp->info()" << o_tmp->info() << std::endl; // Tensor: shape[ 1 577 16 64 ]
+        auto o = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        rearrange(o, o_tmp->view({1, vision_seq, vision_embed_dim}));
+        // std::cout << "o->info()" << o->info() << std::endl;
+
+
+        // === Attention out_proj ===
+        // o -> attn_out
+        auto attn_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        linear(attn_out, o, rsrc.vision_proj_weight[layer]->permute({1, 0}), 1.0f, 0.0f, nullptr, rsrc.vision_proj_bias[layer]);
+        if (debug) {
+            printf("attn hidden_stats:\n");
+            attn_out->debug_first_n(10);
+        }
+        // === Attention residual add ===   // 复用 pre_layernorm 作为输出 buffer
+        // hidden_states = residual + hidden_states
+        auto attn_residual_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        add(attn_residual_out, attn_out, vision_residual);
+        auto post_attn_norm = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        layernorm(
+            /*out*/ post_attn_norm,
+            /*input_standardization*/ input_standardization,
+            /*input_std_deviation*/ input_std_deviation,
+            /*input*/ attn_residual_out,
+            /*weight*/ rsrc.vision_in_layer_post_norm_weight[layer],
+            /*bias*/  rsrc.vision_post_norm_bias[layer],
+            meta.vision_meta.vision_epsilon
+        );
+        if (debug) {
+            printf("layer norm2 output:\n");
+            post_attn_norm->debug_first_n(10);
+        }
+        // === MLP ===
+        // FC1: 1024 -> 4096
+        auto mlp_fc1_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_intermediate_size}, rsrc.memory_pool);
+        linear(mlp_fc1_out, post_attn_norm, rsrc.vision_mlp_fc1_weight[layer]->permute({1, 0}),
+            1.0f, 0.0f, nullptr, rsrc.vision_mlp_fc1_bias[layer]);
+
+        // QuickGELU Activation
+        auto mlp_activated_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_intermediate_size}, rsrc.memory_pool);
+        quickGelu(mlp_activated_out, mlp_fc1_out);
+
+        // FC2: 4096 -> 1024
+        auto mlp_fc2_out = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        linear(mlp_fc2_out, mlp_activated_out, rsrc.vision_mlp_fc2_weight[layer]->permute({1, 0}),
+            1.0f, 0.0f, nullptr, rsrc.vision_mlp_fc2_bias[layer]);
+        if (debug) {
+            printf("mlp output:\n");
+            mlp_fc2_out->debug_first_n(10);
+        }
+
+        // === 第二次残差连接：MLP ===
+        add(layer_output, mlp_fc2_out, attn_residual_out);
+        
+        // 为下一层做准备
+        std::swap(layer_input, layer_output);
+
+        all_hidden_states.push_back(layer_input);
+    }
+
+    // auto fake_output = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+    auto post_layernorm_output = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+    layernorm(post_layernorm_output,
+              input_standardization,
+              input_std_deviation,
+              layer_input,  // 所有encoder层的输出
+              rsrc.vision_post_layernorm_weight,  // 需要在资源中添加这个权重
+              rsrc.vision_post_layernorm_bias,    // 需要在资源中添加这个偏置
+              meta.vision_meta.vision_epsilon
+            );
+    if (debug) {
+        printf("post_layernorm output:\n");
+        post_layernorm_output->debug_first_n(10);
+    }
+
+    // multi_modal_projector部分
+
+    int second_last_idx = all_hidden_states.size() - 2;
+    auto selected_all = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+    rearrange(selected_all, all_hidden_states[second_last_idx]);
+
+    if (stage == LLAVA_VISION_STAGE_SELECT_ALL) {
+        ASSERT_VALID_PTR(output);
+        const size_t out_rows = static_cast<size_t>(vision_seq);
+        const size_t out_cols = static_cast<size_t>(vision_embed_dim);
+        const size_t out_bytes = out_rows * out_cols * dsize(dt_logits);
+        RUN_INFINI(infinirtMemcpyAsync(output,
+                                      selected_all->data(),
+                                      out_bytes,
+                                      INFINIRT_MEMCPY_D2H,
+                                      stream));
+        RUN_INFINI(infinirtStreamSynchronize(stream));
+        return;
+    }
+
+    auto projector_input = Tensor::buffer(dt_logits, {1, vision_seq - 1, vision_embed_dim}, rsrc.memory_pool);
+    rearrange(projector_input, selected_all->slice(1, 1, vision_seq - 1));
+
+    if (stage == LLAVA_VISION_STAGE_SELECT_PATCH) {
+        ASSERT_VALID_PTR(output);
+        const size_t out_rows = static_cast<size_t>(vision_seq - 1);
+        const size_t out_cols = static_cast<size_t>(vision_embed_dim);
+        const size_t out_bytes = out_rows * out_cols * dsize(dt_logits);
+        RUN_INFINI(infinirtMemcpyAsync(output,
+                                      projector_input->data(),
+                                      out_bytes,
+                                      INFINIRT_MEMCPY_D2H,
+                                      stream));
+        RUN_INFINI(infinirtStreamSynchronize(stream));
+        return;
+    }
+
+    // 准备projector的buffer
+    auto projector_linear1_out = Tensor::buffer(dt_logits, {1, vision_seq - 1, 4096}, rsrc.memory_pool);
+    auto projector_gelu_out = Tensor::buffer(dt_logits, {1, vision_seq - 1, 4096}, rsrc.memory_pool);
+    auto projector_final_out = Tensor::buffer(dt_logits, {1, vision_seq - 1, 4096}, rsrc.memory_pool);
+
+    // printf("projector weight 1:\n");
+    // rsrc.projector_weight_1->debug_first_n(10);
+    // printf("projector bias 1:\n");
+    // rsrc.projector_bias_1->debug_first_n(10);
+    if (debug) {
+        printf("projector_input:\n");
+        projector_input->debug_first_n(10);
+    }
+    
+    // Linear 1: 1024 -> 4096
+    linear(projector_linear1_out, 
+           projector_input, 
+           rsrc.projector_weight_1->permute({1, 0}),
+           1.0f, 0.0f, 
+           nullptr, 
+           rsrc.projector_bias_1);
+    
+    if (debug) {
+        printf("projector linear1 output:\n");
+        projector_linear1_out->debug_first_n(10);
+    }
+    
+    // GELU Activation
+    gelu(projector_gelu_out, projector_linear1_out);
+    
+    if (debug) {
+        printf("projector gelu output:\n");
+        projector_gelu_out->debug_first_n(10);
+    }
+
+    // printf("projector weight 2:\n");
+    // rsrc.projector_weight_2->debug_first_n(10);
+    // printf("projector bias 2:\n");
+    // rsrc.projector_bias_2->debug_first_n(10);
+    
+    // Linear 2: 4096 -> 4096
+    linear(projector_final_out, 
+           projector_gelu_out, 
+           rsrc.projector_weight_2->permute({1, 0}),
+           1.0f, 0.0f, 
+           nullptr, 
+           rsrc.projector_bias_2);
+
+    if (stage == LLAVA_VISION_STAGE_PROJECTOR_ALL) {
+        auto projector_in_all = Tensor::buffer(dt_logits, {1, vision_seq, vision_embed_dim}, rsrc.memory_pool);
+        rearrange(projector_in_all, selected_all);
+        auto proj1_all = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
+        auto gelu_all = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
+        auto proj2_all = Tensor::buffer(dt_logits, {1, vision_seq, 4096}, rsrc.memory_pool);
+
+        linear(proj1_all,
+               projector_in_all,
+               rsrc.projector_weight_1->permute({1, 0}),
+               1.0f, 0.0f,
+               nullptr,
+               rsrc.projector_bias_1);
+        gelu(gelu_all, proj1_all);
+        linear(proj2_all,
+               gelu_all,
+               rsrc.projector_weight_2->permute({1, 0}),
+               1.0f, 0.0f,
+               nullptr,
+               rsrc.projector_bias_2);
+
+        ASSERT_VALID_PTR(output);
+        const size_t out_rows = static_cast<size_t>(vision_seq);
+        const size_t out_cols = static_cast<size_t>(meta.projector_meta.text_embed_dim);
+        const size_t out_bytes = out_rows * out_cols * dsize(dt_logits);
+        RUN_INFINI(infinirtMemcpyAsync(output,
+                                      proj2_all->data(),
+                                      out_bytes,
+                                      INFINIRT_MEMCPY_D2H,
+                                      stream));
+        RUN_INFINI(infinirtStreamSynchronize(stream));
+        return;
+    }
+    
+    if (debug) {
+        printf("projector final output:\n");
+        projector_final_out->debug_first_n(10);
+    }
+
+    // Write projector output back to host buffer.
+    // Output contract: [vision_patches, text_embed_dim] == [576, 4096], dtype = meta.language_meta.dt_logits.
+    ASSERT_VALID_PTR(output);
+    const size_t out_rows = static_cast<size_t>(vision_seq - 1);
+    const size_t out_cols = static_cast<size_t>(meta.projector_meta.text_embed_dim);
+    const size_t out_bytes = out_rows * out_cols * dsize(dt_logits);
+    RUN_INFINI(infinirtMemcpyAsync(output,
+                                  projector_final_out->data(),
+                                  out_bytes,
+                                  INFINIRT_MEMCPY_D2H,
+                                  stream));
+    RUN_INFINI(infinirtStreamSynchronize(stream));
+}
+
+
+
+
+// LLaVA设备工作线程函数，严格按照jiuge.cpp的launchDevice结构
+void launchLlavaDevice(const LlavaMeta &meta, const LlavaWeights *weights,
+                     LlavaDeviceResource *rsrc, LlavaInferState &state,
+                     LlavaRequest &req,
+                     infiniDevice_t device, int idev, int ndev, int dev_id,
+                     infinicclComm_t comm) {
+    // Create Device Resource
+    // 初始化设备资源
+    createLlavaDeviceResource(rsrc, &meta, weights, device, idev, ndev, dev_id, comm);
+
+    CacheManager cache_manager(100);
+    InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
+    setInferenceContext(&ctx);
+
+    // 通知主线程：这个设备已经加载完成
+    // TODO: 没有检查现在标志位是否靠谱
+    {
+        std::unique_lock<std::mutex> lock(state.mtx);
+        state.loaded = true;
+        lock.unlock();
+        state.cv_stage.notify_one();
+    }
+
+    // Infer Loop
+    // 进入推理循环（这个线程会一直运行）
+    while (true) {
+        std::unique_lock<std::mutex> lock(state.mtx);
+        // 关键点：线程在这里停下来等待！
+        state.cv_stage.wait(lock, [&] { return state.proceed || state.exit_flag; });
+        // quit if exit_flag is set
+        if (state.exit_flag) {
+            break;  // 退出线程
+        }
+
+        // TODO: 执行推理
+        // // 占位符：简单返回一个token
+        // if (req.output && req.batch_size > 0) {
+        //     req.output[0] = 1;
+        // }
+
+        inferDeviceBatchVision(meta, *rsrc, idev, ndev,
+                               req.image_data, req.vision_stage, req.output);
+
+        // // === LLaVA四阶段推理流程 ===
+        // // 阶段1: Vision Encoder (如果有图像)
+        // if (req.image_data != nullptr) {
+        //     state.current_stage = 1;
+        //     state.stage_completed = false;
+        //     lock.unlock();
+        //     state.cv_stage.notify_one(); // 通知主线程进入阶段1
+
+        //     // TODO: 实现vision encoding
+        //     // encodeVisionFeatures(meta, *rsrc, req.image_data, state.vision_features);
+
+        //     lock.lock();
+        //     state.stage_completed = true;
+        //     state.current_stage = 2;
+        // }
+
+        // // 阶段2: MultiModal Projector (如果有图像特征)
+        // if (state.vision_features != nullptr) {
+        //     lock.unlock();
+        //     state.cv_stage.notify_one(); // 通知主线程进入阶段2
+
+        //     // TODO: 实现multimodal projection
+        //     // projectMultiModalFeatures(meta, *rsrc, state.vision_features, state.projected_features);
+
+        //     lock.lock();
+        //     state.stage_completed = true;
+        //     state.current_stage = 3;
+        // }
+
+        // // 阶段3: Language Model Prefill (包含KV-Cache)
+        // state.current_stage = 3;
+        // state.stage_completed = false;
+        // lock.unlock();
+        // state.cv_stage.notify_one(); // 通知主线程进入阶段3
+
+        // // TODO: 实现language model prefill
+        // // 这里调用Jiuge的推理逻辑来处理text tokens + projected vision features
+        // // inferDeviceBatchLanguage(meta, *rsrc, idev, ndev, req.input_tokens, req.ntok,
+        // //                          req.req_lens, req.nreq, req.req_pos, req.kv_caches,
+        // //                          req.temperature, req.topk, req.topp, req.output, nullptr);
+
+        // lock.lock();
+        // state.stage_completed = true;
+        // state.current_stage = 4;
+
+        // // 阶段4: KV-Cache Compression (可选)
+        // if (req.kv_caches != nullptr && state.stage_completed) {
+        //     lock.unlock();
+        //     state.cv_stage.notify_one(); // 通知主线程进入阶段4
+
+        //     // TODO: 实现KV-Cache压缩 (Future: 集成Fastcache)
+        //     // compressKVCaches(meta, *rsrc, req.kv_caches);
+
+        //     lock.lock();
+        //     state.stage_completed = true;
+        // }
+
+        // // 简单占位符：返回一个token (临时)
+        // if (req.output && req.batch_size > 0) {
+        //     req.output[0] = 1; // 暂时返回固定token
+        // }
+
+
+
+        state.proceed = false;  // 重置信号
+        lock.unlock();
+        // 通知主线程：这个设备完成了推理
+        state.cv_stage.notify_one();
+    }
+    // Clean-Up
+    releaseDeviceResource(*rsrc);
+    setInferenceContext(nullptr); // Clear the context when done
+}
+
+
+
+// // LLaVA四阶段统一推理实现
+// void LlavaModel::inferBatchLlava(const uint32_t* input_tokens, const void* image_data,
+//                                 void** kv_caches, uint32_t batch_size,
+//                                 uint32_t* output) {
+//     // 1. 设置推理请求参数
+//     req.input_tokens = input_tokens;
+//     req.image_data = image_data;
+//     req.kv_caches = kv_caches;
+//     req.batch_size = batch_size;
+//     req.ntok = batch_size; // 简化：假设每个请求只有一个token
+//     req.nreq = 1; // 简化：假设只有一个请求
+//     req.output = output;
+
+//     // 2. 启动所有设备线程
+//     auto ndev = dev_resources.size();
+//     for (size_t i = 0; i < ndev; i++) {
+//         std::unique_lock<std::mutex> lock(states[i].mtx);
+//         states[i].proceed = true;
+//         lock.unlock();
+//         states[i].cv_stage.notify_one(); // 发出推理开始信号
+//     }
+
+//     // 3. 等待所有设备完成
+//     for (size_t i = 0; i < ndev; i++) {
+//         std::unique_lock<std::mutex> lock(states[i].mtx);
+//         states[i].cv_stage.wait(lock, [&] { return !(states[i].proceed); });
+//         lock.unlock();
+//     }
+
+//     // 4. 清理请求参数
+//     req.input_tokens = nullptr;
+//     req.image_data = nullptr;
+//     req.kv_caches = nullptr;
+//     req.output = nullptr;
+// }
+
+// 模仿jiuge.cpp的LlavaModel constructor
+LlavaModel::LlavaModel(const LlavaMeta *_meta, const LlavaWeights *weights,
+                      infiniDevice_t device_, std::vector<int> device_ids) : meta(*_meta) {
+    int ndev = int(device_ids.size());
+    device = device_;
+    dev_ids = device_ids;
+    dev_resources = std::vector<LlavaDeviceResource>(ndev);  // 每个设备的资源
+    states = std::vector<LlavaInferState>(ndev);              // 每个设备的状态
+    threads.resize(ndev);                                   // 每个设备的线程
+
+    RUN_INFINI(infinirtInit());
+
+    auto comms = std::vector<infinicclComm_t>(ndev, nullptr);
+    if (ndev > 1) {
+        RUN_INFINI(infinicclCommInitAll(device, comms.data(), ndev, dev_ids.data()));
+    }
+
+    // 🧵🧵🧵 这里创建线程！
+    for (int i = 0; i < ndev; i++) {
+        threads[i] = std::thread(
+            launchLlavaDevice, 
+            std::cref(meta), 
+            weights, 
+            &dev_resources[i], 
+            std::ref(states[i]), 
+            std::ref(req), 
+            device, 
+            i, 
+            ndev, 
+            dev_ids[i], 
+            comms[i]);
+
+        // ⏳ 线程立即启动，进入launchLlavaDevice函数
+        // 😴 在cv_stage.wait()处开始休眠等待
+    }
+
+    // 等待所有设备线程加载完成 - 使用cv_load与jiuge.cpp保持一致
+    for (int i = 0; i < ndev; i++) {
+        std::unique_lock<std::mutex> lock(states[i].mtx);
+        states[i].cv_stage.wait(lock, [&] { return states[i].loaded; });
+        lock.unlock();
+    }
+}
+
+
+// // 最简单的统一推理接口
+// void LlavaModel::inferBatchLlava(const uint32_t* input_tokens, const void* image_data,
+//                                void** kv_caches, const char* mode, uint32_t batch_size,
+//                                uint32_t* output) {
+//     // 暂时只是占位符实现
+//     if (output && batch_size > 0) {
+//         output[0] = 1;  // 返回一个简单的token
+//     }
+// }
+
+// // 各阶段执行函数的占位符实现
+// void LlavaModel::executeVisionStage() {
+//     // 占位符
+// }
+
+// void LlavaModel::executePrefillStage() {
+//     // 占位符
+// }
+
+// void LlavaModel::executeCompressStage() {
+//     // 占位符
+// }
+
+// void LlavaModel::executeDecodeStage() {
+//     // 占位符
+// }
+
+// void LlavaModel::workerLoop() {
+//     // 占位符
+// }
+
+
+
+
+// API implementations - 模仿jiuge.cpp的createJiugeModel
+__C struct LlavaModel *createLlavaModel(const LlavaMeta *meta,
+                                        const LlavaWeights *weights,
+                                        infiniDevice_t device,
+                                        int ndev,
+                                        const int *dev_ids) {
+    std::vector<int> device_ids_vec(ndev);
+    std::copy(dev_ids, dev_ids + ndev, device_ids_vec.begin());
+    LlavaModel *model = new LlavaModel(meta, weights, device, device_ids_vec);
+    return model;
+}
+
+__C void destroyLlavaModel(struct LlavaModel *model) {
+    if (!model) {
+        return;
+    }
+
+    auto ndev = model->dev_resources.size();
+
+    // 通知所有设备线程退出
+    for (size_t idev = 0; idev < ndev; idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].exit_flag = true;
+        lock.unlock();
+        model->states[idev].cv_stage.notify_one();
+    }
+
+    // 等待所有线程结束
+    for (size_t idev = 0; idev < ndev; idev++) {
+        model->threads[idev].join();
+    }
+
+    delete model;
+}
+
+// C API: 批量视觉编码（用于Python接口）
+__C void inferBatchLlavaVison(struct LlavaModel *model,
+                           const void *image_data,
+                           void *output) {
+    if (!model || !image_data || !output) {
+        return;
+    }
+
+    // 1. 设置推理参数（模仿inferBatchJiuge）
+    // TODO: 感觉这里的req结构可能要逐渐改的像 struct InferRequest 
+    model->req.input_tokens = nullptr;  // vision encoding不需要input_tokens
+    model->req.image_data = image_data;
+    model->req.kv_caches = nullptr;     // vision encoding不需要kv_caches
+    model->req.batch_size = 1;          // 简化：假设batch_size为1
+    model->req.ntok = 0;               // vision encoding不需要tokens
+    model->req.nreq = 1;               // 简化：假设一个请求
+    model->req.output = output;
+    model->req.vision_stage = LLAVA_VISION_STAGE_PROJECTOR;
+
+    // Current vision path does not support tensor-parallel; prevent multi-device races on output.
+    ASSERT_EQ(model->dev_ids.size(), size_t(1));
+
+    if (llava_debug_enabled()) {
+        auto vision_embed_dim = model->meta.vision_meta.vision_embed_dim;
+        auto num_patches = model->meta.vision_meta.num_patches;
+        auto total_features = vision_embed_dim * num_patches;
+        printf("inferBatchLlavaVison called: image_data=%p, output=%p\n", image_data, output);
+        printf("Vision config: embed_dim=%zu, num_patches=%zu, total_features=%zu\n",
+               vision_embed_dim, num_patches, total_features);
+    }
+
+
+    // 2. 通知所有设备线程开始工作（模仿inferBatchJiuge）
+    // TODO: 注意，和jiuge不一样的地方在于，我们这里现在只有一个信号量
+    {
+        const size_t idev = 0;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_stage.notify_one();
+    }
+
+    // 3. 等待所有设备线程完成工作（模仿inferBatchJiuge）
+    {
+        const size_t idev = 0;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_stage.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+
+    if (llava_debug_enabled()) {
+        printf("inferBatchLlavaVison: vision encoding completed\n");
+    }
+}
+
+__C void inferBatchLlavaVisionStage(struct LlavaModel *model,
+                                    const void *image_data,
+                                    uint32_t stage,
+                                    void *output) {
+    if (!model || !image_data || !output) {
+        return;
+    }
+
+    model->req.input_tokens = nullptr;
+    model->req.image_data = image_data;
+    model->req.kv_caches = nullptr;
+    model->req.batch_size = 1;
+    model->req.ntok = 0;
+    model->req.nreq = 1;
+    model->req.output = output;
+    model->req.vision_stage = stage;
+
+    ASSERT_EQ(model->dev_ids.size(), size_t(1));
+    {
+        const size_t idev = 0;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_stage.notify_one();
+    }
+
+    {
+        const size_t idev = 0;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_stage.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+// 暂时注释掉其他复杂的API函数，只保留最基本的
