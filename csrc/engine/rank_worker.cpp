@@ -12,12 +12,14 @@ namespace infinilm::engine {
 
 RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
-                       const cache::CacheConfig *cache_config)
+                       const cache::CacheConfig *cache_config,
+                       const infinilm::config::global_config::GlobalConfig &global_config)
     : model_config_(model_config),
       rank_info_(rank_info),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
+      global_config_(global_config),
       should_exit_(false),
       init_done_(false) {
     if (cache_config != nullptr) {

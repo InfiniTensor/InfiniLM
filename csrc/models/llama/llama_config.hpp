@@ -7,6 +7,7 @@
 
 #include "../infinilm_model.hpp"
 #include "infinicore/nn/quantization.hpp"
+#include "nlohmann/json.hpp"
 
 #include <infinicore/nn/rope.hpp>
 
@@ -36,6 +37,8 @@ struct LlamaConfig : public InfinilmModel::Config {
     // Position embeddings
     size_t max_position_embeddings = 2048; // Maximum sequence length
     double rope_theta = 10000.0;           // RoPE base frequency
+
+    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> rope_scaling = nullptr; // RoPE scaling type
 
     // Normalization
     double rms_norm_eps = 1e-6; // RMSNorm epsilon
@@ -94,6 +97,8 @@ struct LlamaConfig : public InfinilmModel::Config {
         }
         return true;
     }
+
+    nlohmann::json config_json;
 };
 
 } // namespace infinilm::models::llama

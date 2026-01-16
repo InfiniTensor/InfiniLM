@@ -10,12 +10,16 @@ InferEngine::InferEngine(
     const InfinilmModel::Config &config,
     const distributed::DistConfig &distributed_config,
     infinicore::Device::Type device_type,
-    const cache::CacheConfig *cache_config) // Changed parameter
+    const cache::CacheConfig *cache_config,
+    const std::string &model_path) // Changed parameter
     : communication_group_(distributed_config, device_type),
       model_config_(config) {
 
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
+    }
+    if (!model_path.empty()) {
+        global_config_ = infinilm::config::global_config::GlobalConfig(model_path + "/config.json");
     }
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
@@ -24,7 +28,8 @@ InferEngine::InferEngine(
         workers_.emplace_back(std::make_unique<RankWorker>(
             model_config_,
             communication_group_.get_rank_info(r),
-            cache_config_ != nullptr ? cache_config_.get() : nullptr));
+            cache_config_ != nullptr ? cache_config_.get() : nullptr,
+            global_config_));
     }
 }
 

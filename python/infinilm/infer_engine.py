@@ -39,6 +39,7 @@ class InferEngine(_infinilm.InferEngine):
             distributed_config._underlying,
             device._underlying.type,
             cache_config,
+            model_path,
         )
 
         self.use_cache = False
