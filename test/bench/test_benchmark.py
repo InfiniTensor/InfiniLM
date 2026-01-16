@@ -368,7 +368,7 @@ def render_ceval(_tokenizer, conversation):
 def render_mmlu(_tokenizer, question, choices):
     """Render MMLU question and choices to input content"""
     choices_text = "\n".join(
-        [f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)]
+        [f"{chr(65 + i)}. {choice}" for i, choice in enumerate(choices)]
     )
     instruction = (
         "You are a multiple-choice question solver. "
@@ -924,7 +924,9 @@ def test():
                 splits_to_load = (
                     ["test"]
                     if split == "test"
-                    else ["validation"] if split == "val" else ["validation", "test"]
+                    else ["validation"]
+                    if split == "val"
+                    else ["validation", "test"]
                 )
                 # Load each subject individually from hardcoded list, excluding "all"
                 for subject_name in mmlu_subjects:
@@ -946,7 +948,9 @@ def test():
                 splits_to_load = (
                     ["test"]
                     if split == "test"
-                    else ["validation"] if split == "val" else ["validation", "test"]
+                    else ["validation"]
+                    if split == "val"
+                    else ["validation", "test"]
                 )
                 records = []
                 for sp in splits_to_load:
@@ -980,14 +984,13 @@ def test():
     all_results = []
 
     for subj in subject_list:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Evaluating subject: {subj}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         try:
             samples, actual_subj_name = load_subject_samples(subj)
             print(f"Loaded {len(samples)} samples for subject: {actual_subj_name}")
-
             # Limit number of samples if specified
             if num_samples is not None and num_samples > 0:
                 original_count = len(samples)
@@ -996,37 +999,9 @@ def test():
                     f"Limited to {len(samples)} samples for validation (from {original_count} total)"
                 )
 
-            # Test with first sample if available
-            if len(samples) > 0:
-                sample = samples[0]
-                if benchmark == "ceval":
-                    input_content = f"'question':{sample['question']},'A': {sample['A']}, 'B':{sample['B']}, 'C': {sample['C']},'D': {sample['D']}。"
-                    test_conversation = [
-                        {
-                            "role": "system",
-                            "content": "请从question的A，B，C，D四个选项中选择正确的选项。例如，标准答案：A。",
-                        },
-                        {"role": "user", "content": input_content},
-                    ]
-                    test_output = model.generate(
-                        test_conversation,
-                        max_steps=max_new_tokens,
-                        topp_=1.0,
-                        topk_=1,
-                        temperature_=1.0,
-                    )
-                elif benchmark == "mmlu":
-                    question = sample["question"]
-                    choices = sample["choices"]
-                    test_output = model.generate(
-                        question,
-                        choices,
-                        max_steps=max_new_tokens,
-                        topp_=1.0,
-                        topk_=1,
-                        temperature_=1.0,
-                    )
-                print(f"\nTest output: {test_output}\n")
+            if len(samples) == 0:
+                print(f"No samples found for subject: {actual_subj_name}")
+                continue
 
             # Evaluate samples for this subject
             result = evaluate_samples(
@@ -1044,13 +1019,22 @@ def test():
     model.destroy_model_instance()
 
     # Calculate overall results
+    print(f"\n{'=' * 60}")
+    print("OVERALL RESULTS")
+    print(f"{'=' * 60}")
+    if len(all_results) == 0:
+        print("No tests were run.")
+        return
+    elif len(all_results) > 1:
+        for r in all_results:
+            print(
+                f"Subject '{r['subject']}': {r['correct']}/{r['total']} = {r['accuracy']:.2%}"
+            )
     overall_correct = sum(r["correct"] for r in all_results)
     overall_total = sum(r["total"] for r in all_results)
     overall_accuracy = overall_correct / overall_total if overall_total > 0 else 0.0
 
-    print(f"\n{'='*60}")
-    print("OVERALL RESULTS")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     if benchmark == "ceval":
         print(
             f"Overall 成绩: {overall_correct}/{overall_total} = {overall_accuracy:.2%}"
@@ -1062,7 +1046,7 @@ def test():
 
     print(f"Total Latency: {TOTAL_TIME} seconds")
     print(f"Total Tokens Processed: {TOTAL_TOKENS} tokens")
-    print(f"Overall Throughput: {TOTAL_TOKENS/TOTAL_TIME:.2f} tokens/s")
+    print(f"Overall Throughput: {TOTAL_TOKENS / TOTAL_TIME:.2f} tokens/s")
 
     # Write CSV if output path is specified
     if output_csv:
