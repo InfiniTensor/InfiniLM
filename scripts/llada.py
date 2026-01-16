@@ -9,14 +9,12 @@ import json
 import torch
 import transformers
 from infer_task import InferTask, KVCache
-
 from libinfinicore_infer import (
     DeviceType,
     KVCacheCStruct,
     DataType
 )
 from libinfinicore_infer.llada import LLaDAModel, LLaDAMetaCStruct, LLaDAWeightsCStruct
-
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 import torch.nn.functional as F
 import numpy as np
@@ -219,35 +217,36 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         def qkv_slices(_i):
             _Q = (
                 state_dict[naming.attn_q(_i)]
-                .reshape([nh, 2, dh // 2, d])
-                .transpose(1, 2)
+                # .reshape([nh, 2, dh // 2, d])
+                # .transpose(1, 2)
             ) # For RoPE
             _K = (
                 state_dict[naming.attn_k(_i)]
-                .reshape([nkvh, 2, dh // 2, d])
-                .transpose(1, 2)
+                # .reshape([nkvh, 2, dh // 2, d])
+                # .transpose(1, 2)
             )
-            _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
+            # _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
+            _V = state_dict[naming.attn_v(_i)]
             _result = []
             _nh = nh // ndev
             _nkvh = nkvh // ndev
             for _idev in range(ndev):
-                _result.append(_Q[_idev * _nh : (_idev + 1) * _nh, :, :, :])
-                _result.append(_K[_idev * _nkvh : (_idev + 1) * _nkvh, :, :, :])
-                _result.append(_V[_idev * _nkvh : (_idev + 1) * _nkvh, :, :])
+                _result.append(_Q)
+                _result.append(_K)
+                _result.append(_V)
             return _result
 
         self.qkv_tensor = [
             torch.concat(qkv_slices(i)).to(torch_dt_mat) for i in range(nlayer)
         ]
-        if not transpose_weight:
-            for i in range(nlayer):
-                self.qkv_tensor[i] = (
-                    self.qkv_tensor[i]
-                    .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
-                    .transpose(1, 2)
-                    .contiguous()
-                )
+        # if not transpose_weight:
+        #     for i in range(nlayer):
+        #         self.qkv_tensor[i] = (
+        #             self.qkv_tensor[i]
+        #             .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
+        #             .transpose(1, 2)
+        #             .contiguous()
+        #         )
         self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
         self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
 
@@ -398,7 +397,6 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             
             return router_list   # list of num_experts tensors
         
-
         self.router_gate_tensor = router_slices()
         # memory: [gate_layer0_router]......[gate_layer15_router]
         self.router_ptrs = [self.router_gate_tensor[i].data_ptr() for i in range(nlayer)]
@@ -565,6 +563,58 @@ class LLaDAForCauslLM:
         )
         return list(output)
     
+    def _sample_next_token(self, logits: torch.Tensor, temperature: float = 0.0, topk: int = 1, topp: float = 1.0) -> int:
+        """
+        Sample the next token from logits.
+
+        Args:
+            logits: Tensor of shape (vocab_size,)
+            temperature: Sampling temperature (0 = greedy)
+            topk: Number of top tokens to consider
+            topp: Cumulative probability threshold for nucleus sampling
+
+        Returns:
+            Sampled token ID
+        """
+        # Apply temperature
+        if temperature > 0:
+            logits = logits / temperature
+
+        # Apply softmax
+        probs = F.softmax(logits, dim=-1, dtype=torch.float32)
+
+        # Top-k filtering
+        if topk > 1:
+            topk_values, topk_indices = torch.topk(probs, k=topk, dim=-1)
+            probs = torch.zeros_like(probs)
+            probs.scatter_(-1, topk_indices, topk_values)
+            # Renormalize
+            probs = probs / probs.sum(dim=-1, keepdim=True)
+
+        # Top-p (nucleus) filtering
+        if topp < 1.0:
+            sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+            # Create mask for tokens within top-p
+            sorted_mask = cumulative_probs <= topp
+            # Apply mask and renormalize
+            filtered_probs = sorted_probs * sorted_mask.float()
+            filtered_probs = filtered_probs / filtered_probs.sum(dim=-1, keepdim=True)
+            # Scatter back to original order
+            probs = torch.zeros_like(probs)
+            probs.scatter_(-1, sorted_indices, filtered_probs)
+
+        # Sample
+        if temperature > 0:
+            # Multinomial sampling
+            probs_flat = probs.view(-1)
+            next_token = torch.multinomial(probs_flat, num_samples=1).item()
+        else:
+            # Greedy sampling (argmax)
+            next_token = torch.argmax(probs, dim=-1).item()
+
+        return next_token
+
     def generate(
         self,
         prompts: str,
@@ -581,48 +631,111 @@ class LLaDAForCauslLM:
         topp_ = 1.0,
         topk_ = 1
     ):
-        if isinstance(prompts, str):
-            prompts = [prompts]
+        # if isinstance(prompts, str):
+        #     prompts = [prompts]
+        # messages = [
+        #     {"role": "system", "content": "You are a helpful AI assistant."},
+        #     {"role": "user", "content": prompts[0]} 
+        # ]
+        # # messages = [{"role": "user", "content": prompt} for prompt in prompts]
+        # formatted_prompts = [self.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
+        # encoded_outputs = self.tokenizer.batch_encode_plus(
+        #     formatted_prompts,
+        #     add_special_tokens=False,
+        #     padding=True,
+        #     return_tensors="pt"
+        # )
 
-        # Apply chat template and tokenize
-        print("Staring generate prepare")
-        messages = [{"role": "user", "content": prompt} for prompt in prompts]
-        formatted_prompts = [self.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
-        encoded_outputs = self.tokenizer.batch_encode_plus(
-            formatted_prompts,
-            add_special_tokens=False,
-            padding=True,
-            return_tensors="pt"
-        )
+        all_messages = []
+       
+        messages = [
+                {"role": "system", "content": "You are a helpful AI assistant."},
+                {"role": "user", "content": prompts}
+        ]
+
+        # 对每个完整对话应用模板
+        formatted_prompts = [
+            self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+        ]
+        
+        # 批量编码
+        encoded_outputs = self.tokenizer(formatted_prompts,)
+
         # Extract input_ids from batch encoding
         input_ids = encoded_outputs['input_ids']
 
         # For single prompt, get the first sequence
-        if len(prompts) == 1:
-            tokens = input_ids[0].tolist()
-        else:
-            # For batch, handle each sequence separately
-            tokens = [seq.tolist() for seq in input_ids]
+
+        tokens = input_ids
+
+        for i in range(128):
+            tokens[0].append(156895)
+
         print(len(tokens))
         print(f"Pytho Side Tokens type: {type(tokens)}, content: {tokens if isinstance(tokens, list) else 'Not a list'}")
 
-        infer_task = InferTask(
-            0,
-            tokens,
-            self.max_context_len(),
-            temperature_,
-            topk_,
-            topp_,
-            self.eos_token_id,
-        )
+        # Prepare vocab size for logits tensor
+        vocab_size = self.config.get("vocab_size", 150528)
 
-        # Bind KV cache
+        # Create KV cache
         kv_cache = KVCache(self)
-        infer_task.bind_kvcache(kv_cache)
-        print("Staring Infering")
-        output_tokens = self.batch_infer_one_round([infer_task])
 
-       
+        # Auto-regressive generation
+        generated_tokens = tokens.copy() if isinstance(tokens, list) else tokens[0].copy()
+        print("Staring Auto-regressive Generation")
+
+        for step in range(gen_length):
+            # Check for EOS token
+            if generated_tokens[-1] in self.eos_token_id:
+                print(f"EOS token reached at step {step}")
+                break
+
+            # Prepare logits tensor - pass the full sequence each time
+            # LLaDA uses bidirectional attention, not causal autoregressive
+            batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
+
+            # Allocate memory for logits output from C++
+            seq_len = len(generated_tokens[0])
+            logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
+            logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
+
+            # Call C++ forward_batch to get logits
+            # For bidirectional models like LLaDA, req_pos is typically 0 (process full sequence)
+            self.llada_model.forward_batch(
+                self.model_instance,
+                batch_tokens_tensor.numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
+                seq_len,
+                (c_uint * 1)(seq_len),
+                1,  # nreq
+                (c_uint * 1)(0),  # req_pos = 0 for bidirectional attention (process full sequence)
+                kv_cache.data(),
+                logits_ptr,  # Pass the logits buffer to C++
+            )
+
+            # Convert to torch tensor
+            logits_tensor = torch.from_numpy(logits_np).float()
+
+            # Sample next token from the last position's logits
+            # logits_tensor shape: [seq_len, vocab_size], we need last row
+            last_token_logits = logits_tensor[-1, :]  # [vocab_size]
+            next_token = self._sample_next_token(last_token_logits, temperature_, topk_, topp_)
+
+            # Append to generated tokens
+            generated_tokens.append(next_token)
+
+            if verbose and step % 10 == 0:
+                print(f"Step {step}: Generated token {next_token}, Sequence length: {len(generated_tokens)}")
+
+        # # Clean up KV cache
+        # kv_cache.drop()
+
+        # Decode the generated tokens
+        generated_text = self.tokenizer.decode(generated_tokens[len(tokens):], skip_special_tokens=True)
+        print(f"Generated text: {generated_text}")
+
+        return generated_tokens, generated_text
+
+
 
 
 
@@ -712,7 +825,6 @@ class LLaDAForCauslLM:
 
 
 def test():
- 
     model_path = "/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/snapshots/783d3467f108d28ac0a78d3e41af16ab05cabd8d"
     device_type = DeviceType.DEVICE_TYPE_NVIDIA
     verbose = True
@@ -723,12 +835,18 @@ def test():
     print("Loading LLaDA model...")
     model = LLaDAForCauslLM(model_path, device_type, ndev)
 
+    # # Load PyTorch original model for comparison
+    # print("\n=== Loading PyTorch Model for Comparison ===")
+    # from transformers import AutoModelForCausalLM
+    # import json
+    # torch_model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True, device_map={"": 0} )
+    # torch_model.eval()
+
     # Test prompts
-    test_prompts = "Lily can run 12 kilometers per hour for 4 hours. After that, she runs 6 kilometers per hour."
+    test_prompts = "Lily can run 12 kilometers per hour for 4 hours. After that, she runs 6 kilometers per hour. How many kilometers can she run in 8 hours?"
 
-    print("\n=== Testing C++ Model Integration Function ===")
-
-    result = model.generate(
+    print("\n=== Testing C++ Model ===")
+    cpp_result = model.generate(
                 prompts=test_prompts,
                 max_steps=16,  # Reduced for faster testing
                 gen_length=32,  # Shorter generation for testing
@@ -736,11 +854,72 @@ def test():
                 temperature_=0.0,  # Deterministic for testing
                 verbose=verbose
             )
-    #     #     print(f"Result: {result}")
-    #     # except Exception as e:
-    #     #     print(f"Error in C++ model generation: {e}")
 
-   
+    # # Test with PyTorch model
+    # print("\n=== Testing PyTorch Model ===")
+    # with torch.no_grad():
+    #     messages = [{"role": "user", "content": test_prompts}]
+    #     formatted_prompts = [model.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
+    #     encoded_inputs = model.tokenizer.batch_encode_plus(
+    #         formatted_prompts,
+    #         add_special_tokens=False,
+    #         padding=True,
+    #         return_tensors="pt"
+    #     )
+    #     input_ids = encoded_inputs['input_ids']
+    #     if len(test_prompts) == 1:
+    #         tokens = input_ids[0].tolist()
+    #     else:
+    #         tokens = [seq.tolist() for seq in input_ids]
+
+    #     # Generate with PyTorch
+    #     with torch.no_grad():
+    #         # Forward pass through all layers
+    #         pytorch_outputs = torch_model(
+    #             input_ids=input_ids,
+    #             attention_mask=None,
+    #             position_ids=None,
+    #             output_router_logits=False,
+    #             output_hidden_states=False,
+    #             use_cache=False,
+    #             return_dict=True,
+    #         )
+
+    #     # Get logits from PyTorch output
+    #     pytorch_logits = pytorch_outputs.logits
+    #     pytorch_logits = pytorch_logits.to('cpu')
+
+    #     # Generate tokens using same sampling logic
+    #     generated_tokens_pytorch = tokens.copy() if isinstance(tokens, list) else tokens[0].copy()
+    #     print(f"PyTorch tokens: {len(generated_tokens_pytorch)}, content: {generated_tokens_pytorch}")
+
+    #     for step in range(32):
+    #         if generated_tokens_pytorch[-1] in model.eos_token_id:
+    #             print(f"PyTorch EOS reached at step {step}")
+    #             break
+
+    #         # Get last token logits
+    #         last_token_logits = pytorch_logits[:, -1, :]  # [vocab_size]
+    #         next_token = model._sample_next_token(last_token_logits, 0.0, 1, 1.0)
+    #         generated_tokens_pytorch.append(next_token)
+
+    #         if verbose and step % 10 == 0:
+    #             print(f"PyTorch Step {step}: Generated token {next_token}, Sequence length: {len(generated_tokens_pytorch)}")
+
+    #     pytorch_generated_text = model.tokenizer.decode(generated_tokens_pytorch[len(tokens):], skip_special_tokens=True)
+    #     print(f"PyTorch Generated text: {pytorch_generated_text}")
+
+    # # Compare results
+    # print("\n=== Comparison Results ===")
+    # print(f"C++ Generated tokens: {cpp_result[0]}")
+    # print(f"PyTorch Generated tokens: {generated_tokens_pytorch}")
+    # print(f"Tokens match: {cpp_result[0] == generated_tokens_pytorch}")
+
+    # # Decode for display
+    # cpp_text = model.tokenizer.decode(cpp_result[0], skip_special_tokens=True)
+    # pytorch_text = model.tokenizer.decode(generated_tokens_pytorch, skip_special_tokens=True)
+    # print(f"\nC++ Output:\n{cpp_text}")
+    # print(f"\nPyTorch Output:\n{pytorch_text}")
 
 if __name__ == "__main__":
     import os

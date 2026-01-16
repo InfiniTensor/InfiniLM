@@ -44,8 +44,6 @@ inline std::shared_ptr<Tensor> getInEmbd(
 inline std::shared_ptr<Tensor> getOutNorm(
     LLaDAMeta const * meta,
     LLaDAWeights const * w){
-
-    std::cout << "Get In Embd112" << std::endl;
     auto shape = std::vector<size_t>({meta->d}); //TODO:
     return Tensor::weight((char *)w->output_norm, w->dt_norm, shape);
 }
@@ -80,15 +78,20 @@ inline std::shared_ptr<Tensor> getAttnQKV(
     auto nh = meta->nh;
     auto dh = meta->dh;
     auto d = meta->d;
-    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * d * dsize(w->dt_mat);
-    if (w->transpose_linear_weights != 0) {
-        auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh, d});
-        return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, w->dt_mat, shape)
-            ->permute({1, 0});
-    } else {
-        auto shape = std::vector<size_t>({d, (nh + 2 * nkvh) / ndev * dh});
-        return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, w->dt_mat, shape);
-    }
+    // size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * d * dsize(w->dt_mat);
+    auto shape = std::vector<size_t>({d * 3, d});
+    auto t = Tensor::weight((char *)(w->attn_qkv[layer]), meta->dt_logits, shape);
+    if(layer == 0)
+        t->debug("/home/featurize/work/My_InfiniLM/block1/qkv_buf.bin");
+    return t;
+    // if (w->transpose_linear_weights != 0) {
+    //     auto shape = std::vector<size_t>({d * 3, d});
+    //     return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, w->dt_mat, shape)
+    //         ->permute({1, 0});
+    // } else {
+    //     auto shape = std::vector<size_t>({d, (nh + 2 * nkvh) / ndev * dh});
+    //     return Tensor::weight((char *)(w->attn_qkv[layer]) + offset, w->dt_mat, shape);
+    // }
 }
 
 
@@ -178,7 +181,7 @@ inline std::shared_ptr<Tensor> getExpertGate(
     LLaDAWeights const *w,
     size_t layer, size_t idev, size_t ndev){
     auto shape = std::vector<size_t>({meta->d});
-    auto di = meta->di_expert; // TODO: 具体di还要区分
+    auto di = meta->di_expert; 
     auto d = meta->d;
     size_t offset = 0;
     if (w->transpose_linear_weights != 0) {

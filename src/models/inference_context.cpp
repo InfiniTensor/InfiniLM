@@ -56,6 +56,47 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
         y->data(), x->data(), w->data(), stream));
 }
 
+
+void InferenceContext::layernorm( std::shared_ptr<Tensor> output,
+                                  std::shared_ptr<Tensor> input_standardization,
+                                  std::shared_ptr<Tensor> input_std_deviation,
+                                  std::shared_ptr<Tensor> input,
+                                  std::shared_ptr<Tensor> weight,
+                                  std::shared_ptr<Tensor> bias,
+                                  float epsilon
+                                ){
+    size_t key = CacheManager::createDescriptorKey(output, input_standardization, input_std_deviation, input, weight, bias);
+    infiniopLayerNormDescriptor_t desc;
+    if (!cache_manager->getLayerNormDescriptor(key, desc)) {
+        if(bias != nullptr){
+            RUN_INFINI(infiniopCreateLayerNormDescriptor(
+                op_handle, &desc, output->desc(), input_standardization->desc(), input_std_deviation->desc(),
+                input->desc(), weight->desc(), bias->desc(), epsilon));
+        } else {
+            RUN_INFINI(infiniopCreateLayerNormDescriptor(
+                op_handle, &desc, output->desc(), input_standardization->desc(), input_std_deviation->desc(),
+                input->desc(), weight->desc(), nullptr, epsilon));
+        }
+        cache_manager->putLayerNormDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+
+    RUN_INFINI(infiniopGetLayerNormWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+    std::cout << "66" << std::endl;
+    if(bias != nullptr){
+        RUN_INFINI(infiniopLayerNorm(desc, workspace, workspace_size,
+                                            output->data(), input_standardization->data(), input_std_deviation->data(),
+                                            input->data(), weight->data(), bias->data(), stream ));
+    } else {
+        RUN_INFINI(infiniopLayerNorm(desc, workspace, workspace_size,
+                                                    output->data(), input_standardization->data(), input_std_deviation->data(),
+                                                    input->data(), weight->data(), nullptr, stream ));
+    }
+}
+
 void InferenceContext::gemm(std::shared_ptr<Tensor> c,
                             std::shared_ptr<Tensor> a,
                             std::shared_ptr<Tensor> b,
