@@ -20,14 +20,14 @@ from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
-from infinilm.cache.cache import PagedKVCacheConfig
+from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
 import infinicore
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STREAM_TIMEOUT = 100.0
-DEFAULT_REQUEST_TIMEOUT = 1000.0
+DEFAULT_STREAM_TIMEOUT = 10.0
+DEFAULT_REQUEST_TIMEOUT = 100.0
 
 
 def chunk_json(id_, content=None, role=None, finish_reason=None):
@@ -70,6 +70,7 @@ class InferenceServer:
         temperature=1.0,
         top_p=0.8,
         top_k=1,
+        cache_type: str = "paged",
     ):
         self.model_path = model_path
         self.device = device
@@ -84,6 +85,8 @@ class InferenceServer:
         self.temperature = temperature
         self.top_k = top_k
         self.top_p = top_p
+        self.cache_type = cache_type
+        self.current_static_cache_batch_size = None  # Track current batch size for static cache
 
         self.running = False
         self.step_thread = None
@@ -129,9 +132,22 @@ class InferenceServer:
                         ]
                     )
 
-            cache_config = PagedKVCacheConfig(
-                num_blocks=self.num_blocks, block_size=self.block_size
-            )
+            # Create cache config based on cache_type
+            if self.cache_type == "paged":
+                cache_config = PagedKVCacheConfig(
+                    num_blocks=self.num_blocks, block_size=self.block_size
+                )
+            elif self.cache_type == "static":
+                # For static cache, initialize with batch_size=1
+                # The cache will be reset dynamically if batch size changes
+                # max_cache_len should accommodate max_tokens
+                max_cache_len = self.max_tokens
+                cache_config = StaticKVCacheConfig(
+                    max_batch_size=1, max_cache_len=max_cache_len
+                )
+            else:
+                raise ValueError(f"Unknown cache_type: {self.cache_type}. Must be 'paged' or 'static'")
+
             self.engine.reset_cache(cache_config)
 
             self.scheduler = Scheduler(
@@ -238,6 +254,7 @@ class InferenceServer:
                     req.finish_reason = "client_disconnected"
                     break
 
+                # Check if request is finished and queue is empty
                 if req.finish_reason is not None and req.output_queue.async_q.empty():
                     chunk = json.dumps(
                         chunk_json(id_, finish_reason=req.finish_reason),
@@ -246,31 +263,61 @@ class InferenceServer:
                     yield f"data: {chunk}\n\n"
                     break
 
+                # Get token from queue
+                # Use shorter timeout if request is already finished (to drain remaining tokens quickly)
+                timeout = 0.1 if req.finish_reason is not None else DEFAULT_STREAM_TIMEOUT
                 try:
-                    # token_output = await req.output_queue.async_q.get()
                     token_output = await asyncio.wait_for(
-                        req.output_queue.async_q.get(), timeout=DEFAULT_STREAM_TIMEOUT
+                        req.output_queue.async_q.get(), timeout=timeout
                     )
                 except asyncio.TimeoutError:
+                    # If request is finished and we're timing out, no more tokens - send final chunk and break
+                    if req.finish_reason is not None:
+                        chunk = json.dumps(
+                            chunk_json(id_, finish_reason=req.finish_reason),
+                            ensure_ascii=False,
+                        )
+                        yield f"data: {chunk}\n\n"
+                        break
+                    # Request not finished, continue waiting
                     continue
                 except asyncio.CancelledError:
                     logger.info(f"Request {id_} was cancelled")
                     break
                 except Exception as e:
                     logger.error(f"Error getting token for {id_}: {e}")
+                    # If request is finished, send final chunk and break
+                    if req.finish_reason is not None:
+                        chunk = json.dumps(
+                            chunk_json(id_, finish_reason=req.finish_reason),
+                            ensure_ascii=False,
+                        )
+                        yield f"data: {chunk}\n\n"
+                        break
                     await asyncio.sleep(0.01)
                     continue
 
                 if isinstance(token_output, RequestOutput):
                     content = token_output.token_text
+                    finish_reason = token_output.finish_reason
                     chunk = json.dumps(
-                        chunk_json(id_, content=content), ensure_ascii=False
+                        chunk_json(id_, content=content, finish_reason=finish_reason),
+                        ensure_ascii=False,
                     )
                     yield f"data: {chunk}\n\n"
+
+                    # Mark task as done to allow queue.join() to complete
+                    req.output_queue.async_q.task_done()
+
+                    # If this token has a finish_reason, the request is done
+                    if finish_reason is not None:
+                        break
                 else:
                     logger.warning(
                         f"Unexpected token output type: {type(token_output)}"
                     )
+                    # Mark task as done even for unexpected types
+                    req.output_queue.async_q.task_done()
 
         except Exception as e:
             logger.error(f"Stream error for {id_}: {e}", exc_info=True)
@@ -287,7 +334,19 @@ class InferenceServer:
             if req and req.finish_reason is None:
                 req.status = RequestStatus.Canceled
                 req.finish_reason = "cancel"
-            await req.close()
+
+            # Drain remaining tokens from queue and mark them as done to avoid hanging on join()
+            if req:
+                while not req.output_queue.async_q.empty():
+                    try:
+                        # Get and mark as done immediately (don't process, just drain)
+                        req.output_queue.async_q.get_nowait()
+                        req.output_queue.async_q.task_done()
+                    except Exception:
+                        # Queue might be closed or empty, break
+                        break
+
+            await req.close() if req else None
 
             yield "data: [DONE]\n\n"
 
@@ -343,6 +402,8 @@ class InferenceServer:
                     )
                     if isinstance(token_output, RequestOutput):
                         output.append(token_output.token_text)
+                        # Mark task as done to allow queue.join() to complete
+                        req.output_queue.async_q.task_done()
                 except asyncio.TimeoutError:
                     continue
                 except asyncio.CancelledError:
@@ -372,7 +433,19 @@ class InferenceServer:
             if req and req.finish_reason is None:
                 req.status = RequestStatus.Canceled
                 req.finish_reason = "cancel"
-            await req.close()
+
+            # Drain remaining tokens from queue and mark them as done to avoid hanging on join()
+            if req:
+                while not req.output_queue.async_q.empty():
+                    try:
+                        # Get and mark as done immediately (don't process, just drain)
+                        req.output_queue.async_q.get_nowait()
+                        req.output_queue.async_q.task_done()
+                    except Exception:
+                        # Queue might be closed or empty, break
+                        break
+
+            await req.close() if req else None
 
     def stop(self):
         """Stop server loop and cleanup resources."""
@@ -534,6 +607,13 @@ def parse_args():
         "--block_size", type=int, default=16, help="Block size for KV cache"
     )
     parser.add_argument(
+        "--cache_type",
+        type=str,
+        default="paged",
+        choices=["paged", "static"],
+        help="KV cache type: 'paged' (default, requires device support) or 'static' (fallback for unsupported devices)",
+    )
+    parser.add_argument(
         "--dtype",
         type=str,
         default="float16",
@@ -576,6 +656,7 @@ def main():
     backend = args.backend
     num_blocks = args.num_blocks
     block_size = args.block_size
+    cache_type = args.cache_type
     device_str = "cpu"
     temperature = args.temperature
     top_p = args.top_p
@@ -626,6 +707,7 @@ def main():
         temperature,
         top_p,
         top_k,
+        cache_type,
     )
     server.start()
 
