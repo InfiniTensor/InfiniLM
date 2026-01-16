@@ -152,10 +152,30 @@ inline std::shared_ptr<Tensor> getSinTable(JiugeMeta const *meta) {
     auto unit = dsize(meta->dt_logits);
     void *table = std::malloc(meta->dctx * half_dh * unit);
 
+    bool is_longrope = (meta->rope_type == 1) && (meta->short_factor != nullptr) && (meta->long_factor != nullptr);
+    const float *factors = nullptr;
+    if (is_longrope) {
+        // Use long_factor if max context exceeds original_max_position_embeddings, otherwise short_factor
+        // Since we generate a single table at model creation time, choose based on dctx
+        if (meta->original_max_position_embeddings > 0 && meta->dctx > meta->original_max_position_embeddings) {
+            factors = meta->long_factor;
+        } else {
+            factors = meta->short_factor;
+        }
+    }
+
     for (size_t i = 0; i < meta->dctx; i++) {
         for (size_t j = 0; j < half_dh; j++) {
-            float _sin = std::sin(
-                static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
+            float angle;
+            if (is_longrope && factors != nullptr) {
+                // Longrope: apply per-frequency scaling factor
+                float inv_freq = 1.0f / (factors[j] * std::pow(meta->theta, static_cast<float>(j) / half_dh));
+                angle = static_cast<float>(i) * inv_freq;
+            } else {
+                // Standard RoPE
+                angle = static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh);
+            }
+            float _sin = std::sin(angle);
             if (meta->dt_logits == INFINI_DTYPE_F16) {
                 ((uint16_t *)table)[i * half_dh + j] = f32_to_f16(_sin);
             } else if (meta->dt_logits == INFINI_DTYPE_BF16) {
@@ -179,10 +199,30 @@ inline std::shared_ptr<Tensor> getCosTable(JiugeMeta const *meta) {
     auto unit = dsize(meta->dt_logits);
     void *table = std::malloc(meta->dctx * half_dh * unit);
 
+    bool is_longrope = (meta->rope_type == 1) && (meta->short_factor != nullptr) && (meta->long_factor != nullptr);
+    const float *factors = nullptr;
+    if (is_longrope) {
+        // Use long_factor if max context exceeds original_max_position_embeddings, otherwise short_factor
+        // Since we generate a single table at model creation time, choose based on dctx
+        if (meta->original_max_position_embeddings > 0 && meta->dctx > meta->original_max_position_embeddings) {
+            factors = meta->long_factor;
+        } else {
+            factors = meta->short_factor;
+        }
+    }
+
     for (size_t i = 0; i < meta->dctx; i++) {
         for (size_t j = 0; j < half_dh; j++) {
-            float _cos = std::cos(
-                static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh));
+            float angle;
+            if (is_longrope && factors != nullptr) {
+                // Longrope: apply per-frequency scaling factor
+                float inv_freq = 1.0f / (factors[j] * std::pow(meta->theta, static_cast<float>(j) / half_dh));
+                angle = static_cast<float>(i) * inv_freq;
+            } else {
+                // Standard RoPE
+                angle = static_cast<float>(i) / std::pow(meta->theta, static_cast<float>(j) / half_dh);
+            }
+            float _cos = std::cos(angle);
             if (meta->dt_logits == INFINI_DTYPE_F16) {
                 ((uint16_t *)table)[i * half_dh + j] = f32_to_f16(_cos);
             } else if (meta->dt_logits == INFINI_DTYPE_BF16) {

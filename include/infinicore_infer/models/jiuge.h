@@ -12,9 +12,14 @@ struct JiugeModel;
 typedef struct
 {
     infiniDtype_t dt_logits;
-    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc, kvcache_block_size;
+    size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc, kvcache_block_size, dim_model_base;
     float epsilon, theta;
     uint32_t end_token;
+    // Longrope support
+    uint32_t rope_type;  // 0 = standard, 1 = longrope
+    size_t original_max_position_embeddings;
+    const float *short_factor;  // Array of dh/2 floats, nullptr if not longrope
+    const float *long_factor;   // Array of dh/2 floats, nullptr if not longrope
 } JiugeMeta;
 
 typedef struct
@@ -101,8 +106,9 @@ __C __export struct KVCache *createPagedKVCache(
 /// @param temperature 采样温度（0. 表示贪心采样）
 /// @param topk 采样 topk（1 表示贪心采样）
 /// @param topp 采样 topp
-/// @param is_prefill 是否按 prefill 流程处理，0 表示 decode，1 表示 prefill
-/// @param enable_paged_attn 是否启用 paged attention
+/// @param repetition_penalty 重复惩罚系数（1.0 表示无惩罚）
+/// @param previous_tokens_per_req 每个请求的唯一 token ID 数组指针（vLLM-style，用于高效重复惩罚）
+/// @param previous_tokens_len_per_req 每个请求的唯一 token 数量
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 inferBatchJiuge(struct JiugeModel *,
@@ -110,6 +116,9 @@ inferBatchJiuge(struct JiugeModel *,
                 const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                 struct KVCache **kv_caches,
                 const float *temperature, const uint32_t *topk, const float *topp,
+                const float *repetition_penalty,
+                const uint32_t *const *previous_tokens_per_req,
+                const uint32_t *previous_tokens_len_per_req,
                 uint32_t *output);
 
 __C __export void
@@ -120,6 +129,9 @@ inferBatch(struct JiugeModel *,
            const int32_t *block_tables,
            const int32_t *slot_mapping,
            const float *temperature, const uint32_t *topk, const float *topp,
+           const float *repetition_penalty,
+           const uint32_t *const *previous_tokens_per_req,
+           const uint32_t *previous_tokens_len_per_req,
            const uint32_t is_prefill, const bool enable_paged_attn,
            uint32_t *output);
 

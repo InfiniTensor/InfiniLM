@@ -20,6 +20,7 @@ from libinfinicore_infer import (
 from infer_task import InferTask, KVCache
 
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import ctypes
 
 torch.set_default_device("cpu")
 
@@ -113,6 +114,46 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 config["num_hidden_layers"]
             )
 
+        dim_model_base = (
+            config["dim_model_base"] if "dim_model_base" in config else config["hidden_size"]
+        )
+
+        # Load longrope configuration
+        rope_type = 0  # 0 = standard, 1 = longrope
+        original_max_position_embeddings = 0
+        short_factor_ptr = None
+        long_factor_ptr = None
+        self._short_factor_array = None  # Keep reference to prevent GC
+        self._long_factor_array = None   # Keep reference to prevent GC
+
+        rope_scaling = config.get("rope_scaling", {})
+        if isinstance(rope_scaling, dict):
+            rope_scaling_type = rope_scaling.get("rope_type") or rope_scaling.get("type", "")
+            if rope_scaling_type == "longrope":
+                rope_type = 1
+                original_max_position_embeddings = rope_scaling.get(
+                    "original_max_position_embeddings",
+                    config.get("original_max_position_embeddings", 0)
+                )
+
+                short_factor_list = rope_scaling.get("short_factor", [])
+                long_factor_list = rope_scaling.get("long_factor", [])
+
+                if short_factor_list and long_factor_list:
+                    # Convert to ctypes arrays
+                    dh = config["head_dim"] if "head_dim" in config else config["hidden_size"] // config["num_attention_heads"]
+                    half_dh = dh // 2
+                    if len(short_factor_list) == half_dh and len(long_factor_list) == half_dh:
+                        self._short_factor_array = (c_float * half_dh)(*short_factor_list)
+                        self._long_factor_array = (c_float * half_dh)(*long_factor_list)
+                        short_factor_ptr = ctypes.cast(self._short_factor_array, POINTER(c_float))
+                        long_factor_ptr = ctypes.cast(self._long_factor_array, POINTER(c_float))
+                    else:
+                        print(
+                            f"Warning: Longrope factor arrays have wrong length: "
+                            f"short={len(short_factor_list)}, long={len(long_factor_list)}, expected={half_dh}"
+                        )
+
         super().__init__(
             dt_logits=dt_,
             nlayer=config["num_hidden_layers"],
@@ -129,10 +170,15 @@ class JiugeMetaFromLlama(JiugeMetaCStruct):
                 config["max_position_embeddings"] if max_tokens is None else max_tokens
             ),
             dvoc=config["vocab_size"],
-            kvcache_block_size=0,
+            kvcache_block_size=config.get("block_size", 0),
+            dim_model_base=dim_model_base,
             epsilon=config["rms_norm_eps"],
             theta=(config["rope_theta"] if "rope_theta" in config else 100000.0),
             end_token=2,
+            rope_type=rope_type,
+            original_max_position_embeddings=original_max_position_embeddings,
+            short_factor=short_factor_ptr,
+            long_factor=long_factor_ptr,
         )
         self.torch_dtype_logits = dtype
 
@@ -197,7 +243,7 @@ class JiugeWeightsImpl(JiugeWeightsCStruct):
         )
         self.input_embd = self.input_embd_tensor.data_ptr()
         self.output_norm_tensor = (
-            state_dict[naming.output_norm()].to(torch_dt_norm) * scale_output
+            state_dict[naming.output_norm()].to(torch_dt_norm)
         )
         self.output_norm = self.output_norm_tensor.data_ptr()
         self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_mat)
@@ -395,10 +441,54 @@ class JiugeBatchedTask:
         self.temperaturas_list = [t.temperature for t in tasks]
         self.topks_list = [t.topk for t in tasks]
         self.topps_list = [t.topp for t in tasks]
+        self.repetition_penalties_list = [t.repetition_penalty for t in tasks]
 
         # Flatten token lists
         flat_tokens = [tok for toks in token_lists for tok in toks]
         self.ntok = len(flat_tokens)
+
+        # Collect unique tokens per request (vLLM-style for efficient repetition penalty)
+        # Each request has its own list of unique token IDs
+        self.unique_tokens_arrays = []  # List of arrays, one per request
+        self.unique_tokens_lens = []    # List of lengths, one per request
+        self.unique_tokens_flat = []    # Flattened array for C API
+        self.unique_tokens_offsets = [0]  # Offsets into flat array
+
+        total_unique_tokens = 0
+        for task in tasks:
+            tokens_array, tokens_len = task.get_unique_previous_tokens()
+            self.unique_tokens_arrays.append(tokens_array)
+            self.unique_tokens_lens.append(tokens_len)
+            self.unique_tokens_flat.extend(tokens_array)
+            total_unique_tokens += tokens_len
+            self.unique_tokens_offsets.append(total_unique_tokens)
+
+        # Convert to C-compatible arrays
+        if total_unique_tokens > 0:
+            self.unique_tokens_c = (c_uint * total_unique_tokens)(*self.unique_tokens_flat)
+            # Create array of pointers, one per request
+            self.unique_tokens_ptrs = []
+            for req_idx in range(self.nreq):
+                offset = self.unique_tokens_offsets[req_idx]
+                length = self.unique_tokens_lens[req_idx]
+                if length > 0:
+                    # Create pointer to the start of this request's tokens in the flat array
+                    ptr = ctypes.cast(
+                        ctypes.addressof(self.unique_tokens_c) + offset * ctypes.sizeof(c_uint),
+                        POINTER(c_uint)
+                    )
+                else:
+                    ptr = None
+                self.unique_tokens_ptrs.append(ptr)
+            # Create array of pointers (use None for empty requests)
+            self.unique_tokens_ptrs_array = (POINTER(c_uint) * self.nreq)(*self.unique_tokens_ptrs)
+        else:
+            self.unique_tokens_c = None
+            # All requests have no previous tokens
+            self.unique_tokens_ptrs_array = (POINTER(c_uint) * self.nreq)(*[None] * self.nreq)
+
+        # Array of lengths per request
+        self.unique_tokens_lens_array = (c_uint * self.nreq)(*self.unique_tokens_lens)
 
         # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * self.ntok)(*flat_tokens)
@@ -408,6 +498,7 @@ class JiugeBatchedTask:
         self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
         self.topks = (c_uint * self.nreq)(*self.topks_list)
         self.topps = (c_float * self.nreq)(*self.topps_list)
+        self.repetition_penalties = (c_float * self.nreq)(*self.repetition_penalties_list)
 
     def input_args(self):
         return (
@@ -420,6 +511,9 @@ class JiugeBatchedTask:
             self.temperaturas,
             self.topks,
             self.topps,
+            self.repetition_penalties,
+            self.unique_tokens_ptrs_array,  # Array of pointers to unique tokens per request
+            self.unique_tokens_lens_array,  # Array of lengths per request
         )
 
 
@@ -534,7 +628,7 @@ class JiugeForCauslLM:
         else:
             raise ValueError("Unsupported model architecture")
 
-        
+
         if "llama" == config["model_type"]:
             from tokenizers import decoders as _dec
             backend = getattr(self.tokenizer, "backend_tokenizer", None)
@@ -593,9 +687,21 @@ class JiugeForCauslLM:
     def batch_infer_one_round(self, tasks: List[InferTask]):
         output = (c_uint * len(tasks))()
         batch_inputs = JiugeBatchedTask(tasks)
+        args = batch_inputs.input_args()
         self.jiuge_model.infer_batch(
             self.model_instance,
-            *(batch_inputs.input_args()),
+            args[0],   # tokens
+            args[1],   # ntok
+            args[2],   # req_lens
+            args[3],   # nreq
+            args[4],   # req_pos
+            args[5],   # kv_caches
+            args[6],   # temperature
+            args[7],   # topk
+            args[8],   # topp
+            args[9],   # repetition_penalty
+            args[10],  # previous_tokens_per_req
+            args[11],  # previous_tokens_len_per_req
             output,
         )
         return list(output)
@@ -616,6 +722,7 @@ class JiugeForCauslLM:
             topk_,
             topp_,
             self.eos_token_id,
+            1.0,  # repetition_penalty default
         )
         infer_task.bind_kvcache(KVCache(self))
 
@@ -648,7 +755,7 @@ class JiugeForCauslLM:
 
     def perplexity(self, test_sequences: List[Sequence[int]], batch_size=10):
         tasks = [
-            InferTask(i, [], self.max_context_len(), 1.0, 1, 1.0, self.eos_token_id)
+            InferTask(i, [], self.max_context_len(), 1.0, 1, 1.0, self.eos_token_id, 1.0)
             for i in range(batch_size)
         ]
         kv_caches = [KVCache(self) for _ in range(batch_size)]

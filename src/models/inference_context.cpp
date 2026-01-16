@@ -272,8 +272,11 @@ void InferenceContext::swiglu(std::shared_ptr<Tensor> out,
 }
 
 void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
-                                    std::shared_ptr<Tensor> prob,
-                                    float random_val, float top_p, uint32_t top_k, float temperature) {
+                      std::shared_ptr<Tensor> prob,
+                      float random_val, float top_p, uint32_t top_k, float temperature,
+                      float repetition_penalty,
+                      const uint32_t *previous_tokens,
+                      size_t previous_tokens_len) {
     size_t key = CacheManager::createDescriptorKey(out, prob);
 
     infiniopRandomSampleDescriptor_t desc;
@@ -288,10 +291,12 @@ void InferenceContext::randomSample(std::shared_ptr<Tensor> out,
     ensure_workspace(workspace_size);
     void *workspace = workspace_storage->memory();
 
+
     RUN_INFINI(infiniopRandomSample(
         desc, workspace, workspace_size,
         out->data(), prob->data(),
-        random_val, top_p, top_k, temperature,
+        random_val, top_p, top_k, temperature, repetition_penalty,
+        previous_tokens, previous_tokens_len,
         stream));
 }
 
@@ -374,7 +379,7 @@ void InferenceContext::pagedCaching(std::shared_ptr<Tensor> k,
     infiniopPagedCachingDescriptor_t desc;
     if (!cache_manager->getPagedCachingDescriptor(key, desc)) {
         RUN_INFINI(infiniopCreatePagedCachingDescriptor(
-            op_handle, &desc, k->desc(), v->desc(), 
+            op_handle, &desc, k->desc(), v->desc(),
             k_cache->desc(), v_cache->desc(), slot_mapping->desc()));
         cache_manager->putPagedCachingDescriptor(key, desc);
     }
@@ -416,7 +421,7 @@ void InferenceContext::pagedAttention(std::shared_ptr<Tensor> out,
     RUN_INFINI(infiniopGetPagedAttentionWorkspaceSize(desc, &workspace_size));
     ensure_workspace(workspace_size);
     void *workspace = workspace_storage->memory();
-    
+
     const void* alibi_data = alibi_slopes ? alibi_slopes->data() : nullptr;
     RUN_INFINI(infiniopPagedAttention(
         desc, workspace, workspace_size,
@@ -424,10 +429,3 @@ void InferenceContext::pagedAttention(std::shared_ptr<Tensor> out,
         block_tables->data(), seq_lens->data(), alibi_data,
         stream));
 }
-
-
-
-
-
-
-

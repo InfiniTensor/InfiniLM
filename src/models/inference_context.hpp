@@ -61,7 +61,10 @@ struct InferenceContext {
                 std::shared_ptr<Tensor> gate);
     void randomSample(std::shared_ptr<Tensor> out,
                       std::shared_ptr<Tensor> prob,
-                      float random_val, float top_p, uint32_t top_k, float temperature);
+                      float random_val, float top_p, uint32_t top_k, float temperature,
+                      float repetition_penalty = 1.0f,
+                      const uint32_t *previous_tokens = nullptr,
+                      size_t previous_tokens_len = 0);
 
     void linear(std::shared_ptr<Tensor> c,
                 std::shared_ptr<Tensor> a,
@@ -79,7 +82,7 @@ struct InferenceContext {
                       std::shared_ptr<Tensor> k_cache,
                       std::shared_ptr<Tensor> v_cache,
                       std::shared_ptr<Tensor> slot_mapping);
-    
+
     void pagedAttention(std::shared_ptr<Tensor> out,
                         std::shared_ptr<Tensor> q,
                         std::shared_ptr<Tensor> k_cache,
@@ -180,8 +183,12 @@ inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
 }
 
 inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> prob,
-                         float random_val, float top_p, uint32_t top_k, float temperature) {
-    getInferenceContext().randomSample(out, prob, random_val, top_p, top_k, temperature);
+                         float random_val, float top_p, uint32_t top_k, float temperature,
+                         float repetition_penalty = 1.0f,
+                         const uint32_t *previous_tokens = nullptr,
+                         size_t previous_tokens_len = 0) {
+    getInferenceContext().randomSample(out, prob, random_val, top_p, top_k, temperature, repetition_penalty,
+                                       previous_tokens, previous_tokens_len);
 }
 
 inline void linear(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
@@ -211,5 +218,3 @@ inline void pagedAttention(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> 
                            std::shared_ptr<Tensor> alibi_slopes, float scale) {
     getInferenceContext().pagedAttention(out, q, k_cache, v_cache, block_tables, seq_lens, alibi_slopes, scale);
 }
-
-
