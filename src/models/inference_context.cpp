@@ -56,6 +56,82 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
         y->data(), x->data(), w->data(), stream));
 }
 
+void InferenceContext::layer_norm(std::shared_ptr<Tensor> y,
+                                  std::shared_ptr<Tensor> x,
+                                  std::shared_ptr<Tensor> w,
+                                  float epsilon) {
+    size_t key = CacheManager::createDescriptorKey(y, x, w);
+
+    infiniopLayerNormDescriptor_t desc;
+    if (!cache_manager->getLayerNormDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateLayerNormDescriptor(
+            op_handle, &desc, y->desc(), x->desc(), w->desc(), epsilon));
+        cache_manager->putLayerNormDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetLayerNormWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopLayerNorm(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), w->data(), stream));
+}
+
+void InferenceContext::gelu(std::shared_ptr<Tensor> y,
+                            std::shared_ptr<Tensor> x) {
+    size_t key = CacheManager::createDescriptorKey(y, x);
+
+    infiniopGELUDescriptor_t desc;
+    if (!cache_manager->getGELUDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateGELUDescriptor(
+            op_handle, &desc, y->desc(), x->desc()));
+        cache_manager->putGELUDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetGELUWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopGELU(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), stream));
+}
+
+void InferenceContext::conv2d(std::shared_ptr<Tensor> y,
+                              std::shared_ptr<Tensor> x,
+                              std::shared_ptr<Tensor> w,
+                              std::shared_ptr<Tensor> bias,
+                              int stride_h, int stride_w,
+                              int padding_h, int padding_w) {
+    size_t key = CacheManager::createDescriptorKey(y, x, w, bias);
+    hash_combine(key, std::hash<int>()(stride_h));
+    hash_combine(key, std::hash<int>()(stride_w));
+    hash_combine(key, std::hash<int>()(padding_h));
+    hash_combine(key, std::hash<int>()(padding_w));
+
+    infiniopConv2dDescriptor_t desc;
+    if (!cache_manager->getConv2dDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateConv2dDescriptor(
+            op_handle, &desc, y->desc(), x->desc(), w->desc(),
+            bias ? bias->desc() : nullptr,
+            stride_h, stride_w, padding_h, padding_w));
+        cache_manager->putConv2dDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetConv2dWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopConv2d(
+        desc, workspace, workspace_size,
+        y->data(), x->data(), w->data(),
+        bias ? bias->data() : nullptr, stream));
+}
+
 void InferenceContext::gemm(std::shared_ptr<Tensor> c,
                             std::shared_ptr<Tensor> a,
                             std::shared_ptr<Tensor> b,
