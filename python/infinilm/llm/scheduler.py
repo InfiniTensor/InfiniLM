@@ -154,6 +154,10 @@ class Scheduler:
                 req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
+            # Skip requests that were already finished (e.g., timed out/canceled while waiting)
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
 
             req_tokens = req.get_input_tokens()
             num_required_blocks = req.get_num_blocks_required(self.block_size)
@@ -185,6 +189,10 @@ class Scheduler:
                 req = self.running_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
+            # Skip requests that were already finished (e.g., timed out/canceled while running)
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
 
             # Decode phase: allocate slot for newly generated token
             try:
