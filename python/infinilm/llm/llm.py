@@ -293,13 +293,9 @@ class LLMEngine:
                             # Remove the stop string from the end
                             req.generated_text = req.generated_text[: -len(stop_str)]
                             break
-
             # Put output in queue if it exists (for async streaming)
             if req._output_queue is not None:
                 output = TokenOutput(
-                    request_id=req.request_id,
-                    token_id=token_id,
-                    token_text=token_text,
                     finished=req.is_finished(),
                     finish_reason=req.finish_reason,
                     generated_text=req.generated_text,

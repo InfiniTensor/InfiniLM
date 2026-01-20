@@ -23,9 +23,7 @@ DEFAULT_STREAM_TIMEOUT = 100.0
 DEFAULT_REQUEST_TIMEOUT = 1000.0
 
 
-def chunk_json(
-    id_, content=None, role=None, finish_reason=None, model: str = "unknown"
-):
+def chunk_json(id_, content=None, role=None, finish_reason=None, model: str = "unknown"):
     """Generate JSON chunk for streaming response."""
     delta = {}
     if content:

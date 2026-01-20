@@ -154,6 +154,10 @@ class Scheduler:
                 req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
+            # Skip requests that were already finished (e.g., timed out/canceled while waiting)
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
 
             if not self.can_accept_request(req):
                 self.waiting_queue.sync_q.put(req)
