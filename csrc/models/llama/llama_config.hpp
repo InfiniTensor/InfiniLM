@@ -70,7 +70,7 @@ struct LlamaConfig : public InfinilmModel::Config {
 
     // Quant Config
     // std::optional<infinicore::nn::QuantConfig> quant_config = std::nullopt;
-    std::optional<infinicore::nn::QuantConfig> quant_config = infinicore::nn::QuantConfig(infinicore::nn::QuantType::COMPRESSED_TENSOR);
+    std::optional<infinicore::nn::QuantConfig> quant_config = infinicore::nn::QuantConfig(infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8);
 
     /**
      * @brief Compute key-value dimension for Grouped Query Attention (GQA)

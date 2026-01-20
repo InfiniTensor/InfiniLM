@@ -23,8 +23,8 @@ LlamaMLP::LlamaMLP(const LlamaConfig &config,
         INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
     } else {
-        switch (config.quant_config.value().get_quant_type()) {
-        case infinicore::nn::QuantType::COMPRESSED_TENSOR: {
+        switch (config.quant_config.value().get_quant_scheme()) {
+        case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8: {
             INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
                                               dtype, device, rank_info_, config.quant_config.value());
             INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,

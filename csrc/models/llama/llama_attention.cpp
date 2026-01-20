@@ -20,7 +20,8 @@ namespace infinilm::models::llama {
 LlamaAttention::LlamaAttention(const LlamaConfig &config,
                                const infinicore::Device &device,
                                size_t layer_idx,
-                               engine::distributed::RankInfo rank_info)
+                               engine::distributed::RankInfo rank_info,
+                               const infinilm::config::global_config::GlobalConfig &global_config)
     : layer_idx_(layer_idx),
       hidden_size_(config.hidden_size),
       num_attention_heads_(config.num_attention_heads),
@@ -48,16 +49,16 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
     // Initialize projection layers
+    // if (global_config.get_global_config_json().is_null()) {
     if (!config.quant_config.has_value()) {
         INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
                                  dtype, device, rank_info);
         // Output projection uses attention_output_bias (can be different from qkv)
         INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
-
     } else {
-        switch (config.quant_config.value().get_quant_type()) {
-        case infinicore::nn::QuantType::COMPRESSED_TENSOR: {
+        switch (config.quant_config.value().get_quant_scheme()) {
+        case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8: {
             INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
                                           dtype, device, rank_info, config.quant_config.value());
 
