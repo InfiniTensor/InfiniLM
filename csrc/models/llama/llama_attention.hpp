@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../cache/kv_cache.hpp"
+#include "../../config/global_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
 #include "../../layers/fused_linear.hpp"
 #include "llama_config.hpp"
@@ -39,7 +40,8 @@ public:
     LlamaAttention(const LlamaConfig &config,
                    const infinicore::Device &device,
                    size_t layer_idx,
-                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                   const infinilm::config::global_config::GlobalConfig &global_config = infinilm::config::global_config::GlobalConfig());
 
     /**
      * @brief Forward pass: compute attention

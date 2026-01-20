@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../config/global_config.hpp"
 #include "infinilm_model.hpp"
 
 #include "../engine/distributed/distributed.hpp"
@@ -10,6 +11,7 @@ public:
     static std::shared_ptr<InfinilmModel> createModel(
         const InfinilmModel::Config &config,
         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-        const cache::CacheConfig *cache = nullptr);
+        const cache::CacheConfig *cache = nullptr,
+        const config::global_config::GlobalConfig &global_config = config::global_config::GlobalConfig());
 };
 } // namespace infinilm
