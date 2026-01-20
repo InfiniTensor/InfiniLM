@@ -10,6 +10,7 @@ import uuid
 import argparse
 import uvicorn
 import logging
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -22,7 +23,7 @@ DEFAULT_STREAM_TIMEOUT = 100.0
 DEFAULT_REQUEST_TIMEOUT = 1000.0
 
 
-def chunk_json(id_, content=None, role=None, finish_reason=None):
+def chunk_json(id_, content=None, role=None, finish_reason=None, model: str = "unknown"):
     """Generate JSON chunk for streaming response."""
     delta = {}
     if content:
@@ -33,7 +34,7 @@ def chunk_json(id_, content=None, role=None, finish_reason=None):
         "id": id_,
         "object": "chat.completion.chunk",
         "created": int(time.time()),
-        "model": "jiuge",
+        "model": model,
         "system_fingerprint": None,
         "choices": [
             {
@@ -84,6 +85,8 @@ class InferenceServer:
             port: Server port number.
         """
         self.model_path = model_path
+        # vLLM-like served model id: directory name of model_path
+        self.model_id = os.path.basename(os.path.normpath(model_path)) or "model"
         self.device = device
         self.dtype = dtype
         self.tensor_parallel_size = tensor_parallel_size
@@ -136,7 +139,10 @@ class InferenceServer:
     def _register_routes(self, app: FastAPI):
         """Register API routes."""
 
+        # OpenAI-compatible chat completions endpoint.
+        # Support both legacy path and OpenAI-style /v1 prefix for proxy/router compatibility.
         @app.post("/chat/completions")
+        @app.post("/v1/chat/completions")
         async def chat_completions(request: Request):
             try:
                 data = await request.json()
@@ -169,15 +175,21 @@ class InferenceServer:
 
         @app.get("/health")
         async def health():
+            # Expose engine health so babysitter/registry can treat backend as unhealthy.
+            if (
+                self.engine is not None
+                and hasattr(self.engine, "is_healthy")
+                and not self.engine.is_healthy()
+            ):
+                return JSONResponse(content={"status": "unhealthy"}, status_code=503)
             return {"status": "healthy"}
 
-        @app.get("/v1/models")
-        async def list_models():
+        def _models_payload():
             return {
                 "object": "list",
                 "data": [
                     {
-                        "id": "jiuge",
+                        "id": self.model_id,
                         "object": "model",
                         "created": int(time.time()),
                         "owned_by": "infinilm",
@@ -185,14 +197,53 @@ class InferenceServer:
                 ],
             }
 
+        # Support both /v1/models (OpenAI) and /models (common legacy) for compatibility.
+        @app.get("/v1/models")
+        async def list_models():
+            return _models_payload()
+
+        @app.get("/models")
+        async def list_models_legacy():
+            return _models_payload()
+
     def _build_sampling_params(self, data: dict) -> SamplingParams:
         """Build SamplingParams from request data."""
+        # Support both:
+        # - top-level OpenAI-ish fields: temperature/top_p/top_k/max_tokens/stop
+        # - nested dict: sampling_params: { ... }
+        sp = data.get("sampling_params") or {}
+        if not isinstance(sp, dict):
+            sp = {}
+
+        def pick(key: str, default):
+            # Priority: explicit top-level field > nested sampling_params > server default
+            if key in data and data.get(key) is not None:
+                return data.get(key)
+            if key in sp and sp.get(key) is not None:
+                return sp.get(key)
+            return default
+
+        # Accept common alias
+        max_tokens = pick("max_tokens", self.max_tokens)
+        if max_tokens is None:
+            # Some clients use max_new_tokens
+            max_tokens = pick("max_new_tokens", self.max_tokens)
+
+        stop = pick("stop", None)
+        if isinstance(stop, str):
+            stop = [stop]
+
+        stop_token_ids = pick("stop_token_ids", None)
+        if isinstance(stop_token_ids, int):
+            stop_token_ids = [stop_token_ids]
+
         return SamplingParams(
-            temperature=data.get("temperature", self.temperature),
-            top_p=data.get("top_p", self.top_p),
-            top_k=data.get("top_k", self.top_k),
-            max_tokens=data.get("max_tokens", self.max_tokens),
-            stop=data.get("stop"),
+            temperature=float(pick("temperature", self.temperature)),
+            top_p=float(pick("top_p", self.top_p)),
+            top_k=int(pick("top_k", self.top_k)),
+            max_tokens=int(max_tokens) if max_tokens is not None else None,
+            stop=stop,
+            stop_token_ids=stop_token_ids,
         )
 
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
@@ -210,22 +261,26 @@ class InferenceServer:
                 request_id=request_id,
                 request_data=data,
                 http_request=http_request,
+                add_generation_prompt=bool(data.get("add_generation_prompt", True)),
+                chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
 
             async for token_output in self.engine.stream_request(
-                req, timeout=DEFAULT_STREAM_TIMEOUT
+                req,
+                timeout=DEFAULT_STREAM_TIMEOUT,
+                request_timeout=DEFAULT_REQUEST_TIMEOUT,
             ):
-                # Check timeout
-                if time.time() - start_time > DEFAULT_REQUEST_TIMEOUT:
+                # If stream_request enforces timeout, we can just surface the state to the client.
+                if token_output.finish_reason == FinishReason.TIMEOUT:
                     logger.warning(
                         f"Request {request_id} timed out after {DEFAULT_REQUEST_TIMEOUT}s"
                     )
-                    req.mark_timeout()
                     error_chunk = json.dumps(
                         chunk_json(
                             request_id,
                             content="[Request timeout]",
                             finish_reason="timeout",
+                            model=self.model_id,
                         ),
                         ensure_ascii=False,
                     )
@@ -240,7 +295,9 @@ class InferenceServer:
 
                 # Send token
                 chunk = json.dumps(
-                    chunk_json(request_id, content=token_output.token_text),
+                    chunk_json(
+                        request_id, content=token_output.token_text, model=self.model_id
+                    ),
                     ensure_ascii=False,
                 )
                 yield f"data: {chunk}\n\n"
@@ -250,7 +307,9 @@ class InferenceServer:
                         token_output.finish_reason
                     )
                     chunk = json.dumps(
-                        chunk_json(request_id, finish_reason=finish_reason),
+                        chunk_json(
+                            request_id, finish_reason=finish_reason, model=self.model_id
+                        ),
                         ensure_ascii=False,
                     )
                     yield f"data: {chunk}\n\n"
@@ -262,7 +321,10 @@ class InferenceServer:
                 req.mark_failed()
             error_chunk = json.dumps(
                 chunk_json(
-                    request_id, content=f"[Error: {str(e)}]", finish_reason="error"
+                    request_id,
+                    content=f"[Error: {str(e)}]",
+                    finish_reason="error",
+                    model=self.model_id,
                 ),
                 ensure_ascii=False,
             )
@@ -290,17 +352,20 @@ class InferenceServer:
                 request_id=request_id,
                 request_data=data,
                 http_request=http_request,
+                add_generation_prompt=bool(data.get("add_generation_prompt", True)),
+                chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
 
             # Collect all generated tokens
             output_text = ""
             async for token_output in self.engine.stream_request(
-                req, timeout=DEFAULT_STREAM_TIMEOUT
+                req,
+                timeout=DEFAULT_STREAM_TIMEOUT,
+                request_timeout=DEFAULT_REQUEST_TIMEOUT,
             ):
-                # Check timeout
-                if time.time() - start_time > DEFAULT_REQUEST_TIMEOUT:
+                # Request-level timeout is handled inside stream_request.
+                if token_output.finish_reason == FinishReason.TIMEOUT:
                     logger.warning(f"Request {request_id} timed out")
-                    req.mark_timeout()
                     break
 
                 # Check client disconnect
@@ -322,6 +387,7 @@ class InferenceServer:
                 content=output_text,
                 role="assistant",
                 finish_reason=finish_reason or "stop",
+                model=self.model_id,
             )
             return response
 
