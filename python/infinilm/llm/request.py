@@ -144,6 +144,10 @@ class InferenceRequest:
         # Output management (for async streaming)
         self._output_queue: Optional[janus.Queue] = None
 
+        # Streaming helpers (vLLM-style UTF-8 buffering at the chunking layer)
+        # Used by the engine to compute "delta" text chunks from a full decode.
+        self._stream_last_yielded_length: int = 0
+
     @property
     def output_queue(self) -> janus.Queue:
         """Lazy initialization of output queue."""
