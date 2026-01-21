@@ -56,7 +56,7 @@ def get_args():
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=1000,
+        default=100,
         help="max_new_tokens",
     )
     parser.add_argument(
@@ -95,7 +95,7 @@ def get_args():
 def test(
     prompts: str | list[str],
     model_path,
-    max_new_tokens=5000,
+    max_new_tokens=100,
     infini_device=infinicore.device("cpu", 0),
     tp=1,
     enable_paged_attn=False,

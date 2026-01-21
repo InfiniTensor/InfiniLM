@@ -1,13 +1,12 @@
 #pragma once
-
-#include "../quantization/compressed_tensors.hpp"
 #include "../quantization/quantization.hpp"
 #include "nlohmann/json.hpp"
-#include <iostream>
 
 namespace infinilm::config::quantization {
 
 class QuantConfig {
+    // QuantConfig is used to store and parse the "quantization" field from config.json.
+    // This is currently a basic version and will be extended in the future.
 public:
     QuantConfig() = default;
     QuantConfig(const nlohmann::json &json);

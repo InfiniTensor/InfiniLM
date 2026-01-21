@@ -75,7 +75,6 @@ def load_state_dict(
             )
 
         for k in f.keys():
-            # state_dict[k] = f.get_tensor(k).to(device=device, dtype=dtype)
             state_dict[k] = f.get_tensor(k).to(device=device)
 
     return state_dict
@@ -148,7 +147,6 @@ def load_model_state_dict_by_file(
             model_param = load_state_dict(
                 file_path, device=torch_device, dtype=torch_dtype
             )
-            
             already_loaded_keys.extend(model_param.keys())
 
             # --------------------------------------------------------- #

@@ -19,7 +19,8 @@ InferEngine::InferEngine(
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
-    // if (!model_path.empty()) {
+
+    // Load global config if model_path is provided, model_path must be valid, and config.json exists
     this->global_config_ = std::make_shared<infinilm::config::global_config::GlobalConfig>(model_path + "/config.json");
 
     // Create one RankWorker per rank
