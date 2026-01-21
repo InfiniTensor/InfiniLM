@@ -54,7 +54,7 @@ protected:
     distributed::CommunicationGroup communication_group_;
     const InfinilmModel::Config &model_config_;
     std::unique_ptr<cache::CacheConfig> cache_config_;
-    infinilm::config::global_config::GlobalConfig global_config_;
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 };
 
 } // namespace infinilm::engine

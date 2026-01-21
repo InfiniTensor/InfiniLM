@@ -30,7 +30,8 @@ public:
      */
     LlamaForCausalLM(const LlamaConfig &config,
                      const infinicore::Device &device,
-                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                     std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
 
     /**
      * @brief Forward pass: compute language modeling logits

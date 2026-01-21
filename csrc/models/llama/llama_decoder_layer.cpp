@@ -9,7 +9,8 @@ namespace infinilm::models::llama {
 LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
                                      const infinicore::Device &device,
                                      size_t layer_idx,
-                                     engine::distributed::RankInfo rank_info) : layer_idx_(layer_idx), rank_info_(rank_info) {
+                                     engine::distributed::RankInfo rank_info,
+                                     std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config) : layer_idx_(layer_idx), rank_info_(rank_info), global_config_(global_config) {
     const auto &dtype{config.dtype};
 
     // Initialize layer normalization layers
@@ -19,8 +20,8 @@ LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, rank_info_);
-    INFINICORE_NN_MODULE_INIT(mlp, config, device, rank_info_);
+    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, rank_info_, global_config);
+    INFINICORE_NN_MODULE_INIT(mlp, config, device, rank_info_, global_config);
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor>

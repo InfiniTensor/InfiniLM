@@ -60,7 +60,7 @@ public:
     RankWorker(const InfinilmModel::Config &model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,
-               const infinilm::config::global_config::GlobalConfig &global_config,
+               std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
                RankBarrier *barrier,
                bool enable_graph_compiling);
 
@@ -100,7 +100,7 @@ private:
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
-    const infinilm::config::global_config::GlobalConfig &global_config_;
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 
     // Graph Compiling
     bool enable_graph_compiling_;

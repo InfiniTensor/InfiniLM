@@ -9,13 +9,13 @@ namespace infinilm::models::llama {
 
 LlamaModel::LlamaModel(const LlamaConfig &config,
                        const infinicore::Device &device,
-                       engine::distributed::RankInfo rank_info)
-    : config_(config), rank_info_(rank_info) {
+                       engine::distributed::RankInfo rank_info,
+                       std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
+    : config_(config), rank_info_(rank_info), global_config_(global_config) {
     const auto &dtype{config.dtype};
     // Initialize token embeddings
     INFINICORE_NN_MODULE_INIT(embed_tokens, config.vocab_size, config.hidden_size,
                               std::nullopt, dtype, device);
-
     // Initialize decoder layers with layer indices
     // TODO: Update INFINICORE_NN_MODULE_VEC_INIT macro to support per-layer constructor arguments
     //       (e.g., via a factory function or lambda that receives the layer index)
@@ -23,7 +23,7 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
     layers_.reserve(config.num_hidden_layers);
     for (size_t i = 0; i < config.num_hidden_layers; ++i) {
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
-            "layers." + std::to_string(i), config, device, i, rank_info));
+            "layers." + std::to_string(i), config, device, i, rank_info, global_config_));
     }
 
     // Initialize final layer normalization

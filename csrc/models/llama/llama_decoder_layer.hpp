@@ -36,7 +36,8 @@ public:
     LlamaDecoderLayer(const LlamaConfig &config,
                       const infinicore::Device &device,
                       size_t layer_idx,
-                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                      std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
 
     /**
      * @brief Forward pass: process one decoder layer
@@ -79,6 +80,7 @@ protected:
     INFINICORE_NN_MODULE(LlamaAttention, self_attn);
     INFINICORE_NN_MODULE(LlamaMLP, mlp);
     engine::distributed::RankInfo rank_info_;
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 
 private:
     size_t layer_idx_; // Layer index for cache management and debugging

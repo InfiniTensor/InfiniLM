@@ -3,6 +3,7 @@
 #include "../../layers/fused_linear.hpp"
 #include "llama_config.hpp"
 
+#include "../../config/global_config.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
@@ -35,7 +36,8 @@ public:
      */
     LlamaMLP(const LlamaConfig &config,
              const infinicore::Device &device,
-             engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+             engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+             std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
 
     /**
      * @brief Forward pass: compute MLP output
@@ -57,6 +59,8 @@ protected:
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
+
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 };
 
 } // namespace infinilm::models::llama
