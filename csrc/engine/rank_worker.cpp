@@ -138,6 +138,33 @@ void RankWorker::reset_cache(const cache::CacheConfig *new_config) {
     cv_.notify_all();
 }
 
+uint32_t RankWorker::compress_kv_cache_inplace(uint32_t seq_len,
+                                               size_t batch_size,
+                                               const cache::KVCompressionConfig &cfg) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (should_exit_) {
+            throw std::runtime_error("RankWorker is closing; cannot compress_kv_cache_inplace");
+        }
+
+        pending_compress_cfg_ = cfg;
+        pending_compress_seq_len_ = seq_len;
+        pending_compress_batch_size_ = batch_size;
+        job_cmd_ = Command::COMPRESS_CACHE;
+        has_job_ = true;
+        job_done_ = false;
+    }
+    cv_.notify_all();
+
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return job_done_ || should_exit_; });
+
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker stopped during compress_kv_cache_inplace");
+    }
+    return compress_result_;
+}
+
 //------------------------------------------------------
 // close -- request shutdown and join thread
 //------------------------------------------------------
@@ -190,6 +217,9 @@ void RankWorker::thread_loop() {
             infinicore::Tensor local_param;
             Input local_args;
             std::unique_ptr<cache::CacheConfig> local_cache_config;
+            cache::KVCompressionConfig local_compress_cfg;
+            uint32_t local_seq_len = 0;
+            size_t local_batch_size = 0;
 
             // Wait for a job or exit
             {
@@ -211,6 +241,10 @@ void RankWorker::thread_loop() {
                     if (pending_cache_config_ != nullptr) {
                         local_cache_config = pending_cache_config_->unique_copy();
                     }
+                } else if (local_cmd == Command::COMPRESS_CACHE) {
+                    local_compress_cfg = pending_compress_cfg_;
+                    local_seq_len = pending_compress_seq_len_;
+                    local_batch_size = pending_compress_batch_size_;
                 }
                 // mark job as being processed
                 has_job_ = false;
@@ -308,6 +342,23 @@ void RankWorker::thread_loop() {
                     job_done_ = true;
                     cv_.notify_all();
                     spdlog::error("[{}] exception during reset_cache: {}\n", info(), e.what());
+                    break;
+                }
+            } else if (local_cmd == Command::COMPRESS_CACHE) {
+                try {
+                    auto new_len = model_->compress_kv_cache_inplace(local_seq_len, local_batch_size, local_compress_cfg);
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        compress_result_ = new_len;
+                        job_done_ = true;
+                    }
+                    cv_.notify_all();
+                } catch (const std::exception &e) {
+                    std::lock_guard<std::mutex> lk(mutex_);
+                    should_exit_ = true;
+                    job_done_ = true;
+                    cv_.notify_all();
+                    spdlog::error("[{}] exception during compress_kv_cache_inplace: {}\n", info(), e.what());
                     break;
                 }
             } else {

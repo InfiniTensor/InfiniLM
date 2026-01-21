@@ -5,6 +5,7 @@
 #include "distributed/distributed.hpp"
 #include "infinicore/tensor.hpp"
 #include "rank_worker.hpp"
+#include "../cache/kv_compression.hpp"
 
 #include <optional>
 #include <vector>
@@ -34,6 +35,10 @@ public:
     Output forward(const Input &input);
 
     void reset_cache(const cache::CacheConfig *new_config);
+
+    uint32_t compress_kv_cache_inplace(uint32_t seq_len,
+                                       size_t batch_size,
+                                       const cache::KVCompressionConfig &cfg);
 
     ~InferEngine();
 

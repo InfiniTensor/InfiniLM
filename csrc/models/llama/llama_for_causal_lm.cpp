@@ -1,4 +1,5 @@
 #include "llama_for_causal_lm.hpp"
+#include "../../cache/kv_compression.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
@@ -44,8 +45,23 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     return {logits};
 }
 
+infinicore::Tensor LlamaForCausalLM::logits_from_hidden(const infinicore::Tensor &hidden_states) const {
+    return lm_head_->forward(const_cast<infinicore::Tensor &>(hidden_states));
+}
+
 void LlamaForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
     model_->reset_cache(cache_config);
+}
+
+uint32_t LlamaForCausalLM::compress_kv_cache_inplace(uint32_t seq_len,
+                                                     size_t batch_size,
+                                                     const cache::KVCompressionConfig &cfg) {
+    auto kv_cache = model_->kv_cache();
+    auto static_cache = std::dynamic_pointer_cast<cache::StaticKVCache>(kv_cache);
+    if (!static_cache) {
+        return seq_len;
+    }
+    return static_cache->compress_inplace(seq_len, batch_size, cfg);
 }
 
 } // namespace infinilm::models::llama

@@ -16,6 +16,12 @@
 #include <spdlog/spdlog.h>
 
 namespace infinilm::cache {
+namespace kv_compression_detail {
+class KVCompressor;
+} // namespace kv_compression_detail
+
+struct KVCompressionConfig;
+
 class StaticKVCacheConfig final : public CacheConfig {
 public:
     StaticKVCacheConfig(
@@ -63,9 +69,19 @@ public:
            const infinicore::Tensor &v,
            const infinicore::Tensor &past_sequence_lengths);
 
+    uint32_t compress_inplace(uint32_t seq_len,
+                              size_t batch_size,
+                              const KVCompressionConfig &cfg);
+
     ~StaticKVCache() override = default;
 
 private:
+    friend class kv_compression_detail::KVCompressor;
+    friend uint32_t compress_kv_cache_inplace(StaticKVCache &cache,
+                                              uint32_t seq_len,
+                                              size_t batch_size,
+                                              const KVCompressionConfig &cfg);
+
     infinicore::Size k_dim_;
     infinicore::Size v_dim_;
     infinicore::Size num_rank_k_heads_;

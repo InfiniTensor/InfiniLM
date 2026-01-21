@@ -3,6 +3,8 @@
 #include "cache/cache.hpp"
 #include "engine/engine.hpp"
 #include "models/llama.hpp"
+#include "models/llava.hpp"
+#include "models/minicpmv.hpp"
 
 namespace py = pybind11;
 
@@ -11,6 +13,8 @@ PYBIND11_MODULE(_infinilm, m) {
 
     infinilm::cache::bind_cache(m);
     infinilm::models::llama::bind_llama(m);
+    infinilm::models::llava::bind_llava(m);
+    infinilm::models::minicpmv::bind_minicpmv(m);
     infinilm::engine::distributed::bind_dist_config(m);
     infinilm::engine::bind_infer_engine(m);
 }

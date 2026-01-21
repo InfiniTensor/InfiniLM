@@ -1,3 +1,3 @@
-from .cache import CacheConfig, StaticKVCacheConfig,PagedKVCacheConfig
+from .cache import CacheConfig, StaticKVCacheConfig, PagedKVCacheConfig, KVCompressionConfig
 
-__all__ = ["CacheConfig", "StaticKVCacheConfig", "PagedKVCacheConfig"]
+__all__ = ["CacheConfig", "StaticKVCacheConfig", "PagedKVCacheConfig", "KVCompressionConfig"]

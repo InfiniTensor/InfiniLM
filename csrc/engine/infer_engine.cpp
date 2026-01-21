@@ -66,12 +66,15 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
 
     return {
         input_ids, // @todo: on device in the future
+        to_device(pixel_values),
         to_device(position_ids),
         past_sequence_lengths, // @todo: on device in the future
         to_device(total_sequence_lengths),
         to_device(input_offsets),
         to_device(block_tables),
         to_device(slot_mapping),
+        to_device(image_bound),
+        to_device(tgt_sizes),
     };
 }
 
@@ -112,6 +115,26 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     for (auto &worker : workers_) {
         worker->wait();
     }
+}
+
+uint32_t InferEngine::compress_kv_cache_inplace(uint32_t seq_len,
+                                                size_t batch_size,
+                                                const cache::KVCompressionConfig &cfg) {
+    if (workers_.empty()) {
+        return seq_len;
+    }
+    uint32_t new_len = seq_len;
+    bool first = true;
+    for (auto &worker : workers_) {
+        auto worker_len = worker->compress_kv_cache_inplace(seq_len, batch_size, cfg);
+        if (first) {
+            new_len = worker_len;
+            first = false;
+        } else if (worker_len != new_len) {
+            spdlog::warn("compress_kv_cache_inplace: inconsistent new_len across workers ({} vs {})", new_len, worker_len);
+        }
+    }
+    return new_len;
 }
 
 } // namespace infinilm::engine

@@ -50,16 +50,27 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
                                        std::optional<infinicore::Tensor> input_offsets,
                                        std::optional<infinicore::Tensor> block_tables,
                                        std::optional<infinicore::Tensor> slot_mapping) const {
-    // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
     auto hidden_states = embed_tokens_->forward(input_ids);
+    return forward_embeds(hidden_states, position_ids, past_sequence_lengths, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
+}
 
-    // 2. Process through all decoder layers
+infinicore::Tensor LlamaModel::forward_embeds(const infinicore::Tensor &inputs_embeds,
+                                              const infinicore::Tensor &position_ids,
+                                              std::optional<infinicore::Tensor> past_sequence_lengths,
+                                              std::optional<infinicore::Tensor> total_sequence_lengths,
+                                              std::optional<infinicore::Tensor> input_offsets,
+                                              std::optional<infinicore::Tensor> block_tables,
+                                              std::optional<infinicore::Tensor> slot_mapping) const {
+    auto hidden_states = inputs_embeds;
     size_t num_layers = layers_.size();
     for (size_t i = 0; i < num_layers; ++i) {
         hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, past_sequence_lengths, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
     }
-
     return norm_->forward(hidden_states);
+}
+
+infinicore::Tensor LlamaModel::embed_tokens(const infinicore::Tensor &input_ids) const {
+    return embed_tokens_->forward(input_ids);
 }
 
 void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {

@@ -61,7 +61,19 @@ public:
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mapping) const;
 
+    infinicore::Tensor forward_embeds(const infinicore::Tensor &inputs_embeds,
+                                      const infinicore::Tensor &position_ids,
+                                      std::optional<infinicore::Tensor> past_sequence_lengths,
+                                      std::optional<infinicore::Tensor> total_sequence_lengths,
+                                      std::optional<infinicore::Tensor> input_offsets,
+                                      std::optional<infinicore::Tensor> block_tables,
+                                      std::optional<infinicore::Tensor> slot_mapping) const;
+
+    infinicore::Tensor embed_tokens(const infinicore::Tensor &input_ids) const;
+
     void reset_cache(const cache::CacheConfig *cache_config);
+
+    std::shared_ptr<cache::Cache> kv_cache() const { return kv_cache_; }
 
     // Module information
     const LlamaConfig &config() const { return config_; }
