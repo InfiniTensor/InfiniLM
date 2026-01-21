@@ -1,25 +1,19 @@
 #pragma once
-
 #include "quant_config.hpp"
 #include <fstream>
-#include <optional>
 #include <string>
 
 namespace infinilm::config::global_config {
 struct GlobalConfig {
-    // Quantization configuration
+    // Global config is implemented using nlohmann/json and is primarily used for advanced configuration
+    // beyond the standard model config. It is initialized via GlobalConfig(const std::string& path)
+    // and passed through the InferEngine during inference.
 public:
     GlobalConfig() = default;
     GlobalConfig(const nlohmann::json &json) : config_json(json) {};
     GlobalConfig(const std::string &path);
 
-    infinicore::nn::QuantScheme get_quant_scheme() const {
-        if (quant_config.get_quant_scheme() != infinicore::nn::QuantScheme::NONE) {
-            return quant_config.get_quant_scheme();
-        } else {
-            return infinicore::nn::QuantScheme::NONE;
-        }
-    }
+    infinicore::nn::QuantScheme get_quant_scheme() const;
 
 private:
     nlohmann::json config_json;

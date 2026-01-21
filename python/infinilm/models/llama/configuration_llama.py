@@ -15,13 +15,11 @@
 
 """LLaMA model configuration"""
 
-from typing import Optional
 import infinicore
 
 from infinilm.lib import _infinilm
 
 from ...configuration_utils import PretrainedConfig
-from ..quant_config import parse_quant_config, QuantizationConfig
 
 class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
     r"""
@@ -183,7 +181,6 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
         mlp_bias=False,
         head_dim=None,
         torch_dtype=None,
-        quantization_config=None,
         **kwargs,
     ):
         _infinilm.LlamaConfig.__init__(self)
@@ -247,11 +244,3 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
             tie_word_embeddings=tie_word_embeddings,
             **kwargs,
         )
-
-        if isinstance(quantization_config, dict):
-            self.quantization_config: Optional[QuantizationConfig] = parse_quant_config(quantization_config)
-            self.quantization_config_dict = quantization_config
-        else:
-            self.quantization_config = None
-            self.quantization_config_dict = None
-

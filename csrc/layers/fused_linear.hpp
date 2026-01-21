@@ -7,23 +7,6 @@
 namespace infinilm::layers {
 class QKVParallelLinear : public infinicore::nn::ColumnParallelLinear {
 public:
-    // explicit QKVParallelLinear(size_t hidden_size,
-    //                            size_t q_dim, size_t k_dim, size_t v_dim,
-    //                            size_t num_q_head, size_t num_k_head, size_t num_v_head,
-    //                            bool q_bias, bool k_bias, bool v_bias,
-    //                            const infinicore::DataType &dtype = infinicore::DataType::F32,
-    //                            const infinicore::Device &device = infinicore::Device(),
-    //                            engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
-
-    // // A more common case where all heads have the same dimension
-    // explicit QKVParallelLinear(size_t hidden_size,
-    //                            size_t head_dim,
-    //                            size_t num_q_head, size_t num_kv_head,
-    //                            bool bias = false,
-    //                            const infinicore::DataType &dtype = infinicore::DataType::F32,
-    //                            const infinicore::Device &device = infinicore::Device(),
-    //                            engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
-
     explicit QKVParallelLinear(size_t hidden_size,
                                size_t q_dim, size_t k_dim, size_t v_dim,
                                size_t num_q_head, size_t num_k_head, size_t num_v_head,
@@ -79,15 +62,6 @@ private:
 
 class GateUpParallelLinear : public infinicore::nn::ColumnParallelLinear {
 public:
-    // GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool bias = false,
-    //                      const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-    //                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
-
-    // GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
-    //                      const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-    //                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
-
-    // Overload for quantization, old ones need tobe purged
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
@@ -142,7 +116,7 @@ private:
     if (name##_->has_up_bias())                                                               \
         this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
 
-// ========================= QKV 量化 ==================================
+// ========================= QKV Quantization ==================================
 #define INFINILM_QKV_LINEAR_W8A8_INIT(name, q_name, k_name, v_name, ...)                            \
     name##_ = std::make_shared<layers::QKVParallelLinear>(__VA_ARGS__);                             \
     /* 注册 Q 权重 */                                                                               \
@@ -162,7 +136,7 @@ private:
     if (name##_->has_v_bias())                                                                      \
         this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
 
-// ========================= Gate-Up 量化 ==============================
+// ========================= Gate-Up Quantization ==============================
 #define INFINILM_GATE_UP_LINEAR_W8A8_INIT(name, gate_name, up_name, ...)                                  \
     name##_ = std::make_shared<layers::GateUpParallelLinear>(__VA_ARGS__);                                \
     /* 注册 Gate 权重 */                                                                                  \

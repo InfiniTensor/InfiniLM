@@ -1,5 +1,5 @@
 #include "quant_config.hpp"
-#include <iostream>
+
 namespace infinilm::config::quantization {
 QuantConfig::QuantConfig(const nlohmann::json &json) : quantization_config(json) {
     this->quantization_method = get_quantization_method();
