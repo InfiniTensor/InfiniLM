@@ -7,33 +7,33 @@ namespace infinilm::models::llama {
 
 LlamaMLP::LlamaMLP(const LlamaConfig &config,
                    const infinicore::Device &device,
-                   engine::distributed::RankInfo rank_info)
+                   engine::distributed::RankInfo rank_info,
+                   std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
     : hidden_size_(config.hidden_size),
       intermediate_size_(config.intermediate_size),
-      use_bias_(config.mlp_bias), rank_info_(rank_info) {
+      use_bias_(config.mlp_bias), rank_info_(rank_info), global_config_(global_config) {
     const auto &dtype{config.dtype};
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
 
     // Initialize projection layers
-    if (!config.quant_config.has_value()) {
+    auto quant_scheme = this->global_config_->get_quant_scheme();
+    // std::cout << "LlamaMLP quant_scheme: " << static_cast<int>(quant_scheme) << std::endl;
+    switch (quant_scheme) {
+    case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
+        INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
+                                          dtype, device, rank_info_, quant_scheme);
+        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm, quant_scheme);
+        break;
+
+    default:
         INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
                                      dtype, device, rank_info_);
         INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
-    } else {
-        switch (config.quant_config.value().get_quant_scheme()) {
-        case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8: {
-            INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
-                                              dtype, device, rank_info_, config.quant_config.value());
-            INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
-                                      dtype, device, tp_rank, tp_size, rank_info.comm, config.quant_config.value());
-            break;
-        }
-        default: {
-        }
-        }
+        break;
     }
 }
 

@@ -41,7 +41,7 @@ public:
                    const infinicore::Device &device,
                    size_t layer_idx,
                    engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                   const infinilm::config::global_config::GlobalConfig &global_config = infinilm::config::global_config::GlobalConfig());
+                   std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
 
     /**
      * @brief Forward pass: compute attention
@@ -115,6 +115,7 @@ private:
     size_t max_position_embeddings_; // For cache initialization (deprecated, kept for compatibility)
 
     float scaling_;
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 };
 
 } // namespace infinilm::models::llama

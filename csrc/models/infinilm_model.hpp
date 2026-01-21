@@ -13,7 +13,6 @@ class InfinilmModel : public infinicore::nn::Module {
 public:
     struct Config {
         std::string model_type;
-        nlohmann::json model_config;
         virtual ~Config() = default;
     };
 

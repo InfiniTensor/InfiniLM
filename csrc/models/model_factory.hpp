@@ -12,6 +12,6 @@ public:
         const InfinilmModel::Config &config,
         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
         const cache::CacheConfig *cache = nullptr,
-        const config::global_config::GlobalConfig &global_config = config::global_config::GlobalConfig());
+        std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
 };
 } // namespace infinilm

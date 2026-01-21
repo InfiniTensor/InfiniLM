@@ -13,7 +13,7 @@ namespace infinilm::engine {
 RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
                        const cache::CacheConfig *cache_config,
-                       const infinilm::config::global_config::GlobalConfig &global_config)
+                       std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
     : model_config_(model_config),
       rank_info_(rank_info),
       job_cmd_(Command::INIT),
@@ -27,7 +27,6 @@ RankWorker::RankWorker(const InfinilmModel::Config &model_config,
     }
     // start the thread
     thread_ = std::thread(&RankWorker::thread_loop, this);
-
     // Wait until the worker thread finishes initialization (model created)
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return init_done_; });

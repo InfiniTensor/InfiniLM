@@ -1,5 +1,6 @@
 #include "infer_engine.hpp"
 #include "spdlog/spdlog.h"
+#include <iostream>
 
 namespace infinilm::engine {
 
@@ -18,9 +19,9 @@ InferEngine::InferEngine(
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
-    if (!model_path.empty()) {
-        global_config_ = infinilm::config::global_config::GlobalConfig(model_path + "/config.json");
-    }
+    // if (!model_path.empty()) {
+    this->global_config_ = std::make_shared<infinilm::config::global_config::GlobalConfig>(model_path + "/config.json");
+
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
     workers_.reserve(world_size);

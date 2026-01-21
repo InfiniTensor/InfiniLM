@@ -9,23 +9,20 @@ namespace infinilm::config::global_config {
 struct GlobalConfig {
     // Quantization configuration
 public:
-    infinilm::config::quantization::QuantConfig get_quant_config_json() const {
-        return infinilm::config::quantization::QuantConfig(config_json.value("quantization_config", nlohmann::json::object())).to_json();
-    }
-
     GlobalConfig() = default;
     GlobalConfig(const nlohmann::json &json) : config_json(json) {};
-    GlobalConfig(const std::string &path) {
-        std::ifstream file(path);
-        if (file.is_open()) {
-            file >> config_json;
-            file.close();
+    GlobalConfig(const std::string &path);
+
+    infinicore::nn::QuantScheme get_quant_scheme() const {
+        if (quant_config.get_quant_scheme() != infinicore::nn::QuantScheme::NONE) {
+            return quant_config.get_quant_scheme();
         } else {
-            throw std::runtime_error("Could not open config file: " + path);
+            return infinicore::nn::QuantScheme::NONE;
         }
     }
 
 private:
     nlohmann::json config_json;
+    quantization::QuantConfig quant_config;
 };
 } // namespace infinilm::config::global_config

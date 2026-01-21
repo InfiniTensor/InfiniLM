@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../cache/kv_cache.hpp"
-#include "llama_config.hpp"
 #include "llama_decoder_layer.hpp"
 
 #include "infinicore/nn/embedding.hpp"
@@ -40,7 +39,8 @@ public:
      */
     LlamaModel(const LlamaConfig &config,
                const infinicore::Device &device,
-               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+               std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
 
     /**
      * @brief Forward pass: process input through the model
@@ -86,6 +86,7 @@ protected:
 
 private:
     LlamaConfig config_;
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 };
 
 } // namespace infinilm::models::llama

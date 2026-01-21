@@ -68,10 +68,6 @@ struct LlamaConfig : public InfinilmModel::Config {
     std::vector<int64_t> bos_token_id = {1}; // Beginning of sequence token ID(s)
     std::vector<int64_t> eos_token_id = {2}; // End of sequence token ID(s)
 
-    // Quant Config
-    // std::optional<infinicore::nn::QuantConfig> quant_config = std::nullopt;
-    std::optional<infinicore::nn::QuantConfig> quant_config = infinicore::nn::QuantConfig(infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8);
-
     /**
      * @brief Compute key-value dimension for Grouped Query Attention (GQA)
      * @return The dimension for key/value projections

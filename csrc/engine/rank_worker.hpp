@@ -58,7 +58,7 @@ public:
     RankWorker(const InfinilmModel::Config &model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,
-               const infinilm::config::global_config::GlobalConfig &global_config);
+               std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
@@ -93,7 +93,7 @@ private:
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
-    const infinilm::config::global_config::GlobalConfig &global_config_;
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;
