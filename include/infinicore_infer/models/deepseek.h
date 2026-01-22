@@ -107,7 +107,7 @@ __C __export struct DeepSeekV3Model *
 createDeepSeekV3Model(const DeepSeekV3Meta *,
                       const DeepSeekV3Weights *);
 
-__C DeepSeekV3Weights *
+__C __export DeepSeekV3Weights *
 createDeepSeekV3Weights(const DeepSeekV3Meta *meta,
                         infiniDevice_t device,
                         int ndev,

@@ -8,6 +8,7 @@ import time
 import json
 import torch
 import transformers
+from infer_task import InferTask, KVCache
 
 from libinfinicore_infer import (
     DeviceType,
@@ -17,6 +18,8 @@ from libinfinicore_infer import (
 from libinfinicore_infer.llada import LLaDAModel, LLaDAMetaCStruct, LLaDAWeightsCStruct
 
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import torch.nn.functional as F
+import numpy as np
 
 class LLaDAWeifghtsNaming:
     def input_embd(self):
@@ -61,14 +64,17 @@ class LLaDAWeifghtsNaming:
     def ffn_norm(self, i):
         return f"model.layers.{i}.post_attention_layernorm.weight"
 
-    def gate(self, i, j):
-        return f"model.layers.{i}.mlp.expert.gate_proj.{j}.weight"
+    def router(self, i):
+        return f"model.layers.{i}.mlp.gate.weight"
 
-    def up(self, i, j):
-        return f"model.layers.{i}.mlp.expert.up_proj.{j}.weight"
+    def expert_gate(self, i, j):
+        return f"model.layers.{i}.mlp.experts.{j}.gate_proj.weight"
 
-    def down(self, i):
-        return f"model.layers.{i}.mlp.down_proj.weight"
+    def expert_up(self, i, j):
+        return f"model.layers.{i}.mlp.experts.{j}.up_proj.weight"
+
+    def down(self, i, j):
+        return f"model.layers.{i}.mlp.experts.{j}.down_proj.weight"
 
 
 
@@ -188,7 +194,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         self.transpose_linear_weights = 1 if transpose_weight else 0
         self.nlayer = nlayer
         self.input_embd_tensor = (
-            state_dict[input_embd_naming].to(torch_dt_logits) * scale_input
+            state_dict[input_embd_naming].to(torch_dt_logits)
         )
         self.input_embd = self.input_embd_tensor.data_ptr()
         self.output_norm_tensor = (
@@ -245,39 +251,9 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
         self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
 
-        def qkv_b_slices(_i):
-            _QB = (
-                state_dict[naming.attn_q_b(_i)]
-                .reshape([nh, 2, dh // 2])
-                .transpose(1, 2)
-            )
-            _KB = (
-                state_dict[naming.attn_k_b(_i)]
-                .reshape([nkvh, 2, dh // 2])
-                .transpose(1, 2)
-            )
-            _VB = state_dict[naming.attn_v_b(_i)].reshape([nkvh, dh // 2, 2])
-            _result = []
-            _nh = nh // ndev
-            _nkvh = nkvh // ndev
-            for _idev in range(ndev):
-                _result.append(_QB[_idev * _nh : (_idev + 1) * _nh, :, :].flatten())
-                _result.append(_KB[_idev * _nkvh : (_idev + 1) * _nkvh, :, :].flatten())
-                _result.append(_VB[_idev * _nkvh : (_idev + 1) * _nkvh, :, :].flatten())
-            return _result
-
-        if naming.attn_q_b(0) in state_dict:
-            self.qkv_b_tensors = [
-                torch.concat(qkv_b_slices(i)).to(torch_dt_logits) for i in range(nlayer)
-            ]
-            self.qkv_b_tensor_ptrs = [
-                self.qkv_b_tensors[i].data_ptr() for i in range(nlayer)
-            ]
-            self.attn_qkv_b = (c_void_p * nlayer)(*self.qkv_b_tensor_ptrs)
-        else:
-            self.attn_qkv_b = None
-
+        
         if naming.attn_q_norm(0) in state_dict:
+            print("have norm")
             self.attn_q_norm_tensors = [
                 state_dict[naming.attn_q_norm(i)]
                 .reshape([2, dh // 2])
@@ -333,49 +309,54 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         ]
         self.ffn_norm = (c_void_p * nlayer)(*self.ffn_norm_ptrs)
 
-        def expert_gate_up_slices(layer_id, num_experts):
+        def expert_gate_slices(layer_id, num_experts):
             """
             Extract expert gate and up weights for one layer.
             Compatible with keys like:
             model.layers.{i}.mlp.experts.{e}.gate_proj.weight
             model.layers.{i}.mlp.experts.{e}.up_proj.weight
             """
-            gate_up_list = []
+            gate_list = []
 
             for e in range(num_experts):
-                gate_key = f"model.layers.{layer_id}.mlp.experts.{e}.gate_proj.weight"
-                up_key   = f"model.layers.{layer_id}.mlp.experts.{e}.up_proj.weight"
-
+                gate_key = naming.expert_gate(layer_id, e)
                 gate_w = state_dict[gate_key]     # shape: [1024, 2048]
-                up_w   = state_dict[up_key]       # shape: [1024, 2048]
+                gate_list.append(gate_w)
+            return gate_list   # list of num_experts tensors
+        
+        def expert_up_slices(layer_id, num_experts):
+            """
+            Extract expert gate and up weights for one layer.
+            Compatible with keys like:
+            model.layers.{i}.mlp.experts.{e}.gate_proj.weight
+            model.layers.{i}.mlp.experts.{e}.up_proj.weight
+            """
+            up_list = []
 
-                # concat gate + up along dim 0 → shape: [2048, 2048]
-                # this matches your previous behavior
-                gate_up = torch.cat([gate_w, up_w], dim=0)
-
-                gate_up_list.append(gate_up)
-
-            return gate_up_list   # list of num_experts tensors
-                
-        self.gate_up_tensors = [
-            torch.concat(expert_gate_up_slices(i, num_experts), dim=0).to(torch_dt_mat)
+            for e in range(num_experts):
+                up_key = naming.expert_up
+                up_key   = f"model.layers.{layer_id}.mlp.experts.{e}.up_proj.weight"
+                up_w = state_dict[up_key]     # shape: [1024, 2048]
+                up_list.append(up_w)
+            return up_list   # list of num_experts tensors
+        
+        # memory: [gate_layer0_expert_gate0]...[gate_layer0_expert_gate63]......[gate_layer15_expert_gate63]
+        self.expert_gate_tensors = [
+            torch.concat(expert_gate_slices(i, num_experts), dim=0).to(torch_dt_mat)
             for i in range(nlayer)
         ]
-        # self.gate_up_tensors = [
-        #     [t.to(torch_dt_mat) for t in expert_gate_up_slices(i, num_experts)]
-        #     for i in range(nlayer)
-        # ]
-        # if not transpose_weight:
-        #     for i in range(nlayer):
-        #         self.gate_up_tensors[i] = (
-        #             self.gate_up_tensors[i]
-        #             .reshape(ndev, 2 * di_expert // ndev, d)
-        #             .transpose(1, 2)
-        #             .contiguous()
-        #         ) #TODO: 具体切分设计
-        self.gate_up_ptrs = [self.gate_up_tensors[i].data_ptr() for i in range(nlayer)]
-        self.ffn_gate_up = (c_void_p * nlayer)(*self.gate_up_ptrs)
+
+        # memory: [gate_layer0_expert_up0]...[gate_layer0_expert_up63]......[gate_layer15_expert_up63]
+        self.expert_up_tensors = [
+            torch.concat(expert_up_slices(i, num_experts), dim=0).to(torch_dt_mat)
+            for i in range(nlayer)
+        ]
+
+        self.expert_gate_ptrs = [self.expert_gate_tensors[i].data_ptr() for i in range(nlayer)]
+        self.expert_gate = (c_void_p * nlayer)(*self.expert_gate_ptrs)
         
+        self.expert_up_ptrs = [self.expert_up_tensors[i].data_ptr() for i in range(nlayer)]
+        self.expert_up    = (c_void_p * nlayer)(*self.expert_up_ptrs)
 
         def expert_down_slices(layer_id, num_experts):
             """
@@ -387,43 +368,99 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             down_list = []
 
             for e in range(num_experts):
-                down_key = f"model.layers.{layer_id}.mlp.experts.{e}.down_proj.weight"
+                down_key = naming.down(layer_id, e)
                 down_w = state_dict[down_key]     # shape: [1024, 2048]
                 # concat gate + up along dim 0 → shape: [2048, 2048]
-                # this matches your previous behavior
                 down_list.append(down_w)
-
             return down_list   # list of num_experts tensors
         
-        # self.ffn_down_tensor = [
-        #     (
-        #         state_dict[naming.down(i)]
-        #         # .to(torch_dt_mat)
-        #         # .reshape([d, ndev, di_expert // ndev])
-        #         # .transpose(0, 1)
-        #         # .contiguous()
-        #         # if transpose_weight
-        #         # else state_dict[naming.down(i)]
-        #         # .transpose(0, 1)
-        #         # .to(torch_dt_mat)
-        #         # .contiguous() #TODO: 内存切分设计
-        #     )
-        #     * scale_down
-        #     for i in range(nlayer)
-        # ]
-        self.ffn_down_tensor = [
+        # memory: [gate_layer0_expert_down0]...[gate_layer0_expert_down63]......[gate_layer15_expert_down63]
+        self.expert_down_tensor = [
             torch.concat(expert_down_slices(i, num_experts), dim=0).to(torch_dt_mat)
             for i in range(nlayer)
         ]
-        self.ffn_down_ptrs = [self.ffn_down_tensor[i].data_ptr() for i in range(nlayer)]
-        self.ffn_down = (c_void_p * nlayer)(*self.ffn_down_ptrs)
+        self.expert_down_ptrs = [self.expert_down_tensor[i].data_ptr() for i in range(nlayer)]
+        self.expert_down = (c_void_p * nlayer)(*self.expert_down_ptrs)
 
-       
+        # Impl Python gate 
+        def router_slices():
+            """
+            Extract expert gate and up weights for one layer.
+            Compatible with keys like:
+            model.layers.{i}.mlp.experts.{e}.gate_proj.weight
+            model.layers.{i}.mlp.experts.{e}.up_proj.weight
+            """
+            router_list = []
+            for i in range(nlayer):
+                gate_weight = state_dict[naming.router(i)].to(torch_dt_mat)
+                
+                router_list.append(gate_weight)
+            
+            return router_list   # list of num_experts tensors
+        
 
-       
+        self.router_gate_tensor = router_slices()
+        # memory: [gate_layer0_router]......[gate_layer15_router]
+        self.router_ptrs = [self.router_gate_tensor[i].data_ptr() for i in range(nlayer)]
+        self.router = (c_void_p * nlayer)(*self.router_ptrs)
+        
+
+
+class LLaDABatchedTask:
+    """
+    Batch task handler for LLaDA model inference.
+    Similar to JiugeBatchedTask but adapted for LLaDA requirements.
+    """
+    def __init__(self, tasks: List[InferTask]):
+        self.tasks = tasks
+        self.nreq = len(tasks)
+
+        # Precompute fields
+        token_lists = [t.tokens for t in tasks]
+        self.req_lens_list = [len(toks) for toks in token_lists]
+        self.req_pos_list = [t.pos for t in tasks]
+        self.kv_cache_ptrs = [t.kvcache().data() for t in tasks]
+        self.temperaturas_list = [t.temperature for t in tasks]
+        self.topks_list = [t.topk for t in tasks]
+        self.topps_list = [t.topp for t in tasks]
 
 
 
+        flat_tokens = []
+        for toks in token_lists:
+            if isinstance(toks, (list, tuple)):
+                flat_tokens.extend(toks)
+            else:
+                flat_tokens.append(toks)
+
+        # Convert all tokens to int
+        flat_tokens = [int(tok) for tok in flat_tokens]
+
+        self.ntok = len(flat_tokens)
+        print(f"Torch : flat_tokens : {flat_tokens}")
+
+        # Convert to ctypes arrays in one pass
+        self.tokens = (c_uint * self.ntok)(*flat_tokens)
+        self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
+        self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
+        self.kv_caches = (POINTER(KVCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
+        self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
+        self.topks = (c_uint * self.nreq)(*self.topks_list)
+        self.topps = (c_float * self.nreq)(*self.topps_list)
+
+    def input_args(self):
+        return (
+            self.tokens,
+            self.ntok,
+            self.req_lens,
+            self.nreq,
+            self.req_pos,
+            self.kv_caches,
+            self.temperaturas,
+            self.topks,
+            self.topps,
+        )
+    
 
 class LLaDAForCauslLM:
     def __init__(
@@ -475,14 +512,6 @@ class LLaDAForCauslLM:
         self.ndev = ndev
         self.device = device
         print("--- start create model ---")
-        # self.model_instance = self.llada_model.create_model()
-        # self.model_instance = self.llada_model.create_model( # TODO:
-        #     byref(self.meta),
-        #     byref(self.weights),
-        #     device,
-        #     ndev,
-        #     self.dev_ids,
-        # )
         self.model_instance = self.llada_model.create_model(
             byref(self.meta),
             byref(self.weights),
@@ -490,31 +519,228 @@ class LLaDAForCauslLM:
             ndev,
             self.dev_ids,
         )
+        self.model_ptr = self.model_instance
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
 
+    # <--------------------------------------  Infer PipeLine  ------------------------------------------------>
+    def max_context_len(self):
+        return self.meta.dctx
+
+    def create_kv_cache(self):
+        """Create KV cache for the model"""
+        return self.llada_model.create_kv_cache(
+            self.meta.nlayer,
+            self.meta.dctx,
+            self.meta.nkvh,
+            self.meta.dh,
+            self.meta.dh,
+            self.meta.dt_logits,
+            self.device,
+            self.dev_ids,
+            self.ndev,
+        )
+
+    def drop_kv_cache(self, kv_cache):
+        """Drop KV cache"""
+        self.llada_model.drop_kv_cache(kv_cache)
+
+    def batch_infer_one_round(self, tasks: List[InferTask]):
+        """
+        Perform one round of batch inference using LLaDA model.
+
+        Args:
+            tasks: List of InferTask objects containing input sequences and parameters
+
+        Returns:
+            List of generated token IDs
+        """
+        output = (c_uint * len(tasks))()
+        batch_inputs = LLaDABatchedTask(tasks)
+        self.llada_model.infer_batch(
+            self.model_instance,
+            *(batch_inputs.input_args()),
+            output,
+        )
+        return list(output)
+    
+    def generate(
+        self,
+        prompts: str,
+        max_steps: int = 128,
+        gen_length: int = 128,
+        block_length: int = 128,
+        temperature_: float = 0.,
+        cfg_scale: float = 0.,
+        remasking: str = 'low_confidence',
+        mask_id: int = 126336,
+        logits_eos_inf: bool = False,
+        confidence_eos_eot_inf: bool = False,
+        verbose: bool = False,
+        topp_ = 1.0,
+        topk_ = 1
+    ):
+        if isinstance(prompts, str):
+            prompts = [prompts]
+
+        # Apply chat template and tokenize
+        print("Staring generate prepare")
+        messages = [{"role": "user", "content": prompt} for prompt in prompts]
+        formatted_prompts = [self.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
+        encoded_outputs = self.tokenizer.batch_encode_plus(
+            formatted_prompts,
+            add_special_tokens=False,
+            padding=True,
+            return_tensors="pt"
+        )
+        # Extract input_ids from batch encoding
+        input_ids = encoded_outputs['input_ids']
+
+        # For single prompt, get the first sequence
+        if len(prompts) == 1:
+            tokens = input_ids[0].tolist()
+        else:
+            # For batch, handle each sequence separately
+            tokens = [seq.tolist() for seq in input_ids]
+        print(len(tokens))
+        print(f"Pytho Side Tokens type: {type(tokens)}, content: {tokens if isinstance(tokens, list) else 'Not a list'}")
+
+        infer_task = InferTask(
+            0,
+            tokens,
+            self.max_context_len(),
+            temperature_,
+            topk_,
+            topp_,
+            self.eos_token_id,
+        )
+
+        # Bind KV cache
+        kv_cache = KVCache(self)
+        infer_task.bind_kvcache(kv_cache)
+        print("Staring Infering")
+        output_tokens = self.batch_infer_one_round([infer_task])
+
+       
+
+
+
+    def forward_logits_batch(self, input_ids_tensor, attention_mask_tensor=None):
+        """
+        Forward pass to get logits for a batch of sequences using C++ model.
+
+        Args:
+            input_ids_tensor: Tensor of shape (batch_size, seq_len) with token IDs
+            attention_mask_tensor: Tensor of shape (batch_size, seq_len) with attention mask
+
+        Returns:
+            logits: Tensor of shape (batch_size, seq_len, vocab_size)
+        """
+        batch_size, seq_len = input_ids_tensor.shape
+
+        # Create InferTask objects for each sequence in the batch
+        tasks = []
+        for i in range(batch_size):
+            # Extract tokens for this sequence
+            seq_tokens = input_ids_tensor[i].tolist()
+            # Create KVCache for this sequence
+            kv_cache = KVCache(
+                self.meta.nlayer,
+                self.meta.dctx,
+                self.meta.nkvh,
+                self.meta.dh,
+                self.meta.dh,
+                self.meta.dt_logits,
+                self.device,
+                self.dev_ids,
+                self.ndev,
+            )
+            # Create InferTask
+            task = InferTask(
+                tokens=seq_tokens,
+                pos=0,  # Start position
+                temperature=0.0,  # Will be handled by sampling logic
+                topk=1,  # Will be handled by sampling logic
+                topp=1.0,  # Will be handled by sampling logic
+                kvcache=kv_cache,
+            )
+            tasks.append(task)
+
+        # Create batched task
+        batch_inputs = LLaDABatchedTask(tasks)
+
+        # Prepare output tensor for logits
+        vocab_size = self.config.get("vocab_size", 150528)
+        logits_tensor = torch.zeros(
+            batch_inputs.ntok, vocab_size,
+            dtype=self.meta.torch_dtype_logits,
+            device=torch.device("cpu")
+        )
+
+        # Call C++ forward_batch
+        self.llada_model.forward_batch(
+            self.model_instance,
+            batch_inputs.tokens,
+            batch_inputs.ntok,
+            batch_inputs.req_lens,
+            batch_inputs.nreq,
+            batch_inputs.req_pos,
+            batch_inputs.kv_caches,
+            logits_tensor.data_ptr(),
+        )
+
+        # Reshape logits to (batch_size, seq_len, vocab_size)
+        # Note: This requires careful handling of the flattened output
+        logits_reshaped = torch.zeros(batch_size, seq_len, vocab_size, dtype=logits_tensor.dtype, device=logits_tensor.device)
+
+        # Copy logits back to batch format
+        token_offset = 0
+        for req_idx, req_len in enumerate(batch_inputs.req_lens_list):
+            # Extract logits for this request
+            req_logits = logits_tensor[token_offset:token_offset + req_len]
+            logits_reshaped[req_idx, :req_len] = req_logits
+            token_offset += req_len
+
+        # Clean up KV caches
+        for task in tasks:
+            task.kvcache().drop()
+
+        return logits_reshaped
+
+
+
+
 def test():
-    # if len(sys.argv) < 3:
-    #     print(
-    #         "Usage: python llada.py [--cpu | --nvidia] <path/to/model_dir> [n_device] [--verbose]"
-    #     )
-    #     sys.exit(1)
-
-    # Parse command line arguments
-
+ 
     model_path = "/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/snapshots/783d3467f108d28ac0a78d3e41af16ab05cabd8d"
-    device_type = DeviceType.DEVICE_TYPE_CPU
-    verbose = False
+    device_type = DeviceType.DEVICE_TYPE_NVIDIA
+    verbose = True
 
-    device_type = DeviceType.DEVICE_TYPE_CPU
-        
-    # Find n_device argument (skip --verbose)
-    ndev = 1 # nums of card
+    # Number of devices
+    ndev = 1
 
+    print("Loading LLaDA model...")
     model = LLaDAForCauslLM(model_path, device_type, ndev)
 
+    # Test prompts
+    test_prompts = "Lily can run 12 kilometers per hour for 4 hours. After that, she runs 6 kilometers per hour."
 
+    print("\n=== Testing C++ Model Integration Function ===")
+
+    result = model.generate(
+                prompts=test_prompts,
+                max_steps=16,  # Reduced for faster testing
+                gen_length=32,  # Shorter generation for testing
+                block_length=16,
+                temperature_=0.0,  # Deterministic for testing
+                verbose=verbose
+            )
+    #     #     print(f"Result: {result}")
+    #     # except Exception as e:
+    #     #     print(f"Error in C++ model generation: {e}")
+
+   
 
 if __name__ == "__main__":
     import os

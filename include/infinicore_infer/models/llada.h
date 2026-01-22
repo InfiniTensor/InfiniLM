@@ -46,9 +46,14 @@ typedef struct{
     // nlayer * [d]
     const void *const *ffn_norm;
     // nlayer * [ndev, 2 * di / ndev, d]
-    const void *const *ffn_gate_up;
-    // nlayer * [ndev, d, di / ndev]
-    const void *const *ffn_down;
+
+    const void *const *expert_gate;
+
+    const void *const *expert_up;
+
+    const void *const *expert_down;
+
+    const void *const *expert_router;
 } LLaDAWeights;
 
 // 改进后的权重加载器结构体
@@ -69,9 +74,18 @@ __C __export void
 destroyLLaDAModel();
 
 __C __export void
-inferBatchLLaDA();
+inferBatchLLaDA(struct LLaDAModel *model,
+                const uint32_t *tokens, uint32_t ntok,
+                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                struct KVCache **kv_caches,
+                const float *temperature, const uint32_t *topk, const float *topp,
+                uint32_t *output);
 
 __C __export void
-forwardBatchLLaDA();
+forwardBatchLLaDA(struct LLaDAModel *model,
+                  const uint32_t *tokens, uint32_t ntok,
+                  const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                  struct KVCache **kv_caches,
+                  void *logits);
 
 #endif

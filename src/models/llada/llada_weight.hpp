@@ -3,10 +3,40 @@
 
 
 #include <cmath>
+void debugPrint(LLaDAMeta const *meta) {
+    if (!meta) {
+        std::cout << "LLaDAMeta pointer = NULL" << std::endl;
+        return;
+    }
+
+    std::cout << "===== LLaDAMeta DEBUG =====" << std::endl;
+    std::cout << "meta pointer   = " << meta << std::endl;
+
+    std::cout << "dt_logits      = " << (int)meta->dt_logits << std::endl;
+    std::cout << "nlayer         = " << meta->nlayer << std::endl;
+    std::cout << "d              = " << meta->d << std::endl;
+    std::cout << "nh             = " << meta->nh << std::endl;
+    std::cout << "nkvh           = " << meta->nkvh << std::endl;
+    std::cout << "dh             = " << meta->dh << std::endl;
+
+    std::cout << "di_dense       = " << meta->di_dense << std::endl;
+    std::cout << "di_expert      = " << meta->di_expert << std::endl;
+
+    std::cout << "dctx           = " << meta->dctx << std::endl;
+    std::cout << "dvoc           = " << meta->dvoc << std::endl;
+
+    std::cout << "epsilon        = " << meta->epsilon << std::endl;
+    std::cout << "theta          = " << meta->theta << std::endl;
+
+    std::cout << "end_token      = " << meta->end_token << std::endl;
+    std::cout << "num_experts    = " << meta->num_experts << std::endl;
+
+    std::cout << "===========================" << std::endl;
+}
+
 inline std::shared_ptr<Tensor> getInEmbd(
     LLaDAMeta const * meta,
     LLaDAWeights const * w) {
-    std::cout << "Get In Embd" << std::endl;
     auto shape = std::vector<size_t>({meta->dvoc, meta->d});
     return Tensor::weight((char *)w->input_embd, meta->dt_logits, shape);
 }
@@ -14,14 +44,16 @@ inline std::shared_ptr<Tensor> getInEmbd(
 inline std::shared_ptr<Tensor> getOutNorm(
     LLaDAMeta const * meta,
     LLaDAWeights const * w){
-    std::cout << "Get In Embd" << std::endl;
-    auto shape = std::vector<size_t>({meta->d});
+
+    std::cout << "Get In Embd112" << std::endl;
+    auto shape = std::vector<size_t>({meta->d}); //TODO:
     return Tensor::weight((char *)w->output_norm, w->dt_norm, shape);
 }
 
 inline std::shared_ptr<Tensor> getOutEmbd(
     LLaDAMeta const *meta,
     LLaDAWeights const *w) {
+    std::cout << "Out Embd sd" << std::endl;
     if (w->transpose_linear_weights != 0) {
         auto shape = std::vector<size_t>({meta->dvoc, meta->d});
         return Tensor::weight((char *)w->output_embd, meta->dt_logits, shape)
@@ -59,17 +91,7 @@ inline std::shared_ptr<Tensor> getAttnQKV(
     }
 }
 
-inline std::shared_ptr<Tensor> getAttnQKVBias(
-    LLaDAMeta const *meta,
-    LLaDAWeights const *w,
-    size_t layer, size_t idev, size_t ndev) {
-    auto nkvh = meta->nkvh;
-    auto nh = meta->nh;
-    auto dh = meta->dh;
-    size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * dsize(w->dt_mat);
-    auto shape = std::vector<size_t>({(nh + 2 * nkvh) / ndev * dh});
-    return Tensor::weight((char *)(w->attn_qkv_b[layer]) + offset, w->dt_mat, shape);
-}
+
 
 inline std::shared_ptr<Tensor> getAttnQNorm(
     LLaDAMeta const *meta,
@@ -112,76 +134,111 @@ inline std::shared_ptr<Tensor> getFFNNorm(
     return Tensor::weight((char *)(w->ffn_norm[layer]), w->dt_norm, shape);
 }
 
-inline std::shared_ptr<Tensor> getFFNGateUp(
+// inline std::shared_ptr<Tensor> getFFNGateUp(
+//     LLaDAMeta const *meta,
+//     LLaDAWeights const *w,
+//     size_t layer, size_t idev, size_t ndev) {
+//     auto di = meta->di_expert; // TODO: 具体di还要区分
+//     auto d = meta->d;
+//     size_t offset = idev * (2 * di / ndev) * d * dsize(w->dt_mat);
+//     if (w->transpose_linear_weights != 0) {
+//         auto shape = std::vector<size_t>({2 * di / ndev, d});
+//         return Tensor::weight((char *)(w->ffn_gate_up[layer]) + offset,
+//                               w->dt_mat, shape)
+//             ->permute({1, 0});
+//     } else {
+//         auto shape = std::vector<size_t>({d, 2 * di / ndev});
+//         return Tensor::weight((char *)(w->ffn_gate_up[layer]) + offset,
+//                               w->dt_mat, shape);
+//     }
+// }
+//
+inline std::shared_ptr<Tensor> getExpertRouter(
     LLaDAMeta const *meta,
     LLaDAWeights const *w,
-    size_t layer, size_t idev, size_t ndev) {
+    size_t layer, size_t idev, size_t ndev, size_t num_experts) {
+    auto shape = std::vector<size_t>({meta->d});
     auto di = meta->di_expert; // TODO: 具体di还要区分
     auto d = meta->d;
-    size_t offset = idev * (2 * di / ndev) * d * dsize(w->dt_mat);
+    size_t offset = 0;
     if (w->transpose_linear_weights != 0) {
-        auto shape = std::vector<size_t>({2 * di / ndev, d});
-        return Tensor::weight((char *)(w->ffn_gate_up[layer]) + offset,
+        auto shape = std::vector<size_t>({num_experts, d});
+        return Tensor::weight((char *)(w->expert_router[layer]) + offset,
                               w->dt_mat, shape)
             ->permute({1, 0});
     } else {
-        auto shape = std::vector<size_t>({d, 2 * di / ndev});
-        return Tensor::weight((char *)(w->ffn_gate_up[layer]) + offset,
+        auto shape = std::vector<size_t>({num_experts, d});
+        return Tensor::weight((char *)(w->expert_router[layer]) + offset,
+                              w->dt_mat, shape)->permute({1, 0});
+    }
+}
+
+inline std::shared_ptr<Tensor> getExpertGate(
+    LLaDAMeta const *meta,
+    LLaDAWeights const *w,
+    size_t layer, size_t idev, size_t ndev){
+    auto shape = std::vector<size_t>({meta->d});
+    auto di = meta->di_expert; // TODO: 具体di还要区分
+    auto d = meta->d;
+    size_t offset = 0;
+    if (w->transpose_linear_weights != 0) {
+        auto shape = std::vector<size_t>({meta->num_experts, di, d});
+        return Tensor::weight((char *)(w->expert_gate[layer]) + offset,
+                              w->dt_mat, shape)
+            ->permute({1, 0});
+    } else {
+        auto shape = std::vector<size_t>({meta->num_experts, di, d});
+        return Tensor::weight((char *)(w->expert_gate[layer]) + offset,
                               w->dt_mat, shape);
     }
 }
 
-inline std::shared_ptr<Tensor> getFFNDown(
+inline std::shared_ptr<Tensor> getExpertUp(
     LLaDAMeta const *meta,
     LLaDAWeights const *w,
     size_t layer, size_t idev, size_t ndev) {
-    auto di = meta->di_expert; // TODO:
+    auto shape = std::vector<size_t>({meta->d});
+    auto di = meta->di_expert; // TODO: 具体di还要区分
     auto d = meta->d;
-    size_t offset = idev * d * (di / ndev) * dsize(w->dt_mat);
+    size_t offset = 0;
     if (w->transpose_linear_weights != 0) {
-        auto shape = std::vector<size_t>({d, di / ndev});
-        return Tensor::weight((char *)(w->ffn_down[layer]) + offset, w->dt_mat, shape)
+        auto shape = std::vector<size_t>({meta->num_experts, di, d});
+        return Tensor::weight((char *)(w->expert_up[layer]) + offset,
+                              w->dt_mat, shape)
             ->permute({1, 0});
     } else {
-        auto shape = std::vector<size_t>({di / ndev, d});
-        return Tensor::weight((char *)(w->ffn_down[layer]) + offset, w->dt_mat, shape);
+        auto shape = std::vector<size_t>({meta->num_experts, di, d});
+        return Tensor::weight((char *)(w->expert_up[layer]) + offset,
+                              w->dt_mat, shape);
     }
 }
 
-void debugPrint(LLaDAMeta const *meta) {
-    if (!meta) {
-        std::cout << "LLaDAMeta pointer = NULL" << std::endl;
-        return;
+
+inline std::shared_ptr<Tensor> getExpertDown(
+    LLaDAMeta const *meta,
+    LLaDAWeights const *w,
+    size_t layer, size_t idev, size_t ndev) {
+    auto shape = std::vector<size_t>({meta->d});
+    auto di = meta->di_expert; // TODO: 具体di还要区分
+    auto d = meta->d;
+    size_t offset = 0;
+    if (w->transpose_linear_weights != 0) {
+        auto shape = std::vector<size_t>({meta->num_experts, di, d});
+        return Tensor::weight((char *)(w->expert_down[layer]) + offset,
+                              w->dt_mat, shape)
+            ->permute({1, 0});
+    } else {
+        auto shape = std::vector<size_t>({meta->num_experts, di, d});
+        return Tensor::weight((char *)(w->expert_down[layer]) + offset,
+                              w->dt_mat, shape);
     }
-
-    std::cout << "===== LLaDAMeta DEBUG =====" << std::endl;
-    std::cout << "meta pointer   = " << meta << std::endl;
-
-    std::cout << "dt_logits      = " << (int)meta->dt_logits << std::endl;
-    std::cout << "nlayer         = " << meta->nlayer << std::endl;
-    std::cout << "d              = " << meta->d << std::endl;
-    std::cout << "nh             = " << meta->nh << std::endl;
-    std::cout << "nkvh           = " << meta->nkvh << std::endl;
-    std::cout << "dh             = " << meta->dh << std::endl;
-
-    std::cout << "di_dense       = " << meta->di_dense << std::endl;
-    std::cout << "di_expert      = " << meta->di_expert << std::endl;
-
-    std::cout << "dctx           = " << meta->dctx << std::endl;
-    std::cout << "dvoc           = " << meta->dvoc << std::endl;
-
-    std::cout << "epsilon        = " << meta->epsilon << std::endl;
-    std::cout << "theta          = " << meta->theta << std::endl;
-
-    std::cout << "end_token      = " << meta->end_token << std::endl;
-    std::cout << "num_experts    = " << meta->num_experts << std::endl;
-
-    std::cout << "===========================" << std::endl;
 }
+
+
+
 
 inline std::shared_ptr<Tensor> getSinTable(LLaDAMeta const *meta) {
     std::cout << "Get Sin Table" << std::endl;
-    debugPrint(meta);
     auto half_dh = meta->dh / 2;
     auto unit = dsize(meta->dt_logits);
     void *table = std::malloc(meta->dctx * half_dh * unit);

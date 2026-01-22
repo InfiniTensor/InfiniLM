@@ -16,6 +16,15 @@ struct InferenceContext {
 
     void ensure_workspace(size_t required_size);
 
+
+    void topksoftmax(
+                std::shared_ptr<Tensor> values,  // F32
+                std::shared_ptr<Tensor> indices, // I32
+                std::shared_ptr<Tensor> x,
+                size_t topk,
+                bool norm
+            );
+            
     void add(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
@@ -37,6 +46,17 @@ struct InferenceContext {
               infiniopRoPEAlgo_t algo);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
+    
+    void BiAttention(   std::shared_ptr <Tensor> out,
+                        std::shared_ptr <Tensor> q,
+                        std::shared_ptr <Tensor>k,
+                        std::shared_ptr <Tensor> v,
+                        std::shared_ptr <Tensor> k_cache,
+                        std::shared_ptr <Tensor> v_cache,
+                        int pos);
+
+    void softmax(std::shared_ptr<Tensor> y,  
+             std::shared_ptr<Tensor> x, int dim); //新增
 
     void topkrouter(std::shared_ptr<Tensor> values,  // F32
                     std::shared_ptr<Tensor> indices, // I32
@@ -111,6 +131,20 @@ inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) 
     getInferenceContext().causalSoftmax(y, x);
 }
 
+inline void BiAttention(std::shared_ptr <Tensor> out,
+                        std::shared_ptr <Tensor> q,
+                        std::shared_ptr <Tensor>k,
+                        std::shared_ptr <Tensor> v,
+                        std::shared_ptr <Tensor> k_cache,
+                        std::shared_ptr <Tensor> v_cache,
+                        int pos){
+    getInferenceContext().BiAttention(out, q, k, v, k_cache, v_cache, pos);
+}
+
+inline void softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, int dim) {  
+    getInferenceContext().softmax(y, x, dim);  
+}
+
 inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
                        std::shared_ptr<Tensor> indices, // I32
                        std::shared_ptr<Tensor> x,
@@ -124,6 +158,18 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
                                      correction_bias, // F32
                                      routed_scaling_factor,
                                      topk);
+}
+
+inline void topksoftmax(std::shared_ptr<Tensor> values,  // F32
+                        std::shared_ptr<Tensor> indices, // I32
+                        std::shared_ptr<Tensor> x,
+                        size_t topk,
+                        bool norm) {
+    getInferenceContext().topksoftmax(values,
+                                     indices,
+                                     x,
+                                     topk,
+                                     norm);
 }
 
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,

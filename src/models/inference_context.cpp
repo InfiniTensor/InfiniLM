@@ -143,6 +143,77 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
                                      y->data(), x->data(), stream));
 }
 
+void InferenceContext::BiAttention(std::shared_ptr <Tensor> out,
+                                    std::shared_ptr <Tensor> q,
+                                    std::shared_ptr <Tensor> k,
+                                    std::shared_ptr <Tensor> v,
+                                    std::shared_ptr <Tensor> k_cache,
+                                    std::shared_ptr <Tensor> v_cache,
+                                    int pos){
+    size_t key = CacheManager::createDescriptorKey(out, q, k, v, k_cache, v_cache);
+    infiniopBiAttentionDescriptor_t desc;
+    if (!cache_manager->getBiAttentionDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateBiAttentionDescriptor(
+            op_handle, &desc, out->desc(), q->desc(), k->desc(), v->desc(), k_cache->desc(), v_cache->desc(), pos));
+        cache_manager->putBiAttentionDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetBiAttentionWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopBiAttention( desc, workspace, workspace_size,
+                                    out->data(), q->data(), k->data(), v->data(), k_cache->data(), v_cache->data(), stream ));
+
+}
+
+void InferenceContext::softmax(std::shared_ptr<Tensor> y,  
+                               std::shared_ptr<Tensor> x, int dim) {  
+    size_t key = CacheManager::createDescriptorKey(y, x);  
+  
+    infiniopSoftmaxDescriptor_t desc;  
+    if (!cache_manager->getSoftmaxDescriptor(key, desc)) {  
+        RUN_INFINI(infiniopCreateSoftmaxDescriptor(  
+            op_handle, &desc, y->desc(), x->desc(), dim));  
+        cache_manager->putSoftmaxDescriptor(key, desc);  
+    }  
+  
+    size_t workspace_size = 0;  
+    RUN_INFINI(infiniopGetSoftmaxWorkspaceSize(desc, &workspace_size));  
+    ensure_workspace(workspace_size);  
+    void *workspace = workspace_storage->memory();  
+  
+    RUN_INFINI(infiniopSoftmax(desc, workspace, workspace_size,  
+                                y->data(), x->data(), stream));  
+}
+
+void InferenceContext::topksoftmax(
+                                    std::shared_ptr<Tensor> values,  // F32
+                                    std::shared_ptr<Tensor> indices, // I32
+                                    std::shared_ptr<Tensor> x,
+                                    size_t topk,
+                                    bool norm
+                                 ){
+    size_t key = CacheManager::createDescriptorKey(values, indices, x);
+    hash_combine(key, std::hash<size_t>()(topk));
+    hash_combine(key, std::hash<bool>()(norm));
+
+    infiniopTopksoftmaxDescriptor_t desc;
+    if (!cache_manager->getTopksoftmaxDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateTopksoftmaxDescriptor(op_handle, &desc, x->desc()));
+        cache_manager->putTopksoftmaxDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetTopksoftmaxWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopTopksoftmax(desc, workspace, workspace_size,
+                                   values->data(), indices->data(), x->data(), topk, norm, stream));
+}
+
 void InferenceContext::topkrouter(std::shared_ptr<Tensor> values,  // F32
                                   std::shared_ptr<Tensor> indices, // I32
                                   std::shared_ptr<Tensor> x,

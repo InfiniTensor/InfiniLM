@@ -21,7 +21,12 @@ struct LLaDADeviceResource {
     std::shared_ptr<Tensor> w_in_embd, w_out_norm, w_out_embd, sin_table,
         cos_table;
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm,w_attn_out,
-        w_ffn_norm, w_ffn_gate_up, w_ffn_down;
+        w_ffn_norm;
+    std::vector<std::shared_ptr<Tensor>> w_expert_gate;
+    std::vector<std::shared_ptr<Tensor>> w_expert_up  ;
+    std::vector<std::shared_ptr<Tensor>> w_expert_down;
+    std::vector<std::shared_ptr<Tensor>> w_expert_router;
+    
     // Streams
     infinirtStream_t stream;
     // Communicator
@@ -31,7 +36,11 @@ struct LLaDADeviceResource {
 };
 
 struct InferState {
-
+    std::mutex mtx;
+    std::condition_variable cv_load, cv_start, cv_done;
+    bool loaded = false;
+    bool proceed = false;
+    bool exit_flag = false;
 };
 
 struct InferRequest {
@@ -50,6 +59,7 @@ struct InferRequest {
 
 struct LLaDAModel {
     LLaDAMeta meta;
+    const LLaDAWeights *weights;  // Add weights pointer
     infiniDevice_t device;
     std::vector<int> dev_ids;
     std::vector<LLaDADeviceResource> dev_resources;
@@ -59,6 +69,11 @@ struct LLaDAModel {
 
     LLaDAModel(const LLaDAMeta *, const LLaDAWeights *, infiniDevice_t device, std::vector<int> device_ids);
 };
+
+// Function declarations
+void launchDevice(const LLaDAMeta &meta, const LLaDAWeights *weights, LLaDADeviceResource *rsrc,
+                 InferState &state, InferRequest &req, infiniDevice_t device, int idev, int ndev,
+                 int dev_id, infinicclComm_t comm);
 
 
 #endif
