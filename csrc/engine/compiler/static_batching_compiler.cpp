@@ -15,6 +15,8 @@ void StaticBatchingCompiler::compile() {
         input.position_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::I64, infinicore::context::getDevice());
         input.past_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
         input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+        std::vector<int64_t> total_sequence_lengths_vec(b, 1);
+        infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int64_t), false);
         infinicore::context::startGraphRecording();
         auto output = model_->forward(input);
         auto graph = infinicore::context::stopGraphRecording();
