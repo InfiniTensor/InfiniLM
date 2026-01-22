@@ -12,9 +12,11 @@ namespace infinilm::engine {
 
 RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
-                       const cache::CacheConfig *cache_config)
+                       const cache::CacheConfig *cache_config,
+                       bool enable_graph_compiling)
     : model_config_(model_config),
       rank_info_(rank_info),
+      enable_graph_compiling_(enable_graph_compiling),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
@@ -179,6 +181,11 @@ void RankWorker::thread_loop() {
             if (!model_) {
                 throw std::runtime_error("Failed to create model");
             }
+            if (enable_graph_compiling_) {
+                compiler_ = std::make_unique<GeneralCompiler>(model_);
+                compiler_->compile();
+            }
+
             init_done_ = true;
         }
         cv_.notify_all();
@@ -244,9 +251,21 @@ void RankWorker::thread_loop() {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
 
-                        auto model_args = local_args.to_model_input(rank_info_.device);
-                        // Forward calculation
-                        auto logits{model_->forward(model_args).logits};
+                        infinicore::Tensor logits;
+                        // Try to get compiled graph
+                        if (compiler_ != nullptr) {
+                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
+                            if (graph != nullptr && output != nullptr) {
+                                graph->run();
+                                logits = output->logits;
+                            }
+                        }
+                        // Fall back to eager mode
+                        if (!logits) {
+                            auto model_args = local_args.to_model_input(rank_info_.device);
+                            logits = model_->forward(model_args).logits;
+                        }
+
                         // Random sampling (rank 0 only)
                         if (rank_info_.tp_rank == 0) {
                             auto temperature{local_args.temperature};
@@ -295,6 +314,9 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::RESET_CACHE) {
                 try {
                     model_->reset_cache(local_cache_config != nullptr ? local_cache_config.get() : nullptr);
+                    if (compiler_ != nullptr) {
+                        compiler_->compile();
+                    }
 
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

@@ -2,6 +2,7 @@
 
 #include "../cache/cache.hpp"
 #include "../models/model_factory.hpp"
+#include "compiler/general_compiler.hpp"
 #include "distributed/distributed.hpp"
 
 #include <any>
@@ -56,7 +57,8 @@ public:
 
     RankWorker(const InfinilmModel::Config &model_config,
                const distributed::RankInfo &rank_info,
-               const cache::CacheConfig *cache_config);
+               const cache::CacheConfig *cache_config,
+               bool enable_graph_compiling);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
@@ -91,6 +93,10 @@ private:
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
+
+    // Graph Compiling
+    bool enable_graph_compiling_;
+    std::unique_ptr<GraphCompiler> compiler_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;

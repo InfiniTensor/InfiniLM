@@ -22,7 +22,8 @@ public:
         const InfinilmModel::Config &config,
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
-        const cache::CacheConfig *cache_config = nullptr);
+        const cache::CacheConfig *cache_config = nullptr,
+        bool enable_graph_compiling = false);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);

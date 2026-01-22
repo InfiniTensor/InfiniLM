@@ -28,6 +28,7 @@ class InferEngine(_infinilm.InferEngine):
         device=None,
         distributed_config=DistConfig(1),
         cache_config=None,
+        enable_graph_compiling=False,
     ):
         self.config = AutoConfig.from_pretrained(model_path)
 
@@ -39,6 +40,7 @@ class InferEngine(_infinilm.InferEngine):
             distributed_config._underlying,
             device._underlying.type,
             cache_config,
+            enable_graph_compiling,
         )
 
         self.use_cache = False
