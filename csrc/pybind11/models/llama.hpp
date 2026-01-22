@@ -64,6 +64,7 @@ inline void bind_llama(py::module &m) {
         .def_readwrite("attention_output_bias", &LlamaConfig::attention_output_bias)
         .def_readwrite("mlp_bias", &LlamaConfig::mlp_bias)
         .def_readwrite("tie_word_embeddings", &LlamaConfig::tie_word_embeddings)
+        .def_readwrite("qk_norm", &LlamaConfig::qk_norm)
         .def_readwrite("use_cache", &LlamaConfig::use_cache)
         .def_readwrite("attention_dropout", &LlamaConfig::attention_dropout)
         .def_readwrite("initializer_range", &LlamaConfig::initializer_range)
@@ -196,6 +197,7 @@ inline void bind_llama(py::module &m) {
             dir_list.append("attention_output_bias");
             dir_list.append("mlp_bias");
             dir_list.append("tie_word_embeddings");
+            dir_list.append("qk_norm");
             dir_list.append("use_cache");
             dir_list.append("attention_dropout");
             dir_list.append("initializer_range");

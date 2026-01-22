@@ -29,6 +29,7 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
       kv_dim_(config.kv_dim()),
       use_bias_(config.attention_bias),
       use_output_bias_(config.attention_output_bias),
+      use_qk_norm_(config.qk_norm),
       max_position_embeddings_(config.max_position_embeddings), rank_info_(rank_info) {
     const auto &dtype{config.dtype};
 
@@ -50,8 +51,14 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
                              dtype, device, rank_info);
     // Output projection uses attention_output_bias (can be different from qkv)
-    INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
+    INFINICORE_NN_MODULE_INIT(o_proj, num_attention_heads * head_dim_, hidden_size_, use_output_bias_,
                               dtype, device, tp_rank, tp_size, rank_info.comm);
+
+    // Initialize qk RMSNorm
+    if (use_qk_norm_) {
+        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, config.rms_norm_eps, dtype, device);
+        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, config.rms_norm_eps, dtype, device);
+    }
 }
 
 infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_states,
@@ -67,6 +74,11 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
 
     // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+
+    if (use_qk_norm_) {
+        q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
+        k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
+    }
 
     // 2. Reshape for multi-head attention
     // Reshape Q, K, V to include batch dimension
@@ -186,6 +198,11 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
+
+    if (use_qk_norm_) {
+        q_reshaped = q_norm_->forward(q_reshaped);
+        k_reshaped = k_norm_->forward(k_reshaped);
+    }
 
     // 3. Prepare position_ids for RoPE - align with Python pattern
     auto pos_shape = position_ids->shape();
