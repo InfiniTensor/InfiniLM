@@ -14,7 +14,7 @@ public:
                                const infinicore::DataType &dtype = infinicore::DataType::F32,
                                const infinicore::Device &device = infinicore::Device(),
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                               std::optional<infinicore::nn::QuantConfig> quant_config = std::nullopt);
+                               std::optional<infinicore::nn::QuantScheme> quant_scheme = std::nullopt);
 
     // A more common case where all heads have the same dimension
     explicit QKVParallelLinear(size_t hidden_size,
@@ -24,7 +24,7 @@ public:
                                const infinicore::DataType &dtype = infinicore::DataType::F32,
                                const infinicore::Device &device = infinicore::Device(),
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                               std::optional<infinicore::nn::QuantConfig> quant_config = std::nullopt);
+                               std::optional<infinicore::nn::QuantScheme> quant_scheme = std::nullopt);
 
     std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
     forward_split(infinicore::Tensor &input);
@@ -65,12 +65,12 @@ public:
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                         std::optional<infinicore::nn::QuantConfig> quant_config = std::nullopt);
+                         std::optional<infinicore::nn::QuantScheme> quant_scheme = std::nullopt);
 
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                         std::optional<infinicore::nn::QuantConfig> quant_config = std::nullopt);
+                         std::optional<infinicore::nn::QuantScheme> quant_scheme = std::nullopt);
 
     std::tuple<infinicore::Tensor, infinicore::Tensor> forward_split(infinicore::Tensor &input);
 

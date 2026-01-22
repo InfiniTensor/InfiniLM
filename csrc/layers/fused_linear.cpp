@@ -14,13 +14,13 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      const infinicore::DataType &dtype,
                                      const infinicore::Device &device,
                                      engine::distributed::RankInfo rank_info,
-                                     std::optional<infinicore::nn::QuantConfig> quant_config)
+                                     std::optional<infinicore::nn::QuantScheme> quant_scheme)
     : QKVParallelLinear(hidden_size,
                         head_dim, head_dim, head_dim,
                         num_q_head, num_kv_head, num_kv_head,
                         bias, bias, bias,
                         dtype, device, rank_info,
-                        quant_config) {}
+                        quant_scheme) {}
 
 QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      size_t q_dim, size_t k_dim, size_t v_dim,
@@ -29,7 +29,7 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      const infinicore::DataType &dtype,
                                      const infinicore::Device &device,
                                      engine::distributed::RankInfo rank_info,
-                                     std::optional<infinicore::nn::QuantConfig> quant_config)
+                                     std::optional<infinicore::nn::QuantScheme> quant_scheme)
     : infinicore::nn::ColumnParallelLinear(
           hidden_size,
           num_q_head * q_dim + num_k_head * k_dim + num_v_head * v_dim,
@@ -38,7 +38,7 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
           device,
           rank_info.tp_rank,
           rank_info.tp_size,
-          quant_config),
+          quant_scheme),
       q_dim_(q_dim),
       k_dim_(k_dim),
       v_dim_(v_dim),
@@ -144,15 +144,15 @@ bool QKVParallelLinear::has_v_bias() const { return v_bias_; }
 GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool bias,
                                            const infinicore::DataType &dtype, const infinicore::Device &device,
                                            engine::distributed::RankInfo rank_info,
-                                           std::optional<infinicore::nn::QuantConfig> quant_config)
-    : GateUpParallelLinear(hidden_size, intermediate_size, bias, bias, dtype, device, rank_info, quant_config) {
+                                           std::optional<infinicore::nn::QuantScheme> quant_scheme)
+    : GateUpParallelLinear(hidden_size, intermediate_size, bias, bias, dtype, device, rank_info, quant_scheme) {
 }
 
 GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
                                            const infinicore::DataType &dtype, const infinicore::Device &device,
                                            engine::distributed::RankInfo rank_info,
-                                           std::optional<infinicore::nn::QuantConfig> quant_config)
-    : infinicore::nn::ColumnParallelLinear(hidden_size, intermediate_size * 2, gate_bias || up_bias, dtype, device, rank_info.tp_rank, rank_info.tp_size, quant_config), gate_bias_(gate_bias), up_bias_(up_bias) {
+                                           std::optional<infinicore::nn::QuantScheme> quant_scheme)
+    : infinicore::nn::ColumnParallelLinear(hidden_size, intermediate_size * 2, gate_bias || up_bias, dtype, device, rank_info.tp_rank, rank_info.tp_size, quant_scheme), gate_bias_(gate_bias), up_bias_(up_bias) {
     if (gate_bias_ != up_bias_) {
         throw std::runtime_error("Not supported yet: gate_bias and up_bias should be given at the same time");
     }
