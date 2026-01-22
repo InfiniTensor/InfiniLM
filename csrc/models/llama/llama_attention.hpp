@@ -7,6 +7,7 @@
 
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
+#include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
 #include "llama_config.hpp"
@@ -92,7 +93,8 @@ protected:
     // Projection layers
     INFINICORE_NN_MODULE(infinilm::layers::QKVParallelLinear, qkv_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
-
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
     engine::distributed::RankInfo rank_info_;
 
     // Shared Rotary Position Embeddings (RoPE)
@@ -107,6 +109,7 @@ private:
     size_t kv_dim_;
     bool use_bias_;                  // Bias for Q/K/V projections
     bool use_output_bias_;           // Bias for output projection (o_proj)
+    bool use_qk_norm_;               // Whether to use QK RMSNorm
     size_t max_position_embeddings_; // For cache initialization (deprecated, kept for compatibility)
 
     float scaling_;
