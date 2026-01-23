@@ -78,11 +78,17 @@ class LLMEngine:
         # Initialize device and dtype
         self._init_device()
 
+        # Initialize KV cache
+        cache_config = PagedKVCacheConfig(
+            num_blocks=config.num_blocks, block_size=config.block_size
+        )
+
         # Initialize model engine
         self.model_engine = InferEngine(
             model_path=config.model_path,
             device=self.device,
             distributed_config=DistConfig(config.tensor_parallel_size),
+            cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
         )
 
@@ -96,12 +102,6 @@ class LLMEngine:
             config.model_path, trust_remote_code=True
         )
         self._fix_tokenizer_decoder()
-
-        # Initialize KV cache
-        cache_config = PagedKVCacheConfig(
-            num_blocks=config.num_blocks, block_size=config.block_size
-        )
-        self.model_engine.reset_cache(cache_config)
 
         # Initialize scheduler
         self.scheduler = Scheduler(
