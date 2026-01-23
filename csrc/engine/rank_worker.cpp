@@ -13,6 +13,7 @@ namespace infinilm::engine {
 RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
                        const cache::CacheConfig *cache_config,
+                       RankBarrier *barrier,
                        bool enable_graph_compiling)
     : model_config_(model_config),
       rank_info_(rank_info),
@@ -21,7 +22,8 @@ RankWorker::RankWorker(const InfinilmModel::Config &model_config,
       has_job_(false),
       job_done_(false),
       should_exit_(false),
-      init_done_(false) {
+      init_done_(false),
+      barrier_(barrier) {
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
     }
@@ -115,6 +117,21 @@ void RankWorker::run(const Input &args) {
 }
 
 //------------------------------------------------------
+// compile -- asynchronous
+//------------------------------------------------------
+void RankWorker::compile() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker is closing; cannot run");
+    }
+
+    job_cmd_ = Command::COMPILE;
+    has_job_ = true;
+    job_done_ = false;
+    cv_.notify_all();
+}
+
+//------------------------------------------------------
 // wait -- asynchronous
 //------------------------------------------------------
 void RankWorker::wait() {
@@ -182,8 +199,7 @@ void RankWorker::thread_loop() {
                 throw std::runtime_error("Failed to create model");
             }
             if (enable_graph_compiling_) {
-                compiler_ = std::make_unique<GeneralCompiler>(model_);
-                compiler_->compile();
+                compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }
 
             init_done_ = true;
@@ -314,10 +330,6 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::RESET_CACHE) {
                 try {
                     model_->reset_cache(local_cache_config != nullptr ? local_cache_config.get() : nullptr);
-                    if (compiler_ != nullptr) {
-                        compiler_->compile();
-                    }
-
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
                         job_done_ = true;
@@ -332,6 +344,26 @@ void RankWorker::thread_loop() {
                     spdlog::error("[{}] exception during reset_cache: {}\n", info(), e.what());
                     break;
                 }
+            } else if (local_cmd == Command::COMPILE) {
+                try {
+                    if (compiler_ != nullptr) {
+                        compiler_->compile();
+                    }
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        job_done_ = true;
+                    }
+                    cv_.notify_all();
+
+                } catch (const std::exception &e) {
+                    std::lock_guard<std::mutex> lk(mutex_);
+                    should_exit_ = true;
+                    job_done_ = true;
+                    cv_.notify_all();
+                    spdlog::error("[{}] exception during compile: {}\n", info(), e.what());
+                    break;
+                }
+
             } else {
                 // Shouldn't reach here (no-op)
             }

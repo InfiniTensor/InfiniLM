@@ -3,8 +3,8 @@
 #include "../../cache/cache.hpp"
 
 namespace infinilm::engine {
-StaticBatchingCompiler::StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model)
-    : GraphCompiler(model) {
+StaticBatchingCompiler::StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
+    : GraphCompiler(model, barrier) {
 }
 
 void StaticBatchingCompiler::compile() {
@@ -17,9 +17,12 @@ void StaticBatchingCompiler::compile() {
         input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
         std::vector<int64_t> total_sequence_lengths_vec(b, 1);
         infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int64_t), false);
+
+        barrier_->wait();
         infinicore::context::startGraphRecording();
         auto output = model_->forward(input);
         auto graph = infinicore::context::stopGraphRecording();
+        barrier_->wait();
 
         auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
 

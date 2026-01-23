@@ -1,9 +1,9 @@
 #include "general_compiler.hpp"
 
 namespace infinilm::engine {
-GeneralCompiler::GeneralCompiler(const std::shared_ptr<InfinilmModel> &model) : GraphCompiler(model) {
-    static_batching_compiler_ = std::make_unique<StaticBatchingCompiler>(model_);
-    paged_compiler_ = std::make_unique<PagedCompiler>(model_);
+GeneralCompiler::GeneralCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier) : GraphCompiler(model, barrier) {
+    static_batching_compiler_ = std::make_unique<StaticBatchingCompiler>(model_, barrier);
+    paged_compiler_ = std::make_unique<PagedCompiler>(model_, barrier);
 }
 
 void GeneralCompiler::compile() {

@@ -6,7 +6,7 @@
 namespace infinilm::engine {
 class GeneralCompiler : public GraphCompiler {
 public:
-    GeneralCompiler(const std::shared_ptr<InfinilmModel> &model);
+    GeneralCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier);
 
     void compile() override;
 
