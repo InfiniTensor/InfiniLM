@@ -209,61 +209,58 @@ PagedKVCache::get_paged_kv(size_t layer_idx) {
     return {k_cache_layer, v_cache_layer};
 }
 
-std::tuple<infinicore::Tensor, infinicore::Tensor>
+std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>>
 PagedKVCache::get_contiguous_kv(
     size_t layer_idx,
     const infinicore::Tensor block_tables,
-    const infinicore::Tensor cache_lens,
-    const infinicore::Tensor input_offsets,
-    size_t request_id) {
+    const infinicore::Tensor total_kv_lens) {
     ASSERT_EQ(block_tables->dtype(), infinicore::DataType::I64);
-    ASSERT_EQ(cache_lens->dtype(), infinicore::DataType::I64);
-    ASSERT_EQ(input_offsets->dtype(), infinicore::DataType::I64);
+    ASSERT_EQ(total_kv_lens->dtype(), infinicore::DataType::I64);
 
     auto nreq = block_tables->size(0);
     auto block_tables_cpu = block_tables->to(infinicore::Device::cpu());
-    auto cache_lens_cpu = cache_lens->to(infinicore::Device::cpu());
-    auto input_offsets_cpu = input_offsets->to(infinicore::Device::cpu());
+    auto cache_lens_cpu = total_kv_lens->to(infinicore::Device::cpu());
     infinicore::context::syncDevice();
 
     // [num_blocks, num_rank_v_heads, block_size, v_dim]
     auto &&[k_cache_layer, v_cache_layer] = get_paged_kv(layer_idx);
+    auto results = std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>>(nreq);
 
-    auto req = request_id;
-    auto cache_lens_ptr = reinterpret_cast<const int64_t *>(cache_lens_cpu->data());
-    auto input_offsets_ptr = reinterpret_cast<const int64_t *>(input_offsets_cpu->data());
-    int64_t total_len = cache_lens_ptr[req] + (input_offsets_ptr[req + 1] - input_offsets_ptr[req]);
+    for (size_t req = 0; req < nreq; req++) {
+        auto cache_lens_ptr = reinterpret_cast<const int64_t *>(cache_lens_cpu->data());
+        int64_t total_len = cache_lens_ptr[req];
 
-    auto full_k = infinicore::Tensor::empty(
-        {num_rank_k_heads_, (size_t)total_len, k_dim_},
-        k_cache_layer->dtype(), k_cache_layer->device());
+        auto full_k = infinicore::Tensor::empty(
+            {num_rank_k_heads_, (size_t)total_len, k_dim_},
+            k_cache_layer->dtype(), k_cache_layer->device());
 
-    auto full_v = infinicore::Tensor::empty(
-        {num_rank_v_heads_, (size_t)total_len, v_dim_},
-        v_cache_layer->dtype(), v_cache_layer->device());
+        auto full_v = infinicore::Tensor::empty(
+            {num_rank_v_heads_, (size_t)total_len, v_dim_},
+            v_cache_layer->dtype(), v_cache_layer->device());
 
-    size_t nblocks = total_len / block_size_;
-    size_t r = total_len % block_size_;
+        size_t nblocks = total_len / block_size_;
+        size_t r = total_len % block_size_;
 
-    for (size_t b = 0; b < nblocks; b++) {
-        size_t bid = *((int64_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, b, 1}})->data()));
+        for (size_t b = 0; b < nblocks; b++) {
+            size_t bid = *((int64_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, b, 1}})->data()));
 
-        full_k->narrow({{1, b * block_size_, block_size_}})
-            ->copy_from(k_cache_layer->narrow({{0, bid, 1}})->squeeze(0));
-        full_v->narrow({{1, b * block_size_, block_size_}})
-            ->copy_from(v_cache_layer->narrow({{0, bid, 1}})->squeeze(0));
+            full_k->narrow({{1, b * block_size_, block_size_}})
+                ->copy_from(k_cache_layer->narrow({{0, bid, 1}})->squeeze(0));
+            full_v->narrow({{1, b * block_size_, block_size_}})
+                ->copy_from(v_cache_layer->narrow({{0, bid, 1}})->squeeze(0));
+        }
+
+        if (r > 0) {
+            size_t bid = *((int64_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, nblocks, 1}})->data()));
+            full_k->narrow({{1, nblocks * block_size_, r}})
+                ->copy_from(k_cache_layer->narrow({{0, bid, 1}})->squeeze(0)->narrow({{1, 0, r}}));
+            full_v->narrow({{1, nblocks * block_size_, r}})
+                ->copy_from(v_cache_layer->narrow({{0, bid, 1}})->squeeze(0)->narrow({{1, 0, r}}));
+        }
+        results[req] = {full_k, full_v};
     }
 
-    if (r > 0) {
-        size_t bid = *((int64_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, nblocks, 1}})->data()));
-
-        full_k->narrow({{1, nblocks * block_size_, r}})
-            ->copy_from(k_cache_layer->narrow({{0, bid, 1}})->squeeze(0)->narrow({{1, 0, r}}));
-        full_v->narrow({{1, nblocks * block_size_, r}})
-            ->copy_from(v_cache_layer->narrow({{0, bid, 1}})->squeeze(0)->narrow({{1, 0, r}}));
-    }
-
-    return {full_k, full_v};
+    return results;
 }
 
 } // namespace infinilm::cache

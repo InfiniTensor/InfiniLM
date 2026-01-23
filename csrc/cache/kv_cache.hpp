@@ -154,12 +154,10 @@ public:
      *         full_k: [num_rank_k_heads, total_len, k_dim]
      *         full_v: [num_rank_v_heads, total_len, v_dim]
      */
-    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>>
     get_contiguous_kv(size_t layer_idx,
                       const infinicore::Tensor block_tables,
-                      const infinicore::Tensor cache_lens,
-                      const infinicore::Tensor input_offsets,
-                      size_t request_id = 0);
+                      const infinicore::Tensor total_kv_lens);
 
     ~PagedKVCache() override
         = default;

@@ -214,16 +214,48 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
 
     if (is_prefill) {
-        infinicore::op::paged_attention_prefill_(
-            attn_output,
-            q_reshaped,
-            k_total,
-            v_total,
-            block_tables.value(),
-            total_sequence_lengths.value(),
-            input_offsets.value(),
-            std::nullopt,
-            scaling_);
+        // infinicore::op::paged_attention_prefill_(
+        //     attn_output,
+        //     q_reshaped,
+        //     k_total,
+        //     v_total,
+        //     block_tables.value(),
+        //     total_sequence_lengths.value(),
+        //     input_offsets.value(),
+        //     std::nullopt,
+        //     scaling_);
+
+        auto nreq = total_sequence_lengths.value()->shape()[0];
+        auto input_offsets_cpu = input_offsets.value()->to(infinicore::Device::cpu());
+        auto input_offsets_data = reinterpret_cast<int64_t *>(input_offsets_cpu->data());
+        auto kv_caches = paged_kv_cache->get_contiguous_kv(layer_idx_, block_tables.value(), total_sequence_lengths.value());
+
+        for (size_t req = 0; req < nreq; req++) {
+            auto [k_req, v_req] = kv_caches[req];
+            size_t total_seq_len = k_req->size(1);
+            size_t seq_len_req = input_offsets_data[req + 1] - input_offsets_data[req];
+
+            size_t ngroup = num_attention_heads_ / num_key_value_heads_;
+            auto Q = q_reshaped->narrow({{0, size_t(input_offsets_data[req]), seq_len_req}})->permute({1, 0, 2})->contiguous();
+
+            Q = Q->view({num_key_value_heads_, ngroup * seq_len_req, head_dim_});
+
+            auto K = k_req->view({num_key_value_heads_, total_seq_len, head_dim_});
+            auto V = v_req->view({num_key_value_heads_, total_seq_len, head_dim_});
+
+            auto K_transposed = K->permute({0, 2, 1});                            // [n_kv_head, head_dim, total_seq_len]
+            auto attn_weight = infinicore::op::matmul(Q, K_transposed, scaling_); // [n_kv_head, ng * seq_len, total_seq_len]
+
+            auto attn_weight_softmax = attn_weight->view({batch_size * num_attention_heads_, seq_len_req, total_seq_len});
+
+            infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
+
+            auto out = infinicore::op::matmul(attn_weight, V); // [n_kv_head, ng * seq_len, head_dim]
+
+            out = out->view({num_attention_heads_, seq_len_req, head_dim_})->permute({1, 0, 2});
+
+            attn_output->narrow({{0, size_t(input_offsets_data[req]), seq_len_req}})->copy_from(out); // [bs, seq_len, n_q_head * head_dim]
+        }
 
     } else {
         infinicore::op::paged_attention_(
