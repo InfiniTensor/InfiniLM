@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../cache/cache.hpp"
+#include "../cache/kv_compression.hpp"
 #include "../models/model_factory.hpp"
 #include "distributed/distributed.hpp"
 
@@ -19,6 +20,7 @@ class RankWorker {
         LOAD,
         RUN,
         RESET_CACHE,
+        COMPRESS_CACHE,
         STOP
     };
 
@@ -26,6 +28,8 @@ public:
     struct Input {
         /// Token IDs tensor of shape `[batch, seq_len]`.
         std::optional<infinicore::Tensor> input_ids;
+        /// Image pixel values for multi-modal models.
+        std::optional<infinicore::Tensor> pixel_values;
         /// Position IDs tensor of shape `[batch, seq_len]` or `[seq_len]`.
         std::optional<infinicore::Tensor> position_ids;
         /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
@@ -38,6 +42,10 @@ public:
         std::optional<infinicore::Tensor> block_tables;
         /// Slot ids for each token `[seq]`. Used for paged cache.
         std::optional<infinicore::Tensor> slot_mapping;
+        /// Image placeholder bounds for MiniCPM-V style replacement.
+        std::optional<infinicore::Tensor> image_bound;
+        /// Target patch sizes for each image (MiniCPM-V).
+        std::optional<infinicore::Tensor> tgt_sizes;
 
         float temperature{1};
 
@@ -70,6 +78,11 @@ public:
 
     // Reset the internal cache with a new configuration
     void reset_cache(const cache::CacheConfig *new_config);
+
+    // Compress KV cache in-place (static cache only).
+    uint32_t compress_kv_cache_inplace(uint32_t seq_len,
+                                       size_t batch_size,
+                                       const cache::KVCompressionConfig &cfg);
 
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
@@ -106,9 +119,13 @@ private:
     infinicore::Tensor pending_param_;
     Input pending_args_;
     std::unique_ptr<cache::CacheConfig> pending_cache_config_;
+    cache::KVCompressionConfig pending_compress_cfg_;
+    uint32_t pending_compress_seq_len_{0};
+    size_t pending_compress_batch_size_{0};
 
     // Output (protected by mutex)
     Output output_;
+    uint32_t compress_result_{0};
 
     // Thread sync
     std::thread thread_;

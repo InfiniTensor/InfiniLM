@@ -1,4 +1,5 @@
 #include "kv_cache.hpp"
+#include "kv_compression.hpp"
 
 #include "../utils.hpp"
 #include "infinicore/ops.hpp"
@@ -105,6 +106,12 @@ StaticKVCache::update(size_t layer_idx,
     auto v_total = v_cache_layer->narrow({{2, 0, result_len}});
 
     return {k_total, v_total};
+}
+
+uint32_t StaticKVCache::compress_inplace(uint32_t seq_len,
+                                         size_t batch_size,
+                                         const KVCompressionConfig &cfg) {
+    return compress_kv_cache_inplace(*this, seq_len, batch_size, cfg);
 }
 
 // ==========================

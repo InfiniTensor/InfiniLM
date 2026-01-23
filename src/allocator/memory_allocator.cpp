@@ -111,18 +111,27 @@ void MemoryPool::tryCoalesce(const Block &block) {
     auto prev = (it == _all_blocks.begin()) ? _all_blocks.end() : std::prev(it);
 
     _all_blocks.erase(it);
-    _free_blocks.erase(merged.size);
+
+    auto erase_free_entry = [&](std::set<Block>::iterator blk_it) {
+        auto range = _free_blocks.equal_range(blk_it->size);
+        for (auto mit = range.first; mit != range.second; ++mit) {
+            if (mit->second == blk_it) {
+                _free_blocks.erase(mit);
+                return;
+            }
+        }
+    };
 
     // Coalesce with next
     if (next != _all_blocks.end() && next->is_free && static_cast<char *>(merged.ptr) + merged.size == next->ptr) {
-        _free_blocks.erase(next->size);
+        erase_free_entry(next);
         merged.size += next->size;
         _all_blocks.erase(next);
     }
 
     // Coalesce with prev
     if (prev != _all_blocks.end() && prev->is_free && static_cast<char *>(prev->ptr) + prev->size == merged.ptr) {
-        _free_blocks.erase(prev->size);
+        erase_free_entry(prev);
         merged.ptr = prev->ptr;
         merged.size += prev->size;
         merged.base = prev->base;

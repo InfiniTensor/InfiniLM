@@ -9,12 +9,18 @@ add_includedirs("third_party/spdlog/include")
 
 target("infinicore_infer")
     set_kind("shared")
+    set_symbols("debug")
 
     add_includedirs("include", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })
 
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infiniop", "infinirt", "infiniccl")
+    if not is_plat("windows") then
+        -- Allow loading libinfinicore_infer.so via absolute path (e.g. ctypes.CDLL)
+        -- without requiring LD_LIBRARY_PATH for transitive deps in the same directory.
+        add_shflags("-Wl,-rpath,$ORIGIN", {force = true})
+    end
 
     set_languages("cxx17")
     set_warnings("all", "error")
@@ -29,6 +35,9 @@ target("infinicore_infer")
 
     set_installdir(INFINI_ROOT)
     add_installfiles("include/infinicore_infer.h", {prefixdir = "include"})
+    add_installfiles("include/infinicore_infer/cache.h", {prefixdir = "include/infinicore_infer"})
+    add_installfiles("include/infinicore_infer/kv_compression.h", {prefixdir = "include/infinicore_infer"})
+    add_installfiles("include/infinicore_infer/weights_loader.h", {prefixdir = "include/infinicore_infer"})
     add_installfiles("include/infinicore_infer/models/*.h", {prefixdir = "include/infinicore_infer/models"})
 target_end()
 

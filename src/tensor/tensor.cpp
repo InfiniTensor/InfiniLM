@@ -279,7 +279,7 @@ std::string Tensor::info() const {
        << this->_desc->info()
        << " device=" << this->deviceType()
        << " device_id=" << this->deviceId();
-    return this->_desc->info();
+    return ss.str();
 }
 
 size_t Tensor::seed() const {
@@ -424,3 +424,78 @@ void Tensor::debug(const std::string &filename) const {
 }
 
 void Tensor::debug() const { this->debug(""); }
+
+namespace {
+template <typename T>
+void print_first_n(const T *data, size_t total_elements, size_t n) {
+    size_t elements_to_print = std::min(total_elements, n);
+    for (size_t i = 0; i < elements_to_print; ++i) {
+        std::cout << data[i] << " ";
+    }
+    std::cout << std::endl;
+}
+} // namespace
+
+void Tensor::debug_first_n(size_t n) const {
+    RUN_INFINI(infinirtDeviceSynchronize());
+
+    void const *cpu_data;
+    void *allocated_memory = nullptr;
+
+    if (this->deviceType() != INFINI_DEVICE_CPU) {
+        allocated_memory = std::malloc(this->_storage->size());
+        RUN_INFINI(infinirtMemcpy(allocated_memory, this->_storage->memory(),
+                                  this->_storage->size(), INFINIRT_MEMCPY_D2H));
+        cpu_data = allocated_memory;
+    } else {
+        cpu_data = this->_storage->memory();
+    }
+
+    size_t total_elements = numel();
+    const char *data_ptr = static_cast<const char *>(cpu_data) + dataOffset();
+
+    switch (this->dtype()) {
+    case INFINI_DTYPE_F16: {
+        size_t elements_to_print = std::min(total_elements, n);
+        auto *p = reinterpret_cast<const uint16_t *>(data_ptr);
+        for (size_t i = 0; i < elements_to_print; ++i) {
+            std::cout << f16_to_f32(p[i]) << " ";
+        }
+        std::cout << std::endl;
+        break;
+    }
+    case INFINI_DTYPE_BF16: {
+        size_t elements_to_print = std::min(total_elements, n);
+        auto *p = reinterpret_cast<const uint16_t *>(data_ptr);
+        for (size_t i = 0; i < elements_to_print; ++i) {
+            std::cout << bf16_to_f32(p[i]) << " ";
+        }
+        std::cout << std::endl;
+        break;
+    }
+    case INFINI_DTYPE_F32:
+        print_first_n(reinterpret_cast<const float *>(data_ptr), total_elements, n);
+        break;
+    case INFINI_DTYPE_U64:
+        print_first_n(reinterpret_cast<const uint64_t *>(data_ptr), total_elements, n);
+        break;
+    case INFINI_DTYPE_I64:
+        print_first_n(reinterpret_cast<const int64_t *>(data_ptr), total_elements, n);
+        break;
+    case INFINI_DTYPE_U32:
+        print_first_n(reinterpret_cast<const uint32_t *>(data_ptr), total_elements, n);
+        break;
+    case INFINI_DTYPE_I32:
+        print_first_n(reinterpret_cast<const int32_t *>(data_ptr), total_elements, n);
+        break;
+    default:
+        if (allocated_memory) {
+            std::free(allocated_memory);
+        }
+        PANIC("Unsupported data type");
+    }
+
+    if (allocated_memory) {
+        std::free(allocated_memory);
+    }
+}

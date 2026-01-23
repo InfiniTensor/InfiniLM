@@ -1,4 +1,5 @@
 #include "../../cache/cache.hpp"
+#include "../../cache/kv_compression.hpp"
 #include "infinicore/tensor.hpp"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -46,6 +47,17 @@ inline void bind_cache(py::module &m) {
             &infinilm::cache::PagedKVCacheConfig::block_size)
         .def("__repr__", [](const infinilm::cache::PagedKVCacheConfig &) {
             return "<PagedKVCacheConfig>";
+        });
+
+    py::class_<infinilm::cache::KVCompressionConfig>(m, "KVCompressionConfig")
+        .def(py::init<>())
+        .def_readwrite("enable", &infinilm::cache::KVCompressionConfig::enable)
+        .def_readwrite("compression_factor", &infinilm::cache::KVCompressionConfig::compression_factor)
+        .def_readwrite("min_seq_len", &infinilm::cache::KVCompressionConfig::min_seq_len)
+        .def_readwrite("image_kv_len", &infinilm::cache::KVCompressionConfig::image_kv_len)
+        .def_readwrite("weight_path", &infinilm::cache::KVCompressionConfig::weight_path)
+        .def("__repr__", [](const infinilm::cache::KVCompressionConfig &) {
+            return "<KVCompressionConfig>";
         });
 }
 

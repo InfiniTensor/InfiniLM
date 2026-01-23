@@ -42,6 +42,12 @@ public:
 
     void reset_cache(const cache::CacheConfig *cache_config) override;
 
+    infinicore::Tensor logits_from_hidden(const infinicore::Tensor &hidden_states) const;
+
+    uint32_t compress_kv_cache_inplace(uint32_t seq_len,
+                                       size_t batch_size,
+                                       const cache::KVCompressionConfig &cfg) override;
+
     // Module information
     const LlamaConfig &config() const { return model_->config(); }
     LlamaModel &model() { return *model_; }

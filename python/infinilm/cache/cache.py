@@ -24,3 +24,20 @@ class PagedKVCacheConfig(CacheConfig, _infinilm.PagedKVCacheConfig):
             num_blocks,
             block_size,
         )
+
+
+class KVCompressionConfig(_infinilm.KVCompressionConfig):
+    def __init__(
+        self,
+        enable: bool = False,
+        compression_factor: int = 1,
+        min_seq_len: int = 0,
+        image_kv_len: int = 0,
+        weight_path: str = "",
+    ):
+        _infinilm.KVCompressionConfig.__init__(self)
+        self.enable = enable
+        self.compression_factor = compression_factor
+        self.min_seq_len = min_seq_len
+        self.image_kv_len = image_kv_len
+        self.weight_path = weight_path

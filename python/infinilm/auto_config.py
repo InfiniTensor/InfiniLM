@@ -2,6 +2,8 @@ import json
 import os
 
 from infinilm.models.llama.configuration_llama import LlamaConfig
+from infinilm.models.llava.configuration_llava import LlavaConfig
+from infinilm.models.minicpmv.configuration_minicpmv import MiniCPMVConfig
 
 
 class AutoConfig:
@@ -25,5 +27,9 @@ class AutoConfig:
             config_dict["model_type"] == "qwen2" or config_dict["model_type"] == "qwen3"
         ):
             return LlamaConfig(**config_dict)
+        elif config_dict["model_type"] == "llava":
+            return LlavaConfig(**config_dict)
+        elif config_dict["model_type"] == "minicpmv":
+            return MiniCPMVConfig(**config_dict)
 
         raise ValueError(f"Unsupported model type `{config_dict['model_type']}`.")
