@@ -50,6 +50,8 @@ class EngineConfig:
         temperature: Default sampling temperature.
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
+        enable_paged_attn: Whether to enable paged attention.
+        enable_graph: Whether to enable graph compiling.
     """
 
     model_path: str
@@ -63,6 +65,8 @@ class EngineConfig:
     temperature: float = 1.0
     top_p: float = 0.8
     top_k: int = 1
+    # enable_paged_attn: bool = False
+    enable_graph: bool = False
 
 
 class LLMEngine:
@@ -79,6 +83,7 @@ class LLMEngine:
             model_path=config.model_path,
             device=self.device,
             distributed_config=DistConfig(config.tensor_parallel_size),
+            enable_graph_compiling=config.enable_graph,
         )
 
         # Load model weights
@@ -112,7 +117,9 @@ class LLMEngine:
 
         logger.info(
             f"LLMEngine initialized with model at {config.model_path} "
-            f"on device {config.device}"
+            f"on device {config.device}, "
+            # f"enable_paged_attn={config.enable_paged_attn}, "
+            f"enable_graph={config.enable_graph}"
         )
 
     def _init_device(self):
@@ -339,6 +346,8 @@ class LLM:
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
+        # enable_paged_attn: bool = False,
+        enable_graph: bool = False,
     ):
         """Initialize LLM.
 
@@ -354,6 +363,8 @@ class LLM:
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
+            enable_paged_attn: Whether to enable paged attention.
+            enable_graph: Whether to enable graph compiling.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -367,6 +378,8 @@ class LLM:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            # enable_paged_attn=enable_paged_attn,
+            enable_graph=enable_graph,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -483,6 +496,8 @@ class AsyncLLMEngine:
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
+        # enable_paged_attn: bool = False,
+        enable_graph: bool = False,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -498,6 +513,8 @@ class AsyncLLMEngine:
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
+            enable_paged_attn: Whether to enable paged attention.
+            enable_graph: Whether to enable graph compiling.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -511,6 +528,8 @@ class AsyncLLMEngine:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            # enable_paged_attn=enable_paged_attn,
+            enable_graph=enable_graph,
         )
         self.engine = LLMEngine(config)
         self.config = config
