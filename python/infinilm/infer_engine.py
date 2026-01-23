@@ -225,11 +225,11 @@ class InferEngine(_infinilm.InferEngine):
                 f" Batchsize={initial_batch_size}  Per_Batch_Input_Len={initial_seqlen}  Per_Batch_New_Tokens={len(time_measurements)}\n"
             )
             print(
-                f" Prefill TTFT: {round(time_measurements[0], 2)}ms  Throughput: {round((initial_batch_size * initial_seqlen) / time_measurements[0], 2)}tok/s\n",
+                f" Prefill TTFT: {round(time_measurements[0] * 1000, 2)} ms  Throughput: {round((initial_batch_size * initial_seqlen) / time_measurements[0], 2)} tok/s\n",
             )
             if len(time_measurements) > 1:
                 print(
-                    f" Decode  Avg ITL: {round(sum(time_measurements[1:]) * 1000 / (len(time_measurements) - 1), 2)}ms   Throughput: {round((initial_batch_size * (len(time_measurements) - 1)) / sum(time_measurements[1:]), 2)}tok/s\n",
+                    f" Decode  Avg ITL: {round(sum(time_measurements[1:]) * 1000 / (len(time_measurements) - 1), 2)} ms   Throughput: {round((initial_batch_size * (len(time_measurements) - 1)) / sum(time_measurements[1:]), 2)} tok/s\n",
                 )
 
         return output_ids
