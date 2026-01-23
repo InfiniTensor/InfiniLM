@@ -62,16 +62,18 @@ class InfiniLMBenchmark(BaseBenchmark):
         self.benchmark = benchmark
 
         # Map device type string to infinicore device
+        # Note: These map to the Python device type strings used by infinicore.device()
+        # which correspond to _TORCH_DEVICE_MAP values in InfiniCore/python/infinicore/device.py
         device_map = {
             "cpu": "cpu",
             "nvidia": "cuda",
             "cambricon": "mlu",
-            "ascend": "ascend",
-            "metax": "metax",
-            "moore": "moore",
-            "iluvatar": "iluvatar",
-            "kunlun": "kunlun",
-            "hygon": "hygon",
+            "ascend": "npu",
+            "metax": "cuda",
+            "moore": "musa",
+            "iluvatar": "cuda",
+            "kunlun": "cuda",
+            "hygon": "cuda",
         }
 
         device_name = device_map.get(device_type_str.lower(), "cpu")
@@ -179,6 +181,13 @@ class InfiniLMBenchmark(BaseBenchmark):
         input_ids = infinicore.from_list(input_ids_list)
 
         start_time = time.perf_counter()
+
+        # For cpp backend, reset cache before generation if use_cache is enabled
+        if self.model.use_cache and hasattr(self.model, "_model") and hasattr(self.model._model, "reset_cache"):
+            batch_size = input_ids.shape[0]
+            seq_len = input_ids.shape[1]
+            max_cache_len = max_steps + seq_len
+            self.model.reset_cache(batch_size=batch_size, initial_capacity=max_cache_len)
 
         # Use model's built-in generate() method which properly handles KV cache
         # Pass sampling parameters (temperature, topk, topp) via kwargs
