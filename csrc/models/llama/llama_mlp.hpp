@@ -34,8 +34,7 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaMLP(const LlamaConfig &config,
-             const infinicore::Device &device,
+    LlamaMLP(const infinicore::Device &device,
              engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
              std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
 

@@ -17,29 +17,28 @@
 
 namespace infinilm::models::llama {
 
-LlamaAttention::LlamaAttention(const LlamaConfig &config,
-                               const infinicore::Device &device,
+LlamaAttention::LlamaAttention(const infinicore::Device &device,
                                size_t layer_idx,
                                engine::distributed::RankInfo rank_info,
                                std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
     : layer_idx_(layer_idx),
-      hidden_size_(config.hidden_size),
-      num_attention_heads_(config.num_attention_heads),
-      num_key_value_heads_(config.num_key_value_heads),
-      head_dim_(config.head_dim),
-      kv_dim_(config.kv_dim()),
-      use_bias_(config.attention_bias),
-      use_output_bias_(config.attention_output_bias),
-      max_position_embeddings_(config.max_position_embeddings),
+      hidden_size_(global_config->get<size_t>("hidden_size")),
+      num_attention_heads_(global_config->get<size_t>("num_attention_heads")),
+      num_key_value_heads_(global_config->get<size_t>("num_key_value_heads")),
+      head_dim_(global_config->get_head_dim()),
+      kv_dim_(global_config->get_kv_dim()),
+      use_bias_(global_config->get_or<bool>("attention_bias", true)),
+      use_output_bias_(global_config->get_or<bool>("attention_output_bias", false)),
+      max_position_embeddings_(global_config->get<size_t>("max_position_embeddings")),
       rank_info_(rank_info),
       global_config_(global_config) {
-    const auto &dtype{config.dtype};
+    const auto &dtype{global_config_->get_dtype()};
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
 
-    int num_attention_heads = config.num_attention_heads;
-    int num_key_value_heads = config.num_key_value_heads;
+    int num_attention_heads = global_config_->get<size_t>("num_attention_heads");
+    int num_key_value_heads = global_config_->get<size_t>("num_key_value_heads");
 
     if ((num_key_value_heads >= tp_size) && (0 == (num_key_value_heads % tp_size))) {
         this->num_attention_heads_ = num_attention_heads / tp_size;
@@ -52,7 +51,7 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     auto quant_scheme = this->global_config_->get_quant_scheme();
     switch (quant_scheme) {
     case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
-        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
+        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, global_config_->get<size_t>("num_attention_heads"), global_config_->get<size_t>("num_key_value_heads"), use_bias_,
                                       dtype, device, rank_info, quant_scheme);
 
         INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
@@ -60,7 +59,7 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
         break;
 
     default:
-        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
+        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, global_config_->get<size_t>("num_attention_heads"), global_config_->get<size_t>("num_key_value_heads"), use_bias_,
                                  dtype, device, rank_info);
 
         INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
