@@ -68,24 +68,22 @@ void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
     }
     if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
         kv_cache_ = std::make_shared<cache::StaticKVCache>(
-            global_config_->get<size_t>("hidden_size") / global_config_->get<size_t>("num_attention_heads"),
-            global_config_->get<size_t>("hidden_size") / global_config_->get<size_t>("num_attention_heads"),
+            global_config_->get_head_dim(),
+            global_config_->get_head_dim(),
             global_config_->get<size_t>("num_key_value_heads"),
             global_config_->get<size_t>("num_key_value_heads"),
             global_config_->get<size_t>("num_hidden_layers"),
             global_config_->get<size_t>("max_position_embeddings"),
-            // config_.dtype,
             global_config_->get_dtype(),
             *kv_cache_config,
             rank_info_);
     } else if (auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config)) {
         kv_cache_ = std::make_shared<cache::PagedKVCache>(
-            global_config_->get<size_t>("hidden_size") / global_config_->get<size_t>("num_attention_heads"),
-            global_config_->get<size_t>("hidden_size") / global_config_->get<size_t>("num_attention_heads"),
+            global_config_->get_head_dim(),
+            global_config_->get_head_dim(),
             global_config_->get<size_t>("num_key_value_heads"),
             global_config_->get<size_t>("num_key_value_heads"),
             global_config_->get<size_t>("num_hidden_layers"),
-            // config_.dtype,
             global_config_->get_dtype(),
             *paged_kv_cache_config,
             rank_info_);

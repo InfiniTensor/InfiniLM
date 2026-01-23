@@ -46,6 +46,9 @@ public:
         return get<size_t>("hidden_size") * get<size_t>("num_key_value_heads") / get<size_t>("num_attention_heads");
     }
     size_t get_head_dim() const {
+        if (config_json.contains("head_dim")) {
+            return get<size_t>("head_dim");
+        }
         return get<size_t>("hidden_size") / get<size_t>("num_attention_heads");
     }
 

@@ -110,7 +110,6 @@ private:
     size_t kv_dim_;
     bool use_bias_;                  // Bias for Q/K/V projections
     bool use_output_bias_;           // Bias for output projection (o_proj)
-    bool use_qk_norm_;               // Whether to use QK RMSNorm
     size_t max_position_embeddings_; // For cache initialization (deprecated, kept for compatibility)
 
     float scaling_;
