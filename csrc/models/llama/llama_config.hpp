@@ -93,8 +93,6 @@ struct LlamaConfig : public InfinilmModel::Config {
         }
         return true;
     }
-
-    nlohmann::json config_json;
 };
 
 } // namespace infinilm::models::llama

@@ -6,22 +6,21 @@
 
 namespace infinilm::models::llama {
 
-LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
-                                     const infinicore::Device &device,
+LlamaDecoderLayer::LlamaDecoderLayer(const infinicore::Device &device,
                                      size_t layer_idx,
                                      engine::distributed::RankInfo rank_info,
                                      std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config) : layer_idx_(layer_idx), rank_info_(rank_info), global_config_(global_config) {
-    const auto &dtype{config.dtype};
+    const auto &dtype{global_config_->get_dtype()};
 
     // Initialize layer normalization layers
-    INFINICORE_NN_MODULE_INIT(input_layernorm, config.hidden_size, config.rms_norm_eps,
+    INFINICORE_NN_MODULE_INIT(input_layernorm, global_config_->get<size_t>("hidden_size"), global_config_->get<double>("rms_norm_eps"),
                               dtype, device);
-    INFINICORE_NN_MODULE_INIT(post_attention_layernorm, config.hidden_size, config.rms_norm_eps,
+    INFINICORE_NN_MODULE_INIT(post_attention_layernorm, global_config_->get<size_t>("hidden_size"), global_config_->get<double>("rms_norm_eps"),
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, rank_info_, global_config);
-    INFINICORE_NN_MODULE_INIT(mlp, config, device, rank_info_, global_config);
+    INFINICORE_NN_MODULE_INIT(self_attn, device, layer_idx, rank_info_, global_config);
+    INFINICORE_NN_MODULE_INIT(mlp, device, rank_info_, global_config);
 }
 
 infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_states,

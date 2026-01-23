@@ -10,12 +10,11 @@
 
 namespace infinilm::engine {
 
-RankWorker::RankWorker(const InfinilmModel::Config &model_config,
-                       const distributed::RankInfo &rank_info,
-                       const cache::CacheConfig *cache_config,
-                       std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
-    : model_config_(model_config),
-      rank_info_(rank_info),
+RankWorker::RankWorker(
+    const distributed::RankInfo &rank_info,
+    const cache::CacheConfig *cache_config,
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
+    : rank_info_(rank_info),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
@@ -176,7 +175,7 @@ void RankWorker::thread_loop() {
             infinicore::context::setDevice(rank_info_.device);
 
             // Create model using factory (may be expensive)
-            model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr, global_config_);
+            model_ = InfinilmModelFactory::createModel(rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr, global_config_);
             if (!model_) {
                 throw std::runtime_error("Failed to create model");
             }

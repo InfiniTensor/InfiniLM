@@ -20,7 +20,6 @@ public:
 
     // Updated constructor: accept CacheConfig instead of CacheType
     InferEngine(
-        const InfinilmModel::Config &config,
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
         const cache::CacheConfig *cache_config = nullptr,
@@ -47,7 +46,7 @@ public:
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     distributed::CommunicationGroup communication_group_;
-    const InfinilmModel::Config &model_config_;
+    // const InfinilmModel::Config &model_config_;
     std::unique_ptr<cache::CacheConfig> cache_config_;
     std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 };

@@ -5,14 +5,13 @@
 
 namespace infinilm::models::llama {
 
-LlamaMLP::LlamaMLP(const LlamaConfig &config,
-                   const infinicore::Device &device,
+LlamaMLP::LlamaMLP(const infinicore::Device &device,
                    engine::distributed::RankInfo rank_info,
                    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
-    : hidden_size_(config.hidden_size),
-      intermediate_size_(config.intermediate_size),
-      use_bias_(config.mlp_bias), rank_info_(rank_info), global_config_(global_config) {
-    const auto &dtype{config.dtype};
+    : hidden_size_(global_config->get<size_t>("hidden_size")),
+      intermediate_size_(global_config->get<size_t>("intermediate_size")),
+      use_bias_(global_config->get_or<bool>("mlp_bias", false)), rank_info_(rank_info), global_config_(global_config) {
+    const auto &dtype{global_config_->get_dtype()};
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;

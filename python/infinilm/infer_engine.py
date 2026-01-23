@@ -35,7 +35,7 @@ class InferEngine(_infinilm.InferEngine):
             device = infinicore.device()
 
         super().__init__(
-            self.config,
+            # self.config,
             distributed_config._underlying,
             device._underlying.type,
             cache_config,

@@ -32,19 +32,19 @@ inline void bind_infer_engine(py::module &m) {
     py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(m, "InferEngine");
     infer_engine
         .def(py::init([](
-                          const InfinilmModel::Config &cfg,
+                          //   const InfinilmModel::Config &cfg,
                           const distributed::DistConfig &dist,
                           infinicore::Device::Type dev,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
                           const std::string &modle_path) {
                  return std::make_shared<InferEngine>(
-                     cfg,
+                     //  cfg,
                      dist,
                      dev,
                      cache_cfg ? cache_cfg.get() : nullptr,
                      modle_path);
              }),
-             py::arg("config"),
+             //  py::arg("config"),
              py::arg("distributed_config") = distributed::DistConfig(),
              py::arg("device_type") = infinicore::context::getDevice().getType(),
              py::arg("cache_config") = py::none(),

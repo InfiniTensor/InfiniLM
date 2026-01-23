@@ -33,8 +33,7 @@ public:
      * @param layer_idx Layer index for cache management and debugging
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaDecoderLayer(const LlamaConfig &config,
-                      const infinicore::Device &device,
+    LlamaDecoderLayer(const infinicore::Device &device,
                       size_t layer_idx,
                       engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
                       std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
