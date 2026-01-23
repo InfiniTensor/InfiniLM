@@ -261,6 +261,12 @@ class BlockManager:
     def get_num_free_blocks(self) -> int:
         return len(self.free_block_ids)
 
+    def get_total_usable_blocks(self) -> int:
+        freeable_used_blocks = sum(
+            1 for bid in self.used_block_ids if self.blocks[bid].ref_count == 0
+        )
+        return len(self.free_block_ids) + freeable_used_blocks
+
     def __repr__(self):
         return (
             f"BlockManager(blocks={self.num_blocks}, block_size={self.block_size}, "
