@@ -85,26 +85,37 @@ StaticKVCache::update(size_t layer_idx,
 
     auto batch_size = k->size(0);
     auto update_len = k->size(2);
-    size_t cache_pos = reinterpret_cast<int64_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
-    auto result_len = cache_pos + update_len;
-
-    ASSERT(result_len <= cache_len_);
 
     ASSERT_EQ(batch_size, rank_batch_size_);
 
     auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
     auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
 
-    auto k_cache_update = k_cache_layer->narrow({{2, cache_pos, update_len}});
-    auto v_cache_update = v_cache_layer->narrow({{2, cache_pos, update_len}});
+    auto device = k_cache_layer->device();
 
-    k_cache_update->copy_from(k);
-    v_cache_update->copy_from(v);
+    if (device.getType() == infinicore::Device::Type::NVIDIA
+        || device.getType() == infinicore::Device::Type::ILUVATAR
+        || device.getType() == infinicore::Device::Type::METAX
+        || device.getType() == infinicore::Device::Type::MOORE) {
+        infinicore::op::kv_caching_(
+            k_cache_layer,
+            v_cache_layer,
+            k,
+            v,
+            past_sequence_lengths);
+    } else {
+        size_t cache_pos = reinterpret_cast<int64_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
+        auto result_len = cache_pos + update_len;
+        ASSERT(result_len <= cache_len_);
 
-    auto k_total = k_cache_layer->narrow({{2, 0, result_len}});
-    auto v_total = v_cache_layer->narrow({{2, 0, result_len}});
+        auto k_cache_update = k_cache_layer->narrow({{2, cache_pos, update_len}});
+        auto v_cache_update = v_cache_layer->narrow({{2, cache_pos, update_len}});
 
-    return {k_total, v_total};
+        k_cache_update->copy_from(k);
+        v_cache_update->copy_from(v);
+    }
+
+    return {k_cache_layer, v_cache_layer};
 }
 
 // ==========================
