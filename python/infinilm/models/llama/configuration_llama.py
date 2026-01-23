@@ -186,6 +186,10 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
     ):
         _infinilm.LlamaConfig.__init__(self)
 
+        original_model_type = kwargs.get("model_type", None)
+        if original_model_type == "qwen3":
+            self.qk_norm = True
+
         # ---
         self.model_type = "llama"
         self.name_or_path = ""

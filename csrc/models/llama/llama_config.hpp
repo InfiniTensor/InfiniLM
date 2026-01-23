@@ -51,6 +51,7 @@ struct LlamaConfig : public InfinilmModel::Config {
     bool attention_output_bias = false; // Whether to use bias in output projection (o_proj)
     bool mlp_bias = false;              // Whether to use bias in MLP projections
     bool tie_word_embeddings = false;   // Whether to tie input/output embeddings
+    bool qk_norm = false;               // Whether to use QK RMSNorm
 
     // Training/initialization parameters
     double attention_dropout = 0.0;  // Dropout ratio for attention probabilities
