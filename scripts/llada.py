@@ -606,22 +606,54 @@ class LLaDAForCauslLM:
         print(len(tokens))
         print(f"Pytho Side Tokens type: {type(tokens)}, content: {tokens if isinstance(tokens, list) else 'Not a list'}")
 
-        infer_task = InferTask(
-            0,
-            tokens,
-            self.max_context_len(),
-            temperature_,
-            topk_,
-            topp_,
-            self.eos_token_id,
-        )
+        # For LLaDA MoE, we use forward_logits_batch to get logits and sample
+        # Then convert logits to output tokens
+        input_ids_tensor = torch.tensor([tokens], dtype=torch.long)
+        logits = self.forward_logits_batch(input_ids_tensor)
 
-        # Bind KV cache
-        kv_cache = KVCache(self)
-        infer_task.bind_kvcache(kv_cache)
-        print("Staring Infering")
-        output_tokens = self.batch_infer_one_round([infer_task])
+        # LLaDA MoE outputs logits for all positions, we sample from the last position
+        # num_logits_to_keep=0 means output logits for all positions
+        last_logits = logits[0, -1, :]  # Get last token's logits
 
+        # Apply sampling with temperature and top-p/top-k
+        if temperature_ > 0:
+            # Scale by temperature
+            last_logits = last_logits / temperature_
+
+            # Apply softmax
+            probs = F.softmax(last_logits, dim=-1)
+
+            # Top-k filtering
+            if topk_ > 0 and topk_ < probs.size(-1):
+                topk_values, topk_indices = torch.topk(probs, topk_)
+                probs = torch.zeros_like(probs)
+                probs.scatter_(0, topk_indices, topk_values)
+                probs = probs / probs.sum()
+
+            # Top-p (nucleus) filtering
+            if topp_ < 1.0:
+                sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+                sorted_indices_to_remove = cumulative_probs > topp_
+                sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
+                sorted_indices_to_remove[0] = 0
+                indices_to_remove = sorted_indices[sorted_indices_to_remove]
+                probs[indices_to_remove] = 0
+                probs = probs / probs.sum()
+
+            # Sample
+            output_token = torch.multinomial(probs, num_samples=1).item()
+        else:
+            # Greedy decoding
+            output_token = torch.argmax(last_logits).item()
+
+        print(f"Output token: {output_token}")
+
+        # Check if output token is EOS
+        if output_token in self.eos_token_id:
+            print(f"EOS token encountered: {output_token}")
+        else:
+            print("Token is not EOS, continuing...")
        
 
 
