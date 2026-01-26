@@ -101,6 +101,12 @@ def test(
     enable_paged_attn=False,
 ):
     model_path = os.path.expanduser(model_path)
+
+    # If model_path is a GGUF file, use its directory for tokenizer
+    tokenizer_path = model_path
+    if os.path.isfile(model_path) and model_path.endswith(".gguf"):
+        tokenizer_path = os.path.dirname(model_path)
+
     # ---------------------------------------------------------------------------- #
     #                        Create Model
     # ---------------------------------------------------------------------------- #
@@ -118,7 +124,7 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        create tokenizer
     # ---------------------------------------------------------------------------- #
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
 
     if "llama" == model.config.model_type:
         backend = getattr(tokenizer, "backend_tokenizer", None)
