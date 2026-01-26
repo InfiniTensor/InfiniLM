@@ -195,7 +195,7 @@ void RankWorker::thread_loop() {
             infinicore::context::setDevice(rank_info_.device);
 
             // Create model using factory (may be expensive)
-            model_ = InfinilmModelFactory::createModel(rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr, global_config_);
+            model_ = InfinilmModelFactory::createModel(global_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
             if (!model_) {
                 throw std::runtime_error("Failed to create model");
             }

@@ -18,7 +18,6 @@
 
 #include "../../config/global_config.hpp"
 #include "llama_attention.hpp"
-#include "llama_config.hpp"
 #include "llama_decoder_layer.hpp"
 #include "llama_for_causal_lm.hpp"
 #include "llama_mlp.hpp"

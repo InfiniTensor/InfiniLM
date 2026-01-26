@@ -37,9 +37,9 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaModel(const infinicore::Device &device,
-               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-               std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
+    LlamaModel(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+               const infinicore::Device &device,
+               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: process input through the model

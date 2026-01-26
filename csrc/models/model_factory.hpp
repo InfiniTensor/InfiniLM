@@ -9,9 +9,8 @@ namespace infinilm {
 class InfinilmModelFactory {
 public:
     static std::shared_ptr<InfinilmModel> createModel(
-        // const InfinilmModel::Config &config,
+        std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-        const cache::CacheConfig *cache = nullptr,
-        std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
+        const cache::CacheConfig *cache = nullptr);
 };
 } // namespace infinilm

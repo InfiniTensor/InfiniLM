@@ -28,9 +28,9 @@ public:
      * @param config Model configuration
      * @param device Device to create tensors on
      */
-    LlamaForCausalLM(const infinicore::Device &device,
-                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                     std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
+    LlamaForCausalLM(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+                     const infinicore::Device &device,
+                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: compute language modeling logits
@@ -45,7 +45,6 @@ public:
     const cache::CacheConfig *get_cache_config() const override;
 
     // Module information
-    // const LlamaConfig &config() const { return model_->config(); }
     LlamaModel &model() { return *model_; }
     const LlamaModel &model() const { return *model_; }
 
