@@ -1,6 +1,5 @@
 #pragma once
 
-// #include "infinicore/nn/quantization.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
 #include "quant_config.hpp"

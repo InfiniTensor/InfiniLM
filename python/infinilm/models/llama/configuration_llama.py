@@ -21,6 +21,7 @@ from infinilm.lib import _infinilm
 
 from ...configuration_utils import PretrainedConfig
 
+
 class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
     r"""
     This is the configuration class to store the configuration of a [`LlamaModel`]. It is used to instantiate an LLaMA

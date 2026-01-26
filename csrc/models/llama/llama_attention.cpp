@@ -17,11 +17,12 @@
 
 namespace infinilm::models::llama {
 
-LlamaAttention::LlamaAttention(const infinicore::Device &device,
+LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+                               const infinicore::Device &device,
                                size_t layer_idx,
-                               engine::distributed::RankInfo rank_info,
-                               std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
-    : layer_idx_(layer_idx),
+                               engine::distributed::RankInfo rank_info)
+    : global_config_(global_config),
+      layer_idx_(layer_idx),
       hidden_size_(global_config->get<size_t>("hidden_size")),
       num_attention_heads_(global_config->get<size_t>("num_attention_heads")),
       num_key_value_heads_(global_config->get<size_t>("num_key_value_heads")),
@@ -30,8 +31,7 @@ LlamaAttention::LlamaAttention(const infinicore::Device &device,
       use_bias_(global_config->get_or<bool>("attention_bias", true)),
       use_output_bias_(global_config->get_or<bool>("attention_output_bias", false)),
       max_position_embeddings_(global_config->get<size_t>("max_position_embeddings")),
-      rank_info_(rank_info),
-      global_config_(global_config) {
+      rank_info_(rank_info) {
     const auto &dtype{global_config_->get_dtype()};
 
     int tp_rank = rank_info.tp_rank;
@@ -54,8 +54,6 @@ LlamaAttention::LlamaAttention(const infinicore::Device &device,
         INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, global_config_->get<size_t>("num_attention_heads"), global_config_->get<size_t>("num_key_value_heads"), use_bias_,
                                       dtype, device, rank_info, quant_scheme);
 
-        // INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
-        //                           dtype, device, tp_rank, tp_size, rank_info.comm, quant_scheme);
         INFINICORE_NN_MODULE_INIT(o_proj, global_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm, quant_scheme);
         break;

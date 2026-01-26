@@ -37,10 +37,10 @@ public:
      * @param layer_idx Layer index for cache access
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaAttention(const infinicore::Device &device,
+    LlamaAttention(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+                   const infinicore::Device &device,
                    size_t layer_idx,
-                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                   std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config = nullptr);
+                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: compute attention
@@ -102,6 +102,7 @@ protected:
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 
 private:
+    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
     size_t layer_idx_; // Layer index for cache access
     size_t hidden_size_;
     size_t num_attention_heads_;
@@ -113,7 +114,6 @@ private:
     size_t max_position_embeddings_; // For cache initialization (deprecated, kept for compatibility)
 
     float scaling_;
-    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
 };
 
 } // namespace infinilm::models::llama

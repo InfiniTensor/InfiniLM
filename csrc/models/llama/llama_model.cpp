@@ -7,10 +7,10 @@
 
 namespace infinilm::models::llama {
 
-LlamaModel::LlamaModel(const infinicore::Device &device,
-                       engine::distributed::RankInfo rank_info,
-                       std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config)
-    : rank_info_(rank_info), global_config_(global_config) {
+LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+                       const infinicore::Device &device,
+                       engine::distributed::RankInfo rank_info)
+    : global_config_(global_config), rank_info_(rank_info) {
     const auto &dtype{global_config_->get_dtype()};
     // Initialize token embeddings
     INFINICORE_NN_MODULE_INIT(embed_tokens, global_config_->get<size_t>("vocab_size"), global_config_->get<size_t>("hidden_size"),
@@ -22,7 +22,7 @@ LlamaModel::LlamaModel(const infinicore::Device &device,
     layers_.reserve(global_config_->get<size_t>("num_hidden_layers"));
     for (size_t i = 0; i < global_config_->get<size_t>("num_hidden_layers"); ++i) {
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
-            "layers." + std::to_string(i), device, i, rank_info, global_config_));
+            "layers." + std::to_string(i), global_config_, device, i, rank_info));
     }
 
     // Initialize final layer normalization
