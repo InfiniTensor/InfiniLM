@@ -19,8 +19,8 @@ InferEngine::InferEngine(
         cache_config_ = cache_config->unique_copy();
     }
 
-    // Load global config if model_path is provided, model_path must be valid, and config.json exists
-    this->global_config_ = std::make_shared<infinilm::config::global_config::GlobalConfig>(model_path + "/config.json");
+    // Load model config if model_path is provided, model_path must be valid, and config.json exists
+    this->model_config_ = std::make_shared<infinilm::config::ModelConfig>(model_path + "/config.json");
 
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
@@ -28,10 +28,9 @@ InferEngine::InferEngine(
     workers_.reserve(world_size);
     for (int r = 0; r < world_size; ++r) {
         workers_.emplace_back(std::make_unique<RankWorker>(
-            // model_config_,
+            model_config_,
             communication_group_.get_rank_info(r),
             cache_config_ != nullptr ? cache_config_.get() : nullptr,
-            global_config_,
             barrier_.get(),
             enable_graph_compiling));
     }

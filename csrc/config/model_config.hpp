@@ -6,15 +6,16 @@
 #include <fstream>
 #include <string>
 
-namespace infinilm::config::global_config {
-struct GlobalConfig {
-    // Global config is implemented using nlohmann/json and is primarily used for advanced configuration
-    // beyond the standard model config. It is initialized via GlobalConfig(const std::string& path)
+namespace infinilm::config {
+class ModelConfig {
+    // Model config is implemented using nlohmann/json and is primarily used for advanced configuration
+    // beyond the standard model config. It is initialized via ModelConfig(const std::string& path)
     // and passed through the InferEngine during inference.
 public:
-    GlobalConfig() = default;
-    GlobalConfig(const nlohmann::json &json) : config_json(json) {};
-    GlobalConfig(const std::string &path);
+    ModelConfig() = default;
+    // Not Implemented
+    // ModelConfig(const nlohmann::json &json) : config_json(json) {};
+    ModelConfig(const std::string &path);
 
     // Template Function to get a value by key with type safety
     template <typename T>
@@ -57,6 +58,6 @@ public:
 
 private:
     nlohmann::json config_json;
-    quantization::QuantConfig quant_config;
+    QuantConfig quant_config;
 };
-} // namespace infinilm::config::global_config
+} // namespace infinilm::config

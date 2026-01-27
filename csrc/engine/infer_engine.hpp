@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../config/global_config.hpp"
+#include "../config/model_config.hpp"
 #include "../models/infinilm_model.hpp"
 #include "../models/llama/llama_config.hpp"
 #include "distributed/distributed.hpp"
@@ -24,7 +24,7 @@ public:
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
         const cache::CacheConfig *cache_config = nullptr,
-        const std::string &modle_path = "",
+        const std::string &model_path = "",
         bool enable_graph_compiling = false);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
@@ -51,9 +51,8 @@ protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     std::unique_ptr<RankBarrier> barrier_;
     distributed::CommunicationGroup communication_group_;
-    // const InfinilmModel::Config &model_config_;
     std::unique_ptr<cache::CacheConfig> cache_config_;
-    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
 } // namespace infinilm::engine

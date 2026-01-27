@@ -3,7 +3,7 @@
 #include "../../layers/fused_linear.hpp"
 #include "llama_config.hpp"
 
-#include "../../config/global_config.hpp"
+#include "../../config/model_config.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
@@ -34,7 +34,7 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaMLP(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+    LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
              const infinicore::Device &device,
              engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -59,7 +59,7 @@ protected:
     size_t intermediate_size_;
     bool use_bias_;
 
-    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
 } // namespace infinilm::models::llama

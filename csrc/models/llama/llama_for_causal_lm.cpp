@@ -2,27 +2,25 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
-#include <iostream>
 
 namespace infinilm::models::llama {
 
-LlamaForCausalLM::LlamaForCausalLM(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+LlamaForCausalLM::LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                    const infinicore::Device &device,
                                    engine::distributed::RankInfo rank_info) {
 
     // Initialize module's device_ member
     device_ = device;
 
-    const auto &dtype{global_config->get_dtype()};
+    const auto &dtype{model_config->get_dtype()};
 
     // Initialize base model
-    INFINICORE_NN_MODULE_INIT(model, global_config, device, rank_info);
-
+    INFINICORE_NN_MODULE_INIT(model, model_config, device, rank_info);
     // Initialize language modeling head
     // Note: If tie_word_embeddings is true, we would share weights with embed_tokens
     // For now, we create a separate linear layer
 
-    INFINICORE_NN_MODULE_INIT(lm_head, global_config->get<size_t>("hidden_size"), global_config->get<size_t>("vocab_size"), false,
+    INFINICORE_NN_MODULE_INIT(lm_head, model_config->get<size_t>("hidden_size"), model_config->get<size_t>("vocab_size"), false,
                               dtype, device);
 }
 

@@ -34,7 +34,6 @@ class InferEngine(_infinilm.InferEngine):
 
         if device is None:
             device = infinicore.device()
-
         super().__init__(
             # self.config,
             distributed_config._underlying,
@@ -43,7 +42,6 @@ class InferEngine(_infinilm.InferEngine):
             model_path,
             enable_graph_compiling,
         )
-
         self.use_cache = False
 
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)

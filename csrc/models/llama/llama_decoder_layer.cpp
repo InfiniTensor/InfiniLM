@@ -1,26 +1,24 @@
 #include "llama_decoder_layer.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
-
 #include <optional>
 
 namespace infinilm::models::llama {
 
-LlamaDecoderLayer::LlamaDecoderLayer(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+LlamaDecoderLayer::LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      const infinicore::Device &device,
                                      size_t layer_idx,
-                                     engine::distributed::RankInfo rank_info) : global_config_(global_config), layer_idx_(layer_idx), rank_info_(rank_info) {
-    const auto &dtype{global_config_->get_dtype()};
-
+                                     engine::distributed::RankInfo rank_info) : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
+    const auto &dtype{model_config_->get_dtype()};
     // Initialize layer normalization layers
-    INFINICORE_NN_MODULE_INIT(input_layernorm, global_config_->get<size_t>("hidden_size"), global_config_->get<double>("rms_norm_eps"),
+    INFINICORE_NN_MODULE_INIT(input_layernorm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
                               dtype, device);
-    INFINICORE_NN_MODULE_INIT(post_attention_layernorm, global_config_->get<size_t>("hidden_size"), global_config_->get<double>("rms_norm_eps"),
+    INFINICORE_NN_MODULE_INIT(post_attention_layernorm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, global_config, device, layer_idx, rank_info_);
-    INFINICORE_NN_MODULE_INIT(mlp, global_config, device, rank_info_);
+    INFINICORE_NN_MODULE_INIT(self_attn, model_config_, device, layer_idx, rank_info_);
+    INFINICORE_NN_MODULE_INIT(mlp, model_config_, device, rank_info_);
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor>

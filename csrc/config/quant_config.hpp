@@ -2,7 +2,7 @@
 #include "../quantization/quantization.hpp"
 #include "nlohmann/json.hpp"
 
-namespace infinilm::config::quantization {
+namespace infinilm::config {
 
 class QuantConfig {
     // QuantConfig is used to store and parse the "quantization" field from config.json.
@@ -25,4 +25,4 @@ private:
     std::shared_ptr<infinilm::quantization::BaseQuantization> quantization_method;
 };
 
-} // namespace infinilm::config::quantization
+} // namespace infinilm::config
