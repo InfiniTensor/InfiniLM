@@ -50,6 +50,7 @@ class EngineConfig:
         temperature: Default sampling temperature.
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
+        enable_graph: Whether to enable graph compiling.
     """
 
     model_path: str
@@ -63,6 +64,7 @@ class EngineConfig:
     temperature: float = 1.0
     top_p: float = 0.8
     top_k: int = 1
+    enable_graph: bool = False
 
 
 class LLMEngine:
@@ -74,11 +76,18 @@ class LLMEngine:
         # Initialize device and dtype
         self._init_device()
 
+        # Initialize KV cache
+        cache_config = PagedKVCacheConfig(
+            num_blocks=config.num_blocks, block_size=config.block_size
+        )
+
         # Initialize model engine
         self.model_engine = InferEngine(
             model_path=config.model_path,
             device=self.device,
             distributed_config=DistConfig(config.tensor_parallel_size),
+            cache_config=cache_config,
+            enable_graph_compiling=config.enable_graph,
         )
 
         # Load model weights
@@ -91,12 +100,6 @@ class LLMEngine:
             config.model_path, trust_remote_code=True
         )
         self._fix_tokenizer_decoder()
-
-        # Initialize KV cache
-        cache_config = PagedKVCacheConfig(
-            num_blocks=config.num_blocks, block_size=config.block_size
-        )
-        self.model_engine.reset_cache(cache_config)
 
         # Initialize scheduler
         self.scheduler = Scheduler(
@@ -113,6 +116,7 @@ class LLMEngine:
         logger.info(
             f"LLMEngine initialized with model at {config.model_path} "
             f"on device {config.device}"
+            f"enable_graph={config.enable_graph}"
         )
 
     def _init_device(self):
@@ -308,6 +312,7 @@ class LLM:
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
+        enable_graph: bool = False,
     ):
         """Initialize LLM.
 
@@ -323,6 +328,7 @@ class LLM:
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
+            enable_graph: Whether to enable graph compiling.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -336,6 +342,7 @@ class LLM:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            enable_graph=enable_graph,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -452,6 +459,7 @@ class AsyncLLMEngine:
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
+        enable_graph: bool = False,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -467,6 +475,7 @@ class AsyncLLMEngine:
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
+            enable_graph: Whether to enable graph compiling.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -480,6 +489,7 @@ class AsyncLLMEngine:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            enable_graph=enable_graph,
         )
         self.engine = LLMEngine(config)
         self.config = config
