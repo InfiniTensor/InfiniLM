@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "../infinilm_model.hpp"
+#include "infinicore/nn/quantization.hpp"
+#include "nlohmann/json.hpp"
 
 #include <infinicore/nn/rope.hpp>
 
@@ -70,7 +72,8 @@ struct LlamaConfig : public InfinilmModel::Config {
      * @brief Compute key-value dimension for Grouped Query Attention (GQA)
      * @return The dimension for key/value projections
      */
-    size_t kv_dim() const {
+    size_t
+    kv_dim() const {
         return hidden_size * num_key_value_heads / num_attention_heads;
     }
 

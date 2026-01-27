@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../cache/kv_cache.hpp"
-#include "llama_config.hpp"
 #include "llama_decoder_layer.hpp"
 
 #include "infinicore/nn/embedding.hpp"
@@ -38,7 +37,7 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaModel(const LlamaConfig &config,
+    LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const infinicore::Device &device,
                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -64,8 +63,7 @@ public:
     void reset_cache(const cache::CacheConfig *cache_config);
 
     // Module information
-    const LlamaConfig &config() const { return config_; }
-    size_t num_layers() const { return config_.num_hidden_layers; }
+    size_t num_layers() const { return model_config_->get<size_t>("num_hidden_layers"); }
 
 protected:
     // Token embeddings
@@ -85,7 +83,7 @@ protected:
     std::shared_ptr<cache::Cache> kv_cache_;
 
 private:
-    LlamaConfig config_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
 } // namespace infinilm::models::llama

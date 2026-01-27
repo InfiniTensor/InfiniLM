@@ -75,7 +75,7 @@ def load_state_dict(
             )
 
         for k in f.keys():
-            state_dict[k] = f.get_tensor(k).to(device=device, dtype=dtype)
+            state_dict[k] = f.get_tensor(k).to(device=device)
 
     return state_dict
 
@@ -155,7 +155,6 @@ def load_model_state_dict_by_file(
             model_param_infini = {}
             for key in model_param.keys():
                 model_param_infini[key] = infinicore.from_torch(model_param[key])
-
             model.load_state_dict(model_param_infini, strict=False)
             infinicore.sync_device()
 
@@ -168,7 +167,6 @@ def load_model_state_dict_by_file(
             model_param_infini[key] = infinicore.from_torch(
                 model_params[key].to(dtype=torch_dtype)
             )
-
             already_loaded_keys.append(key)
 
         model.load_state_dict(model_param_infini, strict=True)

@@ -6,6 +6,7 @@ set_toolchains("gcc")
 
 -- Add spdlog from third_party directory
 add_includedirs("third_party/spdlog/include")
+add_includedirs("third_party/json/single_include/")
 
 target("infinicore_infer")
     set_kind("shared")
