@@ -189,17 +189,60 @@ def test(
 
     t1 = time.time()
     print("=================== start generate ====================")
-    output_ids = model.generate(
-        input_ids_infini,
-        GenerationConfig(
-            max_new_tokens=max_new_tokens, temperature=1, top_k=1, top_p=0.8
-        ),
-        _measure_and_log_time=True,
-    )
-    t2 = time.time()
+    try:
+        output_ids = model.generate(
+            input_ids_infini,
+            GenerationConfig(
+                max_new_tokens=max_new_tokens, temperature=1, top_k=1, top_p=0.8
+            ),
+            _measure_and_log_time=True,
+        )
+        t2 = time.time()
 
-    numpy_output_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
-    print(tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
+        # Check if output_ids is valid
+        if output_ids is None or len(output_ids) == 0:
+            print("ERROR: model.generate() returned empty output_ids")
+            print(f"total_time: {round((t2 - t1) * 1000, 2)} ms")
+            return
+
+        # Convert output_ids to numpy array
+        # Note: output_ids from model.generate() contains only NEW tokens (not input tokens)
+        try:
+            if len(output_ids) == 0:
+                print("WARNING: No tokens were generated. Generation may have failed or hit EOS immediately.")
+                print(f"total_time: {round((t2 - t1) * 1000, 2)} ms")
+                return
+
+            numpy_output_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
+
+            # Debug: print output_ids info
+            print(f"\n[DEBUG] Generated {len(numpy_output_ids)} new tokens")
+            print(f"[DEBUG] output_ids (first 20): {numpy_output_ids[:20] if len(numpy_output_ids) > 0 else 'empty'}")
+            print(f"[DEBUG] output_ids (last 20): {numpy_output_ids[-20:] if len(numpy_output_ids) > 20 else numpy_output_ids}")
+
+            # Decode and print only new tokens
+            decoded_text = tokenizer.decode(numpy_output_ids, skip_special_tokens=True)
+            if decoded_text and decoded_text.strip():
+                print(decoded_text)
+            else:
+                print("WARNING: Decoded text is empty or only whitespace.")
+                print(f"Output IDs: {numpy_output_ids[:50] if len(numpy_output_ids) > 0 else 'empty'}")
+                # Try decoding without skip_special_tokens to see if that helps
+                decoded_with_special = tokenizer.decode(numpy_output_ids, skip_special_tokens=False)
+                if decoded_with_special and decoded_with_special.strip():
+                    print(f"Decoded with special tokens: {decoded_with_special[:200]}")
+        except Exception as e:
+            print(f"ERROR: Failed to decode output_ids: {e}")
+            print(f"output_ids type: {type(output_ids)}, length: {len(output_ids) if hasattr(output_ids, '__len__') else 'N/A'}")
+            import traceback
+            traceback.print_exc()
+    except Exception as e:
+        t2 = time.time()
+        print(f"ERROR: Generation failed: {e}")
+        print(f"total_time: {round((t2 - t1) * 1000, 2)} ms")
+        import traceback
+        traceback.print_exc()
+        return
 
     print(
         f"total_time: {round((t2 - t1) * 1000, 2)} ms",

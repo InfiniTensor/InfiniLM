@@ -241,5 +241,29 @@ class InferEngine(_infinilm.InferEngine):
         return super().state_dict()[0].keys()
 
     def load_state_dict(self, state_dict, strict=None):
+        """Load state dict with optional strict mode.
+
+        Args:
+            state_dict: Dictionary mapping parameter names to InfiniCore tensors.
+            strict: If False, skip missing parameters instead of raising errors.
+        """
+        if strict is None:
+            strict = False  # Default to non-strict mode
+
+        failed_params = []
         for name, param in state_dict.items():
-            super().load_param(name, param._underlying)
+            try:
+                super().load_param(name, param._underlying)
+            except Exception as e:
+                if strict:
+                    raise RuntimeError(f"Failed to load parameter '{name}': {e}") from e
+                else:
+                    failed_params.append(name)
+                    print(f"Warning: Skipping parameter '{name}': {e}")
+
+        if failed_params and strict:
+            raise RuntimeError(
+                f"Failed to load {len(failed_params)} parameters: {failed_params}"
+            )
+        elif failed_params:
+            print(f"Info: Skipped {len(failed_params)} parameters that were not found in the model.")
