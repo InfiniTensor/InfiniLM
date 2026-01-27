@@ -37,7 +37,7 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaModel(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+    LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const infinicore::Device &device,
                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -63,7 +63,7 @@ public:
     void reset_cache(const cache::CacheConfig *cache_config);
 
     // Module information
-    size_t num_layers() const { return global_config_->get<size_t>("num_hidden_layers"); }
+    size_t num_layers() const { return model_config_->get<size_t>("num_hidden_layers"); }
 
 protected:
     // Token embeddings
@@ -83,7 +83,7 @@ protected:
     std::shared_ptr<cache::Cache> kv_cache_;
 
 private:
-    std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
 } // namespace infinilm::models::llama

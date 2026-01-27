@@ -1,6 +1,6 @@
 #include "quant_config.hpp"
 
-namespace infinilm::config::quantization {
+namespace infinilm::config {
 QuantConfig::QuantConfig(const nlohmann::json &json) : quantization_config(json) {
     this->quantization_method = get_quantization_method();
 }
@@ -19,4 +19,4 @@ QuantConfig::get_quantization_method() const {
 
     return nullptr; // Default case if no matching scheme
 }
-} // namespace infinilm::config::quantization
+} // namespace infinilm::config

@@ -1,24 +1,23 @@
 #include "llama_mlp.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
-#include <iostream>
 
 namespace infinilm::models::llama {
 
-LlamaMLP::LlamaMLP(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+LlamaMLP::LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
                    engine::distributed::RankInfo rank_info)
-    : global_config_(global_config), hidden_size_(global_config->get<size_t>("hidden_size")),
-      intermediate_size_(global_config->get<size_t>("intermediate_size")),
-      use_bias_(global_config->get_or<bool>("mlp_bias", false)), rank_info_(rank_info) {
-    const auto &dtype{global_config_->get_dtype()};
+    : model_config_(model_config), hidden_size_(model_config->get<size_t>("hidden_size")),
+      intermediate_size_(model_config->get<size_t>("intermediate_size")),
+      use_bias_(model_config->get_or<bool>("mlp_bias", false)), rank_info_(rank_info) {
+
+    const auto &dtype{model_config_->get_dtype()};
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
 
     // Initialize projection layers
-    auto quant_scheme = this->global_config_->get_quant_scheme();
-    // std::cout << "LlamaMLP quant_scheme: " << static_cast<int>(quant_scheme) << std::endl;
+    auto quant_scheme = this->model_config_->get_quant_scheme();
     switch (quant_scheme) {
     case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
         INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,

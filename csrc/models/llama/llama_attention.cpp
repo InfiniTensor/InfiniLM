@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <iostream>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -17,28 +16,28 @@
 
 namespace infinilm::models::llama {
 
-LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                const infinicore::Device &device,
                                size_t layer_idx,
                                engine::distributed::RankInfo rank_info)
-    : global_config_(global_config),
+    : model_config_(model_config),
       layer_idx_(layer_idx),
-      hidden_size_(global_config->get<size_t>("hidden_size")),
-      num_attention_heads_(global_config->get<size_t>("num_attention_heads")),
-      num_key_value_heads_(global_config->get<size_t>("num_key_value_heads")),
-      head_dim_(global_config->get_head_dim()),
-      kv_dim_(global_config->get_kv_dim()),
-      use_bias_(global_config->get_or<bool>("attention_bias", true)),
-      use_output_bias_(global_config->get_or<bool>("attention_output_bias", false)),
-      max_position_embeddings_(global_config->get<size_t>("max_position_embeddings")),
+      hidden_size_(model_config->get<size_t>("hidden_size")),
+      num_attention_heads_(model_config->get<size_t>("num_attention_heads")),
+      num_key_value_heads_(model_config->get<size_t>("num_key_value_heads")),
+      head_dim_(model_config->get_head_dim()),
+      kv_dim_(model_config->get_kv_dim()),
+      use_bias_(model_config->get_or<bool>("attention_bias", true)),
+      use_output_bias_(model_config->get_or<bool>("attention_output_bias", false)),
+      max_position_embeddings_(model_config->get<size_t>("max_position_embeddings")),
       rank_info_(rank_info) {
-    const auto &dtype{global_config_->get_dtype()};
+    const auto &dtype{model_config_->get_dtype()};
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
 
-    int num_attention_heads = global_config_->get<size_t>("num_attention_heads");
-    int num_key_value_heads = global_config_->get<size_t>("num_key_value_heads");
+    int num_attention_heads = model_config_->get<size_t>("num_attention_heads");
+    int num_key_value_heads = model_config_->get<size_t>("num_key_value_heads");
 
     if ((num_key_value_heads >= tp_size) && (0 == (num_key_value_heads % tp_size))) {
         this->num_attention_heads_ = num_attention_heads / tp_size;
@@ -48,27 +47,27 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::global_config::
     }
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
-    auto quant_scheme = this->global_config_->get_quant_scheme();
+    auto quant_scheme = this->model_config_->get_quant_scheme();
     switch (quant_scheme) {
     case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
-        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, global_config_->get<size_t>("num_attention_heads"), global_config_->get<size_t>("num_key_value_heads"), use_bias_,
+        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), use_bias_,
                                       dtype, device, rank_info, quant_scheme);
 
-        INFINICORE_NN_MODULE_INIT(o_proj, global_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, use_output_bias_,
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm, quant_scheme);
         break;
 
     default:
-        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, global_config_->get<size_t>("num_attention_heads"), global_config_->get<size_t>("num_key_value_heads"), use_bias_,
+        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), use_bias_,
                                  dtype, device, rank_info);
 
-        INFINICORE_NN_MODULE_INIT(o_proj, global_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, use_output_bias_,
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     }
-    if (global_config_->get<std::string>("model_type") == "qwen3") {
-        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, global_config_->get<double>("rms_norm_eps"), dtype, device);
-        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, global_config_->get<double>("rms_norm_eps"), dtype, device);
+    if (model_config_->get<std::string>("model_type") == "qwen3") {
+        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
+        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
     }
 }
 
@@ -86,7 +85,7 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
-    if (global_config_->get<std::string>("model_type") == "qwen3") {
+    if (model_config_->get<std::string>("model_type") == "qwen3") {
         q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
         k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
     }
@@ -195,7 +194,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
 
-    if (global_config_->get<std::string>("model_type") == "qwen3") {
+    if (model_config_->get<std::string>("model_type") == "qwen3") {
         q_reshaped = q_norm_->forward(q_reshaped);
         k_reshaped = k_norm_->forward(k_reshaped);
     }

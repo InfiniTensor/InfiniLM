@@ -28,7 +28,7 @@ public:
      * @param config Model configuration
      * @param device Device to create tensors on
      */
-    LlamaForCausalLM(std::shared_ptr<infinilm::config::global_config::GlobalConfig> global_config,
+    LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      const infinicore::Device &device,
                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
