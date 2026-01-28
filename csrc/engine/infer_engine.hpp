@@ -4,6 +4,7 @@
 #include "../models/llama/llama_config.hpp"
 #include "distributed/distributed.hpp"
 #include "infinicore/tensor.hpp"
+#include "rank_barrier.hpp"
 #include "rank_worker.hpp"
 
 #include <optional>
@@ -22,7 +23,8 @@ public:
         const InfinilmModel::Config &config,
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
-        const cache::CacheConfig *cache_config = nullptr);
+        const cache::CacheConfig *cache_config = nullptr,
+        bool enable_graph_compiling = false);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);
@@ -32,6 +34,8 @@ public:
 
     // Run a single forward pass on all workers and return the outputs from all ranks
     Output forward(const Input &input);
+
+    void compile();
 
     void reset_cache(const cache::CacheConfig *new_config);
 
@@ -44,6 +48,7 @@ public:
 
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
+    std::unique_ptr<RankBarrier> barrier_;
     distributed::CommunicationGroup communication_group_;
     const InfinilmModel::Config &model_config_;
     std::unique_ptr<cache::CacheConfig> cache_config_;

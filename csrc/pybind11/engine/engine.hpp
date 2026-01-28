@@ -35,17 +35,20 @@ inline void bind_infer_engine(py::module &m) {
                           const InfinilmModel::Config &cfg,
                           const distributed::DistConfig &dist,
                           infinicore::Device::Type dev,
-                          std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg) {
+                          std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
+                          bool enable_graph_compiling) {
                  return std::make_shared<InferEngine>(
                      cfg,
                      dist,
                      dev,
-                     cache_cfg ? cache_cfg.get() : nullptr);
+                     cache_cfg ? cache_cfg.get() : nullptr,
+                     enable_graph_compiling);
              }),
              py::arg("config"),
              py::arg("distributed_config") = distributed::DistConfig(),
              py::arg("device_type") = infinicore::context::getDevice().getType(),
-             py::arg("cache_config") = py::none())
+             py::arg("cache_config") = py::none(),
+             py::arg("enable_graph_compiling") = false)
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")

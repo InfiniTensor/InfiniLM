@@ -88,6 +88,11 @@ def get_args():
         action="store_true",
         help="use paged cache",
     )
+    parser.add_argument(
+        "--enable-graph",
+        action="store_true",
+        help="enable graph compiling",
+    )
 
     return parser.parse_args()
 
@@ -99,6 +104,7 @@ def test(
     infini_device=infinicore.device("cpu", 0),
     tp=1,
     enable_paged_attn=False,
+    enable_graph=False,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -108,6 +114,7 @@ def test(
         model_path,
         device=infini_device,
         distributed_config=DistConfig(tp),
+        enable_graph_compiling=enable_graph,
     )
 
     # ---------------------------------------------------------------------------- #
@@ -164,7 +171,7 @@ def test(
         batch_size = 1 if prompts is str else len(prompts)
         max_total_tokens = max_new_tokens + len(input_ids_list[0])
         cache_config = PagedKVCacheConfig(
-            num_blocks=(max_total_tokens // 16 + 1) * batch_size, block_size=16
+            num_blocks=((max_total_tokens + 15) // 16) * batch_size, block_size=16
         )
     else:
         batch_size = 1 if prompts is str else len(prompts)
@@ -231,6 +238,7 @@ if __name__ == "__main__":
     backend = args.backend
     tp = args.tp
     enable_paged_attn = args.enable_paged_attn
+    enable_graph = args.enable_graph
     if backend != "cpp":
         raise ValueError(f"Unsupported backend: {backend}.")
 
@@ -243,4 +251,5 @@ if __name__ == "__main__":
         infini_device=infini_device,
         tp=tp,
         enable_paged_attn=enable_paged_attn,
+        enable_graph=enable_graph,
     )
