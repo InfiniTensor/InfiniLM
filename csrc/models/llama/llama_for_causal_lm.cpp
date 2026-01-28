@@ -45,7 +45,12 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
 }
 
 void LlamaForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
-    model_->reset_cache(cache_config);
+    cache_config_ = cache_config->unique_copy();
+    model_->reset_cache(cache_config_.get());
+}
+
+const cache::CacheConfig *LlamaForCausalLM::get_cache_config() const {
+    return cache_config_.get();
 }
 
 } // namespace infinilm::models::llama

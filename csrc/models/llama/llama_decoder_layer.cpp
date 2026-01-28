@@ -23,38 +23,29 @@ LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
     INFINICORE_NN_MODULE_INIT(mlp, config, device, rank_info_);
 }
 
-infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_states,
-                                              const infinicore::Tensor &position_ids,
-                                              std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                                              std::optional<infinicore::Tensor> past_sequence_lengths,
-                                              std::optional<infinicore::Tensor> total_sequence_lengths,
-                                              std::optional<infinicore::Tensor> input_offsets,
-                                              std::optional<infinicore::Tensor> block_tables,
-                                              std::optional<infinicore::Tensor> slot_mapping) const {
-    // Save residual for attention
-    auto residual = hidden_states;
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+LlamaDecoderLayer::forward(infinicore::Tensor &hidden_states,
+                           infinicore::Tensor &residual,
+                           const infinicore::Tensor &position_ids,
+                           std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                           std::optional<infinicore::Tensor> past_sequence_lengths,
+                           std::optional<infinicore::Tensor> total_sequence_lengths,
+                           std::optional<infinicore::Tensor> input_offsets,
+                           std::optional<infinicore::Tensor> block_tables,
+                           std::optional<infinicore::Tensor> slot_mapping) const {
+    // 1. Attention layer normalization
+    input_layernorm_->forward_inplace(hidden_states, residual);
 
-    // 1. Pre-attention layer normalization
-    auto normed_states = input_layernorm_->forward(hidden_states);
-
-    // 2. Self-attention with residual connection
-    auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
-
-    // Add residual: hidden_states = hidden_states + attn_output
-    auto output = infinicore::op::add(residual, attn_output);
-    // Save residual for MLP
-    residual = output;
+    // 2. Self-attention
+    hidden_states = self_attn_->forward(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
 
     // 3. Post-attention layer normalization
-    normed_states = post_attention_layernorm_->forward(output);
+    post_attention_layernorm_->forward_inplace(hidden_states, residual);
 
-    // 4. MLP with residual connection
-    auto mlp_output = mlp_->forward(normed_states);
+    // 4. MLP
+    hidden_states = mlp_->forward(hidden_states);
 
-    // Add residual: output = output + mlp_output
-    output = infinicore::op::add(residual, mlp_output);
-
-    return output;
+    return std::make_tuple(hidden_states, residual);
 }
 
 } // namespace infinilm::models::llama

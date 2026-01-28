@@ -55,11 +55,23 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
 
     // 2. Process through all decoder layers
     size_t num_layers = layers_.size();
+    infinicore::Tensor residual;
     for (size_t i = 0; i < num_layers; ++i) {
-        hidden_states = layers_.at(i)->forward(hidden_states, position_ids, kv_cache_, past_sequence_lengths, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
+        layers_.at(i)->forward(
+            hidden_states,
+            residual,
+            position_ids,
+            kv_cache_,
+            past_sequence_lengths,
+            total_sequence_lengths,
+            input_offsets,
+            block_tables,
+            slot_mapping);
     }
 
-    return norm_->forward(hidden_states);
+    norm_->forward_inplace(hidden_states, residual);
+
+    return hidden_states;
 }
 
 void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {

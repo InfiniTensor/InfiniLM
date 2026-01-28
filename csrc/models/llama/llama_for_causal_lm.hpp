@@ -42,6 +42,8 @@ public:
 
     void reset_cache(const cache::CacheConfig *cache_config) override;
 
+    const cache::CacheConfig *get_cache_config() const override;
+
     // Module information
     const LlamaConfig &config() const { return model_->config(); }
     LlamaModel &model() { return *model_; }
@@ -53,6 +55,8 @@ protected:
 
     // Language modeling head
     INFINICORE_NN_MODULE(infinicore::nn::Linear, lm_head);
+
+    std::unique_ptr<cache::CacheConfig> cache_config_;
 };
 
 } // namespace infinilm::models::llama

@@ -3,7 +3,7 @@ from transformers import AutoTokenizer
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
-from infinilm.cache import StaticKVCacheConfig
+from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 import argparse
 import sys
 import time
@@ -138,6 +138,21 @@ def get_args():
         help="Run nvidia test",
     )
     parser.add_argument(
+        "--metax",
+        action="store_true",
+        help="Run metax test",
+    )
+    parser.add_argument(
+        "--moore",
+        action="store_true",
+        help="Run moore test",
+    )
+    parser.add_argument(
+        "--iluvatar",
+        action="store_true",
+        help="Run iluvatar test",
+    )
+    parser.add_argument(
         "--cambricon",
         action="store_true",
         help="Run cambricon test",
@@ -179,6 +194,16 @@ def get_args():
         action="store_true",
         help="skip loading model weights",
     )
+    parser.add_argument(
+        "--enable-paged-attn",
+        action="store_true",
+        help="use paged cache",
+    )
+    parser.add_argument(
+        "--enable-graph",
+        action="store_true",
+        help="enable graph compiling",
+    )
     return parser.parse_args()
 
 
@@ -202,6 +227,8 @@ class TestModel:
         infini_device=infinicore.device("cpu", 0),
         tp=1,
         skip_load=False,
+        cache_config=None,
+        enable_graph=False,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -211,6 +238,8 @@ class TestModel:
             model_path,
             device=infini_device,
             distributed_config=DistConfig(tp),
+            cache_config=cache_config,
+            enable_graph_compiling=enable_graph,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -285,6 +314,12 @@ if __name__ == "__main__":
         device_str = "cpu"
     elif args.nvidia:
         device_str = "cuda"
+    elif args.metax:
+        device_str = "cuda"
+    elif args.moore:
+        device_str = "musa"
+    elif args.iluvatar:
+        device_str = "cuda"
     elif args.cambricon:
         device_str = "mlu"
     else:
@@ -306,6 +341,8 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     input_len = args.input_len
     output_len = args.output_len
+    enable_paged_attn = args.enable_paged_attn
+    enable_graph = args.enable_graph
 
     if isinstance(batch_size, int):
         batch_size = [batch_size]
@@ -320,13 +357,25 @@ if __name__ == "__main__":
     # -------------------------------------------------------- #
     #             测试
     # -------------------------------------------------------- #
-    # print("=================== start test ====================", type(batch_size))
+    if enable_paged_attn:
+        paged_kv_block_size = 16
+        max_num_blocks = max(
+            [
+                ((c_["input_len"] + c_["output_len"] + 15) // 16) * c_["batch_size"]
+                for _, c_ in cases_dict.items()
+            ]
+        )
+        cache_config = PagedKVCacheConfig(max_num_blocks, paged_kv_block_size)
+    else:
+        cache_config = None
 
     test = TestModel(
         model_path,
         infini_device=infini_device,
         tp=tp,
         skip_load=skip_load,
+        cache_config=cache_config,
+        enable_graph=enable_graph,
     )
 
     for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
@@ -336,13 +385,14 @@ if __name__ == "__main__":
         input_len = case["input_len"]
         output_len = case["output_len"]
 
-        # reset cache for each case
-        initial_capacity = input_len + output_len
-        test.model.reset_cache(
-            StaticKVCacheConfig(
-                max_batch_size=batch_size, max_cache_len=initial_capacity
+        if not enable_paged_attn:
+            # reset cache if static kvcache is used
+            initial_capacity = input_len + output_len
+            test.model.reset_cache(
+                StaticKVCacheConfig(
+                    max_batch_size=batch_size, max_cache_len=initial_capacity
+                )
             )
-        )
 
         # run test one case
         test.run(
