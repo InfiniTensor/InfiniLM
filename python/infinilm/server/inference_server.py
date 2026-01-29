@@ -498,11 +498,6 @@ def parse_args():
         help="Enable graph compiling",
     )
     parser.add_argument(
-        "--enable-graph",
-        action="store_true",
-        help="Enable graph compiling",
-    )
-    parser.add_argument(
         "--log_level",
         type=str,
         default="INFO",
@@ -536,7 +531,7 @@ def main():
         device = "cuda"
     else:
         print(
-            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon] "
+            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon | --ali] "
             "--model_path=<path/to/model_dir> --max_tokens=MAX_TOKENS --max_batch_size=MAX_BATCH_SIZE"
             "\n"
             "Example: python infinilm.server.inference_server --nvidia --model_path=/data/shared/models/9G7B_MHA/ "

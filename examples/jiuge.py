@@ -53,6 +53,11 @@ def get_args():
         help="Run cambricon test",
     )
     parser.add_argument(
+        "--ali",
+        action="store_true",
+        help="Run alippu test",
+    )
+    parser.add_argument(
         "--hygon",
         action="store_true",
         help="Run hygon test",
@@ -267,13 +272,15 @@ if __name__ == "__main__":
         device_str = "cuda"
     elif args.cambricon:
         device_str = "mlu"
+    elif args.ali:
+        device_str = "cuda"
     elif args.hygon:
         device_str = "cuda"
     elif args.ali:
         device_str = "cuda"
     else:
         print(
-            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon | --hygon] --model_path=<path/to/model_dir>\n"
+            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon | --ali | --cambricon | --hygon] --model_path=<path/to/model_dir>\n"
             "such as, python examples/jiuge.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
