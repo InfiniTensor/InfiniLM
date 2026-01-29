@@ -860,6 +860,8 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_KUNLUN
     elif sys.argv[1] == "--hygon":
         device_type = DeviceType.DEVICE_TYPE_HYGON
+    elif sys.argv[1] == "--ali":
+        device_type = DeviceType.DEVICE_TYPE_ALI
     else:
         print(
             "Usage: python jiuge.py [--cpu | --nvidia| --qy| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device] [--verbose]"
