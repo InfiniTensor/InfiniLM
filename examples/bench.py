@@ -158,6 +158,11 @@ def get_args():
         help="Run cambricon test",
     )
     parser.add_argument(
+        "--ali",
+        action="store_true",
+        help="Run alippu test",
+    )
+    parser.add_argument(
         "--model",
         type=str,
         required=True,
@@ -351,6 +356,8 @@ if __name__ == "__main__":
         device_str = "cuda"
     elif args.cambricon:
         device_str = "mlu"
+    elif args.ali:
+        device_str = "cuda"
     else:
         print(
             "python examples/bench.py --nvidia --model=~/TinyLlama-1.1B-Chat-v1.0/ --batch-size=2 --tp=1 --input-len=50 --output-len=50"
