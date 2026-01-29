@@ -487,6 +487,7 @@ def parse_args():
     parser.add_argument("--moore", action="store_true", help="Use Moore device")
     parser.add_argument("--iluvatar", action="store_true", help="Use Iluvatar device")
     parser.add_argument("--cambricon", action="store_true", help="Use Cambricon device")
+    parser.add_argument("--ali", action="store_true", help="Use Ali PPU device")
     parser.add_argument(
         "--enable-graph",
         action="store_true",
@@ -520,9 +521,11 @@ def main():
         device = "cuda"
     elif args.cambricon:
         device = "mlu"
+    elif args.ali:
+        device = "cuda"
     else:
         print(
-            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --metax | --moore | --iluvatar | --cambricon] "
+            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --metax | --moore | --iluvatar | --cambricon | --ali] "
             "--model_path=<path/to/model_dir> --max_tokens=MAX_TOKENS --max_batch_size=MAX_BATCH_SIZE"
             "\n"
             "Example: python infinilm.server.inference_server --nvidia --model_path=/data/shared/models/9G7B_MHA/ "
