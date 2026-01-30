@@ -3,8 +3,56 @@
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
+#include <iostream>
 
 namespace infinilm::models::llama {
+/**
+ * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+ *
+ * ⚠️ DEVELOPMENT POLICY:
+ *   - NO new development or feature additions permitted on this interface
+ *   - Only critical bug fixes (security/stability) allowed until removal
+ *   - All new code MUST migrate to the polymorphic overload below
+ *
+ * Replacement: Use the polymorphic overload of this same function name with updated signature
+ * Reason: Legacy signature lacks support for dynamic quantization modes.
+ * Removal target: v0.2.0 (Q2 2026)
+ */
+LlamaModel::LlamaModel(const LlamaConfig &config,
+                       const infinicore::Device &device,
+                       engine::distributed::RankInfo rank_info)
+    : config_(config), rank_info_(rank_info) {
+    const auto &dtype{config.dtype};
+    // Initialize token embeddings
+    INFINICORE_NN_MODULE_INIT(embed_tokens, config.vocab_size, config.hidden_size,
+                              std::nullopt, dtype, device);
+
+    // Initialize decoder layers with layer indices
+    // TODO: Update INFINICORE_NN_MODULE_VEC_INIT macro to support per-layer constructor arguments
+    //       (e.g., via a factory function or lambda that receives the layer index)
+    //       Currently, we can't use the macro because each layer needs a different layer_idx
+    layers_.reserve(config.num_hidden_layers);
+    for (size_t i = 0; i < config.num_hidden_layers; ++i) {
+        layers_.push_back(this->register_module<LlamaDecoderLayer>(
+            "layers." + std::to_string(i), config, device, i, rank_info));
+    }
+
+    // Initialize final layer normalization
+    INFINICORE_NN_MODULE_INIT(norm, config.hidden_size, config.rms_norm_eps,
+                              dtype, device);
+
+    // Initialize Rotary Position Embeddings (shared across all layers)
+    // Use GPT-J-style inverse frequencies (default) and GPT_NEOX rotation pairing
+    INFINICORE_NN_MODULE_INIT(rotary_emb, config.head_dim, config.max_position_embeddings,
+                              config.rope_theta, infinicore::nn::RoPE::Algo::GPT_NEOX,
+                              dtype, device, config.rope_scaling);
+
+    for (auto &layer : layers_) {
+        if (layer) {
+            layer->set_rotary_emb(rotary_emb_);
+        }
+    }
+}
 
 LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                        const infinicore::Device &device,

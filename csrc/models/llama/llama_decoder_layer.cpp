@@ -4,6 +4,34 @@
 #include <optional>
 
 namespace infinilm::models::llama {
+/**
+ * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+ *
+ * ⚠️ DEVELOPMENT POLICY:
+ *   - NO new development or feature additions permitted on this interface
+ *   - Only critical bug fixes (security/stability) allowed until removal
+ *   - All new code MUST migrate to the polymorphic overload below
+ *
+ * Replacement: Use the polymorphic overload of this same function name with updated signature
+ * Reason: Legacy signature lacks support for dynamic quantization modes.
+ * Removal target: v0.2.0 (Q2 2026)
+ */
+LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
+                                     const infinicore::Device &device,
+                                     size_t layer_idx,
+                                     engine::distributed::RankInfo rank_info) : layer_idx_(layer_idx), rank_info_(rank_info) {
+    const auto &dtype{config.dtype};
+
+    // Initialize layer normalization layers
+    INFINICORE_NN_MODULE_INIT(input_layernorm, config.hidden_size, config.rms_norm_eps,
+                              dtype, device);
+    INFINICORE_NN_MODULE_INIT(post_attention_layernorm, config.hidden_size, config.rms_norm_eps,
+                              dtype, device);
+
+    // Initialize attention and MLP modules
+    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, rank_info_);
+    INFINICORE_NN_MODULE_INIT(mlp, config, device, rank_info_);
+}
 
 LlamaDecoderLayer::LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      const infinicore::Device &device,

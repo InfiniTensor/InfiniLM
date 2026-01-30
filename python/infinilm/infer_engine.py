@@ -34,12 +34,19 @@ class InferEngine(_infinilm.InferEngine):
 
         if device is None:
             device = infinicore.device()
+          
+        # super().__init__(
+        #     self.config,
+        #     distributed_config._underlying,
+        #     device._underlying.type,
+        #     cache_config,
+        #     enable_graph_compiling,
+        # )  
         super().__init__(
-            # self.config,
+            model_path,
             distributed_config._underlying,
             device._underlying.type,
             cache_config,
-            model_path,
             enable_graph_compiling,
         )
         self.use_cache = False

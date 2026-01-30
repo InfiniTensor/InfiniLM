@@ -3,6 +3,35 @@
 #include "infinicore/ops.hpp"
 
 namespace infinilm::models::llama {
+/**
+ * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+ *
+ * ⚠️ DEVELOPMENT POLICY:
+ *   - NO new development or feature additions permitted on this interface
+ *   - Only critical bug fixes (security/stability) allowed until removal
+ *   - All new code MUST migrate to the polymorphic overload below
+ *
+ * Replacement: Use the polymorphic overload of this same function name with updated signature
+ * Reason: Legacy signature lacks support for dynamic quantization modes.
+ * Removal target: v0.2.0 (Q2 2026)
+ */
+LlamaMLP::LlamaMLP(const LlamaConfig &config,
+                   const infinicore::Device &device,
+                   engine::distributed::RankInfo rank_info)
+    : hidden_size_(config.hidden_size),
+      intermediate_size_(config.intermediate_size),
+      use_bias_(config.mlp_bias), rank_info_(rank_info) {
+    const auto &dtype{config.dtype};
+
+    int tp_rank = rank_info.tp_rank;
+    int tp_size = rank_info.tp_size;
+
+    // Initialize projection layers
+    INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
+                                 dtype, device, rank_info_);
+    INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
+                              dtype, device, tp_rank, tp_size, rank_info.comm);
+}
 
 LlamaMLP::LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
@@ -20,16 +49,16 @@ LlamaMLP::LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
     auto quant_scheme = this->model_config_->get_quant_scheme();
     switch (quant_scheme) {
     case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
-        INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
-                                          dtype, device, rank_info_, quant_scheme);
-        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm, quant_scheme);
+        INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, quant_scheme, use_bias_,
+                                          dtype, device, rank_info_);
+        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, quant_scheme, use_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
 
     default:
-        INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
+        INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, quant_scheme, use_bias_,
                                      dtype, device, rank_info_);
-        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
+        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, quant_scheme, use_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     }

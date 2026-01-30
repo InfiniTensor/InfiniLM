@@ -20,11 +20,30 @@ public:
     using Output = RankWorker::Output;
 
     // Updated constructor: accept CacheConfig instead of CacheType
+    /**
+     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+     *
+     * ⚠️ DEVELOPMENT POLICY:
+     *   - NO new development or feature additions permitted on this interface
+     *   - Only critical bug fixes (security/stability) allowed until removal
+     *   - All new code MUST migrate to the polymorphic overload below
+     *
+     * Replacement: Use the polymorphic overload of this same function name with updated signature
+     * Reason: Legacy signature lacks support for dynamic quantization modes.
+     * Removal target: v0.2.0 (Q2 2026)
+     */
     InferEngine(
+        const InfinilmModel::Config &config,
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
         const cache::CacheConfig *cache_config = nullptr,
+        bool enable_graph_compiling = false);
+
+    InferEngine(
         const std::string &model_path = "",
+        const distributed::DistConfig &distributed_config = distributed::DistConfig(),
+        infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
+        const cache::CacheConfig *cache_config = nullptr,
         bool enable_graph_compiling = false);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
@@ -52,6 +71,7 @@ protected:
     std::unique_ptr<RankBarrier> barrier_;
     distributed::CommunicationGroup communication_group_;
     std::unique_ptr<cache::CacheConfig> cache_config_;
+    const InfinilmModel::Config &legacy_model_config_ = InfinilmModel::Config();
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
