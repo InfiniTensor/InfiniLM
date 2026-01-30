@@ -112,8 +112,8 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     q_reshaped = q_rope->permute({0, 2, 1, 3});          // [bs, n_q_head, seq_len, head_dim]
     auto k_permuted = k_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
-    infinicore::Tensor k_total;                          // [bs, n_kv_head, total_seq_len, head_dim]
-    infinicore::Tensor v_total;                          // [bs, n_kv_head, total_seq_len, head_dim]
+    infinicore::Tensor k_total;                          // [bs, n_kv_head, max_seq_len, head_dim]
+    infinicore::Tensor v_total;                          // [bs, n_kv_head, max_seq_len, head_dim]
     if (kv_cache == nullptr) {
         k_total = k_permuted;
         v_total = v_permuted;
@@ -124,27 +124,42 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     } else {
         throw std::runtime_error("LlamaAttention: Unsupported kvcache type");
     }
-    auto total_seq_len = k_total->shape()[2];
 
-    // 6. Compute attention
-    size_t ngroup = num_attention_heads_ / num_key_value_heads_;
-    auto Q = q_reshaped->view({batch_size * num_key_value_heads_, ngroup * seq_len, head_dim_});
-    auto K = k_total->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
-    auto V = v_total->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
+    infinicore::Tensor attn_output;
+    if (q_reshaped->device().getType() == infinicore::Device::Type::NVIDIA
+        || q_reshaped->device().getType() == infinicore::Device::Type::METAX
+        || q_reshaped->device().getType() == infinicore::Device::Type::MOORE
+        || q_reshaped->device().getType() == infinicore::Device::Type::ILUVATAR
+        || q_reshaped->device().getType() == infinicore::Device::Type::CAMBRICON) {
+        attn_output = infinicore::op::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scaling_, true);
+        attn_output = attn_output->permute({0, 2, 1, 3})
+                          ->contiguous()
+                          ->view({batch_size, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
+    } else {
+        size_t total_seq_len = reinterpret_cast<int64_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
+        k_total = k_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
+        v_total = v_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
 
-    auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
+        // 6. Compute attention
+        size_t ngroup = num_attention_heads_ / num_key_value_heads_;
+        auto Q = q_reshaped->view({batch_size * num_key_value_heads_, ngroup * seq_len, head_dim_});
+        auto K = k_total->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
+        auto V = v_total->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
 
-    auto attn_weight = infinicore::op::matmul(Q, K_transposed, scaling_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
+        auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
 
-    auto attn_weight_softmax = attn_weight->view({batch_size * num_attention_heads_, seq_len, total_seq_len});
-    infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
+        auto attn_weight = infinicore::op::matmul(Q, K_transposed, scaling_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
 
-    auto out = infinicore::op::matmul(attn_weight, V); // [bs * n_kv_head, ng * seq_len, head_dim]
+        auto attn_weight_softmax = attn_weight->view({batch_size * num_attention_heads_, seq_len, total_seq_len});
+        infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
 
-    auto attn_output = out->view({batch_size, num_attention_heads_, seq_len, head_dim_})
-                           ->permute({0, 2, 1, 3})
-                           ->contiguous()
-                           ->view({batch_size, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
+        auto out = infinicore::op::matmul(attn_weight, V); // [bs * n_kv_head, ng * seq_len, head_dim]
+
+        attn_output = out->view({batch_size, num_attention_heads_, seq_len, head_dim_})
+                          ->permute({0, 2, 1, 3})
+                          ->contiguous()
+                          ->view({batch_size, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
+    }
 
     auto output = o_proj_->forward(attn_output);
 
