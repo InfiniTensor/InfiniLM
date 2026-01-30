@@ -19,7 +19,8 @@ RankWorker::RankWorker(const InfinilmModel::Config &model_config,
       has_job_(false),
       job_done_(false),
       should_exit_(false),
-      init_done_(false) {
+      init_done_(false),
+      rng_(std::random_device{}()) {
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
     }
@@ -252,7 +253,6 @@ void RankWorker::thread_loop() {
                             auto temperature{local_args.temperature};
                             auto top_p{local_args.top_p};
                             auto top_k{local_args.top_k};
-                            auto random_val{local_args.random_val};
 
                             const auto &logits_shape{logits->shape()};
                             const auto &vocab_size{logits_shape[2]};
@@ -267,6 +267,7 @@ void RankWorker::thread_loop() {
                             for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
                                 auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
                                     out, score, random_val, top_p, top_k, temperature);
                             }
