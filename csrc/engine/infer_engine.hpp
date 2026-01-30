@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../config/model_config.hpp"
 #include "../models/infinilm_model.hpp"
 #include "../models/llama/llama_config.hpp"
 #include "distributed/distributed.hpp"
@@ -19,10 +20,10 @@ public:
 
     // Updated constructor: accept CacheConfig instead of CacheType
     InferEngine(
-        const InfinilmModel::Config &config,
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
-        const cache::CacheConfig *cache_config = nullptr);
+        const cache::CacheConfig *cache_config = nullptr,
+        const std::string &model_path = "");
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);
@@ -45,8 +46,8 @@ public:
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     distributed::CommunicationGroup communication_group_;
-    const InfinilmModel::Config &model_config_;
     std::unique_ptr<cache::CacheConfig> cache_config_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
 } // namespace infinilm::engine

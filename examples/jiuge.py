@@ -133,7 +133,6 @@ def test(
         device=infini_device,
         distributed_config=DistConfig(tp),
     )
-
     # ---------------------------------------------------------------------------- #
     #                        Load Weights
     # ---------------------------------------------------------------------------- #
@@ -143,7 +142,6 @@ def test(
     #                        create tokenizer
     # ---------------------------------------------------------------------------- #
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
     if "llama" == model.config.model_type:
         backend = getattr(tokenizer, "backend_tokenizer", None)
         target = getattr(backend, "_tokenizer", backend)

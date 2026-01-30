@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../cache/kv_cache.hpp"
+#include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
 #include "../../layers/fused_linear.hpp"
 #include "llama_config.hpp"
@@ -36,7 +37,7 @@ public:
      * @param layer_idx Layer index for cache access
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    LlamaAttention(const LlamaConfig &config,
+    LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
                    size_t layer_idx,
                    engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
@@ -101,6 +102,7 @@ protected:
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 
 private:
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     size_t layer_idx_; // Layer index for cache access
     size_t hidden_size_;
     size_t num_attention_heads_;
@@ -109,7 +111,6 @@ private:
     size_t kv_dim_;
     bool use_bias_;                  // Bias for Q/K/V projections
     bool use_output_bias_;           // Bias for output projection (o_proj)
-    bool use_qk_norm_;               // Whether to use QK RMSNorm
     size_t max_position_embeddings_; // For cache initialization (deprecated, kept for compatibility)
 
     float scaling_;

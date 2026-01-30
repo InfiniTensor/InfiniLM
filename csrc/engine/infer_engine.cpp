@@ -1,5 +1,6 @@
 #include "infer_engine.hpp"
 #include "spdlog/spdlog.h"
+#include <iostream>
 
 namespace infinilm::engine {
 
@@ -7,16 +8,19 @@ namespace infinilm::engine {
 // Constructor
 //------------------------------------------------------
 InferEngine::InferEngine(
-    const InfinilmModel::Config &config,
     const distributed::DistConfig &distributed_config,
     infinicore::Device::Type device_type,
-    const cache::CacheConfig *cache_config) // Changed parameter
-    : communication_group_(distributed_config, device_type),
-      model_config_(config) {
+    const cache::CacheConfig *cache_config,
+    const std::string &model_path) // Changed parameter
+    : communication_group_(distributed_config, device_type) {
 
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
+
+    // Load model config if model_path is provided, model_path must be valid, and config.json exists
+    this->model_config_ = std::make_shared<infinilm::config::ModelConfig>(model_path + "/config.json");
+
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
     workers_.reserve(world_size);

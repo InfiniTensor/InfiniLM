@@ -1,8 +1,8 @@
 #pragma once
 
-#include "infinicore/nn/module.hpp"
-
 #include "../cache/cache.hpp"
+#include "infinicore/nn/module.hpp"
+#include "nlohmann/json.hpp"
 
 #include <any>
 
@@ -13,7 +13,6 @@ class InfinilmModel : public infinicore::nn::Module {
 public:
     struct Config {
         std::string model_type;
-
         virtual ~Config() = default;
     };
 

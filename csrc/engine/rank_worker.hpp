@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../cache/cache.hpp"
+#include "../config/model_config.hpp"
 #include "../models/model_factory.hpp"
 #include "distributed/distributed.hpp"
 
@@ -53,7 +54,7 @@ public:
         infinicore::Tensor output_ids;
     };
 
-    RankWorker(const InfinilmModel::Config &model_config,
+    RankWorker(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config);
 
@@ -86,10 +87,11 @@ private:
 
 private:
     // Worker properties
-    const InfinilmModel::Config &model_config_;
+    // const InfinilmModel::Config &model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;
