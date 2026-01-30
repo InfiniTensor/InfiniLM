@@ -7,6 +7,7 @@
 #include <any>
 #include <condition_variable>
 #include <mutex>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -44,8 +45,6 @@ public:
         int top_k{50};
 
         float top_p{1};
-
-        float random_val{0.1};
 
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
@@ -114,6 +113,9 @@ private:
     std::thread thread_;
     std::mutex mutex_;
     std::condition_variable cv_;
+
+    // Random
+    std::mt19937 rng_;
 };
 
 } // namespace infinilm::engine

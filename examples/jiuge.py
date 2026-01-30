@@ -89,6 +89,27 @@ def get_args():
         help="use paged cache",
     )
 
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=1,
+        help="top k sampling",
+    )
+
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=1.0,
+        help="top p sampling",
+    )
+
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="sampling temperature",
+    )
+
     return parser.parse_args()
 
 
@@ -99,6 +120,9 @@ def test(
     infini_device=infinicore.device("cpu", 0),
     tp=1,
     enable_paged_attn=False,
+    top_k=1,
+    top_p=1.0,
+    temperature=1.0,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -186,7 +210,10 @@ def test(
     output_ids = model.generate(
         input_ids_infini,
         GenerationConfig(
-            max_new_tokens=max_new_tokens, temperature=1, top_k=1, top_p=0.8
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
         ),
         _measure_and_log_time=True,
     )
@@ -243,4 +270,7 @@ if __name__ == "__main__":
         infini_device=infini_device,
         tp=tp,
         enable_paged_attn=enable_paged_attn,
+        top_k=args.top_k,
+        top_p=args.top_p,
+        temperature=args.temperature,
     )

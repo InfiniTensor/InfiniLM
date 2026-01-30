@@ -179,6 +179,27 @@ def get_args():
         action="store_true",
         help="skip loading model weights",
     )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=1,
+        help="top k sampling",
+    )
+
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=1.0,
+        help="top p sampling",
+    )
+
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="sampling temperature",
+    )
+
     return parser.parse_args()
 
 
@@ -247,6 +268,9 @@ class TestModel:
         batch_size: int,
         input_len: int,
         output_len: int,
+        top_k=1,
+        top_p=1.0,
+        temperature=1.0,
     ):
         input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
         input_ids_list = [input_ids] * batch_size
@@ -260,7 +284,13 @@ class TestModel:
         print("=================== start generate ====================")
         output_ids = self.model.generate(
             input_ids_infini,
-            GenerationConfig(max_new_tokens=output_len, eos_token_id=[]),
+            GenerationConfig(
+                max_new_tokens=output_len,
+                eos_token_id=[],
+                top_k=top_k,
+                top_p=top_p,
+                temperature=temperature,
+            ),
             _measure_and_log_time=True,
         )
         t2 = time.time()
@@ -349,4 +379,7 @@ if __name__ == "__main__":
             batch_size=batch_size,
             input_len=input_len,
             output_len=output_len,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            temperature=args.temperature,
         )
