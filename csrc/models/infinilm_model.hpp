@@ -43,5 +43,6 @@ public:
     virtual Output forward(const Input &input) const = 0;
 
     virtual void reset_cache(const cache::CacheConfig *cache_config) = 0;
+    virtual const cache::CacheConfig *get_cache_config() const = 0;
 };
 } // namespace infinilm
