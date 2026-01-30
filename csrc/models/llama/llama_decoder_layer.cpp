@@ -1,4 +1,5 @@
 #include "llama_decoder_layer.hpp"
+#include "../../fusion/fusion_context.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
 
@@ -9,7 +10,7 @@ namespace infinilm::models::llama {
 LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
                                      const infinicore::Device &device,
                                      size_t layer_idx,
-                                     engine::distributed::RankInfo rank_info) : layer_idx_(layer_idx), rank_info_(rank_info) {
+                                     engine::distributed::RankInfo rank_info) : layer_idx_(layer_idx), enable_fusion_(config.enable_fusion), rank_info_(rank_info) {
     const auto &dtype{config.dtype};
 
     // Initialize layer normalization layers
