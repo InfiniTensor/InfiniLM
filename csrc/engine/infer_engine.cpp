@@ -20,12 +20,14 @@ InferEngine::InferEngine(
     }
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
+    barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
     workers_.reserve(world_size);
     for (int r = 0; r < world_size; ++r) {
         workers_.emplace_back(std::make_unique<RankWorker>(
             model_config_,
             communication_group_.get_rank_info(r),
             cache_config_ != nullptr ? cache_config_.get() : nullptr,
+            barrier_.get(),
             enable_graph_compiling));
     }
 }
@@ -67,9 +69,9 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     };
 
     return {
-        input_ids, // @todo: on device in the future
+        to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
-        past_sequence_lengths, // @todo: on device in the future
+        to_device(past_sequence_lengths), // @todo: on device in the future
         to_device(total_sequence_lengths),
         to_device(input_offsets),
         to_device(block_tables),
@@ -88,6 +90,16 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     }
 
     return workers_[0]->get_output();
+}
+
+void InferEngine::compile() {
+    for (auto &worker : workers_) {
+        worker->compile();
+    }
+    // Wait for all workers
+    for (auto &worker : workers_) {
+        worker->wait();
+    }
 }
 
 //------------------------------------------------------
@@ -114,6 +126,8 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     for (auto &worker : workers_) {
         worker->wait();
     }
+
+    this->compile();
 }
 
 } // namespace infinilm::engine

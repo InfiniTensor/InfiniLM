@@ -7,7 +7,7 @@
 namespace infinilm::engine {
 class PagedCompiler : public GraphCompiler {
 public:
-    PagedCompiler(const std::shared_ptr<InfinilmModel> &model);
+    PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier);
 
     void compile() override;
 

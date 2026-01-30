@@ -7,7 +7,7 @@
 namespace infinilm::engine {
 class StaticBatchingCompiler : public GraphCompiler {
 public:
-    StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model);
+    StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier);
 
     void compile() override;
 
