@@ -10,7 +10,8 @@ InferEngine::InferEngine(
     const InfinilmModel::Config &config,
     const distributed::DistConfig &distributed_config,
     infinicore::Device::Type device_type,
-    const cache::CacheConfig *cache_config) // Changed parameter
+    const cache::CacheConfig *cache_config,
+    bool enable_graph_compiling) // Changed parameter
     : communication_group_(distributed_config, device_type),
       model_config_(config) {
 
@@ -24,7 +25,8 @@ InferEngine::InferEngine(
         workers_.emplace_back(std::make_unique<RankWorker>(
             model_config_,
             communication_group_.get_rank_info(r),
-            cache_config_ != nullptr ? cache_config_.get() : nullptr));
+            cache_config_ != nullptr ? cache_config_.get() : nullptr,
+            enable_graph_compiling));
     }
 }
 
