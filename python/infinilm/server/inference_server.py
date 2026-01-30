@@ -23,7 +23,9 @@ DEFAULT_STREAM_TIMEOUT = 100.0
 DEFAULT_REQUEST_TIMEOUT = 1000.0
 
 
-def chunk_json(id_, content=None, role=None, finish_reason=None, model: str = "unknown"):
+def chunk_json(
+    id_, content=None, role=None, finish_reason=None, model: str = "unknown"
+):
     """Generate JSON chunk for streaming response."""
     delta = {}
     if content:
@@ -487,6 +489,11 @@ def parse_args():
     parser.add_argument("--iluvatar", action="store_true", help="Use Iluvatar device")
     parser.add_argument("--cambricon", action="store_true", help="Use Cambricon device")
     parser.add_argument("--ali", action="store_true", help="Use Ali PPU device")
+    parser.add_argument(
+        "--enable-graph",
+        action="store_true",
+        help="Enable graph compiling",
+    )
     parser.add_argument(
         "--enable-graph",
         action="store_true",
