@@ -30,6 +30,9 @@ InferEngine::InferEngine(
             barrier_.get(),
             enable_graph_compiling));
     }
+
+    // Compile the model on all workers
+    this->compile();
 }
 
 //------------------------------------------------------
