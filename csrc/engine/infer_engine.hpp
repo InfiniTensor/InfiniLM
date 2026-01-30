@@ -4,6 +4,7 @@
 #include "../models/llama/llama_config.hpp"
 #include "distributed/distributed.hpp"
 #include "infinicore/tensor.hpp"
+#include "rank_barrier.hpp"
 #include "rank_worker.hpp"
 
 #include <optional>
@@ -34,6 +35,8 @@ public:
     // Run a single forward pass on all workers and return the outputs from all ranks
     Output forward(const Input &input);
 
+    void compile();
+
     void reset_cache(const cache::CacheConfig *new_config);
 
     ~InferEngine();
@@ -45,6 +48,7 @@ public:
 
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
+    std::unique_ptr<RankBarrier> barrier_;
     distributed::CommunicationGroup communication_group_;
     const InfinilmModel::Config &model_config_;
     std::unique_ptr<cache::CacheConfig> cache_config_;

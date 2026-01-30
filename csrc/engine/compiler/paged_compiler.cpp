@@ -1,8 +1,8 @@
 #include "paged_compiler.hpp"
 
 namespace infinilm::engine {
-PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model)
-    : GraphCompiler(model) {
+PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
+    : GraphCompiler(model, barrier) {
     for (size_t b = 1; b < 32; b++) {
         decode_batch_sizes_.push_back(b);
     }
@@ -43,9 +43,12 @@ void PagedCompiler::compile() {
             infinicore::context::memcpyH2D(input.input_offsets.value()->data(), input_offsets_vec.data(), (b + 1) * sizeof(int64_t), false);
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+
+            barrier_->wait();
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();
+            barrier_->wait();
 
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(
                 new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
