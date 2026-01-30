@@ -1,6 +1,5 @@
 import sys
 import os
-import argparse
 import time
 import re
 import csv
@@ -8,7 +7,7 @@ import numpy as np
 import infinicore
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
-from infinilm.cache import StaticKVCacheConfig
+from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
 from infinilm.cache import StaticKVCacheConfig
 from datasets import load_dataset, Dataset
@@ -56,6 +55,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         ndev=1,
         backend="cpp",
         benchmark="ceval",
+        enable_paged_attn=False,
     ):
         import transformers
 
@@ -124,7 +124,9 @@ class InfiniLMBenchmark(BaseBenchmark):
             model_dir_path,
             device=self.device,
             distributed_config=DistConfig(ndev),
-            cache_config=StaticKVCacheConfig(),
+            cache_config=(
+                PagedKVCacheConfig(128) if enable_paged_attn else StaticKVCacheConfig()
+            ),
         )
 
         # Enable KV cache for generation
@@ -673,6 +675,7 @@ def test():
     max_new_tokens = 500
     output_csv = None
     cache_dir = None
+    enable_paged_attn = False
 
     i = 3
     while i < len(sys.argv):
@@ -703,6 +706,9 @@ def test():
         elif sys.argv[i] == "--cache_dir" and i + 1 < len(sys.argv):
             cache_dir = sys.argv[i + 1]
             i += 2
+        elif sys.argv[i] == "--enable_paged_attn":
+            enable_paged_attn = True
+            i += 1
         else:
             i += 1
 
@@ -757,16 +763,13 @@ def test():
         subject_list = ["all"]
 
     # Create model based on backend (create once, reuse for all subjects)
-    if backend != "010":
-        if backend == "torch":
-            model = TorchBenchmark(model_path, device_type_str, benchmark)
-        else:
-            model = InfiniLMBenchmark(
-                model_path, device_type_str, ndev, backend, benchmark
-            )
+
+    if backend == "torch":
+        model = TorchBenchmark(model_path, device_type_str, benchmark)
     else:
-        print(f"test 010 backend by scripts/test_ceval.py")
-        exit(0)
+        model = InfiniLMBenchmark(
+            model_path, device_type_str, ndev, backend, benchmark, enable_paged_attn
+        )
 
     # Define helper functions for loading datasets
     if benchmark == "ceval":
