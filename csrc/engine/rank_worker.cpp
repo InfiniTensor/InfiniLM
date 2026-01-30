@@ -246,12 +246,12 @@ void RankWorker::thread_loop() {
                 try {
                     model_->load_parameter(local_param_name, local_param);
                 } catch (const std::exception &e) {
-                    // convert exceptions to a safe behavior: set should_exit_ and notify caller
-                    std::lock_guard<std::mutex> lk(mutex_);
-                    should_exit_ = true;
-                    job_done_ = true;
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
                     cv_.notify_all();
-                    // rethrow so the thread can be joined and caller sees an error if desired (optional)
                     spdlog::error("[{}] exception during load_parameter_: {}\n", info(), e.what());
                     break;
                 }
@@ -321,9 +321,11 @@ void RankWorker::thread_loop() {
                     cv_.notify_all();
 
                 } catch (const std::exception &e) {
-                    std::lock_guard<std::mutex> lk(mutex_);
-                    should_exit_ = true;
-                    job_done_ = true;
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
                     cv_.notify_all();
                     spdlog::error("[{}] exception during forward: {}\n", info(), e.what());
                     break;
@@ -338,9 +340,11 @@ void RankWorker::thread_loop() {
                     cv_.notify_all();
 
                 } catch (const std::exception &e) {
-                    std::lock_guard<std::mutex> lk(mutex_);
-                    should_exit_ = true;
-                    job_done_ = true;
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
                     cv_.notify_all();
                     spdlog::error("[{}] exception during reset_cache: {}\n", info(), e.what());
                     break;
@@ -357,9 +361,11 @@ void RankWorker::thread_loop() {
                     cv_.notify_all();
 
                 } catch (const std::exception &e) {
-                    std::lock_guard<std::mutex> lk(mutex_);
-                    should_exit_ = true;
-                    job_done_ = true;
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
                     cv_.notify_all();
                     spdlog::error("[{}] exception during compile: {}\n", info(), e.what());
                     break;
@@ -369,6 +375,9 @@ void RankWorker::thread_loop() {
                 // Shouldn't reach here (no-op)
             }
         } // while
+
+        // Some clean up should be done before exiting the thread
+        compiler_.reset();
     } catch (const std::exception &e) {
         // Top-level exception: ensure any waiters are woken and the thread exits cleanly.
         {

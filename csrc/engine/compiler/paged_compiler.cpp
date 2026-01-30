@@ -1,5 +1,13 @@
 #include "paged_compiler.hpp"
 
+namespace {
+// Todo: replace with Tensor::zeros when it is available
+inline void set_zeros(infinicore::Tensor &tensor) {
+    std::vector<uint8_t> zeros(tensor->nbytes(), 0);
+    infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
+}
+
+} // namespace
 namespace infinilm::engine {
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {
@@ -27,15 +35,20 @@ void PagedCompiler::compile() {
         compiled_map_decode_.clear();
         block_tables_holder_ = infinicore::Tensor::empty(
             {nblocks}, infinicore::DataType::I64, infinicore::context::getDevice());
+        set_zeros(block_tables_holder_);
         for (size_t b : decode_batch_sizes_) {
             size_t block_per_req = nblocks / b;
             InfinilmModel::Input input;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.position_ids = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+            set_zeros(input.input_ids.value());
+            set_zeros(input.position_ids.value());
+            set_zeros(input.total_sequence_lengths.value());
             std::vector<int64_t> total_sequence_lengths_vec(b, 1);
             infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int64_t), false);
             input.input_offsets = infinicore::Tensor::empty({b + 1}, infinicore::DataType::I64, infinicore::context::getDevice());
+            set_zeros(input.input_offsets.value());
             std::vector<int64_t> input_offsets_vec(b + 1, 0);
             for (size_t i = 0; i <= b; i++) {
                 input_offsets_vec[i] = i;
@@ -43,6 +56,7 @@ void PagedCompiler::compile() {
             infinicore::context::memcpyH2D(input.input_offsets.value()->data(), input_offsets_vec.data(), (b + 1) * sizeof(int64_t), false);
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+            set_zeros(input.slot_mapping.value());
 
             barrier_->wait();
             infinicore::context::startGraphRecording();
