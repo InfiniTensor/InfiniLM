@@ -23,7 +23,9 @@ DEFAULT_STREAM_TIMEOUT = 100.0
 DEFAULT_REQUEST_TIMEOUT = 1000.0
 
 
-def chunk_json(id_, content=None, role=None, finish_reason=None, model: str = "unknown"):
+def chunk_json(
+    id_, content=None, role=None, finish_reason=None, model: str = "unknown"
+):
     """Generate JSON chunk for streaming response."""
     delta = {}
     if content:
@@ -66,6 +68,7 @@ class InferenceServer:
         top_k: int = 1,
         host: str = "0.0.0.0",
         port: int = 8000,
+        enable_graph: bool = False,
     ):
         """Initialize inference server.
 
@@ -83,6 +86,7 @@ class InferenceServer:
             top_k: Default top-k sampling parameter.
             host: Server host address.
             port: Server port number.
+            enable_graph: Whether to enable graph compiling.
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -99,6 +103,7 @@ class InferenceServer:
         self.top_k = top_k
         self.host = host
         self.port = port
+        self.enable_graph = enable_graph
 
         self.engine: AsyncLLMEngine = None
 
@@ -126,9 +131,11 @@ class InferenceServer:
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
+                enable_graph=self.enable_graph,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
+            logger.info(f"  enable_graph: {self.enable_graph}")
             yield
             self.engine.stop()
 
@@ -233,7 +240,6 @@ class InferenceServer:
         if isinstance(stop, str):
             stop = [stop]
 
-
         return SamplingParams(
             temperature=float(pick("temperature", self.temperature)),
             top_p=float(pick("top_p", self.top_p)),
@@ -291,15 +297,15 @@ class InferenceServer:
                 # Skip EOS token text for OpenAI API compatibility
                 # Check if this token is an EOS token by comparing token_id with eos_token_ids
                 eos_token_ids = self.engine.engine.eos_token_ids
-                is_eos_token = (
-                    eos_token_ids and token_output.token_id in eos_token_ids
-                )
+                is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
 
                 if not is_eos_token and token_output.token_text:
                     # Send token
                     chunk = json.dumps(
                         chunk_json(
-                            request_id, content=token_output.token_text, model=self.model_id
+                            request_id,
+                            content=token_output.token_text,
+                            model=self.model_id,
                         ),
                         ensure_ascii=False,
                     )
@@ -379,9 +385,7 @@ class InferenceServer:
                 # Skip EOS token text for OpenAI API compatibility
                 # Check if this token is an EOS token by comparing token_id with eos_token_ids
                 eos_token_ids = self.engine.engine.eos_token_ids
-                is_eos_token = (
-                    eos_token_ids and token_output.token_id in eos_token_ids
-                )
+                is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
 
                 if not is_eos_token:
                     output_text += token_output.token_text
@@ -484,6 +488,11 @@ def parse_args():
     parser.add_argument("--iluvatar", action="store_true", help="Use Iluvatar device")
     parser.add_argument("--cambricon", action="store_true", help="Use Cambricon device")
     parser.add_argument(
+        "--enable-graph",
+        action="store_true",
+        help="Enable graph compiling",
+    )
+    parser.add_argument(
         "--log_level",
         type=str,
         default="INFO",
@@ -518,6 +527,8 @@ def main():
             "\n"
             "Example: python infinilm.server.inference_server --nvidia --model_path=/data/shared/models/9G7B_MHA/ "
             "--max_tokens=100 --max_batch_size=32 --tp=1 --temperature=1.0 --top_p=0.8 --top_k=1"
+            "\n"
+            "Optional: --enable-paged-attn --enable-graph"
         )
         sys.exit(1)
 
@@ -535,6 +546,7 @@ def main():
         top_k=args.top_k,
         host=args.host,
         port=args.port,
+        enable_graph=args.enable_graph,
     )
     server.start()
 

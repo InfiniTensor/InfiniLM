@@ -50,6 +50,7 @@ class EngineConfig:
         temperature: Default sampling temperature.
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
+        enable_graph: Whether to enable graph compiling.
     """
 
     model_path: str
@@ -63,6 +64,7 @@ class EngineConfig:
     temperature: float = 1.0
     top_p: float = 0.8
     top_k: int = 1
+    enable_graph: bool = False
 
 
 class LLMEngine:
@@ -74,11 +76,18 @@ class LLMEngine:
         # Initialize device and dtype
         self._init_device()
 
+        # Initialize KV cache
+        cache_config = PagedKVCacheConfig(
+            num_blocks=config.num_blocks, block_size=config.block_size
+        )
+
         # Initialize model engine
         self.model_engine = InferEngine(
             model_path=config.model_path,
             device=self.device,
             distributed_config=DistConfig(config.tensor_parallel_size),
+            cache_config=cache_config,
+            enable_graph_compiling=config.enable_graph,
         )
 
         # Load model weights
@@ -91,12 +100,6 @@ class LLMEngine:
             config.model_path, trust_remote_code=True
         )
         self._fix_tokenizer_decoder()
-
-        # Initialize KV cache
-        cache_config = PagedKVCacheConfig(
-            num_blocks=config.num_blocks, block_size=config.block_size
-        )
-        self.model_engine.reset_cache(cache_config)
 
         # Initialize scheduler
         self.scheduler = Scheduler(
@@ -113,6 +116,7 @@ class LLMEngine:
         logger.info(
             f"LLMEngine initialized with model at {config.model_path} "
             f"on device {config.device}"
+            f"enable_graph={config.enable_graph}"
         )
 
     def _init_device(self):
@@ -252,20 +256,22 @@ class LLMEngine:
                         for stop_str in stop_strings:
                             if decoded_text.endswith(stop_str):
                                 # Remove the stop string from the end
-                                decoded_text = decoded_text[:-len(stop_str)]
+                                decoded_text = decoded_text[: -len(stop_str)]
                                 req.generated_text = decoded_text
                                 break
 
-                holds_back_incomplete_utf8 = (
-                    bool(decoded_text) and decoded_text.endswith("\ufffd")
-                )
+                holds_back_incomplete_utf8 = bool(
+                    decoded_text
+                ) and decoded_text.endswith("\ufffd")
 
                 # vLLM-style: hold back only if we are not on the final chunk.
                 # Suppress output when finish reason is LENGTH or STOP_STRING.
                 # Root cause fix: When STOP_STRING is detected, we suppress output for the token
                 # that completes the stop string, preventing additional tokens from being output.
                 if (holds_back_incomplete_utf8 and not finished_now) or (
-                    finished_now and req.finish_reason in (FinishReason.LENGTH, FinishReason.STOP_STRING)
+                    finished_now
+                    and req.finish_reason
+                    in (FinishReason.LENGTH, FinishReason.STOP_STRING)
                 ):
                     token_text = ""
                 else:
@@ -275,7 +281,9 @@ class LLMEngine:
                         req._stream_last_yielded_length = len(decoded_text)
 
             # For non-streaming, finish checks happen here.
-            if req._output_queue is None and self._check_request_finished(req, token_id):
+            if req._output_queue is None and self._check_request_finished(
+                req, token_id
+            ):
                 req.mark_finished(req.finish_reason)
                 # Remove stop string from generated_text if STOP_STRING finish reason
                 if req.finish_reason == FinishReason.STOP_STRING:
@@ -283,7 +291,7 @@ class LLMEngine:
                     for stop_str in stop_strings:
                         if req.generated_text.endswith(stop_str):
                             # Remove the stop string from the end
-                            req.generated_text = req.generated_text[:-len(stop_str)]
+                            req.generated_text = req.generated_text[: -len(stop_str)]
                             break
 
             # Put output in queue if it exists (for async streaming)
@@ -362,6 +370,7 @@ class LLM:
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
+        enable_graph: bool = False,
     ):
         """Initialize LLM.
 
@@ -377,6 +386,7 @@ class LLM:
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
+            enable_graph: Whether to enable graph compiling.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -390,6 +400,7 @@ class LLM:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            enable_graph=enable_graph,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -506,6 +517,7 @@ class AsyncLLMEngine:
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
+        enable_graph: bool = False,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -521,6 +533,7 @@ class AsyncLLMEngine:
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
+            enable_graph: Whether to enable graph compiling.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -534,6 +547,7 @@ class AsyncLLMEngine:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            enable_graph=enable_graph,
         )
         self.engine = LLMEngine(config)
         self.config = config
