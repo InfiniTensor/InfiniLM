@@ -194,8 +194,11 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     } else {
         throw std::runtime_error("LlamaAttention: Unsupported kvcache type");
     }
+
     infinicore::Tensor attn_output;
     if (q_reshaped->device().getType() == infinicore::Device::Type::NVIDIA
+        || q_reshaped->device().getType() == infinicore::Device::Type::METAX
+        || q_reshaped->device().getType() == infinicore::Device::Type::MOORE
         || q_reshaped->device().getType() == infinicore::Device::Type::ILUVATAR
         || q_reshaped->device().getType() == infinicore::Device::Type::CAMBRICON) {
         attn_output = infinicore::op::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scaling_, true);
