@@ -1,4 +1,5 @@
 #include "llama_mlp.hpp"
+#include "../../fusion/fusion_context.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
 
@@ -9,7 +10,9 @@ LlamaMLP::LlamaMLP(const LlamaConfig &config,
                    engine::distributed::RankInfo rank_info)
     : hidden_size_(config.hidden_size),
       intermediate_size_(config.intermediate_size),
-      use_bias_(config.mlp_bias), rank_info_(rank_info) {
+      use_bias_(config.mlp_bias),
+      enable_fusion_(config.enable_fusion),
+      rank_info_(rank_info) {
     const auto &dtype{config.dtype};
 
     int tp_rank = rank_info.tp_rank;
@@ -28,9 +31,18 @@ infinicore::Tensor LlamaMLP::forward(const infinicore::Tensor &hidden_states) co
     auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
 
     // 2. Apply SwiGLU: silu(gate) * up
-    // Note: swiglu kernel expects (up, gate) and computes gate * sigmoid(gate) * up
-    // So we pass (up, gate) to get the correct result: gate * sigmoid(gate) * up
-    auto intermediate = infinicore::op::swiglu(up, gate);
+    // Check both static config and dynamic FusionContext
+    bool use_fused_swiglu = enable_fusion_ && fusion::FusionContext::get("swiglu", true);
+
+    infinicore::Tensor intermediate;
+    if (use_fused_swiglu) {
+        // Fused SwiGLU: swiglu kernel computes silu(gate) * up
+        intermediate = infinicore::op::swiglu(up, gate);
+    } else {
+        // Non-fused path: separate silu and mul
+        auto activated = infinicore::op::silu(gate);
+        intermediate = infinicore::op::mul(activated, up);
+    }
 
     // 3. Project down
     auto output = down_proj_->forward(intermediate);

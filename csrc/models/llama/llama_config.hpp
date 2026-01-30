@@ -53,6 +53,9 @@ struct LlamaConfig : public InfinilmModel::Config {
     bool tie_word_embeddings = false;   // Whether to tie input/output embeddings
     bool qk_norm = false;               // Whether to use QK RMSNorm
 
+    // Fusion settings
+    bool enable_fusion = false;         // Whether to use fused kernels (add_rms_norm, swiglu)
+
     // Training/initialization parameters
     double attention_dropout = 0.0;  // Dropout ratio for attention probabilities
     double initializer_range = 0.02; // Standard deviation for weight initialization

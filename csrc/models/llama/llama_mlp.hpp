@@ -57,6 +57,7 @@ protected:
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
+    bool enable_fusion_; // Fusion control flag
 };
 
 } // namespace infinilm::models::llama

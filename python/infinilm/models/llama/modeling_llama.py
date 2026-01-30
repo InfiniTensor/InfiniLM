@@ -22,6 +22,13 @@ import infinicore
 
 from ...cache_utils import Cache, DynamicCache
 from ...generation.utils import GenerationMixin
+
+try:
+    from ...fusion_utils import FusionManager, create_swiglu_pattern, create_add_rms_norm_pattern
+    FUSION_AVAILABLE = True
+except ImportError:
+    FUSION_AVAILABLE = False
+
 from .configuration_llama import LlamaConfig
 
 

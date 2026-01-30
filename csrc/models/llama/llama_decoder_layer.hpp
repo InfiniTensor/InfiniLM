@@ -82,6 +82,7 @@ protected:
 
 private:
     size_t layer_idx_; // Layer index for cache management and debugging
+    bool enable_fusion_; // Fusion control flag
 };
 
 } // namespace infinilm::models::llama

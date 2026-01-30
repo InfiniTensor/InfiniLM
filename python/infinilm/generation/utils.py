@@ -15,6 +15,9 @@ def infini_to_ctype_dtype(infini_dtype):
         return ctypes.c_float
     elif infini_dtype == infinicore.int64:
         return ctypes.c_int64
+    elif infini_dtype == infinicore.bfloat16:
+        # bfloat16 is stored as uint16, need to convert to float32
+        return ctypes.c_uint16
     else:
         raise ValueError(f"Unsupported py_dtype: {infini_dtype}")
 
@@ -29,6 +32,7 @@ def infini_to_numpy(infini_tensor: infinicore.Tensor):
     data_ptr = infini_tensor_cpu.data_ptr()
     num_elements = infini_tensor_cpu.numel()
     original_shape = infini_tensor_cpu.shape
+    original_dtype = infini_tensor_cpu.dtype
 
     # 创建1D NumPy数组（共享内存）
     ArrayType = infini_to_ctype_dtype(infini_tensor_cpu.dtype) * num_elements
@@ -37,6 +41,14 @@ def infini_to_numpy(infini_tensor: infinicore.Tensor):
 
     # 重塑为原始形状
     np_array = np_flat.reshape(original_shape)
+
+    # Convert bfloat16 to float32
+    if original_dtype == infinicore.bfloat16:
+        # bfloat16 is stored as uint16, need to convert to float32
+        # bfloat16 and float32 have the same exponent (8 bits), just different mantissa sizes
+        # Convert by shifting the mantissa left by 16 bits
+        np_array_uint16 = np_array.astype(np.uint32)
+        np_array = (np_array_uint16 << 16).view(np.float32)
 
     return np.copy(np_array)
 
@@ -224,7 +236,8 @@ class GenerationMixin:
             )
 
             for i in range(0, batch_size):
-                score = token_scores.narrow(0, i, 1).view((vocab_size,))
+                # 确保张量连续，避免 random_sample 的 "Bad Tensor Strides" 错误
+                score = token_scores.narrow(0, i, 1).view((vocab_size,)).contiguous()
                 out = next_tokens.narrow(0, i, 1).view([])
                 infinicore.nn.functional.random_sample(
                     score,
