@@ -2,7 +2,6 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
-#include <iostream>
 namespace infinilm::models::llama {
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).

@@ -1,5 +1,6 @@
 #include "model_factory.hpp"
 #include "llama/llama.hpp"
+#include <iostream>
 
 namespace infinilm {
 /**
