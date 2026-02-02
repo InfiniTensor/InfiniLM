@@ -298,14 +298,22 @@ class InferenceServer:
                     req.mark_canceled()
                     break
 
-                # Send token
-                chunk = json.dumps(
-                    chunk_json(
-                        request_id, content=token_output.token_text, model=self.model_id
-                    ),
-                    ensure_ascii=False,
+                # Skip EOS token text for OpenAI API compatibility
+                # Check if this token is an EOS token by comparing token_id with eos_token_ids
+                eos_token_ids = self.engine.engine.eos_token_ids
+                is_eos_token = (
+                    eos_token_ids and token_output.token_id in eos_token_ids
                 )
-                yield f"data: {chunk}\n\n"
+
+                if not is_eos_token and token_output.token_text:
+                    # Send token
+                    chunk = json.dumps(
+                        chunk_json(
+                            request_id, content=token_output.token_text, model=self.model_id
+                        ),
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {chunk}\n\n"
 
                 if token_output.finished:
                     finish_reason = self._convert_finish_reason(
@@ -379,7 +387,15 @@ class InferenceServer:
                     req.mark_canceled()
                     break
 
-                output_text += token_output.token_text
+                # Skip EOS token text for OpenAI API compatibility
+                # Check if this token is an EOS token by comparing token_id with eos_token_ids
+                eos_token_ids = self.engine.engine.eos_token_ids
+                is_eos_token = (
+                    eos_token_ids and token_output.token_id in eos_token_ids
+                )
+
+                if not is_eos_token:
+                    output_text += token_output.token_text
 
                 if token_output.finished:
                     break
