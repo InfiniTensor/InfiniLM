@@ -71,11 +71,9 @@ LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_conf
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
             "layers." + std::to_string(i), model_config_, device, i, rank_info));
     }
-
     // Initialize final layer normalization
     INFINICORE_NN_MODULE_INIT(norm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
                               dtype, device);
-
     // Initialize Rotary Position Embeddings (shared across all layers)
     // Use GPT-J-style inverse frequencies (default) and GPT_NEOX rotation pairing
     INFINICORE_NN_MODULE_INIT(rotary_emb, model_config_->get_head_dim(), model_config_->get<size_t>("max_position_embeddings"),
@@ -125,7 +123,30 @@ void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
         kv_cache_ = nullptr;
         return;
     }
-    if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
+    if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
+        kv_cache_config && model_config_ == nullptr) {
+        kv_cache_ = std::make_shared<cache::StaticKVCache>(
+            config_.head_dim,
+            config_.head_dim,
+            config_.num_key_value_heads,
+            config_.num_key_value_heads,
+            config_.num_hidden_layers,
+            config_.max_position_embeddings,
+            config_.dtype,
+            *kv_cache_config,
+            rank_info_);
+    } else if (auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+               paged_kv_cache_config && model_config_ == nullptr) {
+        kv_cache_ = std::make_shared<cache::PagedKVCache>(
+            config_.head_dim,
+            config_.head_dim,
+            config_.num_key_value_heads,
+            config_.num_key_value_heads,
+            config_.num_hidden_layers,
+            config_.dtype,
+            *paged_kv_cache_config,
+            rank_info_);
+    } else if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
         kv_cache_ = std::make_shared<cache::StaticKVCache>(
             model_config_->get_head_dim(),
             model_config_->get_head_dim(),

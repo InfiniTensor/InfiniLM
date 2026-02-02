@@ -18,7 +18,6 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     const InfinilmModel::Config &config,
     engine::distributed::RankInfo rank_info,
     const cache::CacheConfig *cache) {
-
     std::shared_ptr<InfinilmModel> model;
     if (const auto llama_config_ptr = dynamic_cast<const models::llama::LlamaConfig *>(&config)) {
         const auto &llama_config = *llama_config_ptr;

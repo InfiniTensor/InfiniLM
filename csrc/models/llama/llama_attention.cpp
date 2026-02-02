@@ -105,19 +105,23 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
 
     auto quant_scheme = this->model_config_->get_quant_scheme();
     switch (quant_scheme) {
-    case infinicore::nn::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
-        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), quant_scheme, use_bias_,
+    case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
+        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
                                       dtype, device, rank_info);
-
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, quant_scheme, use_output_bias_,
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
 
+    case infinicore::quantization::QuantScheme::AWQ_W4A16:
+        INFINILM_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+                                          dtype, device, rank_info);
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
     default:
-        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), quant_scheme, use_bias_,
+        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
                                  dtype, device, rank_info);
-
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, quant_scheme, use_output_bias_,
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     }
@@ -141,7 +145,7 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
-    if (model_config_->get<std::string>("model_type") == "qwen3") {
+    if (use_qk_norm_ || model_config_->get_or<std::string>("model_type", "None") == "qwen3") {
         q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
         k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
     }
@@ -190,7 +194,6 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     } else {
         throw std::runtime_error("LlamaAttention: Unsupported kvcache type");
     }
-
     infinicore::Tensor attn_output;
     if (q_reshaped->device().getType() == infinicore::Device::Type::NVIDIA
         || q_reshaped->device().getType() == infinicore::Device::Type::ILUVATAR
@@ -263,7 +266,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
 
-    if (model_config_->get<std::string>("model_type") == "qwen3") {
+    if (use_qk_norm_ || model_config_->get_or<std::string>("model_type", "None") == "qwen3") {
         q_reshaped = q_norm_->forward(q_reshaped);
         k_reshaped = k_norm_->forward(k_reshaped);
     }

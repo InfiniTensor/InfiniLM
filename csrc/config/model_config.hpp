@@ -52,8 +52,16 @@ public:
         return get<size_t>("hidden_size") / get<size_t>("num_attention_heads");
     }
 
+    QuantConfig get_quant_config() const {
+        return quant_config;
+    }
+
+    std::shared_ptr<infinicore::quantization::BaseQuantization> get_quantization_method() const {
+        return quant_config.get_quantization_method();
+    }
+
     infinicore::DataType get_dtype() const;
-    infinicore::nn::QuantScheme get_quant_scheme() const;
+    infinicore::quantization::QuantScheme get_quant_scheme() const;
     std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> get_rope_scaling() const;
 
 private:

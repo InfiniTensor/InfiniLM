@@ -1,6 +1,7 @@
 #include "llama_decoder_layer.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
+#include <iostream>
 #include <optional>
 
 namespace infinilm::models::llama {

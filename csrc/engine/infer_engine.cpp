@@ -1,5 +1,6 @@
 #include "infer_engine.hpp"
 #include "spdlog/spdlog.h"
+#include <iostream>
 
 namespace infinilm::engine {
 
@@ -26,7 +27,6 @@ InferEngine::InferEngine(
     bool enable_graph_compiling) // Changed parameter
     : communication_group_(distributed_config, device_type),
       legacy_model_config_(config) {
-
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }

@@ -41,7 +41,8 @@ class InferEngine(_infinilm.InferEngine):
         #     device._underlying.type,
         #     cache_config,
         #     enable_graph_compiling,
-        # )  
+        # )
+        
         super().__init__(
             model_path,
             distributed_config._underlying,

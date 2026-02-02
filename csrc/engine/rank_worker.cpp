@@ -4,6 +4,7 @@
 
 #include "infinicore/ops.hpp"
 
+#include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -34,6 +35,7 @@ RankWorker::RankWorker(const InfinilmModel::Config &model_config,
       job_done_(false),
       should_exit_(false),
       init_done_(false),
+      rng_(std::random_device{}()),
       barrier_(barrier) {
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
@@ -231,7 +233,13 @@ void RankWorker::thread_loop() {
             infinicore::context::setDevice(rank_info_.device);
 
             // Create model using factory (may be expensive)
-            model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            if (model_config_ == nullptr) {
+                model_ = InfinilmModelFactory::createModel(legacy_model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+
+            } else {
+                model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            }
+
             if (!model_) {
                 throw std::runtime_error("Failed to create model");
             }

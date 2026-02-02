@@ -2,7 +2,7 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
-
+#include <iostream>
 namespace infinilm::models::llama {
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
@@ -22,9 +22,7 @@ LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
 
     // Initialize module's device_ member
     device_ = device;
-
     const auto &dtype{config.dtype};
-
     // Initialize base model
     INFINICORE_NN_MODULE_INIT(model, config, device, rank_info);
 
@@ -41,7 +39,6 @@ LlamaForCausalLM::LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig
 
     // Initialize module's device_ member
     device_ = device;
-
     const auto &dtype{model_config->get_dtype()};
 
     // Initialize base model
@@ -69,7 +66,6 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
 
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);
-
     return {logits};
 }
 

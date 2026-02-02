@@ -1,6 +1,6 @@
 #pragma once
 #include "infinicore/nn/linear.hpp"
-#include "infinicore/nn/quantization.hpp"
+#include "infinicore/quantization.hpp"
 
 #include "../engine/distributed/communication_group.hpp"
 
@@ -28,7 +28,7 @@ public:
                                size_t q_dim, size_t k_dim, size_t v_dim,
                                size_t num_q_head, size_t num_k_head, size_t num_v_head,
                                bool q_bias, bool k_bias, bool v_bias,
-                               infinicore::nn::QuantScheme quant_scheme,
+                               std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
                                const infinicore::DataType &dtype = infinicore::DataType::F32,
                                const infinicore::Device &device = infinicore::Device(),
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
@@ -37,7 +37,7 @@ public:
     explicit QKVParallelLinear(size_t hidden_size,
                                size_t head_dim,
                                size_t num_q_head, size_t num_kv_head,
-                               infinicore::nn::QuantScheme quant_scheme,
+                               std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
                                bool bias = false,
                                const infinicore::DataType &dtype = infinicore::DataType::F32,
                                const infinicore::Device &device = infinicore::Device(),
@@ -53,6 +53,10 @@ public:
     infinicore::nn::Parameter get_q_weight_scale() const;
     infinicore::nn::Parameter get_k_weight_scale() const;
     infinicore::nn::Parameter get_v_weight_scale() const;
+
+    infinicore::nn::Parameter get_q_weight_zeros() const;
+    infinicore::nn::Parameter get_k_weight_zeros() const;
+    infinicore::nn::Parameter get_v_weight_zeros() const;
 
     infinicore::nn::Parameter get_q_bias() const;
     infinicore::nn::Parameter get_k_bias() const;
@@ -99,14 +103,14 @@ public:
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
-    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, infinicore::nn::QuantScheme quant_scheme,
+    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
                          bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32,
                          const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
-                         infinicore::nn::QuantScheme quant_scheme,
+                         std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -116,11 +120,15 @@ public:
 
     infinicore::nn::Parameter get_gate_weight_scale() const;
 
+    infinicore::nn::Parameter get_gate_weight_zeros() const;
+
     infinicore::nn::Parameter get_gate_bias() const;
 
     infinicore::nn::Parameter get_up_weight() const;
 
     infinicore::nn::Parameter get_up_weight_scale() const;
+
+    infinicore::nn::Parameter get_up_weight_zeros() const;
 
     infinicore::nn::Parameter get_up_bias() const;
 
@@ -170,19 +178,46 @@ private:
     if (name##_->has_v_bias())                                                                      \
         this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
 
+#define INFINILM_QKV_LINEAR_W4A16AWQ_INIT(name, q_name, k_name, v_name, ...)                  \
+    name##_ = std::make_shared<layers::QKVParallelLinear>(__VA_ARGS__);                       \
+    this->register_parameter(std::string(q_name) + ".qweight", name##_->get_q_weight());      \
+    this->register_parameter(std::string(q_name) + ".qzeros", name##_->get_q_weight_zeros()); \
+    this->register_parameter(std::string(q_name) + ".scales", name##_->get_q_weight_scale()); \
+    this->register_parameter(std::string(k_name) + ".qweight", name##_->get_k_weight());      \
+    this->register_parameter(std::string(k_name) + ".qzeros", name##_->get_k_weight_zeros()); \
+    this->register_parameter(std::string(k_name) + ".scales", name##_->get_k_weight_scale()); \
+    this->register_parameter(std::string(v_name) + ".qweight", name##_->get_v_weight());      \
+    this->register_parameter(std::string(v_name) + ".qzeros", name##_->get_v_weight_zeros()); \
+    this->register_parameter(std::string(v_name) + ".scales", name##_->get_v_weight_scale()); \
+    if (name##_->has_q_bias())                                                                \
+        this->register_parameter(std::string(q_name) + ".bias", name##_->get_q_bias());       \
+    if (name##_->has_k_bias())                                                                \
+        this->register_parameter(std::string(k_name) + ".bias", name##_->get_k_bias());       \
+    if (name##_->has_v_bias())                                                                \
+        this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
+
 // ========================= Gate-Up Quantization ==============================
 #define INFINILM_GATE_UP_LINEAR_W8A8_INIT(name, gate_name, up_name, ...)                                  \
     name##_ = std::make_shared<layers::GateUpParallelLinear>(__VA_ARGS__);                                \
-    /* 注册 Gate 权重 */                                                                                  \
     this->register_parameter(std::string(gate_name) + ".weight", name##_->get_gate_weight());             \
     this->register_parameter(std::string(gate_name) + ".weight_scale", name##_->get_gate_weight_scale()); \
-    /* 注册 Up 权重 */                                                                                    \
     this->register_parameter(std::string(up_name) + ".weight", name##_->get_up_weight());                 \
     this->register_parameter(std::string(up_name) + ".weight_scale", name##_->get_up_weight_scale());     \
-    /* bias 保持原样 */                                                                                   \
     if (name##_->has_gate_bias())                                                                         \
         this->register_parameter(std::string(gate_name) + ".bias", name##_->get_gate_bias());             \
     if (name##_->has_up_bias())                                                                           \
         this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
 
+#define INFINILM_GATE_UP_LINEAR_W4A16AWQ_INIT(name, gate_name, up_name, ...)                        \
+    name##_ = std::make_shared<layers::GateUpParallelLinear>(__VA_ARGS__);                          \
+    this->register_parameter(std::string(gate_name) + ".qweight", name##_->get_gate_weight());      \
+    this->register_parameter(std::string(gate_name) + ".scales", name##_->get_gate_weight_scale()); \
+    this->register_parameter(std::string(gate_name) + ".qzeros", name##_->get_gate_weight_zeros()); \
+    this->register_parameter(std::string(up_name) + ".qweight", name##_->get_up_weight());          \
+    this->register_parameter(std::string(up_name) + ".scales", name##_->get_up_weight_scale());     \
+    this->register_parameter(std::string(up_name) + ".qzeros", name##_->get_up_weight_zeros());     \
+    if (name##_->has_gate_bias())                                                                   \
+        this->register_parameter(std::string(gate_name) + ".bias", name##_->get_gate_bias());       \
+    if (name##_->has_up_bias())                                                                     \
+        this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
 } // namespace infinilm::layers
