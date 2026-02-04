@@ -37,6 +37,7 @@ class DeviceType(ctypes.c_int):
     DEVICE_TYPE_KUNLUN = 7
     DEVICE_TYPE_HYGON = 8
     DEVICE_TYPE_QY = 9
+    DEVICE_TYPE_ALI = 10
 
 
 class KVCacheCStruct(ctypes.Structure):
