@@ -251,7 +251,10 @@ class LLMEngine:
                 )
 
                 # vLLM-style: hold back only if we are not on the final chunk.
-                if holds_back_incomplete_utf8 and not finished_now:
+                # Also suppress output when finish reason is LENGTH to avoid replacement issues.
+                if (holds_back_incomplete_utf8 and not finished_now) or (
+                    finished_now and req.finish_reason == FinishReason.LENGTH
+                ):
                     token_text = ""
                 else:
                     last_len = getattr(req, "_stream_last_yielded_length", 0)
@@ -296,6 +299,12 @@ class LLMEngine:
             if req.generated_text.endswith(stop_str):
                 req.finish_reason = FinishReason.STOP_STRING
                 return True
+
+        # Check stop token IDs
+        stop_token_ids = req.sampling_params.stop_token_ids or []
+        if stop_token_ids and token_id in stop_token_ids:
+            req.finish_reason = FinishReason.STOP_STRING
+            return True
 
         return False
 
