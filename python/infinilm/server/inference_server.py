@@ -238,9 +238,6 @@ class InferenceServer:
         if isinstance(stop, str):
             stop = [stop]
 
-        stop_token_ids = pick("stop_token_ids", None)
-        if isinstance(stop_token_ids, int):
-            stop_token_ids = [stop_token_ids]
 
         return SamplingParams(
             temperature=float(pick("temperature", self.temperature)),
@@ -248,7 +245,6 @@ class InferenceServer:
             top_k=int(pick("top_k", self.top_k)),
             max_tokens=int(max_tokens) if max_tokens is not None else None,
             stop=stop,
-            stop_token_ids=stop_token_ids,
         )
 
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):

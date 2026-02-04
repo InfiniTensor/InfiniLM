@@ -324,12 +324,6 @@ class LLMEngine:
                 req.finish_reason = FinishReason.STOP_STRING
                 return True
 
-        # Check stop token IDs
-        stop_token_ids = req.sampling_params.stop_token_ids or []
-        if stop_token_ids and token_id in stop_token_ids:
-            req.finish_reason = FinishReason.STOP_STRING
-            return True
-
         return False
 
     def tokenize(self, text: str) -> List[int]:
