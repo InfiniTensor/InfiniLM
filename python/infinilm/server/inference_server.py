@@ -254,7 +254,6 @@ class InferenceServer:
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
         """Handle streaming chat request."""
         req = None
-        start_time = time.time()
 
         try:
             messages = data.get("messages", [])
@@ -353,7 +352,6 @@ class InferenceServer:
     async def _chat(self, request_id: str, data: dict, http_request: Request):
         """Handle non-streaming chat request."""
         req = None
-        start_time = time.time()
 
         try:
             messages = data.get("messages", [])
