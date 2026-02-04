@@ -239,12 +239,12 @@ class LLMEngine:
                 decoded_text = self.detokenize(req.generated_token_ids)
 
                 finished_now = False
+                # Update generated_text to the latest decode (used for stop-string checks and debugging)
+                req.generated_text = decoded_text
+
                 if self._check_request_finished(req, token_id):
                     req.mark_finished(req.finish_reason)
                     finished_now = True
-
-                # Update generated_text to the latest decode (used for stop-string checks and debugging)
-                req.generated_text = decoded_text
 
                 holds_back_incomplete_utf8 = (
                     bool(decoded_text) and decoded_text.endswith("\ufffd")
