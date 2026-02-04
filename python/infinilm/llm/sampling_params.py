@@ -15,7 +15,7 @@ class SamplingParams:
     top_k: int = 1
     max_tokens: Optional[int] = None
     stop: Optional[List[str]] = None
-    stop_token_ids: Optional[List[int]] = None
+    stop_token_ids: Optional[List[int]] = None  # Placeholder for future usage, not currently handled
 
     def __post_init__(self):
         if self.stop is None:
