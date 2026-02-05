@@ -23,10 +23,11 @@ from infinilm.llm.request import (
 )
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
+from infinilm.llm.static_scheduler import StaticScheduler
 
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
-from infinilm.cache.cache import PagedKVCacheConfig
+from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
@@ -43,10 +44,12 @@ class EngineConfig:
         device: Device type string ('cpu', 'cuda', 'mlu', etc.).
         dtype: Data type string ('float16', 'bfloat16', 'float32').
         tensor_parallel_size: Number of devices for tensor parallelism.
-        max_batch_size: Maximum batch size for inference.
+        cache_type: Cache type ('paged' or 'static').
+        max_batch_size: Maximum batch size for inference (only for paged cache).
         max_tokens: Default maximum tokens to generate.
-        num_blocks: Number of KV cache blocks.
-        block_size: Size of each KV cache block.
+        num_blocks: Number of KV cache blocks (only for paged cache).
+        block_size: Size of each KV cache block (only for paged cache).
+        max_cache_len: Maximum sequence length (only for static cache).
         temperature: Default sampling temperature.
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
@@ -57,10 +60,12 @@ class EngineConfig:
     device: str = "cuda"
     dtype: str = "float16"
     tensor_parallel_size: int = 1
+    cache_type: str = "paged"  # "paged" or "static"
     max_batch_size: int = 16
     max_tokens: int = 4096
     num_blocks: int = 8 * 1024
     block_size: int = 16
+    max_cache_len: int = 4096
     temperature: float = 1.0
     top_p: float = 0.8
     top_k: int = 1
@@ -101,12 +106,30 @@ class LLMEngine:
         )
         self._fix_tokenizer_decoder()
 
-        # Initialize scheduler
-        self.scheduler = Scheduler(
-            max_batch_size=config.max_batch_size,
-            num_blocks=config.num_blocks,
-            block_size=config.block_size,
-        )
+        # Initialize KV cache based on cache type
+        if config.cache_type == "static":
+            cache_config = StaticKVCacheConfig(
+                max_batch_size=1, max_cache_len=config.max_cache_len
+            )
+            self.scheduler = StaticScheduler(max_cache_len=config.max_cache_len)
+            logger.info(
+                f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
+            )
+        elif config.cache_type == "paged":
+            cache_config = PagedKVCacheConfig(
+                num_blocks=config.num_blocks, block_size=config.block_size
+            )
+            self.scheduler = Scheduler(
+                max_batch_size=config.max_batch_size,
+                num_blocks=config.num_blocks,
+                block_size=config.block_size,
+            )
+            logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
+        else:
+            raise ValueError(f"Unsupported cache_type: {config.cache_type}")
+
+        self.model_engine.reset_cache(cache_config)
+        self.cache_type = config.cache_type
 
         # Get EOS token IDs from model config
         self.eos_token_ids = self.model_engine.config.eos_token_id or []
@@ -202,19 +225,21 @@ class LLMEngine:
         """Convert model input dict to infinicore tensors."""
         model_input = {}
         for key, value in model_input_dict.items():
-            if key == "input_ids":
-                model_input[key] = infinicore.from_list([value], dtype=infinicore.int64)
+            if value is None:
+                # Skip None values (block_tables/slot_mapping for static cache)
+                model_input[key] = None
             elif key in [
+                "input_ids",
                 "position_ids",
                 "past_kv_lengths",
                 "total_kv_lengths",
                 "input_offsets",
                 "slot_mapping",
+                "block_tables",
             ]:
                 model_input[key] = infinicore.from_list(value, dtype=infinicore.int64)
-            elif key == "block_tables":
-                model_input[key] = infinicore.from_list(value, dtype=infinicore.int64)
             else:
+                # temperature, top_k, top_p, etc.
                 model_input[key] = value
         return model_input
 
@@ -225,7 +250,8 @@ class LLMEngine:
         sampled_tokens: List[int],
     ):
         """Update request status after inference step."""
-        if is_prefill:
+        # Only reset req blocks for paged cache
+        if is_prefill and self.cache_type == "paged":
             self.scheduler.cache_manager.reset_req_blocks()
 
         for req, token_id in zip(requests, sampled_tokens):
@@ -256,20 +282,22 @@ class LLMEngine:
                         for stop_str in stop_strings:
                             if decoded_text.endswith(stop_str):
                                 # Remove the stop string from the end
-                                decoded_text = decoded_text[:-len(stop_str)]
+                                decoded_text = decoded_text[: -len(stop_str)]
                                 req.generated_text = decoded_text
                                 break
 
-                holds_back_incomplete_utf8 = (
-                    bool(decoded_text) and decoded_text.endswith("\ufffd")
-                )
+                holds_back_incomplete_utf8 = bool(
+                    decoded_text
+                ) and decoded_text.endswith("\ufffd")
 
                 # vLLM-style: hold back only if we are not on the final chunk.
                 # Suppress output when finish reason is LENGTH or STOP_STRING.
                 # Root cause fix: When STOP_STRING is detected, we suppress output for the token
                 # that completes the stop string, preventing additional tokens from being output.
                 if (holds_back_incomplete_utf8 and not finished_now) or (
-                    finished_now and req.finish_reason in (FinishReason.LENGTH, FinishReason.STOP_STRING)
+                    finished_now
+                    and req.finish_reason
+                    in (FinishReason.LENGTH, FinishReason.STOP_STRING)
                 ):
                     token_text = ""
                 else:
@@ -279,7 +307,9 @@ class LLMEngine:
                         req._stream_last_yielded_length = len(decoded_text)
 
             # For non-streaming, finish checks happen here.
-            if req._output_queue is None and self._check_request_finished(req, token_id):
+            if req._output_queue is None and self._check_request_finished(
+                req, token_id
+            ):
                 req.mark_finished(req.finish_reason)
                 # Remove stop string from generated_text if STOP_STRING finish reason
                 if req.finish_reason == FinishReason.STOP_STRING:
@@ -287,7 +317,7 @@ class LLMEngine:
                     for stop_str in stop_strings:
                         if req.generated_text.endswith(stop_str):
                             # Remove the stop string from the end
-                            req.generated_text = req.generated_text[:-len(stop_str)]
+                            req.generated_text = req.generated_text[: -len(stop_str)]
                             break
 
             # Put output in queue if it exists (for async streaming)
@@ -359,10 +389,12 @@ class LLM:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 4096,
         num_blocks: int = 8 * 1024,
         block_size: int = 16,
+        max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
@@ -375,10 +407,12 @@ class LLM:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
-            max_batch_size: Maximum batch size for inference.
+            cache_type: Cache type ('paged' or 'static').
+            max_batch_size: Maximum batch size (only for paged cache).
             max_tokens: Default maximum tokens to generate.
-            num_blocks: Number of KV cache blocks.
-            block_size: Size of each KV cache block.
+            num_blocks: Number of KV cache blocks (only for paged cache).
+            block_size: Size of each KV cache block (only for paged cache).
+            max_cache_len: Maximum sequence length (only for static cache).
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
@@ -389,10 +423,12 @@ class LLM:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            cache_type=cache_type,
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
+            max_cache_len=max_cache_len,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
@@ -506,10 +542,12 @@ class AsyncLLMEngine:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 512,
         num_blocks: int = 8 * 1024,
         block_size: int = 16,
+        max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
@@ -522,10 +560,12 @@ class AsyncLLMEngine:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
-            max_batch_size: Maximum batch size for inference.
+            cache_type: Cache type ('paged' or 'static').
+            max_batch_size: Maximum batch size (only for paged cache).
             max_tokens: Default maximum tokens to generate.
-            num_blocks: Number of KV cache blocks.
-            block_size: Size of each KV cache block.
+            num_blocks: Number of KV cache blocks (only for paged cache).
+            block_size: Size of each KV cache block (only for paged cache).
+            max_cache_len: Maximum sequence length (only for static cache).
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
@@ -536,10 +576,12 @@ class AsyncLLMEngine:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            cache_type=cache_type,
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
+            max_cache_len=max_cache_len,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,

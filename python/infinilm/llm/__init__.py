@@ -18,6 +18,7 @@ from infinilm.llm.llm import (
     EngineConfig,
 )
 from infinilm.llm.scheduler import Scheduler, SchedulerOutput
+from infinilm.llm.static_scheduler import StaticScheduler, StaticSchedulerOutput
 from infinilm.llm.cache_manager import BlockManager, Block
 
 __all__ = [
@@ -38,6 +39,8 @@ __all__ = [
     # Internal (for advanced use)
     "Scheduler",
     "SchedulerOutput",
+    "StaticScheduler",
+    "StaticSchedulerOutput",
     "BlockManager",
     "Block",
 ]
