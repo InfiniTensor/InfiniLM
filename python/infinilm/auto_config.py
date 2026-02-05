@@ -27,5 +27,9 @@ class AutoConfig:
             return LlamaConfig(**config_dict)
         elif config_dict["model_type"] == "minicpm":
             return LlamaConfig(**config_dict)
+        elif config_dict["model_type"] == "fm9g":
+            return LlamaConfig(**config_dict)
+        elif config_dict["model_type"] == "fm9g7b":
+            return LlamaConfig(**config_dict)
 
         raise ValueError(f"Unsupported model type `{config_dict['model_type']}`.")

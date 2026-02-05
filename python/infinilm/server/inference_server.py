@@ -410,6 +410,7 @@ def parse_args():
     parser.add_argument("--port", type=int, default=8000, help="Server port")
     parser.add_argument("--cpu", action="store_true", help="Use CPU")
     parser.add_argument("--nvidia", action="store_true", help="Use NVIDIA GPU")
+    parser.add_argument("--qy", action="store_true", help="Use QY GPU")
     parser.add_argument("--metax", action="store_true", help="Use MetaX device")
     parser.add_argument("--moore", action="store_true", help="Use Moore device")
     parser.add_argument("--iluvatar", action="store_true", help="Use Iluvatar device")
@@ -440,6 +441,8 @@ def main():
         device = "cpu"
     elif args.nvidia:
         device = "cuda"
+    elif args.qy:
+        device = "cuda"
     elif args.metax:
         device = "cuda"
     elif args.moore:
@@ -452,7 +455,7 @@ def main():
         device = "cuda"
     else:
         print(
-            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --metax | --moore | --iluvatar | --cambricon | --ali] "
+            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon] "
             "--model_path=<path/to/model_dir> --max_tokens=MAX_TOKENS --max_batch_size=MAX_BATCH_SIZE"
             "\n"
             "Example: python infinilm.server.inference_server --nvidia --model_path=/data/shared/models/9G7B_MHA/ "

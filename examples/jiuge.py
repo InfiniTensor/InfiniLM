@@ -28,6 +28,11 @@ def get_args():
         help="Run nvidia test",
     )
     parser.add_argument(
+        "--qy",
+        action="store_true",
+        help="Run qy test",
+    )
+    parser.add_argument(
         "--metax",
         action="store_true",
         help="Run metax test",
@@ -247,6 +252,8 @@ if __name__ == "__main__":
         device_str = "cpu"
     elif args.nvidia:
         device_str = "cuda"
+    elif args.qy:
+        device_str = "cuda"
     elif args.metax:
         device_str = "cuda"
     elif args.moore:
@@ -259,7 +266,7 @@ if __name__ == "__main__":
         device_str = "cuda"
     else:
         print(
-            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --metax | --moore | --iluvatar | --cambricon | --ali] --model_path=<path/to/model_dir>\n"
+            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>\n"
             "such as, python examples/jiuge.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
