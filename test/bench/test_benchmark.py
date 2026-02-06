@@ -4,7 +4,6 @@ import argparse
 import time
 import re
 import csv
-from datasets import load_dataset, Dataset
 import numpy as np
 import infinicore
 from infinilm.modeling_utils import load_model_state_dict_by_file
@@ -12,6 +11,7 @@ from infinilm.distributed import DistConfig
 from infinilm.cache import StaticKVCacheConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
 from infinilm.cache import StaticKVCacheConfig
+from datasets import load_dataset, Dataset
 from abc import ABC, abstractmethod
 
 

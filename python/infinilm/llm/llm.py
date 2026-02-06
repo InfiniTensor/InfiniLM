@@ -228,12 +228,63 @@ class LLMEngine:
             req.generated_token_ids.append(token_id)
             if req.is_prefill:
                 req.is_prefill = False
+            # vLLM-style replacement character handling is primarily relevant for streaming.
+            # For offline generation (no output queue), keep the fast incremental path.
+            if req._output_queue is None:
+                token_text = self.detokenize([token_id])
+                req.generated_text += token_text
+            else:
+                # Streaming path: compute delta from a full decode so we can hold back
+                # trailing '\ufffd' (likely an incomplete UTF-8 sequence).
+                decoded_text = self.detokenize(req.generated_token_ids)
 
-            token_text = self.tokenizer.decode(token_id)
-            req.generated_text += token_text
+                finished_now = False
+                # Update generated_text to the latest decode (used for stop-string checks and debugging)
+                req.generated_text = decoded_text
 
-            if self._check_request_finished(req, token_id):
+                if self._check_request_finished(req, token_id):
+                    req.mark_finished(req.finish_reason)
+                    finished_now = True
+
+                    # Remove stop string from generated_text if STOP_STRING finish reason
+                    if req.finish_reason == FinishReason.STOP_STRING:
+                        stop_strings = req.sampling_params.stop or []
+                        for stop_str in stop_strings:
+                            if decoded_text.endswith(stop_str):
+                                # Remove the stop string from the end
+                                decoded_text = decoded_text[:-len(stop_str)]
+                                req.generated_text = decoded_text
+                                break
+
+                holds_back_incomplete_utf8 = (
+                    bool(decoded_text) and decoded_text.endswith("\ufffd")
+                )
+
+                # vLLM-style: hold back only if we are not on the final chunk.
+                # Suppress output when finish reason is LENGTH or STOP_STRING.
+                # Root cause fix: When STOP_STRING is detected, we suppress output for the token
+                # that completes the stop string, preventing additional tokens from being output.
+                if (holds_back_incomplete_utf8 and not finished_now) or (
+                    finished_now and req.finish_reason in (FinishReason.LENGTH, FinishReason.STOP_STRING)
+                ):
+                    token_text = ""
+                else:
+                    last_len = getattr(req, "_stream_last_yielded_length", 0)
+                    token_text = decoded_text[last_len:]
+                    if token_text:
+                        req._stream_last_yielded_length = len(decoded_text)
+
+            # For non-streaming, finish checks happen here.
+            if req._output_queue is None and self._check_request_finished(req, token_id):
                 req.mark_finished(req.finish_reason)
+                # Remove stop string from generated_text if STOP_STRING finish reason
+                if req.finish_reason == FinishReason.STOP_STRING:
+                    stop_strings = req.sampling_params.stop or []
+                    for stop_str in stop_strings:
+                        if req.generated_text.endswith(stop_str):
+                            # Remove the stop string from the end
+                            req.generated_text = req.generated_text[:-len(stop_str)]
+                            break
 
             # Put output in queue if it exists (for async streaming)
             if req._output_queue is not None:
@@ -283,12 +334,15 @@ class LLMEngine:
         self,
         messages: List[dict],
         add_generation_prompt: bool = True,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> str:
         """Apply chat template to messages."""
+        chat_template_kwargs = chat_template_kwargs or {}
         return self.tokenizer.apply_chat_template(
             conversation=messages,
             add_generation_prompt=add_generation_prompt,
             tokenize=False,
+            **chat_template_kwargs,
         )
 
 
@@ -486,6 +540,10 @@ class AsyncLLMEngine:
 
         self._running = False
         self._step_thread: Optional[threading.Thread] = None
+        self._healthy = True
+
+    def is_healthy(self) -> bool:
+        return bool(self._healthy)
 
     def start(self):
         """Start the background inference loop."""
@@ -520,6 +578,7 @@ class AsyncLLMEngine:
                     time.sleep(0.01)
             except Exception as e:
                 logger.error(f"Error in step loop: {e}", exc_info=True)
+                self._healthy = False
                 self._running = False
                 break
 
@@ -581,6 +640,8 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
         http_request: Optional[any] = None,
+        add_generation_prompt: bool = True,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
 
@@ -594,7 +655,11 @@ class AsyncLLMEngine:
         Returns:
             The created InferenceRequest object.
         """
-        prompt = self.engine.apply_chat_template(messages, add_generation_prompt=True)
+        prompt = self.engine.apply_chat_template(
+            messages,
+            add_generation_prompt=add_generation_prompt,
+            chat_template_kwargs=chat_template_kwargs,
+        )
         return self.add_request(
             prompt=prompt,
             sampling_params=sampling_params,
@@ -607,6 +672,7 @@ class AsyncLLMEngine:
         self,
         request: InferenceRequest,
         timeout: float = 100.0,
+        request_timeout: Optional[float] = None,
     ) -> AsyncIterator[TokenOutput]:
         """Stream tokens from a request.
 
@@ -619,6 +685,7 @@ class AsyncLLMEngine:
         """
         import asyncio
 
+        start = time.time()
         while True:
             if request.is_finished() and request.output_queue.async_q.empty():
                 break
@@ -635,6 +702,20 @@ class AsyncLLMEngine:
                 if token_output.finished:
                     break
             except asyncio.TimeoutError:
+                # Enforce request-level timeout even if no tokens are produced.
+                if request_timeout is not None:
+                    now = time.time()
+                    if now - start > float(request_timeout):
+                        request.mark_timeout()
+                        yield TokenOutput(
+                            request_id=request.request_id,
+                            token_id=-1,
+                            token_text="",
+                            finished=True,
+                            finish_reason=FinishReason.TIMEOUT,
+                            generated_text=request.generated_text,
+                        )
+                        break
                 if request.is_finished():
                     break
                 continue
