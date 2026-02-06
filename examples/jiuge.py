@@ -63,11 +63,6 @@ def get_args():
         help="Run hygon test",
     )
     parser.add_argument(
-        "--ali",
-        action="store_true",
-        help="Run alippu test",
-    )
-    parser.add_argument(
         "--model_path",
         type=str,
         required=True,
@@ -202,9 +197,19 @@ def test(
         for prompt in prompts
     ]
 
-    input_ids_list = tokenizer.batch_encode_plus(input_contents)[
-        "input_ids"
-    ]  # List: [[1, 1128, 526, 366, 29892]]
+    # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
+    #     "input_ids"
+    # ]  # List: [[1, 1128, 526, 366, 29892]]
+    
+    input_ids_list = [
+        tokenizer._encode_plus(
+            text,
+            truncation=True,
+            max_length=2048,
+            add_special_tokens=True
+        )["input_ids"]
+        for text in input_contents
+    ]
 
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
@@ -275,8 +280,6 @@ if __name__ == "__main__":
     elif args.ali:
         device_str = "cuda"
     elif args.hygon:
-        device_str = "cuda"
-    elif args.ali:
         device_str = "cuda"
     else:
         print(
