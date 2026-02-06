@@ -103,7 +103,7 @@ class SchedulerOutput:
             block_tables.append(padded_block_table)
 
         return {
-            "input_ids": tokens,
+            "input_ids": [tokens],
             "position_ids": position_ids,
             "past_kv_lengths": cached_lens,
             "total_kv_lengths": seq_lens,
