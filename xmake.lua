@@ -15,7 +15,8 @@ target("infinicore_infer")
 
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infiniop", "infinirt", "infiniccl")
-
+    add_syslinks("cudart")  -- 用了cuda runtime 暂时link一下 后续fix
+    add_rules("cuda") 
     set_languages("cxx17")
     set_warnings("all", "error")
 
