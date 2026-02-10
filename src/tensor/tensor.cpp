@@ -260,6 +260,7 @@ void print_data(uint16_t const *data, const std::vector<size_t> &shape,
 
 void print_data_bf16(uint16_t const *data, const std::vector<size_t> &shape,
                      const std::vector<ptrdiff_t> &strides, size_t dim) {
+
     if (dim == shape.size() - 1) {
         for (size_t i = 0; i < shape[dim]; i++) {
             std::cout << bf16_to_f32(data[i * strides[dim]]) << " ";
@@ -271,6 +272,10 @@ void print_data_bf16(uint16_t const *data, const std::vector<size_t> &shape,
         }
     }
 }
+
+//  [16 190 128]
+//  [16 128 190]
+
 
 std::string Tensor::info() const {
     std::stringstream ss;
@@ -347,6 +352,14 @@ std::shared_ptr<Tensor> Tensor::view(const std::vector<size_t> &new_shape) const
 }
 
 std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape) const {
+    // std::cout << "\n=== view_as() called (1 arg) ===" << std::endl;
+    // std::cout << "Old shape: ";
+    // for (auto dim : this->_desc->shape()) std::cout << dim << " ";
+    // std::cout << "\nNew shape: ";
+    // for (auto dim : new_shape) std::cout << dim << " ";
+    // std::cout << "\nOffset: " << this->_offset << std::endl;
+    // std::cout << "==================================\n" << std::endl;
+
     std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
     tensor->_storage = this->_storage;
     tensor->_desc = TensorDesc::create(this->dtype(), new_shape);
@@ -355,6 +368,18 @@ std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape) co
 }
 
 std::shared_ptr<Tensor> Tensor::view_as(const std::vector<size_t> &new_shape, const std::vector<ptrdiff_t> &new_strides) const {
+    // std::cout << "\n=== view_as() called (2 args) ===" << std::endl;
+    // std::cout << "Old shape: ";
+    // for (auto dim : this->_desc->shape()) std::cout << dim << " ";
+    // std::cout << "\nOld strides: ";
+    // for (auto stride : this->_desc->strides()) std::cout << stride << " ";
+    // std::cout << "\nNew shape: ";
+    // for (auto dim : new_shape) std::cout << dim << " ";
+    // std::cout << "\nNew strides: ";
+    // for (auto stride : new_strides) std::cout << stride << " ";
+    // std::cout << "\nOffset: " << this->_offset << std::endl;
+    // std::cout << "=====================================\n" << std::endl;
+
     std::shared_ptr<Tensor> tensor = std::make_shared<Tensor>();
     tensor->_storage = this->_storage;
     tensor->_desc = TensorDesc::create(this->dtype(), new_shape, new_strides);
@@ -384,6 +409,7 @@ void Tensor::debug(const std::string &filename) const {
             return;
         }
         outFile.write(reinterpret_cast<const char *>(cpu_data), this->_storage->size());
+        // outFile.write(reinterpret_cast<const char *>(cpu_data), 1024);
         outFile.close();
         std::cout << "Data written to file: " << filename << "\n";
         return;
@@ -417,6 +443,7 @@ void Tensor::debug(const std::string &filename) const {
     case INFINI_DTYPE_BF16:
         print_data_bf16((uint16_t const *)((char const *)cpu_data + dataOffset()),
                         this->shape(), this->strides(), 0);
+        std::cout << "COUT FINISH " << std::endl;
         break;
     default:
         PANIC("Unsupported data type");

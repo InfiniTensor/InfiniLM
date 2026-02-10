@@ -183,20 +183,21 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;      // 是否有QKV偏置
         bool has_qk_norm = rsrc.w_attn_q_norm.size() > 0 && rsrc.w_attn_k_norm.size() > 0;  // 是否有QK归一化
         auto nexperts = meta.num_experts;
-        
-        std::cout << "\n1. 全局配置:" << std::endl;
-        std::cout << "   总层数: " << meta.nlayer << std::endl;
-        std::cout << "   总头数: " << meta.nh << std::endl;
-        std::cout << "   总KV头数: " << meta.nkvh << std::endl;
-        std::cout << "   隐藏层维度: " << meta.d << std::endl;
-        std::cout << "   头维度: " << meta.dh << std::endl;
-        std::cout << "   词汇表大小: " << meta.dvoc << std::endl;
+        std::cout << "ROPE META " << meta.theta << std::endl;
+        std::cout << "ROPE META " << meta.dctx << std::endl;
+        // std::cout << "\n1. 全局配置:" << std::endl;
+        // std::cout << "   总层数: " << meta.nlayer << std::endl;
+        // std::cout << "   总头数: " << meta.nh << std::endl;
+        // std::cout << "   总KV头数: " << meta.nkvh << std::endl;
+        // std::cout << "   隐藏层维度: " << meta.d << std::endl;
+        // std::cout << "   头维度: " << meta.dh << std::endl;
+        // std::cout << "   词汇表大小: " << meta.dvoc << std::endl;
 
-        std::cout << "\n2. 每个设备配置:" << std::endl;
-        std::cout << "   每个设备头数: " << nh << std::endl;
-        std::cout << "   每个设备KV头数: " << nkvh << std::endl;
-        std::cout << "   分组数 (GQA中的G): " << ngroup << std::endl;
-        std::cout << "NTOKEN " << ntok << std::endl;
+        // std::cout << "\n2. 每个设备配置:" << std::endl;
+        // std::cout << "   每个设备头数: " << nh << std::endl;
+        // std::cout << "   每个设备KV头数: " << nkvh << std::endl;
+        // std::cout << "   分组数 (GQA中的G): " << ngroup << std::endl;
+        // std::cout << "NTOKEN " << ntok << std::endl;
 
 
         // Allocate buffers
@@ -216,7 +217,6 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
 
         auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
         auto shape_qkv = qkv_rope->shape();
-      
 
         // Prepare inputs
         auto batch_pos_ids = std::vector<uint32_t>(ntok);
@@ -239,13 +239,33 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         //                                     dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
         // } // embedding weight and python slide is same
 
-        for (uint32_t i = 0; i < ntok; i++) {   
+        for (uint32_t i = 0; i < ntok; i++) {
             RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
                                             rsrc.w_in_embd->data(tokens[i] * d),
                                             dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
         } // embedding weight and python slide is same
-        logits_in = logits_in->view({ntok, d});
+
+        // 同步异步拷贝操作
+        RUN_INFINI(infinirtStreamSynchronize(stream));
+
+        // std::vector<int32_t> host_data(24);
+        // std::iota(host_data.begin(), host_data.end(), 1); // 填充 1,2,...,24
+        // auto tensor_i32 = Tensor::weight(host_data.data(), INFINI_DTYPE_I32, {24});
+        // tensor_i32->debug();
+        // tensor_i32 = tensor_i32->view({4, 6});
+        // tensor_i32->debug();
+        // std::cout << logits_in->isContigous() << std::endl;
         // logits_in->debug();
+        infinirtDeviceSynchronize();
+        logits_in = logits_in->view({ntok, d}); //  bug
+        //logits_in->debug();
+        infinirtDeviceSynchronize();
+        std::cout << "Get Info " << std::endl;
+        // std::cout << logits_in->info() << std::endl;
+        // logits_in->debug();
+        infinirtDeviceSynchronize();
+        // std::cout << logits_in->isContigous() << std::endl;
+
         // auto logits_test = Tensor::buffer(dt_logits, {d}, rsrc.memory_pool);
         // RUN_INFINI(infinirtMemcpyAsync(logits_test->data(),
         //                                 rsrc.w_in_embd->data(156895 * d),
@@ -258,60 +278,84 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             std::cout << tokens[i];
             if (i < ntok - 1) std::cout << ", ";
         }
-
         std::cout << std::endl;
+
         
         for(uint32_t layer = 0; layer < 1; layer ++){
-            std::cout << "Epsilon " << meta.epsilon << std::endl;
-            auto mean = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
-            auto sd   = Tensor::buffer(dt_logits, {ntok}, rsrc.memory_pool);
-            std::cout << "start layer norm " << std::endl;
-            std::cout << rsrc.w_attn_norm[layer] << std::endl;
-            
             rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
-            logits_in->debug();
-            logits_out->debug();
+            logits_out->debug("/home/featurize/work/My_InfiniLM/hidden_states_190_2048.bin");
+            // rsrc.w_attn_norm[layer]->debug();
+            // logits_out->debug();
             // std::cout << rsrc.w_attn_qkv[layer]->info() << std::endl;
-            auto qkv = rsrc.w_attn_qkv[layer];  // 原始权重  
+            auto qkv = rsrc.w_attn_qkv[layer];  // 原始权重
+
             auto q_weight = qkv->slice(0, 0, d); //[6144, 2048] ---> [2048 * 3, 2048]
-            // // q_weight->debug();
+            //q_weight->debug();
+            
             // q_weight->debug("/home/featurize/work/My_InfiniLM/attention/q_weight_buf.bin");
             auto k_weight = qkv->slice(0, d, d);
             // k_weight->debug("/home/featurize/work/My_InfiniLM/attention/k_weight_buf.bin");
             auto v_weight = qkv->slice(0, 2 * d, d);
+            //q_buf->debug();
             // v_weight->debug("/home/featurize/work/My_InfiniLM/attention/v_weight_buf.bin");
-            linear(q_buf, logits_in, q_weight, 1.0, 0.0, nullptr,  nullptr); // q_buf
+            linear(q_buf, logits_out, q_weight->permute({1, 0}), 1.0, 0.0, nullptr,  nullptr); // q_buf
 
+            //logits_out->debug();
+            std::cout << "q buf" << std::endl;
+            q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048.bin");
 
-            linear(k_buf, logits_in, k_weight, 1.0, 0.0, nullptr,  nullptr); // k_buf
-            // k_buf->debug("/home/featurize/work/My_InfiniLM/attention/k_buf.bin");
-            linear(v_buf, logits_in, v_weight, 1.0, 0.0, nullptr, nullptr); // [ntok, 2048]
-            // v_buf->debug("/home/featurize/work/My_InfiniLM/attention/v_buf.bin");
+            linear(k_buf, logits_out, k_weight->permute({1, 0}), 1.0, 0.0, nullptr,  nullptr); // k_buf
+            std::cout << "k buf" << std::endl;
+            k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048.bin");
+
+            std::cout << "v buf" << std::endl;
+            linear(v_buf, logits_out, v_weight->permute({1, 0}), 1.0, 0.0, nullptr, nullptr); // [ntok, 2048]
+            v_buf->debug("/home/featurize/work/My_InfiniLM/v_buf_190_2048.bin");
 
             q_buf = q_buf->view({ntok * nh, dh});
+
             k_buf = k_buf->view({ntok * nh, dh});
+
             rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon); // [ntok, 2048] ??
+            std::cout << "q norm" << std::endl;
+            //rsrc.w_attn_q_norm[layer]->debug();
+            q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048_norm.bin");
 
             rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon); // [ntok, 2048] ??
-
+            std::cout << "k norm" << std::endl;
+            k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048_norm.bin");
 
             q_buf = q_buf->view({ntok, nh, dh});
             k_buf = k_buf->view({ntok, nkvh, dh});
             v_buf = v_buf->view({ntok, nkvh, dh});
             
-            rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-            rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            // q_buf->debug();
+            // k_buf->debug();
+            rope_v2(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            
+            std::cout << "SIN " << std::endl;
+            rsrc.sin_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/sin.bin");
+            rope_v2(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            std::cout << "COUT " << std::endl;
+            rsrc.cos_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/cos.bin");
+            std::cout << "Q rope " << std::endl;
+            q_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/q_buf_190_16_128_rope.bin");
+            std::cout << "K rope " << std::endl;
+            k_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/k_buf_190_16_128_rope.bin");
 
+            q_buf = q_buf->view({nh, ntok, dh});
+            k_buf = k_buf->view({nkvh, ntok, dh});
+            v_buf = v_buf->view({nkvh, ntok, dh});
+            std::cout << "Q_BUF" << q_buf->info() << "K_BUF" << k_buf->info() << std::endl;
+            // q k buf 16 190 128 
             auto qk_gemm = Tensor::buffer(dt_logits, {nh, ntok, ntok}, rsrc.memory_pool);
-            auto k_transposed = k_buf->permute({1, 2, 0});
-            q_buf = q_buf->permute({1, 0, 2});
-            
-
-            linear(qk_gemm, q_buf, k_transposed, 1.0 / float(sqrt(dh)), 0.0, nullptr, nullptr);
-            
-            causalSoftmax(qk_gemm, qk_gemm);
-            auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
-            linear(attn_buf, qk_gemm, v_buf->permute({1, 0, 2}), 1.0, 0.0, nullptr, nullptr);
+            auto k_transposed = k_buf->permute({0, 2, 1}); // 16 128 190        
+            //std::cout << "Q_BUF" << q_buf->info() << "K_BUF" << k_buf->info() << std::endl;
+            linear(qk_gemm, q_buf, k_transposed, 1.f / float(sqrt(dh)) , 0.0, nullptr, nullptr);
+            // qk_gemm->debug();
+            // causalSoftmax(qk_gemm, qk_gemm);
+            // auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
+            // linear(attn_buf, qk_gemm, v_buf->permute({1, 0, 2}), 1.0, 0.0, nullptr, nullptr);
         }
 
 

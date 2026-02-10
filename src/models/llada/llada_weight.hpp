@@ -80,9 +80,9 @@ inline std::shared_ptr<Tensor> getAttnQKV(
     auto d = meta->d;
     // size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * d * dsize(w->dt_mat);
     auto shape = std::vector<size_t>({d * 3, d});
-    auto t = Tensor::weight((char *)(w->attn_qkv[layer]), meta->dt_logits, shape);
-    if(layer == 0)
-        t->debug("/home/featurize/work/My_InfiniLM/block1/qkv_buf.bin");
+    auto t = Tensor::weight((char *)(w->attn_qkv[layer]), w->dt_mat, shape);
+    // std::cout << "Load Debug" << std::endl;
+    // std::cout << t->info() << std::endl;
     return t;
     // if (w->transpose_linear_weights != 0) {
     //     auto shape = std::vector<size_t>({d * 3, d});
@@ -101,6 +101,8 @@ inline std::shared_ptr<Tensor> getAttnQNorm(
     LLaDAWeights const *w,
     size_t layer) {
     auto shape = std::vector<size_t>({meta->dh});
+    // // std::cout << "QWQWW" << std::endl;
+    // Tensor::weight((char *)(w->attn_q_norm[layer]), w->dt_norm, shape)->debug();
     return Tensor::weight((char *)(w->attn_q_norm[layer]), w->dt_norm, shape);
 }
 
@@ -266,6 +268,7 @@ inline std::shared_ptr<Tensor> getSinTable(LLaDAMeta const *meta) {
     auto shape = std::vector<size_t>({meta->dctx, half_dh});
     auto tensor = Tensor::weight(table, meta->dt_logits, shape);
     std::free(table);
+    tensor->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/sin_table.bin");
     std::cout << "Sin Table Initing  Over" << std::endl;
     return tensor;
 }
@@ -293,6 +296,7 @@ inline std::shared_ptr<Tensor> getCosTable(LLaDAMeta const *meta) {
     }
     auto shape = std::vector<size_t>({meta->dctx, half_dh});
     auto tensor = Tensor::weight(table, meta->dt_logits, shape);
+        tensor->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/cos_table.bin");
     std::free(table);
     return tensor;
 }

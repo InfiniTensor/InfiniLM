@@ -57,45 +57,45 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
 }
 
 
-void InferenceContext::layernorm( std::shared_ptr<Tensor> output,
-                                  std::shared_ptr<Tensor> input_standardization,
-                                  std::shared_ptr<Tensor> input_std_deviation,
-                                  std::shared_ptr<Tensor> input,
-                                  std::shared_ptr<Tensor> weight,
-                                  std::shared_ptr<Tensor> bias,
-                                  float epsilon
-                                ){
-    size_t key = CacheManager::createDescriptorKey(output, input_standardization, input_std_deviation, input, weight, bias);
-    infiniopLayerNormDescriptor_t desc;
-    if (!cache_manager->getLayerNormDescriptor(key, desc)) {
-        if(bias != nullptr){
-            RUN_INFINI(infiniopCreateLayerNormDescriptor(
-                op_handle, &desc, output->desc(), input_standardization->desc(), input_std_deviation->desc(),
-                input->desc(), weight->desc(), bias->desc(), epsilon));
-        } else {
-            RUN_INFINI(infiniopCreateLayerNormDescriptor(
-                op_handle, &desc, output->desc(), input_standardization->desc(), input_std_deviation->desc(),
-                input->desc(), weight->desc(), nullptr, epsilon));
-        }
-        cache_manager->putLayerNormDescriptor(key, desc);
-    }
+// void InferenceContext::layernorm( std::shared_ptr<Tensor> output,
+//                                   std::shared_ptr<Tensor> input_standardization,
+//                                   std::shared_ptr<Tensor> input_std_deviation,
+//                                   std::shared_ptr<Tensor> input,
+//                                   std::shared_ptr<Tensor> weight,
+//                                   std::shared_ptr<Tensor> bias,
+//                                   float epsilon
+//                                 ){
+//     size_t key = CacheManager::createDescriptorKey(output, input_standardization, input_std_deviation, input, weight, bias);
+//     infiniopLayerNormDescriptor_t desc;
+//     if (!cache_manager->getLayerNormDescriptor(key, desc)) {
+//         if(bias != nullptr){
+//             RUN_INFINI(infiniopCreateLayerNormDescriptor(
+//                 op_handle, &desc, output->desc(), input_standardization->desc(), input_std_deviation->desc(),
+//                 input->desc(), weight->desc(), bias->desc(), epsilon));
+//         } else {
+//             RUN_INFINI(infiniopCreateLayerNormDescriptor(
+//                 op_handle, &desc, output->desc(), input_standardization->desc(), input_std_deviation->desc(),
+//                 input->desc(), weight->desc(), nullptr, epsilon));
+//         }
+//         cache_manager->putLayerNormDescriptor(key, desc);
+//     }
 
-    size_t workspace_size = 0;
+//     size_t workspace_size = 0;
 
-    RUN_INFINI(infiniopGetLayerNormWorkspaceSize(desc, &workspace_size));
-    ensure_workspace(workspace_size);
-    void *workspace = workspace_storage->memory();
-    std::cout << "66" << std::endl;
-    if(bias != nullptr){
-        RUN_INFINI(infiniopLayerNorm(desc, workspace, workspace_size,
-                                            output->data(), input_standardization->data(), input_std_deviation->data(),
-                                            input->data(), weight->data(), bias->data(), stream ));
-    } else {
-        RUN_INFINI(infiniopLayerNorm(desc, workspace, workspace_size,
-                                                    output->data(), input_standardization->data(), input_std_deviation->data(),
-                                                    input->data(), weight->data(), nullptr, stream ));
-    }
-}
+//     RUN_INFINI(infiniopGetLayerNormWorkspaceSize(desc, &workspace_size));
+//     ensure_workspace(workspace_size);
+//     void *workspace = workspace_storage->memory();
+//     std::cout << "66" << std::endl;
+//     if(bias != nullptr){
+//         RUN_INFINI(infiniopLayerNorm(desc, workspace, workspace_size,
+//                                             output->data(), input_standardization->data(), input_std_deviation->data(),
+//                                             input->data(), weight->data(), bias->data(), stream ));
+//     } else {
+//         RUN_INFINI(infiniopLayerNorm(desc, workspace, workspace_size,
+//                                                     output->data(), input_standardization->data(), input_std_deviation->data(),
+//                                                     input->data(), weight->data(), nullptr, stream ));
+//     }
+// }
 
 void InferenceContext::gemm(std::shared_ptr<Tensor> c,
                             std::shared_ptr<Tensor> a,
@@ -184,50 +184,50 @@ void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
                                      y->data(), x->data(), stream));
 }
 
-void InferenceContext::BiAttention(std::shared_ptr <Tensor> out,
-                                    std::shared_ptr <Tensor> q,
-                                    std::shared_ptr <Tensor> k,
-                                    std::shared_ptr <Tensor> v,
-                                    std::shared_ptr <Tensor> k_cache,
-                                    std::shared_ptr <Tensor> v_cache,
-                                    int pos){
-    size_t key = CacheManager::createDescriptorKey(out, q, k, v, k_cache, v_cache);
-    infiniopBiAttentionDescriptor_t desc;
-    if (!cache_manager->getBiAttentionDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateBiAttentionDescriptor(
-            op_handle, &desc, out->desc(), q->desc(), k->desc(), v->desc(), k_cache->desc(), v_cache->desc(), pos));
-        cache_manager->putBiAttentionDescriptor(key, desc);
-    }
+// void InferenceContext::BiAttention(std::shared_ptr <Tensor> out,
+//                                     std::shared_ptr <Tensor> q,
+//                                     std::shared_ptr <Tensor> k,
+//                                     std::shared_ptr <Tensor> v,
+//                                     std::shared_ptr <Tensor> k_cache,
+//                                     std::shared_ptr <Tensor> v_cache,
+//                                     int pos){
+//     size_t key = CacheManager::createDescriptorKey(out, q, k, v, k_cache, v_cache);
+//     infiniopBiAttentionDescriptor_t desc;
+//     if (!cache_manager->getBiAttentionDescriptor(key, desc)) {
+//         RUN_INFINI(infiniopCreateBiAttentionDescriptor(
+//             op_handle, &desc, out->desc(), q->desc(), k->desc(), v->desc(), k_cache->desc(), v_cache->desc(), pos));
+//         cache_manager->putBiAttentionDescriptor(key, desc);
+//     }
 
-    size_t workspace_size = 0;
-    RUN_INFINI(infiniopGetBiAttentionWorkspaceSize(desc, &workspace_size));
-    ensure_workspace(workspace_size);
-    void *workspace = workspace_storage->memory();
+//     size_t workspace_size = 0;
+//     RUN_INFINI(infiniopGetBiAttentionWorkspaceSize(desc, &workspace_size));
+//     ensure_workspace(workspace_size);
+//     void *workspace = workspace_storage->memory();
 
-    RUN_INFINI(infiniopBiAttention( desc, workspace, workspace_size,
-                                    out->data(), q->data(), k->data(), v->data(), k_cache->data(), v_cache->data(), stream ));
+//     RUN_INFINI(infiniopBiAttention( desc, workspace, workspace_size,
+//                                     out->data(), q->data(), k->data(), v->data(), k_cache->data(), v_cache->data(), stream ));
 
-}
+// }
 
-void InferenceContext::softmax(std::shared_ptr<Tensor> y,  
-                               std::shared_ptr<Tensor> x, int dim) {  
-    size_t key = CacheManager::createDescriptorKey(y, x);  
+// void InferenceContext::softmax(std::shared_ptr<Tensor> y,  
+//                                std::shared_ptr<Tensor> x, int dim) {  
+//     size_t key = CacheManager::createDescriptorKey(y, x);  
   
-    infiniopSoftmaxDescriptor_t desc;  
-    if (!cache_manager->getSoftmaxDescriptor(key, desc)) {  
-        RUN_INFINI(infiniopCreateSoftmaxDescriptor(  
-            op_handle, &desc, y->desc(), x->desc(), dim));  
-        cache_manager->putSoftmaxDescriptor(key, desc);  
-    }  
+//     infiniopSoftmaxDescriptor_t desc;  
+//     if (!cache_manager->getSoftmaxDescriptor(key, desc)) {  
+//         RUN_INFINI(infiniopCreateSoftmaxDescriptor(  
+//             op_handle, &desc, y->desc(), x->desc(), dim));  
+//         cache_manager->putSoftmaxDescriptor(key, desc);  
+//     }  
   
-    size_t workspace_size = 0;  
-    RUN_INFINI(infiniopGetSoftmaxWorkspaceSize(desc, &workspace_size));  
-    ensure_workspace(workspace_size);  
-    void *workspace = workspace_storage->memory();  
+//     size_t workspace_size = 0;  
+//     RUN_INFINI(infiniopGetSoftmaxWorkspaceSize(desc, &workspace_size));  
+//     ensure_workspace(workspace_size);  
+//     void *workspace = workspace_storage->memory();  
   
-    RUN_INFINI(infiniopSoftmax(desc, workspace, workspace_size,  
-                                y->data(), x->data(), stream));  
-}
+//     RUN_INFINI(infiniopSoftmax(desc, workspace, workspace_size,  
+//                                 y->data(), x->data(), stream));  
+// }
 
 void InferenceContext::topksoftmax(
                                     std::shared_ptr<Tensor> values,  // F32

@@ -140,8 +140,8 @@ class LLaDAMetaFromLlama(LLaDAMetaCStruct): # model specific data: heads num ...
 class LLaDAWeightsImpl(LLaDAWeightsCStruct):
     def __init__(self, meta, naming,
         state_dict,  # 权重
-        torch_dt_mat=torch.float16,
-        torch_dt_norm=torch.float32,
+        torch_dt_mat=torch.bfloat16,
+        torch_dt_norm=torch.bfloat16,
         transpose_weight = None,
         ndev=1,
         ):
@@ -255,9 +255,6 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             print("have norm")
             self.attn_q_norm_tensors = [
                 state_dict[naming.attn_q_norm(i)]
-                .reshape([2, dh // 2])
-                .transpose(0, 1)
-                .contiguous()
                 .to(torch_dt_norm)
                 for i in range(nlayer)
             ]
@@ -267,9 +264,6 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             self.attn_q_norm = (c_void_p * nlayer)(*self.attn_q_norm_ptrs)
             self.attn_k_norm_tensors = [
                 state_dict[naming.attn_k_norm(i)]
-                .reshape([2, dh // 2])
-                .transpose(0, 1)
-                .contiguous()
                 .to(torch_dt_norm)
                 for i in range(nlayer)
             ]

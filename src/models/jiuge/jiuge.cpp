@@ -169,9 +169,9 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto result_cpu = std::vector<int64_t>(nreq);
 
     auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
-    std::cout << "QKV ROPE " << qkv_rope->info() << std::endl;
+
     auto q_buf = qkv_rope->slice(1, 0, nh);                   // [ntok, 2048]
-    std::cout << "q_bbuf " << q_buf->info() << std::endl;
+
     auto k_buf = qkv_rope->slice(1, nh, nkvh);                //[ntok, 2048]
 
     // Prepare inputs
@@ -192,6 +192,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
                                        INFINIRT_MEMCPY_H2D, stream));
     }
+
     for (uint32_t i = 0; i < ntok; i++) {
         RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
                                        rsrc.w_in_embd->data(tokens[i] * d),
@@ -228,6 +229,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         // rms norm
 
         rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
+        // logits_out->debug();
         // qkv_proj
 
         linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? rsrc.b_attn_qkv[layer] : nullptr);
@@ -239,10 +241,12 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
 
         // rope 
 
-
         rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+        q_buf->info();
+        break;
+        rsrc.sin_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/sin_jiuge.bin");
         rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-
+        rsrc.cos_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/cos_jiuge.bin");
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
             auto past_len = req_pos[req];
@@ -252,9 +256,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             auto q = qkv_rope->slice({{0, token_offset, seq_len}, {1, 0, nh}})->view({seq_len, nkvh, ngroup, dh})->permute({1, 2, 0, 3});
             auto k = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh, nkvh}});
             auto v = qkv_rope->slice({{0, token_offset, seq_len}, {1, nh + nkvh, nkvh}});
-            std::cout << "q shape " << q->info() << std::endl;
-            std::cout << "k shape " << k->info() << std::endl;
-            std::cout << "v shape " << v->info() << std::endl;
+
             // self attention
             // concat
             rearrange(kv_caches[req]->k[idev][layer]->slice(0, past_len, seq_len), k);
