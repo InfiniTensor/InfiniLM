@@ -27,19 +27,23 @@ def read_bf16_pytorch_fixed(filename, shape=None, device='cpu'):
             print(f"数据元素: {tensor_fp32.numel()}, 形状需要: {np.prod(shape)}")
     
     return tensor_fp32, tensor_bf16
-q_norm, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/layer_0_weights/q_buf_190_2048_norm.bin", 
-    shape=(190, 2048)
-)
+# q_norm, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/layer_0_weights/q_buf_190_2048_norm.bin", 
+#     shape=(190, 2048)
+# )
 
-reranged, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/dst.bin", 
-    shape=(190, 16, 128)
-)
+# reranged, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/dst.bin", 
+#     shape=(190, 16, 128)
+# )
 
-roped, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/dst_rope.bin", 
-    shape=(190, 16, 128)
+# roped, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/k_roped.bin", 
+#     shape=(190, 16, 128)
+# )
+gemm, _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/qk_gemm.bin", 
+    shape=(16, 190, 190)
 )
 # k_norm, _ = read_bf16_pytorch_fixed(
 #     "/home/featurize/work/My_InfiniLM/layer_0_weights/k_buf_190_2048_norm.bin", 
@@ -66,11 +70,11 @@ roped, _ = read_bf16_pytorch_fixed(
 #     shape=(190, 16, 128)
 # )
 
-q_norm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_norm.pt").squeeze(0).to('cpu')
-# # k_norm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/k_norm.pt").squeeze(0).to('cpu')
-q_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_viewd.pt").squeeze(0).to('cpu')
-# # k_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_viewd.pt")
+# q_norm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_norm.pt").squeeze(0).to('cpu')
+# # # k_norm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/k_norm.pt").squeeze(0).to('cpu')
+# q_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_viewd.pt").squeeze(0).to('cpu')
+# # # k_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_viewd.pt")
 
-q_roped_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_rope.pt")
+gemm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/qk_gemm.pt")
 
 print("over")

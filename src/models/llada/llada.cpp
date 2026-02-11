@@ -329,29 +329,45 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             k_buf = k_buf->view({ntok, dh, nkvh});// 190 128 16
             v_buf = v_buf->view({ntok, dh, nkvh});// 190 128 16
 
-            auto src = q_buf->view({ntok, nh, dh});
-            auto dst = Tensor::buffer(src->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
-            rearrange(dst, src);
-            dst->debug("/home/featurize/work/My_InfiniLM/dst.bin");
-            rope_v2(dst, dst, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-            q_buf = dst;
+            auto src_q = q_buf->view({ntok, nh, dh});
+            auto dst_q = Tensor::buffer(src_q->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
+            rearrange(dst_q, src_q);
+            rope_v2(dst_q, dst_q, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            q_buf = dst_q;
 
+            auto src_k = k_buf->view({ntok, nh, dh});
+            auto dst_k = Tensor::buffer(src_k->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
+            rearrange(dst_k, src_k);
+            rope_v2(dst_k, dst_k, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            k_buf = dst_k;
+            k_buf->debug("/home/featurize/work/My_InfiniLM/k_roped.bin");
 
+            // ============ Attention 计算 ============
+            // 转换维度为 [nh, ntok, dh]
+            q_buf = q_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
+            k_buf = k_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
+            v_buf = v_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
 
-            
-            // // 使用 rearrange 转换到 [ntok, nh, dh] (自动处理内存布局转换)
-            // auto q_contig = Tensor::buffer(q_buf->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
-            // auto k_contig = Tensor::buffer(k_buf->dtype(), {ntok, nkvh, dh}, rsrc.memory_pool);
-            // rearrange(q_contig, q_buf);   // [ntok, dh, nh] -> [ntok, nh, dh]
-            // rearrange(k_contig, k_buf);   // [ntok, dh, nkvh] -> [ntok, nkvh, dh]
-            // q_contig->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/q_contig.bin");
-            // k_contig->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/k_contig.bin");
-            // k_contig->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/k_rope.bin");
-            // // 更新 q_buf 和 k_buf 为 RoPE 后的结果
-            // q_buf = q_contig;
-            // k_buf = k_contig;
+            // 1. 计算 QK^T: [16, 190, 128] x [16, 128, 190] -> [16, 190, 190]
+            auto k_transposed = k_buf->permute({0, 2, 1});  // [16, 190, 128] -> [16, 128, 190]
+            auto qk_gemm = Tensor::buffer(dt_logits, {nh, ntok, ntok}, rsrc.memory_pool);
+            linear(qk_gemm, q_buf, k_transposed, 1.0, 0.0, nullptr, nullptr);
+            qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm.bin");
+
+            // // 2. Softmax (causal)
+            // causalSoftmax(qk_gemm, qk_gemm);
+            // qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_softmax.bin");
+
+            // // 3. 计算 Attention x V: [16, 190, 190] x [16, 190, 128] -> [16, 190, 128]
             // auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
-            // linear(attn_buf, qk_gemm, v_buf->permute({1, 0, 2}), 1.0, 0.0, nullptr, nullptr);
+            // linear(attn_buf, qk_gemm, v_buf, 1.0, 0.0, nullptr, nullptr);
+            // attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_output.bin");
+
+            // // 4. 转换回 [ntok, nh, dh]
+            // attn_buf = attn_buf->permute({1, 0, 2});  // [16, 190, 128] -> [190, 16, 128]
+
+            // // 保存调试信息
+            // std::cout << "Attention 完成" << std::endl;
         }
 
 }
