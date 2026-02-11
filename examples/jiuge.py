@@ -237,6 +237,43 @@ def test(
     model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #
+    #                                Warmup
+    # ---------------------------------------------------------------------------- #
+    warmup_steps = 1
+
+    # Choose a length that approximates the real workload.
+    # It should be long enough to trigger the correct kernel paths,
+    # but not so long that warmup becomes unnecessarily expensive.
+    avg_prompt_len = min(64, max(len(ids) for ids in input_ids_list))
+
+    # Use truncated versions of real prompts for warmup
+    warmup_ids = [
+        ids[:avg_prompt_len] if len(ids) >= avg_prompt_len else ids
+        for ids in input_ids_list
+    ]
+
+    input_ids_infini = infinicore.from_list(warmup_ids)
+
+    print("=================== warmup start ===================")
+
+    for _ in range(warmup_steps):
+        _ = model.generate(
+            input_ids_infini,
+            GenerationConfig(
+                max_new_tokens=2,  # warmup decode kernel
+                temperature=1,
+                top_k=1,
+                top_p=0.8,
+            ),
+            _measure_and_log_time=False,
+        )
+
+    print("=================== warmup done ====================")
+
+    # Reset KV cache 
+    model.reset_cache(cache_config)
+
+    # ---------------------------------------------------------------------------- #
     #                        Generate
     # ---------------------------------------------------------------------------- #
     print(input_contents[0], end="", flush=True)
