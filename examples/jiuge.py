@@ -200,16 +200,26 @@ def test(
     # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
     #     "input_ids"
     # ]  # List: [[1, 1128, 526, 366, 29892]]
-    
-    input_ids_list = [
-        tokenizer._encode_plus(
-            text,
-            truncation=True,
-            max_length=2048,
-            add_special_tokens=True
-        )["input_ids"]
-        for text in input_contents
-    ]
+    if (infini_device.type == "mlu"):
+        input_ids_list = [
+            tokenizer.encode_plus(
+                text,
+                truncation=True,
+                max_length=2048,
+                add_special_tokens=True
+            )["input_ids"]
+            for text in input_contents
+        ]
+    else:
+        input_ids_list = [
+            tokenizer._encode_plus(
+                text,
+                truncation=True,
+                max_length=2048,
+                add_special_tokens=True
+            )["input_ids"]
+            for text in input_contents
+        ]
 
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
