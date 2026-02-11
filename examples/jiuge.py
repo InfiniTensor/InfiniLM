@@ -1,4 +1,5 @@
 import infinicore
+import transformers
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import load_model_state_dict_by_file
@@ -10,6 +11,7 @@ import time
 import os
 import numpy as np
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
+from packaging import version
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
@@ -200,16 +202,21 @@ def test(
     # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
     #     "input_ids"
     # ]  # List: [[1, 1128, 526, 366, 29892]]
-    
-    input_ids_list = [
-        tokenizer._encode_plus(
-            text,
-            truncation=True,
-            max_length=2048,
-            add_special_tokens=True
-        )["input_ids"]
-        for text in input_contents
-    ]
+    if version.parse(transformers.__version__) == version.parse("4.55.0"):
+        # Ideally this is solved by upgrading transformers. However, doing so causes version mismatch between transformers and mlu pytorch on devices with Phytium CPU. So a branch is temporarily used.
+        input_ids_list = [
+            tokenizer.encode_plus(
+                text, truncation=True, max_length=2048, add_special_tokens=True
+            )["input_ids"]
+            for text in input_contents
+        ]
+    else:
+        input_ids_list = [
+            tokenizer._encode_plus(
+                text, truncation=True, max_length=2048, add_special_tokens=True
+            )["input_ids"]
+            for text in input_contents
+        ]
 
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
