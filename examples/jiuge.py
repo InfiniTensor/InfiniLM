@@ -279,8 +279,6 @@ if __name__ == "__main__":
         device_str = "mlu"
     elif args.ali:
         device_str = "cuda"
-    elif args.ali:
-        device_str = "cuda"
     elif args.hygon:
         device_str = "cuda"
     else:
