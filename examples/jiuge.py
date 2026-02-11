@@ -55,7 +55,7 @@ def get_args():
     parser.add_argument(
         "--model_path",
         type=str,
-        required=True,
+        required=False,
         help="model_path",
     )
     parser.add_argument(
@@ -192,7 +192,8 @@ def test(
     input_ids_list = tokenizer.batch_encode_plus(input_contents)[
         "input_ids"
     ]  # List: [[1, 1128, 526, 366, 29892]]
-
+    input_ids_list=[[9707,   11,  847,  829,  374]]
+    input_ids_list=[[9707,   11,  847,  829,  374],[9707,   11,  847,  829,  374]]
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
     # ---------------------------------------------------------------------------- #
@@ -231,6 +232,8 @@ def test(
     )
     t2 = time.time()
 
+
+
     numpy_output_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
     print(tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
 
@@ -264,7 +267,7 @@ if __name__ == "__main__":
             "Usage:  python examples/jiuge.py [--cpu | --nvidia | --metax | --moore | --iluvatar | --cambricon | --ali] --model_path=<path/to/model_dir>\n"
             "such as, python examples/jiuge.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
-        sys.exit(1)
+        # sys.exit(1)
     prompts = [args.prompt for _ in range(args.batch_size)]
 
     model_path = args.model_path
@@ -277,6 +280,17 @@ if __name__ == "__main__":
         raise ValueError(f"Unsupported backend: {backend}.")
 
     infini_device = infinicore.device(device_str, 0)
+    if True:
+        device_str = "cuda"
+        infini_device = infinicore.device(device_str, 0)
+        model_path = os.path.expanduser("/home/ubuntu/models/Qwen/Qwen3-0.6B")
+        max_new_tokens = 20
+        tp = 1
+        enable_paged_attn = True
+   
+        prompts = ['How are you', 'How are you']
+        prompts = ['How are you']
+        print("prompts: ",prompts)
 
     test(
         prompts,
