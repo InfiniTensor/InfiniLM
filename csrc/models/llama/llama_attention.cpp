@@ -196,11 +196,8 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     }
 
     infinicore::Tensor attn_output;
-    if (q_reshaped->device().getType() == infinicore::Device::Type::NVIDIA
-        || q_reshaped->device().getType() == infinicore::Device::Type::METAX
-        || q_reshaped->device().getType() == infinicore::Device::Type::MOORE
-        || q_reshaped->device().getType() == infinicore::Device::Type::ILUVATAR
-        || q_reshaped->device().getType() == infinicore::Device::Type::CAMBRICON) {
+    if (false) {
+        // experimental nineoothed flash attention
         attn_output = infinicore::op::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scaling_, true);
         attn_output = attn_output->permute({0, 2, 1, 3})
                           ->contiguous()
