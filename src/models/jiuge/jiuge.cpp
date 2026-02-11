@@ -141,22 +141,22 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
     bool has_qk_norm = rsrc.w_attn_q_norm.size() > 0 && rsrc.w_attn_k_norm.size() > 0;
 
-    std::cout << "\n1. 全局配置:" << std::endl;
-    std::cout << "   总层数: " << meta.nlayer << std::endl;
-    std::cout << "   总头数: " << meta.nh << std::endl;
-    std::cout << "   总KV头数: " << meta.nkvh << std::endl;
-    std::cout << "   隐藏层维度: " << meta.d << std::endl;
-    std::cout << "   头维度: " << meta.dh << std::endl;
-    std::cout << "   中间维度: " << meta.di << std::endl;
-    std::cout << "   词汇表大小: " << meta.dvoc << std::endl;
-    std::cout << "   设备数量: " << ndev << std::endl;
+    // std::cout << "\n1. 全局配置:" << std::endl;
+    // std::cout << "   总层数: " << meta.nlayer << std::endl;
+    // std::cout << "   总头数: " << meta.nh << std::endl;
+    // std::cout << "   总KV头数: " << meta.nkvh << std::endl;
+    // std::cout << "   隐藏层维度: " << meta.d << std::endl;
+    // std::cout << "   头维度: " << meta.dh << std::endl;
+    // std::cout << "   中间维度: " << meta.di << std::endl;
+    // std::cout << "   词汇表大小: " << meta.dvoc << std::endl;
+    // std::cout << "   设备数量: " << ndev << std::endl;
     
-    std::cout << "\n2. 每个设备配置:" << std::endl;
-    std::cout << "   每个设备头数: " << nh << std::endl;
-    std::cout << "   每个设备KV头数: " << nkvh << std::endl;
-    std::cout << "   分组数 (GQA中的G): " << ngroup << std::endl;
-    std::cout << "   每个设备中间维度: " << di << std::endl;
-    std::cout << "NTOKEN " << ntok << std::endl;
+    // std::cout << "\n2. 每个设备配置:" << std::endl;
+    // std::cout << "   每个设备头数: " << nh << std::endl;
+    // std::cout << "   每个设备KV头数: " << nkvh << std::endl;
+    // std::cout << "   分组数 (GQA中的G): " << ngroup << std::endl;
+    // std::cout << "   每个设备中间维度: " << di << std::endl;
+    // std::cout << "NTOKEN " << ntok << std::endl;
 
     // Allocate buffers
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
@@ -243,10 +243,9 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
 
         rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
         q_buf->info();
-        break;
-        rsrc.sin_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/sin_jiuge.bin");
+        //rsrc.sin_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/sin_jiuge.bin");
         rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-        rsrc.cos_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/cos_jiuge.bin");
+        //rsrc.cos_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/cos_jiuge.bin");
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
             auto past_len = req_pos[req];

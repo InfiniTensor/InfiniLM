@@ -35,3 +35,5 @@ weight_analyse/
 llada_debug/
 
 *.bin
+
+*.pt

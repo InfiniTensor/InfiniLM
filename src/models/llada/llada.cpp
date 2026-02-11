@@ -300,227 +300,60 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             // v_weight->debug("/home/featurize/work/My_InfiniLM/attention/v_weight_buf.bin");
             linear(q_buf, logits_out, q_weight->permute({1, 0}), 1.0, 0.0, nullptr,  nullptr); // q_buf
 
-            //logits_out->debug();
-            std::cout << "q buf" << std::endl;
-            q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048.bin");
+            // //logits_out->debug();
+            // std::cout << "q buf" << std::endl;
+            // q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048.bin");
 
             linear(k_buf, logits_out, k_weight->permute({1, 0}), 1.0, 0.0, nullptr,  nullptr); // k_buf
-            std::cout << "k buf" << std::endl;
-            k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048.bin");
+            // std::cout << "k buf" << std::endl;
+            // k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048.bin");
 
             std::cout << "v buf" << std::endl;
             linear(v_buf, logits_out, v_weight->permute({1, 0}), 1.0, 0.0, nullptr, nullptr); // [ntok, 2048]
-            v_buf->debug("/home/featurize/work/My_InfiniLM/v_buf_190_2048.bin");
+            // v_buf->debug("/home/featurize/work/My_InfiniLM/v_buf_190_2048.bin");
 
             q_buf = q_buf->view({ntok * nh, dh});
 
-            k_buf = k_buf->view({ntok * nh, dh});
+            k_buf = k_buf->view({ntok * nkvh, dh});  // 修复：使用 nkvh 而不是 nh
 
-            rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon); // [ntok, 2048] ??
+            rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon);
             std::cout << "q norm" << std::endl;
-            //rsrc.w_attn_q_norm[layer]->debug();
             q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048_norm.bin");
 
-            rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon); // [ntok, 2048] ??
+            rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon);
             std::cout << "k norm" << std::endl;
             k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048_norm.bin");
 
-            q_buf = q_buf->view({ntok, nh, dh});
-            k_buf = k_buf->view({ntok, nkvh, dh});
-            v_buf = v_buf->view({ntok, nkvh, dh});
-            
-            // q_buf->debug();
-            // k_buf->debug();
-            rope_v2(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-            
-            std::cout << "SIN " << std::endl;
-            rsrc.sin_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/sin.bin");
-            rope_v2(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-            std::cout << "COUT " << std::endl;
-            rsrc.cos_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/cos.bin");
-            std::cout << "Q rope " << std::endl;
-            q_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/q_buf_190_16_128_rope.bin");
-            std::cout << "K rope " << std::endl;
-            k_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/k_buf_190_16_128_rope.bin");
+            // // 由于内存排布限制，reshape 为 [ntok, dh, nh]
+            q_buf = q_buf->view({ntok, dh, nh});  // 190 128 16
+            k_buf = k_buf->view({ntok, dh, nkvh});// 190 128 16
+            v_buf = v_buf->view({ntok, dh, nkvh});// 190 128 16
 
-            q_buf = q_buf->view({nh, ntok, dh});
-            k_buf = k_buf->view({nkvh, ntok, dh});
-            v_buf = v_buf->view({nkvh, ntok, dh});
-            std::cout << "Q_BUF" << q_buf->info() << "K_BUF" << k_buf->info() << std::endl;
-            // q k buf 16 190 128 
-            auto qk_gemm = Tensor::buffer(dt_logits, {nh, ntok, ntok}, rsrc.memory_pool);
-            auto k_transposed = k_buf->permute({0, 2, 1}); // 16 128 190        
-            //std::cout << "Q_BUF" << q_buf->info() << "K_BUF" << k_buf->info() << std::endl;
-            linear(qk_gemm, q_buf, k_transposed, 1.f / float(sqrt(dh)) , 0.0, nullptr, nullptr);
-            // qk_gemm->debug();
-            // causalSoftmax(qk_gemm, qk_gemm);
+            auto src = q_buf->view({ntok, nh, dh});
+            auto dst = Tensor::buffer(src->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
+            rearrange(dst, src);
+            dst->debug("/home/featurize/work/My_InfiniLM/dst.bin");
+            rope_v2(dst, dst, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            q_buf = dst;
+
+
+
+            
+            // // 使用 rearrange 转换到 [ntok, nh, dh] (自动处理内存布局转换)
+            // auto q_contig = Tensor::buffer(q_buf->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
+            // auto k_contig = Tensor::buffer(k_buf->dtype(), {ntok, nkvh, dh}, rsrc.memory_pool);
+            // rearrange(q_contig, q_buf);   // [ntok, dh, nh] -> [ntok, nh, dh]
+            // rearrange(k_contig, k_buf);   // [ntok, dh, nkvh] -> [ntok, nkvh, dh]
+            // q_contig->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/q_contig.bin");
+            // k_contig->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/k_contig.bin");
+            // k_contig->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/k_rope.bin");
+            // // 更新 q_buf 和 k_buf 为 RoPE 后的结果
+            // q_buf = q_contig;
+            // k_buf = k_contig;
             // auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
             // linear(attn_buf, qk_gemm, v_buf->permute({1, 0, 2}), 1.0, 0.0, nullptr, nullptr);
         }
 
-
-        // for(uint32_t layer = 0; layer < 1; layer ++){
-        //     // 1. Before Attention
-        //     // rms norm
-        //     rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
-        //     // qkv_proj
-        //     linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? rsrc.b_attn_qkv[layer] : nullptr);
-
-        //     if (has_qk_norm) {
-        //         rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon);
-        //         rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon);
-        //     }
-
-        //     // rope
-        //     rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-        //     rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table); // llada modeling_lladamoe.py:390
-
-        //     BiAttention(attention_output, q_buf->permute({1, 0, 2}), k_buf->permute({1, 0, 2}), v_buf->permute({1, 0, 2}), kv_caches[0]->k[0][0]->permute({1, 0, 2}), kv_caches[0]->v[0][0]->permute({1, 0, 2}), 0);
-
-
-        //     // 创建新张量来存储 dimMerge 的结果
-        //     auto o_buf = Tensor::buffer(meta.dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
-        //     rearrange(o_buf, attention_output->dimMerge(1, 2));
-
-        //     linear(logits_in, o_buf, rsrc.w_attn_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); //self.o_proj(attn_output)
-
-        //     rmsnorm(logits_out, logits_in, rsrc.w_ffn_norm[layer], meta.epsilon);
-
-
-        //     // ==================== MoE 路由和专家计算 ====================
-        //     // 逐个 token 处理：每个 token [1, d] -> router -> [1, nexperts] -> topkrouter -> expert_indices, expert_weights
-        //     // 专家: hidden_states -> expert[gate][up] -> swiglu -> expert[down] -> weighted sum
-
-        //     // 创建 MoE 输出缓冲区: [ntok, d]
-        //     auto moe_output = Tensor::buffer(meta.dt_logits, {ntok, d}, rsrc.memory_pool);
-
-        //     // 创建临时缓冲区用于 router 计算和专家计算
-        //     auto router_logits_token = Tensor::buffer(INFINI_DTYPE_F32, {1, nexperts}, rsrc.memory_pool); // [1, nexperts] 单个 token 的 router 输出 - 必须是 F32 用于 softmax + topk
-        //     auto correction_bias = Tensor::buffer(INFINI_DTYPE_F32, {nexperts}, rsrc.memory_pool); // [nexperts] 偏置（全零）- 注意：必须是 1D tensor
-        //     auto router_values = Tensor::buffer(INFINI_DTYPE_F32, {1, 8}, rsrc.memory_pool); // [1, 8] top-k 的值（权重）- 注意：必须是 2D tensor with shape [batch, topk]
-        //     auto router_indices = Tensor::buffer(INFINI_DTYPE_I32, {1, 8}, rsrc.memory_pool); // [1, 8] top-k 的索引（专家编号）- 注意：必须是 2D tensor with shape [batch, topk]
-
-        //     // 用于 host 端读取路由结果
-        //     auto router_values_cpu = std::vector<float>(8);
-        //     auto router_indices_cpu = std::vector<int32_t>(8);
-
-        //     // 临时缓冲区用于专家计算
-        //     auto expert_gate_buf = Tensor::buffer(meta.dt_logits, {1, di_expert}, rsrc.memory_pool); // [1, 64]
-        //     auto expert_up_buf = Tensor::buffer(meta.dt_logits, {1, di_expert}, rsrc.memory_pool);   // [1, 64]
-        //     auto expert_down_buf = Tensor::buffer(meta.dt_logits, {1, d}, rsrc.memory_pool);         // [1, 2048]
-
-
-
-        //     // 每个 token 通过 top-k 专家，加权求和
-        //     // 参考 modeling_lladamoe.py:698-710 的实现
-        //     for (size_t itok = 0; itok < ntok; ++itok) {
-        //         std::cout << "Tok " << itok << std::endl;
-        //         // 获取当前 token 的隐藏状态: [1, d]
-        //         auto hidden_states_i = logits_out->slice(0, itok, 1); //[1, 2048]
-        //         // 获取当前 token 的 MoE 输出位置: [1, d]
-        //         auto moe_output_i = moe_output->slice(0, itok, 1);    //[1, 2048]
-        //         // 获取临时缓冲区: [1, di_expert], [1, d]
-        //         auto expert_gate_buf_i = expert_gate_buf->slice(0, 0, 1); //
-        //         auto expert_up_buf_i = expert_up_buf->slice(0, 0, 1);
-        //         auto expert_down_buf_i = expert_down_buf->slice(0, 0, 1);
-
-        //         // Step 1: 计算当前 token 的 router logits: hidden_states_i [1, 2048] @ w_expert_router [2048, nexperts] -> [1, nexperts]
-        //         linear(router_logits_token, hidden_states_i, rsrc.w_expert_router[layer], 1.0, 0.0, nullptr, nullptr);
-        //         RUN_INFINI(infinirtStreamSynchronize(stream));
-
-        //         // Step 2: 直接在 CPU 上进行 top-k 计算，避免使用 topkrouter 算子
-        //         // 将 router_logits 拷贝到 CPU
-        //         std::vector<float> router_logits_cpu(nexperts);
-        //         RUN_INFINI(infinirtMemcpy(router_logits_cpu.data(), router_logits_token->data(), sizeof(float) * nexperts, INFINIRT_MEMCPY_D2H));
-        //         RUN_INFINI(infinirtStreamSynchronize(stream));
-
-        //         // CPU 端计算：softmax + top-8
-        //         // Step 2a: Softmax (correction_bias 全零，routed_scaling_factor = 1.0)
-        //         std::vector<float> softmax_probs(nexperts);
-        //         float max_logit = *std::max_element(router_logits_cpu.begin(), router_logits_cpu.end());
-        //         float sum_exp = 0.0f;
-        //         for (size_t i = 0; i < nexperts; ++i) {
-        //             softmax_probs[i] = std::exp(router_logits_cpu[i] - max_logit);
-        //             sum_exp += softmax_probs[i];
-        //         }
-        //         for (size_t i = 0; i < nexperts; ++i) {
-        //             softmax_probs[i] /= sum_exp;
-        //         }
-
-        //         // Step 2b: Top-8 selection
-        //         std::vector<std::pair<float, int32_t>> expert_scores(nexperts);
-        //         for (size_t i = 0; i < nexperts; ++i) {
-        //             expert_scores[i] = {softmax_probs[i], static_cast<int32_t>(i)};
-        //         }
-        //         std::partial_sort(expert_scores.begin(), expert_scores.begin() + 8, expert_scores.end(),
-        //             [](const auto& a, const auto& b) { return a.first > b.first; });
-
-        //         // 保存 top-8 结果
-        //         for (size_t k = 0; k < 8; ++k) {
-        //             router_values_cpu[k] = expert_scores[k].first;
-        //             router_indices_cpu[k] = expert_scores[k].second;
-        //         }
-
-        //         // 将 CPU 计算结果拷贝回 GPU
-        //         RUN_INFINI(infinirtMemcpy(router_values->data(), router_values_cpu.data(), sizeof(float) * 8, INFINIRT_MEMCPY_H2D));
-        //         RUN_INFINI(infinirtMemcpy(router_indices->data(), router_indices_cpu.data(), sizeof(int32_t) * 8, INFINIRT_MEMCPY_H2D));
-        //         RUN_INFINI(infinirtStreamSynchronize(stream));
-
-        //         // 遍历 top-k 专家，加权累加
-        //         for (size_t k = 0; k < 8; ++k) {
-        //             int expert_idx = router_indices_cpu[k];
-        //             float expert_weight = router_values_cpu[k];
-
-        //             // 验证 expert_idx 是否在有效范围内
-        //             if (expert_idx < 0 || expert_idx >= (int)nexperts) {
-        //                 std::cerr << "ERROR: Invalid expert_idx=" << expert_idx
-        //                           << " for token " << itok << ", expert " << k
-        //                           << ", nexperts=" << nexperts << std::endl;
-        //                 continue;
-        //             }
-
-        //             // 计算专家输出: hidden_states @ expert_gate -> silu * expert_up @ expert_down
-        //             // gate_proj: [d, di_expert] (从权重中切片并降维)
-        //             auto expert_gate_w = rsrc.w_expert_gate[layer]->slice(0, expert_idx, 1)->view({d, di_expert});
-        //             auto expert_up_w = rsrc.w_expert_up[layer]->slice(0, expert_idx, 1)->view({d, di_expert});
-        //             auto expert_down_w = rsrc.w_expert_down[layer]->slice(0, expert_idx, 1)->view({di_expert, d});
-
-        //             // gate_output = hidden_states @ expert_gate_w: [1, di_expert]
-        //             linear(expert_gate_buf_i, hidden_states_i, expert_gate_w, 1.0, 0.0, nullptr, nullptr);
-
-        //             // up_output = hidden_states @ expert_up_w: [1, di_expert]
-        //             linear(expert_up_buf_i, hidden_states_i, expert_up_w, 1.0, 0.0, nullptr, nullptr);
-
-        //             // swiglu = silu(gate_output) * up_output: [1, di_expert]
-        //             swiglu(expert_gate_buf_i, expert_up_buf_i, expert_gate_buf_i);
-
-        //             // expert_output = swiglu @ expert_down_w: [1, d] (带权重)
-        //             if (k == 0) {
-        //                 // 第一个专家：直接写入，不累加
-        //                 linear(moe_output_i, expert_gate_buf_i, expert_down_w, expert_weight, 0.0, nullptr, nullptr);
-        //             } else {
-        //                 // 后续专家：累加到 moe_output_i
-        //                 linear(expert_down_buf_i, expert_gate_buf_i, expert_down_w, expert_weight, 0.0, nullptr, nullptr);
-        //                 add(moe_output_i, moe_output_i, expert_down_buf_i);
-        //             }
-        //         }
-        //     }
-        //     // 残差连接: logits_in = logits_in + moe_output
-        //     // 直接使用 add 函数进行加法
-        //     add(logits_in, logits_in, moe_output);
-        // }
-
-        // std::cout << "finish" << std::endl;
-        // // 复制最终的 logits 到 host 内存（如果提供了 last_logits）
-        // if (last_logits != nullptr) {
-        //     RUN_INFINI(infinirtMemcpy(last_logits, logits_in->data(),
-        //                              logits_in->shape()[0] * logits_in->shape()[1] * dsize(dt_logits),
-        //                              INFINIRT_MEMCPY_D2H));
-        // }
-
-        // RUN_INFINI(infinirtStreamSynchronize(stream));
-        // // 清理推理上下文
-        // setInferenceContext(nullptr);
 }
 __C void
 forwardBatchLLaDA(struct LLaDAModel *model,
