@@ -50,6 +50,42 @@ def chunk_json(
     }
 
 
+def completion_json(
+    id_,
+    content,
+    role="assistant",
+    finish_reason="stop",
+    model: str = "unknown",
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    total_tokens: int = 0,
+):
+    """Generate JSON response for non-streaming completion."""
+    return {
+        "id": id_,
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "system_fingerprint": None,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": role,
+                    "content": content,
+                },
+                "logprobs": None,
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        },
+    }
+
+
 class InferenceServer:
     """HTTP server for LLM inference."""
 
@@ -59,10 +95,12 @@ class InferenceServer:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        cache_type: str = "paged",
         max_tokens: int = 4096,
         max_batch_size: int = 16,
         num_blocks: int = 8 * 1024,
         block_size: int = 16,
+        max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
@@ -77,10 +115,12 @@ class InferenceServer:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            cache_type: Cache type ('paged' or 'static').
             max_tokens: Default maximum tokens to generate.
-            max_batch_size: Maximum batch size for inference.
-            num_blocks: Number of KV cache blocks.
-            block_size: Size of each KV cache block.
+            max_batch_size: Maximum batch size for inference (only for paged cache).
+            num_blocks: Number of KV cache blocks (only for paged cache).
+            block_size: Size of each KV cache block (only for paged cache).
+            max_cache_len: Maximum sequence length (only for static cache).
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
@@ -94,10 +134,12 @@ class InferenceServer:
         self.device = device
         self.dtype = dtype
         self.tensor_parallel_size = tensor_parallel_size
+        self.cache_type = cache_type
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
         self.num_blocks = num_blocks
         self.block_size = block_size
+        self.max_cache_len = max_cache_len
         self.temperature = temperature
         self.top_p = top_p
         self.top_k = top_k
@@ -124,10 +166,12 @@ class InferenceServer:
                 device=self.device,
                 dtype=self.dtype,
                 tensor_parallel_size=self.tensor_parallel_size,
+                cache_type=self.cache_type,
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
                 num_blocks=self.num_blocks,
                 block_size=self.block_size,
+                max_cache_len=self.max_cache_len,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
@@ -396,12 +440,15 @@ class InferenceServer:
             output_text = output_text.strip()
             finish_reason = self._convert_finish_reason(req.finish_reason)
 
-            response = chunk_json(
+            response = completion_json(
                 request_id,
                 content=output_text,
                 role="assistant",
                 finish_reason=finish_reason or "stop",
                 model=self.model_id,
+                prompt_tokens=req.get_prompt_length(),
+                completion_tokens=req.get_num_generated_tokens(),
+                total_tokens=req.get_total_length(),
             )
             return response
 
@@ -451,19 +498,41 @@ def parse_args():
     )
     parser.add_argument("--tp", type=int, default=1, help="Tensor parallelism degree")
     parser.add_argument(
+        "--cache_type",
+        type=str,
+        default="paged",
+        choices=["paged", "static"],
+        help="Cache type: paged or static",
+    )
+    parser.add_argument(
         "--max_tokens",
         type=int,
         default=512,
         help="Maximum number of tokens to generate",
     )
     parser.add_argument(
-        "--max_batch_size", type=int, default=8, help="Maximum batch size"
+        "--max_batch_size",
+        type=int,
+        default=8,
+        help="Maximum batch size (paged cache only)",
     )
     parser.add_argument(
-        "--num_blocks", type=int, default=8 * 1024, help="Number of blocks for KV cache"
+        "--num_blocks",
+        type=int,
+        default=8 * 1024,
+        help="Number of blocks for KV cache (paged cache only)",
     )
     parser.add_argument(
-        "--block_size", type=int, default=16, help="Block size for KV cache"
+        "--block_size",
+        type=int,
+        default=16,
+        help="Block size for KV cache (paged cache only)",
+    )
+    parser.add_argument(
+        "--max_cache_len",
+        type=int,
+        default=4096,
+        help="Maximum sequence length (static cache only)",
     )
     parser.add_argument(
         "--dtype",
@@ -483,6 +552,7 @@ def parse_args():
     parser.add_argument("--port", type=int, default=8000, help="Server port")
     parser.add_argument("--cpu", action="store_true", help="Use CPU")
     parser.add_argument("--nvidia", action="store_true", help="Use NVIDIA GPU")
+    parser.add_argument("--qy", action="store_true", help="Use QY GPU")
     parser.add_argument("--metax", action="store_true", help="Use MetaX device")
     parser.add_argument("--moore", action="store_true", help="Use Moore device")
     parser.add_argument("--iluvatar", action="store_true", help="Use Iluvatar device")
@@ -513,6 +583,8 @@ def main():
         device = "cpu"
     elif args.nvidia:
         device = "cuda"
+    elif args.qy:
+        device = "cuda"
     elif args.metax:
         device = "cuda"
     elif args.moore:
@@ -525,7 +597,7 @@ def main():
         device = "cuda"
     else:
         print(
-            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --metax | --moore | --iluvatar | --cambricon | --ali] "
+            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon | --ali] "
             "--model_path=<path/to/model_dir> --max_tokens=MAX_TOKENS --max_batch_size=MAX_BATCH_SIZE"
             "\n"
             "Example: python infinilm.server.inference_server --nvidia --model_path=/data/shared/models/9G7B_MHA/ "
@@ -540,10 +612,12 @@ def main():
         device=device,
         dtype=args.dtype,
         tensor_parallel_size=args.tp,
+        cache_type=args.cache_type,
         max_tokens=args.max_tokens,
         max_batch_size=args.max_batch_size,
         num_blocks=args.num_blocks,
         block_size=args.block_size,
+        max_cache_len=args.max_cache_len,
         temperature=args.temperature,
         top_p=args.top_p,
         top_k=args.top_k,

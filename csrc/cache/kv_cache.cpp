@@ -95,8 +95,7 @@ StaticKVCache::update(size_t layer_idx,
 
     if (device.getType() == infinicore::Device::Type::NVIDIA
         || device.getType() == infinicore::Device::Type::ILUVATAR
-        || device.getType() == infinicore::Device::Type::METAX
-        || device.getType() == infinicore::Device::Type::CAMBRICON) {
+        || device.getType() == infinicore::Device::Type::METAX) {
         infinicore::op::kv_caching_(
             k_cache_layer,
             v_cache_layer,

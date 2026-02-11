@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <iostream>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -17,6 +16,18 @@
 
 namespace infinilm::models::llama {
 
+/**
+ * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+ *
+ * ⚠️ DEVELOPMENT POLICY:
+ *   - NO new development or feature additions permitted on this interface
+ *   - Only critical bug fixes (security/stability) allowed until removal
+ *   - All new code MUST migrate to the polymorphic overload below
+ *
+ * Replacement: Use the polymorphic overload of this same function name with updated signature
+ * Reason: Legacy signature lacks support for dynamic quantization modes.
+ * Removal target: v0.2.0 (Q2 2026)
+ */
 LlamaAttention::LlamaAttention(const LlamaConfig &config,
                                const infinicore::Device &device,
                                size_t layer_idx,
@@ -61,6 +72,65 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     }
 }
 
+LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                               const infinicore::Device &device,
+                               size_t layer_idx,
+                               engine::distributed::RankInfo rank_info)
+    : model_config_(model_config),
+      layer_idx_(layer_idx),
+      hidden_size_(model_config->get<size_t>("hidden_size")),
+      num_attention_heads_(model_config->get<size_t>("num_attention_heads")),
+      num_key_value_heads_(model_config->get<size_t>("num_key_value_heads")),
+      head_dim_(model_config->get_head_dim()),
+      kv_dim_(model_config->get_kv_dim()),
+      use_bias_(model_config->get_or<bool>("attention_bias", true)),
+      use_output_bias_(model_config->get_or<bool>("attention_output_bias", false)),
+      max_position_embeddings_(model_config->get<size_t>("max_position_embeddings")),
+      rank_info_(rank_info) {
+    const auto &dtype{model_config_->get_dtype()};
+
+    int tp_rank = rank_info.tp_rank;
+    int tp_size = rank_info.tp_size;
+
+    int num_attention_heads = model_config_->get<size_t>("num_attention_heads");
+    int num_key_value_heads = model_config_->get<size_t>("num_key_value_heads");
+
+    if ((num_key_value_heads >= tp_size) && (0 == (num_key_value_heads % tp_size))) {
+        this->num_attention_heads_ = num_attention_heads / tp_size;
+        this->num_key_value_heads_ = num_key_value_heads / tp_size;
+    } else {
+        throw std::runtime_error("num_attention_heads / tp_size error.");
+    }
+    scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
+
+    auto quant_scheme = this->model_config_->get_quant_scheme();
+    switch (quant_scheme) {
+    case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
+        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+                                      dtype, device, rank_info);
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+
+    case infinicore::quantization::QuantScheme::AWQ_W4A16:
+        INFINILM_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+                                          dtype, device, rank_info);
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+    default:
+        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+                                 dtype, device, rank_info);
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+    }
+    if (model_config_->get<std::string>("model_type") == "qwen3") {
+        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
+        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
+    }
+}
+
 infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_states,
                                             const infinicore::Tensor &position_ids,
                                             std::shared_ptr<infinilm::cache::Cache> kv_cache,
@@ -75,7 +145,7 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
-    if (use_qk_norm_) {
+    if (use_qk_norm_ || model_config_->get_or<std::string>("model_type", "None") == "qwen3") {
         q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
         k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
     }
@@ -126,9 +196,8 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     }
 
     infinicore::Tensor attn_output;
-    if (q_reshaped->device().getType() == infinicore::Device::Type::NVIDIA
-        || q_reshaped->device().getType() == infinicore::Device::Type::ILUVATAR
-        || q_reshaped->device().getType() == infinicore::Device::Type::CAMBRICON) {
+    if (false) {
+        // experimental nineoothed flash attention
         attn_output = infinicore::op::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scaling_, true);
         attn_output = attn_output->permute({0, 2, 1, 3})
                           ->contiguous()
@@ -197,7 +266,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
 
-    if (use_qk_norm_) {
+    if (use_qk_norm_ || model_config_->get_or<std::string>("model_type", "None") == "qwen3") {
         q_reshaped = q_norm_->forward(q_reshaped);
         k_reshaped = k_norm_->forward(k_reshaped);
     }

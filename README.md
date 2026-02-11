@@ -71,7 +71,7 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
   - 单次推理测试
     - llama示例
     ```bash
-    python examples/llama.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_dir>
+    python examples/llama.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --ali] --model_path=<path/to/model_dir>
     ```
     - 例如：
     ```bash

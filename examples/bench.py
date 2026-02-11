@@ -138,6 +138,11 @@ def get_args():
         help="Run nvidia test",
     )
     parser.add_argument(
+        "--qy",
+        action="store_true",
+        help="Run qy test",
+    )
+    parser.add_argument(
         "--metax",
         action="store_true",
         help="Run metax test",
@@ -277,6 +282,13 @@ class TestModel:
         #                        创建 tokenizer
         # ---------------------------------------------------------------------------- #
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        
+        if tokenizer.pad_token is None:
+            if tokenizer.eos_token is not None:
+                tokenizer.pad_token = tokenizer.eos_token
+                tokenizer.pad_token_id = tokenizer.eos_token_id
+            else:
+                tokenizer.add_special_tokens({'pad_token': '[PAD]'})
 
         # ---------------------------------------------------------------------------- #
         #                        token编码
@@ -290,7 +302,16 @@ class TestModel:
         ]
 
         # print(input_content, end="", flush=True)
-        input_ids_list = tokenizer.batch_encode_plus(input_content)["input_ids"]
+        # Support Transformers >= 5.0 for batch_encode_plus deprecation
+        encoding = tokenizer(
+            input_content,
+            padding=True,
+            truncation=True,
+            max_length=2048,       
+            return_tensors="pt"    
+            )
+
+        input_ids_list = encoding["input_ids"]
 
         self.model = model
         self.tokenizer = tokenizer
@@ -347,6 +368,8 @@ if __name__ == "__main__":
     if args.cpu:
         device_str = "cpu"
     elif args.nvidia:
+        device_str = "cuda"
+    elif args.qy:
         device_str = "cuda"
     elif args.metax:
         device_str = "cuda"
