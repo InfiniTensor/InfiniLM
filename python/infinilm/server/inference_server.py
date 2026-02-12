@@ -624,7 +624,7 @@ def main():
     elif args.metax:
         device = "cuda"
     elif args.moore:
-        device = "moore"
+        device = "musa"
     elif args.iluvatar:
         device = "cuda"
     elif args.cambricon:
