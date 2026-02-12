@@ -234,6 +234,11 @@ def get_args():
         action="store_true",
         help="enable graph compiling",
     )
+    parser.add_argument(
+        "--warmup",
+        action="store_true",
+        help="Perform a warmup run before benchmarking/inference."
+    )
     return parser.parse_args()
 
 
@@ -436,6 +441,60 @@ if __name__ == "__main__":
         cache_config=cache_config,
         enable_graph=enable_graph,
     )
+
+    # ---------------------------------------------------------------------------- #
+    #                                Warmup
+    # ---------------------------------------------------------------------------- #
+    if args.warmup:
+        warmup_steps = 1
+
+        # warmup cache capacity
+        warmup_cache_len = 128
+        warmup_batch = len(test.input_ids_list)
+
+        test.model.reset_cache(
+            StaticKVCacheConfig(
+                max_batch_size=warmup_batch,
+                max_cache_len=warmup_cache_len,
+            )
+        )
+
+        avg_prompt_len = min(
+            64,
+            max(len(ids) for ids in test.input_ids_list)
+        )
+
+        warmup_ids = [
+            ids[:avg_prompt_len] if len(ids) >= avg_prompt_len else ids
+            for ids in test.input_ids_list
+        ]
+
+        input_ids_infini = infinicore.from_list(warmup_ids)
+
+        print("=================== warmup start ===================")
+
+        for _ in range(warmup_steps):
+            _ = test.model.generate(
+                input_ids_infini,
+                GenerationConfig(
+                    max_new_tokens=5,  # decode kernel warmup 
+                    temperature=args.temperature,
+                    top_k=args.top_k,
+                    top_p=args.top_p,
+                ),
+                _measure_and_log_time=False,
+            )
+
+        print("=================== warmup done ====================")
+
+        # reset cache back to benchmark config
+        if cache_config is not None:
+            test.model.reset_cache(cache_config)
+
+    # ---------------------------------------------------------------------------- #
+    #                                Warmup done
+    # ---------------------------------------------------------------------------- #
+
 
     for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
         tqdm.write(f"\033[92mProcessing : {case}\033[0m")
