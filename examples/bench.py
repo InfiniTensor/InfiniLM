@@ -1,9 +1,3 @@
-import infinicore
-from transformers import AutoTokenizer
-from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.distributed import DistConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
-from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 import argparse
 import sys
 import time
@@ -12,6 +6,12 @@ import json
 from collections import OrderedDict
 import numpy as np
 from tqdm import tqdm
+from transformers import AutoTokenizer
+import infinicore
+from infinilm.modeling_utils import load_model_state_dict_by_file
+from infinilm.distributed import DistConfig
+from infinilm.infer_engine import GenerationConfig, InferEngine
+from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
