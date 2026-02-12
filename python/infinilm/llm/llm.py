@@ -138,7 +138,7 @@ class LLMEngine:
 
     def _init_device(self):
         """Initialize infinicore device and dtype."""
-        supported_devices = ["cpu", "cuda", "mlu", "moore"]
+        supported_devices = ["cpu", "cuda", "mlu", "musa"]
         device_str = self.config.device
         if device_str not in supported_devices:
             raise ValueError(
