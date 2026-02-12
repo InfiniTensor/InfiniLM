@@ -27,6 +27,32 @@ def read_bf16_pytorch_fixed(filename, shape=None, device='cpu'):
             print(f"数据元素: {tensor_fp32.numel()}, 形状需要: {np.prod(shape)}")
     
     return tensor_fp32, tensor_bf16
+
+def read_f32_pytorch_fixed(filename, shape=None, device='cpu'):
+    """
+    修复版本：避免使用 torch.from_file
+    """
+    # 使用 numpy 读取，然后转换为 tensor
+    np_data = np.fromfile(filename, dtype=np.float32)
+    
+    # 转换为 tensor
+    tensor_f32 = torch.from_numpy(np_data).to(device)
+    
+    # # 转换为 BF16
+    # tensor_bf16 = tensor_uint16.view(torch.bfloat16)
+    
+    # # 转换为 FP32
+    # tensor_fp32 = tensor_bf16.float()
+    
+    # 重塑形状
+    if shape is not None:
+        try:
+            tensor_fp32 = tensor_f32.reshape(shape)
+        except RuntimeError as e:
+            print(f"形状重塑错误: {e}")
+            print(f"数据元素: {tensor_f32.numel()}, 形状需要: {np.prod(shape)}")
+    
+    return tensor_f32
 # q_norm, _ = read_bf16_pytorch_fixed(
 #     "/home/featurize/work/My_InfiniLM/layer_0_weights/q_buf_190_2048_norm.bin", 
 #     shape=(190, 2048)
@@ -43,8 +69,14 @@ def read_bf16_pytorch_fixed(filename, shape=None, device='cpu'):
 # )
 gemm, _ = read_bf16_pytorch_fixed(
     "/home/featurize/work/My_InfiniLM/qk_gemm.bin", 
-    shape=(16, 190, 190)
+    shape=(16 * 190 * 190)
 )
+
+gemm_softmax, _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin", 
+    shape=(16 * 190 * 190)
+)
+
 # k_norm, _ = read_bf16_pytorch_fixed(
 #     "/home/featurize/work/My_InfiniLM/layer_0_weights/k_buf_190_2048_norm.bin", 
 #     shape=(190, 2048)
@@ -75,6 +107,9 @@ gemm, _ = read_bf16_pytorch_fixed(
 # q_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_viewd.pt").squeeze(0).to('cpu')
 # # # k_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_viewd.pt")
 
-gemm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/qk_gemm.pt")
+gemm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/qk_gemm.pt").squeeze(0).to('cpu')
+# attn_weight = torch.softmax(attn_weight, dim=-1)
+gemm_softmax_torch = torch.softmax(gemm_torch, dim=-1)
+# sim = F.cosine_similarity(gemm_torch, gemm, dim = 0)
 
 print("over")

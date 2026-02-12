@@ -355,7 +355,8 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm.bin");
 
             // // 2. Softmax (causal)
-            // causalSoftmax(qk_gemm, qk_gemm);
+            softmax(qk_gemm, qk_gemm, 2); // 16 190 190 
+            qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin"); 
             // qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_softmax.bin");
 
             // // 3. 计算 Attention x V: [16, 190, 190] x [16, 190, 128] -> [16, 190, 128]
