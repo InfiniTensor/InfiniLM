@@ -202,7 +202,7 @@ def test(
     # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
     #     "input_ids"
     # ]  # List: [[1, 1128, 526, 366, 29892]]
-    if version.parse(transformers.__version__) == version.parse("4.55.0"):
+    if version.parse(transformers.__version__) < version.parse("5.0.0"):
         # Ideally this is solved by upgrading transformers. However, doing so causes version mismatch between transformers and mlu pytorch on devices with Phytium CPU. So a branch is temporarily used.
         input_ids_list = [
             tokenizer.encode_plus(
