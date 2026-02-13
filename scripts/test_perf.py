@@ -4,7 +4,6 @@ from openai import AsyncOpenAI
 import argparse
 import random
 
-
 PROMPTS = [
     "如果猫能写诗，它们会写些什么？",
     "描述一个没有重力的世界。",
@@ -25,11 +24,11 @@ PROMPTS = [
     "如果你可以变成任何一种动物，你会选择什么？",
     "描述一个由机器人统治的未来世界。",
     "如果你能与任何虚构角色成为朋友，你会选择谁？",
-    "想象一下，如果每个人都能读懂他人的思想。"
+    "想象一下，如果每个人都能读懂他人的思想。",
 ]
 
-NUM_REQUESTS = 10
-CONCURRENCY = 5
+NUM_REQUESTS = 64
+CONCURRENCY = 20
 API_URL = "http://127.0.0.1:8000"
 MODEL = "FM9G-7B"
 
@@ -43,14 +42,14 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
                 break
 
             question = random.choice(PROMPTS)
-            try: 
+            try:
                 print(f"🚀 User#{user_id} Sending request #{task_id}")
 
                 start_time = time.time()
                 stream = await client.chat.completions.create(
                     model=MODEL,
                     messages=[{"role": "user", "content": question}],
-                    stream=True
+                    stream=True,
                 )
 
                 first_token_time = None
@@ -71,19 +70,33 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
 
                 ttft = first_token_time - start_time if first_token_time else None
                 elapsed_time = end_time - start_time if start_time else None
-                ms_per_token = (elapsed_time / total_tokens * 1000) if total_tokens > 0 and elapsed_time else None
-                tokens_per_second = total_tokens / elapsed_time if elapsed_time > 0 else 0
+                ms_per_token = (
+                    (elapsed_time / total_tokens * 1000)
+                    if total_tokens > 0 and elapsed_time
+                    else None
+                )
+                tokens_per_second = (
+                    total_tokens / elapsed_time if elapsed_time > 0 else 0
+                )
 
                 answer = "".join(answer_chunks)
 
-                results.append((total_tokens, elapsed_time, tokens_per_second, ttft, ms_per_token))
+                results.append(
+                    (total_tokens, elapsed_time, tokens_per_second, ttft, ms_per_token)
+                )
 
                 if verbose:
                     print(f"\n📝 Request #{task_id} (User #{user_id})")
-                    print(f"  ⏱ 首字延迟 TTFT: {ttft:.3f}s")
-                    print(f"  ⏱ 总耗时: {elapsed_time:.3f}s")
+                    if ttft is not None:
+                        print(f"  ⏱ 首字延迟 TTFT: {ttft:.3f}s")
+                    if elapsed_time is not None:
+                        print(f"  ⏱ 总耗时: {elapsed_time:.3f}s")
+
                     print(f"  🔤 解码 token 总数: {total_tokens}")
-                    print(f"  📏 平均 token 解码时间: {ms_per_token:.2f} ms/token")
+                    if ms_per_token is not None:
+                        print(f"  📏 平均 token 解码时间: {ms_per_token:.2f} ms/token")
+                    else:
+                        print(f"  📏 平均 token 解码时间: N/A (no token generated)")
                     print(f"  ❓ 提问: {question}")
                     print(f"  💬 回答: {answer}\n")
 
@@ -92,6 +105,8 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
                 if verbose:
                     print(f"\n⚠️ Request #{task_id} (User #{user_id}) FAILED:")
                     print(f"  ❌ Error: {e}\n")
+                queue.task_done()
+
 
 async def run_benchmark(verbose=False):
     client = AsyncOpenAI(base_url=API_URL, api_key="default")
@@ -104,7 +119,9 @@ async def run_benchmark(verbose=False):
         await queue.put(None)
 
     users = [
-        asyncio.create_task(benchmark_user(client, semaphore, queue, results, user_id, verbose))
+        asyncio.create_task(
+            benchmark_user(client, semaphore, queue, results, user_id, verbose)
+        )
         for user_id in range(CONCURRENCY)
     ]
 
@@ -121,11 +138,19 @@ async def run_benchmark(verbose=False):
     ms_per_token_list = [r[4] for r in results if r and r[4] is not None]
 
     successful_requests = len(results)
-    requests_per_second = successful_requests / total_elapsed_time if total_elapsed_time > 0 else 0
+    requests_per_second = (
+        successful_requests / total_elapsed_time if total_elapsed_time > 0 else 0
+    )
     avg_latency = sum(latencies) / len(latencies) if latencies else 0
-    avg_tokens_per_second = sum(tokens_per_second_list) / len(tokens_per_second_list) if tokens_per_second_list else 0
+    avg_tokens_per_second = (
+        sum(tokens_per_second_list) / len(tokens_per_second_list)
+        if tokens_per_second_list
+        else 0
+    )
     avg_ttft = sum(ttft_list) / len(ttft_list) if ttft_list else 0
-    avg_ms_per_token = sum(ms_per_token_list) / len(ms_per_token_list) if ms_per_token_list else None
+    avg_ms_per_token = (
+        sum(ms_per_token_list) / len(ms_per_token_list) if ms_per_token_list else None
+    )
 
     width_label = 24
     sep = "-" * 60
@@ -142,7 +167,9 @@ async def run_benchmark(verbose=False):
     print(f"{'Average latency':<{width_label}}: {avg_latency:.2f} s")
     print(f"{'Average TTFT':<{width_label}}: {avg_ttft:.2f} s")
     print(f"{'Avg time per token':<{width_label}}: {avg_ms_per_token:.2f} ms/token")
-    print(f"{'Avg Token generation speed':<{width_label}}: {avg_tokens_per_second:.2f} tokens/s")
+    print(
+        f"{'Avg Token generation speed':<{width_label}}: {avg_tokens_per_second:.2f} tokens/s"
+    )
 
 
 if __name__ == "__main__":
@@ -150,6 +177,4 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
-    asyncio.run(run_benchmark(
-        args.verbose
-    ))
+    asyncio.run(run_benchmark(args.verbose))
