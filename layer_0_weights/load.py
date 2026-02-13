@@ -53,63 +53,31 @@ def read_f32_pytorch_fixed(filename, shape=None, device='cpu'):
             print(f"数据元素: {tensor_f32.numel()}, 形状需要: {np.prod(shape)}")
     
     return tensor_f32
-# q_norm, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/layer_0_weights/q_buf_190_2048_norm.bin", 
-#     shape=(190, 2048)
-# )
-
-# reranged, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/dst.bin", 
-#     shape=(190, 16, 128)
-# )
-
-# roped, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/k_roped.bin", 
-#     shape=(190, 16, 128)
-# )
 gemm, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/qk_gemm.bin", 
-    shape=(16 * 190 * 190)
-)
-
-gemm_softmax, _ = read_bf16_pytorch_fixed(
     "/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin", 
-    shape=(16 * 190 * 190)
+    shape=(16, 190, 190)
 )
 
-# k_norm, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/layer_0_weights/k_buf_190_2048_norm.bin", 
-#     shape=(190, 2048)
-# )
+v_viewd, _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/v_viewd.bin", 
+    shape=(190, 16, 128)
+)
 
-# # 使用修复版本
-# q_viewd, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/layer_0_weights/q_buf_190_16_128_view.bin", 
-#     shape=(190, 2048)
-# )
-# k_viewd, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/layer_0_weights/k_buf_190_16_128_view.bin", 
-#     shape=(190, 2048)
-# )
+v_permute, _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/v_permute_rerange.bin", 
+    shape=(16, 190, 128)
+)
 
-# q_roped, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/layer_0_weights/q_rope.bin", 
-#     shape=(190, 16, 128)
-# )
+attn_out, _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/attn_buf.bin", 
+    shape=(16, 190, 128)
+)
 
-# k_roped, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/layer_0_weights/k_rope.bin", 
-#     shape=(190, 16, 128)
-# )
 
-# q_norm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_norm.pt").squeeze(0).to('cpu')
-# # # k_norm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/k_norm.pt").squeeze(0).to('cpu')
-# q_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_viewd.pt").squeeze(0).to('cpu')
-# # # k_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/q_viewd.pt")
+v_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/v_viewd.pt").squeeze(0).to('cpu')
+softmax_qk = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/softmax_qk.pt").squeeze(0).to('cpu')
+attn_out_torch = (softmax_qk @ v_viewd_torch).to('cpu')
 
-gemm_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/qk_gemm.pt").squeeze(0).to('cpu')
-# attn_weight = torch.softmax(attn_weight, dim=-1)
-gemm_softmax_torch = torch.softmax(gemm_torch, dim=-1)
-# sim = F.cosine_similarity(gemm_torch, gemm, dim = 0)
+# first and last is correct
 
 print("over")

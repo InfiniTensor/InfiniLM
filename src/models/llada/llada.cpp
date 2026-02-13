@@ -342,22 +342,40 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             k_buf = dst_k;
             k_buf->debug("/home/featurize/work/My_InfiniLM/k_roped.bin");
 
+
+            auto src_v = v_buf->view({ntok, nh, dh});
+            auto dst_v = Tensor::buffer(src_v->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
+            rearrange(dst_v, src_v);
+            v_buf = dst_v;
+            v_buf->debug("/home/featurize/work/My_InfiniLM/v_viewd.bin");
+
             // ============ Attention 计算 ============
             // 转换维度为 [nh, ntok, dh]
             q_buf = q_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
             k_buf = k_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
             v_buf = v_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
-
+            v_buf->debug("/home/featurize/work/My_InfiniLM/v_permute.bin");
+            auto v_buf_permuted = Tensor::buffer(v_buf->dtype(), {nkvh, ntok, dh}, rsrc.memory_pool);  
+            // 使用 rearrange 操作进行维度重排，这会自动处理连续性  
+            rearrange(v_buf_permuted, v_buf);  
+            v_buf = v_buf_permuted;
+            v_buf->debug("/home/featurize/work/My_InfiniLM/v_permute_rerange.bin");
+            
             // 1. 计算 QK^T: [16, 190, 128] x [16, 128, 190] -> [16, 190, 190]
             auto k_transposed = k_buf->permute({0, 2, 1});  // [16, 190, 128] -> [16, 128, 190]
             auto qk_gemm = Tensor::buffer(dt_logits, {nh, ntok, ntok}, rsrc.memory_pool);
-            linear(qk_gemm, q_buf, k_transposed, 1.0, 0.0, nullptr, nullptr);
+            linear(qk_gemm, q_buf, k_transposed, 1.f / float(sqrt(dh)), 0.0, nullptr, nullptr);
             qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm.bin");
 
             // // 2. Softmax (causal)
             softmax(qk_gemm, qk_gemm, 2); // 16 190 190 
             qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin"); 
+
+            // // 3. Attention
             // qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_softmax.bin");
+            auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
+            linear(attn_buf, qk_gemm, v_buf, 1.0, 0.0, nullptr, nullptr);
+            attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf.bin");
 
             // // 3. 计算 Attention x V: [16, 190, 190] x [16, 190, 128] -> [16, 190, 128]
             // auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
