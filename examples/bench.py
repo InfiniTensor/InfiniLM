@@ -3,7 +3,7 @@ from transformers import AutoTokenizer
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
-from infinilm.cache import StaticKVCacheConfig
+from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 import argparse
 import sys
 import time
@@ -138,9 +138,34 @@ def get_args():
         help="Run nvidia test",
     )
     parser.add_argument(
+        "--qy",
+        action="store_true",
+        help="Run qy test",
+    )
+    parser.add_argument(
+        "--metax",
+        action="store_true",
+        help="Run metax test",
+    )
+    parser.add_argument(
+        "--moore",
+        action="store_true",
+        help="Run moore test",
+    )
+    parser.add_argument(
+        "--iluvatar",
+        action="store_true",
+        help="Run iluvatar test",
+    )
+    parser.add_argument(
         "--cambricon",
         action="store_true",
         help="Run cambricon test",
+    )
+    parser.add_argument(
+        "--ali",
+        action="store_true",
+        help="Run alippu test",
     )
     parser.add_argument(
         "--model",
@@ -199,7 +224,21 @@ def get_args():
         default=1.0,
         help="sampling temperature",
     )
-
+    parser.add_argument(
+        "--enable-paged-attn",
+        action="store_true",
+        help="use paged cache",
+    )
+    parser.add_argument(
+        "--enable-graph",
+        action="store_true",
+        help="enable graph compiling",
+    )
+    parser.add_argument(
+        "--warmup",
+        action="store_true",
+        help="Perform a warmup run before benchmarking/inference."
+    )
     return parser.parse_args()
 
 
@@ -223,6 +262,8 @@ class TestModel:
         infini_device=infinicore.device("cpu", 0),
         tp=1,
         skip_load=False,
+        cache_config=None,
+        enable_graph=False,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -232,6 +273,8 @@ class TestModel:
             model_path,
             device=infini_device,
             distributed_config=DistConfig(tp),
+            cache_config=cache_config,
+            enable_graph_compiling=enable_graph,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -244,6 +287,13 @@ class TestModel:
         #                        创建 tokenizer
         # ---------------------------------------------------------------------------- #
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        
+        if tokenizer.pad_token is None:
+            if tokenizer.eos_token is not None:
+                tokenizer.pad_token = tokenizer.eos_token
+                tokenizer.pad_token_id = tokenizer.eos_token_id
+            else:
+                tokenizer.add_special_tokens({'pad_token': '[PAD]'})
 
         # ---------------------------------------------------------------------------- #
         #                        token编码
@@ -257,7 +307,16 @@ class TestModel:
         ]
 
         # print(input_content, end="", flush=True)
-        input_ids_list = tokenizer.batch_encode_plus(input_content)["input_ids"]
+        # Support Transformers >= 5.0 for batch_encode_plus deprecation
+        encoding = tokenizer(
+            input_content,
+            padding=True,
+            truncation=True,
+            max_length=2048,       
+            return_tensors="pt"    
+            )
+
+        input_ids_list = encoding["input_ids"]
 
         self.model = model
         self.tokenizer = tokenizer
@@ -315,8 +374,18 @@ if __name__ == "__main__":
         device_str = "cpu"
     elif args.nvidia:
         device_str = "cuda"
+    elif args.qy:
+        device_str = "cuda"
+    elif args.metax:
+        device_str = "cuda"
+    elif args.moore:
+        device_str = "musa"
+    elif args.iluvatar:
+        device_str = "cuda"
     elif args.cambricon:
         device_str = "mlu"
+    elif args.ali:
+        device_str = "cuda"
     else:
         print(
             "python examples/bench.py --nvidia --model=~/TinyLlama-1.1B-Chat-v1.0/ --batch-size=2 --tp=1 --input-len=50 --output-len=50"
@@ -336,6 +405,8 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     input_len = args.input_len
     output_len = args.output_len
+    enable_paged_attn = args.enable_paged_attn
+    enable_graph = args.enable_graph
 
     if isinstance(batch_size, int):
         batch_size = [batch_size]
@@ -350,14 +421,80 @@ if __name__ == "__main__":
     # -------------------------------------------------------- #
     #             测试
     # -------------------------------------------------------- #
-    # print("=================== start test ====================", type(batch_size))
+    if enable_paged_attn:
+        paged_kv_block_size = 16
+        max_num_blocks = max(
+            [
+                ((c_["input_len"] + c_["output_len"] + 15) // 16) * c_["batch_size"]
+                for _, c_ in cases_dict.items()
+            ]
+        )
+        cache_config = PagedKVCacheConfig(max_num_blocks, paged_kv_block_size)
+    else:
+        cache_config = None
 
     test = TestModel(
         model_path,
         infini_device=infini_device,
         tp=tp,
         skip_load=skip_load,
+        cache_config=cache_config,
+        enable_graph=enable_graph,
     )
+
+    # ---------------------------------------------------------------------------- #
+    #                                Warmup
+    # ---------------------------------------------------------------------------- #
+    if args.warmup:
+        warmup_steps = 1
+
+        # warmup cache capacity
+        warmup_cache_len = 128
+        warmup_batch = len(test.input_ids_list)
+
+        test.model.reset_cache(
+            StaticKVCacheConfig(
+                max_batch_size=warmup_batch,
+                max_cache_len=warmup_cache_len,
+            )
+        )
+
+        avg_prompt_len = min(
+            64,
+            max(len(ids) for ids in test.input_ids_list)
+        )
+
+        warmup_ids = [
+            ids[:avg_prompt_len] if len(ids) >= avg_prompt_len else ids
+            for ids in test.input_ids_list
+        ]
+
+        input_ids_infini = infinicore.from_list(warmup_ids)
+
+        print("=================== warmup start ===================")
+
+        for _ in range(warmup_steps):
+            _ = test.model.generate(
+                input_ids_infini,
+                GenerationConfig(
+                    max_new_tokens=5,  # decode kernel warmup 
+                    temperature=args.temperature,
+                    top_k=args.top_k,
+                    top_p=args.top_p,
+                ),
+                _measure_and_log_time=False,
+            )
+
+        print("=================== warmup done ====================")
+
+        # reset cache back to benchmark config
+        if cache_config is not None:
+            test.model.reset_cache(cache_config)
+
+    # ---------------------------------------------------------------------------- #
+    #                                Warmup done
+    # ---------------------------------------------------------------------------- #
+
 
     for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
         tqdm.write(f"\033[92mProcessing : {case}\033[0m")
@@ -366,13 +503,14 @@ if __name__ == "__main__":
         input_len = case["input_len"]
         output_len = case["output_len"]
 
-        # reset cache for each case
-        initial_capacity = input_len + output_len
-        test.model.reset_cache(
-            StaticKVCacheConfig(
-                max_batch_size=batch_size, max_cache_len=initial_capacity
+        if not enable_paged_attn:
+            # reset cache if static kvcache is used
+            initial_capacity = input_len + output_len
+            test.model.reset_cache(
+                StaticKVCacheConfig(
+                    max_batch_size=batch_size, max_cache_len=initial_capacity
+                )
             )
-        )
 
         # run test one case
         test.run(

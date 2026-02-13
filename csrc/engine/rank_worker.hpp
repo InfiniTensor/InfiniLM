@@ -1,8 +1,11 @@
 #pragma once
 
 #include "../cache/cache.hpp"
+#include "../config/model_config.hpp"
 #include "../models/model_factory.hpp"
+#include "compiler/general_compiler.hpp"
 #include "distributed/distributed.hpp"
+#include "rank_barrier.hpp"
 
 #include <any>
 #include <condition_variable>
@@ -20,6 +23,7 @@ class RankWorker {
         LOAD,
         RUN,
         RESET_CACHE,
+        COMPILE,
         STOP
     };
 
@@ -55,7 +59,15 @@ public:
 
     RankWorker(const InfinilmModel::Config &model_config,
                const distributed::RankInfo &rank_info,
-               const cache::CacheConfig *cache_config);
+               const cache::CacheConfig *cache_config,
+               RankBarrier *barrier,
+               bool enable_graph_compiling);
+
+    RankWorker(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+               const distributed::RankInfo &rank_info,
+               const cache::CacheConfig *cache_config,
+               RankBarrier *barrier,
+               bool enable_graph_compiling);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
@@ -69,6 +81,9 @@ public:
 
     // Reset the internal cache with a new configuration
     void reset_cache(const cache::CacheConfig *new_config);
+
+    // Compile the model graph if enabled.
+    void compile();
 
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
@@ -86,10 +101,15 @@ private:
 
 private:
     // Worker properties
-    const InfinilmModel::Config &model_config_;
+    const InfinilmModel::Config &legacy_model_config_ = InfinilmModel::Config();
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
+
+    // Graph Compiling
+    bool enable_graph_compiling_;
+    std::unique_ptr<GraphCompiler> compiler_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;
@@ -116,6 +136,8 @@ private:
 
     // Random
     std::mt19937 rng_;
+
+    RankBarrier *barrier_;
 };
 
 } // namespace infinilm::engine

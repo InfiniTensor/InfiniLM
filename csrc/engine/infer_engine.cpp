@@ -6,26 +6,73 @@ namespace infinilm::engine {
 //------------------------------------------------------
 // Constructor
 //------------------------------------------------------
+/**
+ * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+ *
+ * ⚠️ DEVELOPMENT POLICY:
+ *   - NO new development or feature additions permitted on this interface
+ *   - Only critical bug fixes (security/stability) allowed until removal
+ *   - All new code MUST migrate to the polymorphic overload below
+ *
+ * Replacement: Use the polymorphic overload of this same function name with updated signature
+ * Reason: Legacy signature lacks support for dynamic quantization modes.
+ * Removal target: v0.2.0 (Q2 2026)
+ */
 InferEngine::InferEngine(
     const InfinilmModel::Config &config,
     const distributed::DistConfig &distributed_config,
     infinicore::Device::Type device_type,
-    const cache::CacheConfig *cache_config) // Changed parameter
+    const cache::CacheConfig *cache_config,
+    bool enable_graph_compiling) // Changed parameter
     : communication_group_(distributed_config, device_type),
-      model_config_(config) {
-
+      legacy_model_config_(config) {
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
+    barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
+    workers_.reserve(world_size);
+    for (int r = 0; r < world_size; ++r) {
+        workers_.emplace_back(std::make_unique<RankWorker>(
+            legacy_model_config_,
+            communication_group_.get_rank_info(r),
+            cache_config_ != nullptr ? cache_config_.get() : nullptr,
+            barrier_.get(),
+            enable_graph_compiling));
+    }
+
+    // Compile the model on all workers
+    this->compile();
+}
+
+InferEngine::InferEngine(
+    const std::string &model_path,
+    const distributed::DistConfig &distributed_config,
+    infinicore::Device::Type device_type,
+    const cache::CacheConfig *cache_config,
+    bool enable_graph_compiling) // Changed parameter
+    : communication_group_(distributed_config, device_type) {
+    if (cache_config != nullptr) {
+        cache_config_ = cache_config->unique_copy();
+    }
+
+    // Load model config if model_path is provided, model_path must be valid, and config.json exists
+    this->model_config_ = std::make_shared<infinilm::config::ModelConfig>(model_path + "/config.json");
+    // Create one RankWorker per rank
+    int world_size = communication_group_.get_world_size();
+    barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
     workers_.reserve(world_size);
     for (int r = 0; r < world_size; ++r) {
         workers_.emplace_back(std::make_unique<RankWorker>(
             model_config_,
             communication_group_.get_rank_info(r),
-            cache_config_ != nullptr ? cache_config_.get() : nullptr));
+            cache_config_ != nullptr ? cache_config_.get() : nullptr,
+            barrier_.get(),
+            enable_graph_compiling));
     }
+    // Compile the model on all workers
+    this->compile();
 }
 
 //------------------------------------------------------
@@ -65,9 +112,9 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     };
 
     return {
-        input_ids, // @todo: on device in the future
+        to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
-        past_sequence_lengths, // @todo: on device in the future
+        to_device(past_sequence_lengths), // @todo: on device in the future
         to_device(total_sequence_lengths),
         to_device(input_offsets),
         to_device(block_tables),
@@ -86,6 +133,16 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     }
 
     return workers_[0]->get_output();
+}
+
+void InferEngine::compile() {
+    for (auto &worker : workers_) {
+        worker->compile();
+    }
+    // Wait for all workers
+    for (auto &worker : workers_) {
+        worker->wait();
+    }
 }
 
 //------------------------------------------------------
@@ -112,6 +169,8 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     for (auto &worker : workers_) {
         worker->wait();
     }
+
+    this->compile();
 }
 
 } // namespace infinilm::engine

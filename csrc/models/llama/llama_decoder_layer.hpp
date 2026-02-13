@@ -33,7 +33,24 @@ public:
      * @param layer_idx Layer index for cache management and debugging
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
+    /**
+     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+     *
+     * ⚠️ DEVELOPMENT POLICY:
+     *   - NO new development or feature additions permitted on this interface
+     *   - Only critical bug fixes (security/stability) allowed until removal
+     *   - All new code MUST migrate to the polymorphic overload below
+     *
+     * Replacement: Use the polymorphic overload of this same function name with updated signature
+     * Reason: Legacy signature lacks support for dynamic quantization modes.
+     * Removal target: v0.2.0 (Q2 2026)
+     */
     LlamaDecoderLayer(const LlamaConfig &config,
+                      const infinicore::Device &device,
+                      size_t layer_idx,
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                       const infinicore::Device &device,
                       size_t layer_idx,
                       engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
@@ -41,19 +58,23 @@ public:
     /**
      * @brief Forward pass: process one decoder layer
      *
-     * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
+     * @param hidden_states [batch, seq_len, hidden_size], will be modified
+     * @param residual [batch, seq_len, hidden_size], will be modified
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
      * @param kv_cache Optional KV cache for incremental decoding
      * @return Output tensor of shape [batch, seq_len, hidden_size]
+     *         Updated residual tensor of shape [batch, seq_len, hidden_size]
      */
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinicore::Tensor &position_ids,
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
-                               std::optional<infinicore::Tensor> past_sequence_lengths,
-                               std::optional<infinicore::Tensor> total_sequence_lengths,
-                               std::optional<infinicore::Tensor> input_offsets,
-                               std::optional<infinicore::Tensor> block_tables,
-                               std::optional<infinicore::Tensor> slot_mappin) const;
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    forward(infinicore::Tensor &hidden_states,
+            infinicore::Tensor &residual,
+            const infinicore::Tensor &position_ids,
+            std::shared_ptr<infinilm::cache::Cache> kv_cache,
+            std::optional<infinicore::Tensor> past_sequence_lengths,
+            std::optional<infinicore::Tensor> total_sequence_lengths,
+            std::optional<infinicore::Tensor> input_offsets,
+            std::optional<infinicore::Tensor> block_tables,
+            std::optional<infinicore::Tensor> slot_mappin) const;
 
     /**
      * @brief Get the layer index
@@ -75,6 +96,7 @@ protected:
     INFINICORE_NN_MODULE(LlamaAttention, self_attn);
     INFINICORE_NN_MODULE(LlamaMLP, mlp);
     engine::distributed::RankInfo rank_info_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 
 private:
     size_t layer_idx_; // Layer index for cache management and debugging

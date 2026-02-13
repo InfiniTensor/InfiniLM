@@ -10,23 +10,65 @@
 
 namespace infinilm::engine {
 
+/**
+ * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+ *
+ * ⚠️ DEVELOPMENT POLICY:
+ *   - NO new development or feature additions permitted on this interface
+ *   - Only critical bug fixes (security/stability) allowed until removal
+ *   - All new code MUST migrate to the polymorphic overload below
+ *
+ * Replacement: Use the polymorphic overload of this same function name with updated signature
+ * Reason: Legacy signature lacks support for dynamic quantization modes.
+ * Removal target: v0.2.0 (Q2 2026)
+ */
 RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
-                       const cache::CacheConfig *cache_config)
-    : model_config_(model_config),
+                       const cache::CacheConfig *cache_config,
+                       RankBarrier *barrier,
+                       bool enable_graph_compiling)
+    : legacy_model_config_(model_config),
       rank_info_(rank_info),
+      enable_graph_compiling_(enable_graph_compiling),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
       should_exit_(false),
       init_done_(false),
-      rng_(std::random_device{}()) {
+      rng_(std::random_device{}()),
+      barrier_(barrier) {
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
     }
     // start the thread
     thread_ = std::thread(&RankWorker::thread_loop, this);
 
+    // Wait until the worker thread finishes initialization (model created)
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return init_done_; });
+}
+
+RankWorker::RankWorker(
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    const distributed::RankInfo &rank_info,
+    const cache::CacheConfig *cache_config,
+    RankBarrier *barrier,
+    bool enable_graph_compiling)
+    : model_config_(model_config),
+      rank_info_(rank_info),
+      enable_graph_compiling_(enable_graph_compiling),
+      job_cmd_(Command::INIT),
+      has_job_(false),
+      job_done_(false),
+      should_exit_(false),
+      init_done_(false),
+      rng_(std::random_device{}()),
+      barrier_(barrier) {
+    if (cache_config != nullptr) {
+        pending_cache_config_ = cache_config->unique_copy();
+    }
+    // start the thread
+    thread_ = std::thread(&RankWorker::thread_loop, this);
     // Wait until the worker thread finishes initialization (model created)
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return init_done_; });
@@ -114,6 +156,21 @@ void RankWorker::run(const Input &args) {
 }
 
 //------------------------------------------------------
+// compile -- asynchronous
+//------------------------------------------------------
+void RankWorker::compile() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker is closing; cannot run");
+    }
+
+    job_cmd_ = Command::COMPILE;
+    has_job_ = true;
+    job_done_ = false;
+    cv_.notify_all();
+}
+
+//------------------------------------------------------
 // wait -- asynchronous
 //------------------------------------------------------
 void RankWorker::wait() {
@@ -176,10 +233,20 @@ void RankWorker::thread_loop() {
             infinicore::context::setDevice(rank_info_.device);
 
             // Create model using factory (may be expensive)
-            model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            if (model_config_ == nullptr) {
+                model_ = InfinilmModelFactory::createModel(legacy_model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+
+            } else {
+                model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            }
+
             if (!model_) {
                 throw std::runtime_error("Failed to create model");
             }
+            if (enable_graph_compiling_) {
+                compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
+            }
+
             init_done_ = true;
         }
         cv_.notify_all();
@@ -223,12 +290,12 @@ void RankWorker::thread_loop() {
                 try {
                     model_->load_parameter(local_param_name, local_param);
                 } catch (const std::exception &e) {
-                    // convert exceptions to a safe behavior: set should_exit_ and notify caller
-                    std::lock_guard<std::mutex> lk(mutex_);
-                    should_exit_ = true;
-                    job_done_ = true;
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
                     cv_.notify_all();
-                    // rethrow so the thread can be joined and caller sees an error if desired (optional)
                     spdlog::error("[{}] exception during load_parameter_: {}\n", info(), e.what());
                     break;
                 }
@@ -245,9 +312,21 @@ void RankWorker::thread_loop() {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
 
-                        auto model_args = local_args.to_model_input(rank_info_.device);
-                        // Forward calculation
-                        auto logits{model_->forward(model_args).logits};
+                        infinicore::Tensor logits;
+                        // Try to get compiled graph
+                        if (compiler_ != nullptr) {
+                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
+                            if (graph != nullptr && output != nullptr) {
+                                graph->run();
+                                logits = output->logits;
+                            }
+                        }
+                        // Fall back to eager mode
+                        if (!logits) {
+                            auto model_args = local_args.to_model_input(rank_info_.device);
+                            logits = model_->forward(model_args).logits;
+                        }
+
                         // Random sampling (rank 0 only)
                         if (rank_info_.tp_rank == 0) {
                             auto temperature{local_args.temperature};
@@ -286,9 +365,11 @@ void RankWorker::thread_loop() {
                     cv_.notify_all();
 
                 } catch (const std::exception &e) {
-                    std::lock_guard<std::mutex> lk(mutex_);
-                    should_exit_ = true;
-                    job_done_ = true;
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
                     cv_.notify_all();
                     spdlog::error("[{}] exception during forward: {}\n", info(), e.what());
                     break;
@@ -296,7 +377,6 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::RESET_CACHE) {
                 try {
                     model_->reset_cache(local_cache_config != nullptr ? local_cache_config.get() : nullptr);
-
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
                         job_done_ = true;
@@ -304,17 +384,44 @@ void RankWorker::thread_loop() {
                     cv_.notify_all();
 
                 } catch (const std::exception &e) {
-                    std::lock_guard<std::mutex> lk(mutex_);
-                    should_exit_ = true;
-                    job_done_ = true;
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
                     cv_.notify_all();
                     spdlog::error("[{}] exception during reset_cache: {}\n", info(), e.what());
                     break;
                 }
+            } else if (local_cmd == Command::COMPILE) {
+                try {
+                    if (compiler_ != nullptr) {
+                        compiler_->compile();
+                    }
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        job_done_ = true;
+                    }
+                    cv_.notify_all();
+
+                } catch (const std::exception &e) {
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
+                    cv_.notify_all();
+                    spdlog::error("[{}] exception during compile: {}\n", info(), e.what());
+                    break;
+                }
+
             } else {
                 // Shouldn't reach here (no-op)
             }
         } // while
+
+        // Some clean up should be done before exiting the thread
+        compiler_.reset();
     } catch (const std::exception &e) {
         // Top-level exception: ensure any waiters are woken and the thread exits cleanly.
         {

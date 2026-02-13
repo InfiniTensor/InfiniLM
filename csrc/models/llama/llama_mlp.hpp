@@ -3,6 +3,7 @@
 #include "../../layers/fused_linear.hpp"
 #include "llama_config.hpp"
 
+#include "../../config/model_config.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
@@ -33,7 +34,23 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
+    /**
+     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+     *
+     * ⚠️ DEVELOPMENT POLICY:
+     *   - NO new development or feature additions permitted on this interface
+     *   - Only critical bug fixes (security/stability) allowed until removal
+     *   - All new code MUST migrate to the polymorphic overload below
+     *
+     * Replacement: Use the polymorphic overload of this same function name with updated signature
+     * Reason: Legacy signature lacks support for dynamic quantization modes.
+     * Removal target: v0.2.0 (Q2 2026)
+     */
     LlamaMLP(const LlamaConfig &config,
+             const infinicore::Device &device,
+             engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
              const infinicore::Device &device,
              engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -57,6 +74,8 @@ protected:
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
+
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
 } // namespace infinilm::models::llama

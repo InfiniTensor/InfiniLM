@@ -1,4 +1,5 @@
 import infinicore
+import transformers
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import load_model_state_dict_by_file
@@ -10,6 +11,7 @@ import time
 import os
 import numpy as np
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
+from packaging import version
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
@@ -26,6 +28,11 @@ def get_args():
         "--nvidia",
         action="store_true",
         help="Run nvidia test",
+    )
+    parser.add_argument(
+        "--qy",
+        action="store_true",
+        help="Run qy test",
     )
     parser.add_argument(
         "--metax",
@@ -46,6 +53,11 @@ def get_args():
         "--cambricon",
         action="store_true",
         help="Run cambricon test",
+    )
+    parser.add_argument(
+        "--ali",
+        action="store_true",
+        help="Run alippu test",
     )
     parser.add_argument(
         "--hygon",
@@ -93,6 +105,11 @@ def get_args():
         action="store_true",
         help="use paged cache",
     )
+    parser.add_argument(
+        "--enable-graph",
+        action="store_true",
+        help="enable graph compiling",
+    )
 
     parser.add_argument(
         "--top-k",
@@ -125,6 +142,7 @@ def test(
     infini_device=infinicore.device("cpu", 0),
     tp=1,
     enable_paged_attn=False,
+    enable_graph=False,
     top_k=1,
     top_p=1.0,
     temperature=1.0,
@@ -137,8 +155,8 @@ def test(
         model_path,
         device=infini_device,
         distributed_config=DistConfig(tp),
+        enable_graph_compiling=enable_graph,
     )
-
     # ---------------------------------------------------------------------------- #
     #                        Load Weights
     # ---------------------------------------------------------------------------- #
@@ -148,7 +166,6 @@ def test(
     #                        create tokenizer
     # ---------------------------------------------------------------------------- #
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
     if "llama" == model.config.model_type:
         backend = getattr(tokenizer, "backend_tokenizer", None)
         target = getattr(backend, "_tokenizer", backend)
@@ -182,9 +199,24 @@ def test(
         for prompt in prompts
     ]
 
-    input_ids_list = tokenizer.batch_encode_plus(input_contents)[
-        "input_ids"
-    ]  # List: [[1, 1128, 526, 366, 29892]]
+    # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
+    #     "input_ids"
+    # ]  # List: [[1, 1128, 526, 366, 29892]]
+    if version.parse(transformers.__version__) < version.parse("5.0.0"):
+        # Ideally this is solved by upgrading transformers. However, doing so causes version mismatch between transformers and mlu pytorch on devices with Phytium CPU. So a branch is temporarily used.
+        input_ids_list = [
+            tokenizer.encode_plus(
+                text, truncation=True, max_length=2048, add_special_tokens=True
+            )["input_ids"]
+            for text in input_contents
+        ]
+    else:
+        input_ids_list = [
+            tokenizer._encode_plus(
+                text, truncation=True, max_length=2048, add_special_tokens=True
+            )["input_ids"]
+            for text in input_contents
+        ]
 
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
@@ -193,7 +225,7 @@ def test(
         batch_size = 1 if prompts is str else len(prompts)
         max_total_tokens = max_new_tokens + len(input_ids_list[0])
         cache_config = PagedKVCacheConfig(
-            num_blocks=(max_total_tokens // 16 + 1) * batch_size, block_size=16
+            num_blocks=((max_total_tokens + 15) // 16) * batch_size, block_size=16
         )
     else:
         batch_size = 1 if prompts is str else len(prompts)
@@ -242,6 +274,8 @@ if __name__ == "__main__":
         device_str = "cpu"
     elif args.nvidia:
         device_str = "cuda"
+    elif args.qy:
+        device_str = "cuda"
     elif args.metax:
         device_str = "cuda"
     elif args.moore:
@@ -250,11 +284,13 @@ if __name__ == "__main__":
         device_str = "cuda"
     elif args.cambricon:
         device_str = "mlu"
+    elif args.ali:
+        device_str = "cuda"
     elif args.hygon:
         device_str = "cuda"
     else:
         print(
-            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --metax | --moore | --iluvatar | --cambricon | --hygon] --model_path=<path/to/model_dir>\n"
+            "Usage:  python examples/jiuge.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon | --ali | --hygon] --model_path=<path/to/model_dir>\n"
             "such as, python examples/jiuge.py --nvidia --model_path=~/TinyLlama-1.1B-Chat-v1.0"
         )
         sys.exit(1)
@@ -265,6 +301,7 @@ if __name__ == "__main__":
     backend = args.backend
     tp = args.tp
     enable_paged_attn = args.enable_paged_attn
+    enable_graph = args.enable_graph
     if backend != "cpp":
         raise ValueError(f"Unsupported backend: {backend}.")
 
@@ -277,6 +314,7 @@ if __name__ == "__main__":
         infini_device=infini_device,
         tp=tp,
         enable_paged_attn=enable_paged_attn,
+        enable_graph=enable_graph,
         top_k=args.top_k,
         top_p=args.top_p,
         temperature=args.temperature,

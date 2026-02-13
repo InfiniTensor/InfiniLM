@@ -1,8 +1,8 @@
 #pragma once
 
-#include "infinicore/nn/module.hpp"
-
 #include "../cache/cache.hpp"
+#include "infinicore/nn/module.hpp"
+#include "nlohmann/json.hpp"
 
 #include <any>
 
@@ -13,7 +13,6 @@ class InfinilmModel : public infinicore::nn::Module {
 public:
     struct Config {
         std::string model_type;
-
         virtual ~Config() = default;
     };
 
@@ -43,5 +42,6 @@ public:
     virtual Output forward(const Input &input) const = 0;
 
     virtual void reset_cache(const cache::CacheConfig *cache_config) = 0;
+    virtual const cache::CacheConfig *get_cache_config() const = 0;
 };
 } // namespace infinilm
