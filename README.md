@@ -63,6 +63,12 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
     ```
 
 
+  - 选择是否使用九齿计算路径，默认为false，即不依赖九齿算子
+    ```bash
+      xmake f --ninetoothed= [true | false] -cv
+    ```
+
+
   - 安装 InfiniLM Python 包
     ```bash
       pip install -e .
