@@ -53,30 +53,30 @@ def read_f32_pytorch_fixed(filename, shape=None, device='cpu'):
             print(f"数据元素: {tensor_f32.numel()}, 形状需要: {np.prod(shape)}")
     
     return tensor_f32
-gemm, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin", 
-    shape=(16, 190, 190)
-)
+# gemm, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin", 
+#     shape=(16, 190, 190)
+# )
 
-v_viewd, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/v_viewd.bin", 
+# v_viewd, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/v_viewd.bin", 
+#     shape=(190, 16, 128)
+# )
+
+# v_permute, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/v_permute_rerange.bin", 
+#     shape=(16, 190, 128)
+# )
+
+attn_out, _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/attn_buf_reshape.bin", 
     shape=(190, 16, 128)
 )
 
-v_permute, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/v_permute_rerange.bin", 
-    shape=(16, 190, 128)
-)
 
-attn_out, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/attn_buf.bin", 
-    shape=(16, 190, 128)
-)
-
-
-v_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/v_viewd.pt").squeeze(0).to('cpu')
-softmax_qk = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/softmax_qk.pt").squeeze(0).to('cpu')
-attn_out_torch = (softmax_qk @ v_viewd_torch).to('cpu')
+# v_viewd_torch = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/v_viewd.pt").squeeze(0).to('cpu')
+softmax_qk = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/attn_output_190_2048.pt")
+# attn_out_torch = (softmax_qk @ v_viewd_torch).to('cpu')
 
 # first and last is correct
 

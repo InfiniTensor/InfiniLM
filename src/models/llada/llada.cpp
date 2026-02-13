@@ -377,16 +377,23 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             linear(attn_buf, qk_gemm, v_buf, 1.0, 0.0, nullptr, nullptr);
             attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf.bin");
 
+            attn_buf = attn_buf->permute({1, 0, 2});
+            auto attn_buf_permuted = Tensor::buffer(dt_logits, {ntok, nh, dh}, rsrc.memory_pool);  
+            rearrange(attn_buf_permuted, attn_buf);  
+            attn_buf = attn_buf_permuted;
+            attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf_reshape.bin");
             // // 3. 计算 Attention x V: [16, 190, 190] x [16, 190, 128] -> [16, 190, 128]
             // auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
             // linear(attn_buf, qk_gemm, v_buf, 1.0, 0.0, nullptr, nullptr);
             // attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_output.bin");
 
             // // 4. 转换回 [ntok, nh, dh]
-            // attn_buf = attn_buf->permute({1, 0, 2});  // [16, 190, 128] -> [190, 16, 128]
+            //attn_buf = attn_buf->permute({1, 0, 2});  // [16, 190, 128] -> [190, 16, 128]
 
             // // 保存调试信息
-            // std::cout << "Attention 完成" << std::endl;
+            std::cout << "Attention 完成" << std::endl;
+
+            //linear(o_buf, attn_buf->view({ntok, nh * dh}), rsrc.w_attn_out[layer], )
         }
 
 }
