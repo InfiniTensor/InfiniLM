@@ -11,6 +11,7 @@ import argparse
 import uvicorn
 import logging
 import os
+import asyncio
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -351,6 +352,12 @@ class InferenceServer:
                 timeout=DEFAULT_STREAM_TIMEOUT,
                 request_timeout=DEFAULT_REQUEST_TIMEOUT,
             ):
+                # Check client disconnect
+                if await http_request.is_disconnected():
+                    logger.info(f"Client disconnected for request {request_id}")
+                    req.mark_canceled()
+                    break
+
                 # If stream_request enforces timeout, we can just surface the state to the client.
                 if token_output.finish_reason == FinishReason.TIMEOUT:
                     logger.warning(
@@ -366,12 +373,6 @@ class InferenceServer:
                         ensure_ascii=False,
                     )
                     yield f"data: {error_chunk}\n\n"
-                    break
-
-                # Check client disconnect
-                if await http_request.is_disconnected():
-                    logger.info(f"Client disconnected for request {request_id}")
-                    req.mark_canceled()
                     break
 
                 # Skip EOS token text for OpenAI API compatibility
@@ -403,6 +404,12 @@ class InferenceServer:
                     )
                     yield f"data: {chunk}\n\n"
                     break
+
+        except asyncio.CancelledError:
+            logger.info(f"Request {request_id} was cancelled")
+            if req:
+                req.mark_canceled()
+            raise
 
         except Exception as e:
             logger.error(f"Stream error for {request_id}: {e}", exc_info=True)
@@ -451,15 +458,15 @@ class InferenceServer:
                 timeout=DEFAULT_STREAM_TIMEOUT,
                 request_timeout=DEFAULT_REQUEST_TIMEOUT,
             ):
-                # Request-level timeout is handled inside stream_request.
-                if token_output.finish_reason == FinishReason.TIMEOUT:
-                    logger.warning(f"Request {request_id} timed out")
-                    break
-
                 # Check client disconnect
                 if await http_request.is_disconnected():
                     logger.info(f"Client disconnected for request {request_id}")
                     req.mark_canceled()
+                    break
+
+                # Request-level timeout is handled inside stream_request.
+                if token_output.finish_reason == FinishReason.TIMEOUT:
+                    logger.warning(f"Request {request_id} timed out")
                     break
 
                 # Skip EOS token text for OpenAI API compatibility
@@ -467,7 +474,7 @@ class InferenceServer:
                 eos_token_ids = self.engine.engine.eos_token_ids
                 is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
 
-                if not is_eos_token:
+                if not is_eos_token and token_output.token_text:
                     output_text += token_output.token_text
 
                 if token_output.finished:
@@ -487,6 +494,12 @@ class InferenceServer:
                 total_tokens=req.get_total_length(),
             )
             return response
+
+        except asyncio.CancelledError:
+            logger.info(f"Request {request_id} was cancelled")
+            if req:
+                req.mark_canceled()
+            raise
 
         except Exception as e:
             logger.error(f"Chat error for {request_id}: {e}", exc_info=True)

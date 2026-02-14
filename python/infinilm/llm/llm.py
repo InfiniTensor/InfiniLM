@@ -13,6 +13,9 @@ import threading
 from typing import List, Optional, Union, AsyncIterator
 from dataclasses import dataclass
 
+from transformers import AutoTokenizer
+from tokenizers import decoders as _dec
+
 import infinicore
 
 from infinilm.llm.request import (
@@ -29,8 +32,6 @@ from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
-from transformers import AutoTokenizer
-from tokenizers import decoders as _dec
 
 logger = logging.getLogger(__name__)
 
@@ -249,47 +250,36 @@ class LLMEngine:
             self.scheduler.cache_manager.reset_req_blocks()
 
         for req, token_id in zip(requests, sampled_tokens):
-            req.generated_token_ids.append(token_id)
+
+            if req.is_aborted():
+                logger.info(
+                    f"Request {req.request_id} aborted by client, skipping update"
+                )
+                continue
+
             if req.is_prefill:
                 req.is_prefill = False
+
+            req.generated_token_ids.append(token_id)
+            decoded_text = self.detokenize(req.generated_token_ids)
+            req.generated_text = decoded_text
+            holds_back_incomplete_utf8 = bool(decoded_text) and decoded_text.endswith(
+                "\ufffd"
+            )
+
+            is_finished = self._check_request_finished(req, token_id)
+
             # vLLM-style replacement character handling is primarily relevant for streaming.
             # For offline generation (no output queue), keep the fast incremental path.
             if req._output_queue is None:
-                token_text = self.detokenize([token_id])
-                req.generated_text += token_text
-            else:
-                # Streaming path: compute delta from a full decode so we can hold back
-                # trailing '\ufffd' (likely an incomplete UTF-8 sequence).
-                decoded_text = self.detokenize(req.generated_token_ids)
-
-                finished_now = False
-                # Update generated_text to the latest decode (used for stop-string checks and debugging)
-                req.generated_text = decoded_text
-
-                if self._check_request_finished(req, token_id):
+                if is_finished:
+                    if holds_back_incomplete_utf8:
+                        req.generated_text = decoded_text[:-1]
                     req.mark_finished(req.finish_reason)
-                    finished_now = True
 
-                    # Remove stop string from generated_text if STOP_STRING finish reason
-                    if req.finish_reason == FinishReason.STOP_STRING:
-                        stop_strings = req.sampling_params.stop or []
-                        for stop_str in stop_strings:
-                            if decoded_text.endswith(stop_str):
-                                # Remove the stop string from the end
-                                decoded_text = decoded_text[: -len(stop_str)]
-                                req.generated_text = decoded_text
-                                break
-
-                holds_back_incomplete_utf8 = bool(
-                    decoded_text
-                ) and decoded_text.endswith("\ufffd")
-
-                # vLLM-style: hold back only if we are not on the final chunk.
-                # Suppress output when finish reason is LENGTH or STOP_STRING.
-                # Root cause fix: When STOP_STRING is detected, we suppress output for the token
-                # that completes the stop string, preventing additional tokens from being output.
-                if (holds_back_incomplete_utf8 and not finished_now) or (
-                    finished_now
+            else:
+                if (holds_back_incomplete_utf8 and not is_finished) or (
+                    is_finished
                     and req.finish_reason
                     in (FinishReason.LENGTH, FinishReason.STOP_STRING)
                 ):
@@ -300,30 +290,29 @@ class LLMEngine:
                     if token_text:
                         req._stream_last_yielded_length = len(decoded_text)
 
-            # For non-streaming, finish checks happen here.
-            if req._output_queue is None and self._check_request_finished(
-                req, token_id
-            ):
-                req.mark_finished(req.finish_reason)
-                # Remove stop string from generated_text if STOP_STRING finish reason
-                if req.finish_reason == FinishReason.STOP_STRING:
-                    stop_strings = req.sampling_params.stop or []
-                    for stop_str in stop_strings:
-                        if req.generated_text.endswith(stop_str):
-                            # Remove the stop string from the end
-                            req.generated_text = req.generated_text[: -len(stop_str)]
-                            break
-            # Put output in queue if it exists (for async streaming)
-            if req._output_queue is not None:
+                if is_finished:
+                    req.mark_finished(req.finish_reason)
                 output = TokenOutput(
                     request_id=req.request_id,
                     token_id=token_id,
                     token_text=token_text,
-                    finished=req.is_finished(),
-                    finish_reason=req.finish_reason,
+                    finished=is_finished,
+                    finish_reason=req.finish_reason if is_finished else None,
                     generated_text=req.generated_text,
                 )
-                req.output_queue.sync_q.put(output)
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted before putting token"
+                    )
+                    continue
+                try:
+                    req.output_queue.sync_q.put(output)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to put token for {req.request_id}: {e}. "
+                        f"Likely due to client disconnecting or request cancelation."
+                    )
+                    continue
 
         self.scheduler.complete_requests(requests)
 
@@ -341,9 +330,11 @@ class LLMEngine:
             return True
 
         # Check stop strings
+        # Remove stop string from generated_text if STOP_STRING finish reason
         stop_strings = req.sampling_params.stop or []
         for stop_str in stop_strings:
             if req.generated_text.endswith(stop_str):
+                req.generated_text = req.generated_text[: -len(stop_str)]
                 req.finish_reason = FinishReason.STOP_STRING
                 return True
 
@@ -732,10 +723,19 @@ class AsyncLLMEngine:
 
         start = time.time()
         while True:
-            if request.is_finished() and request.output_queue.async_q.empty():
-                break
-
             try:
+                if request_timeout and time.time() - start > float(request_timeout):
+                    request.mark_timeout()
+                    yield TokenOutput(
+                        request_id=request.request_id,
+                        token_id=-1,
+                        token_text="",
+                        finished=True,
+                        finish_reason=FinishReason.TIMEOUT,
+                        generated_text=request.generated_text,
+                    )
+                    break
+
                 token_output = await asyncio.wait_for(
                     request.output_queue.async_q.get(), timeout=timeout
                 )
@@ -747,26 +747,28 @@ class AsyncLLMEngine:
                 if token_output.finished:
                     break
             except asyncio.TimeoutError:
-                # Enforce request-level timeout even if no tokens are produced.
-                if request_timeout is not None:
-                    now = time.time()
-                    if now - start > float(request_timeout):
-                        request.mark_timeout()
-                        yield TokenOutput(
-                            request_id=request.request_id,
-                            token_id=-1,
-                            token_text="",
-                            finished=True,
-                            finish_reason=FinishReason.TIMEOUT,
-                            generated_text=request.generated_text,
-                        )
-                        break
-                if request.is_finished():
+                logger.warning(
+                    f"Timeout while waiting for token from request {request.request_id}"
+                )
+                if request.is_aborted():
+                    while not request.output_queue.async_q.empty():
+                        try:
+                            token_output = request.output_queue.async_q.get_nowait()
+                            request.output_queue.async_q.task_done()
+                            yield token_output
+                        except asyncio.QueueEmpty:
+                            break
+
+                    yield TokenOutput(
+                        request_id=request.request_id,
+                        token_id=-1,
+                        token_text="",
+                        finished=True,
+                        finish_reason=request.finish_reason,
+                        generated_text=request.generated_text,
+                    )
                     break
                 continue
-            except asyncio.CancelledError:
-                request.mark_canceled()
-                break
             except Exception as e:
-                logger.error(f"Error streaming request {request.request_id}: {e}")
-                await asyncio.sleep(0.01)
+                logger.error(f"Error while streaming request {request.request_id}: {e}")
+                break
