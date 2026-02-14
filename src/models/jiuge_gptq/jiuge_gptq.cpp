@@ -1,4 +1,4 @@
-#include "jiuge_awq.hpp"
+#include "jiuge_gptq.hpp"
 
 #include "../../tensor.hpp"
 #include "../../utils.hpp"
@@ -8,8 +8,8 @@
 #include <thread>
 #include <vector>
 
-void createDeviceResource(AWQDeviceResource *rsrc, const JiugeAWQMeta *meta,
-                          std::shared_ptr<JiugeAWQDeviceWeight> weights,
+void createDeviceResource(GPTQDeviceResource *rsrc, const JiugeGPTQMeta *meta,
+                          std::shared_ptr<JiugeGPTQDeviceWeight> weights,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
@@ -21,7 +21,7 @@ void createDeviceResource(AWQDeviceResource *rsrc, const JiugeAWQMeta *meta,
 
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
-    *rsrc = AWQDeviceResource{
+    *rsrc = GPTQDeviceResource{
         device,
         dev_id,
         handle,
@@ -33,7 +33,7 @@ void createDeviceResource(AWQDeviceResource *rsrc, const JiugeAWQMeta *meta,
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
-void releaseDeviceResource(AWQDeviceResource &res) {
+void releaseDeviceResource(GPTQDeviceResource &res) {
     infinirtDeviceSynchronize();
     // Release individual Tensors
 
@@ -45,7 +45,7 @@ void releaseDeviceResource(AWQDeviceResource &res) {
     res.comm = nullptr;
 }
 
-void inferDeviceBatch(const JiugeAWQMeta *meta, AWQDeviceResource &rsrc,
+void inferDeviceBatch(const JiugeGPTQMeta *meta, GPTQDeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev,
                       const uint32_t *tokens, uint32_t ntok,
                       const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -133,15 +133,15 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, AWQDeviceResource &rsrc,
         dequant_linear(q_buf, logits_out,
                        weight->w_attn_q[layer]->w, weight->w_attn_q[layer]->s, weight->w_attn_q[layer]->z,
                        1.0, 0.0, nullptr, has_qkv_bias ? weight->b_attn_q[layer] : nullptr,
-                       QuantType::AWQ);
+                       QuantType::GPTQ, weight->w_attn_q[layer]->g_idx);
         dequant_linear(k_buf, logits_out,
                        weight->w_attn_k[layer]->w, weight->w_attn_k[layer]->s, weight->w_attn_k[layer]->z,
                        1.0, 0.0, nullptr, has_qkv_bias ? weight->b_attn_k[layer] : nullptr,
-                       QuantType::AWQ);
+                       QuantType::GPTQ, weight->w_attn_k[layer]->g_idx);
         dequant_linear(v_buf, logits_out,
                        weight->w_attn_v[layer]->w, weight->w_attn_v[layer]->s, weight->w_attn_v[layer]->z,
                        1.0, 0.0, nullptr, has_qkv_bias ? weight->b_attn_v[layer] : nullptr,
-                       QuantType::AWQ);
+                       QuantType::GPTQ, weight->w_attn_v[layer]->g_idx);
         // rope
         rope_v2(q_buf->view({ntok, nh, dh}), q_buf->view({ntok, nh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
         rope_v2(k_buf->view({ntok, nkvh, dh}), k_buf->view({ntok, nkvh, dh}), pos_ids_buf, weight->sin_table, weight->cos_table);
@@ -178,7 +178,7 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, AWQDeviceResource &rsrc,
         dequant_linear(logits_in, o_buf,
                        weight->w_attn_out[layer]->w, weight->w_attn_out[layer]->s, weight->w_attn_out[layer]->z,
                        1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr,
-                       QuantType::AWQ);
+                       QuantType::GPTQ, weight->w_attn_out[layer]->g_idx);
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
             RUN_INFINI(infinicclAllReduce(
@@ -191,16 +191,16 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, AWQDeviceResource &rsrc,
         dequant_linear(gate_buf, logits_out,
                        weight->w_ffn_gate[layer]->w, weight->w_ffn_gate[layer]->s, weight->w_ffn_gate[layer]->z,
                        1.0, 0.0, nullptr, nullptr,
-                       QuantType::AWQ);
+                       QuantType::GPTQ, weight->w_ffn_gate[layer]->g_idx);
         dequant_linear(up_buf, logits_out,
                        weight->w_ffn_up[layer]->w, weight->w_ffn_up[layer]->s, weight->w_ffn_up[layer]->z,
                        1.0, 0.0, nullptr, nullptr,
-                       QuantType::AWQ);
+                       QuantType::GPTQ, weight->w_ffn_up[layer]->g_idx);
         swiglu(gate_buf, up_buf, gate_buf);
         dequant_linear(logits_in, gate_buf,
                        weight->w_ffn_down[layer]->w, weight->w_ffn_down[layer]->s, weight->w_ffn_down[layer]->z,
                        1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr,
-                       QuantType::AWQ); // only rank 0 adds residual
+                       QuantType::GPTQ, weight->w_ffn_down[layer]->g_idx);
         // All_reduce if distributed
         if (rsrc.comm != nullptr) {
             RUN_INFINI(infinicclAllReduce(
@@ -251,7 +251,7 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, AWQDeviceResource &rsrc,
 }
 
 __C void
-inferBatchJiugeAWQ(struct JiugeAWQModel *model,
+inferBatchJiugeGPTQ(struct JiugeGPTQModel *model,
                    const uint32_t *tokens, uint32_t ntok,
                    const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                    struct KVCache **kv_caches,
@@ -284,7 +284,7 @@ inferBatchJiugeAWQ(struct JiugeAWQModel *model,
 }
 
 __C void
-forwardBatchJiugeAWQ(struct JiugeAWQModel *model,
+forwardBatchJiugeGPTQ(struct JiugeGPTQModel *model,
                      const uint32_t *tokens, uint32_t ntok,
                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                      struct KVCache **kv_caches,
@@ -315,7 +315,7 @@ forwardBatchJiugeAWQ(struct JiugeAWQModel *model,
     }
 }
 
-void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight> weights, AWQDeviceResource *rsrc, InferState &state, InferRequest &req,
+void launchDevice(const JiugeGPTQMeta *meta, std::shared_ptr<JiugeGPTQDeviceWeight> weights, GPTQDeviceResource *rsrc, InferState &state, InferRequest &req,
                   infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
     // Create Device Resource
     createDeviceResource(rsrc, meta, weights, device, idev, ndev, dev_id, comm);
@@ -356,12 +356,12 @@ void launchDevice(const JiugeAWQMeta *meta, std::shared_ptr<JiugeAWQDeviceWeight
     setInferenceContext(nullptr); // Clear the context when done
 }
 
-JiugeAWQModel::JiugeAWQModel(const JiugeAWQMeta *meta, const ModelWeights *weights_) {
-    auto weights = (JiugeAWQWeights *)(weights_);
+JiugeGPTQModel::JiugeGPTQModel(const JiugeGPTQMeta *meta, const ModelWeights *weights_) {
+    auto weights = (JiugeGPTQWeights *)(weights_);
     device = weights->device();
     dev_ids = weights->devIds();
     int ndev = int(dev_ids.size());
-    dev_resources = std::vector<AWQDeviceResource>(ndev);
+    dev_resources = std::vector<GPTQDeviceResource>(ndev);
     states = std::vector<InferState>(ndev);
     threads.resize(ndev);
 
@@ -380,14 +380,14 @@ JiugeAWQModel::JiugeAWQModel(const JiugeAWQMeta *meta, const ModelWeights *weigh
     }
 }
 
-__C struct JiugeAWQModel *
-createJiugeAWQModel(const JiugeAWQMeta *meta,
+__C struct JiugeGPTQModel *
+createJiugeGPTQModel(const JiugeGPTQMeta *meta,
                     const ModelWeights *weights) {
-    JiugeAWQModel *model = new JiugeAWQModel(meta, weights);
+    JiugeGPTQModel *model = new JiugeGPTQModel(meta, weights);
     return model;
 }
 
-__C void destroyJiugeAWQModel(struct JiugeAWQModel *model) {
+__C void destroyJiugeGPTQModel(struct JiugeGPTQModel *model) {
     auto ndev = model->dev_resources.size();
 
     for (size_t idev = 0; idev < ndev; idev++) {
