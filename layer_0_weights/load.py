@@ -113,20 +113,20 @@ def read_I32_pytorch_fixed(filename, shape=None, device='cpu'):
 #     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/swiglu.bin", 
 #     shape=(1024)
 # )
-final_hidden_states_lm = []
-for i in range(190):
-    token_states , _  = read_bf16_pytorch_fixed(
-    f"/home/featurize/work/My_InfiniLM/layer_0_weights/result_token/expert_out_{i}.bin", 
-    shape=(2048)
-    )
-    final_hidden_states_lm.append(token_states)
+# final_hidden_states_lm = []
+# for i in range(190):
+#     token_states , _  = read_bf16_pytorch_fixed(
+#     f"/home/featurize/work/My_InfiniLM/layer_0_weights/result_token/expert_out_{i}.bin", 
+#     shape=(2048)
+#     )
+#     final_hidden_states_lm.append(token_states)
 
-final_hidden_states_lm = torch.stack(final_hidden_states_lm, dim = 0)
+# final_hidden_states_lm = torch.stack(final_hidden_states_lm, dim = 0)
 
-# moe_gate_buf, _ = read_bf16_pytorch_fixed(
-#     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_gate_buf.bin",
-#     shape = (1024)
-# )
+final_hidden_states_lm , _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out_residual.bin",
+    shape = (190, 2048)
+)
 
 # moe_up_buf, _ = read_bf16_pytorch_fixed(
 #     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin",
@@ -175,6 +175,6 @@ final_hidden_states_lm = torch.stack(final_hidden_states_lm, dim = 0)
 # attn_out_torch = (softmax_qk @ v_viewd_torch).to('cpu')
 # selected_experts = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/swiglu_token_0_expert_0.pt")
 # first and last is correct
-final_hidden_states = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/final_hidden_states.pt")
+final_hidden_states = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/final_hidden_states_residual.pt")
 
 print("over")

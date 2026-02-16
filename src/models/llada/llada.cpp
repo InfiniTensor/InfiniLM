@@ -397,6 +397,10 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             linear(o_buf, attn_buf->view({ntok, nh * dh}), rsrc.w_attn_out[layer], 1.0, 0.0, logits_in, nullptr );
             o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/attn_outpu_residal.bin");
             
+            auto residual_buf = Tensor::buffer(o_buf->dtype(), o_buf->shape(), rsrc.memory_pool);  
+            residual_buf->copyFrom(o_buf, rsrc.handle, rsrc.stream); // 异步拷贝  
+
+
             // POST Attention
             rmsnorm(o_buf, o_buf, rsrc.w_ffn_norm[layer], meta.epsilon);
             o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/post_layer_norm.bin");
@@ -408,6 +412,11 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             linear(routing_weight, o_buf, rsrc.w_expert_router[layer], 1.0, 0.0, nullptr, nullptr);
             routing_weight->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/choiced_expert.bin");
 
+            auto global_expert_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);  
+            // // 可选：清零  
+            // RUN_INFINI(infinirtMemsetAsync(global_expert_out->data(), 0,  
+            //                             global_expert_out->numel() * dsize(dt_logits),  
+            //                             rsrc.stream));  
 
             for (size_t t = 0; t < ntok; ++t) {  
                 auto token_slice = o_buf->slice(0, t, 1); // [1, nexperts] 
@@ -456,10 +465,15 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                     // down_input->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/down_input.bin");
                     add(expert_out, expert_out, down_input);
                 }
-                expert_out->debug(std::string("/home/featurize/work/My_InfiniLM/layer_0_weights/result_token/expert_out_")
-                    + std::to_string(t)
-                    + ".bin");
+                // expert_out->debug(std::string("/home/featurize/work/My_InfiniLM/layer_0_weights/result_token/expert_out_")
+                //     + std::to_string(t)
+                //     + ".bin");
+                auto dst_row = global_expert_out->slice(0, t, 1);  
+                dst_row->copyFrom(expert_out, rsrc.handle, rsrc.stream); 
             }
+            global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out.bin");
+            add(global_expert_out, global_expert_out, residual_buf);
+            global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out_residual.bin");
         }
 
 }
