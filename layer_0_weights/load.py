@@ -175,6 +175,5 @@ final_hidden_states_lm , _ = read_bf16_pytorch_fixed(
 # attn_out_torch = (softmax_qk @ v_viewd_torch).to('cpu')
 # selected_experts = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/swiglu_token_0_expert_0.pt")
 # first and last is correct
-final_hidden_states = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/final_hidden_states_residual.pt")
-
+final_hidden_states = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/output_12_layer.pt")
 print("over")

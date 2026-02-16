@@ -204,9 +204,9 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         auto logits_in = Tensor::buffer(dt_logits, {ntok * d}, rsrc.memory_pool);
         auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
         auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
-        auto q_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
-        auto k_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
-        auto v_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+        // auto q_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+        // auto k_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+        // auto v_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
         auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di_dense}, rsrc.memory_pool);
         auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
         auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
@@ -281,7 +281,10 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         std::cout << std::endl;
 
         
-        for(uint32_t layer = 0; layer < 1; layer ++){
+        for(uint32_t layer = 0; layer < nlayer; layer ++){
+            auto q_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+            auto k_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+            auto v_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
             rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
             //logits_out->debug("/home/featurize/work/My_InfiniLM/hidden_states_190_2048.bin");
             // rsrc.w_attn_norm[layer]->debug();
@@ -453,14 +456,14 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
 
                 for(uint32_t i = 0; i < 8; i ++){
                     //std::cout << "Choose " << indices_cpu[i] << "  Expert" << " Values is " << values_cpu[i] << std::endl;
-                    linear(moe_gate_buf, token_slice, rsrc.w_expert_gate[0]->slice(0, indices_cpu[i], 1), 1.0, 0.0, nullptr, nullptr);
+                    linear(moe_gate_buf, token_slice, rsrc.w_expert_gate[layer]->slice(0, indices_cpu[i], 1), 1.0, 0.0, nullptr, nullptr);
                     //moe_gate_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_gate_buf.bin");
-                    linear(moe_up_buf, token_slice, rsrc.w_expert_up[0]->slice(0, indices_cpu[i], 1), 1.0, 0.0, nullptr, nullptr);
+                    linear(moe_up_buf, token_slice, rsrc.w_expert_up[layer]->slice(0, indices_cpu[i], 1), 1.0, 0.0, nullptr, nullptr);
                     //moe_up_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin");
                     // moe_gate_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin");
                     swiglu(swiglu_result, moe_up_buf, moe_gate_buf);
                     //swiglu_result->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/swiglu_result.bin");
-                    linear(down_input, swiglu_result, rsrc.w_expert_down[0]->slice(0, indices_cpu[i], 1), values_cpu[i], 0.0, nullptr, nullptr);
+                    linear(down_input, swiglu_result, rsrc.w_expert_down[layer]->slice(0, indices_cpu[i], 1), values_cpu[i], 0.0, nullptr, nullptr);
                     // rsrc.w_expert_down[0]->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/down_weight.bin");
                     // down_input->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/down_input.bin");
                     add(expert_out, expert_out, down_input);
@@ -474,6 +477,7 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out.bin");
             add(global_expert_out, global_expert_out, residual_buf);
             global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out_residual.bin");
+            logits_in = global_expert_out;
         }
 
 }
