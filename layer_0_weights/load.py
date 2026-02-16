@@ -123,11 +123,43 @@ def read_I32_pytorch_fixed(filename, shape=None, device='cpu'):
 
 # final_hidden_states_lm = torch.stack(final_hidden_states_lm, dim = 0)
 
-final_hidden_states_lm , _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out_residual.bin",
-    shape = (190, 2048)
+# final_hidden_states_lm , _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out_residual.bin",
+#     shape = (190, 2048)
+# )
+
+# final_hidden_states_lm , _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out_norm.bin",
+#     shape = (190, 2048)
+# )
+
+# out_norm_weight_lm, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_norm_weight.bin",
+#     shape = (2048)
+# )
+
+# final_hidden_states_lm, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out_norm.bin",
+#     shape = (190, 2048)
+# )
+# final_hidden_states_lm_no_norm, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out.bin",
+#     shape = (190, 2048)
+# )
+# loop, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/layer_0_weights/loop/loop.bin",
+#     shape = (190, 2048)
+# )
+
+output_embedding_lm, _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/layer_0_weights/save/final_output.bin",
+    shape = (190, 157184)
 )
 
+output_weight_lm, _ = read_bf16_pytorch_fixed(
+    "/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_embedding_weight.bin",
+    shape=(2048, 157184)
+)
 # moe_up_buf, _ = read_bf16_pytorch_fixed(
 #     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin",
 #     shape = (1024)
@@ -175,5 +207,12 @@ final_hidden_states_lm , _ = read_bf16_pytorch_fixed(
 # attn_out_torch = (softmax_qk @ v_viewd_torch).to('cpu')
 # selected_experts = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/swiglu_token_0_expert_0.pt")
 # first and last is correct
-final_hidden_states = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/output_12_layer.pt")
+# output = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/output_12_layer.pt")
+# out_norm_weight = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/output_norm_weight.pt")
+# output_norm = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/output_12_layer_norm.pt")
+
+before_norm = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/before_norm.pt")
+after_norm  = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/after_norm.pt")
+out_embedding = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/final_logitis.pt")
+output_weight = torch.load("/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/tmp/output_weight.pt")
 print("over")

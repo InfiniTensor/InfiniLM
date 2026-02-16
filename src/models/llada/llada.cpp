@@ -214,10 +214,10 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         auto result_cpu = std::vector<int64_t>(nreq);
         auto attention_output = Tensor::buffer(dt_logits, {ntok, nh, dh});
         auto router_logits_buf = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool); 
-
+        auto final_output = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
         auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
         auto shape_qkv = qkv_rope->shape();
-
+        auto layer_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool); 
         // Prepare inputs
         auto batch_pos_ids = std::vector<uint32_t>(ntok);
         size_t req_start = 0;
@@ -396,9 +396,9 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             // // 保存调试信息
             std::cout << "Attention 完成" << std::endl;
             auto o_tensor = rsrc.w_attn_out[layer];
-            o_tensor->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/o_buf.bin");
+            // o_tensor->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/o_buf.bin");
             linear(o_buf, attn_buf->view({ntok, nh * dh}), rsrc.w_attn_out[layer], 1.0, 0.0, logits_in, nullptr );
-            o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/attn_outpu_residal.bin");
+            // o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/attn_outpu_residal.bin");
             
             auto residual_buf = Tensor::buffer(o_buf->dtype(), o_buf->shape(), rsrc.memory_pool);  
             residual_buf->copyFrom(o_buf, rsrc.handle, rsrc.stream); // 异步拷贝  
@@ -406,20 +406,26 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
 
             // POST Attention
             rmsnorm(o_buf, o_buf, rsrc.w_ffn_norm[layer], meta.epsilon);
-            o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/post_layer_norm.bin");
+            // o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/post_layer_norm.bin");
 
 
             // START MLP
             // gate 
             auto routing_weight = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool);
             linear(routing_weight, o_buf, rsrc.w_expert_router[layer], 1.0, 0.0, nullptr, nullptr);
-            routing_weight->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/choiced_expert.bin");
+            // routing_weight->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/choiced_expert.bin");
 
             auto global_expert_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);  
             // // 可选：清零  
             // RUN_INFINI(infinirtMemsetAsync(global_expert_out->data(), 0,  
             //                             global_expert_out->numel() * dsize(dt_logits),  
             //                             rsrc.stream));  
+
+            // size_t bytes = std::accumulate(shape.begin(), shape.end(), dsize(dt_logits), std::multiplies<size_t>());  
+            // void *zero_host = std::malloc(ntok * d * dsize(dt_logits));  
+            // std::memset(zero_host, 0, bytes);  
+            // auto t = Tensor::weight(zero_host, dt_logits, shape);  
+            // std::free(zero_host);
 
             for (size_t t = 0; t < ntok; ++t) {  
                 auto token_slice = o_buf->slice(0, t, 1); // [1, nexperts] 
@@ -474,12 +480,28 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                 auto dst_row = global_expert_out->slice(0, t, 1);  
                 dst_row->copyFrom(expert_out, rsrc.handle, rsrc.stream); 
             }
-            global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out.bin");
+            // global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out.bin");
             add(global_expert_out, global_expert_out, residual_buf);
-            global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out_residual.bin");
+            // global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out_residual.bin");
             logits_in = global_expert_out;
+            global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/loop.bin");
+            // rmsnorm(global_expert_out, global_expert_out, rsrc.w_out_norm, meta.epsilon);
+           
+            // linear(final_output, global_expert_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            // final_output->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/final_output.bin");
+            if(layer == nlayer - 1){
+                layer_out->copyFrom(global_expert_out, rsrc.handle, rsrc.stream);  // 异步拷贝
+            }
         }
-
+        // layer_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out.bin");
+        RUN_INFINI(infinirtStreamSynchronize(rsrc.stream)); // 确保拷贝完成
+        rmsnorm(layer_out, layer_out, rsrc.w_out_norm, meta.epsilon);
+        rsrc.w_out_norm->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_norm_weight.bin");
+        layer_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out_norm.bin");
+        // auto final_output = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
+        linear(final_output, layer_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+        rsrc.w_out_embd->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_embedding_weight.bin");
+        final_output->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/final_output.bin");
 }
 __C void
 forwardBatchLLaDA(struct LLaDAModel *model,

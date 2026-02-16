@@ -19,6 +19,28 @@ from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 import torch.nn.functional as F
 import numpy as np
 
+
+def get_num_transfer_tokens(mask_index, steps):
+    mask_num = mask_index.sum(dim=1, keepdim=True)
+
+    base = mask_num // steps
+    remainder = mask_num % steps
+
+    num_transfer_tokens = torch.zeros(mask_num.size(0), steps, device=mask_index.device, dtype=torch.int64) + base
+
+    for i in range(mask_num.size(0)):
+        num_transfer_tokens[i, :remainder[i]] += 1
+
+    return num_transfer_tokens
+
+def add_gumbel_noise(logits, temperature):
+    if temperature == 0:
+        return logits
+    logits = logits.to(torch.float64)
+    noise = torch.rand_like(logits, dtype=torch.float64)
+    gumbel_noise = (- torch.log(noise)) ** temperature
+    return logits.exp() / gumbel_noise
+
 class LLaDAWeifghtsNaming:
     def input_embd(self):
         return "model.embed_tokens.weight"
@@ -190,20 +212,23 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             else naming.input_embd()
         )
         self.transpose_linear_weights = 1 if transpose_weight else 0
+
         self.nlayer = nlayer
+
         self.input_embd_tensor = (
             state_dict[input_embd_naming].to(torch_dt_logits)
         )
         self.input_embd = self.input_embd_tensor.data_ptr()
+
         self.output_norm_tensor = (
-            state_dict[naming.output_norm()].to(torch_dt_norm) * scale_output
+            state_dict[naming.output_norm()].to(torch_dt_norm)
         )
         self.output_norm = self.output_norm_tensor.data_ptr()
-        self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_mat)
-        if not transpose_weight:
-            self.output_embd_tensor = self.output_embd_tensor.transpose(
-                0, 1
-            ).contiguous()
+        self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_logits).T.contiguous()
+        # if not transpose_weight:
+        #     self.output_embd_tensor = self.output_embd_tensor.transpose(
+        #         0, 1
+        #     ).contiguous()
         self.output_embd = self.output_embd_tensor.data_ptr()
 
         self.attn_norm_tensors = [
@@ -609,16 +634,18 @@ class LLaDAForCauslLM:
 
         return next_token
 
+
+
     def generate(
         self,
         prompts: str,
         max_steps: int = 128,
         gen_length: int = 128,
-        block_length: int = 128,
+        block_length: int = 32,
         temperature_: float = 0.,
         cfg_scale: float = 0.,
         remasking: str = 'low_confidence',
-        mask_id: int = 126336,
+        mask_id: int = 156895,
         logits_eos_inf: bool = False,
         confidence_eos_eot_inf: bool = False,
         verbose: bool = False,
@@ -662,6 +689,9 @@ class LLaDAForCauslLM:
 
         tokens = input_ids
 
+        tmp_len = len(tokens[0])
+
+        # add noisy
         for i in range(128):
             tokens[0].append(156895)
 
@@ -676,49 +706,97 @@ class LLaDAForCauslLM:
 
         # Auto-regressive generation
         generated_tokens = tokens.copy() if isinstance(tokens, list) else tokens[0].copy()
-        print("Staring Auto-regressive Generation")
+        print("Staring Diffusion Generation")
 
-        for step in range(gen_length):
-            # Check for EOS token
-            if generated_tokens[-1] in self.eos_token_id:
-                print(f"EOS token reached at step {step}")
-                break
+        steps = 128
+        assert gen_length % block_length == 0
+        num_blocks = gen_length // block_length
+        assert steps % num_blocks == 0
+        steps = steps // num_blocks
 
-            # Prepare logits tensor - pass the full sequence each time
-            # LLaDA uses bidirectional attention, not causal autoregressive
-            batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
+        for num_block in range(num_blocks):
+            x = torch.tensor(tokens).to('cuda:0')
+            block_mask_index = (x[:, tmp_len + num_block * block_length: tmp_len + (num_block + 1) * block_length:] == mask_id)
+            num_transfer_tokens = get_num_transfer_tokens(block_mask_index, steps)
+            print("over")
+            for i in range(steps):
+                mask_index = (x == mask_id)
 
-            # Allocate memory for logits output from C++
-            seq_len = len(generated_tokens[0])
-            logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
-            logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
 
-            # Call C++ forward_batch to get logits
-            # For bidirectional models like LLaDA, req_pos is typically 0 (process full sequence)
-            self.llada_model.forward_batch(
-                self.model_instance,
-                batch_tokens_tensor.numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
-                seq_len,
-                (c_uint * 1)(seq_len),
-                1,  # nreq
-                (c_uint * 1)(0),  # req_pos = 0 for bidirectional attention (process full sequence)
-                kv_cache.data(),
-                logits_ptr,  # Pass the logits buffer to C++
-            )
+                batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
+                seq_len = len(generated_tokens[0])
+                logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
+                logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
 
-            # Convert to torch tensor
-            logits_tensor = torch.from_numpy(logits_np).float()
+                self.llada_model.forward_batch(
+                            self.model_instance,
+                            batch_tokens_tensor.numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
+                            seq_len,
+                            (c_uint * 1)(seq_len),
+                            1,  # nreq
+                            (c_uint * 1)(0),  # req_pos = 0 for bidirectional attention (process full sequence)
+                            kv_cache.data(),
+                            logits_ptr,  # Pass the logits buffer to C++
+                )
+                break;
+            break;
 
-            # Sample next token from the last position's logits
-            # logits_tensor shape: [seq_len, vocab_size], we need last row
-            last_token_logits = logits_tensor[-1, :]  # [vocab_size]
-            next_token = self._sample_next_token(last_token_logits, temperature_, topk_, topp_)
+                # logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
+                # x0 = torch.argmax(logits_with_noise, dim=-1) # b, l
+                # p = F.softmax(logits, dim=-1)
+                # x0_p = torch.squeeze(
+                # torch.gather(p, dim=-1, index=torch.unsqueeze(x0, -1)), -1) # b, l
+                # x0_p[:, tmp_len + (num_block + 1) * block_length:] = -np.inf
+                # x0 = torch.where(mask_index, x0, x)
+                # confidence = torch.where(mask_index, x0_p, -np.inf)
 
-            # Append to generated tokens
-            generated_tokens.append(next_token)
+                # transfer_index = torch.zeros_like(x0, dtype=torch.bool, device=x0.device)
+                # for j in range(confidence.shape[0]):
+                #     _, select_index = torch.topk(confidence[j], k=num_transfer_tokens[j, i])
+                #     transfer_index[j, select_index] = True
+                # x[transfer_index] = x0[transfer_index]
+        # this is start 
+        # for step in range(gen_length):
+        #     # Check for EOS token
+        #     if generated_tokens[-1] in self.eos_token_id:
+        #         print(f"EOS token reached at step {step}")
+        #         break
 
-            if verbose and step % 10 == 0:
-                print(f"Step {step}: Generated token {next_token}, Sequence length: {len(generated_tokens)}")
+        #     # Prepare logits tensor - pass the full sequence each time
+        #     # LLaDA uses bidirectional attention, not causal autoregressive
+        #     batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
+
+        #     # Allocate memory for logits output from C++
+        #     seq_len = len(generated_tokens[0])
+        #     logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
+        #     logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
+
+        #     # Call C++ forward_batch to get logits
+        #     # For bidirectional models like LLaDA, req_pos is typically 0 (process full sequence)
+        #     self.llada_model.forward_batch(
+        #         self.model_instance,
+        #         batch_tokens_tensor.numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
+        #         seq_len,
+        #         (c_uint * 1)(seq_len),
+        #         1,  # nreq
+        #         (c_uint * 1)(0),  # req_pos = 0 for bidirectional attention (process full sequence)
+        #         kv_cache.data(),
+        #         logits_ptr,  # Pass the logits buffer to C++
+        #     )
+
+        #     # Convert to torch tensor
+        #     logits_tensor = torch.from_numpy(logits_np).float()
+
+        #     # Sample next token from the last position's logits
+        #     # logits_tensor shape: [seq_len, vocab_size], we need last row
+        #     last_token_logits = logits_tensor[-1, :]  # [vocab_size]
+        #     next_token = self._sample_next_token(last_token_logits, temperature_, topk_, topp_)
+
+        #     # Append to generated tokens
+        #     generated_tokens.append(next_token)
+
+        #     if verbose and step % 10 == 0:
+        #         print(f"Step {step}: Generated token {next_token}, Sequence length: {len(generated_tokens)}")
 
         # # Clean up KV cache
         # kv_cache.drop()
@@ -843,8 +921,8 @@ def test():
     cpp_result = model.generate(
                 prompts=test_prompts,
                 max_steps=16,  # Reduced for faster testing
-                gen_length=32,  # Shorter generation for testing
-                block_length=16,
+                gen_length=128,  # Shorter generation for testing
+                block_length=32,
                 temperature_=0.0,  # Deterministic for testing
                 verbose=verbose
             )
