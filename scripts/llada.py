@@ -314,7 +314,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             for e in range(num_experts):
                 gate_key = naming.expert_gate(layer_id, e)
                 gate_w = state_dict[gate_key]     # shape: [1024, 2048]
-                gate_list.append(gate_w)
+                gate_list.append(gate_w.T)
             return gate_list   # list of num_experts tensors
         
         def expert_up_slices(layer_id, num_experts):
@@ -330,7 +330,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
                 up_key = naming.expert_up
                 up_key   = f"model.layers.{layer_id}.mlp.experts.{e}.up_proj.weight"
                 up_w = state_dict[up_key]     # shape: [1024, 2048]
-                up_list.append(up_w)
+                up_list.append(up_w.T)
             return up_list   # list of num_experts tensors
         
         # memory: [gate_layer0_expert_gate0]...[gate_layer0_expert_gate63]......[gate_layer15_expert_gate63]
@@ -364,7 +364,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
                 down_key = naming.down(layer_id, e)
                 down_w = state_dict[down_key]     # shape: [1024, 2048]
                 # concat gate + up along dim 0 → shape: [2048, 2048]
-                down_list.append(down_w)
+                down_list.append(down_w.T)
             return down_list   # list of num_experts tensors
         
         # memory: [gate_layer0_expert_down0]...[gate_layer0_expert_down63]......[gate_layer15_expert_down63]

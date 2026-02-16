@@ -182,40 +182,25 @@ inline std::shared_ptr<Tensor> getExpertGate(
     LLaDAMeta const *meta,
     LLaDAWeights const *w,
     size_t layer, size_t idev, size_t ndev){
-    auto shape = std::vector<size_t>({meta->d});
     auto di = meta->di_expert; 
     auto d = meta->d;
     size_t offset = 0;
-    if (w->transpose_linear_weights != 0) {
-        auto shape = std::vector<size_t>({meta->num_experts, di, d});
-        return Tensor::weight((char *)(w->expert_gate[layer]) + offset,
-                              w->dt_mat, shape)
-            ->permute({1, 0});
-    } else {
-        auto shape = std::vector<size_t>({meta->num_experts, di, d});
-        return Tensor::weight((char *)(w->expert_gate[layer]) + offset,
-                              w->dt_mat, shape);
-    }
+    auto shape = std::vector<size_t>({meta->num_experts, d, di});
+    return Tensor::weight((char *)(w->expert_gate[layer]) + offset,
+                              meta->dt_logits, shape);
+    
 }
 
 inline std::shared_ptr<Tensor> getExpertUp(
     LLaDAMeta const *meta,
     LLaDAWeights const *w,
     size_t layer, size_t idev, size_t ndev) {
-    auto shape = std::vector<size_t>({meta->d});
     auto di = meta->di_expert; // TODO: 具体di还要区分
     auto d = meta->d;
     size_t offset = 0;
-    if (w->transpose_linear_weights != 0) {
-        auto shape = std::vector<size_t>({meta->num_experts, di, d});
-        return Tensor::weight((char *)(w->expert_up[layer]) + offset,
-                              w->dt_mat, shape)
-            ->permute({1, 0});
-    } else {
-        auto shape = std::vector<size_t>({meta->num_experts, di, d});
-        return Tensor::weight((char *)(w->expert_up[layer]) + offset,
-                              w->dt_mat, shape);
-    }
+    auto shape = std::vector<size_t>({meta->num_experts, d, di});
+    return Tensor::weight((char *)(w->expert_up[layer]) + offset,
+                              meta->dt_logits, shape);
 }
 
 
@@ -223,20 +208,12 @@ inline std::shared_ptr<Tensor> getExpertDown(
     LLaDAMeta const *meta,
     LLaDAWeights const *w,
     size_t layer, size_t idev, size_t ndev) {
-    auto shape = std::vector<size_t>({meta->d});
     auto di = meta->di_expert; // TODO: 具体di还要区分
     auto d = meta->d;
     size_t offset = 0;
-    if (w->transpose_linear_weights != 0) {
-        auto shape = std::vector<size_t>({meta->num_experts, di, d});
-        return Tensor::weight((char *)(w->expert_down[layer]) + offset,
-                              w->dt_mat, shape)
-            ->permute({1, 0});
-    } else {
-        auto shape = std::vector<size_t>({meta->num_experts, di, d});
-        return Tensor::weight((char *)(w->expert_down[layer]) + offset,
+    auto shape = std::vector<size_t>({meta->num_experts, di, d});
+    return Tensor::weight((char *)(w->expert_down[layer]) + offset,
                               w->dt_mat, shape);
-    }
 }
 
 

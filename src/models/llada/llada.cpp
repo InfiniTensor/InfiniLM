@@ -283,7 +283,7 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         
         for(uint32_t layer = 0; layer < 1; layer ++){
             rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
-            logits_out->debug("/home/featurize/work/My_InfiniLM/hidden_states_190_2048.bin");
+            //logits_out->debug("/home/featurize/work/My_InfiniLM/hidden_states_190_2048.bin");
             // rsrc.w_attn_norm[layer]->debug();
             // logits_out->debug();
             // std::cout << rsrc.w_attn_qkv[layer]->info() << std::endl;
@@ -318,11 +318,11 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
 
             rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon);
             std::cout << "q norm" << std::endl;
-            q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048_norm.bin");
+            //q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048_norm.bin");
 
             rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon);
             std::cout << "k norm" << std::endl;
-            k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048_norm.bin");
+            //k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048_norm.bin");
 
             // // 由于内存排布限制，reshape 为 [ntok, dh, nh]
             q_buf = q_buf->view({ntok, dh, nh});  // 190 128 16
@@ -340,48 +340,48 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
             rearrange(dst_k, src_k);
             rope_v2(dst_k, dst_k, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
             k_buf = dst_k;
-            k_buf->debug("/home/featurize/work/My_InfiniLM/k_roped.bin");
+            //k_buf->debug("/home/featurize/work/My_InfiniLM/k_roped.bin");
 
 
             auto src_v = v_buf->view({ntok, nh, dh});
             auto dst_v = Tensor::buffer(src_v->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
             rearrange(dst_v, src_v);
             v_buf = dst_v;
-            v_buf->debug("/home/featurize/work/My_InfiniLM/v_viewd.bin");
+            //v_buf->debug("/home/featurize/work/My_InfiniLM/v_viewd.bin");
 
             // ============ Attention 计算 ============
             // 转换维度为 [nh, ntok, dh]
             q_buf = q_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
             k_buf = k_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
             v_buf = v_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
-            v_buf->debug("/home/featurize/work/My_InfiniLM/v_permute.bin");
+            //v_buf->debug("/home/featurize/work/My_InfiniLM/v_permute.bin");
             auto v_buf_permuted = Tensor::buffer(v_buf->dtype(), {nkvh, ntok, dh}, rsrc.memory_pool);  
             // 使用 rearrange 操作进行维度重排，这会自动处理连续性  
             rearrange(v_buf_permuted, v_buf);  
             v_buf = v_buf_permuted;
-            v_buf->debug("/home/featurize/work/My_InfiniLM/v_permute_rerange.bin");
+            //v_buf->debug("/home/featurize/work/My_InfiniLM/v_permute_rerange.bin");
             
             // 1. 计算 QK^T: [16, 190, 128] x [16, 128, 190] -> [16, 190, 190]
             auto k_transposed = k_buf->permute({0, 2, 1});  // [16, 190, 128] -> [16, 128, 190]
             auto qk_gemm = Tensor::buffer(dt_logits, {nh, ntok, ntok}, rsrc.memory_pool);
             linear(qk_gemm, q_buf, k_transposed, 1.f / float(sqrt(dh)), 0.0, nullptr, nullptr);
-            qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm.bin");
+            //qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm.bin");
 
             // // 2. Softmax (causal)
             softmax(qk_gemm, qk_gemm, 2); // 16 190 190 
-            qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin"); 
+            //qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin"); 
 
             // // 3. Attention
             // qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_softmax.bin");
             auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
             linear(attn_buf, qk_gemm, v_buf, 1.0, 0.0, nullptr, nullptr);
-            attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf.bin");
+            //attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf.bin");
 
             attn_buf = attn_buf->permute({1, 0, 2});
             auto attn_buf_permuted = Tensor::buffer(dt_logits, {ntok, nh, dh}, rsrc.memory_pool);  
             rearrange(attn_buf_permuted, attn_buf);  
             attn_buf = attn_buf_permuted;
-            attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf_reshape.bin");
+            //attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf_reshape.bin");
             // // 3. 计算 Attention x V: [16, 190, 190] x [16, 190, 128] -> [16, 190, 128]
             // auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
             // linear(attn_buf, qk_gemm, v_buf, 1.0, 0.0, nullptr, nullptr);
@@ -392,8 +392,74 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
 
             // // 保存调试信息
             std::cout << "Attention 完成" << std::endl;
+            auto o_tensor = rsrc.w_attn_out[layer];
+            o_tensor->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/o_buf.bin");
+            linear(o_buf, attn_buf->view({ntok, nh * dh}), rsrc.w_attn_out[layer], 1.0, 0.0, logits_in, nullptr );
+            o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/attn_outpu_residal.bin");
+            
+            // POST Attention
+            rmsnorm(o_buf, o_buf, rsrc.w_ffn_norm[layer], meta.epsilon);
+            o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/post_layer_norm.bin");
 
-            //linear(o_buf, attn_buf->view({ntok, nh * dh}), rsrc.w_attn_out[layer], )
+
+            // START MLP
+            // gate 
+            auto routing_weight = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool);
+            linear(routing_weight, o_buf, rsrc.w_expert_router[layer], 1.0, 0.0, nullptr, nullptr);
+            routing_weight->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/choiced_expert.bin");
+
+
+            for (size_t t = 0; t < ntok; ++t) {  
+                auto token_slice = o_buf->slice(0, t, 1); // [1, nexperts] 
+                
+                // 对当前 token 执行专家选择和计算  
+                auto values = Tensor::buffer(INFINI_DTYPE_F32, {8}, rsrc.memory_pool);  // 输出: softmax 后的权重
+                auto indices = Tensor::buffer(INFINI_DTYPE_I32, {8}, rsrc.memory_pool); // 输出: 选中的专家索引
+                topksoftmax(values, indices, routing_weight->slice(0, t, 1), 8, false);
+                auto values_cpu = std::vector<float>(8, 0.0f);
+                auto indices_cpu = std::vector<int>(8);
+                infinirtMemcpy(values_cpu.data(), values->data(), sizeof(float) * 8, INFINIRT_MEMCPY_D2H);
+                infinirtMemcpy((void *)indices_cpu.data(), indices->data(), sizeof(uint32_t) * 8, INFINIRT_MEMCPY_D2H);
+                
+                std::cout << "TOKEN " << t << std::endl;
+                for(int j = 0 ; j < 8; j ++){
+                    std::cout << "Indices Cpu " << indices_cpu[j] <<
+                    " Values CPU " << values_cpu[j] << std::endl;
+                }
+
+                auto gate_result = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                auto up_result   = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                // auto experts_result = Tensor::buffer(dt_logits, {1, d}, rsrc.memory_pool);
+                auto down_input = Tensor::buffer(dt_logits, {1, d}, rsrc.memory_pool);
+                auto moe_up_buf = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                auto moe_gate_buf = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                auto swiglu_result = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                
+
+                size_t bytes = d * dsize(dt_logits);                  
+                void *zero_host = std::malloc(bytes);  
+                std::memset(zero_host, 0, bytes);  
+                // 3. 用 Tensor::weight 创建（会触发 load 拷贝）  
+                auto expert_out = Tensor::weight(zero_host, dt_logits, {1, d});
+
+                for(uint32_t i = 0; i < 8; i ++){
+                    //std::cout << "Choose " << indices_cpu[i] << "  Expert" << " Values is " << values_cpu[i] << std::endl;
+                    linear(moe_gate_buf, token_slice, rsrc.w_expert_gate[0]->slice(0, indices_cpu[i], 1), 1.0, 0.0, nullptr, nullptr);
+                    //moe_gate_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_gate_buf.bin");
+                    linear(moe_up_buf, token_slice, rsrc.w_expert_up[0]->slice(0, indices_cpu[i], 1), 1.0, 0.0, nullptr, nullptr);
+                    //moe_up_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin");
+                    // moe_gate_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin");
+                    swiglu(swiglu_result, moe_up_buf, moe_gate_buf);
+                    //swiglu_result->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/swiglu_result.bin");
+                    linear(down_input, swiglu_result, rsrc.w_expert_down[0]->slice(0, indices_cpu[i], 1), values_cpu[i], 0.0, nullptr, nullptr);
+                    // rsrc.w_expert_down[0]->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/down_weight.bin");
+                    // down_input->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/down_input.bin");
+                    add(expert_out, expert_out, down_input);
+                }
+                expert_out->debug(std::string("/home/featurize/work/My_InfiniLM/layer_0_weights/result_token/expert_out_")
+                    + std::to_string(t)
+                    + ".bin");
+            }
         }
 
 }
