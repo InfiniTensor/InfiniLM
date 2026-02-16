@@ -156,10 +156,10 @@ output_embedding_lm, _ = read_bf16_pytorch_fixed(
     shape = (190, 157184)
 )
 
-output_weight_lm, _ = read_bf16_pytorch_fixed(
-    "/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_embedding_weight.bin",
-    shape=(2048, 157184)
-)
+# output_weight_lm, _ = read_bf16_pytorch_fixed(
+#     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_embedding_weight.bin",
+#     shape=(2048, 157184)
+# )
 # moe_up_buf, _ = read_bf16_pytorch_fixed(
 #     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin",
 #     shape = (1024)

@@ -19,6 +19,32 @@ from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 import torch.nn.functional as F
 import numpy as np
 
+def read_bf16_pytorch_fixed(filename, shape=None, device='cpu'):
+    """
+    修复版本：避免使用 torch.from_file
+    """
+    # 使用 numpy 读取，然后转换为 tensor
+    np_data = np.fromfile(filename, dtype=np.uint16)
+    
+    # 转换为 tensor
+    tensor_uint16 = torch.from_numpy(np_data).to(device)
+    
+    # 转换为 BF16
+    tensor_bf16 = tensor_uint16.view(torch.bfloat16)
+    
+    # 转换为 FP32
+    tensor_fp32 = tensor_bf16.float()
+    
+    # 重塑形状
+    if shape is not None:
+        try:
+            tensor_fp32 = tensor_fp32.reshape(shape)
+            tensor_bf16 = tensor_bf16.reshape(shape)
+        except RuntimeError as e:
+            print(f"形状重塑错误: {e}")
+            print(f"数据元素: {tensor_fp32.numel()}, 形状需要: {np.prod(shape)}")
+    
+    return tensor_fp32, tensor_bf16
 
 def get_num_transfer_tokens(mask_index, steps):
     mask_num = mask_index.sum(dim=1, keepdim=True)
@@ -721,8 +747,6 @@ class LLaDAForCauslLM:
             print("over")
             for i in range(steps):
                 mask_index = (x == mask_id)
-
-
                 batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
                 seq_len = len(generated_tokens[0])
                 logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
@@ -738,23 +762,26 @@ class LLaDAForCauslLM:
                             kv_cache.data(),
                             logits_ptr,  # Pass the logits buffer to C++
                 )
-                break;
-            break;
+                output_embedding_lm, _ = read_bf16_pytorch_fixed(
+                    "/home/featurize/work/My_InfiniLM/layer_0_weights/save/final_output.bin",
+                    shape = (190, 157184)
+                )
+                output_embedding_lm = output_embedding_lm.to('cuda:0')
+                logits = output_embedding_lm
+                logits_with_noise = add_gumbel_noise(logits, temperature=0)
+                x0 = torch.argmax(logits_with_noise, dim=-1) # b, l
+                p = F.softmax(logits, dim=-1)
+                x0_p = torch.squeeze(
+                torch.gather(p, dim=-1, index=torch.unsqueeze(x0, -1)), -1) # b, l
+                x0_p[:, tmp_len + (num_block + 1) * block_length:] = -np.inf
+                x0 = torch.where(mask_index, x0, x)
+                confidence = torch.where(mask_index, x0_p, -np.inf)
 
-                # logits_with_noise = add_gumbel_noise(logits, temperature=temperature)
-                # x0 = torch.argmax(logits_with_noise, dim=-1) # b, l
-                # p = F.softmax(logits, dim=-1)
-                # x0_p = torch.squeeze(
-                # torch.gather(p, dim=-1, index=torch.unsqueeze(x0, -1)), -1) # b, l
-                # x0_p[:, tmp_len + (num_block + 1) * block_length:] = -np.inf
-                # x0 = torch.where(mask_index, x0, x)
-                # confidence = torch.where(mask_index, x0_p, -np.inf)
-
-                # transfer_index = torch.zeros_like(x0, dtype=torch.bool, device=x0.device)
-                # for j in range(confidence.shape[0]):
-                #     _, select_index = torch.topk(confidence[j], k=num_transfer_tokens[j, i])
-                #     transfer_index[j, select_index] = True
-                # x[transfer_index] = x0[transfer_index]
+                transfer_index = torch.zeros_like(x0, dtype=torch.bool, device=x0.device)
+                for j in range(confidence.shape[0]):
+                    _, select_index = torch.topk(confidence[j], k=num_transfer_tokens[j, i])
+                    transfer_index[j, select_index] = True
+                x[transfer_index] = x0[transfer_index]
         # this is start 
         # for step in range(gen_length):
         #     # Check for EOS token
