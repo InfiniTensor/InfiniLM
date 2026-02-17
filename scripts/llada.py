@@ -9,17 +9,63 @@ import json
 import torch
 import transformers
 from infer_task import InferTask, KVCache
-
 from libinfinicore_infer import (
     DeviceType,
     KVCacheCStruct,
     DataType
 )
 from libinfinicore_infer.llada import LLaDAModel, LLaDAMetaCStruct, LLaDAWeightsCStruct
-
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
 import torch.nn.functional as F
 import numpy as np
+
+def read_bf16_pytorch_fixed(filename, shape=None, device='cpu'):
+    """
+    修复版本：避免使用 torch.from_file
+    """
+    # 使用 numpy 读取，然后转换为 tensor
+    np_data = np.fromfile(filename, dtype=np.uint16)
+    
+    # 转换为 tensor
+    tensor_uint16 = torch.from_numpy(np_data).to(device)
+    
+    # 转换为 BF16
+    tensor_bf16 = tensor_uint16.view(torch.bfloat16)
+    
+    # 转换为 FP32
+    tensor_fp32 = tensor_bf16.float()
+    
+    # 重塑形状
+    if shape is not None:
+        try:
+            tensor_fp32 = tensor_fp32.reshape(shape)
+            tensor_bf16 = tensor_bf16.reshape(shape)
+        except RuntimeError as e:
+            print(f"形状重塑错误: {e}")
+            print(f"数据元素: {tensor_fp32.numel()}, 形状需要: {np.prod(shape)}")
+    
+    return tensor_fp32, tensor_bf16
+
+def get_num_transfer_tokens(mask_index, steps):
+    mask_num = mask_index.sum(dim=1, keepdim=True)
+
+    base = mask_num // steps
+    remainder = mask_num % steps
+
+    num_transfer_tokens = torch.zeros(mask_num.size(0), steps, device=mask_index.device, dtype=torch.int64) + base
+
+    for i in range(mask_num.size(0)):
+        num_transfer_tokens[i, :remainder[i]] += 1
+
+    return num_transfer_tokens
+
+def add_gumbel_noise(logits, temperature):
+    if temperature == 0:
+        return logits
+    logits = logits.to(torch.float64)
+    noise = torch.rand_like(logits, dtype=torch.float64)
+    gumbel_noise = (- torch.log(noise)) ** temperature
+    return logits.exp() / gumbel_noise
 
 class LLaDAWeifghtsNaming:
     def input_embd(self):
@@ -142,8 +188,8 @@ class LLaDAMetaFromLlama(LLaDAMetaCStruct): # model specific data: heads num ...
 class LLaDAWeightsImpl(LLaDAWeightsCStruct):
     def __init__(self, meta, naming,
         state_dict,  # 权重
-        torch_dt_mat=torch.float16,
-        torch_dt_norm=torch.float32,
+        torch_dt_mat=torch.bfloat16,
+        torch_dt_norm=torch.bfloat16,
         transpose_weight = None,
         ndev=1,
         ):
@@ -192,20 +238,23 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             else naming.input_embd()
         )
         self.transpose_linear_weights = 1 if transpose_weight else 0
+
         self.nlayer = nlayer
+
         self.input_embd_tensor = (
             state_dict[input_embd_naming].to(torch_dt_logits)
         )
         self.input_embd = self.input_embd_tensor.data_ptr()
+
         self.output_norm_tensor = (
-            state_dict[naming.output_norm()].to(torch_dt_norm) * scale_output
+            state_dict[naming.output_norm()].to(torch_dt_norm)
         )
         self.output_norm = self.output_norm_tensor.data_ptr()
-        self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_mat)
-        if not transpose_weight:
-            self.output_embd_tensor = self.output_embd_tensor.transpose(
-                0, 1
-            ).contiguous()
+        self.output_embd_tensor = state_dict[output_embd_naming].to(torch_dt_logits).T.contiguous()
+        # if not transpose_weight:
+        #     self.output_embd_tensor = self.output_embd_tensor.transpose(
+        #         0, 1
+        #     ).contiguous()
         self.output_embd = self.output_embd_tensor.data_ptr()
 
         self.attn_norm_tensors = [
@@ -219,35 +268,36 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
         def qkv_slices(_i):
             _Q = (
                 state_dict[naming.attn_q(_i)]
-                .reshape([nh, 2, dh // 2, d])
-                .transpose(1, 2)
+                # .reshape([nh, 2, dh // 2, d])
+                # .transpose(1, 2)
             ) # For RoPE
             _K = (
                 state_dict[naming.attn_k(_i)]
-                .reshape([nkvh, 2, dh // 2, d])
-                .transpose(1, 2)
+                # .reshape([nkvh, 2, dh // 2, d])
+                # .transpose(1, 2)
             )
-            _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
+            # _V = state_dict[naming.attn_v(_i)].reshape([nkvh, dh // 2, 2, d])
+            _V = state_dict[naming.attn_v(_i)]
             _result = []
             _nh = nh // ndev
             _nkvh = nkvh // ndev
             for _idev in range(ndev):
-                _result.append(_Q[_idev * _nh : (_idev + 1) * _nh, :, :, :])
-                _result.append(_K[_idev * _nkvh : (_idev + 1) * _nkvh, :, :, :])
-                _result.append(_V[_idev * _nkvh : (_idev + 1) * _nkvh, :, :])
+                _result.append(_Q)
+                _result.append(_K)
+                _result.append(_V)
             return _result
 
         self.qkv_tensor = [
             torch.concat(qkv_slices(i)).to(torch_dt_mat) for i in range(nlayer)
         ]
-        if not transpose_weight:
-            for i in range(nlayer):
-                self.qkv_tensor[i] = (
-                    self.qkv_tensor[i]
-                    .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
-                    .transpose(1, 2)
-                    .contiguous()
-                )
+        # if not transpose_weight:
+        #     for i in range(nlayer):
+        #         self.qkv_tensor[i] = (
+        #             self.qkv_tensor[i]
+        #             .reshape(ndev, (nh + 2 * nkvh) // ndev * dh, d)
+        #             .transpose(1, 2)
+        #             .contiguous()
+        #         )
         self.qkv_tensor_ptrs = [self.qkv_tensor[i].data_ptr() for i in range(nlayer)]
         self.attn_qkv = (c_void_p * nlayer)(*self.qkv_tensor_ptrs)
 
@@ -256,9 +306,6 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             print("have norm")
             self.attn_q_norm_tensors = [
                 state_dict[naming.attn_q_norm(i)]
-                .reshape([2, dh // 2])
-                .transpose(0, 1)
-                .contiguous()
                 .to(torch_dt_norm)
                 for i in range(nlayer)
             ]
@@ -268,9 +315,6 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             self.attn_q_norm = (c_void_p * nlayer)(*self.attn_q_norm_ptrs)
             self.attn_k_norm_tensors = [
                 state_dict[naming.attn_k_norm(i)]
-                .reshape([2, dh // 2])
-                .transpose(0, 1)
-                .contiguous()
                 .to(torch_dt_norm)
                 for i in range(nlayer)
             ]
@@ -321,7 +365,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             for e in range(num_experts):
                 gate_key = naming.expert_gate(layer_id, e)
                 gate_w = state_dict[gate_key]     # shape: [1024, 2048]
-                gate_list.append(gate_w)
+                gate_list.append(gate_w.T)
             return gate_list   # list of num_experts tensors
         
         def expert_up_slices(layer_id, num_experts):
@@ -337,7 +381,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
                 up_key = naming.expert_up
                 up_key   = f"model.layers.{layer_id}.mlp.experts.{e}.up_proj.weight"
                 up_w = state_dict[up_key]     # shape: [1024, 2048]
-                up_list.append(up_w)
+                up_list.append(up_w.T)
             return up_list   # list of num_experts tensors
         
         # memory: [gate_layer0_expert_gate0]...[gate_layer0_expert_gate63]......[gate_layer15_expert_gate63]
@@ -371,7 +415,7 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
                 down_key = naming.down(layer_id, e)
                 down_w = state_dict[down_key]     # shape: [1024, 2048]
                 # concat gate + up along dim 0 → shape: [2048, 2048]
-                down_list.append(down_w)
+                down_list.append(down_w.T)
             return down_list   # list of num_experts tensors
         
         # memory: [gate_layer0_expert_down0]...[gate_layer0_expert_down63]......[gate_layer15_expert_down63]
@@ -398,7 +442,6 @@ class LLaDAWeightsImpl(LLaDAWeightsCStruct):
             
             return router_list   # list of num_experts tensors
         
-
         self.router_gate_tensor = router_slices()
         # memory: [gate_layer0_router]......[gate_layer15_router]
         self.router_ptrs = [self.router_gate_tensor[i].data_ptr() for i in range(nlayer)]
@@ -565,96 +608,251 @@ class LLaDAForCauslLM:
         )
         return list(output)
     
+    def _sample_next_token(self, logits: torch.Tensor, temperature: float = 0.0, topk: int = 1, topp: float = 1.0) -> int:
+        """
+        Sample the next token from logits.
+
+        Args:
+            logits: Tensor of shape (vocab_size,)
+            temperature: Sampling temperature (0 = greedy)
+            topk: Number of top tokens to consider
+            topp: Cumulative probability threshold for nucleus sampling
+
+        Returns:
+            Sampled token ID
+        """
+        # Apply temperature
+        if temperature > 0:
+            logits = logits / temperature
+
+        # Apply softmax
+        probs = F.softmax(logits, dim=-1, dtype=torch.float32)
+
+        # Top-k filtering
+        if topk > 1:
+            topk_values, topk_indices = torch.topk(probs, k=topk, dim=-1)
+            probs = torch.zeros_like(probs)
+            probs.scatter_(-1, topk_indices, topk_values)
+            # Renormalize
+            probs = probs / probs.sum(dim=-1, keepdim=True)
+
+        # Top-p (nucleus) filtering
+        if topp < 1.0:
+            sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+            # Create mask for tokens within top-p
+            sorted_mask = cumulative_probs <= topp
+            # Apply mask and renormalize
+            filtered_probs = sorted_probs * sorted_mask.float()
+            filtered_probs = filtered_probs / filtered_probs.sum(dim=-1, keepdim=True)
+            # Scatter back to original order
+            probs = torch.zeros_like(probs)
+            probs.scatter_(-1, sorted_indices, filtered_probs)
+
+        # Sample
+        if temperature > 0:
+            # Multinomial sampling
+            probs_flat = probs.view(-1)
+            next_token = torch.multinomial(probs_flat, num_samples=1).item()
+        else:
+            # Greedy sampling (argmax)
+            next_token = torch.argmax(probs, dim=-1).item()
+
+        return next_token
+
+
+
     def generate(
         self,
         prompts: str,
         max_steps: int = 128,
         gen_length: int = 128,
-        block_length: int = 128,
+        block_length: int = 32,
         temperature_: float = 0.,
         cfg_scale: float = 0.,
         remasking: str = 'low_confidence',
-        mask_id: int = 126336,
+        mask_id: int = 156895,
         logits_eos_inf: bool = False,
         confidence_eos_eot_inf: bool = False,
         verbose: bool = False,
         topp_ = 1.0,
         topk_ = 1
     ):
-        if isinstance(prompts, str):
-            prompts = [prompts]
+        # if isinstance(prompts, str):
+        #     prompts = [prompts]
+        # messages = [
+        #     {"role": "system", "content": "You are a helpful AI assistant."},
+        #     {"role": "user", "content": prompts[0]} 
+        # ]
+        # # messages = [{"role": "user", "content": prompt} for prompt in prompts]
+        # formatted_prompts = [self.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
+        # encoded_outputs = self.tokenizer.batch_encode_plus(
+        #     formatted_prompts,
+        #     add_special_tokens=False,
+        #     padding=True,
+        #     return_tensors="pt"
+        # )
 
-        # Apply chat template and tokenize
-        print("Staring generate prepare")
-        messages = [{"role": "user", "content": prompt} for prompt in prompts]
-        formatted_prompts = [self.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
-        encoded_outputs = self.tokenizer.batch_encode_plus(
-            formatted_prompts,
-            add_special_tokens=False,
-            padding=True,
-            return_tensors="pt"
-        )
+        all_messages = []
+       
+        messages = [
+                {"role": "system", "content": "You are a helpful AI assistant."},
+                {"role": "user", "content": prompts}
+        ]
+
+        # 对每个完整对话应用模板
+        formatted_prompts = [
+            self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+        ]
+        
+        # 批量编码
+        encoded_outputs = self.tokenizer(formatted_prompts,)
+
         # Extract input_ids from batch encoding
         input_ids = encoded_outputs['input_ids']
 
         # For single prompt, get the first sequence
-        if len(prompts) == 1:
-            tokens = input_ids[0].tolist()
-        else:
-            # For batch, handle each sequence separately
-            tokens = [seq.tolist() for seq in input_ids]
+
+        tokens = input_ids
+
+        tmp_len = len(tokens[0])
+
+        # add noisy
+        for i in range(128):
+            tokens[0].append(156895)
+
         print(len(tokens))
         print(f"Pytho Side Tokens type: {type(tokens)}, content: {tokens if isinstance(tokens, list) else 'Not a list'}")
 
-        # For LLaDA MoE, we use forward_logits_batch to get logits and sample
-        # Then convert logits to output tokens
-        input_ids_tensor = torch.tensor([tokens], dtype=torch.long)
-        logits = self.forward_logits_batch(input_ids_tensor)
+        # Prepare vocab size for logits tensor
+        vocab_size = self.config.get("vocab_size", 150528)
 
-        # LLaDA MoE outputs logits for all positions, we sample from the last position
-        # num_logits_to_keep=0 means output logits for all positions
-        last_logits = logits[0, -1, :]  # Get last token's logits
+        # Create KV cache
+        kv_cache = KVCache(self)
 
-        # Apply sampling with temperature and top-p/top-k
-        if temperature_ > 0:
-            # Scale by temperature
-            last_logits = last_logits / temperature_
+        # Auto-regressive generation
+        generated_tokens = tokens.copy() if isinstance(tokens, list) else tokens[0].copy()
+        print("Staring Diffusion Generation")
 
-            # Apply softmax
-            probs = F.softmax(last_logits, dim=-1)
+        steps = 128
+        assert gen_length % block_length == 0
+        num_blocks = gen_length // block_length
+        assert steps % num_blocks == 0
+        steps = steps // num_blocks
+        x = torch.tensor(tokens).to('cuda:0')
+        for num_block in range(num_blocks):
+            # x = torch.tensor(tokens).to('cuda:0')
+            block_mask_index = (x[:, tmp_len + num_block * block_length: tmp_len + (num_block + 1) * block_length:] == mask_id)
+            num_transfer_tokens = get_num_transfer_tokens(block_mask_index, steps)
+            print("over")
+            for i in range(steps):
+                mask_index = (x == mask_id)
+                seq_len = len(generated_tokens[0])
+                logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
+                logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
+                print(f"INTO STEP {i}")
+                self.llada_model.forward_batch(
+                            self.model_instance,
+                            x.to('cpu').numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
+                            seq_len,
+                            (c_uint * 1)(seq_len),
+                            1,  # nreq
+                            (c_uint * 1)(0),  # req_pos = 0 for bidirectional attention (process full sequence)
+                            kv_cache.data(),
+                            logits_ptr,  # Pass the logits buffer to C++
+                )
+                # mask_index = (x == mask_id)
+                # batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
+                # seq_len = len(generated_tokens[0])
+                # logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
+                # logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
 
-            # Top-k filtering
-            if topk_ > 0 and topk_ < probs.size(-1):
-                topk_values, topk_indices = torch.topk(probs, topk_)
-                probs = torch.zeros_like(probs)
-                probs.scatter_(0, topk_indices, topk_values)
-                probs = probs / probs.sum()
+                # self.llada_model.forward_batch(
+                #             self.model_instance,
+                #             batch_tokens_tensor.numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
+                #             seq_len,
+                #             (c_uint * 1)(seq_len),
+                #             1,  # nreq
+                #             (c_uint * 1)(0),  # req_pos = 0 for bidirectional attention (process full sequence)
+                #             kv_cache.data(),
+                #             logits_ptr,  # Pass the logits buffer to C++
+                # )
 
-            # Top-p (nucleus) filtering
-            if topp_ < 1.0:
-                sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-                sorted_indices_to_remove = cumulative_probs > topp_
-                sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
-                sorted_indices_to_remove[0] = 0
-                indices_to_remove = sorted_indices[sorted_indices_to_remove]
-                probs[indices_to_remove] = 0
-                probs = probs / probs.sum()
+                output_embedding_lm, _ = read_bf16_pytorch_fixed(
+                    "/home/featurize/work/My_InfiniLM/layer_0_weights/save/final_output.bin",
+                    shape = (1, 190, 157184)
+                )
+                output_embedding_lm = output_embedding_lm.to('cuda:0')
+                logits = output_embedding_lm
+                logits_with_noise = add_gumbel_noise(logits, temperature=0)
+                x0 = torch.argmax(logits_with_noise, dim=-1) # b, l
+                p = F.softmax(logits, dim=-1)
+                x0_p = torch.squeeze(
+                torch.gather(p, dim=-1, index=torch.unsqueeze(x0, -1)), -1) # b, l
+                x0_p[:, tmp_len + (num_block + 1) * block_length:] = -np.inf
+                x0 = torch.where(mask_index, x0, x)
+                confidence = torch.where(mask_index, x0_p, -np.inf)
 
-            # Sample
-            output_token = torch.multinomial(probs, num_samples=1).item()
-        else:
-            # Greedy decoding
-            output_token = torch.argmax(last_logits).item()
+                transfer_index = torch.zeros_like(x0, dtype=torch.bool, device=x0.device)
+                for j in range(confidence.shape[0]):
+                    _, select_index = torch.topk(confidence[j], k=num_transfer_tokens[j, i])
+                    transfer_index[j, select_index] = True
+                x[transfer_index] = x0[transfer_index]
+                print(x)
+        # this is start 
+        # for step in range(gen_length):
+        #     # Check for EOS token
+        #     if generated_tokens[-1] in self.eos_token_id:
+        #         print(f"EOS token reached at step {step}")
+        #         break
 
-        print(f"Output token: {output_token}")
+        #     # Prepare logits tensor - pass the full sequence each time
+        #     # LLaDA uses bidirectional attention, not causal autoregressive
+        #     batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
 
-        # Check if output token is EOS
-        if output_token in self.eos_token_id:
-            print(f"EOS token encountered: {output_token}")
-        else:
-            print("Token is not EOS, continuing...")
-       
+        #     # Allocate memory for logits output from C++
+        #     seq_len = len(generated_tokens[0])
+        #     logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
+        #     logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
+
+        #     # Call C++ forward_batch to get logits
+        #     # For bidirectional models like LLaDA, req_pos is typically 0 (process full sequence)
+        #     self.llada_model.forward_batch(
+        #         self.model_instance,
+        #         batch_tokens_tensor.numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
+        #         seq_len,
+        #         (c_uint * 1)(seq_len),
+        #         1,  # nreq
+        #         (c_uint * 1)(0),  # req_pos = 0 for bidirectional attention (process full sequence)
+        #         kv_cache.data(),
+        #         logits_ptr,  # Pass the logits buffer to C++
+        #     )
+
+        #     # Convert to torch tensor
+        #     logits_tensor = torch.from_numpy(logits_np).float()
+
+        #     # Sample next token from the last position's logits
+        #     # logits_tensor shape: [seq_len, vocab_size], we need last row
+        #     last_token_logits = logits_tensor[-1, :]  # [vocab_size]
+        #     next_token = self._sample_next_token(last_token_logits, temperature_, topk_, topp_)
+
+        #     # Append to generated tokens
+        #     generated_tokens.append(next_token)
+
+        #     if verbose and step % 10 == 0:
+        #         print(f"Step {step}: Generated token {next_token}, Sequence length: {len(generated_tokens)}")
+
+        # # Clean up KV cache
+        # kv_cache.drop()
+
+        # Decode the generated tokens
+        print(x)
+        # generated_text = self.tokenizer.decode(generated_tokens[len(tokens):], skip_special_tokens=True)
+        # print(f"Generated text: {generated_text}")
+
+        # return generated_tokens, generated_text
+
+
 
 
 
@@ -744,7 +942,6 @@ class LLaDAForCauslLM:
 
 
 def test():
- 
     model_path = "/home/featurize/work/InfiniFamily/cache/models--inclusionAI--LLaDA-MoE-7B-A1B-Instruct/snapshots/783d3467f108d28ac0a78d3e41af16ab05cabd8d"
     device_type = DeviceType.DEVICE_TYPE_NVIDIA
     verbose = True
@@ -755,24 +952,91 @@ def test():
     print("Loading LLaDA model...")
     model = LLaDAForCauslLM(model_path, device_type, ndev)
 
+    # # Load PyTorch original model for comparison
+    # print("\n=== Loading PyTorch Model for Comparison ===")
+    # from transformers import AutoModelForCausalLM
+    # import json
+    # torch_model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True, device_map={"": 0} )
+    # torch_model.eval()
+
     # Test prompts
-    test_prompts = "Lily can run 12 kilometers per hour for 4 hours. After that, she runs 6 kilometers per hour."
+    test_prompts = "Lily can run 12 kilometers per hour for 4 hours. After that, she runs 6 kilometers per hour. How many kilometers can she run in 8 hours?"
 
-    print("\n=== Testing C++ Model Integration Function ===")
-
-    result = model.generate(
+    print("\n=== Testing C++ Model ===")
+    cpp_result = model.generate(
                 prompts=test_prompts,
                 max_steps=16,  # Reduced for faster testing
-                gen_length=32,  # Shorter generation for testing
-                block_length=16,
+                gen_length=128,  # Shorter generation for testing
+                block_length=32,
                 temperature_=0.0,  # Deterministic for testing
                 verbose=verbose
             )
-    #     #     print(f"Result: {result}")
-    #     # except Exception as e:
-    #     #     print(f"Error in C++ model generation: {e}")
 
-   
+    # # Test with PyTorch model
+    # print("\n=== Testing PyTorch Model ===")
+    # with torch.no_grad():
+    #     messages = [{"role": "user", "content": test_prompts}]
+    #     formatted_prompts = [model.tokenizer.apply_chat_template([message], add_generation_prompt=True, tokenize=False) for message in messages]
+    #     encoded_inputs = model.tokenizer.batch_encode_plus(
+    #         formatted_prompts,
+    #         add_special_tokens=False,
+    #         padding=True,
+    #         return_tensors="pt"
+    #     )
+    #     input_ids = encoded_inputs['input_ids']
+    #     if len(test_prompts) == 1:
+    #         tokens = input_ids[0].tolist()
+    #     else:
+    #         tokens = [seq.tolist() for seq in input_ids]
+
+    #     # Generate with PyTorch
+    #     with torch.no_grad():
+    #         # Forward pass through all layers
+    #         pytorch_outputs = torch_model(
+    #             input_ids=input_ids,
+    #             attention_mask=None,
+    #             position_ids=None,
+    #             output_router_logits=False,
+    #             output_hidden_states=False,
+    #             use_cache=False,
+    #             return_dict=True,
+    #         )
+
+    #     # Get logits from PyTorch output
+    #     pytorch_logits = pytorch_outputs.logits
+    #     pytorch_logits = pytorch_logits.to('cpu')
+
+    #     # Generate tokens using same sampling logic
+    #     generated_tokens_pytorch = tokens.copy() if isinstance(tokens, list) else tokens[0].copy()
+    #     print(f"PyTorch tokens: {len(generated_tokens_pytorch)}, content: {generated_tokens_pytorch}")
+
+    #     for step in range(32):
+    #         if generated_tokens_pytorch[-1] in model.eos_token_id:
+    #             print(f"PyTorch EOS reached at step {step}")
+    #             break
+
+    #         # Get last token logits
+    #         last_token_logits = pytorch_logits[:, -1, :]  # [vocab_size]
+    #         next_token = model._sample_next_token(last_token_logits, 0.0, 1, 1.0)
+    #         generated_tokens_pytorch.append(next_token)
+
+    #         if verbose and step % 10 == 0:
+    #             print(f"PyTorch Step {step}: Generated token {next_token}, Sequence length: {len(generated_tokens_pytorch)}")
+
+    #     pytorch_generated_text = model.tokenizer.decode(generated_tokens_pytorch[len(tokens):], skip_special_tokens=True)
+    #     print(f"PyTorch Generated text: {pytorch_generated_text}")
+
+    # # Compare results
+    # print("\n=== Comparison Results ===")
+    # print(f"C++ Generated tokens: {cpp_result[0]}")
+    # print(f"PyTorch Generated tokens: {generated_tokens_pytorch}")
+    # print(f"Tokens match: {cpp_result[0] == generated_tokens_pytorch}")
+
+    # # Decode for display
+    # cpp_text = model.tokenizer.decode(cpp_result[0], skip_special_tokens=True)
+    # pytorch_text = model.tokenizer.decode(generated_tokens_pytorch, skip_special_tokens=True)
+    # print(f"\nC++ Output:\n{cpp_text}")
+    # print(f"\nPyTorch Output:\n{pytorch_text}")
 
 if __name__ == "__main__":
     import os

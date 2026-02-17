@@ -32,6 +32,15 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
                  float epsilon);
+
+    void layernorm( std::shared_ptr<Tensor> y,
+                    std::shared_ptr<Tensor> input_standardization,
+                    std::shared_ptr<Tensor> input_std_deviation,
+                    std::shared_ptr<Tensor> x,
+                    std::shared_ptr<Tensor> w,
+                    std::shared_ptr<Tensor> bias,
+                    float epsilon);
+
     void gemm(std::shared_ptr<Tensor> c,
               std::shared_ptr<Tensor> a,
               std::shared_ptr<Tensor> b,
@@ -104,6 +113,17 @@ inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::share
 inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
                     std::shared_ptr<Tensor> w, float epsilon) {
     getInferenceContext().rmsnorm(y, x, w, epsilon);
+}
+
+
+inline void layernorm(  std::shared_ptr<Tensor> y,
+                    std::shared_ptr<Tensor> input_standardization,
+                    std::shared_ptr<Tensor> input_std_deviation,
+                    std::shared_ptr<Tensor> x,
+                    std::shared_ptr<Tensor> w,
+                    std::shared_ptr<Tensor> bias,
+                    float epsilon){
+     getInferenceContext().layernorm(y, input_standardization, input_std_deviation, x, w, bias, epsilon);
 }
 
 inline void gemm(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,

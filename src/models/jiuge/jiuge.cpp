@@ -15,7 +15,6 @@ void createDeviceResource(JiugeDeviceResource *rsrc, const JiugeMeta *meta,
                           infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm) {
-    std::cout << "Set Device" << std::endl;
     RUN_INFINI(infinirtSetDevice(device, dev_id));
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
@@ -128,10 +127,6 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits) {
-    std::cout << "entering infer batch" << std::endl;
-
-    std::cout << "Calucute Hyper Parameter" << std::endl;
-
     auto nlayer = meta.nlayer;
     auto nkvh = meta.nkvh / ndev;
     auto nh = meta.nh / ndev;
@@ -146,11 +141,27 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;
     bool has_qk_norm = rsrc.w_attn_q_norm.size() > 0 && rsrc.w_attn_k_norm.size() > 0;
 
+    // std::cout << "\n1. 全局配置:" << std::endl;
+    // std::cout << "   总层数: " << meta.nlayer << std::endl;
+    // std::cout << "   总头数: " << meta.nh << std::endl;
+    // std::cout << "   总KV头数: " << meta.nkvh << std::endl;
+    // std::cout << "   隐藏层维度: " << meta.d << std::endl;
+    // std::cout << "   头维度: " << meta.dh << std::endl;
+    // std::cout << "   中间维度: " << meta.di << std::endl;
+    // std::cout << "   词汇表大小: " << meta.dvoc << std::endl;
+    // std::cout << "   设备数量: " << ndev << std::endl;
+    
+    // std::cout << "\n2. 每个设备配置:" << std::endl;
+    // std::cout << "   每个设备头数: " << nh << std::endl;
+    // std::cout << "   每个设备KV头数: " << nkvh << std::endl;
+    // std::cout << "   分组数 (GQA中的G): " << ngroup << std::endl;
+    // std::cout << "   每个设备中间维度: " << di << std::endl;
+    // std::cout << "NTOKEN " << ntok << std::endl;
+
     // Allocate buffers
-    std::cout << "Allocating  Buffer " << std::endl;
     auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
     auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
-    auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
+    auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool); //[ntok, 2048]
     auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di}, rsrc.memory_pool);
     auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
     auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
@@ -158,11 +169,12 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto result_cpu = std::vector<int64_t>(nreq);
 
     auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
-    auto q_buf = qkv_rope->slice(1, 0, nh);
-    auto k_buf = qkv_rope->slice(1, nh, nkvh);
+
+    auto q_buf = qkv_rope->slice(1, 0, nh);                   // [ntok, 2048]
+
+    auto k_buf = qkv_rope->slice(1, nh, nkvh);                //[ntok, 2048]
 
     // Prepare inputs
-    std::cout << "Preparing Input" << std::endl;
     auto batch_pos_ids = std::vector<uint32_t>(ntok);
     size_t req_start = 0;
     for (uint32_t req = 0; req < nreq; req++) {
@@ -180,6 +192,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
                                        INFINIRT_MEMCPY_H2D, stream));
     }
+
     for (uint32_t i = 0; i < ntok; i++) {
         RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
                                        rsrc.w_in_embd->data(tokens[i] * d),
@@ -210,15 +223,15 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
     auto gate_buf = gate_up_buf->slice(1, 0, di);
     auto up_buf = gate_up_buf->slice(1, di, di);
 
-    std::cout << "Transformer Layer Stream" << std::endl;
     // Compute
     for (uint32_t layer = 0; layer < nlayer; layer++) {
         // 1. Attention
         // rms norm
-        std::cout << "Are you OK" <<  std::endl;
+
         rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
+        // logits_out->debug();
         // qkv_proj
-        std::cout << "rmsnorm is OK" <<  std::endl;
+
         linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? rsrc.b_attn_qkv[layer] : nullptr);
 
         if (has_qk_norm) {
@@ -227,10 +240,12 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         }
 
         // rope 
-        std::cout << "Position Embedding" << std::endl;
-        rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-        rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
 
+        rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+        q_buf->info();
+        //rsrc.sin_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/sin_jiuge.bin");
+        rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+        //rsrc.cos_table->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/cos_jiuge.bin");
         size_t token_offset = 0;
         for (uint32_t req = 0; req < nreq; req++) {
             auto past_len = req_pos[req];
@@ -286,7 +301,7 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
         }
     }
     // Sample and Output
-    std::cout << "starting reduce result" << std::endl;
+
     if (idev == 0) {
         if (last_logits != nullptr) {
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);

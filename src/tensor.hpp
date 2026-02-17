@@ -44,6 +44,7 @@ template <typename... Args>
 std::vector<ptrdiff_t> __strides(Args... args) {
     return std::vector<ptrdiff_t>{static_cast<ptrdiff_t>(args)...};
 }
+
 class TensorDesc {
 private:
     infiniDtype_t _dtype;

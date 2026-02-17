@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/featurize/work/LLaDA/**)",
+      "Read(//home/featurize/work/InfiniFamily/InfiniCore/**)",
+      "Read(//home/featurize/work/InfiniRefresh/InfiniCore/include/infiniop/ops/**)",
+      "Read(//home/featurize/work/InfiniRefresh/InfiniCore/src/infiniop/ops/**)",
+      "Bash(nm:*)",
+      "Bash(find:*)",
+      "Bash(source:*)",
+      "Bash(xmake build:*)",
+      "Bash(ls:*)",
+      "Read(//home/featurize/work/InfiniRefresh/InfiniCore/**)",
+      "Bash(pip install:*)",
+      "Read(//home/featurize/work/InfiniFamily/**)",
+      "Bash(xmake clean:*)",
+      "Bash(xmake)",
+      "Read(//home/featurize/work/**)",
+      "Bash(git submodule status:*)"
+    ],
+    "additionalDirectories": [
+      "/home/featurize/work/My_InfiniLM/src/models"
+    ]
+  }
+}

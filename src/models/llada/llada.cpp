@@ -14,42 +14,45 @@
 #include <numeric>
 #include <iostream>
 #include <cstring>  // for memcpy
+#include <cmath>    // for exp, log
+#include <limits>   // for numeric_limits
 
-
-// #TODO:这个是草稿版
 void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
                           const LLaDAWeights *weights, infiniDevice_t device, int idev,
                           int ndev, int dev_id,
                           infinicclComm_t comm){
-    std::cout << "Set Device" << std::endl;
     //Print(meta);
     RUN_INFINI(infinirtSetDevice(device, dev_id));
     infiniopHandle_t handle;
     infiniopCreateHandle(&handle);
     infinirtStream_t stream;
     infinirtStreamCreate(&stream);
-
-    std::cout << "Set Weight" << std::endl; // 逐层获取权重
+    debugPrint(meta);
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, w_attn_qkv, b_attn_qkv, w_attn_q_norm, w_attn_k_norm, w_attn_out,
         w_ffn_norm, w_ffn_gate_up, w_ffn_down, w_expert_router, w_expert_gate, w_expert_up, w_expert_down;
     for (size_t layer = 0; layer < meta->nlayer; layer++) {
+
         w_attn_norm.push_back(
             getAttnNorm(meta, weights, layer));
+
         w_attn_qkv.push_back(
             getAttnQKV(meta, weights, layer, idev, ndev));
-
+        
         if (weights->attn_q_norm != nullptr) {
             w_attn_q_norm.push_back(
                 getAttnQNorm(meta, weights, layer));
             w_attn_k_norm.push_back(
                 getAttnKNorm(meta, weights, layer));
         }
+
         w_attn_out.push_back(
             getAttnO(meta, weights, layer, idev, ndev)
         );
+ 
         w_ffn_norm.push_back(
             getFFNNorm(meta, weights, layer)
         );
+
         w_expert_router.push_back(
             getExpertRouter(meta, weights, layer, idev, ndev, meta->num_experts)
         );
@@ -57,25 +60,20 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
         w_expert_gate.push_back(
             getExpertGate(meta, weights, layer, idev, ndev)
         );
+
         w_expert_down.push_back(
             getExpertDown(meta, weights, layer, idev, ndev)
         );
+
         w_expert_up.push_back(
             getExpertUp(meta, weights, layer, idev, ndev)
         );
-
         // w_ffn_down.push_back(
         //     getFFNDown(meta, weights, layer, idev, ndev));
     }
-    std::cout << "Check out expert router size " << "Routers have " << w_expert_router.size() << " Shape is " << w_expert_router[0]->info() << std::endl; 
-
-
-
-
-    std::cout << "Set Memory Pool" << std::endl;
+    std::cout << "memory init" << std::endl;
     auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
 
-    std::cout << "Set LLaDADeviceResource" << std::endl;
     *rsrc = LLaDADeviceResource{
         .device = device,
         .device_id = dev_id,
@@ -101,12 +99,10 @@ void createDeviceResource(LLaDADeviceResource *rsrc, const LLaDAMeta * meta,
         .comm = comm,
         .memory_pool = memory_pool,
     };
-    std::cout << "Over LLaDADeviceResource" << std::endl;
     RUN_INFINI(infinirtDeviceSynchronize());
 }
 
 void releaseDeviceResource(LLaDADeviceResource &rsrc){
-    std::cout << "Release" << std::endl;
 }
 
 __C void
@@ -116,7 +112,6 @@ inferBatchLLaDA(struct LLaDAModel *model,
                 struct KVCache **kv_caches,
                 const float *temperature, const uint32_t *topk, const float *topp,
                 uint32_t *output) {
-    std::cout << "[DEBUG] inferBatchLLaDA called with single-threaded mode" << std::endl;
 
     // Set request data
     model->req.tokens = tokens;
@@ -142,7 +137,6 @@ inferBatchLLaDA(struct LLaDAModel *model,
     int ndev = 1;
     int dev_id = model->dev_ids[idev];
 
-    std::cout << "[DEBUG] Using device " << dev_id << " for inference" << std::endl;
 
     // Create device resource (temporary for single-threaded call)
     LLaDADeviceResource rsrc;
@@ -155,7 +149,6 @@ inferBatchLLaDA(struct LLaDAModel *model,
         launchDevice(model->meta, model->weights, &rsrc, model->states[idev], model->req,
                     model->device, idev, ndev, dev_id, comm);
 
-        std::cout << "[DEBUG] Inference completed successfully" << std::endl;
 
     } catch (const std::exception& e) {
         std::cerr << "[ERROR] Inference failed: " << e.what() << std::endl;
@@ -169,6 +162,8 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                       struct KVCache **kv_caches,
                       const float *temperature, const uint32_t *topk, const float *topp,
                       uint32_t *output, void *last_logits){
+        std::cout << " INFERDEVICE LLM " << std::endl;
+        std::cout << ntok << std::endl;
         CacheManager cache_manager(100);
         InferenceContext ctx(rsrc.handle, rsrc.memory_pool, &cache_manager, rsrc.stream);
         setInferenceContext(&ctx);
@@ -187,32 +182,43 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         auto stream = rsrc.stream;
         bool has_qkv_bias = rsrc.b_attn_qkv.size() > 0;      // 是否有QKV偏置
         bool has_qk_norm = rsrc.w_attn_q_norm.size() > 0 && rsrc.w_attn_k_norm.size() > 0;  // 是否有QK归一化
-        
         auto nexperts = meta.num_experts;
+        std::cout << "ROPE META " << meta.theta << std::endl;
+        std::cout << "ROPE META " << meta.dctx << std::endl;
+        // std::cout << "\n1. 全局配置:" << std::endl;
+        // std::cout << "   总层数: " << meta.nlayer << std::endl;
+        // std::cout << "   总头数: " << meta.nh << std::endl;
+        // std::cout << "   总KV头数: " << meta.nkvh << std::endl;
+        // std::cout << "   隐藏层维度: " << meta.d << std::endl;
+        // std::cout << "   头维度: " << meta.dh << std::endl;
+        // std::cout << "   词汇表大小: " << meta.dvoc << std::endl;
+
+        // std::cout << "\n2. 每个设备配置:" << std::endl;
+        // std::cout << "   每个设备头数: " << nh << std::endl;
+        // std::cout << "   每个设备KV头数: " << nkvh << std::endl;
+        // std::cout << "   分组数 (GQA中的G): " << ngroup << std::endl;
+        // std::cout << "NTOKEN " << ntok << std::endl;
+
 
         // Allocate buffers
-
-        auto logits_in = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+        auto logits_in = Tensor::buffer(dt_logits, {ntok * d}, rsrc.memory_pool);
         auto logits_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
         auto qkv_buf = Tensor::buffer(dt_logits, {ntok, (nh + nkvh * 2) * dh}, rsrc.memory_pool);
+        // auto q_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+        // auto k_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+        // auto v_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
         auto gate_up_buf = Tensor::buffer(dt_logits, {ntok, 2 * di_dense}, rsrc.memory_pool);
         auto o_buf = Tensor::buffer(dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
         auto prob_buf = Tensor::buffer(dt_logits, {nreq, dvoc}, rsrc.memory_pool);
         auto result_buf = Tensor::buffer(INFINI_DTYPE_I64, {nreq}, rsrc.memory_pool);
         auto result_cpu = std::vector<int64_t>(nreq);
         auto attention_output = Tensor::buffer(dt_logits, {ntok, nh, dh});
-        auto router_logits_buf = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool);
-
-
+        auto router_logits_buf = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool); 
+        auto final_output = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
         auto qkv_rope = qkv_buf->view({ntok, nh + nkvh * 2, dh});
         auto shape_qkv = qkv_rope->shape();
-        auto q_buf = qkv_rope->slice(1, 0, nh);      // 0 ---> nh q
-        auto k_buf = qkv_rope->slice(1, nh, nkvh);  //nh  ---> nh+nkvh k_buf
-        auto v_buf = qkv_rope->slice(1, nh + nkvh, nkvh); //nh+nkvh  ---> nh+nkvh*2 v_buf
-        
-
+        auto layer_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool); 
         // Prepare inputs
-        std::cout << "Preparing Input" << std::endl;
         auto batch_pos_ids = std::vector<uint32_t>(ntok);
         size_t req_start = 0;
         for (uint32_t req = 0; req < nreq; req++) {
@@ -225,224 +231,277 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         pos_ids_buf = Tensor::buffer(INFINI_DTYPE_U32, {ntok}, rsrc.memory_pool);
         RUN_INFINI(infinirtMemcpyAsync(pos_ids_buf->data(), batch_pos_ids.data(), sizeof(uint32_t) * ntok,
                                         INFINIRT_MEMCPY_H2D, stream));
-        // std::shared_ptr<Tensor> hidden_states = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+        
+        // problem                                        
         // for (uint32_t i = 0; i < ntok; i++) {   
-        //     RUN_INFINI(infinirtMemcpyAsync(hidden_states->data(i * d),
-        //                                 rsrc.w_in_embd->data(tokens[i] * d),
-        //                                 dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
+        //     RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
+        //                                     rsrc.w_in_embd->data(tokens[i] * d),
+        //                                     dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
         // } // embedding weight and python slide is same
-        for (uint32_t i = 0; i < ntok; i++) {   
+
+        for (uint32_t i = 0; i < ntok; i++) {
             RUN_INFINI(infinirtMemcpyAsync(logits_in->data(i * d),
-                                        rsrc.w_in_embd->data(tokens[i] * d),
-                                        dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
+                                            rsrc.w_in_embd->data(tokens[i] * d),
+                                            dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
         } // embedding weight and python slide is same
 
-        for(uint32_t layer = 0; layer < nlayer; layer ++){
-            // 1. Before Attention
-            // rms norm
-            rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
-            // qkv_proj
-            std::cout << "QKV BUF IS " << qkv_buf->info() << std::endl;
-            std::cout << "Logits OUT BUF IS " << logits_out->info() << std::endl;
-            std::cout << "Attentioin BUF IS " << rsrc.w_attn_qkv[layer]->info() << std::endl;
-            linear(qkv_buf, logits_out, rsrc.w_attn_qkv[layer], 1.0, 0.0, nullptr, has_qkv_bias ? rsrc.b_attn_qkv[layer] : nullptr);
-
-            if (has_qk_norm) {
-                rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon);
-                rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon);
-            }
-            // rope 
-            std::cout << "Position Embedding" << std::endl;
-            rope(q_buf, q_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
-            rope(k_buf, k_buf, pos_ids_buf, rsrc.sin_table, rsrc.cos_table); // llada modeling_lladamoe.py:390
-
-            std::cout << "q buf info " << q_buf->info() << std::endl; // [54, 16, 128] [ntok, nh, dh]
-            std::cout << "k buf info " << k_buf->info() << std::endl; // [54, 16, 128] [ntok, nh, dh]
-            std::cout << "v buf info " << v_buf->info() << std::endl; // [54, 16, 128] [ntok, nh, dh]
-            std::cout << "cache info " << std::endl;
-            std::cout << "req pos is " << req_pos[0] << std::endl;
-            std::cout << "req len is " << req_lens[0] << std::endl;
-            std::cout << "KV cache info ";
-            std::cout << kv_caches[0]->k[0][0]->permute({1, 0, 2})->info() << std::endl;  // [16， 54， 128]
-            std::cout << "output info " << attention_output->info() << std::endl;
-            BiAttention(attention_output, q_buf->permute({1, 0, 2}), k_buf->permute({1, 0, 2}), v_buf->permute({1, 0, 2}), kv_caches[0]->k[0][0]->permute({1, 0, 2}), kv_caches[0]->v[0][0]->permute({1, 0, 2}), 0);
-
-
-            // 创建新张量来存储 dimMerge 的结果
-            auto o_buf = Tensor::buffer(meta.dt_logits, {ntok, nh * dh}, rsrc.memory_pool);
-            rearrange(o_buf, attention_output->dimMerge(1, 2));
-
-            std::cout << logits_in->info() << std::endl;
-            std::cout << o_buf->info() << std::endl;
-            std::cout << rsrc.w_attn_out[layer]->info() << std::endl;
-            std::cout << "logits_in contiguous: " << logits_in->isContigous() << std::endl;  
-            std::cout << "o_buf contiguous: " << o_buf->isContigous() << std::endl;  
-            std::cout << "weight contiguous: " << rsrc.w_attn_out[layer]->isContigous() << std::endl;
-            linear(logits_in, o_buf, rsrc.w_attn_out[layer], 1.0, 0.0, idev == 0 ? logits_in : nullptr, nullptr); //self.o_proj(attn_output)
-
-            rmsnorm(logits_out, logits_in, rsrc.w_ffn_norm[layer], meta.epsilon);
-
-            std::cout << "Starting MoE layer " << layer << std::endl;
-            std::cout << "  logits_out shape: " << logits_out->info() << std::endl;
-            std::cout << "  expert_router weight shape: " << rsrc.w_expert_router[layer]->info() << std::endl;
-
-            linear(router_logits_buf, logits_out, rsrc.w_expert_router[layer], 1.0, 0.0, nullptr, nullptr);
-
-            std::cout << "router_logits_buf info:" << router_logits_buf->info() << std::endl;
-            std::cout << "router_logits_buf contiguous: " << router_logits_buf->isContigous() << std::endl;
-            router_logits_buf->debug();
-
-            // ==================== MoE 路由和专家计算 ====================
-            // 参考 modeling_lladamoe.py: LLaDAMoESparseMoeBlock::forward
-            // 路由: hidden_states -> gate -> router_logits -> topkrouter -> expert_indices, expert_weights
-            // 专家: hidden_states -> expert[gate][up] -> swiglu -> expert[down] -> weighted sum
-
-            // 创建路由输出缓冲区: [ntok, 8]
-            auto router_values = Tensor::buffer(meta.dt_logits, {ntok, 8}, rsrc.memory_pool);
-            auto router_indices = Tensor::buffer(INFINI_DTYPE_I32, {ntok, 8}, rsrc.memory_pool);
-
-            // 创建 correction_bias，暂时使用零偏置
-            auto correction_bias = Tensor::buffer(meta.dt_logits, {nexperts}, rsrc.memory_pool);
-            std::vector<float> correction_bias_cpu(nexperts, 0.0f);
-            RUN_INFINI(infinirtMemcpy(correction_bias->data(), correction_bias_cpu.data(),
-                                     nexperts * sizeof(float), INFINIRT_MEMCPY_H2D));
-
-            // 调用 topkrouter 进行路由
-            topkrouter(router_values, router_indices, router_logits_buf,
-                      correction_bias, 1.0f, 8); // topk=8, routed_scaling_factor=2.5
-
-            // 复制路由结果回CPU，用于按 token 顺序遍历专家
-            std::vector<float> router_values_cpu(ntok * 8);
-            std::vector<int> router_indices_cpu(ntok * 8);
-            RUN_INFINI(infinirtMemcpy(router_values_cpu.data(), router_values->data(),
-                                     router_values_cpu.size() * sizeof(float), INFINIRT_MEMCPY_D2H));
-            RUN_INFINI(infinirtMemcpy(router_indices_cpu.data(), router_indices->data(),
-                                     router_indices_cpu.size() * sizeof(int), INFINIRT_MEMCPY_D2H));
-
-            std::cout << "=== MoE Routing Info ===" << std::endl;
-            std::cout << "  ntok: " << ntok << ", nexperts: " << nexperts << ", topk: 8" << std::endl;
-            std::cout << "  router_values shape: " << router_values->info() << std::endl;
-            std::cout << "  router_indices shape: " << router_indices->info() << std::endl;
-
-            // 创建 MoE 输出缓冲区: [ntok, d]
-            auto moe_output = Tensor::buffer(meta.dt_logits, {ntok, d}, rsrc.memory_pool);
-
-            // 创建临时缓冲区用于专家计算
-            auto expert_gate_buf = Tensor::buffer(meta.dt_logits, {1, di_expert}, rsrc.memory_pool); // [1, 64]
-            auto expert_up_buf = Tensor::buffer(meta.dt_logits, {1, di_expert}, rsrc.memory_pool);   // [1, 64]
-            auto expert_down_buf = Tensor::buffer(meta.dt_logits, {1, d}, rsrc.memory_pool);         // [1, 2048]
-
-            // 每个 token 通过 top-k 专家，加权求和
-            // 参考 modeling_lladamoe.py:698-710 的实现
-            for (size_t itok = 0; itok < ntok; ++itok) {
-                // 获取当前 token 的隐藏状态: [1, d]
-                auto hidden_states_i = logits_out->slice(0, itok, 1); //[1, 2048]
-                // 获取当前 token 的 MoE 输出位置: [1, d]
-                auto moe_output_i = moe_output->slice(0, itok, 1);    //[1, 2048]
-                // 获取临时缓冲区: [1, di_expert], [1, d]
-                auto expert_gate_buf_i = expert_gate_buf->slice(0, 0, 1); //
-                auto expert_up_buf_i = expert_up_buf->slice(0, 0, 1);
-                auto expert_down_buf_i = expert_down_buf->slice(0, 0, 1);
-
-                // 遍历 top-k 专家，加权累加
-                for (size_t k = 0; k < 8; ++k) {
-                    // 获取专家索引和权重
-                    int expert_idx = router_indices_cpu[itok * 8 + k];
-                    float expert_weight = router_values_cpu[itok * 8 + k];
-
-                    // 验证 expert_idx 是否在有效范围内
-                    if (expert_idx < 0 || expert_idx >= (int)nexperts) {
-                        std::cerr << "ERROR: Invalid expert_idx=" << expert_idx
-                                  << " for token " << itok << ", expert " << k
-                                  << ", nexperts=" << nexperts << std::endl;
-                        continue;
-                    }
-
-                    // Debug: 打印权重 shape 信息（第一个 token, 第一个专家）
-                    if (itok == 0 && k == 0) {
-                        std::cout << "  expert_gate weight shape: " << rsrc.w_expert_gate[layer]->info() << std::endl;
-                        std::cout << "  expert_up weight shape: " << rsrc.w_expert_up[layer]->info() << std::endl;
-                        std::cout << "  expert_down weight shape: " << rsrc.w_expert_down[layer]->info() << std::endl;
-                        std::cout << "  expert_gate_w after slice: " << rsrc.w_expert_gate[layer]->slice(0, expert_idx, 1)->info() << std::endl;
-                        std::cout << "  expert_up_w after slice: " << rsrc.w_expert_up[layer]->slice(0, expert_idx, 1)->info() << std::endl;
-                        std::cout << "  expert_down_w after slice: " << rsrc.w_expert_down[layer]->slice(0, expert_idx, 1)->info() << std::endl;
-                    }
-
-                    // 计算专家输出: hidden_states @ expert_gate -> silu * expert_up @ expert_down
-                    // gate_proj: [d, di_expert] (从权重中切片并降维)
-                    // 切片后是 [1, d, di_expert]，需要降维为 [d, di_expert]
-                    auto expert_gate_w = rsrc.w_expert_gate[layer]->slice(0, expert_idx, 1)->view({d, di_expert});
-                    // up_proj: [d, di_expert] (从权重中切片并降维)
-                    auto expert_up_w = rsrc.w_expert_up[layer]->slice(0, expert_idx, 1)->view({d, di_expert});
-                    // down_proj: [di_expert, d] (从权重中切片并降维)
-                    auto expert_down_w = rsrc.w_expert_down[layer]->slice(0, expert_idx, 1)->view({di_expert, d});
-
-                    // gate_output = hidden_states @ expert_gate_w: [1, di_expert]
-                    // 注意：这里使用 linear 会自动处理 dtype 转换
-                    std::cout << "=== Before GEMM Call ===" << std::endl;
-                    std::cout << "expert_gate_buf_i (output): " << expert_gate_buf_i->info() << std::endl;
-                    std::cout << "expert_gate_buf_i contiguous: " << expert_gate_buf_i->isContigous() << std::endl;
-                    std::cout << "hidden_states_i (input): " << hidden_states_i->info() << std::endl;
-                    std::cout << "hidden_states_i contiguous: " << hidden_states_i->isContigous() << std::endl;
-                    std::cout << "expert_gate_w (weight): " << expert_gate_w->info() << std::endl;
-                    std::cout << "expert_gate_w contiguous: " << expert_gate_w->isContigous() << std::endl;
-
-                    std::cout << "1111" << std::endl;
-                    linear(expert_gate_buf_i, hidden_states_i, expert_gate_w, 1.0, 0.0, nullptr, nullptr);
-                    // up_output = hidden_states @ expert_up_w: [1, di_expert]
-
-                    std::cout << "1111" << std::endl;
-                    linear(expert_up_buf_i, hidden_states_i, expert_up_w, 1.0, 0.0, nullptr, nullptr);
-                    // swiglu = silu(gate_output) * up_output: [1, di_expert]
-
-                    std::cout << "1111" << std::endl;
-                    swiglu(expert_gate_buf_i, expert_up_buf_i, expert_gate_buf_i);
-
-                    std::cout << "1111" << std::endl;
-                    // expert_output = swiglu @ expert_down_w: [1, d] (带权重)
-                    // 当 k==0 时，直接写入 moe_output_i；当 k>0 时，累加到 moe_output_i
-                    if (k == 0) {
-                        std::cout << "1111" << std::endl;
-                        std::cout << "Calling linear with moe_output_i, k=" << k << ", itok=" << itok << std::endl;
-                        std::cout << "  moe_output_i: " << moe_output_i->info() << std::endl;
-                        std::cout << "  expert_gate_buf_i: " << expert_gate_buf_i->info() << std::endl;
-                        std::cout << "  expert_down_w: " << expert_down_w->info() << std::endl;
-                        // 第一个专家：直接写入，不累加
-                        linear(moe_output_i, expert_gate_buf_i, expert_down_w, expert_weight, 0.0, nullptr, nullptr);
-                        std::cout << "1111" << std::endl;
-                    } else {
-                        std::cout << "1111" << std::endl;
-                        // 后续专家：累加到 moe_output_i
-                        // 先计算 expert_down_buf_i = expert_gate_buf_i @ expert_down_w * expert_weight
-                        linear(expert_down_buf_i, expert_gate_buf_i, expert_down_w, expert_weight, 0.0, nullptr, nullptr);
-                        // 再累加到 moe_output_i
-                        add(moe_output_i, moe_output_i, expert_down_buf_i);
-                    }
-                }
-            }
-            std::cout << "2222" << std::endl;
-            // 残差连接: logits_in = logits_in + moe_output
-            // 直接使用 add 函数进行加法
-            add(logits_in, logits_in, moe_output);
-
-            std::cout << "=== MoE Computation Completed ===" << std::endl;
-            std::cout << "  moe_output shape: " << moe_output->info() << std::endl;
-            std::cout << "  Final logits_in shape: " << logits_in->info() << std::endl;
-            // =====================================================
-        }
-
-
-        // 复制最终的 logits 到 host 内存（如果提供了 last_logits）
-        if (last_logits != nullptr) {
-            RUN_INFINI(infinirtMemcpy(last_logits, logits_in->data(),
-                                     logits_in->shape()[0] * logits_in->shape()[1] * dsize(dt_logits),
-                                     INFINIRT_MEMCPY_D2H));
-        }
-
+        // 同步异步拷贝操作
         RUN_INFINI(infinirtStreamSynchronize(stream));
-        // 清理推理上下文
-        setInferenceContext(nullptr);
-        std::cout << "InferDeviceBatch completed" << std::endl;
+
+        // std::vector<int32_t> host_data(24);
+        // std::iota(host_data.begin(), host_data.end(), 1); // 填充 1,2,...,24
+        // auto tensor_i32 = Tensor::weight(host_data.data(), INFINI_DTYPE_I32, {24});
+        // tensor_i32->debug();
+        // tensor_i32 = tensor_i32->view({4, 6});
+        // tensor_i32->debug();
+        // std::cout << logits_in->isContigous() << std::endl;
+        // logits_in->debug();
+        infinirtDeviceSynchronize();
+        logits_in = logits_in->view({ntok, d}); //  bug
+        //logits_in->debug();
+        infinirtDeviceSynchronize();
+        std::cout << "Get Info " << std::endl;
+        // std::cout << logits_in->info() << std::endl;
+        // logits_in->debug();
+        infinirtDeviceSynchronize();
+        // std::cout << logits_in->isContigous() << std::endl;
+
+        // auto logits_test = Tensor::buffer(dt_logits, {d}, rsrc.memory_pool);
+        // RUN_INFINI(infinirtMemcpyAsync(logits_test->data(),
+        //                                 rsrc.w_in_embd->data(156895 * d),
+        //                                 dsize(dt_logits) * d, INFINIRT_MEMCPY_D2D, stream));
+        // logits_test->debug();
+
+
+        std::cout << "Tokens (" << ntok << " 个): ";
+        for (uint32_t i = 0; i < ntok; i++) {
+            std::cout << tokens[i];
+            if (i < ntok - 1) std::cout << ", ";
+        }
+        std::cout << std::endl;
+
+        
+        for(uint32_t layer = 0; layer < nlayer; layer ++){
+            auto q_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+            auto k_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+            auto v_buf   = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);
+            rmsnorm(logits_out, logits_in, rsrc.w_attn_norm[layer], meta.epsilon);
+            //logits_out->debug("/home/featurize/work/My_InfiniLM/hidden_states_190_2048.bin");
+            // rsrc.w_attn_norm[layer]->debug();
+            // logits_out->debug();
+            // std::cout << rsrc.w_attn_qkv[layer]->info() << std::endl;
+            auto qkv = rsrc.w_attn_qkv[layer];  // 原始权重
+
+            auto q_weight = qkv->slice(0, 0, d); //[6144, 2048] ---> [2048 * 3, 2048]
+            //q_weight->debug();
+            
+            // q_weight->debug("/home/featurize/work/My_InfiniLM/attention/q_weight_buf.bin");
+            auto k_weight = qkv->slice(0, d, d);
+            // k_weight->debug("/home/featurize/work/My_InfiniLM/attention/k_weight_buf.bin");
+            auto v_weight = qkv->slice(0, 2 * d, d);
+            //q_buf->debug();
+            // v_weight->debug("/home/featurize/work/My_InfiniLM/attention/v_weight_buf.bin");
+            linear(q_buf, logits_out, q_weight->permute({1, 0}), 1.0, 0.0, nullptr,  nullptr); // q_buf
+
+            // //logits_out->debug();
+            // std::cout << "q buf" << std::endl;
+            // q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048.bin");
+
+            linear(k_buf, logits_out, k_weight->permute({1, 0}), 1.0, 0.0, nullptr,  nullptr); // k_buf
+            // std::cout << "k buf" << std::endl;
+            // k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048.bin");
+
+            std::cout << "v buf" << std::endl;
+            linear(v_buf, logits_out, v_weight->permute({1, 0}), 1.0, 0.0, nullptr, nullptr); // [ntok, 2048]
+            // v_buf->debug("/home/featurize/work/My_InfiniLM/v_buf_190_2048.bin");
+
+            q_buf = q_buf->view({ntok * nh, dh});
+
+            k_buf = k_buf->view({ntok * nkvh, dh});  // 修复：使用 nkvh 而不是 nh
+
+            rmsnorm(q_buf, q_buf, rsrc.w_attn_q_norm[layer], meta.epsilon);
+            std::cout << "q norm" << std::endl;
+            //q_buf->debug("/home/featurize/work/My_InfiniLM/q_buf_190_2048_norm.bin");
+
+            rmsnorm(k_buf, k_buf, rsrc.w_attn_k_norm[layer], meta.epsilon);
+            std::cout << "k norm" << std::endl;
+            //k_buf->debug("/home/featurize/work/My_InfiniLM/k_buf_190_2048_norm.bin");
+
+            // // 由于内存排布限制，reshape 为 [ntok, dh, nh]
+            q_buf = q_buf->view({ntok, dh, nh});  // 190 128 16
+            k_buf = k_buf->view({ntok, dh, nkvh});// 190 128 16
+            v_buf = v_buf->view({ntok, dh, nkvh});// 190 128 16
+
+            auto src_q = q_buf->view({ntok, nh, dh});
+            auto dst_q = Tensor::buffer(src_q->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
+            rearrange(dst_q, src_q);
+            rope_v2(dst_q, dst_q, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            q_buf = dst_q;
+
+            auto src_k = k_buf->view({ntok, nh, dh});
+            auto dst_k = Tensor::buffer(src_k->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
+            rearrange(dst_k, src_k);
+            rope_v2(dst_k, dst_k, pos_ids_buf, rsrc.sin_table, rsrc.cos_table);
+            k_buf = dst_k;
+            //k_buf->debug("/home/featurize/work/My_InfiniLM/k_roped.bin");
+
+
+            auto src_v = v_buf->view({ntok, nh, dh});
+            auto dst_v = Tensor::buffer(src_v->dtype(), {ntok, nh, dh}, rsrc.memory_pool);
+            rearrange(dst_v, src_v);
+            v_buf = dst_v;
+            //v_buf->debug("/home/featurize/work/My_InfiniLM/v_viewd.bin");
+
+            // ============ Attention 计算 ============
+            // 转换维度为 [nh, ntok, dh]
+            q_buf = q_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
+            k_buf = k_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
+            v_buf = v_buf->permute({1, 0, 2});  // [190, 16, 128] -> [16, 190, 128]
+            //v_buf->debug("/home/featurize/work/My_InfiniLM/v_permute.bin");
+            auto v_buf_permuted = Tensor::buffer(v_buf->dtype(), {nkvh, ntok, dh}, rsrc.memory_pool);  
+            // 使用 rearrange 操作进行维度重排，这会自动处理连续性  
+            rearrange(v_buf_permuted, v_buf);  
+            v_buf = v_buf_permuted;
+            //v_buf->debug("/home/featurize/work/My_InfiniLM/v_permute_rerange.bin");
+            
+            // 1. 计算 QK^T: [16, 190, 128] x [16, 128, 190] -> [16, 190, 190]
+            auto k_transposed = k_buf->permute({0, 2, 1});  // [16, 190, 128] -> [16, 128, 190]
+            auto qk_gemm = Tensor::buffer(dt_logits, {nh, ntok, ntok}, rsrc.memory_pool);
+            linear(qk_gemm, q_buf, k_transposed, 1.f / float(sqrt(dh)), 0.0, nullptr, nullptr);
+            //qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm.bin");
+
+            // // 2. Softmax (causal)
+            softmax(qk_gemm, qk_gemm, 2); // 16 190 190 
+            //qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_gemm_softmax.bin"); 
+
+            // // 3. Attention
+            // qk_gemm->debug("/home/featurize/work/My_InfiniLM/qk_softmax.bin");
+            auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
+            linear(attn_buf, qk_gemm, v_buf, 1.0, 0.0, nullptr, nullptr);
+            //attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf.bin");
+
+            attn_buf = attn_buf->permute({1, 0, 2});
+            auto attn_buf_permuted = Tensor::buffer(dt_logits, {ntok, nh, dh}, rsrc.memory_pool);  
+            rearrange(attn_buf_permuted, attn_buf);  
+            attn_buf = attn_buf_permuted;
+            //attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_buf_reshape.bin");
+            // // 3. 计算 Attention x V: [16, 190, 190] x [16, 190, 128] -> [16, 190, 128]
+            // auto attn_buf = Tensor::buffer(dt_logits, {nh, ntok, dh}, rsrc.memory_pool);
+            // linear(attn_buf, qk_gemm, v_buf, 1.0, 0.0, nullptr, nullptr);
+            // attn_buf->debug("/home/featurize/work/My_InfiniLM/attn_output.bin");
+
+            // // 4. 转换回 [ntok, nh, dh]
+            //attn_buf = attn_buf->permute({1, 0, 2});  // [16, 190, 128] -> [190, 16, 128]
+
+            // // 保存调试信息
+            std::cout << "Attention 完成" << std::endl;
+            auto o_tensor = rsrc.w_attn_out[layer];
+            // o_tensor->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/o_buf.bin");
+            linear(o_buf, attn_buf->view({ntok, nh * dh}), rsrc.w_attn_out[layer], 1.0, 0.0, logits_in, nullptr );
+            // o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/attn_outpu_residal.bin");
+            
+            auto residual_buf = Tensor::buffer(o_buf->dtype(), o_buf->shape(), rsrc.memory_pool);  
+            residual_buf->copyFrom(o_buf, rsrc.handle, rsrc.stream); // 异步拷贝  
+
+
+            // POST Attention
+            rmsnorm(o_buf, o_buf, rsrc.w_ffn_norm[layer], meta.epsilon);
+            // o_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/post_layer_norm.bin");
+
+
+            // START MLP
+            // gate 
+            auto routing_weight = Tensor::buffer(dt_logits, {ntok, nexperts}, rsrc.memory_pool);
+            linear(routing_weight, o_buf, rsrc.w_expert_router[layer], 1.0, 0.0, nullptr, nullptr);
+            // routing_weight->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/choiced_expert.bin");
+
+            auto global_expert_out = Tensor::buffer(dt_logits, {ntok, d}, rsrc.memory_pool);  
+            // // 可选：清零  
+            // RUN_INFINI(infinirtMemsetAsync(global_expert_out->data(), 0,  
+            //                             global_expert_out->numel() * dsize(dt_logits),  
+            //                             rsrc.stream));  
+
+            // size_t bytes = std::accumulate(shape.begin(), shape.end(), dsize(dt_logits), std::multiplies<size_t>());  
+            // void *zero_host = std::malloc(ntok * d * dsize(dt_logits));  
+            // std::memset(zero_host, 0, bytes);  
+            // auto t = Tensor::weight(zero_host, dt_logits, shape);  
+            // std::free(zero_host);
+
+            for (size_t t = 0; t < ntok; ++t) {  
+                auto token_slice = o_buf->slice(0, t, 1); // [1, nexperts] 
+                
+                // 对当前 token 执行专家选择和计算  
+                auto values = Tensor::buffer(INFINI_DTYPE_F32, {8}, rsrc.memory_pool);  // 输出: softmax 后的权重
+                auto indices = Tensor::buffer(INFINI_DTYPE_I32, {8}, rsrc.memory_pool); // 输出: 选中的专家索引
+                topksoftmax(values, indices, routing_weight->slice(0, t, 1), 8, false);
+                auto values_cpu = std::vector<float>(8, 0.0f);
+                auto indices_cpu = std::vector<int>(8);
+                infinirtMemcpy(values_cpu.data(), values->data(), sizeof(float) * 8, INFINIRT_MEMCPY_D2H);
+                infinirtMemcpy((void *)indices_cpu.data(), indices->data(), sizeof(uint32_t) * 8, INFINIRT_MEMCPY_D2H);
+                
+                // std::cout << "TOKEN " << t << std::endl;
+                // for(int j = 0 ; j < 8; j ++){
+                //     std::cout << "Indices Cpu " << indices_cpu[j] <<
+                //     " Values CPU " << values_cpu[j] << std::endl;
+                // }
+
+                auto gate_result = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                auto up_result   = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                // auto experts_result = Tensor::buffer(dt_logits, {1, d}, rsrc.memory_pool);
+                auto down_input = Tensor::buffer(dt_logits, {1, d}, rsrc.memory_pool);
+                auto moe_up_buf = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                auto moe_gate_buf = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                auto swiglu_result = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
+                
+
+                size_t bytes = d * dsize(dt_logits);                  
+                void *zero_host = std::malloc(bytes);  
+                std::memset(zero_host, 0, bytes);  
+                // 3. 用 Tensor::weight 创建（会触发 load 拷贝）  
+                auto expert_out = Tensor::weight(zero_host, dt_logits, {1, d});
+
+                for(uint32_t i = 0; i < 8; i ++){
+                    //std::cout << "Choose " << indices_cpu[i] << "  Expert" << " Values is " << values_cpu[i] << std::endl;
+                    linear(moe_gate_buf, token_slice, rsrc.w_expert_gate[layer]->slice(0, indices_cpu[i], 1), 1.0, 0.0, nullptr, nullptr);
+                    //moe_gate_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_gate_buf.bin");
+                    linear(moe_up_buf, token_slice, rsrc.w_expert_up[layer]->slice(0, indices_cpu[i], 1), 1.0, 0.0, nullptr, nullptr);
+                    //moe_up_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin");
+                    // moe_gate_buf->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/moe_up_buf.bin");
+                    swiglu(swiglu_result, moe_up_buf, moe_gate_buf);
+                    //swiglu_result->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/swiglu_result.bin");
+                    linear(down_input, swiglu_result, rsrc.w_expert_down[layer]->slice(0, indices_cpu[i], 1), values_cpu[i], 0.0, nullptr, nullptr);
+                    // rsrc.w_expert_down[0]->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/down_weight.bin");
+                    // down_input->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/down_input.bin");
+                    add(expert_out, expert_out, down_input);
+                }
+                // expert_out->debug(std::string("/home/featurize/work/My_InfiniLM/layer_0_weights/result_token/expert_out_")
+                //     + std::to_string(t)
+                //     + ".bin");
+                auto dst_row = global_expert_out->slice(0, t, 1);  
+                dst_row->copyFrom(expert_out, rsrc.handle, rsrc.stream); 
+            }
+            // global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out.bin");
+            add(global_expert_out, global_expert_out, residual_buf);
+            // global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/global_expert_out_residual.bin");
+            logits_in = global_expert_out;
+            global_expert_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/loop.bin");
+            // rmsnorm(global_expert_out, global_expert_out, rsrc.w_out_norm, meta.epsilon);
+           
+            // linear(final_output, global_expert_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            // final_output->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/final_output.bin");
+            if(layer == nlayer - 1){
+                layer_out->copyFrom(global_expert_out, rsrc.handle, rsrc.stream);  // 异步拷贝
+            }
+        }
+        // layer_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out.bin");
+        RUN_INFINI(infinirtStreamSynchronize(rsrc.stream)); // 确保拷贝完成
+        rmsnorm(layer_out, layer_out, rsrc.w_out_norm, meta.epsilon);
+        //rsrc.w_out_norm->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_norm_weight.bin");
+        //layer_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out_norm.bin");
+        // auto final_output = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
+        linear(final_output, layer_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+        //rsrc.w_out_embd->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_embedding_weight.bin");
+        final_output->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/final_output.bin");
 }
 __C void
 forwardBatchLLaDA(struct LLaDAModel *model,
@@ -450,7 +509,6 @@ forwardBatchLLaDA(struct LLaDAModel *model,
                   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                   struct KVCache **kv_caches,
                   void *logits){
-    std::cout << "[DEBUG] forwardBatchLLaDA called with single-threaded mode" << std::endl;
 
     // Set request data
     model->req.tokens = tokens;
@@ -475,8 +533,6 @@ forwardBatchLLaDA(struct LLaDAModel *model,
     int idev = 0;
     int ndev = 1;
     int dev_id = model->dev_ids[idev];
-
-    std::cout << "[DEBUG] Using device " << dev_id << " for forward pass" << std::endl;
 
     // Create device resource (temporary for single-threaded call)
     LLaDADeviceResource rsrc;
