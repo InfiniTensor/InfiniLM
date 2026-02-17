@@ -439,11 +439,11 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
                 infinirtMemcpy(values_cpu.data(), values->data(), sizeof(float) * 8, INFINIRT_MEMCPY_D2H);
                 infinirtMemcpy((void *)indices_cpu.data(), indices->data(), sizeof(uint32_t) * 8, INFINIRT_MEMCPY_D2H);
                 
-                std::cout << "TOKEN " << t << std::endl;
-                for(int j = 0 ; j < 8; j ++){
-                    std::cout << "Indices Cpu " << indices_cpu[j] <<
-                    " Values CPU " << values_cpu[j] << std::endl;
-                }
+                // std::cout << "TOKEN " << t << std::endl;
+                // for(int j = 0 ; j < 8; j ++){
+                //     std::cout << "Indices Cpu " << indices_cpu[j] <<
+                //     " Values CPU " << values_cpu[j] << std::endl;
+                // }
 
                 auto gate_result = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
                 auto up_result   = Tensor::buffer(dt_logits, {1, di_expert}, rsrc.memory_pool);
@@ -496,11 +496,11 @@ void inferDeviceBatch(const LLaDAMeta &meta, LLaDADeviceResource &rsrc,
         // layer_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out.bin");
         RUN_INFINI(infinirtStreamSynchronize(rsrc.stream)); // 确保拷贝完成
         rmsnorm(layer_out, layer_out, rsrc.w_out_norm, meta.epsilon);
-        rsrc.w_out_norm->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_norm_weight.bin");
-        layer_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out_norm.bin");
+        //rsrc.w_out_norm->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_norm_weight.bin");
+        //layer_out->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/loop/layer_out_norm.bin");
         // auto final_output = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
         linear(final_output, layer_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
-        rsrc.w_out_embd->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_embedding_weight.bin");
+        //rsrc.w_out_embd->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/output_embedding_weight.bin");
         final_output->debug("/home/featurize/work/My_InfiniLM/layer_0_weights/save/final_output.bin");
 }
 __C void

@@ -739,22 +739,21 @@ class LLaDAForCauslLM:
         num_blocks = gen_length // block_length
         assert steps % num_blocks == 0
         steps = steps // num_blocks
-
+        x = torch.tensor(tokens).to('cuda:0')
         for num_block in range(num_blocks):
-            x = torch.tensor(tokens).to('cuda:0')
+            # x = torch.tensor(tokens).to('cuda:0')
             block_mask_index = (x[:, tmp_len + num_block * block_length: tmp_len + (num_block + 1) * block_length:] == mask_id)
             num_transfer_tokens = get_num_transfer_tokens(block_mask_index, steps)
             print("over")
             for i in range(steps):
                 mask_index = (x == mask_id)
-                batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
                 seq_len = len(generated_tokens[0])
                 logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
                 logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
-
+                print(f"INTO STEP {i}")
                 self.llada_model.forward_batch(
                             self.model_instance,
-                            batch_tokens_tensor.numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
+                            x.to('cpu').numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
                             seq_len,
                             (c_uint * 1)(seq_len),
                             1,  # nreq
@@ -762,9 +761,26 @@ class LLaDAForCauslLM:
                             kv_cache.data(),
                             logits_ptr,  # Pass the logits buffer to C++
                 )
+                # mask_index = (x == mask_id)
+                # batch_tokens_tensor = torch.tensor(generated_tokens, dtype=torch.long, device="cpu")
+                # seq_len = len(generated_tokens[0])
+                # logits_np = np.zeros((seq_len, vocab_size), dtype=np.float32)
+                # logits_ptr = logits_np.ctypes.data_as(POINTER(c_float))
+
+                # self.llada_model.forward_batch(
+                #             self.model_instance,
+                #             batch_tokens_tensor.numpy().astype(np.uint32).ctypes.data_as(POINTER(c_uint)), 
+                #             seq_len,
+                #             (c_uint * 1)(seq_len),
+                #             1,  # nreq
+                #             (c_uint * 1)(0),  # req_pos = 0 for bidirectional attention (process full sequence)
+                #             kv_cache.data(),
+                #             logits_ptr,  # Pass the logits buffer to C++
+                # )
+
                 output_embedding_lm, _ = read_bf16_pytorch_fixed(
                     "/home/featurize/work/My_InfiniLM/layer_0_weights/save/final_output.bin",
-                    shape = (190, 157184)
+                    shape = (1, 190, 157184)
                 )
                 output_embedding_lm = output_embedding_lm.to('cuda:0')
                 logits = output_embedding_lm
@@ -782,6 +798,7 @@ class LLaDAForCauslLM:
                     _, select_index = torch.topk(confidence[j], k=num_transfer_tokens[j, i])
                     transfer_index[j, select_index] = True
                 x[transfer_index] = x0[transfer_index]
+                print(x)
         # this is start 
         # for step in range(gen_length):
         #     # Check for EOS token
@@ -829,10 +846,11 @@ class LLaDAForCauslLM:
         # kv_cache.drop()
 
         # Decode the generated tokens
-        generated_text = self.tokenizer.decode(generated_tokens[len(tokens):], skip_special_tokens=True)
-        print(f"Generated text: {generated_text}")
+        print(x)
+        # generated_text = self.tokenizer.decode(generated_tokens[len(tokens):], skip_special_tokens=True)
+        # print(f"Generated text: {generated_text}")
 
-        return generated_tokens, generated_text
+        # return generated_tokens, generated_text
 
 
 
