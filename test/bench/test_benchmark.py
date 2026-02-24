@@ -73,6 +73,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             "iluvatar": "cuda",
             "kunlun": "cuda",
             "hygon": "cuda",
+            "ali": "cuda",
         }
 
         device_name = device_map.get(device_type_str.lower(), "cpu")
@@ -184,11 +185,17 @@ class InfiniLMBenchmark(BaseBenchmark):
         start_time = time.perf_counter()
 
         # For cpp backend, reset cache before generation if use_cache is enabled
-        if self.model.use_cache and hasattr(self.model, "_model") and hasattr(self.model._model, "reset_cache"):
+        if (
+            self.model.use_cache
+            and hasattr(self.model, "_model")
+            and hasattr(self.model._model, "reset_cache")
+        ):
             batch_size = input_ids.shape[0]
             seq_len = input_ids.shape[1]
             max_cache_len = max_steps + seq_len
-            self.model.reset_cache(batch_size=batch_size, initial_capacity=max_cache_len)
+            self.model.reset_cache(
+                batch_size=batch_size, initial_capacity=max_cache_len
+            )
 
         # Use model's built-in generate() method which properly handles KV cache
         # Pass sampling parameters (temperature, topk, topp) via kwargs
@@ -656,7 +663,7 @@ def test():
     # Parse arguments manually to handle device flags properly
     if len(sys.argv) < 4:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -739,9 +746,11 @@ def test():
         device_type_str = "kunlun"
     elif device_flag == "--hygon":
         device_type_str = "hygon"
+    elif device_flag == "--ali":
+        device_type_str = "ali"
     else:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -935,9 +944,7 @@ def test():
                 splits_to_load = (
                     ["test"]
                     if split == "test"
-                    else ["validation"]
-                    if split == "val"
-                    else ["validation", "test"]
+                    else ["validation"] if split == "val" else ["validation", "test"]
                 )
                 # Load each subject individually from hardcoded list, excluding "all"
                 for subject_name in mmlu_subjects:
@@ -959,9 +966,7 @@ def test():
                 splits_to_load = (
                     ["test"]
                     if split == "test"
-                    else ["validation"]
-                    if split == "val"
-                    else ["validation", "test"]
+                    else ["validation"] if split == "val" else ["validation", "test"]
                 )
                 records = []
                 for sp in splits_to_load:
