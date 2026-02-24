@@ -168,6 +168,11 @@ def get_args():
         help="Run alippu test",
     )
     parser.add_argument(
+        "--hygon",
+        action="store_true",
+        help="Run hygon test",
+    )
+    parser.add_argument(
         "--model",
         type=str,
         required=True,
@@ -386,6 +391,8 @@ if __name__ == "__main__":
     elif args.cambricon:
         device_str = "mlu"
     elif args.ali:
+        device_str = "cuda"
+    elif args.hygon:
         device_str = "cuda"
     else:
         print(
