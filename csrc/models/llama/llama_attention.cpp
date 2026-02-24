@@ -353,7 +353,6 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                 std::nullopt,
                 scaling_);
         } else {
-
             const size_t _PARTITION_SIZE = 512;
             size_t num_seqs = seq_len;
             auto seq_lens = total_sequence_lengths.value();
@@ -369,11 +368,6 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             size_t block_size = k_total->shape()[2];
             const size_t x = 16 / infinicore::dsize(k_total->dtype());
 
-            // attn_output
-            infinicore::Tensor exp_sums = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
-            infinicore::Tensor max_logits = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
-            infinicore::Tensor tmp_output = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions, head_dim_}, infinicore::DataType::F32, q_reshaped->device());
-
             auto query = q_reshaped;
             auto value_cache = v_total;
             auto key_cache = k_total;
@@ -386,29 +380,59 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             const int blocksparse_block_size = 64;
             const int blocksparse_head_sliding_step = 0;
 
-            infinicore::op::paged_attention_v2_(attn_output, //  ok
-                                                exp_sums,    //  ok
-                                                max_logits,  //  ok
-                                                tmp_output,  //  ok
-                                                query,       //  ok
-                                                key_cache,
-                                                value_cache,                  //  ok
-                                                num_key_value_heads_,         //  ok
-                                                scaling_,                     //  ok
-                                                block_tables.value(),         // -
-                                                seq_lens,                     // ok
-                                                block_size,                   // ok
-                                                max_seq_len,                  // ok
-                                                std::nullopt,                 // ok
-                                                "auto",                       // ok
-                                                k_scale,                      // ok
-                                                v_scale,                      // ok
-                                                tp_rank,                      // ok
-                                                blocksparse_local_blocks,     // ok
-                                                blocksparse_vert_stride,      // ok
-                                                blocksparse_block_size,       // ok
-                                                blocksparse_head_sliding_step // ok
-            );
+            bool use_v1 = max_seq_len <= 8192 and (max_num_partitions == 1 or num_seqs * num_attention_heads_ > 512);
+            // use_v1 = false;
+            if (use_v1) {
+                infinicore::op::paged_attention_v1(attn_output, //  ok
+                                                   query,       //  ok
+                                                   key_cache,
+                                                   value_cache,                  //  ok
+                                                   num_key_value_heads_,         //  ok
+                                                   scaling_,                     //  ok
+                                                   block_tables.value(),         // -
+                                                   seq_lens,                     // ok
+                                                   block_size,                   // ok
+                                                   max_seq_len,                  // ok
+                                                   std::nullopt,                 // ok
+                                                   "auto",                       // ok
+                                                   k_scale,                      // ok
+                                                   v_scale,                      // ok
+                                                   tp_rank,                      // ok
+                                                   blocksparse_local_blocks,     // ok
+                                                   blocksparse_vert_stride,      // ok
+                                                   blocksparse_block_size,       // ok
+                                                   blocksparse_head_sliding_step // ok
+                );
+            } else {
+
+                // attn_output
+                infinicore::Tensor exp_sums = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
+                infinicore::Tensor max_logits = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
+                infinicore::Tensor tmp_output = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions, head_dim_}, infinicore::DataType::F32, q_reshaped->device());
+                infinicore::op::paged_attention_v2_(attn_output, //  ok
+                                                    exp_sums,    //  ok
+                                                    max_logits,  //  ok
+                                                    tmp_output,  //  ok
+                                                    query,       //  ok
+                                                    key_cache,
+                                                    value_cache,                  //  ok
+                                                    num_key_value_heads_,         //  ok
+                                                    scaling_,                     //  ok
+                                                    block_tables.value(),         // -
+                                                    seq_lens,                     // ok
+                                                    block_size,                   // ok
+                                                    max_seq_len,                  // ok
+                                                    std::nullopt,                 // ok
+                                                    "auto",                       // ok
+                                                    k_scale,                      // ok
+                                                    v_scale,                      // ok
+                                                    tp_rank,                      // ok
+                                                    blocksparse_local_blocks,     // ok
+                                                    blocksparse_vert_stride,      // ok
+                                                    blocksparse_block_size,       // ok
+                                                    blocksparse_head_sliding_step // ok
+                );
+            }
         }
 
     } else {

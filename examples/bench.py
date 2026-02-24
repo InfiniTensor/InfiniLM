@@ -231,8 +231,11 @@ def get_args():
     )
     parser.add_argument(
         "--enable-paged-attn",
-        action="store_true",
-        help="use paged cache",
+        nargs='?',
+        default=None,
+        const='PAGED_ATTN',
+        choices=['PAGED_ATTN', 'PAGED_ATTN_V2'],
+        help='use paged cache (default: None, use PAGED_ATTN, or pass PAGED_ATTN_V2 explicitly)'
     )
     parser.add_argument(
         "--enable-graph",
