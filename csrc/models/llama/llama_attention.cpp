@@ -380,8 +380,9 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             const int blocksparse_block_size = 64;
             const int blocksparse_head_sliding_step = 0;
 
-            bool use_v1 = max_seq_len <= 8192 and (max_num_partitions == 1 or num_seqs * num_attention_heads_ > 512);
-            // use_v1 = false;
+            bool use_v1 = (max_seq_len <= 1024) and (max_num_partitions == 1 or num_seqs * num_attention_heads_ > 512);
+            // printf("use_v1: %d\n", use_v1);
+            // use_v1 = true;
             if (use_v1) {
                 infinicore::op::paged_attention_v1(attn_output, //  ok
                                                    query,       //  ok

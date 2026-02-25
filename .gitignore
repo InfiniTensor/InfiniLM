@@ -27,6 +27,8 @@ __pycache__/
 
 # txt
 *.txt
+run*.sh
+wget-log*
 
 *.http
 

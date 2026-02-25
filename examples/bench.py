@@ -242,6 +242,7 @@ def get_args():
         action="store_true",
         help="enable graph compiling",
     )
+    
     parser.add_argument(
         "--warmup",
         action="store_true",

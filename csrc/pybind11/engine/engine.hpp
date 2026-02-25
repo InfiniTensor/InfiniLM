@@ -34,9 +34,12 @@ inline void bind_infer_engine(py::module &m) {
         .def(py::init([](
                           const InfinilmModel::Config &cfg,
                           const distributed::DistConfig &dist,
-                          infinicore::Device::Type dev,
+                          py::object dev_arg,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
                           bool enable_graph_compiling) {
+                 infinicore::Device::Type dev = dev_arg.is_none()
+                     ? infinicore::context::getDevice().getType()
+                     : dev_arg.cast<infinicore::Device::Type>();
                  return std::make_shared<InferEngine>(
                      cfg,
                      dist,
@@ -46,7 +49,7 @@ inline void bind_infer_engine(py::module &m) {
              }),
              py::arg("config"),
              py::arg("distributed_config") = distributed::DistConfig(),
-             py::arg("device_type") = infinicore::context::getDevice().getType(),
+             py::arg("device_type") = py::none(),
              py::arg("cache_config") = py::none(),
              py::arg("enable_graph_compiling") = false)
         .def("load_param", &InferEngine::load_param,

@@ -313,6 +313,6 @@ curl -N -H "Content-Type: application/json" \
        "top_k": 50,
        "top_p": 0.8,
        "max_tokens": 512,
-       "stream": true
+       "stream": false
      }'
 """
