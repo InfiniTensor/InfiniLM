@@ -2,6 +2,18 @@ import sys
 from jiuge import *
 from datasets import load_dataset
 
+# Support AWQ and GPTQ
+from libinfinicore_infer import (
+    JiugeAWQModel,
+    JiugeAWQMetaCStruct,
+    JiugeGPTQModel,
+    JiugeGPTQMetaCStruct,
+    DeviceType,
+    KVCacheCStruct,
+)
+
+# Import missing classes
+from jiuge import KVCache, InferTask
 
 class JiugeForCeval(JiugeForCauslLM):
     def __init__(
@@ -68,25 +80,50 @@ def test():
         )
         sys.exit(1)
 
-    model_path = sys.argv[2]
+    # -----------------------------
+    # 支持 AWQ/GPTQ 参数
+    # -----------------------------
+    use_awq = False
+    use_gptq = False
+    device_arg = None
+    model_path = None
+    ndev = 1
+
+    # 解析 sys.argv
+    for arg in sys.argv[1:]:
+        if arg.lower() == "--awq":
+            use_awq = True
+        elif arg.lower() == "--gptq":
+            use_gptq = True
+        elif arg.startswith("--"):
+            device_arg = arg.lower()
+        else:
+            if model_path is None:
+                model_path = arg
+            else:
+                ndev = int(arg)
+
+    # -----------------------------
+    # 设置设备类型
+    # -----------------------------
     device_type = DeviceType.DEVICE_TYPE_CPU
-    if sys.argv[1] == "--cpu":
+    if device_arg == "--cpu":
         device_type = DeviceType.DEVICE_TYPE_CPU
-    elif sys.argv[1] == "--nvidia":
+    elif device_arg == "--nvidia":
         device_type = DeviceType.DEVICE_TYPE_NVIDIA
-    elif sys.argv[1] == "--cambricon":
+    elif device_arg == "--cambricon":
         device_type = DeviceType.DEVICE_TYPE_CAMBRICON
-    elif sys.argv[1] == "--ascend":
+    elif device_arg == "--ascend":
         device_type = DeviceType.DEVICE_TYPE_ASCEND
-    elif sys.argv[1] == "--metax":
+    elif device_arg == "--metax":
         device_type = DeviceType.DEVICE_TYPE_METAX
-    elif sys.argv[1] == "--moore":
+    elif device_arg == "--moore":
         device_type = DeviceType.DEVICE_TYPE_MOORE
-    elif sys.argv[1] == "--iluvatar":
+    elif device_arg == "--iluvatar":
         device_type = DeviceType.DEVICE_TYPE_ILUVATAR
-    elif sys.argv[1] == "--kunlun":
+    elif device_arg == "--kunlun":
         device_type = DeviceType.DEVICE_TYPE_KUNLUN
-    elif sys.argv[1] == "--hygon":
+    elif device_arg == "--hygon":
         device_type = DeviceType.DEVICE_TYPE_HYGON
     else:
         print(
@@ -94,8 +131,9 @@ def test():
         )
         sys.exit(1)
 
-    # https://huggingface.co/datasets/ceval/ceval-exam/tree/main/middle_school_geography
-
+    # -----------------------------
+    # 加载 CEval 数据集
+    # -----------------------------
     dataset = load_dataset(r"ceval/ceval-exam", name="middle_school_mathematics")
     # dataset = load_dataset(r"ceval/ceval-exam", name="high_school_history")
     # dataset = load_dataset(r"ceval/ceval-exam", name="high_school_chinese")
@@ -104,8 +142,16 @@ def test():
     # dataset = load_dataset(r"ceval/ceval-exam", name="middle_school_physics")
 
     samples = dataset["val"]
-    ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    model = JiugeForCeval(model_path, device_type, ndev)
+
+    # -----------------------------
+    # 初始化模型
+    # -----------------------------
+    if use_awq:
+        model = JiugeAWQModel(model_path, device_type, ndev)
+    elif use_gptq:
+        model = JiugeGPTQModel(model_path, device_type, ndev)
+    else:
+        model = JiugeForCeval(model_path, device_type, ndev)
 
     answers_list = []
     for sample in samples:
@@ -131,6 +177,10 @@ def test():
 
     print("-------------------------------------------------------------")
 
+    # -----------------------------
+    # 计算正确率
+    # -----------------------------
+    import re
     true_num = 0
     all_num = 0
     for cont in answers_list:
@@ -139,9 +189,10 @@ def test():
         answer = cont["answer"]
 
         all_num = all_num + 1
-        position = 0
-        ABCD = output[position : position + 2]
-        if answer in ABCD:
+        # 提取模型输出的第一个选项 A/B/C/D
+        match = re.search(r"[A-D]", output)
+        model_answer = match.group(0) if match else ""
+        if model_answer == answer:
             true_num = true_num + 1
             print(f"id {id} : ", "正确")
         else:

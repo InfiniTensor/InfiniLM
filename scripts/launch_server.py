@@ -69,6 +69,12 @@ def parse_args():
         action="store_true",
         help="Whether to use AWQ quantized model (default: False)",
     )
+    # Add support for GPTQ
+    parser.add_argument(
+        "--gptq",
+        action="store_true",
+        help="Whether to use GPTQ quantized model (default: False)",
+    )
     return parser.parse_args()
 
 
@@ -78,6 +84,7 @@ model_path = args.model_path
 ndev = args.ndev
 max_tokens = args.max_tokens
 USE_AWQ = args.awq
+USE_GPTQ = args.gptq
 MAX_BATCH = args.max_batch
 print(
     f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
@@ -125,6 +132,10 @@ async def lifespan(app: FastAPI):
     # Startup
     if USE_AWQ:
         app.state.model = JiugeAWQForCausalLM(
+            model_path, device_type, ndev, max_tokens=max_tokens
+        )
+    elif USE_GPTQ:
+        app.state.model = JiugeGPTQForCausalLM(
             model_path, device_type, ndev, max_tokens=max_tokens
         )
     else:

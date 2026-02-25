@@ -1,5 +1,5 @@
 #pragma once
-#include "infinicore_infer/models/jiuge_awq.h"
+#include "infinicore_infer/models/jiuge_gptq.h"
 
 #include "../../cache.hpp"
 #include "../../dataloader/weights_loader.hpp"
@@ -9,36 +9,36 @@
 #include <thread>
 
 struct QuantInt4Weight {
-    std::shared_ptr<Tensor> w, s, z;
+    std::shared_ptr<Tensor> w, s, z, g_idx;  // add g_idx
 };
 
-struct JiugeAWQDeviceWeight {
+struct JiugeGPTQDeviceWeight {
     std::shared_ptr<Tensor> w_in_embd, w_out_norm, w_out_embd, sin_table,
         cos_table;
     std::vector<std::shared_ptr<Tensor>> w_attn_norm, b_attn_q, b_attn_k, b_attn_v, w_ffn_norm;
     std::vector<std::shared_ptr<QuantInt4Weight>> w_attn_q, w_attn_k, w_attn_v, w_attn_out, w_ffn_gate, w_ffn_up, w_ffn_down;
 };
 
-class JiugeAWQWeights : public infinicore::weights::Loader {
+class JiugeGPTQWeights : public infinicore::weights::Loader {
 private:
-    std::vector<std::shared_ptr<JiugeAWQDeviceWeight>> _device_weights;
+    std::vector<std::shared_ptr<JiugeGPTQDeviceWeight>> _device_weights;
 
 public:
-    JiugeAWQWeights(const JiugeAWQMeta *meta,
+    JiugeGPTQWeights(const JiugeGPTQMeta *meta,
                     infiniDevice_t device,
                     const std::vector<int> &dev_ids);
-    std::vector<std::shared_ptr<JiugeAWQDeviceWeight>> &device_weights() {
+    std::vector<std::shared_ptr<JiugeGPTQDeviceWeight>> &device_weights() {
         return _device_weights;
     }
 };
 
-struct AWQDeviceResource {
+struct GPTQDeviceResource {
     // Device
     infiniDevice_t device;
     int device_id;
     infiniopHandle_t handle;
     // Weights
-    std::shared_ptr<JiugeAWQDeviceWeight> weights;
+    std::shared_ptr<JiugeGPTQDeviceWeight> weights;
     // Streams
     infinirtStream_t stream;
     // Communicator
@@ -69,14 +69,14 @@ struct InferState {
     bool exit_flag = false;
 };
 
-struct JiugeAWQModel {
-    JiugeAWQMeta meta;
+struct JiugeGPTQModel {
+    JiugeGPTQMeta meta;
     infiniDevice_t device;
     std::vector<int> dev_ids;
-    std::vector<AWQDeviceResource> dev_resources;
+    std::vector<GPTQDeviceResource> dev_resources;
     std::vector<InferState> states;
     std::vector<std::thread> threads;
     InferRequest req;
 
-    JiugeAWQModel(const JiugeAWQMeta *, const ModelWeights *);
+    JiugeGPTQModel(const JiugeGPTQMeta *, const ModelWeights *);
 };

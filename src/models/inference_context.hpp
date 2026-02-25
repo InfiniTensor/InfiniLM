@@ -4,6 +4,11 @@
 
 #include <cassert>
 
+enum class QuantType {
+    AWQ,
+    GPTQ
+};
+
 struct InferenceContext {
     infiniopHandle_t op_handle;
     std::shared_ptr<MemoryPool> memory_pool;
@@ -61,7 +66,9 @@ struct InferenceContext {
     void dequant(std::shared_ptr<Tensor> weight,
                  std::shared_ptr<Tensor> in_w,
                  std::shared_ptr<Tensor> in_s,
-                 std::shared_ptr<Tensor> in_z);
+                 std::shared_ptr<Tensor> in_z,
+                 QuantType type,
+                 std::shared_ptr<Tensor> in_g_idx = nullptr);
 };
 
 namespace {
@@ -144,8 +151,9 @@ inline void linear(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
 
 inline void dequant_linear(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> x,
                            std::shared_ptr<Tensor> w_w, std::shared_ptr<Tensor> w_s, std::shared_ptr<Tensor> w_z,
-                           float alpha, float beta, std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> bias) {
+                           float alpha, float beta, std::shared_ptr<Tensor> residual, std::shared_ptr<Tensor> bias,
+                           QuantType type = QuantType::AWQ, std::shared_ptr<Tensor> w_g_idx = nullptr) {
     auto w = Tensor::buffer(x->dtype(), {x->shape()[1], out->shape()[1]}, getInferenceContext().memory_pool);
-    getInferenceContext().dequant(w, w_w, w_s, w_z);
+    getInferenceContext().dequant(w, w_w, w_s, w_z, type, w_g_idx);
     getInferenceContext().linear(out, x, w, alpha, beta, residual, bias);
 }

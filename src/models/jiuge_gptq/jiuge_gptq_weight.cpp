@@ -1,4 +1,4 @@
-#include "jiuge_awq.hpp"
+#include "jiuge_gptq.hpp"
 
 #include <cmath>
 
@@ -40,8 +40,8 @@ inline std::shared_ptr<Tensor> getCosTable(size_t dctx, size_t dh, float theta) 
     return tensor;
 }
 
-JiugeAWQWeights::JiugeAWQWeights(
-    const JiugeAWQMeta *meta,
+JiugeGPTQWeights::JiugeGPTQWeights(
+    const JiugeGPTQMeta *meta,
     infiniDevice_t device,
     const std::vector<int> &dev_ids) : infinicore::weights::Loader(device, dev_ids) {
     auto ndev = dev_ids.size();
@@ -62,7 +62,7 @@ JiugeAWQWeights::JiugeAWQWeights(
     for (size_t i = 0; i < ndev; i++) {
         RUN_INFINI(infinirtSetDevice(device, dev_ids[i]));
 
-        auto weight = std::make_shared<JiugeAWQDeviceWeight>();
+        auto weight = std::make_shared<JiugeGPTQDeviceWeight>();
         _device_weights[i] = weight;
 
         auto w_in_embd = Tensor::weight(nullptr, dt_logits, {dvoc, d});
@@ -91,12 +91,16 @@ JiugeAWQWeights::JiugeAWQWeights(
 
 #define REGISTER_LAYER_QUANT_WEIGHT(W_NAME, W_VAR, W_IN, W_OUT, W_DIST_TYPE)                                     \
     auto W_VAR = std::make_shared<QuantInt4Weight>();                                                            \
-    W_VAR->w = Tensor::weight(nullptr, INFINI_DTYPE_I32, {W_IN, (W_OUT)*nbit / 32});                             \
+    /* GPTQ layout: qweight[in_packed=W_IN/8, out_features=W_OUT]; zeros/scales grouped by input */              \
+    W_VAR->w = Tensor::weight(nullptr, INFINI_DTYPE_I32, {(W_IN)*nbit / 32, (W_OUT)});                           \
     this->register_weight(W_NAME + ".qweight", W_VAR->w, i, infinicore::weights::DistributionType::W_DIST_TYPE); \
     W_VAR->s = Tensor::weight(nullptr, INFINI_DTYPE_F16, {(W_IN) / quant_group_size, (W_OUT)});                  \
     this->register_weight(W_NAME + ".scales", W_VAR->s, i, infinicore::weights::DistributionType::W_DIST_TYPE);  \
     W_VAR->z = Tensor::weight(nullptr, INFINI_DTYPE_I32, {(W_IN) / quant_group_size, (W_OUT)*nbit / 32});        \
     this->register_weight(W_NAME + ".qzeros", W_VAR->z, i, infinicore::weights::DistributionType::W_DIST_TYPE);  \
+    W_VAR->g_idx = Tensor::weight(nullptr, INFINI_DTYPE_I32, {(W_IN)});                                          \
+    auto W_VAR##_gidx_dist = (infinicore::weights::DistributionType::W_DIST_TYPE == infinicore::weights::DistributionType::ROW) ? infinicore::weights::DistributionType::ROW : infinicore::weights::DistributionType::FULL; \
+    this->register_weight(W_NAME + ".g_idx", W_VAR->g_idx, i, W_VAR##_gidx_dist);                               \
     weight->W_VAR.push_back(W_VAR);
 
             REGISTER_LAYER_QUANT_WEIGHT("model.layers." + std::to_string(layer) + ".self_attn.q_proj", w_attn_q, d, nh * dh, COLUMN);
@@ -114,21 +118,20 @@ JiugeAWQWeights::JiugeAWQWeights(
         }
     }
 
-#undef RIGISTER_LAYER_WEIGHT
+    #undef RIGISTER_LAYER_WEIGHT
 #undef REGISTER_LAYER_QUANT_WEIGHT
 }
 
 __C struct ModelWeights *
-createJiugeAWQWeights(const JiugeAWQMeta *meta,
+createJiugeGPTQWeights(const JiugeGPTQMeta *meta,
                       infiniDevice_t device,
                       int ndev,
                       const int *dev_ids) {
-    JiugeAWQWeights *weights = new JiugeAWQWeights(meta, device, std::vector<int>(dev_ids, dev_ids + ndev));
+    JiugeGPTQWeights *weights = new JiugeGPTQWeights(meta, device, std::vector<int>(dev_ids, dev_ids + ndev));
     return (struct ModelWeights *)weights;
 }
 
 // 建立外部别名, 防止python端冲突
-__C void JiugeAWQLoadWeight(struct ModelWeights *weights, const char *name, void *data) {
-    // 直接转发调用通用的 loadModelWeight
+__C void JiugeGPTQLoadWeight(struct ModelWeights *weights, const char *name, void *data) {
     loadModelWeight(weights, name, data);
 }
