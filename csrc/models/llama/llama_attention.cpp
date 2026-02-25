@@ -359,21 +359,10 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             auto query = q_reshaped;
 
             auto value_cache = v_total->permute({0, 1, 3, 2})->contiguous();
-            // std::cout << "value_cache: 00 --- " << value_cache->info() << std::endl;
             value_cache = value_cache->view({num_blocks, num_key_value_heads_, head_dim_ / x, block_size, x});
-            // std::cout << "value_cache: 11 --- " << value_cache->info() << std::endl;
-
-            if (0) {
-                auto value_cache = v_total->permute({0, 1, 3, 2})->contiguous();
-                // std::cout << "value_cache: 00 --- " << value_cache->info() << std::endl;
-                value_cache = value_cache->view({num_blocks, num_key_value_heads_, head_dim_, block_size});
-                // std::cout << "value_cache: 11 --- " << value_cache->info() << std::endl;
-            }
 
             auto key_cache = k_total->permute({0, 1, 3, 2})->contiguous();
-            // std::cout << "key_cache: 00 --- " << key_cache->info() << std::endl;
             key_cache = key_cache->view({num_blocks, num_key_value_heads_, head_dim_ / x, x, block_size})->permute({0, 1, 2, 4, 3})->contiguous();
-            // std::cout << "key_cache: 11 --- " << key_cache->info() << std::endl;
 
             infinicore::Tensor k_scale = infinicore::Tensor::empty({1}, infinicore::DataType::F32, q_reshaped->device());
             infinicore::Tensor v_scale = infinicore::Tensor::empty({1}, infinicore::DataType::F32, q_reshaped->device());

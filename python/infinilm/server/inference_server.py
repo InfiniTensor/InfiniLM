@@ -573,7 +573,7 @@ def parse_args():
     parser.add_argument(
         "--dtype",
         type=str,
-        default="float16",
+        default="bfloat16",
         choices=["float32", "float16", "bfloat16"],
         help="Data type",
     )

@@ -251,11 +251,11 @@ def test(
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            stop_on_eos=False,
         ),
         _measure_and_log_time=True,
     )
     t2 = time.time()
-
 
 
     numpy_output_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
@@ -312,7 +312,7 @@ if __name__ == "__main__":
         device_str = "cuda"
         infini_device = infinicore.device(device_str, 0)
         model_path = os.path.expanduser("/home/ubuntu/models/Qwen/Qwen3-0.6B")
-        max_new_tokens = 20
+        max_new_tokens = 150
         tp = 1
         enable_paged_attn = True
    
