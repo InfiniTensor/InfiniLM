@@ -164,7 +164,7 @@ PagedKVCache::PagedKVCache(
     // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
     k_caches_ = infinicore::Tensor::empty(
         {rank_num_layers_,
-         num_blocks_per_layer_,
+         num_blocks_per_layer_ + 1,
          num_rank_k_heads_,
          block_size_,
          k_dim_},
@@ -174,7 +174,7 @@ PagedKVCache::PagedKVCache(
     // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
     v_caches_ = infinicore::Tensor::empty(
         {rank_num_layers_,
-         num_blocks_per_layer_,
+         num_blocks_per_layer_ + 1,
          num_rank_v_heads_,
          block_size_,
          v_dim_},

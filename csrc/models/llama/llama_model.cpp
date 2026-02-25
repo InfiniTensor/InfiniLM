@@ -101,7 +101,7 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     size_t num_layers = layers_.size();
     infinicore::Tensor residual;
     for (size_t i = 0; i < num_layers; ++i) {
-        layers_.at(i)->forward(
+        auto ret = layers_.at(i)->forward(
             hidden_states,
             residual,
             position_ids,
@@ -111,9 +111,11 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
             input_offsets,
             block_tables,
             slot_mapping);
+        hidden_states = std::get<0>(ret);
     }
 
-    norm_->forward_inplace(hidden_states, residual);
+    // norm_->forward_inplace(hidden_states, residual);
+    hidden_states = norm_->forward(hidden_states);
 
     return hidden_states;
 }

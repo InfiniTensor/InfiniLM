@@ -294,6 +294,22 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                                                      v_reshaped,
                                                      slot_mapping.value());
 
+    if (0) {
+        v_total = v_total->narrow({{0, 1, 1}})->permute({0, 1, 3, 2})->contiguous()->narrow({{3, 0, 5}})->contiguous();
+        std::cout << "v_total: " << v_total->info() << v_total << std::endl;
+        exit(-1);
+
+        v_total = v_total->permute({0, 1, 3, 2})->contiguous()->narrow({{3, 0, 5}})->contiguous();
+        std::cout << "v_total: " << v_total->info() << v_total << std::endl;
+        exit(-1);
+    }
+    if (0) {
+        // k_total = k_total->narrow({{0, 1, 1}})->permute({0, 1, 3, 2})->contiguous()->narrow({{3, 0, 5}})->contiguous();
+        // std::cout << "v_total: " << k_total->info() << k_total << std::endl;
+        k_total = k_total->permute({0, 1, 3, 2})->contiguous()->narrow({{3, 0, 5}})->contiguous();
+        std::cout << "k_total: " << k_total->info() << k_total << std::endl;
+        exit(-1);
+    }
     // 6. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
 
@@ -310,15 +326,105 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             scaling_);
 
     } else {
-        infinicore::op::paged_attention_(
-            attn_output,
-            q_reshaped,
-            k_total,
-            v_total,
-            block_tables.value(),
-            total_sequence_lengths.value(),
-            std::nullopt,
-            scaling_);
+        if (1) {
+            // std::cout << "\n------------> forward_paged_ decode..........." << std::endl;
+            // std::cout << "position_ids: " << position_ids << std::endl;
+            // std::cout << "total_sequence_lengths: " << total_sequence_lengths.value() << std::endl;
+            // std::cout << "input_offsets: " << input_offsets.value() << std::endl;
+            // std::cout << "attn_output: " << attn_output->info() << std::endl;
+            // std::cout << "q_reshaped: " << q_reshaped->info() << " is_contiguous " << q_reshaped->is_contiguous() << std::endl;
+            // std::cout << "k_total: " << k_total->info() << std::endl;
+            // std::cout << "v_total: " << v_total->info() << std::endl;
+            // std::cout << "block_tables: " << block_tables.value()->info() << std::endl;
+
+            const size_t _PARTITION_SIZE = 512;
+            size_t num_seqs = seq_len;
+            auto seq_lens = total_sequence_lengths.value();
+            auto seq_lens_cpu = seq_lens->to(infinicore::Device::cpu());
+            int64_t *total_seq_len_ptr = reinterpret_cast<int64_t *>(seq_lens_cpu->data());
+            int64_t max_seq_len = total_seq_len_ptr[0];
+            for (int i = 1; i < num_seqs; i++) {
+                max_seq_len = std::max(max_seq_len, total_seq_len_ptr[i]);
+            }
+            const size_t max_num_partitions = (max_seq_len + _PARTITION_SIZE - 1) / _PARTITION_SIZE;
+
+            size_t num_blocks = k_total->shape()[0];
+            size_t block_size = k_total->shape()[2];
+            const size_t x = 16 / infinicore::dsize(k_total->dtype());
+
+            // attn_output
+            infinicore::Tensor exp_sums = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
+            infinicore::Tensor max_logits = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
+            infinicore::Tensor tmp_output = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions, head_dim_}, infinicore::DataType::F32, q_reshaped->device());
+            auto query = q_reshaped;
+
+            auto value_cache = v_total->permute({0, 1, 3, 2})->contiguous();
+            // std::cout << "value_cache: 00 --- " << value_cache->info() << std::endl;
+            value_cache = value_cache->view({num_blocks, num_key_value_heads_, head_dim_ / x, block_size, x});
+            // std::cout << "value_cache: 11 --- " << value_cache->info() << std::endl;
+
+            if (0) {
+                auto value_cache = v_total->permute({0, 1, 3, 2})->contiguous();
+                // std::cout << "value_cache: 00 --- " << value_cache->info() << std::endl;
+                value_cache = value_cache->view({num_blocks, num_key_value_heads_, head_dim_, block_size});
+                // std::cout << "value_cache: 11 --- " << value_cache->info() << std::endl;
+            }
+
+            auto key_cache = k_total->permute({0, 1, 3, 2})->contiguous();
+            // std::cout << "key_cache: 00 --- " << key_cache->info() << std::endl;
+            key_cache = key_cache->view({num_blocks, num_key_value_heads_, head_dim_ / x, x, block_size})->permute({0, 1, 2, 4, 3})->contiguous();
+            // std::cout << "key_cache: 11 --- " << key_cache->info() << std::endl;
+
+            infinicore::Tensor k_scale = infinicore::Tensor::empty({1}, infinicore::DataType::F32, q_reshaped->device());
+            infinicore::Tensor v_scale = infinicore::Tensor::empty({1}, infinicore::DataType::F32, q_reshaped->device());
+            int tp_rank = 0;
+            const int blocksparse_local_blocks = 0;
+            const int blocksparse_vert_stride = 0;
+            const int blocksparse_block_size = 64;
+            const int blocksparse_head_sliding_step = 0;
+
+            // std::cout << "paged_attention_v2_ start..........." << std::endl;
+            // std::cout << "query: " << query->info() << std::endl;
+            // std::cout << "value_cache: " << value_cache->info() << std::endl;
+            // std::cout << "block_tables: " << block_tables.value()->info() << " ::: " << block_tables.value() << std::endl;
+            // std::cout << "seq_lens: " << seq_lens->info() << " ::: " << seq_lens << std::endl;
+            // std::cout << "value_cache: " << value_cache->info() << value_cache << std::endl;
+            // std::cout << "key_cache: " << key_cache->info() << key_cache->is_contiguous() << key_cache << std::endl;
+            infinicore::op::paged_attention_v2_(attn_output, //  ok
+                                                exp_sums,    //  ok
+                                                max_logits,  //  ok
+                                                tmp_output,  //  ok
+                                                query,       //  ok
+                                                key_cache,
+                                                value_cache,                  //  ok
+                                                num_key_value_heads_,         //  ok
+                                                scaling_,                     //  ok
+                                                block_tables.value(),         // -
+                                                seq_lens,                     // ok
+                                                block_size,                   // ok
+                                                max_seq_len,                  // ok
+                                                std::nullopt,                 // ok
+                                                "auto",                       // ok
+                                                k_scale,                      // ok
+                                                v_scale,                      // ok
+                                                tp_rank,                      // ok
+                                                blocksparse_local_blocks,     // ok
+                                                blocksparse_vert_stride,      // ok
+                                                blocksparse_block_size,       // ok
+                                                blocksparse_head_sliding_step // ok
+            );
+
+        } else {
+            infinicore::op::paged_attention_(
+                attn_output,
+                q_reshaped,
+                k_total,
+                v_total,
+                block_tables.value(),
+                total_sequence_lengths.value(),
+                std::nullopt,
+                scaling_);
+        }
     }
 
     // 7. Project output
