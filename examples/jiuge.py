@@ -3,6 +3,7 @@ import sys
 import time
 import os
 import numpy as np
+import transformers
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import load_model_state_dict_by_file
@@ -313,7 +314,7 @@ if __name__ == "__main__":
         device_str = "cuda"
         infini_device = infinicore.device(device_str, 0)
         model_path = os.path.expanduser("/home/ubuntu/models/Qwen/Qwen3-0.6B")
-        #model_path = os.path.expanduser("/data-aisoft/mechdancer/models/Qwen3-0.6B/")
+        model_path = os.path.expanduser("/data-aisoft/mechdancer/models/Qwen3-0.6B/")
         max_new_tokens = 10
         tp = 1
         enable_paged_attn = "PAGED_ATTN_V2" # "PAGED_ATTN" "PAGED_ATTN_V2"
@@ -322,6 +323,7 @@ if __name__ == "__main__":
         # prompts = ["山东最高的山是？"]
 
         print("prompts: ", prompts)
+        # enable_graph = False
 
     test(
         prompts,

@@ -603,11 +603,6 @@ def parse_args():
         help="Enable graph compiling",
     )
     parser.add_argument(
-        "--enable-graph",
-        action="store_true",
-        help="Enable graph compiling",
-    )
-    parser.add_argument(
         "--log_level",
         type=str,
         default="INFO",

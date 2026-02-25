@@ -120,7 +120,7 @@ class LLMEngine:
             )
         elif config.cache_type == "paged":
             cache_config = PagedKVCacheConfig(
-                num_blocks=config.num_blocks, block_size=config.block_size
+                num_blocks=config.num_blocks, block_size=config.block_size, paged_type=config.paged_type
             )
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
