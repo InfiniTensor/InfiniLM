@@ -71,19 +71,34 @@ LlamaMLP::LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
 }
 
 infinicore::Tensor LlamaMLP::forward(const infinicore::Tensor &hidden_states) const {
-    // 1. Project to gate and up
-    auto hidden_states_mutable = hidden_states;
-    auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
+    infinicore::Device::Type dev_type = hidden_states->device().getType();
+    if(dev_type == infinicore::Device::Type::MOORE){
+        // 1. Project to a single combined gate_up tensor
+        auto hidden_states_mutable = hidden_states;
+        auto gate_up = gate_up_proj_->forward(hidden_states_mutable); 
 
-    // 2. Apply SwiGLU: silu(gate) * up
-    // Note: swiglu kernel expects (up, gate) and computes gate * sigmoid(gate) * up
-    // So we pass (up, gate) to get the correct result: gate * sigmoid(gate) * up
-    auto intermediate = infinicore::op::swiglu(up, gate);
+        // 2. Apply the fused silu_and_mul operator
+        // applies SiLU to the first half, and multiplies it by the second half.
+        // Mathematically equivalent to: result = SiLU(gate_up[..., :d]) * gate_up[..., d:]
+        auto intermediate = infinicore::op::silu_and_mul(gate_up);
 
-    // 3. Project down
-    auto output = down_proj_->forward(intermediate);
+        // 3. Project down
+        auto output = down_proj_->forward(intermediate);
+        return output;
+    } else{
+        // 1. Project to gate and up
+        auto hidden_states_mutable = hidden_states;
+        auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
 
-    return output;
+        // 2. Apply SwiGLU: silu(gate) * up
+        // Note: swiglu kernel expects (up, gate) and computes gate * sigmoid(gate) * up
+        // So we pass (up, gate) to get the correct result: gate * sigmoid(gate) * up
+        auto intermediate = infinicore::op::swiglu(up, gate);
+
+        // 3. Project down
+        auto output = down_proj_->forward(intermediate);
+        return output;
+    }
 }
 
 } // namespace infinilm::models::llama

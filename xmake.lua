@@ -8,6 +8,16 @@ set_toolchains("gcc")
 add_includedirs("third_party/spdlog/include")
 add_includedirs("third_party/json/single_include/")
 
+option("ninetoothed")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to complie NineToothed specifc path")
+option_end()
+
+if has_config("ninetoothed") then
+    add_defines("ENABLE_NINETOOTHED")
+end
+
 target("infinicore_infer")
     set_kind("shared")
 

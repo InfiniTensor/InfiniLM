@@ -93,26 +93,24 @@ StaticKVCache::update(size_t layer_idx,
 
     auto device = k_cache_layer->device();
 
-    if (device.getType() == infinicore::Device::Type::NVIDIA
-        || device.getType() == infinicore::Device::Type::ILUVATAR
-        || device.getType() == infinicore::Device::Type::METAX) {
-        infinicore::op::kv_caching_(
-            k_cache_layer,
-            v_cache_layer,
-            k,
-            v,
-            past_sequence_lengths);
-    } else {
-        size_t cache_pos = reinterpret_cast<int64_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
-        auto result_len = cache_pos + update_len;
-        ASSERT(result_len <= cache_len_);
+#ifdef ENABLE_NINETOOTHED
+    infinicore::op::kv_caching_(
+        k_cache_layer,
+        v_cache_layer,
+        k,
+        v,
+        past_sequence_lengths);
+#else
+    size_t cache_pos = reinterpret_cast<int64_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
+    auto result_len = cache_pos + update_len;
+    ASSERT(result_len <= cache_len_);
 
-        auto k_cache_update = k_cache_layer->narrow({{2, cache_pos, update_len}});
-        auto v_cache_update = v_cache_layer->narrow({{2, cache_pos, update_len}});
+    auto k_cache_update = k_cache_layer->narrow({{2, cache_pos, update_len}});
+    auto v_cache_update = v_cache_layer->narrow({{2, cache_pos, update_len}});
 
-        k_cache_update->copy_from(k);
-        v_cache_update->copy_from(v);
-    }
+    k_cache_update->copy_from(k);
+    v_cache_update->copy_from(v);
+#endif
 
     return {k_cache_layer, v_cache_layer};
 }

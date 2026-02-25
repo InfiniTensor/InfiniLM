@@ -15,7 +15,7 @@ xmake && xmake install
 - 运行模型推理测试
 
 ```bash
-python scripts/jiuge.py [--cpu | --nvidia | --qy | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] path/to/model_dir [n_device]
+python scripts/jiuge.py [--cpu | --nvidia | --qy | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] path/to/model_dir [n_device]
 ```
 
 - 部署模型推理服务
@@ -63,6 +63,12 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
     ```
 
 
+  - 选择是否使用九齿计算路径，默认为false，即不依赖九齿算子
+    ```bash
+      xmake f --ninetoothed= [true | false] -cv
+    ```
+
+
   - 安装 InfiniLM Python 包
     ```bash
       pip install -e .
@@ -71,11 +77,11 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
   - 单次推理测试
     - llama示例
     ```bash
-    python examples/llama.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --ali] --model_path=<path/to/model_dir>
+    python examples/jiuge.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --ali | --cambricon | --hygon] --model_path=<path/to/model_dir>
     ```
     - 例如：
     ```bash
-    python examples/llama.py --nvidia --model_path=/models/TinyLlama-1.1B-Chat-v1.0
+    python examples/jigue.py --nvidia --model_path=/models/TinyLlama-1.1B-Chat-v1.0
     ```
   - 分布式推理测试
       - 9g示例
@@ -113,7 +119,7 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
   - 运行推理基准测试（C-Eval/MMLU）
 
     ```bash
-    python test/bench/test_benchmark.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]
+    python test/bench/test_benchmark.py [--cpu | --nvidia | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]
     ```
 
     - 参数说明：
