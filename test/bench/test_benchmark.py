@@ -4,11 +4,6 @@ import time
 import re
 import csv
 import numpy as np
-import infinicore
-from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.distributed import DistConfig
-from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
 from datasets import load_dataset, Dataset
 from abc import ABC, abstractmethod
 
@@ -57,6 +52,11 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_paged_attn=False,
     ):
         import transformers
+        import infinicore
+        from infinilm.modeling_utils import load_model_state_dict_by_file
+        from infinilm.distributed import DistConfig
+        from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
+        from infinilm.infer_engine import InferEngine
 
         self.benchmark = benchmark
 
@@ -103,7 +103,9 @@ class InfiniLMBenchmark(BaseBenchmark):
             )
         elif model_type in ["qwen2", "qwen3"]:
             # For qwen2/qwen3 models: no trust_remote_code (matches jiuge line 534-536)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
         else:
             # Default: use trust_remote_code=True for other models
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -179,6 +181,9 @@ class InfiniLMBenchmark(BaseBenchmark):
         which properly handles KV cache through GenerationMixin.
         """
         # Convert tokens to infinicore format
+        import infinicore
+        from infinilm.infer_engine import GenerationConfig
+
         input_ids_list = [tokens]
         input_ids = infinicore.from_list(input_ids_list)
 
@@ -370,6 +375,124 @@ class TorchBenchmark(BaseBenchmark):
         print("Torch model destroyed")
 
 
+class VLLMBenchmark(BaseBenchmark):
+    """vLLM backend using vllm.LLM"""
+
+    def __init__(
+        self,
+        model_dir_path,
+        device_type_str="nvidia",
+        tensor_parallel_size=1,
+        benchmark="ceval",
+    ):
+        import transformers
+        from vllm import LLM
+
+        if device_type_str == "cpu":
+            raise ValueError("vLLM backend does not support CPU device type.")
+
+        self.benchmark = benchmark
+
+        # ---- tokenizer ----
+        with open(os.path.join(model_dir_path, "config.json"), "r") as f:
+            import json
+
+            self.config_dict = json.load(f)
+
+        model_type = self.config_dict.get("model_type", "")
+        if model_type in ["qwen2", "qwen3"]:
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
+        else:
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
+
+        eos_token_id = self.config_dict.get("eos_token_id")
+        self.eos_token_id = (
+            [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
+        )
+
+        # ---- vLLM engine ----
+        print("Loading model with vLLM backend...")
+        self.llm = LLM(
+            model=model_dir_path,
+            tensor_parallel_size=tensor_parallel_size,
+            trust_remote_code=True,
+        )
+        print("vLLM model loaded successfully")
+
+    def max_context_len(self):
+        return self.config_dict.get("max_position_embeddings", 2048)
+
+    def render_input_content(self, *args, **kwargs):
+        if self.benchmark == "ceval":
+            return render_ceval(self.tokenizer, *args, **kwargs)
+        elif self.benchmark == "mmlu":
+            return render_mmlu(self.tokenizer, *args, **kwargs)
+        else:
+            raise ValueError(f"Unknown benchmark: {self.benchmark}")
+
+    def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
+        input_content = self.render_input_content(*args)
+        print(input_content, end="", flush=True)
+
+        tokens = self.encode_text(input_content)
+        return self._generate_step(tokens, max_steps, topp_, topk_, temperature_)
+
+    def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
+        from vllm import SamplingParams
+
+        prompt = self.tokenizer.decode(tokens)
+
+        sampling_params = SamplingParams(
+            max_tokens=max_steps,
+            temperature=temperature_,
+            top_p=topp_,
+            top_k=topk_,
+            stop_token_ids=self.eos_token_id,
+        )
+
+        start_time = time.perf_counter()
+
+        outputs = self.llm.generate(
+            prompts=[prompt],
+            sampling_params=sampling_params,
+        )
+
+        end_time = time.perf_counter()
+
+        # ---- post process ----
+        output_text = outputs[0].outputs[0].text
+
+        # ---- stats ----
+        input_tokens = len(tokens)
+        new_tokens = len(self.encode_text(output_text))
+        total_tokens = input_tokens + new_tokens
+
+        total_time = end_time - start_time
+        throughput = total_tokens / total_time if total_time > 0 else 0.0
+
+        print(output_text)
+        print()
+        print(f"Total time: {total_time * 1000:.2f} ms")
+        print(f"Input tokens: {input_tokens}")
+        print(f"New tokens: {new_tokens}")
+        print(f"Total tokens processed: {total_tokens}")
+        print(f"Throughput: {throughput:.2f} tok/s")
+
+        global TOTAL_TOKENS, TOTAL_TIME
+        TOTAL_TOKENS += total_tokens
+        TOTAL_TIME += total_time
+
+        return output_text
+
+    def destroy_model_instance(self):
+        del self.llm
+        print("vLLM model destroyed")
+
+
 def render_ceval(_tokenizer, conversation):
     """Render C-Eval conversation to input content"""
     return (
@@ -397,13 +520,16 @@ def render_mmlu(_tokenizer, question, choices):
     if hasattr(_tokenizer, "apply_chat_template"):
         conversation = [
             {"role": "system", "content": instruction},
-            {"role": "user", "content": f"{question}\n{choices_text}\nAnswer:"},
+            {"role": "user", "content": f"{question}\n{choices_text}\n"},
         ]
         try:
-            return _tokenizer.apply_chat_template(
-                conversation=conversation,
-                add_generation_prompt=True,
-                tokenize=False,
+            return (
+                _tokenizer.apply_chat_template(
+                    conversation=conversation,
+                    add_generation_prompt=True,
+                    tokenize=False,
+                )
+                + "The answer is: "
             )
         except Exception:
             return prompt
@@ -663,7 +789,7 @@ def test():
     # Parse arguments manually to handle device flags properly
     if len(sys.argv) < 4:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch|vllm] [--ndev N] [--subject SUBJECT] [--split {test|val|all}] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -750,7 +876,7 @@ def test():
         device_type_str = "ali"
     else:
         print(
-            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
+            "Usage: python test_benchmark.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> --bench [ceval|mmlu] [--backend cpp|torch|vllm] [--ndev N] [--subject SUBJECT] [--num_samples N] [--max_new_tokens N] [--output_csv PATH] [--cache_dir PATH]"
         )
         sys.exit(1)
 
@@ -773,7 +899,10 @@ def test():
     # Create model based on backend (create once, reuse for all subjects)
 
     if backend == "torch":
+        assert ndev == 1, "Torch backend only supports single-device evaluation"
         model = TorchBenchmark(model_path, device_type_str, benchmark)
+    elif backend == "vllm":
+        model = VLLMBenchmark(model_path, device_type_str, ndev, benchmark)
     else:
         model = InfiniLMBenchmark(
             model_path, device_type_str, ndev, backend, benchmark, enable_paged_attn
@@ -944,7 +1073,9 @@ def test():
                 splits_to_load = (
                     ["test"]
                     if split == "test"
-                    else ["validation"] if split == "val" else ["validation", "test"]
+                    else ["validation"]
+                    if split == "val"
+                    else ["validation", "test"]
                 )
                 # Load each subject individually from hardcoded list, excluding "all"
                 for subject_name in mmlu_subjects:
@@ -966,7 +1097,9 @@ def test():
                 splits_to_load = (
                     ["test"]
                     if split == "test"
-                    else ["validation"] if split == "val" else ["validation", "test"]
+                    else ["validation"]
+                    if split == "val"
+                    else ["validation", "test"]
                 )
                 records = []
                 for sp in splits_to_load:
