@@ -2,6 +2,8 @@
 Inference Server - HTTP API server for LLM inference.
 """
 
+import torch
+
 from contextlib import asynccontextmanager
 import sys
 import time
