@@ -357,10 +357,12 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             infinicore::Tensor max_logits = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
             infinicore::Tensor tmp_output = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions, head_dim_}, infinicore::DataType::F32, q_reshaped->device());
             auto query = q_reshaped;
+            // auto value_cache = v_total;
+            // auto key_cache = k_total;
 
             auto value_cache = v_total->permute({0, 1, 3, 2})->contiguous();
             value_cache = value_cache->view({num_blocks, num_key_value_heads_, head_dim_ / x, block_size, x});
-
+            
             auto key_cache = k_total->permute({0, 1, 3, 2})->contiguous();
             key_cache = key_cache->view({num_blocks, num_key_value_heads_, head_dim_ / x, x, block_size})->permute({0, 1, 2, 4, 3})->contiguous();
 

@@ -1,20 +1,18 @@
-import infinicore
-import transformers
-from transformers import AutoTokenizer
-from tokenizers import decoders as _dec
-from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.distributed import DistConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
 import argparse
 import sys
 import time
 import os
 import numpy as np
+from transformers import AutoTokenizer
+from tokenizers import decoders as _dec
+from infinilm.modeling_utils import load_model_state_dict_by_file
+from infinilm.distributed import DistConfig
+from infinilm.infer_engine import GenerationConfig, InferEngine
+import infinicore
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 from packaging import version
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
-
 
 def get_args():
     parser = argparse.ArgumentParser(description="run Llama args")
@@ -312,10 +310,10 @@ if __name__ == "__main__":
         device_str = "cuda"
         infini_device = infinicore.device(device_str, 0)
         model_path = os.path.expanduser("/home/ubuntu/models/Qwen/Qwen3-0.6B")
-        max_new_tokens = 150
+        model_path = os.path.expanduser("/data-aisoft/mechdancer/models/Qwen3-0.6B/")
+        max_new_tokens = 15
         tp = 1
         enable_paged_attn = True
-   
         prompts = ['How are you', 'How are you']
         prompts = ['How are you']
         print("prompts: ",prompts)
