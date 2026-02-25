@@ -100,9 +100,13 @@ def get_args():
     )
     parser.add_argument(
         "--enable-paged-attn",
-        action="store_true",
-        help="use paged cache",
+        nargs='?',
+        default=None,
+        const='PAGED_ATTN',
+        choices=['PAGED_ATTN', 'PAGED_ATTN_V2'],
+        help='use paged cache (default: None, use PAGED_ATTN, or pass PAGED_ATTN_V2 explicitly)'
     )
+
     parser.add_argument(
         "--enable-graph",
         action="store_true",
@@ -223,7 +227,7 @@ def test(
         batch_size = 1 if prompts is str else len(prompts)
         max_total_tokens = max_new_tokens + len(input_ids_list[0])
         cache_config = PagedKVCacheConfig(
-            num_blocks=((max_total_tokens + 15) // 16) * batch_size, block_size=16
+            num_blocks=((max_total_tokens + 15) // 16) * batch_size, block_size=16, paged_type = enable_paged_attn
         )
     else:
         batch_size = 1 if prompts is str else len(prompts)
@@ -254,7 +258,6 @@ def test(
         _measure_and_log_time=True,
     )
     t2 = time.time()
-
 
     numpy_output_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
     print(tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
@@ -310,13 +313,15 @@ if __name__ == "__main__":
         device_str = "cuda"
         infini_device = infinicore.device(device_str, 0)
         model_path = os.path.expanduser("/home/ubuntu/models/Qwen/Qwen3-0.6B")
-        model_path = os.path.expanduser("/data-aisoft/mechdancer/models/Qwen3-0.6B/")
-        max_new_tokens = 15
+        # model_path = os.path.expanduser("/data-aisoft/mechdancer/models/Qwen3-0.6B/")
+        max_new_tokens = 10
         tp = 1
-        enable_paged_attn = True
-        prompts = ['How are you', 'How are you']
-        prompts = ['How are you']
-        print("prompts: ",prompts)
+        enable_paged_attn = "PAGED_ATTN_V2" # "PAGED_ATTN" "PAGED_ATTN_V2"
+        prompts = ["How are you", "How are you"]
+        prompts = ["How are you"]
+        # prompts = ["山东最高的山是？"]
+
+        print("prompts: ", prompts)
 
     test(
         prompts,

@@ -35,15 +35,19 @@ inline void bind_cache(py::module &m) {
                infinilm::cache::CacheConfig,
                std::shared_ptr<infinilm::cache::PagedKVCacheConfig>>(m, "PagedKVCacheConfig")
         .def(
-            py::init<size_t, size_t>(),
+            py::init<size_t, size_t, std::string>(),
             py::arg("num_blocks"),
-            py::arg("block_size") = 16)
+            py::arg("block_size") = 16,
+            py::arg("paged_type") = "PAGED_ATTN")
         .def(
             "num_blocks",
             &infinilm::cache::PagedKVCacheConfig::num_blocks)
         .def(
             "block_size",
             &infinilm::cache::PagedKVCacheConfig::block_size)
+        .def(
+            "paged_type",
+            &infinilm::cache::PagedKVCacheConfig::paged_type)
         .def("__repr__", [](const infinilm::cache::PagedKVCacheConfig &) {
             return "<PagedKVCacheConfig>";
         });

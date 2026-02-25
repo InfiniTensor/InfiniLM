@@ -120,9 +120,11 @@ StaticKVCache::update(size_t layer_idx,
 // ==========================
 PagedKVCacheConfig::PagedKVCacheConfig(
     size_t num_blocks,
-    size_t block_size)
+    size_t block_size,
+    std::string paged_type)
     : num_blocks_(num_blocks),
-      block_size_(block_size) {
+      block_size_(block_size),
+      paged_type_(paged_type) {
 }
 
 std::unique_ptr<CacheConfig>
@@ -138,6 +140,11 @@ PagedKVCacheConfig::num_blocks() const {
 size_t
 PagedKVCacheConfig::block_size() const {
     return block_size_;
+}
+
+inline std::string
+PagedKVCacheConfig::paged_type() const {
+    return paged_type_;
 }
 
 // ==========================
@@ -160,26 +167,53 @@ PagedKVCache::PagedKVCache(
       rank_num_layers_(num_layers),
       dtype_(dtype),
       num_blocks_per_layer_(config.num_blocks()),
-      block_size_(config.block_size()) {
-    // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
-    k_caches_ = infinicore::Tensor::empty(
-        {rank_num_layers_,
-         num_blocks_per_layer_ + 1,
-         num_rank_k_heads_,
-         block_size_,
-         k_dim_},
-        dtype_,
-        rank_info.device);
+      block_size_(config.block_size()),
+      paged_type_(config.paged_type()) {
 
-    // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
-    v_caches_ = infinicore::Tensor::empty(
-        {rank_num_layers_,
-         num_blocks_per_layer_ + 1,
-         num_rank_v_heads_,
-         block_size_,
-         v_dim_},
-        dtype_,
-        rank_info.device);
+    if (paged_type_ == "PAGED_ATTN") {
+        // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
+        k_caches_ = infinicore::Tensor::empty(
+            {rank_num_layers_,
+             num_blocks_per_layer_ + 1,
+             num_rank_k_heads_,
+             block_size_,
+             k_dim_},
+            dtype_,
+            rank_info.device);
+
+        // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
+        v_caches_ = infinicore::Tensor::empty(
+            {rank_num_layers_,
+             num_blocks_per_layer_ + 1,
+             num_rank_v_heads_,
+             block_size_,
+             v_dim_},
+            dtype_,
+            rank_info.device);
+    } else if (paged_type_ == "PAGED_ATTN_V2") {
+        // [num_layers, num_blocks, block_size, num_rank_k_heads, k_dim]
+        k_caches_ = infinicore::Tensor::empty(
+            {rank_num_layers_,
+             num_blocks_per_layer_ + 1,
+             block_size_,
+             num_rank_k_heads_,
+             k_dim_},
+            dtype_,
+            rank_info.device);
+
+        // [num_layers, num_blocks, block_size, num_rank_v_heads, v_dim]
+        v_caches_ = infinicore::Tensor::empty(
+            {rank_num_layers_,
+             num_blocks_per_layer_ + 1,
+             block_size_,
+             num_rank_v_heads_,
+             v_dim_},
+            dtype_,
+            rank_info.device);
+
+    } else {
+        throw std::runtime_error("Unsupported paged type: " + paged_type_);
+    }
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
@@ -187,7 +221,6 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
     const infinicore::Tensor &k,
     const infinicore::Tensor &v,
     const infinicore::Tensor &slot_mapping) {
-
     auto &&[k_cache_layer, v_cache_layer] = get_paged_kv(layer_idx);
 
     infinicore::op::paged_caching_(
@@ -197,6 +230,34 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
         v,
         slot_mapping);
     return {k_cache_layer, v_cache_layer};
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update_v2(
+    size_t layer_idx,
+    infinicore::Tensor &key,
+    infinicore::Tensor &value,
+    infinicore::Tensor &slot_mapping,
+    const std::string &kv_cache_dtype,
+    infinicore::Tensor &k_scale,
+    infinicore::Tensor &v_scale) {
+    auto &&[k_cache_layer, v_cache_layer] = get_paged_kv(layer_idx);
+
+    const size_t x = 16 / infinicore::dsize(key->dtype());
+
+    auto key_cache = k_cache_layer->view({num_blocks_per_layer_ + 1, num_rank_k_heads_, k_dim_ / x, block_size_, x});
+    auto value_cache = v_cache_layer->view({num_blocks_per_layer_ + 1, num_rank_v_heads_, v_dim_, block_size_});
+
+    infinicore::op::reshape_and_cache(
+        key,
+        value,
+        key_cache,
+        value_cache,
+        slot_mapping,
+        kv_cache_dtype,
+        k_scale,
+        v_scale);
+
+    return {key_cache, value_cache};
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor>
@@ -261,6 +322,10 @@ PagedKVCache::get_contiguous_kv(
     }
 
     return {full_k, full_v};
+}
+
+std::string PagedKVCache::get_paged_type() const {
+    return paged_type_;
 }
 
 } // namespace infinilm::cache

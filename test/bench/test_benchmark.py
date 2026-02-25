@@ -125,7 +125,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             device=self.device,
             distributed_config=DistConfig(ndev),
             cache_config=(
-                PagedKVCacheConfig(128) if enable_paged_attn else StaticKVCacheConfig()
+                PagedKVCacheConfig(128, paged_type=enable_paged_attn) if enable_paged_attn else StaticKVCacheConfig()
             ),
         )
 

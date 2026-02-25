@@ -242,6 +242,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                                                   std::optional<infinicore::Tensor> slot_mapping) const {
     ASSERT(block_tables.has_value());
     ASSERT(slot_mapping.has_value());
+    std::string paged_type = paged_kv_cache->get_paged_type();
 
     // Input shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
@@ -286,56 +287,72 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     // 4. Apply RoPE to Q and K
     rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true); // [bs, seq_len, n_q_head, head_dim]
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true); // [bs, seq_len, n_kv_head, head_dim]
-
-    //  5. Prepare KV caches
-    //  Ensure contiguous after permute for F16 compatibility with cache operations
-    auto [k_total, v_total] = paged_kv_cache->update(layer_idx_,
-                                                     k_reshaped,
-                                                     v_reshaped,
-                                                     slot_mapping.value());
-
-    if (0) {
-        v_total = v_total->narrow({{0, 1, 1}})->permute({0, 1, 3, 2})->contiguous()->narrow({{3, 0, 5}})->contiguous();
-        std::cout << "v_total: " << v_total->info() << v_total << std::endl;
-        exit(-1);
-
-        v_total = v_total->permute({0, 1, 3, 2})->contiguous()->narrow({{3, 0, 5}})->contiguous();
-        std::cout << "v_total: " << v_total->info() << v_total << std::endl;
-        exit(-1);
-    }
-    if (0) {
-        // k_total = k_total->narrow({{0, 1, 1}})->permute({0, 1, 3, 2})->contiguous()->narrow({{3, 0, 5}})->contiguous();
-        // std::cout << "v_total: " << k_total->info() << k_total << std::endl;
-        k_total = k_total->permute({0, 1, 3, 2})->contiguous()->narrow({{3, 0, 5}})->contiguous();
-        std::cout << "k_total: " << k_total->info() << k_total << std::endl;
-        exit(-1);
-    }
     // 6. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
 
-    if (is_prefill) {
-        infinicore::op::paged_attention_prefill_(
-            attn_output,
-            q_reshaped,
-            k_total,
-            v_total,
-            block_tables.value(),
-            total_sequence_lengths.value(),
-            input_offsets.value(),
-            std::nullopt,
-            scaling_);
+    //  5. Prepare KV caches
+    //  Ensure contiguous after permute for F16 compatibility with cache operations
 
-    } else {
-        if (1) {
-            // std::cout << "\n------------> forward_paged_ decode..........." << std::endl;
-            // std::cout << "position_ids: " << position_ids << std::endl;
-            // std::cout << "total_sequence_lengths: " << total_sequence_lengths.value() << std::endl;
-            // std::cout << "input_offsets: " << input_offsets.value() << std::endl;
-            // std::cout << "attn_output: " << attn_output->info() << std::endl;
-            // std::cout << "q_reshaped: " << q_reshaped->info() << " is_contiguous " << q_reshaped->is_contiguous() << std::endl;
-            // std::cout << "k_total: " << k_total->info() << std::endl;
-            // std::cout << "v_total: " << v_total->info() << std::endl;
-            // std::cout << "block_tables: " << block_tables.value()->info() << std::endl;
+    if (paged_type == "PAGED_ATTN") {
+        auto [k_total, v_total] = paged_kv_cache->update(layer_idx_,
+                                                         k_reshaped,
+                                                         v_reshaped,
+                                                         slot_mapping.value());
+
+        if (is_prefill) {
+            infinicore::op::paged_attention_prefill_(
+                attn_output,
+                q_reshaped,
+                k_total,
+                v_total,
+                block_tables.value(),
+                total_sequence_lengths.value(),
+                input_offsets.value(),
+                std::nullopt,
+                scaling_);
+
+        } else {
+            infinicore::op::paged_attention_(
+                attn_output,
+                q_reshaped,
+                k_total,
+                v_total,
+                block_tables.value(),
+                total_sequence_lengths.value(),
+                std::nullopt,
+                scaling_);
+        }
+
+    } else if (paged_type == "PAGED_ATTN_V2") {
+
+        const std::string kv_cache_dtype = "auto";
+        infinicore::Tensor k_scale = infinicore::Tensor::empty({1}, infinicore::DataType::F32, q_reshaped->device());
+        infinicore::Tensor v_scale = infinicore::Tensor::empty({1}, infinicore::DataType::F32, q_reshaped->device());
+
+        auto [k_total, v_total] = paged_kv_cache->update_v2(layer_idx_,
+                                                            k_reshaped,           // ok
+                                                            v_reshaped,           // ok
+                                                            slot_mapping.value(), // ok
+                                                            kv_cache_dtype,
+                                                            k_scale,
+                                                            v_scale);
+
+        if (is_prefill) {
+            auto k_shape = k_total->shape();
+            k_total = k_total->permute({0, 1, 2, 4, 3})->contiguous()->view({k_shape[0], k_shape[1], k_shape[2] * k_shape[4], k_shape[3]})->permute({0, 1, 3, 2})->contiguous();
+            v_total = v_total->permute({0, 1, 3, 2})->contiguous();
+
+            infinicore::op::paged_attention_prefill_(
+                attn_output,
+                q_reshaped,
+                k_total,
+                v_total,
+                block_tables.value(),
+                total_sequence_lengths.value(),
+                input_offsets.value(),
+                std::nullopt,
+                scaling_);
+        } else {
 
             const size_t _PARTITION_SIZE = 512;
             size_t num_seqs = seq_len;
@@ -356,15 +373,10 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             infinicore::Tensor exp_sums = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
             infinicore::Tensor max_logits = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions}, infinicore::DataType::F32, q_reshaped->device());
             infinicore::Tensor tmp_output = infinicore::Tensor::empty({num_seqs, num_attention_heads_, max_num_partitions, head_dim_}, infinicore::DataType::F32, q_reshaped->device());
-            auto query = q_reshaped;
-            // auto value_cache = v_total;
-            // auto key_cache = k_total;
 
-            auto value_cache = v_total->permute({0, 1, 3, 2})->contiguous();
-            value_cache = value_cache->view({num_blocks, num_key_value_heads_, head_dim_ / x, block_size, x});
-            
-            auto key_cache = k_total->permute({0, 1, 3, 2})->contiguous();
-            key_cache = key_cache->view({num_blocks, num_key_value_heads_, head_dim_ / x, x, block_size})->permute({0, 1, 2, 4, 3})->contiguous();
+            auto query = q_reshaped;
+            auto value_cache = v_total;
+            auto key_cache = k_total;
 
             infinicore::Tensor k_scale = infinicore::Tensor::empty({1}, infinicore::DataType::F32, q_reshaped->device());
             infinicore::Tensor v_scale = infinicore::Tensor::empty({1}, infinicore::DataType::F32, q_reshaped->device());
@@ -374,13 +386,6 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             const int blocksparse_block_size = 64;
             const int blocksparse_head_sliding_step = 0;
 
-            // std::cout << "paged_attention_v2_ start..........." << std::endl;
-            // std::cout << "query: " << query->info() << std::endl;
-            // std::cout << "value_cache: " << value_cache->info() << std::endl;
-            // std::cout << "block_tables: " << block_tables.value()->info() << " ::: " << block_tables.value() << std::endl;
-            // std::cout << "seq_lens: " << seq_lens->info() << " ::: " << seq_lens << std::endl;
-            // std::cout << "value_cache: " << value_cache->info() << value_cache << std::endl;
-            // std::cout << "key_cache: " << key_cache->info() << key_cache->is_contiguous() << key_cache << std::endl;
             infinicore::op::paged_attention_v2_(attn_output, //  ok
                                                 exp_sums,    //  ok
                                                 max_logits,  //  ok
@@ -404,20 +409,11 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                                                 blocksparse_block_size,       // ok
                                                 blocksparse_head_sliding_step // ok
             );
-
-        } else {
-            infinicore::op::paged_attention_(
-                attn_output,
-                q_reshaped,
-                k_total,
-                v_total,
-                block_tables.value(),
-                total_sequence_lengths.value(),
-                std::nullopt,
-                scaling_);
         }
-    }
 
+    } else {
+        throw std::runtime_error("LlamaAttention: Unsupported paged_type: " + paged_type);
+    }
     // 7. Project output
     attn_output = attn_output->view({1, seq_len, num_attention_heads_ * head_dim_});
     return o_proj_->forward(attn_output);

@@ -70,6 +70,7 @@ class EngineConfig:
     top_p: float = 0.8
     top_k: int = 1
     enable_graph: bool = False
+    paged_type: str = "PAGED_ATTN"
 
 
 class LLMEngine:
@@ -83,7 +84,7 @@ class LLMEngine:
 
         # Initialize KV cache
         cache_config = PagedKVCacheConfig(
-            num_blocks=config.num_blocks, block_size=config.block_size
+            num_blocks=config.num_blocks, block_size=config.block_size, paged_type=config.paged_type
         )
 
         # Initialize model engine

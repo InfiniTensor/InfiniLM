@@ -437,7 +437,7 @@ if __name__ == "__main__":
                 for _, c_ in cases_dict.items()
             ]
         )
-        cache_config = PagedKVCacheConfig(max_num_blocks, paged_kv_block_size)
+        cache_config = PagedKVCacheConfig(max_num_blocks, paged_kv_block_size, paged_type=enable_paged_attn)
     else:
         cache_config = None
 

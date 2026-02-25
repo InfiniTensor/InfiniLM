@@ -86,15 +86,18 @@ class PagedKVCacheConfig final : public CacheConfig {
 public:
     PagedKVCacheConfig(
         size_t num_blocks,
-        size_t block_size = 16);
+        size_t block_size = 16,
+        std::string paged_type = "PAGED_ATTN");
 
     std::unique_ptr<CacheConfig> unique_copy() const override;
     size_t num_blocks() const;
     size_t block_size() const;
+    std::string paged_type() const;
 
 private:
     size_t num_blocks_;
     size_t block_size_;
+    const std::string paged_type_; // "PAGED_ATTN" or "PAGED_ATTN_V2"
 };
 
 class PagedKVCache final : public Cache {
@@ -127,6 +130,15 @@ public:
            const infinicore::Tensor &k,
            const infinicore::Tensor &v,
            const infinicore::Tensor &slot_mapping);
+
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    update_v2(size_t layer_idx,
+              infinicore::Tensor &key,
+              infinicore::Tensor &value,
+              infinicore::Tensor &slot_mapping,
+              const std::string &kv_cache_dtype,
+              infinicore::Tensor &k_scale,
+              infinicore::Tensor &v_scale);
 
     /**
      * @brief Get Paged KV cache at a given layer.
@@ -161,6 +173,8 @@ public:
                       const infinicore::Tensor input_offsets,
                       size_t request_id = 0);
 
+    std::string get_paged_type() const;
+
     ~PagedKVCache() override
         = default;
 
@@ -173,6 +187,9 @@ private:
     infinicore::DataType dtype_;
     infinicore::Size block_size_;
     infinicore::Size num_blocks_per_layer_;
+
+    std::string paged_type_;
+
     // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
     infinicore::Tensor k_caches_;
 

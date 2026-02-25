@@ -18,9 +18,11 @@ class PagedKVCacheConfig(CacheConfig, _infinilm.PagedKVCacheConfig):
         self,
         num_blocks: int,
         block_size: int = 16,
+        paged_type: str = "PAGED_ATTN",
     ):
         _infinilm.PagedKVCacheConfig.__init__(
             self,
             num_blocks,
             block_size,
+            paged_type
         )
