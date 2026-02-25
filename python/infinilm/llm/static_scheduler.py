@@ -7,7 +7,12 @@ import queue
 import janus
 from typing import List, Optional
 
-from infinilm.llm.request import RequestStatus, InferenceRequest, FinishReason
+from infinilm.llm.request import (
+    RequestStatus,
+    InferenceRequest,
+    FinishReason,
+    TokenOutput,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +120,21 @@ class StaticScheduler:
                     )
                     self.running_request = None
                     req.mark_failed(FinishReason.LENGTH)
+                    output = TokenOutput(
+                        request_id=req.request_id,
+                        token_id=-1,
+                        token_text="",
+                        finished=True,
+                        finish_reason=req.finish_reason,
+                        generated_text=req.generated_text,
+                    )
+                    try:
+                        req.output_queue.sync_q.put(output)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to put completion token for {req.request_id}: {e}. "
+                            f"Likely due to client disconnecting or request cancelation."
+                        )
                     continue
 
                 return StaticSchedulerOutput(scheduled_requests=[req], is_prefill=False)
@@ -137,6 +157,21 @@ class StaticScheduler:
                 )
 
                 req.mark_failed(FinishReason.LENGTH)
+                output = TokenOutput(
+                    request_id=req.request_id,
+                    token_id=-1,
+                    token_text="",
+                    finished=True,
+                    finish_reason=req.finish_reason,
+                    generated_text=req.generated_text,
+                )
+                try:
+                    req.output_queue.sync_q.put(output)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to put completion token for {req.request_id}: {e}. "
+                        f"Likely due to client disconnecting or request cancelation."
+                    )
                 continue
 
             req.status = RequestStatus.RUNNING

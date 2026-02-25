@@ -7,8 +7,12 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Any
 import time
 import janus
+import asyncio
+import logging
 
 from infinilm.llm.sampling_params import SamplingParams
+
+logger = logging.getLogger(__name__)
 
 
 class RequestStatus(Enum):
@@ -143,6 +147,7 @@ class InferenceRequest:
 
         # Output management (for async streaming)
         self._output_queue: Optional[janus.Queue] = None
+        self._aborted = False
 
         # Streaming helpers (vLLM-style UTF-8 buffering at the chunking layer)
         # Used by the engine to compute "delta" text chunks from a full decode.
@@ -185,6 +190,14 @@ class InferenceRequest:
             RequestStatus.TIMEOUT,
         ]
 
+    def abort(self):
+        """Signal that the request has been aborted and should stop generation."""
+        self._aborted = True
+
+    def is_aborted(self) -> bool:
+        """Check if the request has been aborted."""
+        return self._aborted
+
     def mark_finished(self, reason: FinishReason):
         """Mark the request as finished with the given reason."""
         self.status = RequestStatus.FINISHED
@@ -193,18 +206,21 @@ class InferenceRequest:
 
     def mark_failed(self, reason: FinishReason = FinishReason.ERROR):
         """Mark the request as failed."""
+        self.abort()
         self.status = RequestStatus.FAILED
         self.finish_reason = reason
         self.finished_time = time.time()
 
     def mark_canceled(self):
         """Mark the request as canceled."""
+        self.abort()
         self.status = RequestStatus.CANCELED
         self.finish_reason = FinishReason.CANCELED
         self.finished_time = time.time()
 
     def mark_timeout(self):
         """Mark the request as timed out."""
+        self.abort()
         self.status = RequestStatus.TIMEOUT
         self.finish_reason = FinishReason.TIMEOUT
         self.finished_time = time.time()
@@ -212,9 +228,25 @@ class InferenceRequest:
     async def close(self):
         """Close the output queue and clean up resources."""
         if self._output_queue is not None:
-            await self._output_queue.async_q.join()
+            self.abort()
+            try:
+                while not self._output_queue.async_q.empty():
+                    try:
+                        self._output_queue.async_q.get_nowait()
+                        self._output_queue.async_q.task_done()
+                    except asyncio.QueueEmpty:
+                        break
+            except Exception as e:
+                logger.error(
+                    f"Error while clearing output queue for request {self.request_id}: {e}"
+                )
+                pass
+
             self._output_queue.close()
-            await self._output_queue.wait_closed()
+            try:
+                await asyncio.wait_for(self._output_queue.wait_closed(), timeout=0.5)
+            except asyncio.TimeoutError:
+                logger.warning("wait_closed timeout, force close")
 
     def to_request_output(self) -> RequestOutput:
         """Convert to RequestOutput for external use."""
