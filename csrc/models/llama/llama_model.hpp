@@ -74,7 +74,8 @@ public:
                                std::optional<infinicore::Tensor> total_sequence_lengths,
                                std::optional<infinicore::Tensor> input_offsets,
                                std::optional<infinicore::Tensor> block_tables,
-                               std::optional<infinicore::Tensor> slot_mapping) const;
+                               std::optional<infinicore::Tensor> slot_mapping,
+                               std::optional<int64_t> max_sequence_length) const;
 
     void reset_cache(const cache::CacheConfig *cache_config);
 

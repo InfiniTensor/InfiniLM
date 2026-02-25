@@ -111,6 +111,16 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         return t.has_value() ? t.value()->to(device) : t;
     };
 
+    int64_t max_sequence_length = 0;
+    if (total_sequence_lengths.has_value()) {
+        size_t num_seqs = total_sequence_lengths.value()->size(0);
+        const int64_t *total_sequence_lengths_ptr = reinterpret_cast<const int64_t *>(total_sequence_lengths.value()->data());
+        max_sequence_length = total_sequence_lengths_ptr[0];
+        for (size_t i = 1; i < num_seqs; i++) {
+            max_sequence_length = std::max(max_sequence_length, total_sequence_lengths_ptr[i]);
+        }
+    }
+
     return {
         to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
@@ -119,6 +129,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(input_offsets),
         to_device(block_tables),
         to_device(slot_mapping),
+        max_sequence_length,
     };
 }
 

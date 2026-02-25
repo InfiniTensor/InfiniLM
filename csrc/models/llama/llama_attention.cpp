@@ -239,7 +239,8 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                                                   std::optional<infinicore::Tensor> total_sequence_lengths,
                                                   std::optional<infinicore::Tensor> input_offsets,
                                                   std::optional<infinicore::Tensor> block_tables,
-                                                  std::optional<infinicore::Tensor> slot_mapping) const {
+                                                  std::optional<infinicore::Tensor> slot_mapping,
+                                                  std::optional<int64_t> max_sequence_length) const {
     ASSERT(block_tables.has_value());
     ASSERT(slot_mapping.has_value());
     std::string paged_type = paged_kv_cache->get_paged_type();
@@ -356,12 +357,18 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             const size_t _PARTITION_SIZE = 512;
             size_t num_seqs = seq_len;
             auto seq_lens = total_sequence_lengths.value();
-            auto seq_lens_cpu = seq_lens->to(infinicore::Device::cpu());
-            int64_t *total_seq_len_ptr = reinterpret_cast<int64_t *>(seq_lens_cpu->data());
-            int64_t max_seq_len = total_seq_len_ptr[0];
-            for (int i = 1; i < num_seqs; i++) {
-                max_seq_len = std::max(max_seq_len, total_seq_len_ptr[i]);
-            }
+
+            int64_t max_seq_len = max_sequence_length.value();
+
+            // auto seq_lens_cpu = seq_lens->to(infinicore::Device::cpu());
+            // int64_t *total_seq_len_ptr = reinterpret_cast<int64_t *>(seq_lens_cpu->data());
+            // int64_t max_seq_len = total_seq_len_ptr[0];
+            // for (int i = 1; i < num_seqs; i++) {
+            //     max_seq_len = std::max(max_seq_len, total_seq_len_ptr[i]);
+            // }
+
+            // printf("max_seq_len: %ld, max_seq_len_f: %ld\n", max_seq_len, max_seq_len_f.value());
+
             const size_t max_num_partitions = (max_seq_len + _PARTITION_SIZE - 1) / _PARTITION_SIZE;
 
             size_t num_blocks = k_total->shape()[0];
@@ -451,14 +458,15 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
                                            std::optional<infinicore::Tensor> total_sequence_lengths,
                                            std::optional<infinicore::Tensor> input_offsets,
                                            std::optional<infinicore::Tensor> block_tables,
-                                           std::optional<infinicore::Tensor> slot_mapping) const {
+                                           std::optional<infinicore::Tensor> slot_mapping,
+                                           std::optional<int64_t> max_seq_len) const {
     if (!rotary_emb_) {
         throw std::runtime_error("LlamaAttention: rotary_emb not configured");
     }
 
     infinicore::Tensor output;
     if (auto paged_kv_cache = std::dynamic_pointer_cast<cache::PagedKVCache>(kv_cache)) {
-        output = forward_paged_(hidden_states, position_ids, paged_kv_cache, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
+        output = forward_paged_(hidden_states, position_ids, paged_kv_cache, total_sequence_lengths, input_offsets, block_tables, slot_mapping, max_seq_len);
     } else {
 
         output = forward_(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths);

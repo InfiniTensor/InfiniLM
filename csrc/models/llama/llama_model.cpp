@@ -93,7 +93,8 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
                                        std::optional<infinicore::Tensor> total_sequence_lengths,
                                        std::optional<infinicore::Tensor> input_offsets,
                                        std::optional<infinicore::Tensor> block_tables,
-                                       std::optional<infinicore::Tensor> slot_mapping) const {
+                                       std::optional<infinicore::Tensor> slot_mapping,
+                                       std::optional<int64_t> max_sequence_length) const {
     // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
     auto hidden_states = embed_tokens_->forward(input_ids);
 
@@ -110,7 +111,8 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
             total_sequence_lengths,
             input_offsets,
             block_tables,
-            slot_mapping);
+            slot_mapping,
+            max_sequence_length);
         // hidden_states = std::get<0>(ret);
     }
 

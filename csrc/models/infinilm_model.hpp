@@ -31,6 +31,8 @@ public:
         std::optional<infinicore::Tensor> block_tables;
         /// Slot ids for each token `[seq]`. Used for paged cache.
         std::optional<infinicore::Tensor> slot_mapping;
+        /// max_sequence_length is the maximum sequence length of the total_sequence_lengths.
+        std::optional<int64_t> max_sequence_length;
     };
 
     struct Output {
