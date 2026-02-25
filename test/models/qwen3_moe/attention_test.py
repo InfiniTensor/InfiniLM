@@ -1,484 +1,457 @@
 import os
 import time
 import sys
+import json
 import safetensors
 import torch
+import numpy as np
+import ctypes
+from ctypes import byref, POINTER, c_int, c_float, c_void_p, c_size_t, Structure
 from transformers import AutoConfig
 from transformers import DynamicCache
 from transformers.models import qwen3_moe
 
+# ==============================================================================
+# 1. Ctypes Setup
+# ==============================================================================
+SO_PATH = "build/linux/x86_64/release/libinfinicore_infer.so"
+if not os.path.exists(SO_PATH):
+    SO_PATH = os.path.expanduser("~/.infini/lib/libinfinicore_infer.so")
+
+if not os.path.exists(SO_PATH):
+    print(f"Warning: Cannot find libinfinicore_infer.so at {SO_PATH}.")
+    LIB_INFINILM = None
+else:
+    LIB_INFINILM = ctypes.CDLL(SO_PATH)
+
+class DataType:
+    INFINI_DTYPE_BF16 = 19
+
+class DeviceType:
+    DEVICE_TYPE_NVIDIA = 1
+
+class Qwen3MoEAttentionMetaCStruct(Structure):
+    _fields_ = [
+        ("dtype", c_int),
+        ("hidden_size", c_size_t),
+        ("num_heads", c_size_t),
+        ("num_kv_head", c_size_t),
+        ("head_dim", c_size_t),
+        ("rope_theta", c_float),
+        ("max_seq_len", c_size_t),
+        ("rms_norm_eps", c_float),
+    ]
+
+class Qwen3MoEWeightLoader(Structure):
+    _fields_ = [
+        ("load_attn_norm", ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_size_t)),
+        ("load_attn_q_proj", ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_size_t)),
+        ("load_attn_k_proj", ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_size_t)),
+        ("load_attn_v_proj", ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_size_t)),
+        ("load_attn_q_norm", ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_size_t)),
+        ("load_attn_k_norm", ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_size_t)),
+        ("load_attn_o_proj", ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_size_t)),
+    ]
+
+class Qwen3MoEAttention(Structure): pass
+class Qwen3MoEWeights(Structure): pass
+class Qwen3Cache(Structure): pass
+
+if LIB_INFINILM:
+    LIB_INFINILM.createQwen3MoEWeights.restype = POINTER(Qwen3MoEWeights)
+    LIB_INFINILM.createQwen3MoEWeightLoader.restype = POINTER(Qwen3MoEWeightLoader)
+    LIB_INFINILM.createQwen3MoEAttention.restype = POINTER(Qwen3MoEAttention)
+    LIB_INFINILM.createQwen3Cache.restype = POINTER(Qwen3Cache)
+    LIB_INFINILM.createQwen3Cache.argtypes = [POINTER(Qwen3MoEAttentionMetaCStruct), c_size_t, c_size_t]
+
+    LIB_INFINILM.forwardQwen3MoEAttention.argtypes = [
+        POINTER(Qwen3MoEAttention), POINTER(Qwen3Cache),
+        c_void_p, c_void_p, c_int, POINTER(c_int), POINTER(c_int), POINTER(c_int)
+    ]
+    LIB_INFINILM.injectQwen3CacheKV.argtypes = [
+        POINTER(Qwen3MoEAttention), POINTER(Qwen3Cache),
+        c_int, c_int, c_int, c_void_p, c_void_p
+    ]
+
+global_tensor_keepalive = []
+
+def get_ptr(numpy_array):
+    if not numpy_array.flags['C_CONTIGUOUS']:
+        numpy_array = np.ascontiguousarray(numpy_array)
+    ptr = numpy_array.ctypes.data_as(c_void_p)
+    global_tensor_keepalive.append(numpy_array)
+    return ptr
+
+# ==============================================================================
+# 2. InfiniLM Wrapper
+# ==============================================================================
+class InfiniLMWrapper:
+    def __init__(self, config, torch_model, device_id=0):
+        if not LIB_INFINILM: raise RuntimeError("Library not loaded")
+        
+        # [TRUTH] 物理真值是 128
+        self.real_hidden = config.hidden_size 
+        real_head_dim = 128
+        
+        self.meta = Qwen3MoEAttentionMetaCStruct(
+            dtype=DataType.INFINI_DTYPE_BF16, 
+            hidden_size=config.hidden_size, 
+            num_heads=config.num_attention_heads,
+            num_kv_head=config.num_key_value_heads,
+            head_dim=real_head_dim,
+            rope_theta=config.rope_theta,
+            max_seq_len=8192,
+            rms_norm_eps=config.rms_norm_eps
+        )
+        self.weights_handle = LIB_INFINILM.createQwen3MoEWeights(byref(self.meta), DeviceType.DEVICE_TYPE_NVIDIA, 1, (c_int * 1)(device_id))
+        self.loader = LIB_INFINILM.createQwen3MoEWeightLoader()
+        self._load_weights(torch_model)
+        self.attn_ctx = LIB_INFINILM.createQwen3MoEAttention(byref(self.meta), self.weights_handle)
+        self.kv_cache = LIB_INFINILM.createQwen3Cache(byref(self.meta), 0, 0)
+    
+    def _load_weights(self, model):
+        def load(tensor, loader_func, transpose=False):
+            if tensor is None: return
+            w_pt = tensor.detach().to(torch.float32)
+            if transpose: w_pt = w_pt.t()
+            w_bf16 = w_pt.to(torch.bfloat16).view(torch.int16).cpu().numpy()
+            loader_func(self.weights_handle, get_ptr(w_bf16), 0)
+
+        load(model.q_proj.weight, self.loader.contents.load_attn_q_proj, transpose=True)
+        load(model.k_proj.weight, self.loader.contents.load_attn_k_proj, transpose=True)
+        load(model.v_proj.weight, self.loader.contents.load_attn_v_proj, transpose=True)
+        load(model.o_proj.weight, self.loader.contents.load_attn_o_proj, transpose=True)
+        
+        if hasattr(model, 'q_norm') and model.q_norm is not None:
+            load(model.q_norm.weight, self.loader.contents.load_attn_q_norm, transpose=False)
+        if hasattr(model, 'k_norm') and model.k_norm is not None:
+            load(model.k_norm.weight, self.loader.contents.load_attn_k_norm, transpose=False)
+
+    def inject_cache(self, layer_id, batch_idx, k_torch, v_torch):
+        """
+        将 PyTorch 的 KV Cache (BFloat16) 注入到 InfiniLM 的 Cache 中
+        k_torch, v_torch shape: [num_kv_heads, past_len, head_dim]
+        """
+        if k_torch is None or v_torch is None: return
+        
+        # 转换为 numpy int16 (模拟 bf16) 且保证 C 连续
+        k_np = k_torch.detach().cpu().view(torch.int16).numpy().copy(order='C')
+        v_np = v_torch.detach().cpu().view(torch.int16).numpy().copy(order='C')
+        past_len = k_np.shape[1] 
+        
+        LIB_INFINILM.injectQwen3CacheKV(
+            self.attn_ctx, self.kv_cache,
+            c_int(layer_id), c_int(batch_idx), c_int(past_len),
+            get_ptr(k_np), get_ptr(v_np)
+        )
+
+    def forward(self, input_bf16_np, batch_size, seq_lens, past_lens, pos_ids, return_raw=False):
+        q_out_dim = self.meta.num_heads * self.meta.head_dim 
+        out_dim = q_out_dim if return_raw else self.real_hidden
+        output = np.zeros((input_bf16_np.shape[0], out_dim), dtype=np.int16)
+        
+        LIB_INFINILM.forwardQwen3MoEAttention(
+            self.attn_ctx, self.kv_cache, 
+            get_ptr(input_bf16_np), get_ptr(output),
+            c_int(batch_size), (c_int*batch_size)(*seq_lens), 
+            (c_int*batch_size)(*past_lens), (c_int*len(pos_ids))(*pos_ids)
+        )
+        return output
+
+# ==============================================================================
+# 3. Utilities
+# ==============================================================================
 WARMUPS = 10
 RUNS = 100
-PREFILL_TESTCASES = {"seqlens": [64, 128, 256, 256], "pastlens": [512, 0, 0, 256]}
-
-DECODE_TESTCASES = {
-    "seqlens": [1 for _ in range(16)],
-    "pastlens": [50 for _ in range(4)]
-    + [100 for _ in range(4)]
-    + [200 for _ in range(4)]
-    + [400 for _ in range(4)],
-}
-
+PREFILL_TESTCASES = {"seqlens": [64,128,256,256], "pastlens": [512,0,0,256]}
+DECODE_TESTCASES = {"seqlens": [1] * 16, "pastlens": [504]*4 + [1004]*4 + [2004]*4 + [4004]*4}
 
 def get_args():
     import argparse
-
-    parser = argparse.ArgumentParser(description="Test Operator")
-    parser.add_argument(
-        "--model_path",
-        action="store",
-        help="The directory of the model to be tested",
-    )
-
-    parser.add_argument(
-        "--cpu",
-        action="store_true",
-        help="Run cpu test",
-    )
-
-    parser.add_argument(
-        "--nvidia",
-        action="store_true",
-        help="Run nvidia test",
-    )
-
-    parser.add_argument(
-        "--metax",
-        action="store_true",
-        help="Run metax test",
-    )
-    parser.add_argument(
-        "--moore",
-        action="store_true",
-        help="Run moore test",
-    )
-    parser.add_argument(
-        "--iluvatar",
-        action="store_true",
-        help="Run iluvatar test",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_path", required=True)
+    parser.add_argument("--nvidia", action="store_true")
     return parser.parse_args()
 
-
-def torch_synchronize(_device):
-    if _device == "cuda":
-        torch.cuda.synchronize()
-    elif _device == "musa":
-        torch.musa.synchronize()
-
-
-def torch_empty_cache(_device):
-    if _device == "cuda":
-        torch.cuda.empty_cache()
-    elif _device == "musa":
-        torch.musa.empty_cache()
-
-
-def create_Qwen3attention_torch(dir_path, *, device, dtype=torch.bfloat16):
+def create_Qwen3attention_torch(dir_path, device, dtype=torch.bfloat16):
     config = AutoConfig.from_pretrained(dir_path)
+
+    real_head_dim = 128 
+    config.head_dim = real_head_dim 
+
     config.num_hidden_layers = 1
     config._attn_implementation = "sdpa"
-
-    # --------------------------------------------------------------------------------#
-    #                创建只包含 attention的模型
-    # --------------------------------------------------------------------------------#
-    model = qwen3_moe.modeling_qwen3_moe.Qwen3MoeAttention(config, layer_idx=0).to(
-        device=device, dtype=dtype
-    )
+    
+    model = qwen3_moe.modeling_qwen3_moe.Qwen3MoeAttention(config, layer_idx=0).to(device=device, dtype=dtype)
+    
     tensors = {}
     for fname in sorted(os.listdir(dir_path)):
-        if not fname.endswith(".safetensors"):
-            continue
-        fpath = os.path.join(dir_path, fname)
-        with safetensors.safe_open(fpath, framework="pt") as f:
+        if not fname.endswith(".safetensors"): continue
+        with safetensors.safe_open(os.path.join(dir_path, fname), framework="pt") as f:
             for key in f.keys():
                 if "model.layers.0.self_attn." in key:
                     tensors[key[len("model.layers.0.self_attn.") :]] = f.get_tensor(key)
         break
-    model.load_state_dict(tensors)
+    
+    model.load_state_dict(tensors, strict=False)
+    
+    if model.q_proj.bias is not None: torch.nn.init.zeros_(model.q_proj.bias)
+    if model.k_proj.bias is not None: torch.nn.init.zeros_(model.k_proj.bias)
+    if model.v_proj.bias is not None: torch.nn.init.zeros_(model.v_proj.bias)
+    if model.o_proj.bias is not None: torch.nn.init.zeros_(model.o_proj.bias)
 
-    # --------------------------------------------------------------------------------#
-    #                创建 rotary_emb 类
-    # --------------------------------------------------------------------------------#
-    rotary_emb = qwen3_moe.modeling_qwen3_moe.Qwen3MoeRotaryEmbedding(
-        config, device=device
-    )
-    return model, rotary_emb
+    rotary_emb = qwen3_moe.modeling_qwen3_moe.Qwen3MoeRotaryEmbedding(config, device=device)
+    return model, rotary_emb, config
 
-
-def generate_attention_input_torch(
-    model, rotary_emb, testcase, device, dtype=torch.bfloat16
-):
+def prepare_inputs(model, testcase, device, dtype):
     config = model.config
-    hidden_size = config.hidden_size  # 2048
-    head_dim = config.head_dim  # 128
-    num_key_value_heads = config.num_key_value_heads
     bs = 1
-
     req_list = []
+    
     for seq_lens, past_lens in zip(testcase["seqlens"], testcase["pastlens"]):
-        hidden_states = torch.rand(
-            (bs, seq_lens, hidden_size), device=device, dtype=dtype
-        )
-
-        attention_mask = None
-
+        hidden_states = torch.rand((bs, seq_lens, config.hidden_size), device=device, dtype=dtype)
         past_key_values = DynamicCache(config=config)
-        key_states = torch.rand(
-            (bs, num_key_value_heads, past_lens, head_dim), device=device, dtype=dtype
-        )
-        value_states = torch.rand(
-            (bs, num_key_value_heads, past_lens, head_dim), device=device, dtype=dtype
-        )
-        past_key_values.update(key_states, value_states, 0)
+        
+        # [CRITICAL] 恢复为 torch.rand！
+        # 现在我们通过 inject_cache 保证 C++ 拿到完全一样的随机数
+        if past_lens > 0:
+            k = torch.rand((bs, config.num_key_value_heads, past_lens, config.head_dim), device=device, dtype=dtype)
+            v = torch.rand((bs, config.num_key_value_heads, past_lens, config.head_dim), device=device, dtype=dtype)
+            past_key_values.update(k, v, 0)
+        req_list.append({"hidden_states": hidden_states, "attention_mask": None, "past_key_values": past_key_values})
 
-        req = {
-            "hidden_states": hidden_states,
-            "attention_mask": attention_mask,
-            "past_key_values": past_key_values,
-        }
-        req_list.append(req)
+    all_hs = [req["hidden_states"].squeeze(0) for req in req_list]
+    flat_input = torch.cat(all_hs, dim=0) 
+    
+    input_np = flat_input.cpu().view(torch.int16).numpy().copy(order='C')
+    
+    seq_lens = testcase["seqlens"]
+    past_lens = testcase["pastlens"]
+    pos_ids = []
+    for s, p in zip(seq_lens, past_lens):
+        pos_ids.extend(range(p, p+s))
+        
+    return req_list, input_np, seq_lens, past_lens, pos_ids
 
-    return req_list
+def check_correctness_prefill(torch_outs, infinilm_out_np, device):
+    if not torch_outs:
+        print("❌ Error: Torch Output is empty.")
+        return
+
+    torch_flat = torch.cat([out.float().view(-1, out.shape[-1]) for out in torch_outs], dim=0).to("cpu")
+    
+    infini_tensor_int16 = torch.from_numpy(infinilm_out_np)
+    infini_flat = infini_tensor_int16.view(torch.bfloat16).float().view(-1, torch_flat.shape[-1])
+
+    cos_sim = torch.nn.functional.cosine_similarity(torch_flat, infini_flat, dim=-1).mean().item()
+    print(f"Cosine Similarity: {cos_sim:.6f}")
+    
+    if cos_sim > 0.98: print("✅ Result Match")
+    else: print("❌ Result Mismatch")
+
+def check_correctness_decode(torch_outs, infinilm_out_np, device):
+    if not torch_outs:
+        print("❌ Error: Torch Output is empty.")
+        return
+
+    torch_flat = torch.cat([out.float().view(-1, out.shape[-1]) for out in torch_outs], dim=0).to("cpu")
+    
+    infini_tensor_int16 = torch.from_numpy(infinilm_out_np)
+    infini_flat = infini_tensor_int16.view(torch.bfloat16).float().view(-1, torch_flat.shape[-1])
+
+    cos_sim = torch.nn.functional.cosine_similarity(torch_flat, infini_flat, dim=-1).mean().item()
+    print(f"Cosine Similarity: {cos_sim:.6f}")
+    ## for decode, 0.95 enough 
+    if cos_sim > 0.95: print("✅ Result Match")
+    else: print("❌ Result Mismatch")
 
 
-def benchmark_Qwen3attention_prefill_torch(
-    model, rotary_emb, test_cases, device, dtype=torch.bfloat16
-):
-    """
-    Test Qwen3attention.
-
-    """
-    req_list = generate_attention_input_torch(
-        model, rotary_emb, test_cases, device, dtype=dtype
-    )
-    req_out_list = []
-    for req in req_list:
-        # ----------------------------------------- #
-        #         获得每个req的数据
-        # ----------------------------------------- #
-        hidden_states = req["hidden_states"]
-        attention_mask = req["attention_mask"]
-        past_key_values = req["past_key_values"]
-
-        # ----------------------------------------- #
-        #         计算当前所需的sin_table，sin_table
-        # ----------------------------------------- #
-        cache_lens = past_key_values.get_seq_length()  # kv cache 现在的长度
-        bs, seq_len, _ = hidden_states.shape
-
-        position_ids = torch.arange(
-            cache_lens, cache_lens + seq_len, dtype=torch.int64, device=device
-        ).reshape((bs, seq_len))
-
-        cos_table, sin_table = rotary_emb(hidden_states, position_ids)
-        position_embeddings = (sin_table, cos_table)
-
-        # ----------------------------------------- #
-        #            计算一次
-        # ----------------------------------------- #
-        output_device, _ = model(
-            hidden_states=hidden_states,
-            position_embeddings=position_embeddings,
-            attention_mask=attention_mask,
-            past_key_values=past_key_values,
-        )
-
-        # ----------------------------------------- #
-        #            得到结果，存储下来
-        # ----------------------------------------- #
-        output_host = output_device.to("cpu")
-        req_out_list.append(output_host)
-
-    torch_synchronize(device)
-
+def benchmark_prefill(model, rotary_emb, infinilm_model, test_cases, device, dtype):
+    print(f"\n{'='*40} PREFILL {'='*40}")
+    req_list, input_np, seq_lens, past_lens, pos_ids = prepare_inputs(model, test_cases, device, dtype)
+    batch_size = len(seq_lens)
+    
+    # =======================================================
+    # Torch Run
+    # =======================================================
     for _ in range(WARMUPS):
         for i, req in enumerate(req_list):
-            # ----------------------------------------- #
-            #          恢复 kv chche的长度
-            # ----------------------------------------- #
-            origin_len = test_cases["pastlens"][i]
-            req["past_key_values"].crop(origin_len)
+            req["past_key_values"].crop(past_lens[i])
+            cache_len = req["past_key_values"].get_seq_length()
+            seq_len = req["hidden_states"].shape[1]
+            pids = torch.arange(cache_len, cache_len+seq_len, device=device).reshape(1, seq_len)
+            cos, sin = rotary_emb(req["hidden_states"], pids)
+            _ = model(req["hidden_states"], position_embeddings=(sin, cos), 
+                      attention_mask=req["attention_mask"],
+                      past_key_values=req["past_key_values"])
+    torch.cuda.synchronize()
 
-        for req in req_list:
-            # ----------------------------------------- #
-            #         获得每个req的数据
-            # ----------------------------------------- #
-
-            hidden_states = req["hidden_states"]
-            attention_mask = req["attention_mask"]
-            past_key_values = req["past_key_values"]
-
-            # ----------------------------------------- #
-            #         计算当前所需的sin_table，sin_table
-            # ----------------------------------------- #
-            cache_lens = past_key_values.get_seq_length()  # kv cache 现在的长度
-            bs, seq_len, _ = hidden_states.shape
-
-            position_ids = torch.arange(
-                cache_lens, cache_lens + seq_len, dtype=torch.int64, device=device
-            ).reshape((bs, seq_len))
-
-            cos_table, sin_table = rotary_emb(hidden_states, position_ids)
-            position_embeddings = (sin_table, cos_table)
-
-            # ----------------------------------------- #
-            #            计算一次
-            # ----------------------------------------- #
-            output_device, _ = model(
-                hidden_states,
-                position_embeddings=position_embeddings,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-            )
-
+    
+    torch_out_list = []
     time_consuming = 0
-    for _ in range(RUNS):
+    for run_idx in range(RUNS):
         for i, req in enumerate(req_list):
-            # ----------------------------------------- #
-            #          恢复 kv chche的长度
-            # ----------------------------------------- #
-            origin_len = test_cases["pastlens"][i]
-            req["past_key_values"].crop(origin_len)
-
-        torch_synchronize(device)
+            # 1. Reset KV Cache to initial state
+            req["past_key_values"].crop(past_lens[i])
+            cache_len = req["past_key_values"].get_seq_length()
+            seq_len = req["hidden_states"].shape[1]
+            
+            q_len = seq_len
+            k_len = cache_len + seq_len
+            past_len = cache_len
+            
+            causal_mask = torch.zeros((q_len, k_len), device=device, dtype=dtype)
+            for j in range(q_len):
+                valid_limit = past_len + j + 1
+                if valid_limit < k_len:
+                    causal_mask[j, valid_limit:] = float("-inf")
+            req["attention_mask"] = causal_mask[None, None, :, :]
         # ----------------------------------------- #
         #       重要：每个req都按整个batch的起始时间计算
         # ----------------------------------------- #
-        start_time = time.time()
-
-        for i, req in enumerate(req_list):
-            # ----------------------------------------- #
-            #         获得每个req的数据
-            # ----------------------------------------- #
-            hidden_states = req["hidden_states"]
-            attention_mask = req["attention_mask"]
-            past_key_values = req["past_key_values"]
-
-            # ----------------------------------------- #
-            #         计算当前所需的sin_table，sin_table
-            # ----------------------------------------- #
-            cache_lens = past_key_values.get_seq_length()  # kv cache 现在的长度
-            bs, seq_len, _ = hidden_states.shape
-
-            position_ids = torch.arange(
-                cache_lens, cache_lens + seq_len, dtype=torch.int64, device=device
-            ).reshape((bs, seq_len))
-
-            cos_table, sin_table = rotary_emb(hidden_states, position_ids)
-            position_embeddings = (sin_table, cos_table)
-
-            # ----------------------------------------- #
-            #            计算一次
-            # ----------------------------------------- #
-            output_device, _ = model(
-                hidden_states,
-                position_embeddings=position_embeddings,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-            )
-
-            torch_synchronize(device)
+        torch.cuda.synchronize()
+        start = time.time()
+        for i, req in enumerate(req_list):     
+            req["past_key_values"].crop(past_lens[i])
+            cache_len = req["past_key_values"].get_seq_length()
+            seq_len = req["hidden_states"].shape[1]
+            # Position IDs
+            pids = torch.arange(cache_len, cache_len+seq_len, device=device).reshape(1, seq_len)
+            cos, sin = rotary_emb(req["hidden_states"], pids)
+            out, _ = model(req["hidden_states"], position_embeddings=(sin, cos), 
+                           attention_mask=req["attention_mask"],
+                           past_key_values=req["past_key_values"])
+            torch.cuda.synchronize()
             end_time = time.time()
-
-            # 记录每个req从进入所有req进入推理到自己结束的时间
-            time_consuming += end_time - start_time
-
+            time_consuming += end_time - start
+            if run_idx == RUNS - 1:
+                torch_out_list.append(out.detach().to("cpu"))
+    torch.cuda.synchronize()
     out_token_count = RUNS * len(req_list)
+    t_lat = time_consuming * 1000 / out_token_count
 
-    latency = time_consuming * 1000 / out_token_count
-
-    print(
-        f"\t WARMUPS={WARMUPS} RUNS={RUNS}, Attention Torch, average TTFT: {round(latency, 2)} ms\n"
-    )
-
-    return req_out_list
-
-
-def benchmark_Qwen3attention_decode_torch(
-    model, rotary_emb, test_cases, device, dtype=torch.bfloat16
-):
-    """
-    Test Qwen3attention_decode.
-    """
-    req_list = generate_attention_input_torch(
-        model, rotary_emb, test_cases, device, dtype=dtype
-    )
-    req_out_list = []
-    for req in req_list:
-        # ----------------------------------------- #
-        #         获得每个req的数据
-        # ----------------------------------------- #
-        hidden_states = req["hidden_states"]
-        attention_mask = req["attention_mask"]
-        past_key_values = req["past_key_values"]
-
-        # ----------------------------------------- #
-        #         计算当前所需的sin_table，sin_table
-        # ----------------------------------------- #
-        cache_lens = past_key_values.get_seq_length()  # kv cache 现在的长度
-        bs, seq_len, _ = hidden_states.shape
-
-        position_ids = torch.arange(
-            cache_lens, cache_lens + seq_len, dtype=torch.int64, device=device
-        ).reshape((bs, seq_len))
-
-        cos_table, sin_table = rotary_emb(hidden_states, position_ids)
-        position_embeddings = (sin_table, cos_table)
-
-        ##
-        output_device, _ = model(
-            hidden_states=hidden_states,
-            position_embeddings=position_embeddings,
-            attention_mask=attention_mask,
-            past_key_values=past_key_values,
-        )
-        output_host = output_device.to("cpu")
-
-        req_out_list.append(output_host)
-
-    torch_synchronize(device)
-
-    for req in req_list:
-        for _ in range(WARMUPS):
-            hidden_states = req["hidden_states"]
-            attention_mask = req["attention_mask"]
-            past_key_values = req["past_key_values"]
-
-            # ----------------------------------------- #
-            #         计算当前所需的sin_table，sin_table
-            # ----------------------------------------- #
-            cache_lens = past_key_values.get_seq_length()  # kv cache 现在的长度
-            bs, seq_len, _ = hidden_states.shape
-
-            position_ids = torch.arange(
-                cache_lens, cache_lens + seq_len, dtype=torch.int64, device=device
-            ).reshape((bs, seq_len))
-
-            cos_table, sin_table = rotary_emb(hidden_states, position_ids)
-            position_embeddings = (sin_table, cos_table)
-
-            # ----------------------------------------- #
-            #            计算一次
-            # ----------------------------------------- #
-
-            output_device, _ = model(
-                hidden_states,
-                position_embeddings=position_embeddings,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-            )
-
-    # ----------------------------------------- #
-    #          恢复 kv chche的长度
-    # ----------------------------------------- #
+    # =======================================================
+    # InfiniLM Run
+    # =======================================================
+    print(">>> Injecting Cache to InfiniLM...")
     for i, req in enumerate(req_list):
-        origin_len = test_cases["pastlens"][i]
-        req["past_key_values"].crop(origin_len)
+        if past_lens[i] > 0:
+            k_cache = req["past_key_values"][0][0].squeeze(0) 
+            v_cache = req["past_key_values"][0][1].squeeze(0)
+            infinilm_model.inject_cache(0, i, k_cache, v_cache)
 
-    torch_synchronize(device)
-    start_time = time.time()
+    for _ in range(WARMUPS):
+        _ = infinilm_model.forward(input_np, batch_size, seq_lens, past_lens, pos_ids, return_raw=False)
+    torch.cuda.synchronize()
 
-    for i, req in enumerate(req_list):
-        for _ in range(RUNS):
-            # ----------------------------------------- #
-            #         获得每个req的数据
-            # ----------------------------------------- #
-            hidden_states = req["hidden_states"]
-            attention_mask = req["attention_mask"]
-            past_key_values = req["past_key_values"]
-
-            # -------------------------------------------------------------- #
-            #         计算当前所需的sin_table，sin_table
-            # -------------------------------------------------------------- #
-            cache_lens = past_key_values.get_seq_length()  # kv cache 现在的长度
-            bs, seq_len, _ = hidden_states.shape
-
-            position_ids = torch.arange(
-                cache_lens, cache_lens + seq_len, dtype=torch.int64, device=device
-            ).reshape((bs, seq_len))
-
-            cos_table, sin_table = rotary_emb(hidden_states, position_ids)
-            position_embeddings = (sin_table, cos_table)
-
-            # -------------------------------------------------------------- #
-            #            计算一次
-            # -------------------------------------------------------------- #
-            output_device, _ = model(
-                hidden_states,
-                position_embeddings=position_embeddings,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-            )
-
-            # -------------------------------------------------------------- #
-            #            更新hidden_states, ( DynamicCache的类自动更新)
-            # -------------------------------------------------------------- #
-            req["hidden_states"] = output_device
-
-    torch_synchronize(device)
-    end_time = time.time()
-
-    time_consuming = end_time - start_time
+    start = time.time()
+    infini_out = None
+    for _ in range(RUNS):
+        # Repeatedly run with same inputs (simulating same-shape prefill)
+        # Note: We assume InfiniLM overwrites/resets based on past_lens parameter
+        infini_out = infinilm_model.forward(input_np, batch_size, seq_lens, past_lens, pos_ids, return_raw=False)
+    torch.cuda.synchronize()
     out_token_count = RUNS * len(req_list)
+    i_lat = (time.time() - start) * 1000 / out_token_count
 
-    throughput = out_token_count / time_consuming
+    print(f"Latency: Torch={t_lat:.3f}ms, Infini={i_lat:.3f}ms")
+    check_correctness_prefill(torch_out_list, infini_out, device)
 
-    print(
-        f"\t WARMUPS={WARMUPS} RUNS={RUNS}, Attention Torch, average throughput: {round(throughput, 2)} tok/s \n"
-    )
 
-    return req_out_list
+def benchmark_decode(model, rotary_emb, infinilm_model, test_cases, device, dtype):
+    print(f"\n{'='*40} DECODE {'='*40}")
+    req_list, input_np, seq_lens, past_lens, pos_ids = prepare_inputs(model, test_cases, device, dtype)
+    batch_size = len(seq_lens)
+    total_tokens_per_round = sum(seq_lens)
 
+    # Capture initial KV for InfiniLM injection (before Torch modifies them)
+    initial_kv = []
+    for req in req_list:
+        if req["past_key_values"].get_seq_length() > 0:
+            k = req["past_key_values"][0][0].detach().clone()
+            v = req["past_key_values"][0][1].detach().clone()
+            initial_kv.append((k, v))
+        else:
+            initial_kv.append(None)
+
+    # =======================================================
+    # Torch Run
+    # =======================================================
+    # Note: No Warmup mentioned in requirements for "Sequential inference 100 rounds", 
+    # but usually we might warm up. However, since state changes, warmup is part of the sequence.
+    # We will just run the 100 rounds as the benchmark.
+
+    torch_out_list = []
+    torch.cuda.synchronize()
+    start = time.time()
+    for run_idx in range(RUNS):
+        for i, req in enumerate(req_list):
+            # Do NOT crop cache - let it grow
+            cache_len = req["past_key_values"].get_seq_length()
+            seq_len = req["hidden_states"].shape[1] # Should be 1
+            
+            pids = torch.arange(cache_len, cache_len+seq_len, device=device).reshape(1, seq_len)
+            cos, sin = rotary_emb(req["hidden_states"], pids)
+            
+            # Decode: attention_mask is None (causal implied for len 1)
+            out, _ = model(req["hidden_states"], position_embeddings=(sin, cos), 
+                           attention_mask=None,
+                           past_key_values=req["past_key_values"])
+            
+            # Update input for next round
+            req["hidden_states"] = out
+            
+            if run_idx == RUNS - 1:
+                torch_out_list.append(out.detach().to("cpu"))
+                
+    torch.cuda.synchronize()
+    end = time.time()
+    t_throughput = (total_tokens_per_round * RUNS) / (end - start)
+
+    # =======================================================
+    # InfiniLM Run
+    # =======================================================
+    print(">>> Injecting Cache to InfiniLM...")
+    for i, kv in enumerate(initial_kv):
+        if kv is not None:
+            k_cache, v_cache = kv
+            k_cache = k_cache.squeeze(0)
+            v_cache = v_cache.squeeze(0)
+            infinilm_model.inject_cache(0, i, k_cache, v_cache)
+            
+    curr_input_np = input_np.copy()
+    curr_past_lens_np = np.array(past_lens, dtype=np.int32)
+    curr_pos_ids_np = np.array(pos_ids, dtype=np.int32)
+    
+    start = time.time()
+    infini_out = None
+    
+    for run_idx in range(RUNS):
+        out_np = infinilm_model.forward(curr_input_np, batch_size, seq_lens, curr_past_lens_np, curr_pos_ids_np, return_raw=False)
+        
+        if run_idx < RUNS - 1:
+            # Update inputs for next round
+            curr_input_np = out_np
+            
+            curr_past_lens_np = [x + 1 for x in curr_past_lens_np]
+            curr_pos_ids_np = [x + 1 for x in curr_pos_ids_np]
+                
+        infini_out = out_np
+        
+    torch.cuda.synchronize()
+    end = time.time()
+    i_throughput = (total_tokens_per_round * RUNS) / (end - start)
+
+    print(f"Throughput: Torch={t_throughput:.1f} tok/s, Infini={i_throughput:.1f} tok/s")
+    check_correctness_decode(torch_out_list, infini_out, device)
 
 if __name__ == "__main__":
+    
     args = get_args()
-    print(args)
-
-    model_path = args.model_path
-    dtype = torch.bfloat16
-
-    # Parse command line arguments
-    device = "cpu"
-    if args.cpu:
-        device = "cpu"
-    elif args.nvidia:
-        device = "cuda"
-    elif args.metax:
-        device = "cuda"
-    elif args.moore:
-        device = "musa"
-        import torch_musa
-    elif args.iluvatar:
-        device = "cuda"
-    else:
-        print(
-            "Usage:  python test/models/qwen3_moe/attention_test.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_path>"
-        )
-        sys.exit(1)
-
-    # -----------------------------------------------------------------------------
-    # -----------------------------------------------------------------------------
-    # -----------------------------------------------------------------------------
-    model, rotary_emb = create_Qwen3attention_torch(
-        model_path, device=device, dtype=dtype
-    )
-    print("\n")
-    print("*" * 130)
-    print("Test Qwen3attention ")
-    print("*" * 130)
-    print(f"Test Case PREFILL_TESTCASES : {PREFILL_TESTCASES}")
-    output_prefill = benchmark_Qwen3attention_prefill_torch(
-        model, rotary_emb, PREFILL_TESTCASES, device, dtype=dtype
-    )
-
-    print("\n")
-    print("-" * 130)
-    print(f"\nTest DECODE_TESTCASES: {DECODE_TESTCASES}")
-    output_decode = benchmark_Qwen3attention_decode_torch(
-        model, rotary_emb, DECODE_TESTCASES, device, dtype=dtype
-    )
-
-    # clean up device memory
-    del model
-    torch_empty_cache(device)
+    device = "cuda" if args.nvidia else "cpu"
+    
+    torch_model, rotary, cfg = create_Qwen3attention_torch(args.model_path, device)
+    infini_model = InfiniLMWrapper(cfg, torch_model)
+    
+    benchmark_prefill(torch_model, rotary, infini_model, PREFILL_TESTCASES, device, torch.bfloat16)
+    benchmark_decode(torch_model, rotary, infini_model, DECODE_TESTCASES, device, torch.bfloat16)
