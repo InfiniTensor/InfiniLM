@@ -122,6 +122,9 @@ def benchmark_moe_torch(moe, testcase, device, dtype):
     print(
         f"\t WARMUPS={WARMUPS} RUNS={RUNS}, MoE Torch average latency: {round(total_time * 1000 / RUNS, 2)} ms   throughput: {round(total_tokens / total_time, 2)} tok/s"
     )
+    # # Correctness check: print some output stats
+    # print(f"\t Output stats - Sum: {output_host.sum().item():.4f}, Mean: {output_host.mean().item():.4f}")
+    # print(f"\t First 5 values: {output_host.flatten()[:5].tolist()}")
     return output_host
 
 
