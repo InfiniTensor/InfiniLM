@@ -1,6 +1,10 @@
 #include "inference_context.hpp"
 #include "../tensor.hpp"
 #include "../utils.hpp"
+#include "infiniop/ops/conv.h"
+#include "infiniop/ops/gelu.h"
+#include "infiniop/ops/layer_norm.h"
+#include "infiniop/ops/softmax.h"
 
 InferenceContext::InferenceContext(infiniopHandle_t op_handle_, std::shared_ptr<MemoryPool> memory_pool_, CacheManager *cache_manager, infinirtStream_t stream)
     : op_handle(op_handle_), memory_pool(memory_pool_), cache_manager(cache_manager), stream(stream) {}
@@ -54,6 +58,34 @@ void InferenceContext::rmsnorm(std::shared_ptr<Tensor> y,
     RUN_INFINI(infiniopRMSNorm(
         desc, workspace, workspace_size,
         y->data(), x->data(), w->data(), stream));
+}
+
+void InferenceContext::layernorm(std::shared_ptr<Tensor> y,
+                                 std::shared_ptr<Tensor> input_standardization,
+                                 std::shared_ptr<Tensor> input_std_deviation,
+                                 std::shared_ptr<Tensor> x,
+                                 std::shared_ptr<Tensor> w,
+                                 std::shared_ptr<Tensor> b,
+                                 float epsilon) {
+    size_t key = CacheManager::createDescriptorKey(y, input_standardization, input_std_deviation, x, w, b);
+
+    infiniopLayerNormDescriptor_t desc;
+    if (!cache_manager->getLayerNormDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateLayerNormDescriptor(
+            op_handle, &desc, y->desc(), input_standardization->desc(), input_std_deviation->desc(),
+            x->desc(), w->desc(), b ? b->desc() : nullptr, epsilon));
+        cache_manager->putLayerNormDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetLayerNormWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopLayerNorm(
+        desc, workspace, workspace_size,
+        y->data(), input_standardization->data(), input_std_deviation->data(),
+        x->data(), w->data(), b ? b->data() : nullptr, stream));
 }
 
 void InferenceContext::gemm(std::shared_ptr<Tensor> c,
@@ -121,6 +153,80 @@ void InferenceContext::rope(std::shared_ptr<Tensor> q,
         desc, workspace, workspace_size,
         q->data(), k->data(), pos->data(),
         sin->data(), cos->data(), stream));
+}
+
+void InferenceContext::mrope_2d(std::shared_ptr<Tensor> q,
+                                std::shared_ptr<Tensor> k,
+                                std::shared_ptr<Tensor> pos,
+                                std::shared_ptr<Tensor> sin,
+                                std::shared_ptr<Tensor> cos) {
+    size_t key = CacheManager::createDescriptorKey(q, k, pos, sin, cos);
+
+    infiniopMRoPE2DDescriptor_t desc;
+    if (!cache_manager->getMRoPE2DDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateMRoPE2DDescriptor(
+            op_handle, &desc, q->desc(), k->desc(),
+            pos->desc(), sin->desc(), cos->desc()));
+        cache_manager->putMRoPE2DDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetMRoPE2DWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopMRoPE2D(
+        desc, workspace, workspace_size,
+        q->data(), k->data(), pos->data(),
+        sin->data(), cos->data(), stream));
+}
+
+void InferenceContext::mrope_3d(std::shared_ptr<Tensor> q,
+                                std::shared_ptr<Tensor> k,
+                                std::shared_ptr<Tensor> pos,
+                                std::shared_ptr<Tensor> sin,
+                                std::shared_ptr<Tensor> cos,
+                                std::shared_ptr<Tensor> rope_section) {
+    size_t key = CacheManager::createDescriptorKey(q, k, pos, sin, cos, rope_section);
+
+    infiniopMRoPE3DDescriptor_t desc;
+    if (!cache_manager->getMRoPE3DDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateMRoPE3DDescriptor(
+            op_handle, &desc, q->desc(), k->desc(),
+            pos->desc(), sin->desc(), cos->desc(),
+            rope_section->desc()));
+        cache_manager->putMRoPE3DDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetMRoPE3DWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopMRoPE3D(
+        desc, workspace, workspace_size,
+        q->data(), k->data(), pos->data(),
+        sin->data(), cos->data(), rope_section->data(), stream));
+}
+
+void InferenceContext::softmax(std::shared_ptr<Tensor> y,
+                               std::shared_ptr<Tensor> x) {
+    size_t key = CacheManager::createDescriptorKey(y, x);
+
+    infiniopSoftmaxDescriptor_t desc;
+    if (!cache_manager->getSoftmaxDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateSoftmaxDescriptor(
+            op_handle, &desc, y->desc(), x->desc(), -1));
+        cache_manager->putSoftmaxDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSoftmaxWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopSoftmax(desc, workspace, workspace_size,
+                               y->data(), x->data(), stream));
 }
 
 void InferenceContext::causalSoftmax(std::shared_ptr<Tensor> y,
@@ -280,4 +386,54 @@ void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
     RUN_INFINI(infiniopDequantizeAWQ(
         desc, workspace, workspace_size,
         weight->data(), in_w->data(), in_s->data(), in_z->data(), stream));
+}
+
+void InferenceContext::conv3d(std::shared_ptr<Tensor> output,
+                              std::shared_ptr<Tensor> input,
+                              std::shared_ptr<Tensor> weight,
+                              std::shared_ptr<Tensor> bias,
+                              const std::vector<int64_t> &pads,
+                              const std::vector<int64_t> &strides,
+                              const std::vector<int64_t> &dilations) {
+    size_t key = CacheManager::createDescriptorKey(output, input, weight, bias);
+
+    infiniopConvDescriptor_t desc;
+    if (!cache_manager->getConvDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateConvDescriptor(
+            op_handle, &desc,
+            output->desc(), input->desc(), weight->desc(), bias->desc(),
+            const_cast<int64_t *>(pads.data()),
+            const_cast<int64_t *>(strides.data()),
+            const_cast<int64_t *>(dilations.data()),
+            pads.size()));
+        cache_manager->putConvDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetConvWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopConv(
+        desc, workspace, workspace_size,
+        output->data(), input->data(), weight->data(),
+        bias ? bias->data() : nullptr, stream));
+}
+
+void InferenceContext::gelu(std::shared_ptr<Tensor> output,
+                            std::shared_ptr<Tensor> input) {
+    size_t key = CacheManager::createDescriptorKey(output, input);
+
+    infiniopGeluDescriptor_t desc;
+    if (!cache_manager->getGeluDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateGeluDescriptor(op_handle, &desc, output->desc(), input->desc()));
+        cache_manager->putGeluDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetGeluWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopGelu(desc, workspace, workspace_size, output->data(), input->data(), stream));
 }

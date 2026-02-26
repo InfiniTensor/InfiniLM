@@ -28,6 +28,10 @@ __pycache__/
 # txt
 *.txt
 
+# check
+check_cpp/
+check/
+
 *.http
 
 *.nsys-rep

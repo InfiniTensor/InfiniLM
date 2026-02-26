@@ -23,6 +23,13 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
                  float epsilon);
+    void layernorm(std::shared_ptr<Tensor> y,
+                   std::shared_ptr<Tensor> input_standardization,
+                   std::shared_ptr<Tensor> input_std_deviation,
+                   std::shared_ptr<Tensor> x,
+                   std::shared_ptr<Tensor> w,
+                   std::shared_ptr<Tensor> b,
+                   float epsilon);
     void gemm(std::shared_ptr<Tensor> c,
               std::shared_ptr<Tensor> a,
               std::shared_ptr<Tensor> b,
@@ -35,8 +42,21 @@ struct InferenceContext {
               std::shared_ptr<Tensor> sin,
               std::shared_ptr<Tensor> cos,
               infiniopRoPEAlgo_t algo);
+    void mrope_2d(std::shared_ptr<Tensor> q,
+                  std::shared_ptr<Tensor> k,
+                  std::shared_ptr<Tensor> pos,
+                  std::shared_ptr<Tensor> sin,
+                  std::shared_ptr<Tensor> cos);
+    void mrope_3d(std::shared_ptr<Tensor> q,
+                  std::shared_ptr<Tensor> k,
+                  std::shared_ptr<Tensor> pos,
+                  std::shared_ptr<Tensor> sin,
+                  std::shared_ptr<Tensor> cos,
+                  std::shared_ptr<Tensor> rope_section);
     void causalSoftmax(std::shared_ptr<Tensor> y,
                        std::shared_ptr<Tensor> x);
+    void softmax(std::shared_ptr<Tensor> y,
+                 std::shared_ptr<Tensor> x);
 
     void topkrouter(std::shared_ptr<Tensor> values,  // F32
                     std::shared_ptr<Tensor> indices, // I32
@@ -52,6 +72,16 @@ struct InferenceContext {
                       std::shared_ptr<Tensor> prob,
                       float random_val, float top_p, uint32_t top_k, float temperature);
 
+    void conv3d(std::shared_ptr<Tensor> output,
+                std::shared_ptr<Tensor> input,
+                std::shared_ptr<Tensor> weight,
+                std::shared_ptr<Tensor> bias,
+                const std::vector<int64_t> &pads,
+                const std::vector<int64_t> &strides,
+                const std::vector<int64_t> &dilations);
+
+    void gelu(std::shared_ptr<Tensor> output,
+              std::shared_ptr<Tensor> input);
     void linear(std::shared_ptr<Tensor> c,
                 std::shared_ptr<Tensor> a,
                 std::shared_ptr<Tensor> b,
@@ -86,6 +116,12 @@ inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
     getInferenceContext().rmsnorm(y, x, w, epsilon);
 }
 
+inline void layernorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> input_standardization,
+                      std::shared_ptr<Tensor> input_std_deviation, std::shared_ptr<Tensor> x,
+                      std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> b, float epsilon) {
+    getInferenceContext().layernorm(y, input_standardization, input_std_deviation, x, w, b, epsilon);
+}
+
 inline void gemm(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
                  std::shared_ptr<Tensor> b, float alpha, float beta) {
     getInferenceContext().gemm(c, a, b, alpha, beta);
@@ -107,8 +143,24 @@ inline void rope_v2(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
     getInferenceContext().rope(q, k, pos, sin, cos, INFINIOP_ROPE_ALGO_GPT_NEOX);
 }
 
+inline void mrope_2d(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
+                     std::shared_ptr<Tensor> pos, std::shared_ptr<Tensor> sin,
+                     std::shared_ptr<Tensor> cos) {
+    getInferenceContext().mrope_2d(q, k, pos, sin, cos);
+}
+
+inline void mrope_3d(std::shared_ptr<Tensor> q, std::shared_ptr<Tensor> k,
+                     std::shared_ptr<Tensor> pos, std::shared_ptr<Tensor> sin,
+                     std::shared_ptr<Tensor> cos, std::shared_ptr<Tensor> rope_section) {
+    getInferenceContext().mrope_3d(q, k, pos, sin, cos, rope_section);
+}
+
 inline void causalSoftmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
     getInferenceContext().causalSoftmax(y, x);
+}
+
+inline void softmax(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x) {
+    getInferenceContext().softmax(y, x);
 }
 
 inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
@@ -134,6 +186,16 @@ inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
 inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> prob,
                          float random_val, float top_p, uint32_t top_k, float temperature) {
     getInferenceContext().randomSample(out, prob, random_val, top_p, top_k, temperature);
+}
+
+inline void conv3d(std::shared_ptr<Tensor> output,
+                   std::shared_ptr<Tensor> input,
+                   std::shared_ptr<Tensor> weight,
+                   std::shared_ptr<Tensor> bias,
+                   const std::vector<int64_t> &pads,
+                   const std::vector<int64_t> &strides,
+                   const std::vector<int64_t> &dilations) {
+    getInferenceContext().conv3d(output, input, weight, bias, pads, strides, dilations);
 }
 
 inline void linear(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a,
