@@ -5,6 +5,7 @@
 #include "infinicore_infer/weights_loader.h"
 
 #include "infinicore_infer/models/deepseek.h"
+#include "infinicore_infer/models/deepseek_ocr.h"
 #include "infinicore_infer/models/jiuge.h"
 
 #endif /* INFINICORE_INFER_H */
