@@ -358,7 +358,12 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             size_t num_seqs = seq_len;
             auto seq_lens = total_sequence_lengths.value();
 
+#ifdef ENABLE_NINETOOTHED
+            const static int64_t static_max_seq_len_ = 1024 * 8;
+            const int64_t max_seq_len = static_max_seq_len_;
+#else
             int64_t max_seq_len = max_sequence_length.value();
+#endif
 
             // auto seq_lens_cpu = seq_lens->to(infinicore::Device::cpu());
             // int64_t *total_seq_len_ptr = reinterpret_cast<int64_t *>(seq_lens_cpu->data());
@@ -459,14 +464,14 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
                                            std::optional<infinicore::Tensor> input_offsets,
                                            std::optional<infinicore::Tensor> block_tables,
                                            std::optional<infinicore::Tensor> slot_mapping,
-                                           std::optional<int64_t> max_seq_len) const {
+                                           std::optional<int64_t> max_sequence_length) const {
     if (!rotary_emb_) {
         throw std::runtime_error("LlamaAttention: rotary_emb not configured");
     }
 
     infinicore::Tensor output;
     if (auto paged_kv_cache = std::dynamic_pointer_cast<cache::PagedKVCache>(kv_cache)) {
-        output = forward_paged_(hidden_states, position_ids, paged_kv_cache, total_sequence_lengths, input_offsets, block_tables, slot_mapping, max_seq_len);
+        output = forward_paged_(hidden_states, position_ids, paged_kv_cache, total_sequence_lengths, input_offsets, block_tables, slot_mapping, max_sequence_length);
     } else {
 
         output = forward_(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths);

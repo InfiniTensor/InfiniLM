@@ -102,7 +102,7 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     size_t num_layers = layers_.size();
     infinicore::Tensor residual;
     for (size_t i = 0; i < num_layers; ++i) {
-        auto ret = layers_.at(i)->forward(
+        layers_.at(i)->forward(
             hidden_states,
             residual,
             position_ids,

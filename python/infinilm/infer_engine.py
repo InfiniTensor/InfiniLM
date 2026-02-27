@@ -137,15 +137,21 @@ class InferEngine(_infinilm.InferEngine):
                 initial_seqlen + generation_config.max_new_tokens + paged_block_size - 1
             ) // paged_block_size
 
-            block_tables_list = []
-            for i in range(batch_size):
-                table = list(
-                    range(
-                        1 + i * max_blocks_per_batch, (i + 1) * max_blocks_per_batch + 2
+            if True:
+                block_tables_list = [
+                    range(i * max_blocks_per_batch, (i + 1) * max_blocks_per_batch)
+                    for i in range(batch_size)
+                ]
+            else:
+                block_tables_list = []
+                for i in range(batch_size):
+                    table = list(
+                        range(
+                            1 + i * max_blocks_per_batch, (i + 1) * max_blocks_per_batch + 2
+                        )
                     )
-                )
-                table[-1] = 0
-                block_tables_list.append(table)
+                    table[-1] = 0
+                    block_tables_list.append(table)
 
             block_tables = infinicore.from_list(
                 block_tables_list,
@@ -211,11 +217,11 @@ class InferEngine(_infinilm.InferEngine):
             input_offsets = infinicore.from_list(
                 [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int64
             )
-            if slot_mapping is not None:
-                bias = infinicore.from_list(
-                    [16], dtype=infinicore.int64, device=slot_mapping.device
-                ).as_strided(size=slot_mapping.shape, stride=(0,))
-                slot_mapping = bias + slot_mapping
+            # if slot_mapping is not None:
+            #     bias = infinicore.from_list(
+            #         [16], dtype=infinicore.int64, device=slot_mapping.device
+            #     ).as_strided(size=slot_mapping.shape, stride=(0,))
+            #     slot_mapping = bias + slot_mapping
 
             # print("\n\n block_tables: ",block_tables)
             # print("slot_mapping: ",slot_mapping)
