@@ -87,16 +87,19 @@ def run_one_case(
         request_ids.append(rid)
 
     # ------------------------------------------------------------
-    # 2. Run until first decode token appears (prefill timing)
+    # 2. Run until first decode token appears for all requests (prefill timing)
     # ------------------------------------------------------------
     t0 = time.perf_counter()
-    first_token_seen = False
-
-    while not first_token_seen:
+    pre_decode = 0  # some decode tokens can be mixed with prefill batch
+    pending = set(f"req_{i}" for i in range(batch_size))
+    while pending:
         outputs = engine.step()
         for out in outputs:
-            if out.outputs and len(out.outputs[0].token_ids) > 0:
-                first_token_seen = True
+            if len(out.outputs[0].token_ids) > 0:
+                if out.request_id in pending:
+                    pending.remove(out.request_id)
+                else:
+                    pre_decode += 1
     torch.cuda.synchronize()
     t1 = time.perf_counter()
 
@@ -115,7 +118,9 @@ def run_one_case(
     decode_end = time.perf_counter()
 
     decode_time = decode_end - decode_start
-    decode_tokens = batch_size * (output_len - 1)
+    decode_tokens = (
+        batch_size * (output_len - 1) - pre_decode
+    )  # exclude prefill-mixed tokens
 
     return {
         "batch_size": batch_size,
