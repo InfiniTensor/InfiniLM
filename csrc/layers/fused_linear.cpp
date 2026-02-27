@@ -170,6 +170,58 @@ infinicore::nn::Parameter QKVParallelLinear::get_v_weight_scale() const {
         0, tp_rank_, tp_size_);
 }
 
+infinicore::nn::Parameter QKVParallelLinear::get_q_weight_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_->narrow({{1, 0, q_out_size_ / scaling_factor}}),
+        1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_k_weight_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_->narrow({{1, q_out_size_ / scaling_factor, k_out_size_ / scaling_factor}}),
+        1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_v_weight_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_->narrow({{1, (q_out_size_ + k_out_size_) / scaling_factor, v_out_size_ / scaling_factor}}),
+        1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_q_weight_scale_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_scale_->narrow({{1, 0, q_out_size_ / scaling_factor}}), 1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_k_weight_scale_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_scale_->narrow({{1, q_out_size_ / scaling_factor, k_out_size_ / scaling_factor}}),
+        1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_v_weight_scale_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_scale_->narrow({{1, (q_out_size_ + k_out_size_) / scaling_factor, v_out_size_ / scaling_factor}}),
+        1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_q_weight_zeros_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_zeros_->narrow({{1, 0, q_out_size_ / scaling_factor}}), 1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_k_weight_zeros_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_zeros_->narrow({{1, q_out_size_ / scaling_factor, k_out_size_ / scaling_factor}}),
+        1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_v_weight_zeros_awq(int scaling_factor) const {
+    return infinicore::nn::Parameter(
+        weight_zeros_->narrow({{1, (q_out_size_ + k_out_size_) / scaling_factor, v_out_size_ / scaling_factor}}),
+        1, tp_rank_, tp_size_);
+}
+
 infinicore::nn::Parameter QKVParallelLinear::get_q_weight_zeros() const {
     return infinicore::nn::Parameter(
         weight_zeros_->narrow({{0, 0, q_out_size_}}), 0, tp_rank_, tp_size_);
@@ -320,4 +372,29 @@ bool GateUpParallelLinear::has_gate_bias() const {
 bool GateUpParallelLinear::has_up_bias() const {
     return up_bias_;
 }
+
+infinicore::nn::Parameter GateUpParallelLinear::get_gate_weight_awq() const {
+    return infinicore::nn::Parameter(weight_->narrow({{1, 0, weight_->size(1) / 2}}), 1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter GateUpParallelLinear::get_up_weight_awq() const {
+    return infinicore::nn::Parameter(weight_->narrow({{1, weight_->size(1) / 2, weight_->size(1) / 2}}), 1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter GateUpParallelLinear::get_gate_weight_scale_awq() const {
+    return infinicore::nn::Parameter(weight_scale_->narrow({{1, 0, weight_scale_->size(1) / 2}}), 1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter GateUpParallelLinear::get_up_weight_scale_awq() const {
+    return infinicore::nn::Parameter(weight_scale_->narrow({{1, weight_scale_->size(1) / 2, weight_scale_->size(1) / 2}}), 1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter GateUpParallelLinear::get_gate_weight_zeros_awq() const {
+    return infinicore::nn::Parameter(weight_zeros_->narrow({{1, 0, weight_zeros_->size(1) / 2}}), 1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter GateUpParallelLinear::get_up_weight_zeros_awq() const {
+    return infinicore::nn::Parameter(weight_zeros_->narrow({{1, weight_zeros_->size(1) / 2, weight_zeros_->size(1) / 2}}), 1, tp_rank_, tp_size_);
+}
+
 } // namespace infinilm::layers

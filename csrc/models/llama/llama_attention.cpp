@@ -216,7 +216,7 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
         auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
 
         auto attn_weight = infinicore::op::matmul(Q, K_transposed, scaling_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
-
+        
         auto attn_weight_softmax = attn_weight->view({batch_size * num_attention_heads_, seq_len, total_seq_len});
         infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
 
@@ -227,7 +227,6 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
                           ->contiguous()
                           ->view({batch_size, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
     }
-
     auto output = o_proj_->forward(attn_output);
 
     return output;

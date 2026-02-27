@@ -58,6 +58,21 @@ public:
     infinicore::nn::Parameter get_k_weight_zeros() const;
     infinicore::nn::Parameter get_v_weight_zeros() const;
 
+    // For computing the packing factor in awq quantization:
+    // Returns the number of low-bit elements packed into a single high-bit container element.
+    // For example: int4 → int32 yields a packing factor of 8 (32 bits / 4 bits = 8 int4 values per int32).
+    infinicore::nn::Parameter get_q_weight_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_k_weight_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_v_weight_awq(int scaling_factor) const;
+
+    infinicore::nn::Parameter get_q_weight_scale_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_k_weight_scale_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_v_weight_scale_awq(int scaling_factor) const;
+
+    infinicore::nn::Parameter get_q_weight_zeros_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_k_weight_zeros_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_v_weight_zeros_awq(int scaling_factor) const;
+
     infinicore::nn::Parameter get_q_bias() const;
     infinicore::nn::Parameter get_k_bias() const;
     infinicore::nn::Parameter get_v_bias() const;
@@ -132,6 +147,18 @@ public:
 
     infinicore::nn::Parameter get_up_bias() const;
 
+    infinicore::nn::Parameter get_gate_weight_awq() const;
+
+    infinicore::nn::Parameter get_up_weight_awq() const;
+
+    infinicore::nn::Parameter get_up_weight_scale_awq() const;
+
+    infinicore::nn::Parameter get_up_weight_zeros_awq() const;
+
+    infinicore::nn::Parameter get_gate_weight_scale_awq() const;
+
+    infinicore::nn::Parameter get_gate_weight_zeros_awq() const;
+
     bool has_gate_bias() const;
 
     bool has_up_bias() const;
@@ -178,22 +205,22 @@ private:
     if (name##_->has_v_bias())                                                                      \
         this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
 
-#define INFINILM_QKV_LINEAR_W4A16AWQ_INIT(name, q_name, k_name, v_name, ...)                  \
-    name##_ = std::make_shared<layers::QKVParallelLinear>(__VA_ARGS__);                       \
-    this->register_parameter(std::string(q_name) + ".qweight", name##_->get_q_weight());      \
-    this->register_parameter(std::string(q_name) + ".qzeros", name##_->get_q_weight_zeros()); \
-    this->register_parameter(std::string(q_name) + ".scales", name##_->get_q_weight_scale()); \
-    this->register_parameter(std::string(k_name) + ".qweight", name##_->get_k_weight());      \
-    this->register_parameter(std::string(k_name) + ".qzeros", name##_->get_k_weight_zeros()); \
-    this->register_parameter(std::string(k_name) + ".scales", name##_->get_k_weight_scale()); \
-    this->register_parameter(std::string(v_name) + ".qweight", name##_->get_v_weight());      \
-    this->register_parameter(std::string(v_name) + ".qzeros", name##_->get_v_weight_zeros()); \
-    this->register_parameter(std::string(v_name) + ".scales", name##_->get_v_weight_scale()); \
-    if (name##_->has_q_bias())                                                                \
-        this->register_parameter(std::string(q_name) + ".bias", name##_->get_q_bias());       \
-    if (name##_->has_k_bias())                                                                \
-        this->register_parameter(std::string(k_name) + ".bias", name##_->get_k_bias());       \
-    if (name##_->has_v_bias())                                                                \
+#define INFINILM_QKV_LINEAR_W4A16AWQ_INIT(name, q_name, k_name, v_name, ...)                       \
+    name##_ = std::make_shared<layers::QKVParallelLinear>(__VA_ARGS__);                            \
+    this->register_parameter(std::string(q_name) + ".qweight", name##_->get_q_weight_awq(8));      \
+    this->register_parameter(std::string(q_name) + ".qzeros", name##_->get_q_weight_zeros_awq(8)); \
+    this->register_parameter(std::string(q_name) + ".scales", name##_->get_q_weight_scale_awq(1)); \
+    this->register_parameter(std::string(k_name) + ".qweight", name##_->get_k_weight_awq(8));      \
+    this->register_parameter(std::string(k_name) + ".qzeros", name##_->get_k_weight_zeros_awq(8)); \
+    this->register_parameter(std::string(k_name) + ".scales", name##_->get_k_weight_scale_awq(1)); \
+    this->register_parameter(std::string(v_name) + ".qweight", name##_->get_v_weight_awq(8));      \
+    this->register_parameter(std::string(v_name) + ".qzeros", name##_->get_v_weight_zeros_awq(8)); \
+    this->register_parameter(std::string(v_name) + ".scales", name##_->get_v_weight_scale_awq(1)); \
+    if (name##_->has_q_bias())                                                                     \
+        this->register_parameter(std::string(q_name) + ".bias", name##_->get_q_bias());            \
+    if (name##_->has_k_bias())                                                                     \
+        this->register_parameter(std::string(k_name) + ".bias", name##_->get_k_bias());            \
+    if (name##_->has_v_bias())                                                                     \
         this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
 
 // ========================= Gate-Up Quantization ==============================
@@ -208,16 +235,16 @@ private:
     if (name##_->has_up_bias())                                                                           \
         this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
 
-#define INFINILM_GATE_UP_LINEAR_W4A16AWQ_INIT(name, gate_name, up_name, ...)                        \
-    name##_ = std::make_shared<layers::GateUpParallelLinear>(__VA_ARGS__);                          \
-    this->register_parameter(std::string(gate_name) + ".qweight", name##_->get_gate_weight());      \
-    this->register_parameter(std::string(gate_name) + ".scales", name##_->get_gate_weight_scale()); \
-    this->register_parameter(std::string(gate_name) + ".qzeros", name##_->get_gate_weight_zeros()); \
-    this->register_parameter(std::string(up_name) + ".qweight", name##_->get_up_weight());          \
-    this->register_parameter(std::string(up_name) + ".scales", name##_->get_up_weight_scale());     \
-    this->register_parameter(std::string(up_name) + ".qzeros", name##_->get_up_weight_zeros());     \
-    if (name##_->has_gate_bias())                                                                   \
-        this->register_parameter(std::string(gate_name) + ".bias", name##_->get_gate_bias());       \
-    if (name##_->has_up_bias())                                                                     \
+#define INFINILM_GATE_UP_LINEAR_W4A16AWQ_INIT(name, gate_name, up_name, ...)                            \
+    name##_ = std::make_shared<layers::GateUpParallelLinear>(__VA_ARGS__);                              \
+    this->register_parameter(std::string(gate_name) + ".qweight", name##_->get_gate_weight_awq());      \
+    this->register_parameter(std::string(gate_name) + ".qzeros", name##_->get_gate_weight_zeros_awq()); \
+    this->register_parameter(std::string(gate_name) + ".scales", name##_->get_gate_weight_scale_awq()); \
+    this->register_parameter(std::string(up_name) + ".qweight", name##_->get_up_weight_awq());          \
+    this->register_parameter(std::string(up_name) + ".qzeros", name##_->get_up_weight_zeros_awq());     \
+    this->register_parameter(std::string(up_name) + ".scales", name##_->get_up_weight_scale_awq());     \
+    if (name##_->has_gate_bias())                                                                       \
+        this->register_parameter(std::string(gate_name) + ".bias", name##_->get_gate_bias());           \
+    if (name##_->has_up_bias())                                                                         \
         this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
 } // namespace infinilm::layers
