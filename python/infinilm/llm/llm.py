@@ -245,9 +245,14 @@ class LLMEngine:
         sampled_tokens: List[int],
     ):
         """Update request status after inference step."""
-        # Only reset req blocks for paged cache
-        if is_prefill and self.cache_type == "paged":
-            self.scheduler.cache_manager.reset_req_blocks()
+        if is_prefill:
+            match self.cache_type:
+                case "paged":
+                    self.scheduler.cache_manager.reset_req_blocks()
+                case "static":
+                    self.scheduler.update_cache()
+                case _:
+                    raise ValueError(f"Unsupported cache_type: {self.cache_type}")
 
         for req, token_id in zip(requests, sampled_tokens):
 
