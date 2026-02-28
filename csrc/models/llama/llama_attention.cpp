@@ -359,10 +359,9 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             auto seq_lens = total_sequence_lengths.value();
 
 #ifdef ENABLE_NINETOOTHED
-            const static int64_t static_max_seq_len_ = 1024 * 8;
-            const int64_t max_seq_len = static_max_seq_len_;
+            const int64_t max_seq_len = max_position_embeddings_;
 #else
-            int64_t max_seq_len = max_sequence_length.value();
+            const int64_t max_seq_len = max_sequence_length.value();
 #endif
 
             // auto seq_lens_cpu = seq_lens->to(infinicore::Device::cpu());

@@ -315,6 +315,7 @@ if __name__ == "__main__":
         infini_device = infinicore.device(device_str, 0)
         model_path = os.path.expanduser("/home/ubuntu/models/Qwen/Qwen3-0.6B")
         model_path = os.path.expanduser("/data-aisoft/mechdancer/models/Qwen3-0.6B/")
+        model_path = os.path.expanduser("/data-aisoft/mechdancer/models/9g_8b_thinking_llama")
         max_new_tokens = 1200
         tp = 1
         enable_paged_attn = "PAGED_ATTN_V2" # "PAGED_ATTN" "PAGED_ATTN_V2"

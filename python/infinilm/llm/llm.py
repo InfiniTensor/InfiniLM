@@ -70,7 +70,7 @@ class EngineConfig:
     top_p: float = 0.8
     top_k: int = 1
     enable_graph: bool = False
-    paged_type: str = "PAGED_ATTN_V2"
+    paged_type: str = "PAGED_ATTN_V2" # PAGED_ATTN PAGED_ATTN_V2
 
 
 class LLMEngine:
