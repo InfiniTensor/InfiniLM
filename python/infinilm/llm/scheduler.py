@@ -128,7 +128,7 @@ class Scheduler:
     def __init__(
         self,
         max_batch_size: int = 16,
-        num_blocks: int = 8 * 1024,
+        num_blocks: int = 512,
         block_size: int = 256,
     ):
         self.waiting_queue = janus.Queue()
