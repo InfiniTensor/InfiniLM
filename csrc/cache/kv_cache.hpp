@@ -86,7 +86,7 @@ class PagedKVCacheConfig final : public CacheConfig {
 public:
     PagedKVCacheConfig(
         size_t num_blocks,
-        size_t block_size = 16);
+        size_t block_size = 256);
 
     std::unique_ptr<CacheConfig> unique_copy() const override;
     size_t num_blocks() const;

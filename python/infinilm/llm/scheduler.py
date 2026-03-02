@@ -129,7 +129,7 @@ class Scheduler:
         self,
         max_batch_size: int = 16,
         num_blocks: int = 8 * 1024,
-        block_size: int = 16,
+        block_size: int = 256,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()

@@ -34,15 +34,7 @@ class InferEngine(_infinilm.InferEngine):
 
         if device is None:
             device = infinicore.device()
-          
-        # super().__init__(
-        #     self.config,
-        #     distributed_config._underlying,
-        #     device._underlying.type,
-        #     cache_config,
-        #     enable_graph_compiling,
-        # )
-        
+
         super().__init__(
             model_path,
             distributed_config._underlying,
@@ -109,7 +101,6 @@ class InferEngine(_infinilm.InferEngine):
         generation_config,
         *,
         _measure_and_log_time=False,
-        paged_block_size=16,
     ):
         if generation_config.eos_token_id is None:
             eos_token_id = self.config.eos_token_id
@@ -133,6 +124,7 @@ class InferEngine(_infinilm.InferEngine):
         block_tables = None
         max_blocks_per_batch = 0
         if self.enable_paged_attn:
+            paged_block_size = self.get_cache_config().block_size()
             max_blocks_per_batch = (
                 initial_seqlen + generation_config.max_new_tokens + paged_block_size - 1
             ) // paged_block_size

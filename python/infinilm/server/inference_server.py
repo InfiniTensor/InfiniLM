@@ -561,7 +561,7 @@ def parse_args():
     parser.add_argument(
         "--block_size",
         type=int,
-        default=16,
+        default=256,
         help="Block size for KV cache (paged cache only)",
     )
     parser.add_argument(
