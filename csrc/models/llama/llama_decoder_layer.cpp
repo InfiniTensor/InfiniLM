@@ -57,13 +57,15 @@ LlamaDecoderLayer::forward(infinicore::Tensor &hidden_states,
                            std::optional<infinicore::Tensor> past_sequence_lengths,
                            std::optional<infinicore::Tensor> total_sequence_lengths,
                            std::optional<infinicore::Tensor> input_offsets,
+                           std::optional<infinicore::Tensor> cu_seqlens,
                            std::optional<infinicore::Tensor> block_tables,
                            std::optional<infinicore::Tensor> slot_mapping) const {
     // 1. Attention layer normalization
     input_layernorm_->forward_inplace(hidden_states, residual);
 
     // 2. Self-attention
-    hidden_states = self_attn_->forward(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
+    hidden_states = self_attn_->forward(
+        hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, input_offsets, cu_seqlens, block_tables, slot_mapping);
 
     // 3. Post-attention layer normalization
     post_attention_layernorm_->forward_inplace(hidden_states, residual);

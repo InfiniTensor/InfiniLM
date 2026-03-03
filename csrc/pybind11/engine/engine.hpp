@@ -118,6 +118,7 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<infinicore::Tensor> past_sequence_lengths,
                          std::optional<infinicore::Tensor> total_sequence_lengths,
                          std::optional<infinicore::Tensor> input_offsets,
+                         std::optional<infinicore::Tensor> cu_seqlens,
                          std::optional<infinicore::Tensor> block_tables,
                          std::optional<infinicore::Tensor> slot_mapping,
                          py::kwargs kwargs) {
@@ -127,6 +128,7 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(past_sequence_lengths),
                     std::move(total_sequence_lengths),
                     std::move(input_offsets),
+                    std::move(cu_seqlens),
                     std::move(block_tables),
                     std::move(slot_mapping),
                 };
@@ -167,6 +169,7 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("past_sequence_lengths") = std::nullopt,
             py::arg("total_sequence_lengths") = std::nullopt,
             py::arg("input_offsets") = std::nullopt,
+            py::arg("cu_seqlens") = std::nullopt,
             py::arg("block_tables") = std::nullopt,
             py::arg("slot_mapping") = std::nullopt)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
@@ -174,6 +177,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
         .def_readwrite("total_sequence_lengths", &InferEngine::Input::total_sequence_lengths)
         .def_readwrite("input_offsets", &InferEngine::Input::input_offsets)
+        .def_readwrite("cu_seqlens", &InferEngine::Input::cu_seqlens)
         .def_readwrite("block_tables", &InferEngine::Input::block_tables)
         .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping)
         .def_readwrite("temperature", &InferEngine::Input::temperature)

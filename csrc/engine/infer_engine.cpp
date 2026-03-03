@@ -117,6 +117,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(past_sequence_lengths), // @todo: on device in the future
         to_device(total_sequence_lengths),
         to_device(input_offsets),
+        to_device(cu_seqlens),
         to_device(block_tables),
         to_device(slot_mapping),
     };

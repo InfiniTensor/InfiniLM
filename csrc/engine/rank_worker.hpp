@@ -37,8 +37,10 @@ public:
         std::optional<infinicore::Tensor> past_sequence_lengths;
         /// ToTal Lengths for each request sequence, of shape `[num_requests]`.
         std::optional<infinicore::Tensor> total_sequence_lengths;
-        /// Offsets of each request in a continous-batched sequence, of shape `[num_requests]`.
+        /// Offsets of each request in a continous-batched sequence, of shape `[num_requests + 1]`.
         std::optional<infinicore::Tensor> input_offsets;
+        /// Cumulative total sequence lengths for each request, of shape `[num_requests + 1]`.
+        std::optional<infinicore::Tensor> cu_seqlens;
         /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
         std::optional<infinicore::Tensor> block_tables;
         /// Slot ids for each token `[seq]`. Used for paged cache.

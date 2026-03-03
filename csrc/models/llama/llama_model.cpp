@@ -92,6 +92,7 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
                                        std::optional<infinicore::Tensor> past_sequence_lengths,
                                        std::optional<infinicore::Tensor> total_sequence_lengths,
                                        std::optional<infinicore::Tensor> input_offsets,
+                                       std::optional<infinicore::Tensor> cu_seqlens,
                                        std::optional<infinicore::Tensor> block_tables,
                                        std::optional<infinicore::Tensor> slot_mapping) const {
     // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
@@ -109,6 +110,7 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
             past_sequence_lengths,
             total_sequence_lengths,
             input_offsets,
+            cu_seqlens,
             block_tables,
             slot_mapping);
     }

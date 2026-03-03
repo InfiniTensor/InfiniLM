@@ -57,6 +57,7 @@ class InferEngine(_infinilm.InferEngine):
         past_kv_lengths=None,
         total_kv_lengths=None,
         input_offsets=None,
+        cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
         temperature=None,
@@ -74,6 +75,7 @@ class InferEngine(_infinilm.InferEngine):
         )
         input_offsets = input_offsets._underlying if input_offsets is not None else None
         block_tables = block_tables._underlying if block_tables is not None else None
+        cu_seqlens = cu_seqlens._underlying if cu_seqlens is not None else None
         slot_mapping = slot_mapping._underlying if slot_mapping is not None else None
 
         return infinicore.Tensor(
@@ -85,6 +87,7 @@ class InferEngine(_infinilm.InferEngine):
                     past_sequence_lengths=past_kv_lengths,
                     total_sequence_lengths=total_kv_lengths,
                     input_offsets=input_offsets,
+                    cu_seqlens=cu_seqlens,
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
                     temperature=temperature,
@@ -135,7 +138,7 @@ class InferEngine(_infinilm.InferEngine):
             ]
             block_tables = infinicore.from_list(
                 block_tables_list,
-                dtype=infinicore.int64,
+                dtype=infinicore.int32,
             )
 
         for iter in range(0, generation_config.max_new_tokens):
@@ -193,9 +196,11 @@ class InferEngine(_infinilm.InferEngine):
             total_kv_lengths = infinicore.from_list(
                 [past_seq_len + seq_len] * batch_size, dtype=infinicore.int64
             )
-
+            cu_seqlens = infinicore.from_list(
+                [(past_seq_len + seq_len) * i for i in range(batch_size + 1)], dtype=infinicore.int32
+            )
             input_offsets = infinicore.from_list(
-                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int64
+                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
             )
 
             output_id = self(
@@ -204,6 +209,7 @@ class InferEngine(_infinilm.InferEngine):
                 past_kv_lengths=past_kv_lengths,
                 total_kv_lengths=total_kv_lengths,
                 input_offsets=input_offsets,
+                cu_seqlens = cu_seqlens,
                 block_tables=block_tables,
                 slot_mapping=slot_mapping,
                 temperature=generation_config.temperature,

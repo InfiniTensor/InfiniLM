@@ -339,7 +339,7 @@ void RankWorker::thread_loop() {
                             const auto &batch_size{logits_shape[0]};
 
                             auto n_req = local_args.input_offsets.value()->size(0) - 1;
-                            int64_t *input_offsets = (int64_t *)local_args.input_offsets.value()->data();
+                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
                             auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
 

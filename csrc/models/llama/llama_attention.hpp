@@ -73,6 +73,7 @@ public:
                                std::optional<infinicore::Tensor> past_sequence_lengths,
                                std::optional<infinicore::Tensor> total_sequence_lengths,
                                std::optional<infinicore::Tensor> input_offsets,
+                               std::optional<infinicore::Tensor> cu_seqlens,
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mapping) const;
 
@@ -104,6 +105,7 @@ private:
                                       std::shared_ptr<infinilm::cache::PagedKVCache> kv_cache,
                                       std::optional<infinicore::Tensor> total_sequence_lengths,
                                       std::optional<infinicore::Tensor> input_offsets,
+                                      std::optional<infinicore::Tensor> cu_seqlens,
                                       std::optional<infinicore::Tensor> block_tables,
                                       std::optional<infinicore::Tensor> slot_mapping) const;
 
