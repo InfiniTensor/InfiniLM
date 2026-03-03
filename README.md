@@ -63,9 +63,9 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
     ```
 
 
-  - 选择是否使用九齿计算路径，默认为false，即不依赖九齿算子
+  - 选择是否使用kv caching，默认为false；在支持了此算子的平台(英伟达、阿里、天数、沐曦、海光、QY)可以使用
     ```bash
-      xmake f --ninetoothed= [true | false] -cv
+      xmake f --use-kv-caching= [true | false] -cv
     ```
 
 
