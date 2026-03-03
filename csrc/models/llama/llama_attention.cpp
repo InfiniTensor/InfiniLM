@@ -32,7 +32,8 @@ namespace infinilm::models::llama {
 LlamaAttention::LlamaAttention(const LlamaConfig &config,
                                const infinicore::Device &device,
                                size_t layer_idx,
-                               engine::distributed::RankInfo rank_info)
+                               engine::distributed::RankInfo rank_info,
+                               backends::AttentionBackend attention_backend)
     : layer_idx_(layer_idx),
       hidden_size_(config.hidden_size),
       num_attention_heads_(config.num_attention_heads),
@@ -42,7 +43,9 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
       use_bias_(config.attention_bias),
       use_output_bias_(config.attention_output_bias),
       use_qk_norm_(config.qk_norm),
-      max_position_embeddings_(config.max_position_embeddings), rank_info_(rank_info) {
+      max_position_embeddings_(config.max_position_embeddings),
+      rank_info_(rank_info),
+      attention_backend_(attention_backend) {
     const auto &dtype{config.dtype};
 
     int tp_rank = rank_info.tp_rank;
@@ -76,7 +79,8 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
 LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                const infinicore::Device &device,
                                size_t layer_idx,
-                               engine::distributed::RankInfo rank_info)
+                               engine::distributed::RankInfo rank_info,
+                               backends::AttentionBackend attention_backend)
     : model_config_(model_config),
       layer_idx_(layer_idx),
       hidden_size_(model_config->get<size_t>("hidden_size")),
@@ -87,7 +91,8 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
       use_bias_(model_config->get_or<bool>("attention_bias", true)),
       use_output_bias_(model_config->get_or<bool>("attention_output_bias", false)),
       max_position_embeddings_(model_config->get<size_t>("max_position_embeddings")),
-      rank_info_(rank_info) {
+      rank_info_(rank_info),
+      attention_backend_(attention_backend) {
     const auto &dtype{model_config_->get_dtype()};
 
     int tp_rank = rank_info.tp_rank;
@@ -299,42 +304,44 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     // 6. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
 
-    // if (is_prefill) {
-    //     infinicore::op::paged_attention_prefill_(
-    //         attn_output,
-    //         q_reshaped,
-    //         k_total,
-    //         v_total,
-    //         block_tables.value(),
-    //         total_sequence_lengths.value(),
-    //         input_offsets.value(),
-    //         std::nullopt,
-    //         scaling_);
+    if (attention_backend_ == backends::AttentionBackend::FlashAttn) {
+        infinicore::op::mha_varlen_(
+            attn_output,
+            q_reshaped,
+            k_total->permute({0, 2, 1, 3}),
+            v_total->permute({0, 2, 1, 3}),
+            input_offsets.value(),
+            cu_seqlens.value(),
+            block_tables.value(),
+            max_position_embeddings_,
+            max_position_embeddings_,
+            std::nullopt,
+            scaling_);
+    } else {
+        if (is_prefill) {
+            infinicore::op::paged_attention_prefill_(
+                attn_output,
+                q_reshaped,
+                k_total,
+                v_total,
+                block_tables.value(),
+                total_sequence_lengths.value(),
+                input_offsets.value(),
+                std::nullopt,
+                scaling_);
 
-    // } else {
-    //     infinicore::op::paged_attention_(
-    //         attn_output,
-    //         q_reshaped,
-    //         k_total,
-    //         v_total,
-    //         block_tables.value(),
-    //         total_sequence_lengths.value(),
-    //         std::nullopt,
-    //         scaling_);
-    // }
-
-    infinicore::op::mha_varlen_(
-        attn_output,
-        q_reshaped,
-        k_total->permute({0, 2, 1, 3}),
-        v_total->permute({0, 2, 1, 3}),
-        input_offsets.value(),
-        cu_seqlens.value(),
-        block_tables.value(),
-        max_position_embeddings_,
-        max_position_embeddings_,
-        std::nullopt,
-        scaling_);
+        } else {
+            infinicore::op::paged_attention_(
+                attn_output,
+                q_reshaped,
+                k_total,
+                v_total,
+                block_tables.value(),
+                total_sequence_lengths.value(),
+                std::nullopt,
+                scaling_);
+        }
+    }
 
     // 7. Project output
     attn_output

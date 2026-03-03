@@ -29,6 +29,7 @@ class InferEngine(_infinilm.InferEngine):
         distributed_config=DistConfig(1),
         cache_config=None,
         enable_graph_compiling=False,
+        attention_backend="flash-attn",
     ):
         self.config = AutoConfig.from_pretrained(model_path)
 
@@ -41,6 +42,7 @@ class InferEngine(_infinilm.InferEngine):
             device._underlying.type,
             cache_config,
             enable_graph_compiling,
+            attention_backend,
         )
         self.use_cache = False
 
@@ -197,7 +199,8 @@ class InferEngine(_infinilm.InferEngine):
                 [past_seq_len + seq_len] * batch_size, dtype=infinicore.int64
             )
             cu_seqlens = infinicore.from_list(
-                [(past_seq_len + seq_len) * i for i in range(batch_size + 1)], dtype=infinicore.int32
+                [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
+                dtype=infinicore.int32,
             )
             input_offsets = infinicore.from_list(
                 [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
@@ -209,7 +212,7 @@ class InferEngine(_infinilm.InferEngine):
                 past_kv_lengths=past_kv_lengths,
                 total_kv_lengths=total_kv_lengths,
                 input_offsets=input_offsets,
-                cu_seqlens = cu_seqlens,
+                cu_seqlens=cu_seqlens,
                 block_tables=block_tables,
                 slot_mapping=slot_mapping,
                 temperature=generation_config.temperature,

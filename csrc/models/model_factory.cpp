@@ -17,12 +17,13 @@ namespace infinilm {
 std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     const InfinilmModel::Config &config,
     engine::distributed::RankInfo rank_info,
-    const cache::CacheConfig *cache) {
+    const cache::CacheConfig *cache,
+    backends::AttentionBackend attention_backend) {
     std::shared_ptr<InfinilmModel> model;
     if (const auto llama_config_ptr = dynamic_cast<const models::llama::LlamaConfig *>(&config)) {
         const auto &llama_config = *llama_config_ptr;
         model = std::make_shared<models::llama::LlamaForCausalLM>(
-            llama_config, rank_info.device, rank_info);
+            llama_config, rank_info.device, rank_info, attention_backend);
     } else {
         throw std::invalid_argument("InfinilmModelFactory::createModel: Unsupported model config type");
     }
@@ -37,12 +38,13 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
 std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     engine::distributed::RankInfo rank_info,
-    const cache::CacheConfig *cache) {
+    const cache::CacheConfig *cache,
+    backends::AttentionBackend attention_backend) {
 
     std::shared_ptr<InfinilmModel> model;
     if (true) {
         model = std::make_shared<models::llama::LlamaForCausalLM>(
-            model_config, rank_info.device, rank_info);
+            model_config, rank_info.device, rank_info, attention_backend);
     } else {
         throw std::invalid_argument("InfinilmModelFactory::createModel: Unsupported model config type");
     }

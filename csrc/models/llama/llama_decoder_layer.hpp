@@ -48,12 +48,14 @@ public:
     LlamaDecoderLayer(const LlamaConfig &config,
                       const infinicore::Device &device,
                       size_t layer_idx,
-                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                      backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                       const infinicore::Device &device,
                       size_t layer_idx,
-                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                      backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     /**
      * @brief Forward pass: process one decoder layer

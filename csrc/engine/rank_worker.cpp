@@ -26,9 +26,11 @@ RankWorker::RankWorker(const InfinilmModel::Config &model_config,
                        const distributed::RankInfo &rank_info,
                        const cache::CacheConfig *cache_config,
                        RankBarrier *barrier,
-                       bool enable_graph_compiling)
+                       bool enable_graph_compiling,
+                       backends::AttentionBackend attention_backend)
     : legacy_model_config_(model_config),
       rank_info_(rank_info),
+      attention_backend_(attention_backend),
       enable_graph_compiling_(enable_graph_compiling),
       job_cmd_(Command::INIT),
       has_job_(false),
@@ -53,9 +55,11 @@ RankWorker::RankWorker(
     const distributed::RankInfo &rank_info,
     const cache::CacheConfig *cache_config,
     RankBarrier *barrier,
-    bool enable_graph_compiling)
+    bool enable_graph_compiling,
+    backends::AttentionBackend attention_backend)
     : model_config_(model_config),
       rank_info_(rank_info),
+      attention_backend_(attention_backend),
       enable_graph_compiling_(enable_graph_compiling),
       job_cmd_(Command::INIT),
       has_job_(false),
@@ -234,10 +238,18 @@ void RankWorker::thread_loop() {
 
             // Create model using factory (may be expensive)
             if (model_config_ == nullptr) {
-                model_ = InfinilmModelFactory::createModel(legacy_model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+                model_ = InfinilmModelFactory::createModel(
+                    legacy_model_config_,
+                    rank_info_,
+                    pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
+                    attention_backend_);
 
             } else {
-                model_ = InfinilmModelFactory::createModel(model_config_, rank_info_, pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+                model_ = InfinilmModelFactory::createModel(
+                    model_config_,
+                    rank_info_,
+                    pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
+                    attention_backend_);
             }
 
             if (!model_) {

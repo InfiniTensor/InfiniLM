@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../backends/attention_backends.hpp"
 #include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
@@ -52,12 +53,14 @@ public:
     LlamaAttention(const LlamaConfig &config,
                    const infinicore::Device &device,
                    size_t layer_idx,
-                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                   backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
                    size_t layer_idx,
-                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                   backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     /**
      * @brief Forward pass: compute attention
@@ -134,6 +137,8 @@ private:
     size_t max_position_embeddings_; // For cache initialization (deprecated, kept for compatibility)
 
     float scaling_;
+
+    backends::AttentionBackend attention_backend_;
 };
 
 } // namespace infinilm::models::llama

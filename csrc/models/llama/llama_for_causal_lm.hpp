@@ -42,11 +42,13 @@ public:
      */
     LlamaForCausalLM(const LlamaConfig &config,
                      const infinicore::Device &device,
-                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                     backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      const infinicore::Device &device,
-                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                     backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     /**
      * @brief Forward pass: compute language modeling logits

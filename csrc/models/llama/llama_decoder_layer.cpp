@@ -19,7 +19,8 @@ namespace infinilm::models::llama {
 LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
                                      const infinicore::Device &device,
                                      size_t layer_idx,
-                                     engine::distributed::RankInfo rank_info) : layer_idx_(layer_idx), rank_info_(rank_info) {
+                                     engine::distributed::RankInfo rank_info,
+                                     backends::AttentionBackend attention_backend) : layer_idx_(layer_idx), rank_info_(rank_info) {
     const auto &dtype{config.dtype};
 
     // Initialize layer normalization layers
@@ -29,14 +30,15 @@ LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config,
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, rank_info_);
+    INFINICORE_NN_MODULE_INIT(self_attn, config, device, layer_idx, rank_info_, attention_backend);
     INFINICORE_NN_MODULE_INIT(mlp, config, device, rank_info_);
 }
 
 LlamaDecoderLayer::LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      const infinicore::Device &device,
                                      size_t layer_idx,
-                                     engine::distributed::RankInfo rank_info) : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
+                                     engine::distributed::RankInfo rank_info,
+                                     backends::AttentionBackend attention_backend) : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
     const auto &dtype{model_config_->get_dtype()};
     // Initialize layer normalization layers
     INFINICORE_NN_MODULE_INIT(input_layernorm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
@@ -45,7 +47,7 @@ LlamaDecoderLayer::LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConf
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, model_config_, device, layer_idx, rank_info_);
+    INFINICORE_NN_MODULE_INIT(self_attn, model_config_, device, layer_idx, rank_info_, attention_backend);
     INFINICORE_NN_MODULE_INIT(mlp, model_config_, device, rank_info_);
 }
 

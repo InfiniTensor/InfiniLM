@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../backends/attention_backends.hpp"
 #include "../cache/cache.hpp"
 #include "../config/model_config.hpp"
 #include "../models/model_factory.hpp"
@@ -63,13 +64,15 @@ public:
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,
                RankBarrier *barrier,
-               bool enable_graph_compiling);
+               bool enable_graph_compiling,
+               backends::AttentionBackend attention_backend);
 
     RankWorker(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,
                RankBarrier *barrier,
-               bool enable_graph_compiling);
+               bool enable_graph_compiling,
+               backends::AttentionBackend attention_backend);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
@@ -108,6 +111,9 @@ private:
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
+
+    // Backends
+    backends::AttentionBackend attention_backend_;
 
     // Graph Compiling
     bool enable_graph_compiling_;
