@@ -93,7 +93,7 @@ StaticKVCache::update(size_t layer_idx,
 
     auto device = k_cache_layer->device();
 
-#ifdef ENABLE_NINETOOTHED
+#ifdef ENABLE_KV_CACHING
     infinicore::op::kv_caching_(
         k_cache_layer,
         v_cache_layer,
