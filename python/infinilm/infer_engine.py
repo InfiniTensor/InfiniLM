@@ -193,10 +193,10 @@ class InferEngine(_infinilm.InferEngine):
                 slot_mapping = None
 
             past_kv_lengths = infinicore.from_list(
-                [past_seq_len] * batch_size, dtype=infinicore.int64
+                [past_seq_len] * batch_size, dtype=infinicore.int32
             )
             total_kv_lengths = infinicore.from_list(
-                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int64
+                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
             )
             cu_seqlens = infinicore.from_list(
                 [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],

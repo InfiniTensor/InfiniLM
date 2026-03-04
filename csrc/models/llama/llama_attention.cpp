@@ -304,21 +304,21 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     // 6. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
 
-    if (attention_backend_ == backends::AttentionBackend::FlashAttn) {
-        infinicore::op::mha_varlen_(
-            attn_output,
-            q_reshaped,
-            k_total->permute({0, 2, 1, 3}),
-            v_total->permute({0, 2, 1, 3}),
-            input_offsets.value(),
-            cu_seqlens.value(),
-            block_tables.value(),
-            max_position_embeddings_,
-            max_position_embeddings_,
-            std::nullopt,
-            scaling_);
-    } else {
-        if (is_prefill) {
+    if (is_prefill) {
+        if (attention_backend_ == backends::AttentionBackend::FlashAttn) {
+            infinicore::op::mha_varlen_(
+                attn_output,
+                q_reshaped,
+                k_total->permute({0, 2, 1, 3}),
+                v_total->permute({0, 2, 1, 3}),
+                input_offsets.value(),
+                cu_seqlens.value(),
+                block_tables.value(),
+                max_position_embeddings_,
+                max_position_embeddings_,
+                std::nullopt,
+                scaling_);
+        } else {
             infinicore::op::paged_attention_prefill_(
                 attn_output,
                 q_reshaped,
@@ -329,18 +329,17 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                 input_offsets.value(),
                 std::nullopt,
                 scaling_);
-
-        } else {
-            infinicore::op::paged_attention_(
-                attn_output,
-                q_reshaped,
-                k_total,
-                v_total,
-                block_tables.value(),
-                total_sequence_lengths.value(),
-                std::nullopt,
-                scaling_);
         }
+    } else {
+        infinicore::op::paged_attention_(
+            attn_output,
+            q_reshaped,
+            k_total,
+            v_total,
+            block_tables.value(),
+            total_sequence_lengths.value(),
+            std::nullopt,
+            scaling_);
     }
 
     // 7. Project output

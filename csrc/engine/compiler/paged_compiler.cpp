@@ -41,12 +41,12 @@ void PagedCompiler::compile() {
             InfinilmModel::Input input;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.position_ids = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
-            input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+            input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::context::getDevice());
             set_zeros(input.input_ids.value());
             set_zeros(input.position_ids.value());
             set_zeros(input.total_sequence_lengths.value());
-            std::vector<int64_t> total_sequence_lengths_vec(b, 1);
-            infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int64_t), false);
+            std::vector<int32_t> total_sequence_lengths_vec(b, 1);
+            infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int32_t), false);
             input.input_offsets = infinicore::Tensor::empty({b + 1}, infinicore::DataType::I32, infinicore::context::getDevice());
             std::vector<int32_t> input_offsets_vec(b + 1, 0);
             for (size_t i = 0; i <= b; i++) {
