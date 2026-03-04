@@ -147,7 +147,6 @@ void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
             config_.num_key_value_heads,
             config_.num_key_value_heads,
             config_.num_hidden_layers,
-            config_.dtype,
             *paged_kv_cache_config,
             rank_info_);
     } else if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
@@ -162,13 +161,15 @@ void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
             *kv_cache_config,
             rank_info_);
     } else if (auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config)) {
+        if (!paged_kv_cache_config->kv_cache_dtype_set()) {
+            paged_kv_cache_config->set_kv_cache_dtype(model_config_->get_dtype());
+        }
         kv_cache_ = std::make_shared<cache::PagedKVCache>(
             model_config_->get_head_dim(),
             model_config_->get_head_dim(),
             model_config_->get<size_t>("num_key_value_heads"),
             model_config_->get<size_t>("num_key_value_heads"),
             model_config_->get<size_t>("num_hidden_layers"),
-            model_config_->get_dtype(),
             *paged_kv_cache_config,
             rank_info_);
     } else {
