@@ -2,6 +2,7 @@
 
 #include "base_cache.hpp"
 
+#include "../utils.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/tensor.hpp"
@@ -88,13 +89,24 @@ public:
         size_t num_blocks,
         size_t block_size = 16);
 
+    PagedKVCacheConfig(
+        size_t num_blocks,
+        std::string kv_cache_dtype,
+        size_t block_size = 16);
+
     std::unique_ptr<CacheConfig> unique_copy() const override;
     size_t num_blocks() const;
     size_t block_size() const;
+    infinicore::DataType kv_cache_dtype() const;
+    void set_kv_cache_dtype(infinicore::DataType dtype) const;
+    bool kv_cache_dtype_set() const { return kv_cache_dtype_set_; }
 
 private:
     size_t num_blocks_;
     size_t block_size_;
+
+    bool kv_cache_dtype_set_ = false;
+    mutable infinicore::DataType kv_cache_dtype_;
 };
 
 class PagedKVCache final : public Cache {
@@ -106,7 +118,6 @@ public:
         infinicore::Size num_k_heads,
         infinicore::Size num_v_heads,
         infinicore::Size num_layers,
-        infinicore::DataType dtype,
         const PagedKVCacheConfig &config,
         const engine::distributed::RankInfo &rank_info);
 

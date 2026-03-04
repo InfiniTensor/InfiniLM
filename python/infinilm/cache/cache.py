@@ -18,9 +18,11 @@ class PagedKVCacheConfig(CacheConfig, _infinilm.PagedKVCacheConfig):
         self,
         num_blocks: int,
         block_size: int = 16,
+        kv_cache_dtype: str | None = None,
     ):
-        _infinilm.PagedKVCacheConfig.__init__(
-            self,
-            num_blocks,
-            block_size,
-        )
+        if kv_cache_dtype is None:
+            _infinilm.PagedKVCacheConfig.__init__(self, num_blocks, block_size)
+        else:
+            _infinilm.PagedKVCacheConfig.__init__(
+                self, num_blocks, kv_cache_dtype, block_size
+            )

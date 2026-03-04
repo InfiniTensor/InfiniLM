@@ -120,6 +120,16 @@ StaticKVCache::update(size_t layer_idx,
 // ==========================
 PagedKVCacheConfig::PagedKVCacheConfig(
     size_t num_blocks,
+    std::string kv_cache_dtype,
+    size_t block_size)
+    : num_blocks_(num_blocks),
+      block_size_(block_size),
+      kv_cache_dtype_(parse_dtype(kv_cache_dtype)) {
+    kv_cache_dtype_set_ = true;
+}
+
+PagedKVCacheConfig::PagedKVCacheConfig(
+    size_t num_blocks,
     size_t block_size)
     : num_blocks_(num_blocks),
       block_size_(block_size) {
@@ -140,6 +150,15 @@ PagedKVCacheConfig::block_size() const {
     return block_size_;
 }
 
+infinicore::DataType
+PagedKVCacheConfig::kv_cache_dtype() const {
+    return kv_cache_dtype_;
+}
+
+void PagedKVCacheConfig::set_kv_cache_dtype(infinicore::DataType dtype) const {
+    kv_cache_dtype_ = dtype;
+}
+
 // ==========================
 // PagedKVCache
 // ==========================
@@ -149,7 +168,6 @@ PagedKVCache::PagedKVCache(
     infinicore::Size num_k_heads,
     infinicore::Size num_v_heads,
     infinicore::Size num_layers,
-    infinicore::DataType dtype,
     const PagedKVCacheConfig &config,
     const engine::distributed::RankInfo &rank_info)
     : Cache(),
@@ -158,7 +176,7 @@ PagedKVCache::PagedKVCache(
       num_rank_k_heads_(num_k_heads / rank_info.tp_size),
       num_rank_v_heads_(num_v_heads / rank_info.tp_size),
       rank_num_layers_(num_layers),
-      dtype_(dtype),
+      dtype_(config.kv_cache_dtype()),
       num_blocks_per_layer_(config.num_blocks()),
       block_size_(config.block_size()) {
     // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
