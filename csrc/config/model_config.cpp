@@ -66,23 +66,8 @@ ModelConfig::get_rope_scaling() const {
     }
 }
 
-infinicore::DataType
-ModelConfig::get_dtype() const {
-    try {
-        std::string dtype_str = this->get<std::string>("torch_dtype");
-        if (dtype_str == "float32") {
-            return infinicore::DataType::F32;
-        } else if (dtype_str == "float16") {
-            return infinicore::DataType::F16;
-        } else if (dtype_str == "bfloat16") {
-            return infinicore::DataType::BF16;
-        } else if (dtype_str == "int8") {
-            return infinicore::DataType::I8;
-        } else {
-            throw std::runtime_error("Unsupported dtype string: " + dtype_str);
-        }
-    } catch (const std::exception &e) {
-        throw std::runtime_error("Error getting dtype from config: " + std::string(e.what()));
-    }
+infinicore::DataType ModelConfig::get_dtype() const {
+    std::string dtype_str = this->get<std::string>("torch_dtype");
+    return parse_dtype(dtype_str);
 }
 } // namespace infinilm::config
