@@ -1,4 +1,5 @@
 #include "../../cache/cache.hpp"
+#include "infinicore/dtype.hpp"
 #include "infinicore/tensor.hpp"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -39,11 +40,18 @@ inline void bind_cache(py::module &m) {
             py::arg("num_blocks"),
             py::arg("block_size") = 16)
         .def(
+            py::init<size_t, std::string, size_t>(),
+            py::arg("num_blocks"),
+            py::arg("kv_cache_dtype"),
+            py::arg("block_size") = 16)
+        .def(
             "num_blocks",
             &infinilm::cache::PagedKVCacheConfig::num_blocks)
         .def(
             "block_size",
             &infinilm::cache::PagedKVCacheConfig::block_size)
+        .def("kv_cache_dtype",
+             &infinilm::cache::PagedKVCacheConfig::kv_cache_dtype)
         .def("__repr__", [](const infinilm::cache::PagedKVCacheConfig &) {
             return "<PagedKVCacheConfig>";
         });
