@@ -23,8 +23,8 @@ __C struct KVCache *createKVCache(
         auto kcache = std::vector<std::shared_ptr<Tensor>>();
         auto vcache = std::vector<std::shared_ptr<Tensor>>();
         for (unsigned int layer = 0; layer < nlayers; layer++) {
-            kcache.push_back(std::move(Tensor::buffer(dtype, shape_k)));
-            vcache.push_back(std::move(Tensor::buffer(dtype, shape_v)));
+            kcache.push_back(Tensor::buffer(dtype, shape_k));
+            vcache.push_back(Tensor::buffer(dtype, shape_v));
         }
         cache->k.push_back(kcache);
         cache->v.push_back(vcache);
@@ -49,8 +49,8 @@ __C struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t seq_len) {
             auto kcache = std::vector<std::shared_ptr<Tensor>>();
             auto vcache = std::vector<std::shared_ptr<Tensor>>();
             for (unsigned int layer = 0; layer < nlayers; layer++) {
-                kcache.push_back(std::move(Tensor::buffer(dtype, shape_k)));
-                vcache.push_back(std::move(Tensor::buffer(dtype, shape_v)));
+                kcache.push_back(Tensor::buffer(dtype, shape_k));
+                vcache.push_back(Tensor::buffer(dtype, shape_v));
             }
             new_kv_cache->k.push_back(kcache);
             new_kv_cache->v.push_back(vcache);
@@ -110,8 +110,8 @@ __C struct MambaCache *createMambaCache(
         auto conv_state = std::vector<std::shared_ptr<Tensor>>();
         auto recurrent_state = std::vector<std::shared_ptr<Tensor>>();
         for (unsigned int layer = 0; layer < nlinear_attention_layers; layer++) {
-            conv_state.push_back(std::move(Tensor::weight(zeros, dtype, shape_conv)));
-            recurrent_state.push_back(std::move(Tensor::weight(zeros, dtype, shape_ssm)));
+            conv_state.push_back(Tensor::weight(zeros, dtype, shape_conv));
+            recurrent_state.push_back(Tensor::weight(zeros, dtype, shape_ssm));
         }
         cache->conv_states.push_back(conv_state);
         cache->ssm_states.push_back(recurrent_state);
