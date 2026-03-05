@@ -142,6 +142,14 @@ def get_args():
         help="sampling temperature",
     )
 
+    parser.add_argument(
+        "--attn",
+        type=str,
+        default="flash-attn",
+        choices=["default", "flash-attn"],
+        help="attention backend to use: 'default' or 'flash-attn'",
+    )
+
     return parser.parse_args()
 
 
@@ -156,6 +164,7 @@ def test(
     top_k=1,
     top_p=1.0,
     temperature=1.0,
+    attn_backend="flash-attn",
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -166,6 +175,7 @@ def test(
         device=infini_device,
         distributed_config=DistConfig(tp),
         enable_graph_compiling=enable_graph,
+        attention_backend=attn_backend,
     )
     # ---------------------------------------------------------------------------- #
     #                        Load Weights
@@ -333,4 +343,5 @@ if __name__ == "__main__":
         top_k=args.top_k,
         top_p=args.top_p,
         temperature=args.temperature,
+        attn_backend=args.attn,
     )

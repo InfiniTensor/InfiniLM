@@ -160,3 +160,21 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
         python test/bench/test_benchmark.py --nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra --backend cpp --ndev 1 --cache_dir ~/.cache/huggingface/datasets/
         ```
         > 注意：`--cache_dir` 应指向包含 `ceval___ceval-exam` 和 `cais___mmlu` 等数据集子目录的父目录，而不是直接指向这些子目录
+
+  - 试验中功能
+    - Warm Up
+      ```bash
+      python examples/bench.py --nvidia --model=<model-path> --warmup
+      ```
+    - Paged Attention
+      ```bash
+      python examples/bench.py --nvidia --model=<model-path> --enable-paged-attn
+      ```
+    - CUDA Graph
+      ```bash
+      python examples/bench.py --nvidia --model=<model-path> --enable-paged-attn --enable-graph
+      ```
+    - 选择attention后端 (使用flash attention后端需要先在InfiniCore完成相关配置和编译)
+      ```bash
+      python examples/bench.py --nvidia --model=<model-path> --enable-paged-attn [--attn=flash-attn | --attn=default]
+      ```
