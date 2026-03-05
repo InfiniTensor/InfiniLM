@@ -118,7 +118,7 @@ JiugeAWQWeights::JiugeAWQWeights(
 #undef REGISTER_LAYER_QUANT_WEIGHT
 }
 
-__C struct ModelWeights *
+__INFINI_C struct ModelWeights *
 createJiugeAWQWeights(const JiugeAWQMeta *meta,
                       infiniDevice_t device,
                       int ndev,

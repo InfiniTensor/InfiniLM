@@ -54,7 +54,7 @@ typedef struct
 /// @param device 协处理器种类
 /// @param ndev 协处理器数量
 /// @param dev_ids 协处理器编号，长度为 ndev
-__C __export struct JiugeModel *
+__INFINI_C __export struct JiugeModel *
 createJiugeModel(const JiugeMeta *,
                  const JiugeWeights *,
                  infiniDevice_t device,
@@ -62,7 +62,7 @@ createJiugeModel(const JiugeMeta *,
                  const int *dev_ids);
 
 /// @brief 销毁模型
-__C __export void
+__INFINI_C __export void
 destroyJiugeModel(struct JiugeModel *);
 
 /// @brief 批次推理一轮，并采样出新的 token
@@ -76,7 +76,7 @@ destroyJiugeModel(struct JiugeModel *);
 /// @param topk 采样 topk（1 表示贪心采样）
 /// @param topp 采样 topp
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
-__C __export void
+__INFINI_C __export void
 inferBatchJiuge(struct JiugeModel *,
                 const uint32_t *tokens, uint32_t ntok,
                 const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -92,7 +92,7 @@ inferBatchJiuge(struct JiugeModel *,
 /// @param req_pos 每个请求的起始位置
 /// @param kv_caches 每个请求的 KV Cache
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
-__C __export void
+__INFINI_C __export void
 forwardBatchJiuge(struct JiugeModel *,
                   const uint32_t *tokens, uint32_t ntok,
                   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
