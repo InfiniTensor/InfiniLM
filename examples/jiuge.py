@@ -15,6 +15,8 @@ from packaging import version
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
+_PAGED_KV_BLOCK_SIZE = 256
+
 
 def get_args():
     parser = argparse.ArgumentParser(description="run Llama args")
@@ -105,6 +107,14 @@ def get_args():
         action="store_true",
         help="use paged cache",
     )
+
+    parser.add_argument(
+        "--paged_kv_block_size",
+        type=int,
+        default=256,
+        help="num tokens each kv block can hold",
+    )
+
     parser.add_argument(
         "--enable-graph",
         action="store_true",
@@ -225,7 +235,11 @@ def test(
         batch_size = 1 if prompts is str else len(prompts)
         max_total_tokens = max_new_tokens + len(input_ids_list[0])
         cache_config = PagedKVCacheConfig(
-            num_blocks=((max_total_tokens + 15) // 16) * batch_size, block_size=16
+            num_blocks=(
+                (max_total_tokens + (_PAGED_KV_BLOCK_SIZE - 1)) // _PAGED_KV_BLOCK_SIZE
+            )
+            * batch_size,
+            block_size=_PAGED_KV_BLOCK_SIZE,
         )
     else:
         batch_size = 1 if prompts is str else len(prompts)
@@ -295,6 +309,7 @@ if __name__ == "__main__":
         )
         sys.exit(1)
     prompts = [args.prompt for _ in range(args.batch_size)]
+    _PAGED_KV_BLOCK_SIZE = args.paged_kv_block_size
 
     model_path = args.model_path
     max_new_tokens = args.max_new_tokens

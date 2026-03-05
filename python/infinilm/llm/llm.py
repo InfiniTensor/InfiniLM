@@ -63,8 +63,8 @@ class EngineConfig:
     cache_type: str = "paged"  # "paged" or "static"
     max_batch_size: int = 16
     max_tokens: int = 4096
-    num_blocks: int = 8 * 1024
-    block_size: int = 16
+    num_blocks: int = 512
+    block_size: int = 256
     max_cache_len: int = 4096
     temperature: float = 1.0
     top_p: float = 0.8
@@ -385,8 +385,8 @@ class LLM:
         cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 4096,
-        num_blocks: int = 8 * 1024,
-        block_size: int = 16,
+        num_blocks: int = 512,
+        block_size: int = 256,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
@@ -538,8 +538,8 @@ class AsyncLLMEngine:
         cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 512,
-        num_blocks: int = 8 * 1024,
-        block_size: int = 16,
+        num_blocks: int = 512,
+        block_size: int = 256,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,

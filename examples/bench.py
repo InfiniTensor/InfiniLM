@@ -22,6 +22,8 @@ DATA_TYPE_BYTES = {
     "float32": 4,
 }
 
+_PAGED_KV_BLOCK_SIZE = 256
+
 # BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128]
 # INPUT_LENS = [32, 256, 1024, 4096]
 # OUTPUT_LENS = [256, 1024, 4096]
@@ -235,6 +237,12 @@ def get_args():
         help="use paged cache",
     )
     parser.add_argument(
+        "--paged_kv_block_size",
+        type=int,
+        default=256,
+        help="num tokens each kv block can hold",
+    )
+    parser.add_argument(
         "--enable-graph",
         action="store_true",
         help="enable graph compiling",
@@ -399,6 +407,7 @@ if __name__ == "__main__":
             "python examples/bench.py --nvidia --model=~/TinyLlama-1.1B-Chat-v1.0/ --batch-size=2 --tp=1 --input-len=50 --output-len=50"
         )
         sys.exit(1)
+    _PAGED_KV_BLOCK_SIZE = args.paged_kv_block_size
     # -------------------------------------------------------- #
     #             解析参数
     # -------------------------------------------------------- #
@@ -430,10 +439,14 @@ if __name__ == "__main__":
     #             测试
     # -------------------------------------------------------- #
     if enable_paged_attn:
-        paged_kv_block_size = 16
+        paged_kv_block_size = _PAGED_KV_BLOCK_SIZE
         max_num_blocks = max(
             [
-                ((c_["input_len"] + c_["output_len"] + 15) // 16) * c_["batch_size"]
+                (
+                    (c_["input_len"] + c_["output_len"] + (paged_kv_block_size - 1))
+                    // paged_kv_block_size
+                )
+                * c_["batch_size"]
                 for _, c_ in cases_dict.items()
             ]
         )

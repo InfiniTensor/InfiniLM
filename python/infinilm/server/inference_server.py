@@ -98,8 +98,8 @@ class InferenceServer:
         cache_type: str = "paged",
         max_tokens: int = 4096,
         max_batch_size: int = 16,
-        num_blocks: int = 8 * 1024,
-        block_size: int = 16,
+        num_blocks: int = 512,
+        block_size: int = 256,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
@@ -555,13 +555,13 @@ def parse_args():
     parser.add_argument(
         "--num_blocks",
         type=int,
-        default=8 * 1024,
+        default=512,
         help="Number of blocks for KV cache (paged cache only)",
     )
     parser.add_argument(
         "--block_size",
         type=int,
-        default=16,
+        default=256,
         help="Block size for KV cache (paged cache only)",
     )
     parser.add_argument(
