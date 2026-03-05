@@ -103,26 +103,26 @@ typedef struct {
 /// @param device 协处理器种类
 /// @param ndev 协处理器数量
 /// @param dev_ids 协处理器编号，长度为 ndev
-__C __export struct DeepSeekV3Model *
+__INFINI_C __export struct DeepSeekV3Model *
 createDeepSeekV3Model(const DeepSeekV3Meta *,
                       const DeepSeekV3Weights *);
 
-__C DeepSeekV3Weights *
+__INFINI_C DeepSeekV3Weights *
 createDeepSeekV3Weights(const DeepSeekV3Meta *meta,
                         infiniDevice_t device,
                         int ndev,
                         const int *dev_ids);
 
-__C __export DeepSeekV3WeightLoader *
+__INFINI_C __export DeepSeekV3WeightLoader *
 createDeepSeekV3WeightLoader();
 
 /// @brief 销毁模型
-__C __export void destroyDeepSeekV3Model(struct DeepSeekV3Model *);
+__INFINI_C __export void destroyDeepSeekV3Model(struct DeepSeekV3Model *);
 
-__C __export struct DeepSeekV3Cache *
+__INFINI_C __export struct DeepSeekV3Cache *
 createDeepSeekV3Cache(const struct DeepSeekV3Model *);
 
-__C __export void
+__INFINI_C __export void
 dropDeepSeekV3Cache(const struct DeepSeekV3Model *,
                     struct DeepSeekV3Cache *);
 
@@ -137,7 +137,7 @@ dropDeepSeekV3Cache(const struct DeepSeekV3Model *,
 /// @param topk 采样 topk（1 表示贪心采样）
 /// @param topp 采样 topp
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
-__C __export void
+__INFINI_C __export void
 inferBatchDeepSeekV3(struct DeepSeekV3Model *,
                      const uint32_t *tokens, uint32_t ntok,
                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -153,7 +153,7 @@ inferBatchDeepSeekV3(struct DeepSeekV3Model *,
 /// @param req_pos 每个请求的起始位置
 /// @param kv_caches 每个请求的 KV Cache
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
-__C __export void
+__INFINI_C __export void
 forwardBatchDeepSeekV3(struct DeepSeekV3Model *,
                        const uint32_t *tokens, uint32_t ntok,
                        const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,

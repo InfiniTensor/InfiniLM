@@ -431,7 +431,7 @@ void inferDeviceBatch(const DeepSeekV3Meta &meta, DeepSeekV3DeviceResource &rsrc
     }
 }
 
-__C void
+__INFINI_C void
 inferBatchDeepSeekV3(struct DeepSeekV3Model *model,
                      const uint32_t *tokens, uint32_t ntok,
                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -464,7 +464,7 @@ inferBatchDeepSeekV3(struct DeepSeekV3Model *model,
     }
 }
 
-__C void
+__INFINI_C void
 forwardBatchDeepSeekV3(struct DeepSeekV3Model *model,
                        const uint32_t *tokens, uint32_t ntok,
                        const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -563,14 +563,14 @@ DeepSeekV3Model::DeepSeekV3Model(const DeepSeekV3Meta *_meta, const DeepSeekV3We
     }
 }
 
-__C struct DeepSeekV3Model *
+__INFINI_C struct DeepSeekV3Model *
 createDeepSeekV3Model(const DeepSeekV3Meta *_meta,
                       const DeepSeekV3Weights *weights) {
     DeepSeekV3Model *model = new DeepSeekV3Model(_meta, weights);
     return model;
 }
 
-__C void
+__INFINI_C void
 destroyDeepSeekV3Model(struct DeepSeekV3Model *model) {
     auto ndev = model->dev_resources.size();
 

@@ -1,6 +1,6 @@
 #include "deepseek_v3_impl.hpp"
 
-__C struct DeepSeekV3Cache *
+__INFINI_C struct DeepSeekV3Cache *
 createDeepSeekV3Cache(const struct DeepSeekV3Model *model) {
     DeepSeekV3Cache *cache = new DeepSeekV3Cache();
     auto ndev = model->dev_resources.size();
@@ -25,7 +25,7 @@ createDeepSeekV3Cache(const struct DeepSeekV3Model *model) {
     return cache;
 }
 
-__C void
+__INFINI_C void
 dropDeepSeekV3Cache(const struct DeepSeekV3Model *model,
                     struct DeepSeekV3Cache *cache) {
     auto ndev = model->dev_resources.size();
