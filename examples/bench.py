@@ -255,7 +255,7 @@ def get_args():
     parser.add_argument(
         "--attn",
         type=str,
-        default="flash-attn",
+        default="default",
         choices=["default", "flash-attn"],
         help="attention backend to use: 'default' or 'flash-attn'",
     )
@@ -285,7 +285,7 @@ class TestModel:
         skip_load=False,
         cache_config=None,
         enable_graph=False,
-        attn_backend="flash-attn",
+        attn_backend="default",
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #

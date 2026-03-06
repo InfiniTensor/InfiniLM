@@ -176,5 +176,5 @@ python scripts/test_ppl.py --model-path MODEL_PATH [--ndev NDEV] [--max-batch MA
       ```
     - 选择attention后端 (使用flash attention后端需要先在InfiniCore完成相关配置和编译)
       ```bash
-      python examples/bench.py --nvidia --model=<model-path> --enable-paged-attn [--attn=flash-attn | --attn=default]
+      python examples/bench.py --nvidia --model=<model-path> --enable-paged-attn [--attn=default | --attn=flash-attn]
       ```

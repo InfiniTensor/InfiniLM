@@ -29,7 +29,7 @@ class InferEngine(_infinilm.InferEngine):
         distributed_config=DistConfig(1),
         cache_config=None,
         enable_graph_compiling=False,
-        attention_backend="flash-attn",
+        attention_backend="default",
     ):
         self.config = AutoConfig.from_pretrained(model_path)
 
