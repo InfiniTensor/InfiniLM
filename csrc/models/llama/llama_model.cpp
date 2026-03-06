@@ -20,7 +20,8 @@ namespace infinilm::models::llama {
  */
 LlamaModel::LlamaModel(const LlamaConfig &config,
                        const infinicore::Device &device,
-                       engine::distributed::RankInfo rank_info)
+                       engine::distributed::RankInfo rank_info,
+                       backends::AttentionBackend attention_backend)
     : config_(config), rank_info_(rank_info) {
     const auto &dtype{config.dtype};
     // Initialize token embeddings
@@ -34,7 +35,7 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
     layers_.reserve(config.num_hidden_layers);
     for (size_t i = 0; i < config.num_hidden_layers; ++i) {
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
-            "layers." + std::to_string(i), config, device, i, rank_info));
+            "layers." + std::to_string(i), config, device, i, rank_info, attention_backend));
     }
 
     // Initialize final layer normalization
@@ -56,7 +57,8 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
 
 LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                        const infinicore::Device &device,
-                       engine::distributed::RankInfo rank_info)
+                       engine::distributed::RankInfo rank_info,
+                       backends::AttentionBackend attention_backend)
     : model_config_(model_config), rank_info_(rank_info) {
     const auto &dtype{model_config_->get_dtype()};
     // Initialize token embeddings
@@ -69,7 +71,7 @@ LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_conf
     layers_.reserve(model_config_->get<size_t>("num_hidden_layers"));
     for (size_t i = 0; i < model_config_->get<size_t>("num_hidden_layers"); ++i) {
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
-            "layers." + std::to_string(i), model_config_, device, i, rank_info));
+            "layers." + std::to_string(i), model_config_, device, i, rank_info, attention_backend));
     }
     // Initialize final layer normalization
     INFINICORE_NN_MODULE_INIT(norm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
@@ -92,6 +94,7 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
                                        std::optional<infinicore::Tensor> past_sequence_lengths,
                                        std::optional<infinicore::Tensor> total_sequence_lengths,
                                        std::optional<infinicore::Tensor> input_offsets,
+                                       std::optional<infinicore::Tensor> cu_seqlens,
                                        std::optional<infinicore::Tensor> block_tables,
                                        std::optional<infinicore::Tensor> slot_mapping) const {
     // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
@@ -109,6 +112,7 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
             past_sequence_lengths,
             total_sequence_lengths,
             input_offsets,
+            cu_seqlens,
             block_tables,
             slot_mapping);
     }

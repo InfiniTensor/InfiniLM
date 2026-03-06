@@ -242,7 +242,7 @@ void inferDeviceBatch(const JiugeAWQMeta *meta, DeviceResource &rsrc,
     }
 }
 
-__C void
+__INFINI_C void
 inferBatchJiugeAWQ(struct JiugeAWQModel *model,
                    const uint32_t *tokens, uint32_t ntok,
                    const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -275,7 +275,7 @@ inferBatchJiugeAWQ(struct JiugeAWQModel *model,
     }
 }
 
-__C void
+__INFINI_C void
 forwardBatchJiugeAWQ(struct JiugeAWQModel *model,
                      const uint32_t *tokens, uint32_t ntok,
                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
@@ -372,14 +372,14 @@ JiugeAWQModel::JiugeAWQModel(const JiugeAWQMeta *meta, const ModelWeights *weigh
     }
 }
 
-__C struct JiugeAWQModel *
+__INFINI_C struct JiugeAWQModel *
 createJiugeAWQModel(const JiugeAWQMeta *meta,
                     const ModelWeights *weights) {
     JiugeAWQModel *model = new JiugeAWQModel(meta, weights);
     return model;
 }
 
-__C void destroyJiugeAWQModel(struct JiugeAWQModel *model) {
+__INFINI_C void destroyJiugeAWQModel(struct JiugeAWQModel *model) {
     auto ndev = model->dev_resources.size();
 
     for (size_t idev = 0; idev < ndev; idev++) {

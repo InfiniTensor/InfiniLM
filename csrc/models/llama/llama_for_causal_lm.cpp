@@ -17,13 +17,14 @@ namespace infinilm::models::llama {
  */
 LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
                                    const infinicore::Device &device,
-                                   engine::distributed::RankInfo rank_info) {
+                                   engine::distributed::RankInfo rank_info,
+                                   backends::AttentionBackend attention_backend) {
 
     // Initialize module's device_ member
     device_ = device;
     const auto &dtype{config.dtype};
     // Initialize base model
-    INFINICORE_NN_MODULE_INIT(model, config, device, rank_info);
+    INFINICORE_NN_MODULE_INIT(model, config, device, rank_info, attention_backend);
 
     // Initialize language modeling head
     // Note: If tie_word_embeddings is true, we would share weights with embed_tokens
@@ -34,14 +35,15 @@ LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
 
 LlamaForCausalLM::LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                    const infinicore::Device &device,
-                                   engine::distributed::RankInfo rank_info) {
+                                   engine::distributed::RankInfo rank_info,
+                                   backends::AttentionBackend attention_backend) {
 
     // Initialize module's device_ member
     device_ = device;
     const auto &dtype{model_config->get_dtype()};
 
     // Initialize base model
-    INFINICORE_NN_MODULE_INIT(model, model_config, device, rank_info);
+    INFINICORE_NN_MODULE_INIT(model, model_config, device, rank_info, attention_backend);
     // Initialize language modeling head
     // Note: If tie_word_embeddings is true, we would share weights with embed_tokens
     // For now, we create a separate linear layer
@@ -56,12 +58,13 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     auto past_sequence_lengths = input.past_sequence_lengths;
     auto total_sequence_length = input.total_sequence_lengths;
     auto input_offsets = input.input_offsets;
+    auto cu_seqlens = input.cu_seqlens;
     auto block_tables = input.block_tables;
     auto slot_mapping = input.slot_mapping;
 
     // 1. Forward through base model to get hidden states
     auto hidden_states = model_->forward(
-        input_ids, position_ids, past_sequence_lengths, total_sequence_length, input_offsets, block_tables, slot_mapping);
+        input_ids, position_ids, past_sequence_lengths, total_sequence_length, input_offsets, cu_seqlens, block_tables, slot_mapping);
 
     // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../backends/attention_backends.hpp"
 #include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
@@ -52,12 +53,14 @@ public:
     LlamaAttention(const LlamaConfig &config,
                    const infinicore::Device &device,
                    size_t layer_idx,
-                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                   backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
                    size_t layer_idx,
-                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                   backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     /**
      * @brief Forward pass: compute attention
@@ -73,6 +76,7 @@ public:
                                std::optional<infinicore::Tensor> past_sequence_lengths,
                                std::optional<infinicore::Tensor> total_sequence_lengths,
                                std::optional<infinicore::Tensor> input_offsets,
+                               std::optional<infinicore::Tensor> cu_seqlens,
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mapping) const;
 
@@ -104,6 +108,7 @@ private:
                                       std::shared_ptr<infinilm::cache::PagedKVCache> kv_cache,
                                       std::optional<infinicore::Tensor> total_sequence_lengths,
                                       std::optional<infinicore::Tensor> input_offsets,
+                                      std::optional<infinicore::Tensor> cu_seqlens,
                                       std::optional<infinicore::Tensor> block_tables,
                                       std::optional<infinicore::Tensor> slot_mapping) const;
 
@@ -132,6 +137,8 @@ private:
     size_t max_position_embeddings_; // For cache initialization (deprecated, kept for compatibility)
 
     float scaling_;
+
+    backends::AttentionBackend attention_backend_;
 };
 
 } // namespace infinilm::models::llama

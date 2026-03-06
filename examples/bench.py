@@ -252,6 +252,13 @@ def get_args():
         action="store_true",
         help="Perform a warmup run before benchmarking/inference.",
     )
+    parser.add_argument(
+        "--attn",
+        type=str,
+        default="default",
+        choices=["default", "flash-attn"],
+        help="attention backend to use: 'default' or 'flash-attn'",
+    )
     return parser.parse_args()
 
 
@@ -278,6 +285,7 @@ class TestModel:
         skip_load=False,
         cache_config=None,
         enable_graph=False,
+        attn_backend="default",
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -289,6 +297,7 @@ class TestModel:
             distributed_config=DistConfig(tp),
             cache_config=cache_config,
             enable_graph_compiling=enable_graph,
+            attention_backend=attn_backend,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -461,6 +470,7 @@ if __name__ == "__main__":
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,
+        attn_backend=args.attn,
     )
 
     # ---------------------------------------------------------------------------- #

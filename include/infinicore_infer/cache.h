@@ -3,7 +3,7 @@
 
 #include <infinirt.h>
 
-__C __export struct KVCache *createKVCache(
+__INFINI_C __export struct KVCache *createKVCache(
     size_t nlayers,
     size_t max_len,
     size_t nkvh_,
@@ -14,8 +14,8 @@ __C __export struct KVCache *createKVCache(
     int *dev_ids,
     size_t ndev);
 
-__C __export struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t seq_len);
+__INFINI_C __export struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t seq_len);
 
-__C __export void dropKVCache(KVCache *kv_cache);
+__INFINI_C __export void dropKVCache(KVCache *kv_cache);
 
 #endif /* CACHE_H */

@@ -23,9 +23,11 @@ InferEngine::InferEngine(
     const distributed::DistConfig &distributed_config,
     infinicore::Device::Type device_type,
     const cache::CacheConfig *cache_config,
-    bool enable_graph_compiling) // Changed parameter
+    bool enable_graph_compiling,
+    backends::AttentionBackend attention_backend) // Changed parameter
     : communication_group_(distributed_config, device_type),
-      legacy_model_config_(config) {
+      legacy_model_config_(config),
+      attention_backend_(attention_backend) {
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
@@ -39,7 +41,8 @@ InferEngine::InferEngine(
             communication_group_.get_rank_info(r),
             cache_config_ != nullptr ? cache_config_.get() : nullptr,
             barrier_.get(),
-            enable_graph_compiling));
+            enable_graph_compiling,
+            attention_backend_));
     }
 
     // Compile the model on all workers
@@ -51,8 +54,9 @@ InferEngine::InferEngine(
     const distributed::DistConfig &distributed_config,
     infinicore::Device::Type device_type,
     const cache::CacheConfig *cache_config,
-    bool enable_graph_compiling) // Changed parameter
-    : communication_group_(distributed_config, device_type) {
+    bool enable_graph_compiling,
+    backends::AttentionBackend attention_backend) // Changed parameter
+    : communication_group_(distributed_config, device_type), attention_backend_(attention_backend) {
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
@@ -69,7 +73,8 @@ InferEngine::InferEngine(
             communication_group_.get_rank_info(r),
             cache_config_ != nullptr ? cache_config_.get() : nullptr,
             barrier_.get(),
-            enable_graph_compiling));
+            enable_graph_compiling,
+            attention_backend_));
     }
     // Compile the model on all workers
     this->compile();
@@ -117,6 +122,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(past_sequence_lengths), // @todo: on device in the future
         to_device(total_sequence_lengths),
         to_device(input_offsets),
+        to_device(cu_seqlens),
         to_device(block_tables),
         to_device(slot_mapping),
     };
@@ -169,7 +175,7 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     for (auto &worker : workers_) {
         worker->wait();
     }
-
+    cache_config_ = new_config->unique_copy();
     this->compile();
 }
 

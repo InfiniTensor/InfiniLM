@@ -78,7 +78,7 @@ std::shared_ptr<Tensor> Loader::get(const std::string &name, int rank) {
 
 } // namespace infinicore::weights
 
-__C void
+__INFINI_C void
 loadModelWeight(struct ModelWeights *weights_, const char *name, void *data) {
     std::string name_str(name);
     auto weights = reinterpret_cast<infinicore::weights::Loader *>(weights_);

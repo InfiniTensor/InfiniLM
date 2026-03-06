@@ -37,14 +37,16 @@ public:
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
         const cache::CacheConfig *cache_config = nullptr,
-        bool enable_graph_compiling = false);
+        bool enable_graph_compiling = false,
+        backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     InferEngine(
         const std::string &model_path = "",
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
         const cache::CacheConfig *cache_config = nullptr,
-        bool enable_graph_compiling = false);
+        bool enable_graph_compiling = false,
+        backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);
@@ -73,6 +75,7 @@ protected:
     std::unique_ptr<cache::CacheConfig> cache_config_;
     const InfinilmModel::Config &legacy_model_config_ = InfinilmModel::Config();
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
+    backends::AttentionBackend attention_backend_ = backends::AttentionBackend::Default;
 };
 
 } // namespace infinilm::engine
