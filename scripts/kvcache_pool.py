@@ -28,7 +28,10 @@ class KVCachePool:
                         print(
                             f"[INFO] Task {infer_task.id} created new KVCachePoolItem"
                         )
-                        return infer_task.bind_kvcache(KVCache(self.model), 0)
+                        infer_task.bind_kvcache(KVCache(self.model), 0)
+                        if getattr(self.model, "create_mamba_cache", None):
+                            infer_task.bind_mamba_cache(self.model.create_mamba_cache())
+                        return
                     else:
                         self._not_empty.wait()
                 else:
@@ -39,12 +42,19 @@ class KVCachePool:
                     print(
                         f"[INFO] Task {infer_task.id} reused KVCachePoolItem {max_match_index} with {max_match} matches"
                     )
-                    return infer_task.bind_kvcache(kvcache, max_match)
+                    infer_task.bind_kvcache(kvcache, max_match)
+                    # TODO ?
+                    # infer_task.bind_mamba_cache(self.model.create_mamba_cache())
+                    return
 
     def release_sync(self, infer_task):
         with self._not_empty:
             print(f"[INFO] Task {infer_task.id} returned KVCachePoolItem to pool")
-            self._available.append(infer_task.release_kvcache())
+            # self._available.append(infer_task.release_kvcache())
+            infer_task.release_kvcache()
+            if getattr(infer_task, "release_mamba_cache", None):
+                infer_task.release_mamba_cache()
+            self.num_caches = 0
             self._not_empty.notify()
 
     async def acquire(self, infer_task):

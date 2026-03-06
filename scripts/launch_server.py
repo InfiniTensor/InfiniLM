@@ -1,5 +1,6 @@
 from jiuge import JiugeForCauslLM
 from jiuge_awq import JiugeAWQForCausalLM
+from qwen_hybrid import QwenHybridForCausalLM
 from libinfinicore_infer import DeviceType
 from infer_task import InferTask
 from kvcache_pool import KVCachePool
@@ -15,7 +16,7 @@ import uuid
 import json
 import threading
 import janus
-
+import os
 
 DEVICE_TYPE_MAP = {
     "cpu": DeviceType.DEVICE_TYPE_CPU,
@@ -79,6 +80,11 @@ print(
     f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
 )
 
+def load_config_json(dir_path_: str):
+    with open(os.path.join(dir_path_, "config.json"), "r") as f:
+        config = json.load(f)
+    return config
+
 
 def chunk_json(id_, content=None, role=None, finish_reason=None):
     delta = {}
@@ -117,15 +123,23 @@ class AsyncInferTask(InferTask):
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
+    config_json = load_config_json(model_path)
+    model_type = config_json["model_type"]
+
     # Startup
     if USE_AWQ:
         app.state.model = JiugeAWQForCausalLM(
             model_path, device_type, ndev, max_tokens=max_tokens
         )
     else:
-        app.state.model = JiugeForCauslLM(
-            model_path, device_type, ndev, max_tokens=max_tokens
-        )
+        if model_type == "qwen3_next":
+            app.state.model = QwenHybridForCausalLM(
+                model_path, device_type, ndev, max_tokens=max_tokens
+            )
+        else:
+            app.state.model = JiugeForCauslLM(
+                model_path, device_type, ndev, max_tokens=max_tokens
+            )
     app.state.kv_cache_pool = KVCachePool(app.state.model, MAX_BATCH)
     app.state.request_queue = janus.Queue()
     worker_thread = threading.Thread(target=worker_loop, args=(app,), daemon=True)
@@ -223,11 +237,7 @@ async def chat_stream(id_, request_data, request: Request):
                 break
 
             token = await infer_task.output_queue.async_q.get()
-            content = (
-                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
+            content = request.app.state.model.tokenizer.decode([token])
             chunk = json.dumps(chunk_json(id_, content=content), ensure_ascii=False)
             yield f"data: {chunk}\n\n"
 
@@ -252,11 +262,7 @@ async def chat(id_, request_data, request: Request):
                 break
 
             token = await infer_task.output_queue.async_q.get()
-            content = (
-                request.app.state.model.tokenizer._tokenizer.id_to_token(token)
-                .replace("▁", " ")
-                .replace("<0x0A>", "\n")
-            )
+            content = request.app.state.model.tokenizer.decode([token])
             output.append(content)
 
         output_text = "".join(output).strip()
