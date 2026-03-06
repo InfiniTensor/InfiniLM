@@ -175,7 +175,7 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     for (auto &worker : workers_) {
         worker->wait();
     }
-
+    cache_config_ = new_config->unique_copy();
     this->compile();
 }
 
