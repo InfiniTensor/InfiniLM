@@ -101,6 +101,9 @@ class SchedulerOutput:
                 max_block_table_len - len(req.block_table)
             )
             block_tables.append(padded_block_table)
+            cu_seqlens = [0]
+            for l in seq_lens:
+                cu_seqlens.append(cu_seqlens[-1] + l)
 
         return {
             "input_ids": [tokens],
@@ -108,6 +111,7 @@ class SchedulerOutput:
             "past_kv_lengths": cached_lens,
             "total_kv_lengths": seq_lens,
             "input_offsets": seq_offsets,
+            "cu_seqlens": cu_seqlens,
             "block_tables": block_tables,
             "slot_mapping": slot_mapping,
             "temperature": temperature,

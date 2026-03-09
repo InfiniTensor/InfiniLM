@@ -75,6 +75,7 @@ class StaticSchedulerOutput:
             "past_kv_lengths": [past_kv_len],
             "total_kv_lengths": [total_kv_len],
             "input_offsets": input_offsets,
+            "cu_seqlens": [0, total_kv_len],
             "block_tables": None,
             "slot_mapping": None,
             "temperature": temperature,
