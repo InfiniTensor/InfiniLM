@@ -339,11 +339,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             // k/v cache:  [num_blocks, num_kv_heads, block_size, head_dim]
             //           → permute {0,2,1,3} → [num_blocks, block_size, num_kv_heads, head_dim]
             auto q_for_fa = q_reshaped->view({seq_len, 1, num_attention_heads_, head_dim_});
-            auto attn_out_4d = infinicore::Tensor::empty(
-                {seq_len, 1, num_attention_heads_, head_dim_},
-                q_reshaped->dtype(), q_reshaped->device());
-            infinicore::op::mha_kvcache_(
-                attn_out_4d,
+            auto attn_out_4d = infinicore::op::mha_kvcache(
                 q_for_fa,
                 k_total->permute({0, 2, 1, 3}),  // [num_blocks, block_size, num_kv_heads, head_dim]
                 v_total->permute({0, 2, 1, 3}),
