@@ -108,6 +108,7 @@ class InferenceServer:
         host: str = "0.0.0.0",
         port: int = 8000,
         enable_graph: bool = False,
+        attn_backend: str = "default",
     ):
         """Initialize inference server.
 
@@ -128,6 +129,7 @@ class InferenceServer:
             host: Server host address.
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
+            attn_backend: Attention backend to use ('default', 'flash-attn').
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -147,6 +149,7 @@ class InferenceServer:
         self.host = host
         self.port = port
         self.enable_graph = enable_graph
+        self.attn_backend = attn_backend
 
         self.engine: AsyncLLMEngine = None
 
@@ -177,6 +180,7 @@ class InferenceServer:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
+                attn_backend=self.attn_backend,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -614,6 +618,13 @@ def parse_args():
         help="Enable graph compiling",
     )
     parser.add_argument(
+        "--attn",
+        type=str,
+        default="default",
+        choices=["default", "flash-attn"],
+        help="Attention backend to use: 'default' or 'flash-attn'",
+    )
+    parser.add_argument(
         "--log_level",
         type=str,
         default="INFO",
@@ -655,7 +666,7 @@ def main():
             "Example: python infinilm.server.inference_server --nvidia --model_path=/data/shared/models/9G7B_MHA/ "
             "--max_tokens=100 --max_batch_size=32 --tp=1 --temperature=1.0 --top_p=0.8 --top_k=1"
             "\n"
-            "Optional: --enable-paged-attn --enable-graph"
+            "Optional: --enable-paged-attn --enable-graph --attn=default"
         )
         sys.exit(1)
 
@@ -676,6 +687,7 @@ def main():
         host=args.host,
         port=args.port,
         enable_graph=args.enable_graph,
+        attn_backend=args.attn,
     )
     server.start()
 
