@@ -55,6 +55,7 @@ class EngineConfig:
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
+        attn_backend: Attention backend to use ('default', 'flash-attn').
     """
 
     model_path: str
@@ -71,6 +72,7 @@ class EngineConfig:
     top_p: float = 0.8
     top_k: int = 1
     enable_graph: bool = False
+    attn_backend: str = "default"
 
 
 class LLMEngine:
@@ -88,6 +90,7 @@ class LLMEngine:
             device=self.device,
             distributed_config=DistConfig(config.tensor_parallel_size),
             enable_graph_compiling=config.enable_graph,
+            attention_backend=config.attn_backend,
         )
 
         # Load model weights
@@ -383,6 +386,7 @@ class LLM:
         top_p: float = 0.8,
         top_k: int = 1,
         enable_graph: bool = False,
+        attn_backend: str = "default",
     ):
         """Initialize LLM.
 
@@ -401,6 +405,7 @@ class LLM:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            attn_backend: Attention backend to use ('default', 'flash-attn').
         """
         config = EngineConfig(
             model_path=model_path,
@@ -417,6 +422,7 @@ class LLM:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            attn_backend=attn_backend,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -536,6 +542,7 @@ class AsyncLLMEngine:
         top_p: float = 0.8,
         top_k: int = 1,
         enable_graph: bool = False,
+        attn_backend: str = "default",
     ):
         """Initialize AsyncLLMEngine.
 
@@ -554,6 +561,7 @@ class AsyncLLMEngine:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            attn_backend: Attention backend to use ('default', 'flash-attn').
         """
         config = EngineConfig(
             model_path=model_path,
@@ -570,6 +578,7 @@ class AsyncLLMEngine:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            attn_backend=attn_backend,
         )
         self.engine = LLMEngine(config)
         self.config = config
