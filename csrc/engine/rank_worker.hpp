@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../backends/attention_backends.hpp"
 #include "../cache/cache.hpp"
 #include "../config/model_config.hpp"
 #include "../models/model_factory.hpp"
@@ -37,8 +38,10 @@ public:
         std::optional<infinicore::Tensor> past_sequence_lengths;
         /// ToTal Lengths for each request sequence, of shape `[num_requests]`.
         std::optional<infinicore::Tensor> total_sequence_lengths;
-        /// Offsets of each request in a continous-batched sequence, of shape `[num_requests]`.
+        /// Offsets of each request in a continous-batched sequence, of shape `[num_requests + 1]`.
         std::optional<infinicore::Tensor> input_offsets;
+        /// Cumulative total sequence lengths for each request, of shape `[num_requests + 1]`.
+        std::optional<infinicore::Tensor> cu_seqlens;
         /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
         std::optional<infinicore::Tensor> block_tables;
         /// Slot ids for each token `[seq]`. Used for paged cache.
@@ -61,13 +64,15 @@ public:
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,
                RankBarrier *barrier,
-               bool enable_graph_compiling);
+               bool enable_graph_compiling,
+               backends::AttentionBackend attention_backend);
 
     RankWorker(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,
                RankBarrier *barrier,
-               bool enable_graph_compiling);
+               bool enable_graph_compiling,
+               backends::AttentionBackend attention_backend);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
@@ -106,6 +111,9 @@ private:
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
+
+    // Backends
+    backends::AttentionBackend attention_backend_;
 
     // Graph Compiling
     bool enable_graph_compiling_;

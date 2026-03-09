@@ -8,6 +8,16 @@ set_toolchains("gcc")
 add_includedirs("third_party/spdlog/include")
 add_includedirs("third_party/json/single_include/")
 
+option("use-kv-caching")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to compile the path using the kv caching operator")
+option_end()
+
+if has_config("use-kv-caching") then
+    add_defines("ENABLE_KV_CACHING")
+end
+
 target("infinicore_infer")
     set_kind("shared")
 

@@ -1,6 +1,6 @@
 #include "../cache.hpp"
 
-__C struct KVCache *createKVCache(
+__INFINI_C struct KVCache *createKVCache(
     size_t nlayers,
     size_t max_len,
     size_t nkvh_,
@@ -31,7 +31,7 @@ __C struct KVCache *createKVCache(
     return cache;
 }
 
-__C struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t seq_len) {
+__INFINI_C struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t seq_len) {
     auto ndev = kv_cache->k.size();
     auto nlayers = kv_cache->k[0].size();
     auto device = kv_cache->k[0][0]->deviceType();
@@ -65,7 +65,7 @@ __C struct KVCache *duplicateKVCache(const KVCache *kv_cache, size_t seq_len) {
     return new_kv_cache;
 }
 
-__C void dropKVCache(KVCache *kv_cache) {
+__INFINI_C void dropKVCache(KVCache *kv_cache) {
     auto ndev = kv_cache->k.size();
     auto nlayers = kv_cache->k[0].size();
     auto device = kv_cache->k[0][0]->deviceType();

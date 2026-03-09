@@ -22,6 +22,8 @@ DATA_TYPE_BYTES = {
     "float32": 4,
 }
 
+_PAGED_KV_BLOCK_SIZE = 256
+
 # BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128]
 # INPUT_LENS = [32, 256, 1024, 4096]
 # OUTPUT_LENS = [256, 1024, 4096]
@@ -168,6 +170,11 @@ def get_args():
         help="Run alippu test",
     )
     parser.add_argument(
+        "--hygon",
+        action="store_true",
+        help="Run hygon test",
+    )
+    parser.add_argument(
         "--model",
         type=str,
         required=True,
@@ -230,6 +237,12 @@ def get_args():
         help="use paged cache",
     )
     parser.add_argument(
+        "--paged_kv_block_size",
+        type=int,
+        default=256,
+        help="num tokens each kv block can hold",
+    )
+    parser.add_argument(
         "--enable-graph",
         action="store_true",
         help="enable graph compiling",
@@ -237,12 +250,20 @@ def get_args():
     parser.add_argument(
         "--warmup",
         action="store_true",
-        help="Perform a warmup run before benchmarking/inference."
+        help="Perform a warmup run before benchmarking/inference.",
+    )
+    parser.add_argument(
+        "--attn",
+        type=str,
+        default="default",
+        choices=["default", "flash-attn"],
+        help="attention backend to use: 'default' or 'flash-attn'",
     )
     return parser.parse_args()
 
 
-prompt = "泰山，又名岱山、岱宗、岱岳、东岳、泰岳，为五岳之一，有“五岳之首”、“五岳独尊”、“天下第一山”、“华夏神山”之称 ，被中外学者称为“中国的奥林匹斯山” 位于山东省中部，隶属于泰安市，绵亘于泰安、济南、淄博三市之间，总面积25000公顷，主峰玉皇顶海拔约1545米。泰山相伴上下五千年的华夏文明传承历史，集国家兴盛、民族存亡的象征于一身，是中华民族的精神家园 [31]，东方文化的缩影，“天人合一”思想的寄托之地 [24]，承载着丰厚的地理历史文化内涵 [15]，被古人视为“直通帝座”的天堂，成为百姓崇拜，帝王告祭的神山，有“泰山安，四海皆安”的说法 [1]。自秦始皇起至清代，先后有13代帝王亲登泰山封禅或祭祀，另有24代帝王遣官祭祀72次。山体上既有寺庙、宫、观等古建筑群29处，古遗址128处，有大小碑碣、摩崖石刻2000余处 [15]。其景巍峨雄奇、幽奥俊秀，有石坞松涛、云海玉盘等美丽壮阔的自然景观。其历史文化、自然风光、地质奇观和谐融为一体，具有特殊的历史、文化、美学和科学价值。 [19]1982年，泰山被列入第一批国家级风景名胜区。1987年，泰山被联合国教科文组织批准列为全球首例世界文化与自然双重遗产 [14] [41-42]。2002年，泰山被评为“中华十大文化名山”之首 [15]。2005年，泰山成为国家地质公园。2006年，泰山因其独特的地质价值成为世界地质公园 [14]。2007年3月，泰山被评为国家AAAAA级旅游景区；12月，泰山被命名为中国首座“中国书法名山”。2025年3月20日，泰山迎来2025年第100万名游客。"
+with open("examples/bench_prompt.md", "r") as f:
+    prompt = f.read()
 
 
 def repeat_prompt(input_ids: list[int], target_length: int):
@@ -264,6 +285,7 @@ class TestModel:
         skip_load=False,
         cache_config=None,
         enable_graph=False,
+        attn_backend="default",
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -275,6 +297,7 @@ class TestModel:
             distributed_config=DistConfig(tp),
             cache_config=cache_config,
             enable_graph_compiling=enable_graph,
+            attention_backend=attn_backend,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -287,13 +310,13 @@ class TestModel:
         #                        创建 tokenizer
         # ---------------------------------------------------------------------------- #
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-        
+
         if tokenizer.pad_token is None:
             if tokenizer.eos_token is not None:
                 tokenizer.pad_token = tokenizer.eos_token
                 tokenizer.pad_token_id = tokenizer.eos_token_id
             else:
-                tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+                tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
         # ---------------------------------------------------------------------------- #
         #                        token编码
@@ -312,9 +335,8 @@ class TestModel:
             input_content,
             padding=True,
             truncation=True,
-            max_length=2048,       
-            return_tensors="pt"    
-            )
+            max_length=8192,
+        )
 
         input_ids_list = encoding["input_ids"]
 
@@ -349,6 +371,7 @@ class TestModel:
                 top_k=top_k,
                 top_p=top_p,
                 temperature=temperature,
+                stop_on_eos=False,
             ),
             _measure_and_log_time=True,
         )
@@ -386,11 +409,14 @@ if __name__ == "__main__":
         device_str = "mlu"
     elif args.ali:
         device_str = "cuda"
+    elif args.hygon:
+        device_str = "cuda"
     else:
         print(
             "python examples/bench.py --nvidia --model=~/TinyLlama-1.1B-Chat-v1.0/ --batch-size=2 --tp=1 --input-len=50 --output-len=50"
         )
         sys.exit(1)
+    _PAGED_KV_BLOCK_SIZE = args.paged_kv_block_size
     # -------------------------------------------------------- #
     #             解析参数
     # -------------------------------------------------------- #
@@ -422,10 +448,14 @@ if __name__ == "__main__":
     #             测试
     # -------------------------------------------------------- #
     if enable_paged_attn:
-        paged_kv_block_size = 16
+        paged_kv_block_size = _PAGED_KV_BLOCK_SIZE
         max_num_blocks = max(
             [
-                ((c_["input_len"] + c_["output_len"] + 15) // 16) * c_["batch_size"]
+                (
+                    (c_["input_len"] + c_["output_len"] + (paged_kv_block_size - 1))
+                    // paged_kv_block_size
+                )
+                * c_["batch_size"]
                 for _, c_ in cases_dict.items()
             ]
         )
@@ -440,6 +470,7 @@ if __name__ == "__main__":
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,
+        attn_backend=args.attn,
     )
 
     # ---------------------------------------------------------------------------- #
@@ -459,10 +490,7 @@ if __name__ == "__main__":
             )
         )
 
-        avg_prompt_len = min(
-            64,
-            max(len(ids) for ids in test.input_ids_list)
-        )
+        avg_prompt_len = min(64, max(len(ids) for ids in test.input_ids_list))
 
         warmup_ids = [
             ids[:avg_prompt_len] if len(ids) >= avg_prompt_len else ids
@@ -477,10 +505,11 @@ if __name__ == "__main__":
             _ = test.model.generate(
                 input_ids_infini,
                 GenerationConfig(
-                    max_new_tokens=5,  # decode kernel warmup 
+                    max_new_tokens=5,  # decode kernel warmup
                     temperature=args.temperature,
                     top_k=args.top_k,
                     top_p=args.top_p,
+                    stop_on_eos=False,
                 ),
                 _measure_and_log_time=False,
             )
@@ -494,7 +523,6 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------------- #
     #                                Warmup done
     # ---------------------------------------------------------------------------- #
-
 
     for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
         tqdm.write(f"\033[92mProcessing : {case}\033[0m")

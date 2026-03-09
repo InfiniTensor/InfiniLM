@@ -36,19 +36,22 @@ inline void bind_infer_engine(py::module &m) {
                           const distributed::DistConfig &dist,
                           infinicore::Device::Type dev,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
-                          bool enable_graph_compiling) {
+                          bool enable_graph_compiling,
+                          const std::string &attention_backend) {
                  return std::make_shared<InferEngine>(
                      cfg,
                      dist,
                      dev,
                      cache_cfg ? cache_cfg.get() : nullptr,
-                     enable_graph_compiling);
+                     enable_graph_compiling,
+                     infinilm::backends::parse_attention_backend(attention_backend));
              }),
              py::arg("config"),
              py::arg("distributed_config") = distributed::DistConfig(),
              py::arg("device_type") = infinicore::context::getDevice().getType(),
              py::arg("cache_config") = py::none(),
-             py::arg("enable_graph_compiling") = false)
+             py::arg("enable_graph_compiling") = false,
+             py::arg("attention_backend") = "default")
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")
@@ -63,11 +66,14 @@ inline void bind_infer_engine(py::module &m) {
             }
             return state_dict_tp_all;
         })
-        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", [](InferEngine &self, std::shared_ptr<const cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
-        .def("get_cache_config", [](const InferEngine &self) {
+        .def(
+            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
+        .def(
+            "reset_cache", [](InferEngine &self, std::shared_ptr<const cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
-            return std::shared_ptr<cache::CacheConfig>(std::move(cfg->unique_copy())); })
+            return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr;
+        })
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
 
     infer_engine
@@ -76,19 +82,22 @@ inline void bind_infer_engine(py::module &m) {
                           const distributed::DistConfig &dist,
                           infinicore::Device::Type dev,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
-                          bool enable_graph_compiling) {
+                          bool enable_graph_compiling,
+                          const std::string &attention_backend) {
                  return std::make_shared<InferEngine>(
                      model_path,
                      dist,
                      dev,
                      cache_cfg ? cache_cfg.get() : nullptr,
-                     enable_graph_compiling);
+                     enable_graph_compiling,
+                     infinilm::backends::parse_attention_backend(attention_backend));
              }),
              py::arg("model_path") = "",
              py::arg("distributed_config") = distributed::DistConfig(),
              py::arg("device_type") = infinicore::context::getDevice().getType(),
              py::arg("cache_config") = py::none(),
-             py::arg("enable_graph_compiling") = false)
+             py::arg("enable_graph_compiling") = false,
+             py::arg("attention_backend") = "default")
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")
@@ -103,8 +112,10 @@ inline void bind_infer_engine(py::module &m) {
             }
             return state_dict_tp_all;
         })
-        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", [](InferEngine &self, std::shared_ptr<const cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def(
+            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
+        .def(
+            "reset_cache", [](InferEngine &self, std::shared_ptr<const cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_cache_config", [](const InferEngine &self) {
             auto cfg = self.get_cache_config();
             return std::shared_ptr<cache::CacheConfig>(std::move(cfg->unique_copy())); })
@@ -118,6 +129,7 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<infinicore::Tensor> past_sequence_lengths,
                          std::optional<infinicore::Tensor> total_sequence_lengths,
                          std::optional<infinicore::Tensor> input_offsets,
+                         std::optional<infinicore::Tensor> cu_seqlens,
                          std::optional<infinicore::Tensor> block_tables,
                          std::optional<infinicore::Tensor> slot_mapping,
                          py::kwargs kwargs) {
@@ -127,6 +139,7 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(past_sequence_lengths),
                     std::move(total_sequence_lengths),
                     std::move(input_offsets),
+                    std::move(cu_seqlens),
                     std::move(block_tables),
                     std::move(slot_mapping),
                 };
@@ -167,6 +180,7 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("past_sequence_lengths") = std::nullopt,
             py::arg("total_sequence_lengths") = std::nullopt,
             py::arg("input_offsets") = std::nullopt,
+            py::arg("cu_seqlens") = std::nullopt,
             py::arg("block_tables") = std::nullopt,
             py::arg("slot_mapping") = std::nullopt)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
@@ -174,6 +188,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
         .def_readwrite("total_sequence_lengths", &InferEngine::Input::total_sequence_lengths)
         .def_readwrite("input_offsets", &InferEngine::Input::input_offsets)
+        .def_readwrite("cu_seqlens", &InferEngine::Input::cu_seqlens)
         .def_readwrite("block_tables", &InferEngine::Input::block_tables)
         .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping)
         .def_readwrite("temperature", &InferEngine::Input::temperature)

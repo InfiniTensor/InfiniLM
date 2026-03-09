@@ -93,26 +93,24 @@ StaticKVCache::update(size_t layer_idx,
 
     auto device = k_cache_layer->device();
 
-    if (device.getType() == infinicore::Device::Type::NVIDIA
-        || device.getType() == infinicore::Device::Type::ILUVATAR
-        || device.getType() == infinicore::Device::Type::METAX) {
-        infinicore::op::kv_caching_(
-            k_cache_layer,
-            v_cache_layer,
-            k,
-            v,
-            past_sequence_lengths);
-    } else {
-        size_t cache_pos = reinterpret_cast<int64_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
-        auto result_len = cache_pos + update_len;
-        ASSERT(result_len <= cache_len_);
+#ifdef ENABLE_KV_CACHING
+    infinicore::op::kv_caching_(
+        k_cache_layer,
+        v_cache_layer,
+        k,
+        v,
+        past_sequence_lengths);
+#else
+    size_t cache_pos = reinterpret_cast<int32_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
+    auto result_len = cache_pos + update_len;
+    ASSERT(result_len <= cache_len_);
 
-        auto k_cache_update = k_cache_layer->narrow({{2, cache_pos, update_len}});
-        auto v_cache_update = v_cache_layer->narrow({{2, cache_pos, update_len}});
+    auto k_cache_update = k_cache_layer->narrow({{2, cache_pos, update_len}});
+    auto v_cache_update = v_cache_layer->narrow({{2, cache_pos, update_len}});
 
-        k_cache_update->copy_from(k);
-        v_cache_update->copy_from(v);
-    }
+    k_cache_update->copy_from(k);
+    v_cache_update->copy_from(v);
+#endif
 
     return {k_cache_layer, v_cache_layer};
 }
@@ -215,9 +213,9 @@ PagedKVCache::get_contiguous_kv(
     const infinicore::Tensor cache_lens,
     const infinicore::Tensor input_offsets,
     size_t request_id) {
-    ASSERT_EQ(block_tables->dtype(), infinicore::DataType::I64);
-    ASSERT_EQ(cache_lens->dtype(), infinicore::DataType::I64);
-    ASSERT_EQ(input_offsets->dtype(), infinicore::DataType::I64);
+    ASSERT_EQ(block_tables->dtype(), infinicore::DataType::I32);
+    ASSERT_EQ(cache_lens->dtype(), infinicore::DataType::I32);
+    ASSERT_EQ(input_offsets->dtype(), infinicore::DataType::I32);
 
     auto nreq = block_tables->size(0);
     auto block_tables_cpu = block_tables->to(infinicore::Device::cpu());
@@ -229,9 +227,9 @@ PagedKVCache::get_contiguous_kv(
     auto &&[k_cache_layer, v_cache_layer] = get_paged_kv(layer_idx);
 
     auto req = request_id;
-    auto cache_lens_ptr = reinterpret_cast<const int64_t *>(cache_lens_cpu->data());
-    auto input_offsets_ptr = reinterpret_cast<const int64_t *>(input_offsets_cpu->data());
-    int64_t total_len = cache_lens_ptr[req] + (input_offsets_ptr[req + 1] - input_offsets_ptr[req]);
+    auto cache_lens_ptr = reinterpret_cast<const int32_t *>(cache_lens_cpu->data());
+    auto input_offsets_ptr = reinterpret_cast<const int32_t *>(input_offsets_cpu->data());
+    int32_t total_len = cache_lens_ptr[req] + (input_offsets_ptr[req + 1] - input_offsets_ptr[req]);
 
     auto full_k = infinicore::Tensor::empty(
         {num_rank_k_heads_, (size_t)total_len, k_dim_},
@@ -245,7 +243,7 @@ PagedKVCache::get_contiguous_kv(
     size_t r = total_len % block_size_;
 
     for (size_t b = 0; b < nblocks; b++) {
-        size_t bid = *((int64_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, b, 1}})->data()));
+        size_t bid = *((int32_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, b, 1}})->data()));
 
         full_k->narrow({{1, b * block_size_, block_size_}})
             ->copy_from(k_cache_layer->narrow({{0, bid, 1}})->squeeze(0));
@@ -254,7 +252,7 @@ PagedKVCache::get_contiguous_kv(
     }
 
     if (r > 0) {
-        size_t bid = *((int64_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, nblocks, 1}})->data()));
+        size_t bid = *((int32_t *)(block_tables_cpu->narrow({{0, req, 1}, {1, nblocks, 1}})->data()));
 
         full_k->narrow({{1, nblocks * block_size_, r}})
             ->copy_from(k_cache_layer->narrow({{0, bid, 1}})->squeeze(0)->narrow({{1, 0, r}}));

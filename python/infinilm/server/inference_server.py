@@ -11,6 +11,7 @@ import argparse
 import uvicorn
 import logging
 import os
+import asyncio
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -98,8 +99,8 @@ class InferenceServer:
         cache_type: str = "paged",
         max_tokens: int = 4096,
         max_batch_size: int = 16,
-        num_blocks: int = 8 * 1024,
-        block_size: int = 16,
+        num_blocks: int = 512,
+        block_size: int = 256,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
@@ -107,6 +108,7 @@ class InferenceServer:
         host: str = "0.0.0.0",
         port: int = 8000,
         enable_graph: bool = False,
+        attn_backend: str = "default",
     ):
         """Initialize inference server.
 
@@ -127,6 +129,7 @@ class InferenceServer:
             host: Server host address.
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
+            attn_backend: Attention backend to use ('default', 'flash-attn').
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -146,6 +149,7 @@ class InferenceServer:
         self.host = host
         self.port = port
         self.enable_graph = enable_graph
+        self.attn_backend = attn_backend
 
         self.engine: AsyncLLMEngine = None
 
@@ -176,6 +180,7 @@ class InferenceServer:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
+                attn_backend=self.attn_backend,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -351,6 +356,12 @@ class InferenceServer:
                 timeout=DEFAULT_STREAM_TIMEOUT,
                 request_timeout=DEFAULT_REQUEST_TIMEOUT,
             ):
+                # Check client disconnect
+                if await http_request.is_disconnected():
+                    logger.info(f"Client disconnected for request {request_id}")
+                    req.mark_canceled()
+                    break
+
                 # If stream_request enforces timeout, we can just surface the state to the client.
                 if token_output.finish_reason == FinishReason.TIMEOUT:
                     logger.warning(
@@ -366,12 +377,6 @@ class InferenceServer:
                         ensure_ascii=False,
                     )
                     yield f"data: {error_chunk}\n\n"
-                    break
-
-                # Check client disconnect
-                if await http_request.is_disconnected():
-                    logger.info(f"Client disconnected for request {request_id}")
-                    req.mark_canceled()
                     break
 
                 # Skip EOS token text for OpenAI API compatibility
@@ -403,6 +408,12 @@ class InferenceServer:
                     )
                     yield f"data: {chunk}\n\n"
                     break
+
+        except asyncio.CancelledError:
+            logger.info(f"Request {request_id} was cancelled")
+            if req:
+                req.mark_canceled()
+            raise
 
         except Exception as e:
             logger.error(f"Stream error for {request_id}: {e}", exc_info=True)
@@ -451,15 +462,15 @@ class InferenceServer:
                 timeout=DEFAULT_STREAM_TIMEOUT,
                 request_timeout=DEFAULT_REQUEST_TIMEOUT,
             ):
-                # Request-level timeout is handled inside stream_request.
-                if token_output.finish_reason == FinishReason.TIMEOUT:
-                    logger.warning(f"Request {request_id} timed out")
-                    break
-
                 # Check client disconnect
                 if await http_request.is_disconnected():
                     logger.info(f"Client disconnected for request {request_id}")
                     req.mark_canceled()
+                    break
+
+                # Request-level timeout is handled inside stream_request.
+                if token_output.finish_reason == FinishReason.TIMEOUT:
+                    logger.warning(f"Request {request_id} timed out")
                     break
 
                 # Skip EOS token text for OpenAI API compatibility
@@ -467,7 +478,7 @@ class InferenceServer:
                 eos_token_ids = self.engine.engine.eos_token_ids
                 is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
 
-                if not is_eos_token:
+                if not is_eos_token and token_output.token_text:
                     output_text += token_output.token_text
 
                 if token_output.finished:
@@ -487,6 +498,12 @@ class InferenceServer:
                 total_tokens=req.get_total_length(),
             )
             return response
+
+        except asyncio.CancelledError:
+            logger.info(f"Request {request_id} was cancelled")
+            if req:
+                req.mark_canceled()
+            raise
 
         except Exception as e:
             logger.error(f"Chat error for {request_id}: {e}", exc_info=True)
@@ -555,13 +572,13 @@ def parse_args():
     parser.add_argument(
         "--num_blocks",
         type=int,
-        default=8 * 1024,
+        default=512,
         help="Number of blocks for KV cache (paged cache only)",
     )
     parser.add_argument(
         "--block_size",
         type=int,
-        default=16,
+        default=256,
         help="Block size for KV cache (paged cache only)",
     )
     parser.add_argument(
@@ -594,10 +611,18 @@ def parse_args():
     parser.add_argument("--iluvatar", action="store_true", help="Use Iluvatar device")
     parser.add_argument("--cambricon", action="store_true", help="Use Cambricon device")
     parser.add_argument("--ali", action="store_true", help="Use Ali PPU device")
+    parser.add_argument("--hygon", action="store_true", help="Use Hygon DCU device")
     parser.add_argument(
         "--enable-graph",
         action="store_true",
         help="Enable graph compiling",
+    )
+    parser.add_argument(
+        "--attn",
+        type=str,
+        default="default",
+        choices=["default", "flash-attn"],
+        help="Attention backend to use: 'default' or 'flash-attn'",
     )
     parser.add_argument(
         "--log_level",
@@ -631,15 +656,17 @@ def main():
         device = "mlu"
     elif args.ali:
         device = "cuda"
+    elif args.hygon:
+        device = "cuda"
     else:
         print(
-            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon | --ali] "
+            "Usage: python infinilm.server.inference_server [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar | --cambricon | --ali | --hygon] "
             "--model_path=<path/to/model_dir> --max_tokens=MAX_TOKENS --max_batch_size=MAX_BATCH_SIZE"
             "\n"
             "Example: python infinilm.server.inference_server --nvidia --model_path=/data/shared/models/9G7B_MHA/ "
             "--max_tokens=100 --max_batch_size=32 --tp=1 --temperature=1.0 --top_p=0.8 --top_k=1"
             "\n"
-            "Optional: --enable-paged-attn --enable-graph"
+            "Optional: --enable-paged-attn --enable-graph --attn=default"
         )
         sys.exit(1)
 
@@ -660,6 +687,7 @@ def main():
         host=args.host,
         port=args.port,
         enable_graph=args.enable_graph,
+        attn_backend=args.attn,
     )
     server.start()
 

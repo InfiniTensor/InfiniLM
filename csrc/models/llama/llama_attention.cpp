@@ -4,6 +4,7 @@
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/mha_varlen.hpp"
 #include "infinicore/ops/mul.hpp"
 
 #include <algorithm>
@@ -31,7 +32,8 @@ namespace infinilm::models::llama {
 LlamaAttention::LlamaAttention(const LlamaConfig &config,
                                const infinicore::Device &device,
                                size_t layer_idx,
-                               engine::distributed::RankInfo rank_info)
+                               engine::distributed::RankInfo rank_info,
+                               backends::AttentionBackend attention_backend)
     : layer_idx_(layer_idx),
       hidden_size_(config.hidden_size),
       num_attention_heads_(config.num_attention_heads),
@@ -41,7 +43,9 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
       use_bias_(config.attention_bias),
       use_output_bias_(config.attention_output_bias),
       use_qk_norm_(config.qk_norm),
-      max_position_embeddings_(config.max_position_embeddings), rank_info_(rank_info) {
+      max_position_embeddings_(config.max_position_embeddings),
+      rank_info_(rank_info),
+      attention_backend_(attention_backend) {
     const auto &dtype{config.dtype};
 
     int tp_rank = rank_info.tp_rank;
@@ -75,7 +79,8 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
 LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                const infinicore::Device &device,
                                size_t layer_idx,
-                               engine::distributed::RankInfo rank_info)
+                               engine::distributed::RankInfo rank_info,
+                               backends::AttentionBackend attention_backend)
     : model_config_(model_config),
       layer_idx_(layer_idx),
       hidden_size_(model_config->get<size_t>("hidden_size")),
@@ -86,7 +91,8 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
       use_bias_(model_config->get_or<bool>("attention_bias", true)),
       use_output_bias_(model_config->get_or<bool>("attention_output_bias", false)),
       max_position_embeddings_(model_config->get<size_t>("max_position_embeddings")),
-      rank_info_(rank_info) {
+      rank_info_(rank_info),
+      attention_backend_(attention_backend) {
     const auto &dtype{model_config_->get_dtype()};
 
     int tp_rank = rank_info.tp_rank;
@@ -203,7 +209,7 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
                           ->contiguous()
                           ->view({batch_size, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
     } else {
-        size_t total_seq_len = reinterpret_cast<int64_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
+        size_t total_seq_len = reinterpret_cast<int32_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
         k_total = k_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
         v_total = v_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
 
@@ -238,6 +244,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                                                   std::shared_ptr<infinilm::cache::PagedKVCache> paged_kv_cache,
                                                   std::optional<infinicore::Tensor> total_sequence_lengths,
                                                   std::optional<infinicore::Tensor> input_offsets,
+                                                  std::optional<infinicore::Tensor> cu_seqlens,
                                                   std::optional<infinicore::Tensor> block_tables,
                                                   std::optional<infinicore::Tensor> slot_mapping) const {
     ASSERT(block_tables.has_value());
@@ -298,17 +305,31 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
 
     if (is_prefill) {
-        infinicore::op::paged_attention_prefill_(
-            attn_output,
-            q_reshaped,
-            k_total,
-            v_total,
-            block_tables.value(),
-            total_sequence_lengths.value(),
-            input_offsets.value(),
-            std::nullopt,
-            scaling_);
-
+        if (attention_backend_ == backends::AttentionBackend::FlashAttn) {
+            infinicore::op::mha_varlen_(
+                attn_output,
+                q_reshaped,
+                k_total->permute({0, 2, 1, 3}),
+                v_total->permute({0, 2, 1, 3}),
+                input_offsets.value(),
+                cu_seqlens.value(),
+                block_tables.value(),
+                max_position_embeddings_,
+                max_position_embeddings_,
+                std::nullopt,
+                scaling_);
+        } else {
+            infinicore::op::paged_attention_prefill_(
+                attn_output,
+                q_reshaped,
+                k_total,
+                v_total,
+                block_tables.value(),
+                total_sequence_lengths.value(),
+                input_offsets.value(),
+                std::nullopt,
+                scaling_);
+        }
     } else {
         infinicore::op::paged_attention_(
             attn_output,
@@ -322,7 +343,8 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     }
 
     // 7. Project output
-    attn_output = attn_output->view({1, seq_len, num_attention_heads_ * head_dim_});
+    attn_output
+        = attn_output->view({1, seq_len, num_attention_heads_ * head_dim_});
     return o_proj_->forward(attn_output);
 }
 
@@ -332,6 +354,7 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
                                            std::optional<infinicore::Tensor> past_sequence_lengths,
                                            std::optional<infinicore::Tensor> total_sequence_lengths,
                                            std::optional<infinicore::Tensor> input_offsets,
+                                           std::optional<infinicore::Tensor> cu_seqlens,
                                            std::optional<infinicore::Tensor> block_tables,
                                            std::optional<infinicore::Tensor> slot_mapping) const {
     if (!rotary_emb_) {
@@ -340,7 +363,7 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
 
     infinicore::Tensor output;
     if (auto paged_kv_cache = std::dynamic_pointer_cast<cache::PagedKVCache>(kv_cache)) {
-        output = forward_paged_(hidden_states, position_ids, paged_kv_cache, total_sequence_lengths, input_offsets, block_tables, slot_mapping);
+        output = forward_paged_(hidden_states, position_ids, paged_kv_cache, total_sequence_lengths, input_offsets, cu_seqlens, block_tables, slot_mapping);
     } else {
 
         output = forward_(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths);

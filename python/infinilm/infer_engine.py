@@ -29,26 +29,20 @@ class InferEngine(_infinilm.InferEngine):
         distributed_config=DistConfig(1),
         cache_config=None,
         enable_graph_compiling=False,
+        attention_backend="default",
     ):
         self.config = AutoConfig.from_pretrained(model_path)
 
         if device is None:
             device = infinicore.device()
-          
-        # super().__init__(
-        #     self.config,
-        #     distributed_config._underlying,
-        #     device._underlying.type,
-        #     cache_config,
-        #     enable_graph_compiling,
-        # )
-        
+
         super().__init__(
             model_path,
             distributed_config._underlying,
             device._underlying.type,
             cache_config,
             enable_graph_compiling,
+            attention_backend,
         )
         self.use_cache = False
 
@@ -65,6 +59,7 @@ class InferEngine(_infinilm.InferEngine):
         past_kv_lengths=None,
         total_kv_lengths=None,
         input_offsets=None,
+        cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
         temperature=None,
@@ -82,6 +77,7 @@ class InferEngine(_infinilm.InferEngine):
         )
         input_offsets = input_offsets._underlying if input_offsets is not None else None
         block_tables = block_tables._underlying if block_tables is not None else None
+        cu_seqlens = cu_seqlens._underlying if cu_seqlens is not None else None
         slot_mapping = slot_mapping._underlying if slot_mapping is not None else None
 
         return infinicore.Tensor(
@@ -93,6 +89,7 @@ class InferEngine(_infinilm.InferEngine):
                     past_sequence_lengths=past_kv_lengths,
                     total_sequence_lengths=total_kv_lengths,
                     input_offsets=input_offsets,
+                    cu_seqlens=cu_seqlens,
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
                     temperature=temperature,
@@ -109,7 +106,6 @@ class InferEngine(_infinilm.InferEngine):
         generation_config,
         *,
         _measure_and_log_time=False,
-        paged_block_size=16,
     ):
         if generation_config.eos_token_id is None:
             eos_token_id = self.config.eos_token_id
@@ -133,6 +129,7 @@ class InferEngine(_infinilm.InferEngine):
         block_tables = None
         max_blocks_per_batch = 0
         if self.enable_paged_attn:
+            paged_block_size = self.get_cache_config().block_size()
             max_blocks_per_batch = (
                 initial_seqlen + generation_config.max_new_tokens + paged_block_size - 1
             ) // paged_block_size
@@ -143,7 +140,7 @@ class InferEngine(_infinilm.InferEngine):
             ]
             block_tables = infinicore.from_list(
                 block_tables_list,
-                dtype=infinicore.int64,
+                dtype=infinicore.int32,
             )
 
         for iter in range(0, generation_config.max_new_tokens):
@@ -196,14 +193,17 @@ class InferEngine(_infinilm.InferEngine):
                 slot_mapping = None
 
             past_kv_lengths = infinicore.from_list(
-                [past_seq_len] * batch_size, dtype=infinicore.int64
+                [past_seq_len] * batch_size, dtype=infinicore.int32
             )
             total_kv_lengths = infinicore.from_list(
-                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int64
+                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
             )
-
+            cu_seqlens = infinicore.from_list(
+                [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
+                dtype=infinicore.int32,
+            )
             input_offsets = infinicore.from_list(
-                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int64
+                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
             )
 
             output_id = self(
@@ -212,6 +212,7 @@ class InferEngine(_infinilm.InferEngine):
                 past_kv_lengths=past_kv_lengths,
                 total_kv_lengths=total_kv_lengths,
                 input_offsets=input_offsets,
+                cu_seqlens=cu_seqlens,
                 block_tables=block_tables,
                 slot_mapping=slot_mapping,
                 temperature=generation_config.temperature,

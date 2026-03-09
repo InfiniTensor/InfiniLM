@@ -15,6 +15,8 @@ from packaging import version
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
+_PAGED_KV_BLOCK_SIZE = 256
+
 
 def get_args():
     parser = argparse.ArgumentParser(description="run Llama args")
@@ -105,6 +107,14 @@ def get_args():
         action="store_true",
         help="use paged cache",
     )
+
+    parser.add_argument(
+        "--paged_kv_block_size",
+        type=int,
+        default=256,
+        help="num tokens each kv block can hold",
+    )
+
     parser.add_argument(
         "--enable-graph",
         action="store_true",
@@ -131,6 +141,19 @@ def get_args():
         default=1.0,
         help="sampling temperature",
     )
+    parser.add_argument(
+        "--warmup",
+        action="store_true",
+        help="Perform a warmup run before benchmarking/inference."
+    )
+
+    parser.add_argument(
+        "--attn",
+        type=str,
+        default="default",
+        choices=["default", "flash-attn"],
+        help="attention backend to use: 'default' or 'flash-attn'",
+    )
 
     return parser.parse_args()
 
@@ -146,6 +169,7 @@ def test(
     top_k=1,
     top_p=1.0,
     temperature=1.0,
+    attn_backend="default",
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -156,6 +180,7 @@ def test(
         device=infini_device,
         distributed_config=DistConfig(tp),
         enable_graph_compiling=enable_graph,
+        attention_backend=attn_backend,
     )
     # ---------------------------------------------------------------------------- #
     #                        Load Weights
@@ -225,7 +250,11 @@ def test(
         batch_size = 1 if prompts is str else len(prompts)
         max_total_tokens = max_new_tokens + len(input_ids_list[0])
         cache_config = PagedKVCacheConfig(
-            num_blocks=((max_total_tokens + 15) // 16) * batch_size, block_size=16
+            num_blocks=(
+                (max_total_tokens + (_PAGED_KV_BLOCK_SIZE - 1)) // _PAGED_KV_BLOCK_SIZE
+            )
+            * batch_size,
+            block_size=_PAGED_KV_BLOCK_SIZE,
         )
     else:
         batch_size = 1 if prompts is str else len(prompts)
@@ -235,6 +264,44 @@ def test(
         )
 
     model.reset_cache(cache_config)
+
+    # ---------------------------------------------------------------------------- #
+    #                                Warmup
+    # ---------------------------------------------------------------------------- #
+    if args.warmup:
+        warmup_steps = 1
+
+        # Choose a length that approximates the real workload.
+        # It should be long enough to trigger the correct kernel paths,
+        # but not so long that warmup becomes unnecessarily expensive.
+        avg_prompt_len = min(64, max(len(ids) for ids in input_ids_list))
+
+        # Use truncated versions of real prompts for warmup
+        warmup_ids = [
+            ids[:avg_prompt_len] if len(ids) >= avg_prompt_len else ids
+            for ids in input_ids_list
+        ]
+
+        input_ids_infini = infinicore.from_list(warmup_ids)
+
+        print("=================== warmup start ===================")
+
+        for _ in range(warmup_steps):
+            _ = model.generate(
+                input_ids_infini,
+                GenerationConfig(
+                    max_new_tokens=2,  # warmup decode kernel
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                ),
+                _measure_and_log_time=False,
+            )
+
+        print("=================== warmup done ====================")
+
+        # Reset KV cache 
+        model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #
     #                        Generate
@@ -295,6 +362,7 @@ if __name__ == "__main__":
         )
         sys.exit(1)
     prompts = [args.prompt for _ in range(args.batch_size)]
+    _PAGED_KV_BLOCK_SIZE = args.paged_kv_block_size
 
     model_path = args.model_path
     max_new_tokens = args.max_new_tokens
@@ -318,4 +386,5 @@ if __name__ == "__main__":
         top_k=args.top_k,
         top_p=args.top_p,
         temperature=args.temperature,
+        attn_backend=args.attn,
     )
