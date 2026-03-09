@@ -223,16 +223,16 @@ class LLMEngine:
             if value is None:
                 # Skip None values (block_tables/slot_mapping for static cache)
                 model_input[key] = None
+            elif key in ["input_ids", "position_ids", "slot_mapping"]:
+                model_input[key] = infinicore.from_list(value, dtype=infinicore.int64)
             elif key in [
-                "input_ids",
-                "position_ids",
                 "past_kv_lengths",
                 "total_kv_lengths",
                 "input_offsets",
-                "slot_mapping",
+                "cu_seqlens",
                 "block_tables",
             ]:
-                model_input[key] = infinicore.from_list(value, dtype=infinicore.int64)
+                model_input[key] = infinicore.from_list(value, dtype=infinicore.int32)
             else:
                 # temperature, top_k, top_p, etc.
                 model_input[key] = value
