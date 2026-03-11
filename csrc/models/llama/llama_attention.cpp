@@ -119,12 +119,13 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
 
-    case infinicore::quantization::QuantScheme::AWQ_W4A16:
+    case infinicore::quantization::QuantScheme::AWQ_W4A16: {
         INFINILM_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
                                           dtype, device, rank_info);
         INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
+    }
     default:
         INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
                                  dtype, device, rank_info);
