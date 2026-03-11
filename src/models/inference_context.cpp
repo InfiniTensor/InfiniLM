@@ -262,22 +262,35 @@ void InferenceContext::linear(std::shared_ptr<Tensor> c,
 void InferenceContext::dequant(std::shared_ptr<Tensor> weight,
                                std::shared_ptr<Tensor> in_w,
                                std::shared_ptr<Tensor> in_s,
-                               std::shared_ptr<Tensor> in_z) {
-
-    size_t key = CacheManager::createDescriptorKey(weight, in_w, in_s, in_z);
-
-    infiniopDequantizeAWQDescriptor_t desc;
-    if (!cache_manager->getDequantizeAWQDescriptor(key, desc)) {
-        RUN_INFINI(infiniopCreateDequantizeAWQDescriptor(op_handle, &desc, weight->desc(), in_w->desc(), in_s->desc(), in_z->desc()));
-        cache_manager->putDequantizeAWQDescriptor(key, desc);
+                               std::shared_ptr<Tensor> in_z,
+                               QuantType type,
+                               std::shared_ptr<Tensor> in_g_idx) {
+    size_t key = CacheManager::createDescriptorKey(weight, in_w, in_s, in_z, in_g_idx);
+    if (type == QuantType::AWQ) {
+        // unchanged
+        infiniopDequantizeAWQDescriptor_t desc;
+        if (!cache_manager->getDequantizeAWQDescriptor(key, desc)) {
+            RUN_INFINI(infiniopCreateDequantizeAWQDescriptor(op_handle, &desc,
+                weight->desc(), in_w->desc(), in_s->desc(), in_z->desc()));
+            cache_manager->putDequantizeAWQDescriptor(key, desc);
+        }
+        size_t workspace_size = 0;
+        RUN_INFINI(infiniopGetDequantizeAWQWorkspaceSize(desc, &workspace_size));
+        ensure_workspace(workspace_size);
+        RUN_INFINI(infiniopDequantizeAWQ(desc, workspace_storage->memory(), workspace_size,
+                                         weight->data(), in_w->data(), in_s->data(), in_z->data(), stream));
+    } else if (type == QuantType::GPTQ) {
+        ASSERT(in_g_idx && "GPTQ dequant requires g_idx");
+        infiniopDequantizeGPTQDescriptor_t desc;
+        if (!cache_manager->getDequantizeGPTQDescriptor(key, desc)) {
+            RUN_INFINI(infiniopCreateDequantizeGPTQDescriptor(op_handle, &desc,
+                weight->desc(), in_w->desc(), in_s->desc(), in_z->desc(), in_g_idx->desc()));
+            cache_manager->putDequantizeGPTQDescriptor(key, desc);
+        }
+        size_t workspace_size = 0;
+        RUN_INFINI(infiniopGetDequantizeGPTQWorkspaceSize(desc, &workspace_size));
+        ensure_workspace(workspace_size);
+        RUN_INFINI(infiniopDequantizeGPTQ(desc, workspace_storage->memory(), workspace_size,
+                                         weight->data(), in_w->data(), in_s->data(), in_z->data(), in_g_idx->data(), stream));
     }
-
-    size_t workspace_size = 0;
-    RUN_INFINI(infiniopGetDequantizeAWQWorkspaceSize(desc, &workspace_size));
-    ensure_workspace(workspace_size);
-    void *workspace = workspace_storage->memory();
-
-    RUN_INFINI(infiniopDequantizeAWQ(
-        desc, workspace, workspace_size,
-        weight->data(), in_w->data(), in_s->data(), in_z->data(), stream));
 }
