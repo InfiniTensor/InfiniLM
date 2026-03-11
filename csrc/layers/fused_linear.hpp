@@ -207,7 +207,7 @@ private:
 
 #define INFINILM_QKV_LINEAR_W4A16AWQ_INIT(name, q_name, k_name, v_name, ...)                                 \
     name##_ = std::make_shared<layers::QKVParallelLinear>(__VA_ARGS__);                                      \
-    auto awq_ptr = std::static_pointer_cast<infinicore::quantization::AWQ>(this->quantization_);             \
+    auto awq_ptr = std::static_pointer_cast<infinicore::quantization::AWQ>(name##_->get_quantization());     \
     int packing_num = awq_ptr->get_packing_num();                                                            \
     this->register_parameter(std::string(q_name) + ".qweight", name##_->get_q_weight_awq(packing_num));      \
     this->register_parameter(std::string(q_name) + ".qzeros", name##_->get_q_weight_zeros_awq(packing_num)); \
