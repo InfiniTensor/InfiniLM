@@ -37,23 +37,6 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    /**
-     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
-     *
-     * ⚠️ DEVELOPMENT POLICY:
-     *   - NO new development or feature additions permitted on this interface
-     *   - Only critical bug fixes (security/stability) allowed until removal
-     *   - All new code MUST migrate to the polymorphic overload below
-     *
-     * Replacement: Use the polymorphic overload of this same function name with updated signature
-     * Reason: Legacy signature lacks support for dynamic quantization modes.
-     * Removal target: v0.2.0 (Q2 2026)
-     */
-    LlamaModel(const LlamaConfig &config,
-               const infinicore::Device &device,
-               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-               backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
-
     LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const infinicore::Device &device,
                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
@@ -65,6 +48,7 @@ public:
      * @param input_ids Token IDs tensor of shape [batch, seq_len]. Batch is 1 when continuous batch is used,
      *                 and tokens from all requests are concatenated along seq_len dimension.
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
+     * @param kv_cache KV cache for incremental decoding
      * @param past_sequence_lengths Cache positions tensor of shape [n_req]
      * @param total_sequence_lengths Total sequence lengths tensor of shape [n_req]
      * @param input_offsets Input offsets (starting position) of each request in a continuous batch of shape [n_req + 1]
@@ -72,14 +56,13 @@ public:
      */
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
                                const infinicore::Tensor &position_ids,
+                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
                                std::optional<infinicore::Tensor> past_sequence_lengths,
                                std::optional<infinicore::Tensor> total_sequence_lengths,
                                std::optional<infinicore::Tensor> input_offsets,
                                std::optional<infinicore::Tensor> cu_seqlens,
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mapping) const;
-
-    void reset_cache(const cache::CacheConfig *cache_config);
 
     // Module information
     size_t num_layers() const { return model_config_->get<size_t>("num_hidden_layers"); }
@@ -99,11 +82,7 @@ protected:
 
     engine::distributed::RankInfo rank_info_;
 
-    std::shared_ptr<cache::Cache> kv_cache_;
-
 private:
-    LlamaConfig config_;
-
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 

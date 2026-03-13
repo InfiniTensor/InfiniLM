@@ -4,6 +4,7 @@
 #include "infinicore/ops.hpp"
 #include "quant_config.hpp"
 #include <fstream>
+#include <iostream>
 #include <string>
 
 namespace infinilm::config {
@@ -63,6 +64,9 @@ public:
     infinicore::DataType get_dtype() const;
     infinicore::quantization::QuantScheme get_quant_scheme() const;
     std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> get_rope_scaling() const;
+
+    // Stream output operator
+    friend std::ostream &operator<<(std::ostream &os, const ModelConfig &config);
 
 private:
     nlohmann::json config_json;

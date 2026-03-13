@@ -75,7 +75,7 @@ def get_args():
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=100,
+        default=10,
         help="max_new_tokens",
     )
     parser.add_argument(
@@ -177,32 +177,34 @@ def test(
         enable_graph_compiling=enable_graph,
         attention_backend=attn_backend,
     )
+    # print(model.state_dict_keyname())
+    # time.sleep(1000)
     # ---------------------------------------------------------------------------- #
     #                        Load Weights
     # ---------------------------------------------------------------------------- #
-    load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
+    load_model_state_dict_by_file(model, model_path, infinicore.bfloat16)
 
     # ---------------------------------------------------------------------------- #
     #                        create tokenizer
     # ---------------------------------------------------------------------------- #
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-    if "llama" == model.config.model_type:
-        backend = getattr(tokenizer, "backend_tokenizer", None)
-        target = getattr(backend, "_tokenizer", backend)
-        norm = getattr(target, "normalizer", None)
-        dec = getattr(target, "decoder", None)
-        sn = repr(norm)[:800] if norm is not None else ""
-        sd = repr(dec)[:800] if dec is not None else ""
-        has_prepend = "Prepend" in sn
-        has_strip = "Strip" in sd
-        if has_prepend and has_strip:
-            target.decoder = _dec.Sequence(
-                [
-                    _dec.Replace("▁", " "),
-                    _dec.ByteFallback(),
-                    _dec.Fuse(),
-                ]
-            )
+    # if "llama" == model.config.model_type:
+    #     backend = getattr(tokenizer, "backend_tokenizer", None)
+    #     target = getattr(backend, "_tokenizer", backend)
+    #     norm = getattr(target, "normalizer", None)
+    #     dec = getattr(target, "decoder", None)
+    #     sn = repr(norm)[:800] if norm is not None else ""
+    #     sd = repr(dec)[:800] if dec is not None else ""
+    #     has_prepend = "Prepend" in sn
+    #     has_strip = "Strip" in sd
+    #     if has_prepend and has_strip:
+    #         target.decoder = _dec.Sequence(
+    #             [
+    #                 _dec.Replace("▁", " "),
+    #                 _dec.ByteFallback(),
+    #                 _dec.Fuse(),
+    #             ]
+    #         )
 
     # ---------------------------------------------------------------------------- #
     #                        tokenize
@@ -222,6 +224,8 @@ def test(
     # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
     #     "input_ids"
     # ]  # List: [[1, 1128, 526, 366, 29892]]
+
+    print("input_contents: ", input_contents)
     if version.parse(transformers.__version__) < version.parse("5.0.0"):
         # Ideally this is solved by upgrading transformers. However, doing so causes version mismatch between transformers and mlu pytorch on devices with Phytium CPU. So a branch is temporarily used.
         input_ids_list = [
@@ -238,6 +242,9 @@ def test(
             for text in input_contents
         ]
 
+
+    print("input_ids_list: ", input_ids_list)
+    # input_ids_list =[[151644]]
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
     # ---------------------------------------------------------------------------- #
@@ -345,3 +352,6 @@ if __name__ == "__main__":
         temperature=args.temperature,
         attn_backend=args.attn,
     )
+    '''
+    xmake build _infinilm && xmake install _infinilm && CUDA_VISIBLE_DEVICES=1,2   python examples/jiuge.py --nvidia --model_path=/data-aisoft/mechdancer/models/Qwen3-30B-A3B/  --tp 2
+    '''

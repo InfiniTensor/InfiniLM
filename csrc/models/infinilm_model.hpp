@@ -1,10 +1,13 @@
 #pragma once
 
 #include "../cache/cache.hpp"
+#include "../config/model_config.hpp"
+#include "../engine/distributed/distributed.hpp"
 #include "infinicore/nn/module.hpp"
 #include "nlohmann/json.hpp"
 
 #include <any>
+#include <memory>
 
 #include <optional>
 
@@ -40,10 +43,59 @@ public:
         infinicore::Tensor logits;
     };
 
-    virtual ~InfinilmModel() = default;
-    virtual Output forward(const Input &input) const = 0;
+    std::shared_ptr<cache::Cache> kv_cache_;
 
-    virtual void reset_cache(const cache::CacheConfig *cache_config) = 0;
-    virtual const cache::CacheConfig *get_cache_config() const = 0;
+protected:
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
+    engine::distributed::RankInfo rank_info_;
+    std::unique_ptr<cache::CacheConfig> cache_config_;
+
+public:
+    virtual ~InfinilmModel() = default;
+    virtual Output forward(const Input &input) const
+        = 0;
+
+    void reset_cache(const cache::CacheConfig *cache_config) {
+        if (cache_config == nullptr) {
+            kv_cache_ = nullptr;
+            cache_config_ = nullptr;
+            return;
+        }
+
+        cache_config_ = cache_config->unique_copy();
+
+        if (model_config_ == nullptr) {
+            throw std::runtime_error("model_config_ is not initialized");
+        }
+
+        if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config_.get())) {
+            kv_cache_ = std::make_shared<cache::StaticKVCache>(
+                model_config_->get_head_dim(),
+                model_config_->get_head_dim(),
+                model_config_->get<size_t>("num_key_value_heads"),
+                model_config_->get<size_t>("num_key_value_heads"),
+                model_config_->get<size_t>("num_hidden_layers"),
+                model_config_->get<size_t>("max_position_embeddings"),
+                model_config_->get_dtype(),
+                *kv_cache_config,
+                rank_info_);
+        } else if (auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get())) {
+            kv_cache_ = std::make_shared<cache::PagedKVCache>(
+                model_config_->get_head_dim(),
+                model_config_->get_head_dim(),
+                model_config_->get<size_t>("num_key_value_heads"),
+                model_config_->get<size_t>("num_key_value_heads"),
+                model_config_->get<size_t>("num_hidden_layers"),
+                model_config_->get_dtype(),
+                *paged_kv_cache_config,
+                rank_info_);
+        } else {
+            throw std::runtime_error("Unsupported cache type");
+        }
+    }
+
+    const cache::CacheConfig *get_cache_config() const {
+        return cache_config_.get();
+    }
 };
 } // namespace infinilm

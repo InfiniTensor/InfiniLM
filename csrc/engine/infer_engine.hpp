@@ -20,26 +20,6 @@ public:
     using Output = RankWorker::Output;
 
     // Updated constructor: accept CacheConfig instead of CacheType
-    /**
-     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
-     *
-     * ⚠️ DEVELOPMENT POLICY:
-     *   - NO new development or feature additions permitted on this interface
-     *   - Only critical bug fixes (security/stability) allowed until removal
-     *   - All new code MUST migrate to the polymorphic overload below
-     *
-     * Replacement: Use the polymorphic overload of this same function name with updated signature
-     * Reason: Legacy signature lacks support for dynamic quantization modes.
-     * Removal target: v0.2.0 (Q2 2026)
-     */
-    InferEngine(
-        const InfinilmModel::Config &config,
-        const distributed::DistConfig &distributed_config = distributed::DistConfig(),
-        infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
-        const cache::CacheConfig *cache_config = nullptr,
-        bool enable_graph_compiling = false,
-        backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
-
     InferEngine(
         const std::string &model_path = "",
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
@@ -67,6 +47,9 @@ public:
 
     // Get current KV configuration
     const cache::CacheConfig *get_cache_config() const { return cache_config_.get(); }
+
+    // Get model configuration
+    std::shared_ptr<infinilm::config::ModelConfig> get_model_config() const { return model_config_; }
 
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;

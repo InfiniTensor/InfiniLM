@@ -31,8 +31,6 @@ class InferEngine(_infinilm.InferEngine):
         enable_graph_compiling=False,
         attention_backend="default",
     ):
-        self.config = AutoConfig.from_pretrained(model_path)
-
         if device is None:
             device = infinicore.device()
 
@@ -47,6 +45,9 @@ class InferEngine(_infinilm.InferEngine):
         self.use_cache = False
 
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
+
+        self.model_config = self.get_model_config() # <class '_infinilm.ModelConfig'>
+        print(":::::::: model_config", self.model_config)
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -108,7 +109,9 @@ class InferEngine(_infinilm.InferEngine):
         _measure_and_log_time=False,
     ):
         if generation_config.eos_token_id is None:
-            eos_token_id = self.config.eos_token_id
+            eos_token_id = self.model_config.get("eos_token_id")
+            if isinstance(eos_token_id, int):
+                eos_token_id = [eos_token_id]
         else:
             eos_token_id = generation_config.eos_token_id
 
@@ -263,6 +266,8 @@ class InferEngine(_infinilm.InferEngine):
         super().reset_cache(cache_config)
 
     def state_dict_keyname(self):
+        # for key, value in super().state_dict()[0].items():
+        #     print(f"--------------> xxxxx ::: {key} {value.shape}")
         return super().state_dict()[0].keys()
 
     def load_state_dict(self, state_dict, strict=None):

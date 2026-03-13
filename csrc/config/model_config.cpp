@@ -10,6 +10,8 @@ ModelConfig::ModelConfig(const std::string &path) {
         throw std::runtime_error("Could not open config file: " + path);
     }
     this->quant_config = QuantConfig(config_json["quantization_config"]);
+
+    // TODO. 应该增加一些属性
 }
 
 infinicore::quantization::QuantScheme
@@ -84,5 +86,10 @@ ModelConfig::get_dtype() const {
     } catch (const std::exception &e) {
         throw std::runtime_error("Error getting dtype from config: " + std::string(e.what()));
     }
+}
+
+std::ostream &operator<<(std::ostream &os, const ModelConfig &config) {
+    os << config.config_json.dump(4);
+    return os;
 }
 } // namespace infinilm::config

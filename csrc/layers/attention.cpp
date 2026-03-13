@@ -1,11 +1,13 @@
-#include "llama_attention.hpp"
+#include "attention.hpp"
 
-#include "../../utils.hpp"
+#include "../utils.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/mha_varlen.hpp"
 #include "infinicore/ops/mul.hpp"
+
+#include "infinicore/io.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -15,66 +17,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace infinilm::models::llama {
-
-/**
- * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
- *
- * ⚠️ DEVELOPMENT POLICY:
- *   - NO new development or feature additions permitted on this interface
- *   - Only critical bug fixes (security/stability) allowed until removal
- *   - All new code MUST migrate to the polymorphic overload below
- *
- * Replacement: Use the polymorphic overload of this same function name with updated signature
- * Reason: Legacy signature lacks support for dynamic quantization modes.
- * Removal target: v0.2.0 (Q2 2026)
- */
-LlamaAttention::LlamaAttention(const LlamaConfig &config,
-                               const infinicore::Device &device,
-                               size_t layer_idx,
-                               engine::distributed::RankInfo rank_info,
-                               backends::AttentionBackend attention_backend)
-    : layer_idx_(layer_idx),
-      hidden_size_(config.hidden_size),
-      num_attention_heads_(config.num_attention_heads),
-      num_key_value_heads_(config.num_key_value_heads),
-      head_dim_(config.head_dim),
-      kv_dim_(config.kv_dim()),
-      use_bias_(config.attention_bias),
-      use_output_bias_(config.attention_output_bias),
-      use_qk_norm_(config.qk_norm),
-      max_position_embeddings_(config.max_position_embeddings),
-      rank_info_(rank_info),
-      attention_backend_(attention_backend) {
-    const auto &dtype{config.dtype};
-
-    int tp_rank = rank_info.tp_rank;
-    int tp_size = rank_info.tp_size;
-
-    int num_attention_heads = config.num_attention_heads;
-    int num_key_value_heads = config.num_key_value_heads;
-
-    if ((num_key_value_heads >= tp_size) && (0 == (num_key_value_heads % tp_size))) {
-        this->num_attention_heads_ = num_attention_heads / tp_size;
-        this->num_key_value_heads_ = num_key_value_heads / tp_size;
-    } else {
-        throw std::runtime_error("num_attention_heads / tp_size error.");
-    }
-    scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
-
-    // Initialize projection layers
-    INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
-                             dtype, device, rank_info);
-    // Output projection uses attention_output_bias (can be different from qkv)
-    INFINICORE_NN_MODULE_INIT(o_proj, num_attention_heads * head_dim_, hidden_size_, use_output_bias_,
-                              dtype, device, tp_rank, tp_size, rank_info.comm);
-
-    // Initialize qk RMSNorm
-    if (use_qk_norm_) {
-        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, config.rms_norm_eps, dtype, device);
-        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, config.rms_norm_eps, dtype, device);
-    }
-}
+namespace infinilm::models::layers {
 
 LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                const infinicore::Device &device,
@@ -111,6 +54,12 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
 
     auto quant_scheme = this->model_config_->get_quant_scheme();
     switch (quant_scheme) {
+    case infinicore::quantization::QuantScheme::NONE:
+        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+                                 dtype, device, rank_info);
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
     case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
         INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
                                       dtype, device, rank_info);
@@ -125,13 +74,12 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     default:
-        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
-                                 dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        throw std::runtime_error("Unsupported quantization scheme");
         break;
     }
-    if (model_config_->get<std::string>("model_type") == "qwen3") {
+
+    // TODO: 这样不好，需要优化
+    if (model_config_->get<std::string>("model_type") == "qwen3" || model_config_->get<std::string>("model_type") == "qwen3_moe") {
         INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
         INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
     }
@@ -375,4 +323,4 @@ void LlamaAttention::set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> 
     rotary_emb_ = rotary_emb;
 }
 
-} // namespace infinilm::models::llama
+} // namespace infinilm::models::layers
