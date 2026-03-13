@@ -27,6 +27,8 @@ class AutoConfig:
             return LlamaConfig(**config_dict)
         elif config_dict["model_type"] == "minicpm":
             return LlamaConfig(**config_dict)
+        elif config_dict["model_type"] == "minicpm_sala":
+            return LlamaConfig(**config_dict)
         elif config_dict["model_type"] == "fm9g":
             return LlamaConfig(**config_dict)
         elif config_dict["model_type"] == "fm9g7b":

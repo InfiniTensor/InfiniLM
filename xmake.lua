@@ -60,6 +60,7 @@ target("_infinilm")
 
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl")
+    add_rpathdirs(INFINI_ROOT.."/lib")
 
     -- Add src files
     add_files("csrc/**.cpp")

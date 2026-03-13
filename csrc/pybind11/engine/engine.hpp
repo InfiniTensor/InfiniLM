@@ -196,7 +196,11 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("top_p", &InferEngine::Input::top_p);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
-        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor");
+        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor")
+        // DEBUG-ONLY HOOK:
+        // Expose RankWorker::Output::logits to Python for quick logits diffing vs HF.
+        // Not intended as a stable API; avoid using this in latency-sensitive paths.
+        .def_readwrite("logits", &InferEngine::Output::logits, "Last-token logits for request 0 (CPU)");
 }
 
 } // namespace infinilm::engine

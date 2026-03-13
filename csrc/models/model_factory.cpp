@@ -1,5 +1,6 @@
 #include "model_factory.hpp"
 #include "llama/llama.hpp"
+#include "minicpm_sala/minicpm_sala_for_causal_lm.hpp"
 
 namespace infinilm {
 /**
@@ -42,7 +43,11 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     backends::AttentionBackend attention_backend) {
 
     std::shared_ptr<InfinilmModel> model;
-    if (true) {
+    const auto model_type = model_config->get_or<std::string>("model_type", "llama");
+    if (model_type == "minicpm_sala") {
+        model = std::make_shared<models::minicpm_sala::MiniCPMSALAForCausalLM>(
+            model_config, rank_info.device, rank_info, attention_backend);
+    } else if (true) {
         model = std::make_shared<models::llama::LlamaForCausalLM>(
             model_config, rank_info.device, rank_info, attention_backend);
     } else {

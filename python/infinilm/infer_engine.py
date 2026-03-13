@@ -100,6 +100,58 @@ class InferEngine(_infinilm.InferEngine):
             .output_ids
         )
 
+    def forward_logits(
+        self,
+        input_ids,
+        *,
+        position_ids=None,
+        past_kv_lengths=None,
+        total_kv_lengths=None,
+        input_offsets=None,
+        cu_seqlens=None,
+        block_tables=None,
+        slot_mapping=None,
+        temperature=None,
+        top_k=None,
+        top_p=None,
+    ):
+        """
+        DEBUG-ONLY HOOK.
+
+        Run a forward pass and return last-token logits for request 0 (CPU).
+        Intended for sanity checks (e.g. comparing top-k logits vs HF on a fixed prompt).
+        Not designed for throughput/serving usage.
+        """
+        input_ids = input_ids._underlying if input_ids is not None else None
+        position_ids = position_ids._underlying if position_ids is not None else None
+        past_kv_lengths = (
+            past_kv_lengths._underlying if past_kv_lengths is not None else None
+        )
+        total_kv_lengths = (
+            total_kv_lengths._underlying if past_kv_lengths is not None else None
+        )
+        input_offsets = input_offsets._underlying if input_offsets is not None else None
+        block_tables = block_tables._underlying if block_tables is not None else None
+        cu_seqlens = cu_seqlens._underlying if cu_seqlens is not None else None
+        slot_mapping = slot_mapping._underlying if slot_mapping is not None else None
+
+        out = super().forward(
+            super().Input(
+                input_ids,
+                position_ids=position_ids,
+                past_sequence_lengths=past_kv_lengths,
+                total_sequence_lengths=total_kv_lengths,
+                input_offsets=input_offsets,
+                cu_seqlens=cu_seqlens,
+                block_tables=block_tables,
+                slot_mapping=slot_mapping,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
+        )
+        return infinicore.Tensor(out.logits)
+
     def generate(
         self,
         input_ids,

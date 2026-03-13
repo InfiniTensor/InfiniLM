@@ -58,6 +58,18 @@ public:
 
     struct Output {
         infinicore::Tensor output_ids;
+        // DEBUG-ONLY HOOK:
+        // Last-token logits for request 0 (CPU), shape [vocab_size].
+        //
+        // This is intentionally a minimal “sanity check” export to help validate
+        // model math during bring-up (e.g. compare against HF on a fixed prompt).
+        //
+        // Limitations / assumptions:
+        // - Only populated on rank 0 (tp_rank==0)
+        // - Only captures request 0 (i==0) in a continuous batch
+        // - Always copied to CPU (adds overhead; not for production serving)
+        // - Not guaranteed to be set if caller doesn’t provide input_offsets
+        infinicore::Tensor logits;
     };
 
     RankWorker(const InfinilmModel::Config &model_config,

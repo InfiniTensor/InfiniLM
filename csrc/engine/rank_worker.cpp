@@ -354,10 +354,18 @@ void RankWorker::thread_loop() {
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
                             auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
+                            // DEBUG-ONLY HOOK (see RankWorker::Output::logits):
+                            // Store request-0 last-token logits on CPU for lightweight correctness checks.
+                            // This is *not* intended for production use due to extra device->host copies.
+                            infinicore::Tensor last_logits_cpu;
 
                             for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
                                 auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                if (i == 0) {
+                                    // Capture request-0 score vector before sampling.
+                                    last_logits_cpu = score->contiguous()->to(infinicore::Device::cpu());
+                                }
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
                                     out, score, random_val, top_p, top_k, temperature);
@@ -367,7 +375,7 @@ void RankWorker::thread_loop() {
 
                             infinicore::context::syncStream();
 
-                            auto out{Output{output_ids}};
+                            auto out{Output{output_ids, last_logits_cpu}};
 
                             output_ = std::move(out);
                         }
