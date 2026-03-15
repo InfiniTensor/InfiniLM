@@ -1,10 +1,115 @@
 #include "minicpm_sala_model.hpp"
 
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include <cmath>
+#include <chrono>
+#include <cstdlib>
+#include <fstream>
 #include <stdexcept>
+#include <vector>
 
 namespace infinilm::models::minicpm_sala {
+
+namespace {
+
+void dump_tensor_to_bin_if_enabled(const infinicore::Tensor &tensor, const char *bin_path) {
+    if (!bin_path || !std::getenv("INFINI_DEBUG_ATTN_DUMP")) return;
+    try {
+        auto cpu_t = tensor->to(infinicore::Device::cpu());
+        const size_t n = cpu_t->numel();
+        const auto dt = cpu_t->dtype();
+        std::vector<float> f32_buf(n);
+        if (dt == infinicore::DataType::BF16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t u = static_cast<uint32_t>(p[i]) << 16;
+                f32_buf[i] = *reinterpret_cast<float *>(&u);
+            }
+        } else if (dt == infinicore::DataType::F32) {
+            const float *p = reinterpret_cast<const float *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) f32_buf[i] = p[i];
+        } else if (dt == infinicore::DataType::F16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t u = (p[i] & 0x8000) << 16 | ((p[i] & 0x7fff) + (127 - 15)) << 23 | (p[i] & 0x03ff) << 13;
+                f32_buf[i] = *reinterpret_cast<float *>(&u);
+            }
+        } else return;
+        std::ofstream bin(bin_path, std::ios::binary);
+        if (bin) bin.write(reinterpret_cast<const char *>(f32_buf.data()), n * sizeof(float));
+    } catch (...) {}
+}
+
+void log_tensor_stats_if_enabled(const infinicore::Tensor &tensor,
+                                 const char *hypothesis_id,
+                                 const char *location,
+                                 const char *message) {
+    const char *log_path = std::getenv("INFINI_DEBUG_LOG");
+    if (!log_path) {
+        return;
+    }
+    try {
+        auto cpu_t = tensor->to(infinicore::Device::cpu());
+        const size_t n = cpu_t->numel();
+        const auto &shp = cpu_t->shape();
+        const auto dt = cpu_t->dtype();
+        std::vector<float> f32_buf(n);
+        if (dt == infinicore::DataType::BF16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t u = static_cast<uint32_t>(p[i]) << 16;
+                f32_buf[i] = *reinterpret_cast<float *>(&u);
+            }
+        } else if (dt == infinicore::DataType::F32) {
+            const float *p = reinterpret_cast<const float *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) f32_buf[i] = p[i];
+        } else if (dt == infinicore::DataType::F16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t u = (p[i] & 0x8000) << 16 | ((p[i] & 0x7fff) + (127 - 15)) << 23 | (p[i] & 0x03ff) << 13;
+                f32_buf[i] = *reinterpret_cast<float *>(&u);
+            }
+        }
+        float mn = f32_buf.empty() ? 0.f : f32_buf[0];
+        float mx = mn;
+        double sum = 0.0;
+        double ss = 0.0;
+        for (float v : f32_buf) {
+            mn = std::min(mn, v);
+            mx = std::max(mx, v);
+            sum += v;
+            ss += static_cast<double>(v) * static_cast<double>(v);
+        }
+        const double mean = n ? (sum / static_cast<double>(n)) : 0.0;
+        const double norm = ss > 0.0 ? std::sqrt(ss) : 0.0;
+
+        std::ofstream log(log_path, std::ios::app);
+        if (log) {
+            std::string shape_json = "[";
+            for (size_t i = 0; i < shp.size(); ++i) {
+                shape_json += (i ? "," : "") + std::to_string(shp[i]);
+            }
+            shape_json += "]";
+            const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+            log << "{\"sessionId\":\"9146ea\",\"hypothesisId\":\"" << hypothesis_id
+                << "\",\"location\":\"" << location
+                << "\",\"message\":\"" << message
+                << "\",\"data\":{\"shape\":" << shape_json
+                << ",\"min\":" << mn
+                << ",\"max\":" << mx
+                << ",\"mean\":" << mean
+                << ",\"l2\":" << norm
+                << "},\"timestamp\":" << now_ms << "}\n";
+        }
+    } catch (...) {
+        // Best-effort diagnostics; never throw from logging path.
+    }
+}
+
+} // namespace
 
 MiniCPMSALAModel::MiniCPMSALAModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                    const infinicore::Device &device,
@@ -75,6 +180,14 @@ infinicore::Tensor MiniCPMSALAModel::forward(const infinicore::Tensor &input_ids
                                              std::optional<infinicore::Tensor> slot_mapping) const {
     // MuP scaling baked into weights at load time for minicpm_sala; no forward scaling here.
     auto hs = embed_tokens_->forward(input_ids);
+    if (std::getenv("INFINI_DEBUG_LOG")) {
+        infinicore::context::syncDevice();
+    }
+    log_tensor_stats_if_enabled(hs,
+                                "INF_C",
+                                "minicpm_sala_model.cpp:embed_tokens",
+                                "Inf embed output");
+    dump_tensor_to_bin_if_enabled(hs, "/tmp/inf_embed_out.bin");
 
     for (size_t i = 0; i < layers_.size(); ++i) {
         hs = layers_[i]->forward(hs,
@@ -89,6 +202,7 @@ infinicore::Tensor MiniCPMSALAModel::forward(const infinicore::Tensor &input_ids
     }
 
     hs = norm_->forward(hs);
+    dump_tensor_to_bin_if_enabled(hs, "/tmp/inf_final_hidden.bin");
     return hs;
 }
 

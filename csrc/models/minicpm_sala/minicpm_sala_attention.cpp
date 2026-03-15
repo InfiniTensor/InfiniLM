@@ -7,8 +7,59 @@
 #include <fstream>
 #include <chrono>
 #include <stdexcept>
+#include <vector>
 
 namespace infinilm::models::minicpm_sala {
+
+namespace {
+static void dump_tensor_f32(const infinicore::Tensor &t, const char *path) {
+    if (!path || !std::getenv("INFINI_DEBUG_ATTN_DUMP")) return;
+    try {
+        auto cpu = t->to(infinicore::Device::cpu());
+        const size_t n = cpu->numel();
+        const auto dt = cpu->dtype();
+        std::vector<float> buf(n);
+        if (dt == infinicore::DataType::BF16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu->data());
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t u = static_cast<uint32_t>(p[i]) << 16;
+                buf[i] = *reinterpret_cast<const float *>(&u);
+            }
+        } else if (dt == infinicore::DataType::F32) {
+            const float *p = reinterpret_cast<const float *>(cpu->data());
+            for (size_t i = 0; i < n; ++i) buf[i] = p[i];
+        } else return;
+        std::ofstream f(path, std::ios::binary);
+        if (f) f.write(reinterpret_cast<const char *>(buf.data()), n * sizeof(float));
+    } catch (...) {}
+}
+// Same as HF MiniCPM-SALA _build_slope_tensor (used for Simple GLA decay).
+std::vector<float> build_slope_tensor(size_t n) {
+    auto get_slopes_power_of_2 = [](size_t n) -> std::vector<float> {
+        double log2n = std::log2(static_cast<double>(n));
+        double start = std::pow(2.0, -(std::pow(2.0, -(log2n - 3))));
+        double ratio = start;
+        std::vector<float> out;
+        out.reserve(n);
+        for (size_t i = 0; i < n; ++i) {
+            out.push_back(static_cast<float>(start * std::pow(ratio, static_cast<double>(i))));
+        }
+        return out;
+    };
+    if (n == 0) return {};
+    double log2n = std::log2(static_cast<double>(n));
+    if (std::abs(log2n - std::floor(log2n)) < 1e-9) {
+        return get_slopes_power_of_2(n);
+    }
+    size_t closest = static_cast<size_t>(std::pow(2.0, std::floor(log2n)));
+    auto first = get_slopes_power_of_2(closest);
+    auto rest = build_slope_tensor(2 * closest);
+    for (size_t i = 0; i < n - closest; ++i) {
+        first.push_back(rest[i * 2]);
+    }
+    return first;
+}
+} // namespace
 
 MiniCPMSALAAttention::MiniCPMSALAAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                            const infinicore::Device &device,
@@ -65,6 +116,14 @@ MiniCPMSALAAttention::MiniCPMSALAAttention(std::shared_ptr<infinilm::config::Mod
         INFINICORE_NN_MODULE_INIT(o_norm, hidden_size_, model_config_->get<double>("rms_norm_eps"), dtype, device);
         INFINICORE_NN_MODULE_INIT(z_proj, hidden_size_, hidden_size_, false, dtype, device);
     }
+    // Simple GLA decay for lightning path (and when MINICPM_SALA_FORCE_ALL_LIGHTNING): g_gamma = _build_slope_tensor * -1.
+    std::vector<float> slopes = build_slope_tensor(num_attention_heads_);
+    auto g_cpu = infinicore::Tensor::empty(
+        {num_attention_heads_}, infinicore::DataType::F32, infinicore::Device::cpu());
+    float *ptr = reinterpret_cast<float *>(g_cpu->data());
+    for (size_t h = 0; h < num_attention_heads_; ++h)
+        ptr[h] = -slopes[h];
+    g_gamma_ = g_cpu->to(device);
 }
 
 void MiniCPMSALAAttention::set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) {
@@ -244,125 +303,106 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
     k_total = k_total->narrow({{2, 0, total_seq_len}});
     v_total = v_total->narrow({{2, 0, total_seq_len}});
 
+    const bool force_all_lightning = std::getenv("MINICPM_SALA_FORCE_ALL_LIGHTNING") != nullptr;
     infinicore::Tensor attn_output;
-    if (!is_sparse_layer_) {
-        // Lightning / dense layers: use GLA-style grouped attention op.
-        auto q_for_gla = q_perm->view({batch_size, num_attention_heads_, seq_len, head_dim_});
-        auto k_for_gla = k_total;
-        auto v_for_gla = v_total;
-        auto gla_out = infinicore::op::gla_attention(q_for_gla, k_for_gla, v_for_gla, scaling_, true);
-        attn_output = gla_out->permute({0, 2, 1, 3})
-                           ->contiguous()
-                           ->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
+    if (!is_sparse_layer_ || force_all_lightning) {
+        // Lightning-attn: Simple GLA (HF-aligned), same as test/infinicore/ops/gla_attention.py.
+        // simple_gla_attention(q,k,v,g_gamma,scale) expects [B, T, H, D]; g_gamma [H].
+        const size_t n_h = num_attention_heads_;
+        const size_t n_kv = num_key_value_heads_;
+        infinicore::Tensor k_use = k_total;
+        infinicore::Tensor v_use = v_total;
+        if (n_kv < n_h) {
+            // Repeat KV heads to match n_h (same as HF repeat_kv / repeat_interleave).
+            // Use explicit copy instead of as_strided to avoid backend stride semantics issues.
+            const size_t ngroup = n_h / n_kv;
+            k_use = infinicore::Tensor::empty(
+                {batch_size, n_h, total_seq_len, head_dim_}, k_total->dtype(), k_total->device());
+            v_use = infinicore::Tensor::empty(
+                {batch_size, n_h, total_seq_len, head_dim_}, v_total->dtype(), v_total->device());
+            for (size_t kv = 0; kv < n_kv; ++kv) {
+                for (size_t g = 0; g < ngroup; ++g) {
+                    const size_t h = kv * ngroup + g;
+                    k_use->narrow({{1, h, 1}})->copy_from(k_total->narrow({{1, kv, 1}}));
+                    v_use->narrow({{1, h, 1}})->copy_from(v_total->narrow({{1, kv, 1}}));
+                }
+            }
+        }
+        auto q_bthd = q_perm->view({batch_size, n_h, seq_len, head_dim_})
+                          ->permute({0, 2, 1, 3})
+                          ->contiguous(); // [B, S_q, H, D]
+        auto k_bthd = k_use->permute({0, 2, 1, 3})->contiguous(); // [B, S_kv, H, D]
+        auto v_bthd = v_use->permute({0, 2, 1, 3})->contiguous(); // [B, S_kv, H, D]
+        if (layer_idx_ == 0) {
+            dump_tensor_f32(q_bthd, "/tmp/inf_layer0_q.bin");
+            dump_tensor_f32(k_bthd, "/tmp/inf_layer0_k.bin");
+            dump_tensor_f32(v_bthd, "/tmp/inf_layer0_v.bin");
+            dump_tensor_f32(g_gamma_, "/tmp/inf_layer0_g_gamma.bin");
+        } else if (layer_idx_ == 1) {
+            dump_tensor_f32(q_bthd, "/tmp/inf_layer1_q.bin");
+            dump_tensor_f32(k_bthd, "/tmp/inf_layer1_k.bin");
+            dump_tensor_f32(v_bthd, "/tmp/inf_layer1_v.bin");
+            dump_tensor_f32(g_gamma_, "/tmp/inf_layer1_g_gamma.bin");
+        }
+        infinicore::Tensor q_full;
+        if (seq_len == total_seq_len) {
+            q_full = q_bthd;
+        } else {
+            // Decode: q has seq_len (e.g. 1), kv has total_seq_len; pad q to [B, total_seq_len, H, D].
+            q_full = infinicore::Tensor::zeros(
+                {batch_size, total_seq_len, n_h, head_dim_}, q_bthd->dtype(), q_bthd->device());
+            auto q_slot = q_full->narrow({{1, total_seq_len - seq_len, seq_len}});
+            q_slot->copy_from(q_bthd);
+        }
+        auto gla_out = infinicore::op::simple_gla_attention(q_full, k_bthd, v_bthd, g_gamma_, scaling_);
+        // gla_out [B, total_seq_len, H, D]; take last seq_len positions.
+        auto out_slice = gla_out->narrow({{1, total_seq_len - seq_len, seq_len}});
+        attn_output = out_slice->view({batch_size, seq_len, n_h * head_dim_});
     } else {
-        // Sparse (minicpm4) layers:
-        // Prefer InfLLM-V2 varlen kernels when available. If InfLLM-V2 is not
-        // enabled in InfiniCore, optionally use the FlashAttention-style
-        // mha_varlen path, and only then fall back to dense matmul.
-#if defined(ENABLE_INFLLMV2)
-        // Ensure contiguity before flattening views, especially after narrow() on caches.
-        auto q_contig = q_perm->contiguous();
-        auto k_contig = k_total->contiguous();
-        auto v_contig = v_total->contiguous();
-
-        const size_t total_q = batch_size * seq_len;
-        const size_t total_k = batch_size * total_seq_len;
-
-        auto q_varlen = q_contig->view({total_q, num_attention_heads_, head_dim_});
-        auto k_varlen = k_contig->view({total_k, num_key_value_heads_, head_dim_});
-        auto v_varlen = v_contig->view({total_k, num_key_value_heads_, head_dim_});
-
-        // Single-request cu_seqlens: [0, total_q] / [0, total_k]
-        auto cu_q = infinicore::Tensor::empty({2}, infinicore::DataType::I32, q_varlen->device());
-        auto cu_k = infinicore::Tensor::empty({2}, infinicore::DataType::I32, k_varlen->device());
-        {
-            auto cu_q_cpu = cu_q->to(infinicore::Device::cpu());
-            auto cu_k_cpu = cu_k->to(infinicore::Device::cpu());
-            auto *q_ptr = reinterpret_cast<int32_t *>(cu_q_cpu->data());
-            auto *k_ptr = reinterpret_cast<int32_t *>(cu_k_cpu->data());
-            q_ptr[0] = 0;
-            q_ptr[1] = static_cast<int32_t>(total_q);
-            k_ptr[0] = 0;
-            k_ptr[1] = static_cast<int32_t>(total_k);
-            cu_q->copy_from(cu_q_cpu);
-            cu_k->copy_from(cu_k_cpu);
-        }
-
-        auto out_varlen = infinicore::op::infllmv2_varlen(
-            q_varlen,
-            k_varlen,
-            v_varlen,
-            cu_q,
-            cu_k,
-            static_cast<int>(seq_len),
-            static_cast<int>(total_seq_len),
-            scaling_,
-            /*causal=*/true);
-
-        auto out_view = out_varlen->view({batch_size, seq_len, num_attention_heads_, head_dim_});
-        attn_output = out_view->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
-#elif defined(ENABLE_FLASH_ATTN)
-        // Ensure contiguity before flattening views, especially after narrow() on caches.
-        auto q_contig = q_perm->contiguous();
-        auto k_contig = k_total->contiguous();
-        auto v_contig = v_total->contiguous();
-
-        const size_t total_q = batch_size * seq_len;
-        const size_t total_k = batch_size * total_seq_len;
-
-        auto q_varlen = q_contig->view({total_q, num_attention_heads_, head_dim_});
-        auto k_varlen = k_contig->view({total_k, num_key_value_heads_, head_dim_});
-        auto v_varlen = v_contig->view({total_k, num_key_value_heads_, head_dim_});
-
-        // Single-request cu_seqlens: [0, total_q] / [0, total_k]
-        auto cu_q = infinicore::Tensor::empty({2}, infinicore::DataType::I32, q_varlen->device());
-        auto cu_k = infinicore::Tensor::empty({2}, infinicore::DataType::I32, k_varlen->device());
-        {
-            auto cu_q_cpu = cu_q->to(infinicore::Device::cpu());
-            auto cu_k_cpu = cu_k->to(infinicore::Device::cpu());
-            auto *q_ptr = reinterpret_cast<int32_t *>(cu_q_cpu->data());
-            auto *k_ptr = reinterpret_cast<int32_t *>(cu_k_cpu->data());
-            q_ptr[0] = 0;
-            q_ptr[1] = static_cast<int32_t>(total_q);
-            k_ptr[0] = 0;
-            k_ptr[1] = static_cast<int32_t>(total_k);
-            cu_q->copy_from(cu_q_cpu);
-            cu_k->copy_from(cu_k_cpu);
-        }
-
-        auto dummy_block_table = infinicore::Tensor::zeros({1, 1}, cu_q->dtype(), cu_q->device());
-        auto out_varlen = infinicore::op::mha_varlen(
-            q_varlen,
-            k_varlen,
-            v_varlen,
-            cu_q,
-            cu_k,
-            dummy_block_table,
-            static_cast<int>(seq_len),
-            static_cast<int>(total_seq_len),
-            std::nullopt,
-            scaling_);
-
-        auto out_view = out_varlen->view({batch_size, seq_len, num_attention_heads_, head_dim_});
-        attn_output = out_view->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
-#else
+        // Match HF MiniCPM4 dense attention semantics during alignment bring-up:
+        // repeat KV heads explicitly, then apply per-head causal attention.
         const size_t ngroup = num_attention_heads_ / num_key_value_heads_;
-        auto Q = q_perm->view({batch_size * num_key_value_heads_, ngroup * seq_len, head_dim_});
-        auto K = k_total->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
-        auto V = v_total->view({batch_size * num_key_value_heads_, total_seq_len, head_dim_});
+        auto q_contig = q_perm->contiguous();
+        auto k_contig = k_total->contiguous();
+        auto v_contig = v_total->contiguous();
+
+        infinicore::Tensor k_repeated = k_contig;
+        infinicore::Tensor v_repeated = v_contig;
+        if (ngroup > 1) {
+            const std::vector<ptrdiff_t> repeated_kv_strides = {
+                static_cast<ptrdiff_t>(num_key_value_heads_ * total_seq_len * head_dim_),
+                static_cast<ptrdiff_t>(total_seq_len * head_dim_),
+                0,
+                static_cast<ptrdiff_t>(head_dim_),
+                1,
+            };
+            k_repeated = k_contig
+                             ->as_strided(
+                                 {batch_size, num_key_value_heads_, ngroup, total_seq_len, head_dim_},
+                                 repeated_kv_strides)
+                             ->contiguous()
+                             ->view({batch_size, num_attention_heads_, total_seq_len, head_dim_});
+            v_repeated = v_contig
+                             ->as_strided(
+                                 {batch_size, num_key_value_heads_, ngroup, total_seq_len, head_dim_},
+                                 repeated_kv_strides)
+                             ->contiguous()
+                             ->view({batch_size, num_attention_heads_, total_seq_len, head_dim_});
+        }
+
+        auto Q = q_contig->view({batch_size * num_attention_heads_, seq_len, head_dim_});
+        auto K = k_repeated->view({batch_size * num_attention_heads_, total_seq_len, head_dim_});
+        auto V = v_repeated->view({batch_size * num_attention_heads_, total_seq_len, head_dim_});
 
         auto Kt = K->permute({0, 2, 1})->contiguous();
         auto attn_weight = infinicore::op::matmul(Q, Kt, scaling_);
+        infinicore::op::causal_softmax_(attn_weight, attn_weight);
 
-        auto attn_weight_softmax = attn_weight->view({batch_size * num_attention_heads_, seq_len, total_seq_len});
-        infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
-
-        auto out = infinicore::op::matmul(attn_weight, V); // [B*n_kv, ng*S, D]
+        auto out = infinicore::op::matmul(attn_weight, V); // [B*n_head, S, D]
         attn_output = out->view({batch_size, num_attention_heads_, seq_len, head_dim_})
                            ->permute({0, 2, 1, 3})
                            ->contiguous()
                            ->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
-#endif
     }
 
     // #region agent log
@@ -417,7 +457,8 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
             const char *msg = (layer_idx_ == 0)
                                   ? "Inf layer0 attn pre-gate"
                                   : "Inf layer1 attn pre-gate";
-            const char *bin = (layer_idx_ == 0) ? "/tmp/inf_attn_out_layer0.bin" : nullptr;
+            const char *bin = (layer_idx_ == 0) ? "/tmp/inf_attn_out_layer0.bin"
+                                                : (layer_idx_ == 1) ? "/tmp/inf_attn_out_layer1.bin" : nullptr;
             dump_stats(attn_output, msg, loc, bin);
         }
     }
@@ -432,14 +473,11 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
             infinicore::op::sigmoid_(gate, gate);
             attn_output = infinicore::op::mul(attn_output, gate);
         } else if (z_proj_) {
-            // Lightning: y = (attn_output_normed) * silu(z_proj(x)) (approx)
-            // In SALA code, this is an output gating; we implement with SiLU(z) as gate.
+            // Lightning: match HF LightningAttention: o_norm(o) then o * sigmoid(z_proj(x)).
             auto z_in = hidden_states;
             auto z = z_proj_->forward(z_in);
-            infinicore::op::silu_(z, z);
-            // Optional per-head output norm (o_norm) on [B,S,n_head,head_dim]
+            infinicore::op::sigmoid_(z, z);
             if (use_output_norm_ && o_norm_) {
-                // o_norm is defined over hidden_size.
                 attn_output = o_norm_->forward(attn_output);
             }
             attn_output = infinicore::op::mul(attn_output, z);

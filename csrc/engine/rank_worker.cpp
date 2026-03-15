@@ -336,6 +336,8 @@ void RankWorker::thread_loop() {
                         // Fall back to eager mode
                         if (!logits) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
+                            // Sync so H2D copies for input_ids etc. complete before forward (embed reads indices).
+                            infinicore::context::syncDevice();
                             logits = model_->forward(model_args).logits;
                         }
 

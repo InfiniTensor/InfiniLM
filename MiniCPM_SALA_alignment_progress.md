@@ -161,3 +161,172 @@
 - **Mismatch**: Final logits norm is still **Inf/HF ≈ 0.244**, so the discrepancy is accumulating across layers, likely starting at or after the first GLA layer.
 - **Blocking issue**: The `_infinilm` C++ extension in use predates the layer‑1 logging changes; an earlier C++ compile error prevented a fresh install. That decode‑layer bug has been fixed so we can now rebuild and get the new diagnostics into the runtime.
 - **Next milestone**: Successfully rebuild `_infinilm`, confirm the `_l1` log strings are present, rerun sanity, and use the new layer‑1 and decoder `INF_L` stats to precisely locate where Inf’s norms start drifting away from HF.
+
+---
+
+### Host follow-up (2026-03-14)
+
+- Ran `examples/minicpm_sala_logits_sanity.py --mode prefill --prompt "How are you"` directly on the host using the local venv and the same base env as the documented `jiuge.py` run.
+- Extra host-only prep required for the HF reference path:
+  - installed `flash-linear-attention` to provide the `fla` module
+  - installed `triton==3.2.0` to avoid the Triton `STAGE` autotune import failure
+  - created `/home/zenghua/repos/.cursor/` because the script hardcodes `DEBUG_LOG_PATH` there
+- Result on host:
+  - `SANITY_ONELINE ratio=0.6215 max_diff=11.5391 mean_diff=2.5607`
+  - HF top-1 token id `74`, Inf top-1 token id `23917`
+- Interpretation:
+  - The host environment now reproduces the alignment issue without Docker.
+  - The ratio is better than the older container snapshot (`~0.244`) but still far from aligned, so the poor generation quality remains consistent with a real logits mismatch.
+- Full reproducibility details for this host run were appended to `CURRENT_PROGRESS.md`.
+
+---
+
+### HF MiniCPM4 dense-fallback experiment (2026-03-14)
+
+- Goal:
+  - Test whether the remaining mismatch is coming from the HF `minicpm4` sparse-vs-dense code path by forcing `minicpm4` layers onto the standard dense attention implementation.
+- HF model-file change:
+  - Patched both cached copies of `modeling_minicpm_sala.py` so `MiniCPMSALADecoderLayer` uses `MINICPM_ATTENTION_CLASSES[config._attn_implementation]` for `mixer_type == "minicpm4"` instead of `MiniCPMInfLLMv2Attention`.
+  - Backups:
+    - `/root/.cache/modelscope/hub/models/OpenBMB/MiniCPM-SALA/modeling_minicpm_sala.py.bak-20260314-210428`
+    - `/root/.cache/huggingface/modules/transformers_modules/MiniCPM-SALA/modeling_minicpm_sala.py.bak-20260314-210619`
+- Rerun result:
+  - `SANITY_ONELINE ratio=0.6215 max_diff=11.5391 mean_diff=2.5607`
+  - HF top-1 token id `74`, Inf top-1 token id `23917`
+  - These numbers are unchanged from the earlier host run.
+- Fresh per-layer log from `debug-9146ea.log`:
+  - HF decoder output `l2`:
+    - layer 0: `59.49`
+    - layer 1: `73.91`
+    - layer 2: `87.38`
+  - Inf decoder output `l2`:
+    - layer 0: `35.08`
+    - layer 1: `295.86`
+    - layer 2: `531.38`
+  - Inf layer-1 attention stats:
+    - pre-gate `l2 ~= 749.58`
+    - post-gate `l2 ~= 745.29`
+    - post-`o_proj` `l2 ~= 1112.6`
+- Interpretation:
+  - For this short prefill case, forcing HF `minicpm4` to the dense fallback path does not move the mismatch at all.
+  - The strongest current evidence is that the large norm drift starts in the InfiniLM implementation at or immediately after the first `lightning-attn` layer, not in the HF `minicpm4` branch.
+
+---
+
+### InfiniLM MiniCPM4 HF-math experiment (2026-03-14)
+
+- Goal:
+  - Make the InfiniLM `minicpm4` layer compute the same dense attention math as the HF reference path and see whether layer 0 aligns at the start of sanity.
+- C++ change:
+  - In `csrc/models/minicpm_sala/minicpm_sala_attention.cpp`, replaced the `minicpm4` sparse/varlen/grouped fallback branch with an explicit HF-style dense path:
+    - repeat KV heads to `num_attention_heads`
+    - compute per-head dense causal attention
+    - keep the same sigmoid output gate and `o_proj`
+- Rebuild:
+  - Rebuilt and reinstalled `_infinilm` successfully using the local `xmake` toolchain.
+- Rerun result:
+  - `SANITY_ONELINE ratio=0.6215 max_diff=11.5391 mean_diff=2.5607`
+  - HF top-1 token id `74`, Inf top-1 token id `23917`
+  - These numbers are unchanged.
+- Fresh layer stats after the InfiniLM-side change:
+  - HF decoder output `l2`: `59.49 -> 73.91 -> 87.38`
+  - Inf decoder output `l2`: `35.08 -> 295.86 -> 531.38`
+  - Inf layer-0 attention:
+    - pre-gate `142.87`
+    - post-gate `80.43`
+    - post-`o_proj` `135.39`
+- Interpretation:
+  - Even after making the InfiniLM `minicpm4` branch follow the HF dense attention structure, layer 0 does not move toward HF.
+  - This strongly suggests the remaining mismatch is not in the `minicpm4` attention branch itself; attention should shift to other decoder-path components and especially the first `lightning-attn` layer.
+
+---
+
+### Temporary all-lightning experiment (2026-03-14)
+
+- Goal:
+  - Force both HF and InfiniLM to use lightning-style attention math for former `minicpm4` layers as a temporary precision-alignment probe, without changing checkpoint tensor shapes.
+- Why not use `config.json` only:
+  - A direct `mixer_types -> all lightning-attn` config edit failed during HF weight load because former `minicpm4` layers have incompatible checkpoint shapes for the stock `LightningAttention` module (e.g. `256 x 4096` vs `4096 x 4096`).
+  - The original `mixer_types` config was restored.
+- Temporary override implementation:
+  - Added env flag `MINICPM_SALA_FORCE_ALL_LIGHTNING=1`.
+  - HF side:
+    - former `minicpm4` layers instantiate `MiniCPMAttention` under the flag
+    - `MiniCPMAttention.forward()` switches to lightning-style GLA computation under the flag, while keeping original q/k/v/o_proj/o_gate weights
+  - InfiniLM side:
+    - `minicpm_sala_attention.cpp` routes sparse layers through `gla_attention` under the same flag
+  - Sanity script:
+    - `examples/minicpm_sala_logits_sanity.py` now sets `MINICPM_SALA_FORCE_ALL_LIGHTNING=1` for this experiment
+- Result:
+  - `SANITY_ONELINE ratio=0.4728 max_diff=12.1406 mean_diff=1.9942`
+  - HF top-1 token id `59375`, Inf top-1 token id `59358`
+- Fresh per-layer stats under the override:
+  - HF decoder output `l2`:
+    - layer 0: `385.10`
+    - layer 1: `374.87`
+    - layer 2: `426.87`
+  - Inf decoder output `l2`:
+    - layer 0: `26.23`
+    - layer 1: `208.72`
+    - layer 2: `403.90`
+  - Inf layer-0 attention:
+    - pre-gate `105.50`
+    - post-gate `60.38`
+    - post-`o_proj` `98.66`
+  - Inf layer-1 attention:
+    - pre-gate `672.74`
+    - post-gate `459.67`
+    - post-`o_proj` `737.03`
+- Interpretation:
+  - The override is definitely active on both sides, because HF logits/top-1 and HF early-layer norms changed substantially.
+  - However, the former `minicpm4` layers still do not align numerically with InfiniLM under lightning-style attention.
+  - This points to a mismatch in the lightning formulation itself (decay/slopes, layout, gating, norm/casting, or related details), not just in the original mixed `mixer_types` layout.
+
+---
+
+### Layer-0 narrowing after matched temporary semantics (2026-03-14)
+
+- Change:
+  - Updated the temporary HF override so its former `minicpm4` path uses the same grouped causal-softmax math as `InfiniCore` `gla_attention`, instead of `simple_gla` with decay.
+  - Added layer-0 sub-stage logging on both sides:
+    - HF: `inputs_embeds`, `input_layernorm`, `attn_pre_gate`, `attn_post_oproj`
+    - Inf: embedding output, `input_layernorm`, `attn_pre_gate`, `attn_post_oproj`
+- Result:
+  - Layer-0 pre-gate attention still mismatches strongly:
+    - HF `attn_pre_gate l2 ~= 235.11`
+    - Inf `attn_pre_gate l2 ~= 105.50`
+    - `Inf/HF ~= 0.4487`
+  - But this is no longer the earliest divergence.
+- New root-cause evidence:
+  - Embedding output already differs:
+    - HF `inputs_embeds l2 ~= 44.09`
+    - Inf embed output `l2 ~= 25.51`
+  - First decoder layer pre-norm output also differs:
+    - HF layer0 `input_layernorm l2 ~= 95.88`
+    - Inf layer0 `input_layernorm l2 ~= 70.94`
+- Interpretation:
+  - The mismatch starts before layer-0 attention.
+  - Attention, gating, and `o_proj` are downstream amplifiers, but not the first source.
+  - The next priority should be MiniCPM-SALA embedding behavior in InfiniLM:
+    - verify `model.embed_tokens.weight` load/scaling,
+    - verify runtime embedding lookup output against HF for the same token ids,
+    - then re-check whether layer-0 attention comes into line automatically.
+
+---
+
+### Multi-layer alignment after embed fix (2026-03-14)
+
+- Instrumentation added:
+  - InfiniLM dumps decoder layer outputs (out2) for layers 0–2 to `/tmp/inf_layer_out_{0,1,2}.bin` and final hidden (after norm) to `/tmp/inf_final_hidden.bin` when `INFINI_DEBUG_ATTN_DUMP=1`.
+  - HF hooks save layer outputs to `/tmp/hf_layer_out_{0,1,2}.pt` and final hidden to `/tmp/hf_final_hidden.pt`.
+  - Sanity script prints per-layer and final-hidden norm_ratio and max/mean diff.
+- Result (prefill "How are you", int32 input_ids workaround):
+  - **Layer 0**: norm_ratio ≈ 1.0002, max_diff ≈ 0.0625 → aligned.
+  - **Layer 1**: norm_ratio ≈ 3.24, max_diff ≈ 28.4 → large divergence.
+  - **Layer 2**: norm_ratio ≈ 5.73 → further drift.
+- Root cause for layer 1+:
+  - Config: layer 0 = `minicpm4` (sparse/dense), layer 1+ = `lightning-attn`.
+  - HF `LightningAttention` uses **Simple GLA** (`chunk_simple_gla` / `fused_recurrent_simple_gla`): linear/recurrent attention with decay (g_gamma), not causal softmax.
+  - InfiniLM uses `op::gla_attention` for lightning layers: **causal softmax** (QK^T scale, softmax, @V). Different formulation → different scaling and dynamics.
+- Next step to align after layer 0:
+  - Implement Simple GLA (chunk or fused_recurrent) in InfiniCore and route lightning layers through it, matching HF’s `attn_fn` (decay, scale=1/sqrt(d), layout).

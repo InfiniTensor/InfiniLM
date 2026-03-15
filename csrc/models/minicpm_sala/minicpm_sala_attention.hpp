@@ -88,6 +88,9 @@ protected:
     mutable infinicore::Tensor k_cache_;
     mutable infinicore::Tensor v_cache_;
     mutable size_t kv_capacity_ = 0;
+
+    // Lightning layers only: per-head log-decay for Simple GLA (HF _build_slope_tensor * -1).
+    infinicore::Tensor g_gamma_;
 };
 
 } // namespace infinilm::models::minicpm_sala

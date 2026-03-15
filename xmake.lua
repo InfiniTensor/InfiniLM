@@ -46,7 +46,7 @@ target_end()
 target("_infinilm")
     add_packages("pybind11")
     set_default(false)
-    add_rules("python.module", {soabi = true})
+    add_rules("python.library", {soabi = true})
     set_languages("cxx17")
     set_kind("shared")
 
