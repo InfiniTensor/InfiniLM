@@ -345,7 +345,13 @@ def run_prefill_only(model_path: str, prompt: str, k: int) -> None:
     hf_embed_hooks = _register_hf_embed_hook(hf)
     hf_layer0_attn_input_hooks = _register_hf_layer0_attn_input_hook(hf)
     hf_final_hooks = _register_hf_final_hidden_hook(hf)
-    hf_out = hf(input_ids=input_ids, attention_mask=attn_mask)
+    # So triton's ptxas subprocess is not run with LD_PRELOAD (which can break it)
+    _saved_ld_preload = os.environ.pop("LD_PRELOAD", None)
+    try:
+        hf_out = hf(input_ids=input_ids, attention_mask=attn_mask)
+    finally:
+        if _saved_ld_preload is not None:
+            os.environ["LD_PRELOAD"] = _saved_ld_preload
     hf_logits_last = hf_out.logits[0, -1].float().cpu()
     # Save HF embed (layer0 input) for alignment check
     with torch.no_grad():
@@ -707,15 +713,21 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
     ).to(device)
     hf.eval()
 
-    # Prefill
-    hf_out = hf(input_ids=input_ids, attention_mask=attn_mask)
-    hf_logits_last_prefill_gpu = hf_out.logits[0, -1].float()
-    hf_logits_last_prefill = hf_logits_last_prefill_gpu.cpu()
+    # So triton's ptxas subprocess is not run with LD_PRELOAD
+    _saved_ld_preload = os.environ.pop("LD_PRELOAD", None)
+    try:
+        # Prefill
+        hf_out = hf(input_ids=input_ids, attention_mask=attn_mask)
+        hf_logits_last_prefill_gpu = hf_out.logits[0, -1].float()
+        hf_logits_last_prefill = hf_logits_last_prefill_gpu.cpu()
 
-    # One-step decode (HF)
-    next_token_hf = torch.argmax(hf_logits_last_prefill_gpu, dim=-1).view(1, 1).to(device)
-    hf_out2 = hf(input_ids=torch.cat([input_ids, next_token_hf], dim=1), attention_mask=None)
-    hf_logits_last_decode = hf_out2.logits[0, -1].float().cpu()
+        # One-step decode (HF)
+        next_token_hf = torch.argmax(hf_logits_last_prefill_gpu, dim=-1).view(1, 1).to(device)
+        hf_out2 = hf(input_ids=torch.cat([input_ids, next_token_hf], dim=1), attention_mask=None)
+        hf_logits_last_decode = hf_out2.logits[0, -1].float().cpu()
+    finally:
+        if _saved_ld_preload is not None:
+            os.environ["LD_PRELOAD"] = _saved_ld_preload
 
     # ---------- InfiniLM ----------
     inf_dev = infinicore.device("cuda", 0)
@@ -806,15 +818,21 @@ def run_decode_loop(model_path: str, prompt: str, k: int, steps: int) -> None:
     ).to(device)
     hf.eval()
 
-    # HF decode loop
-    hf_ids = input_ids.clone()
-    hf_topk_history = []
-    for _ in range(steps):
-        out = hf(input_ids=hf_ids)
-        logits_last = out.logits[0, -1].float().cpu()
-        hf_topk_history.append(topk(logits_last, k)[:10])
-        next_token = torch.argmax(logits_last, dim=-1).view(1, 1).to(device)
-        hf_ids = torch.cat([hf_ids, next_token], dim=1)
+    # So triton's ptxas subprocess is not run with LD_PRELOAD
+    _saved_ld_preload = os.environ.pop("LD_PRELOAD", None)
+    try:
+        # HF decode loop
+        hf_ids = input_ids.clone()
+        hf_topk_history = []
+        for _ in range(steps):
+            out = hf(input_ids=hf_ids)
+            logits_last = out.logits[0, -1].float().cpu()
+            hf_topk_history.append(topk(logits_last, k)[:10])
+            next_token = torch.argmax(logits_last, dim=-1).view(1, 1).to(device)
+            hf_ids = torch.cat([hf_ids, next_token], dim=1)
+    finally:
+        if _saved_ld_preload is not None:
+            os.environ["LD_PRELOAD"] = _saved_ld_preload
 
     # InfiniLM decode loop
     inf_dev = infinicore.device("cuda", 0)
@@ -850,22 +868,25 @@ def run_decode_loop(model_path: str, prompt: str, k: int, steps: int) -> None:
     logits_t = _infini_cpu_tensor_to_float32_torch(logits).reshape(-1).cpu()
     inf_topk_history = [topk(logits_t, k)[:10]]
 
-    # Decode steps
+    # Decode steps: InfiniLM expects only the new token per step (seq_len=1) so KV cache
+    # is updated correctly; passing full sequence would misalign the cache.
     for step in range(steps - 1):
         next_token = torch.argmax(logits_t, dim=-1).view(1, 1).to(torch.int64)
         ids_inf = torch.cat([ids_inf, next_token], dim=1)
-        bsz, seqlen = ids_inf.shape
-        pos = torch.arange(seqlen, dtype=torch.int64).view(1, seqlen)
-        input_offsets = torch.tensor([0, seqlen], dtype=torch.int32)
+        seqlen = ids_inf.shape[1]
+        # Single-token input for decode (past tokens are in KV cache)
+        decode_input = next_token
+        pos_decode = torch.tensor([[seqlen - 1]], dtype=torch.int64)
+        input_offsets_decode = torch.tensor([0, 1], dtype=torch.int32)
         past = torch.tensor([seqlen - 1], dtype=torch.int32)
         total = torch.tensor([seqlen], dtype=torch.int32)
 
         logits = eng.forward_logits(
-            infinicore.from_torch(ids_inf),
-            position_ids=infinicore.from_torch(pos),
+            infinicore.from_torch(decode_input),
+            position_ids=infinicore.from_torch(pos_decode),
             past_kv_lengths=infinicore.from_torch(past),
             total_kv_lengths=infinicore.from_torch(total),
-            input_offsets=infinicore.from_torch(input_offsets),
+            input_offsets=infinicore.from_torch(input_offsets_decode),
             top_k=1,
             top_p=1.0,
             temperature=1.0,
@@ -881,6 +902,25 @@ def run_decode_loop(model_path: str, prompt: str, k: int, steps: int) -> None:
         print(f"[step {i}]")
         print("HF  topk:", hf_topk_history[i])
         print("Inf topk:", inf_topk_history[i])
+
+    # One-prompt output comparison: decoded text and match
+    prompt_len = input_ids.shape[1]
+    hf_generated_ids = hf_ids[0, prompt_len:].cpu().tolist()
+    inf_generated_ids = ids_inf[0, prompt_len:].cpu().tolist()
+    hf_text = tok.decode(hf_generated_ids, skip_special_tokens=True)
+    inf_text = tok.decode(inf_generated_ids, skip_special_tokens=True)
+    print("\n== one-prompt output (both sides) ==")
+    print("HF   generated:", repr(hf_text))
+    print("Inf  generated:", repr(inf_text))
+    if hf_generated_ids == inf_generated_ids:
+        print("Match: exact (token ids identical)")
+    else:
+        first_diff = next((i for i in range(min(len(hf_generated_ids), len(inf_generated_ids))) if hf_generated_ids[i] != inf_generated_ids[i]), None)
+        if first_diff is None:
+            print("Match: length differs only (HF len=%d, Inf len=%d)" % (len(hf_generated_ids), len(inf_generated_ids)))
+        else:
+            print("Match: first divergence at generated token index %d (HF=%s Inf=%s)" % (first_diff, hf_generated_ids[first_diff], inf_generated_ids[first_diff]))
+    print("Reasonable: HF and Inf outputs are above; judge fluency and relevance to prompt manually.")
 
 
 @torch.no_grad()
@@ -904,9 +944,9 @@ def main():
     )
     args = ap.parse_args()
 
-    # Temporary alignment experiment: force all layers onto lightning-style
-    # attention math on both HF and InfiniLM while keeping checkpoint shapes.
-    os.environ["MINICPM_SALA_FORCE_ALL_LIGHTNING"] = "1"
+    # Disabled so sanity uses compiled infllm-v2 in InfiniLM for layer0 (minicpm4).
+    # To force all-lightning again: os.environ["MINICPM_SALA_FORCE_ALL_LIGHTNING"] = "1"
+    # os.environ["MINICPM_SALA_FORCE_ALL_LIGHTNING"] = "1"
 
     if args.mode == "prefill":
         run_prefill_only(args.model_path, args.prompt, args.k)
