@@ -183,15 +183,15 @@ class Qwen3vlModel(BaseModel):
             POINTER(Qwen3vlModelCStruct),
             POINTER(c_uint),
             c_uint,
-            c_void_p,          # pixel_values,
-            c_uint,            # total_patches,
-            POINTER(c_uint),   # image_grid_thw,
-            c_uint,            # num_images,
-            c_void_p,          # pixel_values_videos,
-            c_uint,            # total_patches_videos,
-            POINTER(c_uint),   # video_grid_thw,
-            c_uint,            # num_videos,
-            c_uint,            # patch_features,
+            c_void_p,  # pixel_values,
+            c_uint,  # total_patches,
+            POINTER(c_uint),  # image_grid_thw,
+            c_uint,  # num_images,
+            c_void_p,  # pixel_values_videos,
+            c_uint,  # total_patches_videos,
+            POINTER(c_uint),  # video_grid_thw,
+            c_uint,  # num_videos,
+            c_uint,  # patch_features,
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
@@ -206,15 +206,15 @@ class Qwen3vlModel(BaseModel):
             POINTER(Qwen3vlModelCStruct),
             POINTER(c_uint),
             c_uint,
-            c_void_p,          # pixel_values,
-            c_uint,            # total_patches,
-            POINTER(c_uint),   # image_grid_thw,
-            c_uint,            # num_images,
-            c_void_p,          # pixel_values_videos,
-            c_uint,            # total_patches_videos,
-            POINTER(c_uint),   # video_grid_thw,
-            c_uint,            # num_videos,
-            c_uint,            # patch_features,
+            c_void_p,  # pixel_values,
+            c_uint,  # total_patches,
+            POINTER(c_uint),  # image_grid_thw,
+            c_uint,  # num_images,
+            c_void_p,  # pixel_values_videos,
+            c_uint,  # total_patches_videos,
+            POINTER(c_uint),  # video_grid_thw,
+            c_uint,  # num_videos,
+            c_uint,  # patch_features,
             POINTER(c_uint),
             c_uint,
             POINTER(c_uint),
@@ -226,7 +226,9 @@ class Qwen3vlModel(BaseModel):
         return self.lib.createQwen3vlWeightLoader()
 
     def create_weights(self, meta, device_type, ndev, dev_ids, transpose_weight):
-        return self.lib.createQwen3vlWeights(meta, device_type, ndev, dev_ids, transpose_weight)
+        return self.lib.createQwen3vlWeights(
+            meta, device_type, ndev, dev_ids, transpose_weight
+        )
 
     def create_model(self, meta, weights):
         return self.lib.createQwen3vlModel(meta, weights)

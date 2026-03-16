@@ -26,7 +26,7 @@ typedef struct {
     qwen3vl_load_layer_fn load_attn_k_norm;
     qwen3vl_load_layer_fn load_attn_qkv_proj;
     qwen3vl_load_layer_fn load_attn_o_proj;
-    
+
     // MLP
     qwen3vl_load_layer_fn load_mlp_norm;
     qwen3vl_load_layer_fn load_mlp_gate_up;
@@ -46,19 +46,19 @@ typedef struct {
     qwen3vl_load_layer_fn load_attn_qkv_weight;
     qwen3vl_load_layer_fn load_attn_qkv_bias;
 
-    //block mlp
+    // block mlp
     qwen3vl_load_layer_fn load_mlp_linear_fc1_weight;
     qwen3vl_load_layer_fn load_mlp_linear_fc1_bias;
     qwen3vl_load_layer_fn load_mlp_linear_fc2_weight;
     qwen3vl_load_layer_fn load_mlp_linear_fc2_bias;
 
-    //block norm
-    qwen3vl_load_layer_fn  load_norm1_weight;
-    qwen3vl_load_layer_fn  load_norm1_bias;
-    qwen3vl_load_layer_fn  load_norm2_weight;
-    qwen3vl_load_layer_fn  load_norm2_bias;
+    // block norm
+    qwen3vl_load_layer_fn load_norm1_weight;
+    qwen3vl_load_layer_fn load_norm1_bias;
+    qwen3vl_load_layer_fn load_norm2_weight;
+    qwen3vl_load_layer_fn load_norm2_bias;
 
-    //deepstack_merger
+    // deepstack_merger
     qwen3vl_load_layer_fn load_deepstack_merger_linear_fc1_weight;
     qwen3vl_load_layer_fn load_deepstack_merger_linear_fc1_bias;
     qwen3vl_load_layer_fn load_deepstack_merger_linear_fc2_weight;
@@ -66,7 +66,7 @@ typedef struct {
     qwen3vl_load_layer_fn load_deepstack_merger_norm_weight;
     qwen3vl_load_layer_fn load_deepstack_merger_norm_bias;
 
-    //merger
+    // merger
     qwen3vl_load_global_fn load_merger_linear_fc1_weight;
     qwen3vl_load_global_fn load_merger_linear_fc1_bias;
     qwen3vl_load_global_fn load_merger_linear_fc2_weight;
@@ -76,7 +76,7 @@ typedef struct {
 
 } Qwen3vlVisWeightLoader;
 
-typedef struct { 
+typedef struct {
     Qwen3vlLangWeightLoader lang_loader;
     Qwen3vlVisWeightLoader vis_loader;
 } Qwen3vlWeightLoader;
@@ -116,7 +116,7 @@ typedef struct {
 } Qwen3vlVisMeta;
 
 typedef struct {
-    infiniDtype_t dtype; //INFINI_DTYPE_BF16
+    infiniDtype_t dtype; // INFINI_DTYPE_BF16
 
     Qwen3vlTextMeta text_meta;
     Qwen3vlVisMeta vis_meta;
@@ -132,29 +132,29 @@ typedef struct {
 /// @param device 协处理器种类
 /// @param ndev 协处理器数量
 /// @param dev_ids 协处理器编号，长度为 ndev
-__C __export struct Qwen3vlModel *
+__INFINI_C __export struct Qwen3vlModel *
 createQwen3vlModel(const Qwen3vlMeta *,
-                      const Qwen3vlWeights *);
+                   const Qwen3vlWeights *);
 
-__C Qwen3vlWeights *
+__INFINI_C Qwen3vlWeights *
 createQwen3vlWeights(const Qwen3vlMeta *meta,
-                        infiniDevice_t device,
-                        int ndev,
-                        const int *dev_ids,
-                        bool transpose_weight);
+                     infiniDevice_t device,
+                     int ndev,
+                     const int *dev_ids,
+                     bool transpose_weight);
 
-__C __export Qwen3vlWeightLoader *
+__INFINI_C __export Qwen3vlWeightLoader *
 createQwen3vlWeightLoader();
 
 /// @brief 销毁模型
-__C __export void destroyQwen3vlModel(struct Qwen3vlModel *);
+__INFINI_C __export void destroyQwen3vlModel(struct Qwen3vlModel *);
 
-__C __export struct Qwen3vlCache *
+__INFINI_C __export struct Qwen3vlCache *
 createQwen3vlCache(const struct Qwen3vlModel *);
 
-__C __export void
+__INFINI_C __export void
 dropQwen3vlCache(const struct Qwen3vlModel *,
-                    struct Qwen3vlCache *);
+                 struct Qwen3vlCache *);
 
 /// @brief 批次推理一轮，并采样出新的 token
 /// @param tokens 输入 token 地址
@@ -167,18 +167,18 @@ dropQwen3vlCache(const struct Qwen3vlModel *,
 /// @param topk 采样 topk（1 表示贪心采样）
 /// @param topp 采样 topp
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
-__C __export void
+__INFINI_C __export void
 inferBatchQwen3vl(struct Qwen3vlModel *,
-                    const uint32_t *tokens, uint32_t ntok,
-                    void *pixel_values, uint32_t total_patches,
-                    uint32_t *image_grid_thw, uint32_t num_images,
-                    void *pixel_values_videos, uint32_t total_patches_videos,
-                    uint32_t *video_grid_thw, uint32_t num_videos,
-                    uint32_t patch_features,
-                    const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                    struct Qwen3vlCache **caches,
-                    const float *temperature, const uint32_t *topk, const float *topp,
-                    uint32_t *output);
+                  const uint32_t *tokens, uint32_t ntok,
+                  void *pixel_values, uint32_t total_patches,
+                  uint32_t *image_grid_thw, uint32_t num_images,
+                  void *pixel_values_videos, uint32_t total_patches_videos,
+                  uint32_t *video_grid_thw, uint32_t num_videos,
+                  uint32_t patch_features,
+                  const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                  struct Qwen3vlCache **caches,
+                  const float *temperature, const uint32_t *topk, const float *topp,
+                  uint32_t *output);
 
 /// @brief 批次推理一轮，输出 output embedding 后的 logits
 /// @param tokens 输入 token 地址
@@ -188,7 +188,7 @@ inferBatchQwen3vl(struct Qwen3vlModel *,
 /// @param req_pos 每个请求的起始位置
 /// @param kv_caches 每个请求的 KV Cache
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
-__C __export void
+__INFINI_C __export void
 forwardBatchQwen3vl(struct Qwen3vlModel *,
                     const uint32_t *tokens, uint32_t ntok,
                     void *pixel_values, uint32_t total_patches,

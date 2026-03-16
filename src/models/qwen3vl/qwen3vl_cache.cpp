@@ -1,6 +1,6 @@
 #include "qwen3vl_impl.hpp"
 
-__C struct Qwen3vlCache *
+__INFINI_C struct Qwen3vlCache *
 createQwen3vlCache(const struct Qwen3vlModel *model) {
     Qwen3vlCache *cache = new Qwen3vlCache();
     auto ndev = model->dev_resources.size();
@@ -27,9 +27,9 @@ createQwen3vlCache(const struct Qwen3vlModel *model) {
 
 //////还有visual deepstack需要cache？
 
-__C void
+__INFINI_C void
 dropQwen3vlCache(const struct Qwen3vlModel *model,
-                    struct Qwen3vlCache *cache) {
+                 struct Qwen3vlCache *cache) {
     auto ndev = model->dev_resources.size();
     auto nlayer = model->meta.text_meta.num_hidden_layers;
     for (size_t idev = 0; idev < ndev; idev++) {

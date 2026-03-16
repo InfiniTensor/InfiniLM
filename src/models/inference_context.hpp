@@ -92,7 +92,7 @@ inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::share
 }
 
 inline void conv(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> bias,
-                void *pads, void *strides, void *dilations, size_t n) {
+                 void *pads, void *strides, void *dilations, size_t n) {
     getInferenceContext().conv(y, x, w, bias, pads, strides, dilations, n);
 }
 

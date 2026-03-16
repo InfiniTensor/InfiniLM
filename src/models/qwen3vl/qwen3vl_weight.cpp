@@ -23,7 +23,7 @@ inline std::shared_ptr<Tensor> getOutEmbd(
 }
 
 inline void getLayerWeight(
-    const Qwen3vlMeta *meta, Qwen3vlLayerWeight& layer, int ndev) {
+    const Qwen3vlMeta *meta, Qwen3vlLayerWeight &layer, int ndev) {
     auto nkvh = meta->text_meta.num_key_value_heads;
     auto nh = meta->text_meta.num_attention_heads;
     auto dh = meta->text_meta.head_dim;
@@ -39,7 +39,7 @@ inline void getLayerWeight(
     layer.attn_qkv_proj = Tensor::weight(nullptr, meta->dtype, qkv_proj_shape);
     auto o_proj_shape = std::vector<size_t>({d, nh / ndev * dh});
     layer.attn_o_proj = Tensor::weight(nullptr, meta->dtype, o_proj_shape);
-    
+
     layer.mlp_norm = Tensor::weight(nullptr, meta->dtype, dh_shape);
     auto up_shape = std::vector<size_t>({2 * di / ndev, d});
     layer.mlp_gate_up = Tensor::weight(nullptr, meta->dtype, up_shape);
@@ -47,11 +47,10 @@ inline void getLayerWeight(
     layer.mlp_down = Tensor::weight(nullptr, meta->dtype, down_shape);
 }
 
-
 inline void getVisualWeight(
     const Qwen3vlMeta *meta, std::shared_ptr<Qwen3vlVisualEncoderWeight> w_vis) {
     Qwen3vlVisMeta vis_meta = meta->vis_meta;
-    auto patch_embed_shape = std::vector<size_t>({vis_meta.hidden_size , vis_meta.in_channels, vis_meta.temporal_patch_size, vis_meta.patch_size, vis_meta.patch_size});
+    auto patch_embed_shape = std::vector<size_t>({vis_meta.hidden_size, vis_meta.in_channels, vis_meta.temporal_patch_size, vis_meta.patch_size, vis_meta.patch_size});
     w_vis->patch_embed_weight = Tensor::weight(nullptr, meta->dtype, patch_embed_shape);
     w_vis->patch_embed_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size});
     w_vis->pos_embed_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.num_position_embeddings, vis_meta.hidden_size});
@@ -63,11 +62,11 @@ inline void getVisualWeight(
     w_vis->merger->norm_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size});
     w_vis->merger->norm_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size});
     w_vis->blocks = std::vector<Qwen3vlVisBlockWeight>(vis_meta.depth);
-    for (size_t i = 0; i < vis_meta.depth; i++) { 
-        w_vis->blocks[i].attn_proj_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size,vis_meta.hidden_size});
+    for (size_t i = 0; i < vis_meta.depth; i++) {
+        w_vis->blocks[i].attn_proj_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size, vis_meta.hidden_size});
         w_vis->blocks[i].attn_proj_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size});
-        w_vis->blocks[i].attn_qkv_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.in_channels*vis_meta.hidden_size,vis_meta.hidden_size});
-        w_vis->blocks[i].attn_qkv_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.in_channels*vis_meta.hidden_size});
+        w_vis->blocks[i].attn_qkv_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.in_channels * vis_meta.hidden_size, vis_meta.hidden_size});
+        w_vis->blocks[i].attn_qkv_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.in_channels * vis_meta.hidden_size});
         w_vis->blocks[i].mlp_linear_fc1_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.intermediate_size, vis_meta.hidden_size});
         w_vis->blocks[i].mlp_linear_fc1_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.intermediate_size});
         w_vis->blocks[i].mlp_linear_fc2_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size, vis_meta.intermediate_size});
@@ -78,17 +77,15 @@ inline void getVisualWeight(
         w_vis->blocks[i].norm2_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.hidden_size});
     }
     w_vis->deepstack_mergers = std::vector<DeepstackMergerWeight>(3);
-    for (size_t i = 0; i < 3; i++){
-        w_vis->deepstack_mergers[i].linear_fc1_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.intermediate_size,vis_meta.intermediate_size});
-        w_vis->deepstack_mergers[i].linear_fc2_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.out_hidden_size,vis_meta.intermediate_size});
+    for (size_t i = 0; i < 3; i++) {
+        w_vis->deepstack_mergers[i].linear_fc1_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.intermediate_size, vis_meta.intermediate_size});
+        w_vis->deepstack_mergers[i].linear_fc2_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.out_hidden_size, vis_meta.intermediate_size});
         w_vis->deepstack_mergers[i].linear_fc1_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.intermediate_size});
         w_vis->deepstack_mergers[i].linear_fc2_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.out_hidden_size});
         w_vis->deepstack_mergers[i].norm_weight = Tensor::weight(nullptr, meta->dtype, {vis_meta.intermediate_size});
         w_vis->deepstack_mergers[i].norm_bias = Tensor::weight(nullptr, meta->dtype, {vis_meta.intermediate_size});
     }
-    
 }
-
 
 inline std::shared_ptr<Tensor> getSinTable(const Qwen3vlMeta *meta) {
     auto half_dh = meta->text_meta.head_dim / 2;
@@ -172,7 +169,6 @@ Qwen3vlWeights::Qwen3vlWeights(
         }
 
         getVisualWeight(meta, device_weights[dev]->w_vis);
-
     }
 }
 
@@ -201,8 +197,8 @@ void load_output_embd(Qwen3vlWeights *weights, void *cpu_ptr) {
         auto weight = weights->device_weights[dev];
         RUN_INFINI(infinirtSetDevice(weight->device, weight->dev_id));
         weight->w_lang->out_embd->load(cpu_ptr, weight->load_stream);
-        if(weights->transpose_weight) {
-            weight->w_lang->out_embd->permute({1,0}); //[d,voc]
+        if (weights->transpose_weight) {
+            weight->w_lang->out_embd->permute({1, 0}); //[d,voc]
         }
     }
 }
@@ -239,9 +235,8 @@ void load_attn_qkv_proj(Qwen3vlWeights *weights, void *cpu_ptr, size_t layer) {
         size_t offset = idev * ((nkvh * 2 + nh) / ndev * dh) * d * dsize(weights->meta->dtype);
         RUN_INFINI(infinirtSetDevice(weight->device, weight->dev_id));
         weight->w_lang->layers[layer].attn_qkv_proj->load((char *)cpu_ptr + offset, weight->load_stream);
-        if(weights->transpose_weight) {
-            weight->w_lang->layers[layer].attn_qkv_proj = 
-                weight->w_lang->layers[layer].attn_qkv_proj->permute({1,0}); //[d, (nh+2*nkvh)*dh]
+        if (weights->transpose_weight) {
+            weight->w_lang->layers[layer].attn_qkv_proj = weight->w_lang->layers[layer].attn_qkv_proj->permute({1, 0}); //[d, (nh+2*nkvh)*dh]
         }
     }
 }
@@ -267,9 +262,8 @@ void load_attn_o_proj(Qwen3vlWeights *weights, void *cpu_ptr, size_t layer) {
         size_t offset = idev * d * (nh / ndev * dh) * dsize(weights->meta->dtype);
         RUN_INFINI(infinirtSetDevice(weight->device, weight->dev_id));
         weight->w_lang->layers[layer].attn_o_proj->load((char *)cpu_ptr + offset, weight->load_stream);
-        if(weights->transpose_weight) {
-            weight->w_lang->layers[layer].attn_o_proj = 
-                weight->w_lang->layers[layer].attn_o_proj->permute({1,0}); //[nh/ndev*dh, d]
+        if (weights->transpose_weight) {
+            weight->w_lang->layers[layer].attn_o_proj = weight->w_lang->layers[layer].attn_o_proj->permute({1, 0}); //[nh/ndev*dh, d]
         }
     }
 }
@@ -295,9 +289,8 @@ void load_mlp_gate_up(Qwen3vlWeights *weights, void *cpu_ptr, size_t layer) {
         size_t offset = idev * (2 * di / ndev) * d * dsize(weights->meta->dtype);
         RUN_INFINI(infinirtSetDevice(weight->device, weight->dev_id));
         weight->w_lang->layers[layer].mlp_gate_up->load((char *)cpu_ptr + offset, weight->load_stream);
-        if(weights->transpose_weight) {
-            weight->w_lang->layers[layer].mlp_gate_up = 
-                weight->w_lang->layers[layer].mlp_gate_up->permute({1,0}); //[d, 2*di/ndev]
+        if (weights->transpose_weight) {
+            weight->w_lang->layers[layer].mlp_gate_up = weight->w_lang->layers[layer].mlp_gate_up->permute({1, 0}); //[d, 2*di/ndev]
         }
     }
 }
@@ -313,10 +306,9 @@ void load_mlp_down(Qwen3vlWeights *weights, void *cpu_ptr, size_t layer) {
         size_t offset = idev * d * (di / ndev) * dsize(weights->meta->dtype);
         RUN_INFINI(infinirtSetDevice(weight->device, weight->dev_id));
         weight->w_lang->layers[layer].mlp_down->load((char *)cpu_ptr + offset, weight->load_stream);
-        if(weights->transpose_weight) {
-            weight->w_lang->layers[layer].mlp_down = 
-                weight->w_lang->layers[layer].mlp_down->permute({1,0}); //[di/ndev, d]
-        } 
+        if (weights->transpose_weight) {
+            weight->w_lang->layers[layer].mlp_down = weight->w_lang->layers[layer].mlp_down->permute({1, 0}); //[di/ndev, d]
+        }
     }
 }
 
@@ -569,7 +561,6 @@ void load_merger_norm_bias(Qwen3vlWeights *weights, void *cpu_ptr) {
     }
 }
 
-
 static Qwen3vlWeightLoader weight_loader = {
     // Language model loaders
     .lang_loader = {
@@ -614,15 +605,14 @@ static Qwen3vlWeightLoader weight_loader = {
         .load_merger_linear_fc2_bias = load_merger_linear_fc2_bias,
         .load_merger_norm_weight = load_merger_norm_weight,
         .load_merger_norm_bias = load_merger_norm_bias,
-    }
-};
+    }};
 
-__C Qwen3vlWeights *
+__INFINI_C Qwen3vlWeights *
 createQwen3vlWeights(const Qwen3vlMeta *meta,
-                        infiniDevice_t device,
-                        int ndev,
-                        const int *dev_ids,
-                        bool transpose_weight) {
+                     infiniDevice_t device,
+                     int ndev,
+                     const int *dev_ids,
+                     bool transpose_weight) {
 
     printf("=== C++ createQwen3vlWeights ===\n");
     printf("sizeof(Qwen3vlTextMeta): %zu\n", sizeof(Qwen3vlTextMeta));
@@ -640,7 +630,7 @@ createQwen3vlWeights(const Qwen3vlMeta *meta,
     return weights;
 };
 
-__C Qwen3vlWeightLoader *
+__INFINI_C Qwen3vlWeightLoader *
 createQwen3vlWeightLoader() {
     return &weight_loader;
 }

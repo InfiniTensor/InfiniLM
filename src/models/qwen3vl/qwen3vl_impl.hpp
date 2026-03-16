@@ -45,7 +45,6 @@ struct MergerWeight {
     std::shared_ptr<Tensor> norm_weight, norm_bias;
 };
 
-
 struct Qwen3vlVisualEncoderWeight {
     std::shared_ptr<Tensor> patch_embed_weight, patch_embed_bias, pos_embed_weight;
     std::vector<Qwen3vlVisBlockWeight> blocks;
@@ -53,9 +52,8 @@ struct Qwen3vlVisualEncoderWeight {
     std::shared_ptr<MergerWeight> merger;
 };
 
-
 struct Qwen3vlDeviceWeights {
-    std::shared_ptr<Tensor> sin_table,cos_table;
+    std::shared_ptr<Tensor> sin_table, cos_table;
     std::shared_ptr<Qwen3vlLanguageModelWeight> w_lang;
     std::shared_ptr<Qwen3vlVisualEncoderWeight> w_vis;
     infiniDevice_t device;
@@ -69,10 +67,10 @@ struct Qwen3vlWeights {
     std::vector<std::shared_ptr<Qwen3vlDeviceWeights>> device_weights;
 
     Qwen3vlWeights(const Qwen3vlMeta *meta,
-                      infiniDevice_t device,
-                      int ndev,
-                      const int *dev_ids,
-                      bool transpose_weight);
+                   infiniDevice_t device,
+                   int ndev,
+                   const int *dev_ids,
+                   bool transpose_weight);
 };
 
 struct Qwen3vlDeviceResource {
@@ -137,7 +135,7 @@ struct Qwen3vlModel {
 };
 
 struct Qwen3vlCache {
-    std::vector<std::vector<std::shared_ptr<Tensor>>> k_rot, v; 
+    std::vector<std::vector<std::shared_ptr<Tensor>>> k_rot, v;
 };
 
 #endif
