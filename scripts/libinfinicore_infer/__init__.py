@@ -6,7 +6,17 @@ from .deepseek_v3 import (
     DeepSeekV3MetaCStruct,
     DeepSeekV3WeightsCStruct,
     DeepSeekV3WeightLoaderCStruct,
-    DeepSeekV3CacheCStruct,
+)
+from .qwen3vl import (
+    Qwen3vlModel,
+    Qwen3vlMetaCStruct,
+    TextMetaCStruct,
+    VisMetaCStruct,
+    Qwen3vlWeightsCStruct,
+    Qwen3vlWeightLoaderCStruct,
+    Qwen3vlVisWeightLoaderCStruct,
+    Qwen3vlLangWeightLoaderCStruct,
+    Qwen3vlCacheCStruct,
 )
 
 __all__ = [
@@ -23,5 +33,14 @@ __all__ = [
     "DeepSeekV3MetaCStruct",
     "DeepSeekV3WeightsCStruct",
     "DeepSeekV3WeightLoaderCStruct",
+    "Qwen3vlModel",
+    "Qwen3vlMetaCStruct",
+    "TextMetaCStruct",
+    "VisMetaCStruct",
+    "Qwen3vlWeightsCStruct",
+    "Qwen3vlWeightLoaderCStruct",
+    "Qwen3vlVisWeightLoaderCStruct",
+    "Qwen3vlLangWeightLoaderCStruct",
+    "Qwen3vlCacheCStruct",
     "ModelRegister",
 ]

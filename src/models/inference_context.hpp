@@ -19,6 +19,14 @@ struct InferenceContext {
     void add(std::shared_ptr<Tensor> c,
              std::shared_ptr<Tensor> a,
              std::shared_ptr<Tensor> b);
+    void conv(std::shared_ptr<Tensor> y,
+              std::shared_ptr<Tensor> x,
+              std::shared_ptr<Tensor> w,
+              std::shared_ptr<Tensor> bias,
+              void *pads, void *strides, void *dilations, size_t n);
+    void mul(std::shared_ptr<Tensor> c,
+             std::shared_ptr<Tensor> a,
+             std::shared_ptr<Tensor> b);
     void rmsnorm(std::shared_ptr<Tensor> y,
                  std::shared_ptr<Tensor> x,
                  std::shared_ptr<Tensor> w,
@@ -48,6 +56,8 @@ struct InferenceContext {
     void swiglu(std::shared_ptr<Tensor> out,
                 std::shared_ptr<Tensor> up,
                 std::shared_ptr<Tensor> gate);
+    void silu(std::shared_ptr<Tensor> out,
+              std::shared_ptr<Tensor> input);
     void randomSample(std::shared_ptr<Tensor> out,
                       std::shared_ptr<Tensor> prob,
                       float random_val, float top_p, uint32_t top_k, float temperature);
@@ -79,6 +89,15 @@ inline void setInferenceContext(InferenceContext *ctx) {
 
 inline void add(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
     getInferenceContext().add(c, a, b);
+}
+
+inline void conv(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x, std::shared_ptr<Tensor> w, std::shared_ptr<Tensor> bias,
+                void *pads, void *strides, void *dilations, size_t n) {
+    getInferenceContext().conv(y, x, w, bias, pads, strides, dilations, n);
+}
+
+inline void mul(std::shared_ptr<Tensor> c, std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
+    getInferenceContext().mul(c, a, b);
 }
 
 inline void rmsnorm(std::shared_ptr<Tensor> y, std::shared_ptr<Tensor> x,
@@ -129,6 +148,10 @@ inline void topkrouter(std::shared_ptr<Tensor> values,  // F32
 inline void swiglu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> up,
                    std::shared_ptr<Tensor> gate) {
     getInferenceContext().swiglu(out, up, gate);
+}
+
+inline void silu(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> input) {
+    getInferenceContext().silu(out, input);
 }
 
 inline void randomSample(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> prob,
