@@ -19,6 +19,11 @@ from .qwen3vl import (
     Qwen3vlLangWeightLoaderCStruct,
     Qwen3vlCacheCStruct,
 )
+from .deepseek_ocr import (
+    DeepSeekOCRModel,
+    DeepSeekOCRMetaCStruct,
+    DeepSeekOCRWeightsCStruct,
+)
 
 __all__ = [
     "DataType",
@@ -44,5 +49,8 @@ __all__ = [
     "Qwen3vlVisWeightLoaderCStruct",
     "Qwen3vlLangWeightLoaderCStruct",
     "Qwen3vlCacheCStruct",
+    "DeepSeekOCRModel",
+    "DeepSeekOCRMetaCStruct",
+    "DeepSeekOCRWeightsCStruct",
     "ModelRegister",
 ]
