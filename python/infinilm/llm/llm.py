@@ -269,11 +269,15 @@ class LLMEngine:
                 req.is_prefill = False
 
             req.generated_token_ids.append(token_id)
-            decoded_text = self.detokenize(req.generated_token_ids)
-            req.generated_text = decoded_text
-            holds_back_incomplete_utf8 = bool(decoded_text) and decoded_text.endswith(
-                "\ufffd"
-            )
+            pending_tokens = req.generated_token_ids[req._pending_token_offset :]
+            delta = self.tokenizer.decode(pending_tokens)
+            holds_back = bool(delta) and delta.endswith("\ufffd")
+
+            last_committed_text = req.generated_text
+
+            if not holds_back:
+                req.generated_text = last_committed_text + delta
+                req._pending_token_offset = len(req.generated_token_ids)
 
             is_finished = self._check_request_finished(req, token_id)
 
@@ -281,25 +285,28 @@ class LLMEngine:
             # For offline generation (no output queue), keep the fast incremental path.
             if req._output_queue is None:
                 if is_finished:
-                    if holds_back_incomplete_utf8:
-                        req.generated_text = decoded_text[:-1]
                     req.mark_finished(req.finish_reason)
 
             else:
-                if (holds_back_incomplete_utf8 and not is_finished) or (
-                    is_finished
-                    and req.finish_reason
-                    in (FinishReason.LENGTH, FinishReason.STOP_STRING)
-                ):
+                if holds_back and not is_finished:
                     token_text = ""
                 else:
-                    last_len = getattr(req, "_stream_last_yielded_length", 0)
-                    token_text = decoded_text[last_len:]
-                    if token_text:
-                        req._stream_last_yielded_length = len(decoded_text)
+                    if is_finished and req.finish_reason in (
+                        FinishReason.EOS_TOKEN,
+                        FinishReason.LENGTH,
+                        FinishReason.STOP_STRING,
+                    ):
+                        token_text = ""
+                    else:
+                        token_text = req.generated_text[
+                            req._stream_last_yielded_length :
+                        ]
+                        if token_text:
+                            req._stream_last_yielded_length = len(req.generated_text)
 
-                if is_finished:
-                    req.mark_finished(req.finish_reason)
+                    if is_finished:
+                        req.mark_finished(req.finish_reason)
+
                 output = TokenOutput(
                     request_id=req.request_id,
                     token_id=token_id,
