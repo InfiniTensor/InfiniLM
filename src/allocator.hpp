@@ -16,7 +16,7 @@ public:
 
 class MemoryPool : public AllocatorBase {
 public:
-    static constexpr size_t DEFAULT_ALIGNMENT = 256;
+    static constexpr size_t DEFAULT_ALIGNMENT = 512;
 
     explicit MemoryPool(size_t initialSize = 0, size_t alignment = DEFAULT_ALIGNMENT);
     ~MemoryPool();
