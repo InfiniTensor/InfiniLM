@@ -18,6 +18,27 @@ if has_config("use-kv-caching") then
     add_defines("ENABLE_KV_CACHING")
 end
 
+option("use-static-attn")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to compile the path using the static attention operator")
+option_end()
+
+if has_config("use-static-attn") then
+    add_defines("ENABLE_STATIC_ATTN")
+end
+
+
+option("use-flash-attn")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to compile the path using the flash attention operator")
+option_end()
+
+if has_config("use-flash-attn") then
+    add_defines("ENABLE_FLASH_ATTN")
+end
+
 target("infinicore_infer")
     set_kind("shared")
 

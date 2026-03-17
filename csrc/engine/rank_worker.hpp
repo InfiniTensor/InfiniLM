@@ -60,13 +60,6 @@ public:
         infinicore::Tensor output_ids;
     };
 
-    RankWorker(const InfinilmModel::Config &model_config,
-               const distributed::RankInfo &rank_info,
-               const cache::CacheConfig *cache_config,
-               RankBarrier *barrier,
-               bool enable_graph_compiling,
-               backends::AttentionBackend attention_backend);
-
     RankWorker(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,

@@ -50,11 +50,6 @@ public:
      * Reason: Legacy signature lacks support for dynamic quantization modes.
      * Removal target: v0.2.0 (Q2 2026)
      */
-    LlamaAttention(const LlamaConfig &config,
-                   const infinicore::Device &device,
-                   size_t layer_idx,
-                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                   backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
     LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
@@ -80,6 +75,9 @@ public:
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mapping) const;
 
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
+                               const infinilm::InfinilmModel::Input &input,
+                               std::shared_ptr<infinilm::cache::Cache> kv_cache) const;
     /**
      * @brief Get the layer index
      */

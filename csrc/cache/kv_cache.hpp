@@ -100,7 +100,6 @@ private:
 class PagedKVCache final : public Cache {
 public:
     PagedKVCache(
-
         infinicore::Size k_dim,
         infinicore::Size v_dim,
         infinicore::Size num_k_heads,
@@ -179,5 +178,8 @@ private:
     // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
     infinicore::Tensor v_caches_;
 };
+
+using FlashKVCacheConfig = PagedKVCacheConfig;
+using FlashKVCache = PagedKVCache;
 
 } // namespace infinilm::cache

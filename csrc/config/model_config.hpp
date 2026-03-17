@@ -4,7 +4,9 @@
 #include "infinicore/ops.hpp"
 #include "quant_config.hpp"
 #include <fstream>
+#include <iostream>
 #include <string>
+#include <vector>
 
 namespace infinilm::config {
 class ModelConfig {
@@ -64,7 +66,19 @@ public:
     infinicore::quantization::QuantScheme get_quant_scheme() const;
     std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> get_rope_scaling() const;
 
+    // Stream output operator
+    friend std::ostream &operator<<(std::ostream &os, const ModelConfig &config);
+
+    bool get_use_qk_norm() const { return use_qk_norm_; }
+
+    /// Returns eos_token_id as a list. Handles both single int and array in config.
+    std::vector<int64_t> get_eos_token_ids() const;
+
 private:
+    void __post_init__();
+
+private:
+    bool use_qk_norm_{false};
     nlohmann::json config_json;
     QuantConfig quant_config;
 };

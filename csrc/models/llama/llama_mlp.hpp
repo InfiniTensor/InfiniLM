@@ -46,9 +46,6 @@ public:
      * Reason: Legacy signature lacks support for dynamic quantization modes.
      * Removal target: v0.2.0 (Q2 2026)
      */
-    LlamaMLP(const LlamaConfig &config,
-             const infinicore::Device &device,
-             engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
              const infinicore::Device &device,
@@ -67,7 +64,7 @@ public:
     size_t intermediate_size() const { return intermediate_size_; }
 
 protected:
-    INFINICORE_NN_MODULE(layers::GateUpParallelLinear, gate_up_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::GateUpParallelLinear, gate_up_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
 
     engine::distributed::RankInfo rank_info_;

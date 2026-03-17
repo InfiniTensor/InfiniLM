@@ -6,49 +6,6 @@ namespace infinilm::engine {
 //------------------------------------------------------
 // Constructor
 //------------------------------------------------------
-/**
- * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
- *
- * ⚠️ DEVELOPMENT POLICY:
- *   - NO new development or feature additions permitted on this interface
- *   - Only critical bug fixes (security/stability) allowed until removal
- *   - All new code MUST migrate to the polymorphic overload below
- *
- * Replacement: Use the polymorphic overload of this same function name with updated signature
- * Reason: Legacy signature lacks support for dynamic quantization modes.
- * Removal target: v0.2.0 (Q2 2026)
- */
-InferEngine::InferEngine(
-    const InfinilmModel::Config &config,
-    const distributed::DistConfig &distributed_config,
-    infinicore::Device::Type device_type,
-    const cache::CacheConfig *cache_config,
-    bool enable_graph_compiling,
-    backends::AttentionBackend attention_backend) // Changed parameter
-    : communication_group_(distributed_config, device_type),
-      legacy_model_config_(config),
-      attention_backend_(attention_backend) {
-    if (cache_config != nullptr) {
-        cache_config_ = cache_config->unique_copy();
-    }
-    // Create one RankWorker per rank
-    int world_size = communication_group_.get_world_size();
-    barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
-    workers_.reserve(world_size);
-    for (int r = 0; r < world_size; ++r) {
-        workers_.emplace_back(std::make_unique<RankWorker>(
-            legacy_model_config_,
-            communication_group_.get_rank_info(r),
-            cache_config_ != nullptr ? cache_config_.get() : nullptr,
-            barrier_.get(),
-            enable_graph_compiling,
-            attention_backend_));
-    }
-
-    // Compile the model on all workers
-    this->compile();
-}
-
 InferEngine::InferEngine(
     const std::string &model_path,
     const distributed::DistConfig &distributed_config,

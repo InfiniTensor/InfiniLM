@@ -306,6 +306,8 @@ class TestModel:
         if not skip_load:
             load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
 
+        import time
+        time.sleep(1000)
         # ---------------------------------------------------------------------------- #
         #                        创建 tokenizer
         # ---------------------------------------------------------------------------- #

@@ -4,9 +4,10 @@
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
-#include "infinicore/ops/mha_kvcache.hpp"
 #include "infinicore/ops/mha_varlen.hpp"
 #include "infinicore/ops/mul.hpp"
+
+#include "infinicore/io.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -17,65 +18,6 @@
 #include <vector>
 
 namespace infinilm::models::llama {
-
-/**
- * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
- *
- * ⚠️ DEVELOPMENT POLICY:
- *   - NO new development or feature additions permitted on this interface
- *   - Only critical bug fixes (security/stability) allowed until removal
- *   - All new code MUST migrate to the polymorphic overload below
- *
- * Replacement: Use the polymorphic overload of this same function name with updated signature
- * Reason: Legacy signature lacks support for dynamic quantization modes.
- * Removal target: v0.2.0 (Q2 2026)
- */
-LlamaAttention::LlamaAttention(const LlamaConfig &config,
-                               const infinicore::Device &device,
-                               size_t layer_idx,
-                               engine::distributed::RankInfo rank_info,
-                               backends::AttentionBackend attention_backend)
-    : layer_idx_(layer_idx),
-      hidden_size_(config.hidden_size),
-      num_attention_heads_(config.num_attention_heads),
-      num_key_value_heads_(config.num_key_value_heads),
-      head_dim_(config.head_dim),
-      kv_dim_(config.kv_dim()),
-      use_bias_(config.attention_bias),
-      use_output_bias_(config.attention_output_bias),
-      use_qk_norm_(config.qk_norm),
-      max_position_embeddings_(config.max_position_embeddings),
-      rank_info_(rank_info),
-      attention_backend_(attention_backend) {
-    const auto &dtype{config.dtype};
-
-    int tp_rank = rank_info.tp_rank;
-    int tp_size = rank_info.tp_size;
-
-    int num_attention_heads = config.num_attention_heads;
-    int num_key_value_heads = config.num_key_value_heads;
-
-    if ((num_key_value_heads >= tp_size) && (0 == (num_key_value_heads % tp_size))) {
-        this->num_attention_heads_ = num_attention_heads / tp_size;
-        this->num_key_value_heads_ = num_key_value_heads / tp_size;
-    } else {
-        throw std::runtime_error("num_attention_heads / tp_size error.");
-    }
-    scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
-
-    // Initialize projection layers
-    INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
-                             dtype, device, rank_info);
-    // Output projection uses attention_output_bias (can be different from qkv)
-    INFINICORE_NN_MODULE_INIT(o_proj, num_attention_heads * head_dim_, hidden_size_, use_output_bias_,
-                              dtype, device, tp_rank, tp_size, rank_info.comm);
-
-    // Initialize qk RMSNorm
-    if (use_qk_norm_) {
-        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, config.rms_norm_eps, dtype, device);
-        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, config.rms_norm_eps, dtype, device);
-    }
-}
 
 LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                const infinicore::Device &device,
@@ -133,7 +75,8 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     }
-    if (model_config_->get<std::string>("model_type") == "qwen3") {
+
+    if (model_config_->get<std::string>("model_type") == "qwen3" || model_config_->get<std::string>("model_type") == "qwen3_moe") {
         INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
         INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
     }
@@ -333,35 +276,16 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                 scaling_);
         }
     } else {
-        if (attention_backend_ == backends::AttentionBackend::FlashAttn) {
-            // FA2 decode path: flash::mha_fwd_kvcache
-            // In paged-attn mode, seq_len = actual batch_size (one query token per sequence).
-            // q_reshaped: [seq_len, num_heads, head_dim] → [seq_len, 1, num_heads, head_dim]
-            // k/v cache:  [num_blocks, num_kv_heads, block_size, head_dim]
-            //           → permute {0,2,1,3} → [num_blocks, block_size, num_kv_heads, head_dim]
-            auto q_for_fa = q_reshaped->view({seq_len, 1, num_attention_heads_, head_dim_});
-            auto attn_out_4d = infinicore::op::mha_kvcache(
-                q_for_fa,
-                k_total->permute({0, 2, 1, 3}),  // [num_blocks, block_size, num_kv_heads, head_dim]
-                v_total->permute({0, 2, 1, 3}),
-                total_sequence_lengths.value(),  // [seq_len] int32 (one entry per sequence)
-                block_tables.value(),            // [seq_len, max_num_blocks_per_seq] int32
-                std::nullopt,
-                scaling_);
-            attn_output = attn_out_4d->view({seq_len, num_attention_heads_, head_dim_});
-        } else {
-            infinicore::op::paged_attention_(
-                attn_output,
-                q_reshaped,
-                k_total,
-                v_total,
-                block_tables.value(),
-                total_sequence_lengths.value(),
-                std::nullopt,
-                scaling_);
-        }
+        infinicore::op::paged_attention_(
+            attn_output,
+            q_reshaped,
+            k_total,
+            v_total,
+            block_tables.value(),
+            total_sequence_lengths.value(),
+            std::nullopt,
+            scaling_);
     }
-    
 
     // 7. Project output
     attn_output
@@ -369,6 +293,20 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     return o_proj_->forward(attn_output);
 }
 
+infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
+                                           const infinilm::InfinilmModel::Input &input,
+                                           std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
+
+    auto position_ids = input.position_ids.value();
+    auto past_sequence_lengths = input.past_sequence_lengths;
+    auto total_sequence_lengths = input.total_sequence_lengths;
+    auto input_offsets = input.input_offsets;
+    auto cu_seqlens = input.cu_seqlens;
+    auto block_tables = input.block_tables;
+    auto slot_mapping = input.slot_mapping;
+
+    return this->forward(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, input_offsets, cu_seqlens, block_tables, slot_mapping);
+}
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
                                            const infinicore::Tensor &position_ids,
                                            std::shared_ptr<cache::Cache> kv_cache,
@@ -386,7 +324,6 @@ infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_stat
     if (auto paged_kv_cache = std::dynamic_pointer_cast<cache::PagedKVCache>(kv_cache)) {
         output = forward_paged_(hidden_states, position_ids, paged_kv_cache, total_sequence_lengths, input_offsets, cu_seqlens, block_tables, slot_mapping);
     } else {
-
         output = forward_(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths);
     }
     return output;

@@ -9,9 +9,21 @@ ModelConfig::ModelConfig(const std::string &path) {
     } else {
         throw std::runtime_error("Could not open config file: " + path);
     }
+
     this->quant_config = QuantConfig(config_json["quantization_config"]);
+
+    this->__post_init__();
 }
 
+void ModelConfig::__post_init__() {
+    // TODO. 应该增加一些属性
+    std::string model_type = this->get<std::string>("model_type");
+    if ("qwen3" == model_type || "qwen3_moe" == model_type) {
+        use_qk_norm_ = true;
+    } else {
+        use_qk_norm_ = this->get_or<bool>("qk_norm", false);
+    }
+}
 infinicore::quantization::QuantScheme
 ModelConfig::get_quant_scheme() const {
     if (quant_config.get_quant_scheme() != infinicore::quantization::QuantScheme::NONE) {
@@ -84,5 +96,21 @@ ModelConfig::get_dtype() const {
     } catch (const std::exception &e) {
         throw std::runtime_error("Error getting dtype from config: " + std::string(e.what()));
     }
+}
+
+std::vector<int64_t> ModelConfig::get_eos_token_ids() const {
+    if (!config_json.contains("eos_token_id")) {
+        return {};
+    }
+    const auto &v = config_json["eos_token_id"];
+    if (v.is_array()) {
+        return v.get<std::vector<int64_t>>();
+    }
+    return {v.get<int64_t>()};
+}
+
+std::ostream &operator<<(std::ostream &os, const ModelConfig &config) {
+    os << config.config_json.dump(4);
+    return os;
 }
 } // namespace infinilm::config

@@ -1,9 +1,8 @@
 #pragma once
 
 #include "../../cache/kv_cache.hpp"
+#include "../../layers/attention.hpp"
 #include "../../models/debug_utils/hooks.hpp"
-#include "../../models/llama/llama.hpp"
-#include "../../models/llama/llama_attention.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rope.hpp"
