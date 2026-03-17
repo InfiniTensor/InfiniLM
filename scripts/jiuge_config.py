@@ -8,7 +8,7 @@ import time
 import json
 import torch
 import transformers
-
+from base_config import BaseTestConfig
 from libinfinicore_infer import (
     JiugeModel,
     JiugeMetaCStruct,
@@ -823,56 +823,23 @@ class JiugeForCauslLM:
 
 
 def test():
-    if len(sys.argv) < 3:
-        print(
-            "Usage: python jiuge.py [--cpu | --nvidia| --qy| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device] [--verbose]"
-        )
-        sys.exit(1)
+    cfg = BaseTestConfig()
 
-    # Parse command line arguments
-    model_path = sys.argv[2]
-    device_type = DeviceType.DEVICE_TYPE_CPU
-    verbose = False
+    # 2. 【关键】统一从 cfg 对象中提取属性
+    model_path = cfg.model_path
+    device_type = cfg.device_type
+    ndev = cfg.ndev
+    verbose = cfg.verbose
 
-    # Check for verbose flag
-    for arg in sys.argv:
-        if arg == "--verbose":
-            verbose = True
-            break
-
-    if sys.argv[1] == "--cpu":
-        device_type = DeviceType.DEVICE_TYPE_CPU
-    elif sys.argv[1] == "--nvidia":
-        device_type = DeviceType.DEVICE_TYPE_NVIDIA
-    elif sys.argv[1] == "--qy":
-        device_type = DeviceType.DEVICE_TYPE_QY
-    elif sys.argv[1] == "--cambricon":
-        device_type = DeviceType.DEVICE_TYPE_CAMBRICON
-    elif sys.argv[1] == "--ascend":
-        device_type = DeviceType.DEVICE_TYPE_ASCEND
-    elif sys.argv[1] == "--metax":
-        device_type = DeviceType.DEVICE_TYPE_METAX
-    elif sys.argv[1] == "--moore":
-        device_type = DeviceType.DEVICE_TYPE_MOORE
-    elif sys.argv[1] == "--iluvatar":
-        device_type = DeviceType.DEVICE_TYPE_ILUVATAR
-    elif sys.argv[1] == "--kunlun":
-        device_type = DeviceType.DEVICE_TYPE_KUNLUN
-    elif sys.argv[1] == "--hygon":
-        device_type = DeviceType.DEVICE_TYPE_HYGON
-    elif sys.argv[1] == "--ali":
-        device_type = DeviceType.DEVICE_TYPE_ALI
-    else:
-        print(
-            "Usage: python jiuge.py [--cpu | --nvidia| --qy| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> [n_device] [--verbose]"
-        )
-        sys.exit(1)
-
-    # Find n_device argument (skip --verbose)
-    ndev_args = [arg for arg in sys.argv[3:] if arg != "--verbose"]
-    ndev = int(ndev_args[0]) if ndev_args else 1
-    print("type is")
-    print(type(device_type))
+    # 打印出来确认一下，确保输出逻辑和变量对应
+    print(f"DEBUG: path={model_path}")
+    print(f"DEBUG: device={device_type}") # 这里应该打印出类似 DeviceType.DEVICE_TYPE_NVIDIA
+    print(f"DEBUG: ndev={ndev}")
+    print(f"DEBUG: verbose={verbose}")
+    print(type(model_path))
+    print(device_type)
+    print(ndev)
+    print(verbose)
     model = JiugeForCauslLM(model_path, device_type, ndev)
     model.generate("山东最高的山是？", 500, verbose=verbose)
     model.destroy_model_instance()
