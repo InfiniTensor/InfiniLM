@@ -96,36 +96,6 @@ python your_script.py --model_path ./models/llama2 --device nvidia --ndev 4 --ba
 - `args` (Namespace): 解析后的参数命名空间
 - `extra` (list): 未解析的额外参数
 
-## 设计模式说明
-
-### 参数解析策略
-
-使用 `parse_known_args()` 而非 `parse_args()`，这使得：
-
-1. **允许未知参数**: 脚本可以添加自己的参数而不会报错
-2. **参数链传递**: 子类可以在解析后处理额外参数
-3. **容错性强**: 配置变更时不会中断现有脚本
-
-### 设备类型映射
-
-- 大小写不敏感（自动转换为小写）
-- 未知设备默认回退到 CPU
-- 映射逻辑集中管理，便于维护
-
-## 错误处理
-
-### 缺少必需参数
-```bash
-# 错误示例：缺少 --model_path
-python your_script.py
-# 输出：error: the following arguments are required: --model_path
-```
-
-### 未知设备类型
-```bash
-python your_script.py --model_path ./models --device unknown
-# 行为：默认使用 CPU，不会报错
-```
 
 ## 扩展指南
 
@@ -159,11 +129,7 @@ def _add_common_args(self):
 
 ## 相关文件
 
-- `scripts/jiuge_config.py`: 九歌评测配置（继承自 BaseTestConfig）
-- `scripts/jiuge_ppl_config.py`: 九歌 PPL 配置（继承自 BaseTestConfig）
+- `scripts/jiuge_config.py`: 九格评测配置
+- `scripts/jiuge_ppl_config.py`: 九格 PPL 配置
 - `scripts/jiuge.py`: 九歌评测主脚本
 
-## 版本信息
-
-- 创建日期: 2026-03-16
-- 适用版本: InfiniLM (feat-new-work 分支及以后)
