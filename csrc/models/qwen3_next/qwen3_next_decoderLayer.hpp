@@ -4,6 +4,7 @@
 #include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
+#include "qwen3_next_gated_deltanet.hpp"
 
 #include "../infinilm_model.hpp"
 #include "infinicore/device.hpp"
@@ -21,6 +22,11 @@
 #include <variant>
 
 namespace infinilm::models::qwen3_next {
+
+using StaticAttn = infinilm::models::layers::StaticAttention;
+using PagedAttn = infinilm::models::layers::PagedAttention;
+using FlashAttn = infinilm::models::layers::FlashAttention;
+using Qwen3NextAttention = std::variant<std::shared_ptr<StaticAttn>, std::shared_ptr<PagedAttn>, std::shared_ptr<FlashAttn>>;
 
 /**
  * @brief Template decoder layer (transformer block) class
@@ -70,15 +76,30 @@ public:
         post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, model_config_->get<double>("rms_norm_eps"), dtype, device);
 
         // Initialize MLP
-        mlp_ = this->register_module<Qwen3NextSparseMoeBlock>("mlp", model_config_, hidden_size, intermediate_size, device, rank_info_);
+        mlp_ = this->register_module<Qwen3NextSparseMoeBlock>("mlp", model_config_,  device, rank_info_);
 
         // Initialize attention
         std::vector<std::string> layer_types = model_config_->get<std::vector<std::string>>("layer_types");
         layer_type_ = layer_types[layer_idx];
         if ("linear_attention" == layer_type_) {
-            linear_attn_ = std::make_shared<Qwen3NextGatedDeltaNet>(this->register_module<Qwen3NextGatedDeltaNet>("linear_attn", model_config_, device, layer_idx, rank_info_));
+            linear_attn_ = this->register_module<Qwen3NextGatedDeltaNet>("linear_attn", model_config_, layer_idx, device, rank_info_);
         } else if ("full_attention" == layer_type_) {
-            self_attn_ = std::make_shared<Qwen3NextAttention>(this->register_module<Qwen3NextAttention>("self_attn", model_config_, device, layer_idx, rank_info_));
+            switch (attention_backend) {
+            case backends::AttentionBackend::StaticAttn:
+                self_attn_ = std::make_shared<Qwen3NextAttention>(
+                    this->register_module<StaticAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
+                break;
+            case backends::AttentionBackend::PagedAttn:
+                self_attn_ = std::make_shared<Qwen3NextAttention>(
+                    this->register_module<PagedAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
+                break;
+            case backends::AttentionBackend::FlashAttn:
+                self_attn_ = std::make_shared<Qwen3NextAttention>(
+                    this->register_module<FlashAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
+                break;
+            default:
+                throw std::invalid_argument("Invalid attention backend for full_attention: " +  std::to_string(static_cast<int>(attention_backend)));
+            }
         }
     }
 
@@ -103,7 +124,7 @@ public:
 
         // 2. attention
         if ("linear_attention" == layer_type_) {
-            hidden_states = linear_attn_->forward(hidden_states, input, kv_cache);
+            hidden_states = linear_attn_->forward(hidden_states);
         } else if ("full_attention" == layer_type_) {
             hidden_states = std::visit([&](auto &attn_ptr) { return attn_ptr->forward(hidden_states, input, kv_cache); }, *self_attn_);
         }

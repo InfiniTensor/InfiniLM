@@ -1,18 +1,14 @@
 #pragma once
 #include "../../layers/common_modules.hpp"
-#include <memory>
-#include <variant>
-
+#include "qwen3_next_sparse_moe_block.hpp"
+#include "qwen3_next_decoderLayer.hpp"
 namespace infinilm::models::qwen3_next {
 
-using Qwen3NextRMSNormGated = infinicore::nn::RMSNorm;
+/** @brief Qwen3 Next model architecture (without language modeling head) */
+using Qwen3NextModel = infinilm::models::layers::TemplateModel<Qwen3NextDecoderLayer>;
 
-using StaticAttn = infinilm::models::layers::StaticAttention;
-using PagedAttn = infinilm::models::layers::PagedAttention;
-using FlashAttn = infinilm::models::layers::FlashAttention;
-using Qwen3NextAttention = std::variant<std::shared_ptr<StaticAttn>, std::shared_ptr<PagedAttn>, std::shared_ptr<FlashAttn>>;
-
-using Qwen3NextSparseMoeBlock = infinilm::models::qwen3_moe::Qwen3MoeSparseMoeBlock;
+/** @brief Qwen3 Next model for Causal Language Modeling */
+using Qwen3NextForCausalLM = infinilm::models::layers::TemplateCausalLM<Qwen3NextModel>;
 
 } // namespace infinilm::models::qwen3_next
 
@@ -38,6 +34,10 @@ static std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_co
 
     if (!config_json.contains("attention_bias")) {
         config_json["attention_bias"] = false;
+    }
+
+    if (!config_json.contains("qk_norm")) {
+        config_json["qk_norm"] = true;
     }
 
     return model_config;
