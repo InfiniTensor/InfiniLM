@@ -9,9 +9,11 @@ class CacheConfig(_infinilm.CacheConfig):
 
 
 class StaticKVCacheConfig(CacheConfig, _infinilm.StaticKVCacheConfig):
-    def __init__(self, max_batch_size: int = 1, max_cache_len: int = 0):
-        _infinilm.StaticKVCacheConfig.__init__(self, max_batch_size, max_cache_len)
-
+    def __init__(self, max_batch_size: int = 1, max_cache_len: int = 0, kv_cache_dtype: str | None = None):
+        if kv_cache_dtype is None:
+            _infinilm.StaticKVCacheConfig.__init__(self, max_batch_size, max_cache_len)
+        else:
+            _infinilm.StaticKVCacheConfig.__init__(self, max_batch_size, max_cache_len, kv_cache_dtype)
 
 class PagedKVCacheConfig(CacheConfig, _infinilm.PagedKVCacheConfig):
     def __init__(

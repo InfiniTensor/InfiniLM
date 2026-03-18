@@ -7,10 +7,13 @@
 #include "infinicore/ops/mha_kvcache.hpp"
 #include "infinicore/ops/mha_varlen.hpp"
 #include "infinicore/ops/mul.hpp"
+#include "infinicore/ops/per_tensor_dequant_i8.hpp"
+#include "infinicore/ops/per_tensor_quant_i8.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iostream>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -137,6 +140,17 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
         INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
         INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
     }
+
+    switch (this->model_config_->get_kv_quant_scheme()) {
+    case (infinicore::quantization::KVQuantAlgo::INT8): {
+        INFINICORE_NN_PARAMETER_INIT(kv_cache_k_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
+        INFINICORE_NN_PARAMETER_INIT(kv_cache_v_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
+        break;
+    }
+    default: {
+        break;
+    }
+    }
 }
 
 infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_states,
@@ -184,6 +198,17 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope); // [bs, seq_len, n_q_head, head_dim]
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);   // [bs, seq_len, n_kv_head, head_dim]
 
+    switch (this->model_config_->get_kv_quant_scheme()) {
+    case (infinicore::quantization::KVQuantAlgo::INT8): {
+        k_reshaped = infinicore::op::per_tensor_quant_i8(k_reshaped, this->kv_cache_k_scale(), infinicore::Tensor::zeros({1}, k_reshaped->dtype(), k_reshaped->device()), true);
+        v_reshaped = infinicore::op::per_tensor_quant_i8(v_reshaped, this->kv_cache_v_scale(), infinicore::Tensor::zeros({1}, k_reshaped->dtype(), k_reshaped->device()), true);
+        break;
+    }
+    default: {
+        break;
+    }
+    }
+
     // 5. Prepare KV caches
     // Convert to [batch, n_head, seq_len, head_dim] for cache
     // Ensure contiguous after permute for F16 compatibility with cache operations
@@ -212,6 +237,21 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
                           ->view({batch_size, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
     } else {
         size_t total_seq_len = reinterpret_cast<int32_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
+
+        switch (this->model_config_->get_kv_quant_scheme()) {
+        case (infinicore::quantization::KVQuantAlgo::INT8): {
+            auto k_total_dequant = infinicore::Tensor::strided_empty(k_total->shape(), k_total->strides(), q_reshaped->dtype(), q_reshaped->device());
+            auto v_total_dequant = infinicore::Tensor::strided_empty(v_total->shape(), v_total->strides(), q_reshaped->dtype(), q_reshaped->device());
+            infinicore::op::per_tensor_dequant_i8_(k_total_dequant, k_total, this->kv_cache_k_scale(), infinicore::Tensor::zeros({1}, k_reshaped->dtype(), k_reshaped->device()));
+            infinicore::op::per_tensor_dequant_i8_(v_total_dequant, v_total, this->kv_cache_v_scale(), infinicore::Tensor::zeros({1}, k_reshaped->dtype(), k_reshaped->device()));
+            k_total = k_total_dequant;
+            v_total = v_total_dequant;
+            break;
+        }
+        default: {
+            break;
+        }
+        }
         k_total = k_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
         v_total = v_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
 
@@ -342,10 +382,10 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             auto q_for_fa = q_reshaped->view({seq_len, 1, num_attention_heads_, head_dim_});
             auto attn_out_4d = infinicore::op::mha_kvcache(
                 q_for_fa,
-                k_total->permute({0, 2, 1, 3}),  // [num_blocks, block_size, num_kv_heads, head_dim]
+                k_total->permute({0, 2, 1, 3}), // [num_blocks, block_size, num_kv_heads, head_dim]
                 v_total->permute({0, 2, 1, 3}),
-                total_sequence_lengths.value(),  // [seq_len] int32 (one entry per sequence)
-                block_tables.value(),            // [seq_len, max_num_blocks_per_seq] int32
+                total_sequence_lengths.value(), // [seq_len] int32 (one entry per sequence)
+                block_tables.value(),           // [seq_len, max_num_blocks_per_seq] int32
                 std::nullopt,
                 scaling_);
             attn_output = attn_out_4d->view({seq_len, num_attention_heads_, head_dim_});
@@ -361,7 +401,6 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                 scaling_);
         }
     }
-    
 
     // 7. Project output
     attn_output

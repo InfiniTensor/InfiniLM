@@ -23,13 +23,25 @@ public:
         infinicore::Size _max_batch_size = 1,
         infinicore::Size _max_cache_len = std::numeric_limits<infinicore::Size>::max());
 
+    StaticKVCacheConfig(
+        infinicore::Size _max_batch_size,
+        infinicore::Size _max_cache_len,
+        std::string kv_cache_dtype);
+
     std::unique_ptr<CacheConfig> unique_copy() const override;
     infinicore::Size max_batch_size() const;
     infinicore::Size max_cache_len() const;
 
+    infinicore::DataType kv_cache_dtype() const;
+    void set_kv_cache_dtype(infinicore::DataType dtype) const;
+    bool kv_cache_dtype_is_set() const { return kv_cache_dtype_set_; }
+
 private:
     infinicore::Size max_batch_size_;
     infinicore::Size max_cache_len_;
+
+    bool kv_cache_dtype_set_ = false;
+    mutable infinicore::DataType kv_cache_dtype_;
 };
 
 class StaticKVCache final : public Cache {
@@ -42,7 +54,6 @@ public:
         infinicore::Size num_v_heads,
         infinicore::Size num_layers,
         infinicore::Size max_positional_embedding,
-        infinicore::DataType dtype,
         const StaticKVCacheConfig &config,
         const engine::distributed::RankInfo &rank_info);
 

@@ -112,6 +112,13 @@ private:
                                       std::optional<infinicore::Tensor> block_tables,
                                       std::optional<infinicore::Tensor> slot_mapping) const;
 
+    infinicore::Tensor kv_cache_k_scale() const {
+        return kv_cache_k_scale_;
+    }
+    infinicore::Tensor kv_cache_v_scale() const {
+        return kv_cache_v_scale_;
+    }
+
 protected:
     // Projection layers
     INFINICORE_NN_MODULE(infinilm::layers::QKVParallelLinear, qkv_proj);
@@ -122,6 +129,10 @@ protected:
 
     // Shared Rotary Position Embeddings (RoPE)
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+
+    // For off-line kv cache quantization
+    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
+    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 
 private:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_ = std::make_shared<infinilm::config::ModelConfig>();

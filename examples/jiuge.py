@@ -149,6 +149,13 @@ def get_args():
         choices=["default", "flash-attn"],
         help="attention backend to use: 'default' or 'flash-attn'",
     )
+    
+    parser.add_argument(
+        "--kv_cache_dtype",
+        type=str,
+        default="",
+        choices=["", "int8"],
+    )
 
     return parser.parse_args()
 
@@ -176,6 +183,7 @@ def test(
         distributed_config=DistConfig(tp),
         enable_graph_compiling=enable_graph,
         attention_backend=attn_backend,
+        kv_cache_dtype=args.kv_cache_dtype,
     )
     # ---------------------------------------------------------------------------- #
     #                        Load Weights
@@ -255,7 +263,7 @@ def test(
         batch_size = 1 if prompts is str else len(prompts)
         initial_capacity = max_new_tokens + len(input_ids_list[0])
         cache_config = StaticKVCacheConfig(
-            max_batch_size=batch_size, max_cache_len=initial_capacity
+            max_batch_size=batch_size, max_cache_len=initial_capacity, kv_cache_dtype=args.kv_cache_dtype
         )
 
     model.reset_cache(cache_config)

@@ -1,5 +1,5 @@
 #pragma once
-// #include "../quantization/quantization.hpp"
+#include "../utils.hpp"
 #include "infinicore/quantization.hpp"
 #include "nlohmann/json.hpp"
 
@@ -22,9 +22,27 @@ public:
         }
     }
 
+    void set_kv_quant_scheme(std::string kv_cache_dtype) {
+        switch (parse_dtype(kv_cache_dtype)) {
+        case infinicore::DataType::I8: {
+            this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::INT8;
+            break;
+        }
+        default: {
+            this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::NONE;
+            break;
+        }
+        }
+    }
+
+    infinicore::quantization::KVQuantAlgo get_kv_quant_scheme() const {
+        return kv_quant_scheme;
+    }
+
 private:
     nlohmann::json quantization_config;
     std::shared_ptr<infinicore::quantization::BaseQuantization> quantization_method;
+    infinicore::quantization::KVQuantAlgo kv_quant_scheme = infinicore::quantization::KVQuantAlgo::NONE;
 };
 
 } // namespace infinilm::config

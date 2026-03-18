@@ -23,11 +23,18 @@ inline void bind_cache(py::module &m) {
             py::arg("max_batch_size") = 1,
             py::arg("max_cache_len") = std::numeric_limits<infinicore::Size>::max())
         .def(
+            py::init<infinicore::Size, infinicore::Size, std::string>(),
+            py::arg("max_batch_size") = 1,
+            py::arg("max_cache_len") = std::numeric_limits<infinicore::Size>::max(),
+            py::arg("kv_cache_dtype"))
+        .def(
             "max_batch_size",
             &infinilm::cache::StaticKVCacheConfig::max_batch_size)
         .def(
             "max_cache_len",
             &infinilm::cache::StaticKVCacheConfig::max_cache_len)
+        .def("kv_cache_dtype",
+             &infinilm::cache::StaticKVCacheConfig::kv_cache_dtype)
         .def("__repr__", [](const infinilm::cache::StaticKVCacheConfig &) {
             return "<StaticKVCacheConfig>";
         });
