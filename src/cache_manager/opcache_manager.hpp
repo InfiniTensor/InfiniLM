@@ -165,6 +165,7 @@ public:
     DECLARE_OP_CACHE(Silu)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(DequantizeAWQ)
+    DECLARE_OP_CACHE(DequantizeGPTQ)
 
     CacheManager(size_t capacity = 100)
         : Add_cache(capacity, DESTROY_FUNC(Add)),
@@ -179,7 +180,8 @@ public:
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           Silu_cache(capacity, DESTROY_FUNC(Silu)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
-          DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)) {}
+          DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)),
+          DequantizeGPTQ_cache(capacity, DESTROY_FUNC(DequantizeGPTQ)) {}
 
     template <typename... Tensors>
     static size_t createDescriptorKey(Tensors... tensors) {
