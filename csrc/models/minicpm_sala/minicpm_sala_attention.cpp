@@ -85,13 +85,13 @@ LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelCo
                     model_config->get<size_t>("num_attention_heads"),
                     model_config->get<size_t>("lightning_nkv"),
                     device, layer_idx, rank_info),
-      use_qk_norm_(model_config_->get_use_qk_norm()),
+      qk_norm_(model_config->get_or<bool>("qk_norm", false)),
       use_output_norm_(model_config->get_or<bool>("use_output_norm", false)),
       use_output_gate_(model_config->get_or<bool>("use_output_gate", false)) {
 
     const auto &dtype{model_config_->get_dtype()};
 
-    if (use_qk_norm_) {
+    if (qk_norm_) {
         INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
         INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
     }

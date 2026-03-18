@@ -4,9 +4,10 @@
 #include "../cache/kv_cache.hpp"
 #include "../config/model_config.hpp"
 #include "../models/infinilm_model.hpp"
-#include "attention.hpp"
 
 #include "../engine/distributed/distributed.hpp"
+#include "common_modules.hpp"
+
 #include "infinicore/device.hpp"
 #include "infinicore/io.hpp"
 #include "infinicore/nn/module.hpp"

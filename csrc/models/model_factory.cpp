@@ -1,6 +1,8 @@
 #include "model_factory.hpp"
+#include "fm9g/fm9g_for_causal_lm.hpp"
 #include "llama/llama_for_causal_lm.hpp"
 #include "minicpm_sala/minicpm_sala_for_causal_lm.hpp"
+#include "qwen2/qwen2_for_causal_lm.hpp"
 #include "qwen3/qwen3_for_causal_lm.hpp"
 #include "qwen3_moe/qwen3_moe_for_causal_lm.hpp"
 
@@ -18,6 +20,9 @@ std::map<std::string, ModelCreator> &InfinilmModelFactory::_modelsForCausalLM() 
     }
 
     if (_map.empty()) {
+        REGISTER_CAUSAL_LM_MODEL("llama", models::fm9g::FM9GForCausalLM); // llama -> fm9g
+        REGISTER_CAUSAL_LM_MODEL("fm9g", models::fm9g::FM9GForCausalLM);
+        REGISTER_CAUSAL_LM_MODEL("qwen2", models::qwen2::Qwen2ForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("qwen3", models::qwen3::Qwen3ForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("qwen3_moe", models::qwen3_moe::Qwen3MoeForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("minicpm_sala", models::minicpm_sala::MiniCPMSALAForCausalLM);

@@ -95,7 +95,7 @@ public:
                                std::shared_ptr<infinilm::cache::Cache> kv_cache) const;
 
 protected:
-    const bool use_qk_norm_;
+    const bool qk_norm_;
     const bool use_output_norm_;
     const bool use_output_gate_;
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, o_norm);

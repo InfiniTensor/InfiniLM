@@ -1,9 +1,6 @@
 #pragma once
 
-#include "../../layers/TemplateCausalLM.hpp"
-#include "../../layers/TemplateModel.hpp"
-#include "../../layers/attention.hpp"
-#include "../../layers/mlp.hpp"
+#include "../../layers/common_modules.hpp"
 #include "minicpm_sala_attention.hpp"
 #include "minicpm_sala_decoderLayer.hpp"
 #include <memory>
@@ -25,5 +22,13 @@ using MiniCPMSALAModel = infinilm::models::layers::TemplateModel<MiniCPMSALADeco
 
 /** @brief MiniCPM model for Causal Language Modeling */
 using MiniCPMSALAForCausalLM = infinilm::models::layers::TemplateCausalLM<MiniCPMSALAModel>;
+
+static std::shared_ptr<infinilm::config::ModelConfig> create_minicpm_sala_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
+    const std::string model_type = model_config->get<std::string>("model_type");
+    if ("minicpm_sala" != model_type) {
+        throw std::runtime_error("create_minicpm_sala_model_config: model_type is not minicpm_sala");
+    }
+    return model_config;
+}
 
 } // namespace infinilm::models::minicpm_sala

@@ -1,4 +1,5 @@
 #include "infer_engine.hpp"
+#include "../models/config_factory.hpp"
 #include "spdlog/spdlog.h"
 
 namespace infinilm::engine {
@@ -19,7 +20,8 @@ InferEngine::InferEngine(
     }
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
-    this->model_config_ = std::make_shared<infinilm::config::ModelConfig>(model_path + "/config.json");
+    this->model_config_ = InfinilmConfigFactory::createConfig(model_path);
+
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
     barrier_ = std::make_unique<RankBarrier>((size_t)world_size);

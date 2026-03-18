@@ -13,14 +13,14 @@
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
-#include "minicpm_sala_attention.hpp"
+
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <variant>
 
-namespace infinilm::models::minicpm_sala {
+namespace infinilm::models::qwen3_next {
 
 /**
  * @brief Template decoder layer (transformer block) class
@@ -39,15 +39,15 @@ namespace infinilm::models::minicpm_sala {
  *
  * Usage example:
  * @code
- * using MyDecoderLayer = MiniCPMSALADecoderLayer<MiniCPMSALAAttention, MiniCPMMLP>;
+ * using MyDecoderLayer = Qwen3NextDecoderLayer<MiniCPMSALAAttention, MiniCPMMLP>;
  * MyDecoderLayer layer(config, device, layer_idx, rank_info);
  * @endcode
  */
-template <typename Attention, typename MLP>
-class MiniCPMSALADecoderLayer : public infinicore::nn::Module {
+
+class Qwen3NextDecoderLayer : public infinicore::nn::Module {
 public:
     /**
-     * @brief Construct MiniCPMSALADecoderLayer module
+     * @brief Construct Qwen3NextDecoderLayer module
      *
      * @param model_config Model configuration
      * @param device Device to create tensors on
@@ -55,11 +55,11 @@ public:
      * @param rank_info Rank information for distributed training
      * @param attention_backend Reserved (unused; attention type selected via config mixer_types)
      */
-    MiniCPMSALADecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                            const infinicore::Device &device,
-                            size_t layer_idx,
-                            engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                            backends::AttentionBackend attention_backend = backends::AttentionBackend::Default)
+    Qwen3NextDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                          const infinicore::Device &device,
+                          size_t layer_idx,
+                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                          backends::AttentionBackend attention_backend = backends::AttentionBackend::Default)
         : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
         const auto &dtype{model_config_->get_dtype()};
         size_t hidden_size = model_config_->get<size_t>("hidden_size");
@@ -69,16 +69,16 @@ public:
         input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("input_layernorm", hidden_size, model_config_->get<double>("rms_norm_eps"), dtype, device);
         post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, model_config_->get<double>("rms_norm_eps"), dtype, device);
 
-        // Initialize attention and MLP modules
-        mlp_ = this->register_module<MLP>("mlp", model_config_, hidden_size, intermediate_size, device, rank_info_);
+        // Initialize MLP
+        mlp_ = this->register_module<Qwen3NextSparseMoeBlock>("mlp", model_config_, hidden_size, intermediate_size, device, rank_info_);
 
-        std::vector<std::string> mixer_types = model_config_->get<std::vector<std::string>>("mixer_types");
-        std::string mixer_type = mixer_types[layer_idx];
-
-        if ("minicpm4" == mixer_type) {
-            self_attn_ = std::make_shared<Attention>(this->register_module<InfLLMv2Attention>("self_attn", model_config_, device, layer_idx, rank_info_));
-        } else if ("lightning" == mixer_type || "lightning_attn" == mixer_type || "lightning-attn" == mixer_type) {
-            self_attn_ = std::make_shared<Attention>(this->register_module<LightningAttention>("self_attn", model_config_, device, layer_idx, rank_info_));
+        // Initialize attention
+        std::vector<std::string> layer_types = model_config_->get<std::vector<std::string>>("layer_types");
+        layer_type_ = layer_types[layer_idx];
+        if ("linear_attention" == layer_type_) {
+            linear_attn_ = std::make_shared<Qwen3NextGatedDeltaNet>(this->register_module<Qwen3NextGatedDeltaNet>("linear_attn", model_config_, device, layer_idx, rank_info_));
+        } else if ("full_attention" == layer_type_) {
+            self_attn_ = std::make_shared<Qwen3NextAttention>(this->register_module<Qwen3NextAttention>("self_attn", model_config_, device, layer_idx, rank_info_));
         }
     }
 
@@ -101,9 +101,12 @@ public:
         // 1. Attention layer normalization
         input_layernorm_->forward_inplace(hidden_states, residual);
 
-        // 2. Self-attention
-        hidden_states = std::visit(
-            [&](auto &attn_ptr) { return attn_ptr->forward(hidden_states, input, kv_cache); }, *self_attn_);
+        // 2. attention
+        if ("linear_attention" == layer_type_) {
+            hidden_states = linear_attn_->forward(hidden_states, input, kv_cache);
+        } else if ("full_attention" == layer_type_) {
+            hidden_states = std::visit([&](auto &attn_ptr) { return attn_ptr->forward(hidden_states, input, kv_cache); }, *self_attn_);
+        }
 
         // 3. Post-attention layer normalization
         post_attention_layernorm_->forward_inplace(hidden_states, residual);
@@ -130,13 +133,15 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
 
     // Attention and MLP
-    INFINICORE_NN_MODULE(Attention, self_attn);
-    INFINICORE_NN_MODULE(MLP, mlp);
+    INFINICORE_NN_MODULE(Qwen3NextAttention, self_attn);
+    INFINICORE_NN_MODULE(Qwen3NextGatedDeltaNet, linear_attn);
+    INFINICORE_NN_MODULE(Qwen3NextSparseMoeBlock, mlp);
     engine::distributed::RankInfo rank_info_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 
 private:
-    size_t layer_idx_; // Layer index for cache management and debugging
+    size_t layer_idx_;
+    std::string layer_type_;
 };
 
-} // namespace infinilm::models::minicpm_sala
+} // namespace infinilm::models::qwen3_next

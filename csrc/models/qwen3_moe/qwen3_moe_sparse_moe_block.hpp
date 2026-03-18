@@ -1,8 +1,7 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
-#include "../../layers/fused_linear.hpp"
-#include "../../layers/mlp.hpp"
+#include "../../layers/common_modules.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"

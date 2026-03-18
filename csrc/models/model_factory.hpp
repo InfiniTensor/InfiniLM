@@ -28,8 +28,6 @@ public:
         const cache::CacheConfig *cache = nullptr,
         backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
-    static void registerModel(const std::string &name, ModelCreator creator);
-
 private:
     static std::map<std::string, ModelCreator> &_modelsForCausalLM();
 };

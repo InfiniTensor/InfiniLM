@@ -11,19 +11,8 @@ ModelConfig::ModelConfig(const std::string &path) {
     }
 
     this->quant_config = QuantConfig(config_json["quantization_config"]);
-
-    this->__post_init__();
 }
 
-void ModelConfig::__post_init__() {
-    // TODO. 应该增加一些属性
-    std::string model_type = this->get<std::string>("model_type");
-    if ("qwen3" == model_type || "qwen3_moe" == model_type) {
-        use_qk_norm_ = true;
-    } else {
-        use_qk_norm_ = this->get_or<bool>("qk_norm", false);
-    }
-}
 infinicore::quantization::QuantScheme
 ModelConfig::get_quant_scheme() const {
     if (quant_config.get_quant_scheme() != infinicore::quantization::QuantScheme::NONE) {

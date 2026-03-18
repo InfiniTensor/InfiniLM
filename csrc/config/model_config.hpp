@@ -19,6 +19,10 @@ public:
     // ModelConfig(const nlohmann::json &json) : config_json(json) {};
     ModelConfig(const std::string &path);
 
+    nlohmann::json &get_config_json() {
+        return config_json;
+    }
+
     // Template Function to get a value by key with type safety
     template <typename T>
     T get(const std::string &key) const {
@@ -69,8 +73,6 @@ public:
     // Stream output operator
     friend std::ostream &operator<<(std::ostream &os, const ModelConfig &config);
 
-    bool get_use_qk_norm() const { return use_qk_norm_; }
-
     /// Returns eos_token_id as a list. Handles both single int and array in config.
     std::vector<int64_t> get_eos_token_ids() const;
 
@@ -78,7 +80,6 @@ private:
     void __post_init__();
 
 private:
-    bool use_qk_norm_{false};
     nlohmann::json config_json;
     QuantConfig quant_config;
 };

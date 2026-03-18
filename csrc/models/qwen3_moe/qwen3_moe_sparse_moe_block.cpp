@@ -79,8 +79,6 @@ infinicore::Tensor Qwen3MoeSparseMoeBlock::forward(const infinicore::Tensor &hid
     }
 
     return router_states_sum->view({shape[0], shape[1], shape[2]});
-} // namespace infinilm::models::qwen3_moe
+}
 
 } // namespace infinilm::models::qwen3_moe
-
-// xmake build &&xmake install &&xmake build _infinicore &&xmake install _infinicore

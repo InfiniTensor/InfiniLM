@@ -1,7 +1,5 @@
 #pragma once
 
-#include "../../layers/attention.hpp"
-#include "../../layers/mlp.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"

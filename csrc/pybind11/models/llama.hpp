@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../cache/kv_cache.hpp"
-#include "../../layers/attention.hpp"
 #include "../../models/debug_utils/hooks.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
