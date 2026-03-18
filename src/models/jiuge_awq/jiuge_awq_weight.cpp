@@ -127,8 +127,6 @@ createJiugeAWQWeights(const JiugeAWQMeta *meta,
     return (struct ModelWeights *)weights;
 }
 
-// 建立外部别名, 防止python端冲突
-__C void JiugeAWQLoadWeight(struct ModelWeights *weights, const char *name, void *data) {
-    // 直接转发调用通用的 loadModelWeight
+__INFINI_C void JiugeAWQLoadWeight(struct ModelWeights *weights, const char *name, void *data) {
     loadModelWeight(weights, name, data);
 }

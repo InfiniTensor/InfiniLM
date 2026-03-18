@@ -250,13 +250,13 @@ void inferDeviceBatch(const JiugeGPTQMeta *meta, GPTQDeviceResource &rsrc,
     }
 }
 
-__C void
+__INFINI_C void
 inferBatchJiugeGPTQ(struct JiugeGPTQModel *model,
-                   const uint32_t *tokens, uint32_t ntok,
-                   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                   struct KVCache **kv_caches,
-                   const float *temperature, const uint32_t *topk, const float *topp,
-                   uint32_t *output) {
+                    const uint32_t *tokens, uint32_t ntok,
+                    const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                    struct KVCache **kv_caches,
+                    const float *temperature, const uint32_t *topk, const float *topp,
+                    uint32_t *output) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -283,12 +283,12 @@ inferBatchJiugeGPTQ(struct JiugeGPTQModel *model,
     }
 }
 
-__C void
+__INFINI_C void
 forwardBatchJiugeGPTQ(struct JiugeGPTQModel *model,
-                     const uint32_t *tokens, uint32_t ntok,
-                     const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                     struct KVCache **kv_caches,
-                     void *logits) {
+                      const uint32_t *tokens, uint32_t ntok,
+                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                      struct KVCache **kv_caches,
+                      void *logits) {
     model->req.tokens = tokens;
     model->req.ntok = ntok;
     model->req.req_lens = req_lens;
@@ -380,14 +380,14 @@ JiugeGPTQModel::JiugeGPTQModel(const JiugeGPTQMeta *meta, const ModelWeights *we
     }
 }
 
-__C struct JiugeGPTQModel *
+__INFINI_C struct JiugeGPTQModel *
 createJiugeGPTQModel(const JiugeGPTQMeta *meta,
-                    const ModelWeights *weights) {
+                     const ModelWeights *weights) {
     JiugeGPTQModel *model = new JiugeGPTQModel(meta, weights);
     return model;
 }
 
-__C void destroyJiugeGPTQModel(struct JiugeGPTQModel *model) {
+__INFINI_C void destroyJiugeGPTQModel(struct JiugeGPTQModel *model) {
     auto ndev = model->dev_resources.size();
 
     for (size_t idev = 0; idev < ndev; idev++) {
