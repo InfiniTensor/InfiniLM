@@ -14,8 +14,8 @@
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
+#include "qwen3_next_attention.hpp"
 #include "qwen3_next_sparse_moe_block.hpp"
-
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -23,8 +23,6 @@
 #include <variant>
 
 namespace infinilm::models::qwen3_next {
-
-using Qwen3NextAttention = infinilm::layers::Attention;
 
 /**
  * @brief Template decoder layer (transformer block) class

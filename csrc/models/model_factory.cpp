@@ -5,7 +5,7 @@
 #include "qwen2/qwen2_for_causal_lm.hpp"
 #include "qwen3/qwen3_for_causal_lm.hpp"
 #include "qwen3_moe/qwen3_moe_for_causal_lm.hpp"
-// #include "qwen3_next/qwen3_next_for_causal_lm.hpp"
+#include "qwen3_next/qwen3_next_for_causal_lm.hpp"
 
 namespace infinilm {
 
@@ -27,7 +27,7 @@ std::map<std::string, ModelCreator> &InfinilmModelFactory::_modelsForCausalLM() 
         REGISTER_CAUSAL_LM_MODEL("qwen3", models::qwen3::Qwen3ForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("qwen3_moe", models::qwen3_moe::Qwen3MoeForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("minicpm_sala", models::minicpm_sala::MiniCPMSALAForCausalLM);
-        // REGISTER_CAUSAL_LM_MODEL("qwen3_next", models::qwen3_next::Qwen3NextForCausalLM);
+        REGISTER_CAUSAL_LM_MODEL("qwen3_next", models::qwen3_next::Qwen3NextForCausalLM);
     }
 #undef REGISTER_CAUSAL_LM_MODEL
 

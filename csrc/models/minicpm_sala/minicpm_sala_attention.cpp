@@ -83,7 +83,7 @@ InfLLMv2Attention::InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConf
 infinicore::Tensor InfLLMv2Attention::forward(const infinicore::Tensor &hidden_states,
                                               const infinilm::InfinilmModel::Input &input,
                                               std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
-    spdlog::error("InfLLMv2Attention is not supported");
+    spdlog::error("InfLLMv2Attention is not implemented");
     return hidden_states;
 }
 
@@ -124,7 +124,7 @@ infinicore::Tensor LightningAttention::forward(const infinicore::Tensor &hidden_
                                                std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
     (void)input;
     (void)kv_cache;
-    spdlog::error("LightningAttention is not supported");
+    spdlog::error("LightningAttention is not implemented");
     return hidden_states;
 }
 

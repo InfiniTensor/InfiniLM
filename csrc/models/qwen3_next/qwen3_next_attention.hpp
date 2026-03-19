@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "../../config/model_config.hpp"
@@ -10,62 +9,113 @@
 
 #include "../../engine/distributed/distributed.hpp"
 
+#include <cmath>
+#include <memory>
+
 namespace infinilm::models::qwen3_next {
 
-class Qwen3NextGatedDeltaNet : public infinicore::nn::Module {
+class Qwen3NextAttention : public infinicore::nn::Module {
 public:
-    Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                           size_t layer_idx,
-                           const infinicore::Device &device,
-                           engine::distributed::RankInfo rank_info) {
-        const auto &dtype{model_config->get_dtype()};
+    Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                       size_t layer_idx,
+                       const infinicore::Device &device,
+                       engine::distributed::RankInfo rank_info,
+                       ::infinilm::backends::AttentionBackend attention_backend = ::infinilm::backends::AttentionBackend::Default) {
         layer_idx_ = layer_idx;
-        size_t hidden_size = (model_config->get<size_t>("hidden_size"));
-        size_t linear_num_value_heads = (model_config->get<size_t>("linear_num_value_heads"));
-        size_t linear_num_key_heads = (model_config->get<size_t>("linear_num_key_heads"));
-        size_t linear_key_head_dim = (model_config->get<size_t>("linear_key_head_dim"));
-        size_t linear_value_head_dim = (model_config->get<size_t>("linear_value_head_dim"));
+        attention_backend_ = attention_backend;
 
-        size_t key_dim = linear_key_head_dim * linear_num_key_heads;
-        size_t value_dim = linear_value_head_dim * linear_num_value_heads;
+        const auto &dtype{model_config->get_dtype()};
 
-        size_t linear_conv_kernel_dim = model_config->get<size_t>("linear_conv_kernel_dim");
+        num_attention_heads_ = model_config->get<size_t>("num_attention_heads");
+        num_key_value_heads_ = model_config->get<size_t>("num_key_value_heads");
+        hidden_size_ = model_config->get<size_t>("hidden_size");
+        head_dim_ = model_config->get<size_t>("head_dim");
+        qk_norm_ = model_config->get_or<bool>("qk_norm", false);
 
+        float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
+
+        bool use_bias = model_config->get_or<bool>("attention_bias", true);
+        bool use_output_bias = model_config->get_or<bool>("attention_output_bias", false);
         double rms_norm_eps = model_config->get<double>("rms_norm_eps");
-        // QKV
-        size_t conv_dim = key_dim * 2 + value_dim;
-        INFINICORE_NN_MODULE_INIT(conv1d, conv_dim, conv_dim, linear_conv_kernel_dim, 1, linear_conv_kernel_dim - 1, 1, 1, false, dtype, device);
+        bool attn_output_gate = model_config->get_or<bool>("attn_output_gate", true);
 
-        size_t projection_size_qkvz = key_dim * 2 + value_dim * 2;
-        size_t projection_size_ba = linear_num_value_heads * 2;
+        auto quant_schem = model_config->get_quant_scheme();
+        auto quantization_method = model_config->get_quantization_method();
+        int tp_rank = rank_info.tp_rank;
+        int tp_size = rank_info.tp_size;
 
-        INFINICORE_NN_MODULE_INIT(in_proj_qkvz, hidden_size, projection_size_qkvz, false, dtype, device);
-        INFINICORE_NN_MODULE_INIT(in_proj_ba, hidden_size, projection_size_ba, false, dtype, device);
+        size_t total_num_heads = num_attention_heads_;
 
-        // # time step projection (discretization)
-        // # instantiate once and copy inv_dt in init_weights of PretrainedModel
-        INFINICORE_NN_PARAMETER_INIT(dt_bias, ({linear_num_value_heads}, dtype, device));
-        INFINICORE_NN_PARAMETER_INIT(A_log, ({linear_num_value_heads}, dtype, device));
+        auto quant_scheme = quant_schem;
+        switch (quant_scheme) {
+        case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
+            INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, total_num_heads * (1 + attn_output_gate), num_key_value_heads_, quantization_method, use_bias, dtype, device, rank_info);
+            INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method, use_output_bias,
+                                      dtype, device, tp_rank, tp_size, rank_info.comm);
+            break;
 
-        INFINICORE_NN_MODULE_INIT(norm, linear_value_head_dim, rms_norm_eps, dtype, device);
-        INFINICORE_NN_MODULE_INIT(out_proj, value_dim, hidden_size, false, dtype, device);
+        case infinicore::quantization::QuantScheme::AWQ_W4A16: {
+            INFINILM_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, total_num_heads * (1 + attn_output_gate), num_key_value_heads_,
+                                              quantization_method, use_bias, dtype, device, rank_info);
+            INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method, use_output_bias,
+                                      dtype, device, tp_rank, tp_size, rank_info.comm);
+            break;
+        }
+        default:
+            INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, total_num_heads * (1 + attn_output_gate), num_key_value_heads_, quantization_method, use_bias, dtype, device, rank_info);
+            INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method, use_output_bias,
+                                      dtype, device, tp_rank, tp_size, rank_info.comm);
+            break;
+        }
+
+        if (qk_norm_) {
+            INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
+            INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
+        }
+
+        if ((num_key_value_heads_ >= tp_size) && (0 == (num_key_value_heads_ % tp_size))) {
+            num_attention_heads_ = num_attention_heads_ / tp_size;
+            num_key_value_heads_ = num_key_value_heads_ / tp_size;
+        } else {
+            throw std::runtime_error("num_attention_heads / tp_size error.");
+        }
+
+        attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
+            num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_, attention_backend_);
     }
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const {
-        spdlog::error("Qwen3NextGatedDeltaNet: forward not implemented");
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
+                               const infinilm::InfinilmModel::Input &attn_metadata,
+                               std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
+
+        spdlog::error("Qwen3NextAttention: forward not implemented");
         return hidden_states;
     }
 
-private:
-    size_t layer_idx_;
+public:
+    size_t layer_idx() const { return layer_idx_; }
+    size_t num_heads() const { return num_attention_heads_; }
+    size_t num_kv_heads() const { return num_key_value_heads_; }
+    size_t head_dim() const { return head_dim_; }
+    size_t hidden_size() const { return hidden_size_; }
+    void set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) { rotary_emb_ = rotary_emb; }
 
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, in_proj_qkvz);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, in_proj_ba);
-    INFINICORE_NN_MODULE(FakeConv1d, conv1d);
-    INFINICORE_NN_PARAMETER(dt_bias);
-    INFINICORE_NN_PARAMETER(A_log);
-    INFINICORE_NN_MODULE(Qwen3Next_Fake_RMSNormGated, norm);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, out_proj);
+protected:
+    INFINICORE_NN_MODULE(infinilm::layers::QKVParallelLinear, qkv_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
+
+    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+
+    std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
+    ::infinilm::backends::AttentionBackend attention_backend_;
+    size_t layer_idx_;
+    size_t num_attention_heads_;
+    size_t num_key_value_heads_;
+    size_t hidden_size_;
+    size_t head_dim_;
+    bool qk_norm_;
 };
 
 } // namespace infinilm::models::qwen3_next
