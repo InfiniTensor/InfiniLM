@@ -71,7 +71,7 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     return {logits};
 }
 
-void LlamaForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
+void LlamaForCausalLM::reset_cache(cache::CacheConfig *cache_config) {
     cache_config_ = cache_config->unique_copy();
     model_->reset_cache(cache_config_.get());
 }

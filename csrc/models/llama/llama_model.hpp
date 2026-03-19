@@ -79,7 +79,7 @@ public:
                                std::optional<infinicore::Tensor> block_tables,
                                std::optional<infinicore::Tensor> slot_mapping) const;
 
-    void reset_cache(const cache::CacheConfig *cache_config);
+    void reset_cache(cache::CacheConfig *cache_config);
 
     // Module information
     size_t num_layers() const { return model_config_->get<size_t>("num_hidden_layers"); }

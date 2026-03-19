@@ -85,7 +85,7 @@ public:
     void run(const Input &args);
 
     // Reset the internal cache with a new configuration
-    void reset_cache(const cache::CacheConfig *new_config);
+    void reset_cache(cache::CacheConfig *new_config);
 
     // Compile the model graph if enabled.
     void compile();

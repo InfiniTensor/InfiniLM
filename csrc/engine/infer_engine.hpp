@@ -60,7 +60,7 @@ public:
 
     void compile();
 
-    void reset_cache(const cache::CacheConfig *new_config);
+    void reset_cache(cache::CacheConfig *new_config);
 
     ~InferEngine();
 

@@ -17,7 +17,7 @@ namespace infinilm {
 std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     const InfinilmModel::Config &config,
     engine::distributed::RankInfo rank_info,
-    const cache::CacheConfig *cache,
+    cache::CacheConfig *cache,
     backends::AttentionBackend attention_backend) {
     std::shared_ptr<InfinilmModel> model;
     if (const auto llama_config_ptr = dynamic_cast<const models::llama::LlamaConfig *>(&config)) {
@@ -38,7 +38,7 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
 std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     engine::distributed::RankInfo rank_info,
-    const cache::CacheConfig *cache,
+    cache::CacheConfig *cache,
     backends::AttentionBackend attention_backend) {
 
     std::shared_ptr<InfinilmModel> model;

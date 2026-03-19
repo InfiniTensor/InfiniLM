@@ -67,13 +67,13 @@ def get_args():
         help="Run hygon test",
     )
     parser.add_argument(
-        "--model_path",
+        "--model-path",
         type=str,
         required=True,
         help="model_path",
     )
     parser.add_argument(
-        "--max_new_tokens",
+        "--max-new-tokens",
         type=int,
         default=100,
         help="max_new_tokens",
@@ -109,7 +109,7 @@ def get_args():
     )
 
     parser.add_argument(
-        "--paged_kv_block_size",
+        "--paged-kv-block-size",
         type=int,
         default=256,
         help="num tokens each kv block can hold",
@@ -151,7 +151,7 @@ def get_args():
     )
     
     parser.add_argument(
-        "--kv_cache_dtype",
+        "--kv-cache-dtype",
         type=str,
         default="",
         choices=["", "int8"],

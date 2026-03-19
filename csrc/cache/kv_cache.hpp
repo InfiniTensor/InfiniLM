@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -33,15 +34,13 @@ public:
     infinicore::Size max_cache_len() const;
 
     infinicore::DataType kv_cache_dtype() const;
-    void set_kv_cache_dtype(infinicore::DataType dtype) const;
-    bool kv_cache_dtype_is_set() const { return kv_cache_dtype_set_; }
+    void set_kv_cache_dtype(infinicore::DataType dtype);
 
 private:
     infinicore::Size max_batch_size_;
     infinicore::Size max_cache_len_;
 
-    bool kv_cache_dtype_set_ = false;
-    mutable infinicore::DataType kv_cache_dtype_;
+    std::optional<infinicore::DataType> kv_cache_dtype_ = std::nullopt;
 };
 
 class StaticKVCache final : public Cache {
@@ -109,15 +108,13 @@ public:
     size_t num_blocks() const;
     size_t block_size() const;
     infinicore::DataType kv_cache_dtype() const;
-    void set_kv_cache_dtype(infinicore::DataType dtype) const;
-    bool kv_cache_dtype_set() const { return kv_cache_dtype_set_; }
+    void set_kv_cache_dtype(infinicore::DataType dtype);
 
 private:
     size_t num_blocks_;
     size_t block_size_;
 
-    bool kv_cache_dtype_set_ = false;
-    mutable infinicore::DataType kv_cache_dtype_;
+    std::optional<infinicore::DataType> kv_cache_dtype_ = std::nullopt;
 };
 
 class PagedKVCache final : public Cache {

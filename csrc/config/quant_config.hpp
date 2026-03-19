@@ -2,6 +2,7 @@
 #include "../utils.hpp"
 #include "infinicore/quantization.hpp"
 #include "nlohmann/json.hpp"
+#include <spdlog/spdlog.h>
 
 namespace infinilm::config {
 
@@ -23,15 +24,27 @@ public:
     }
 
     void set_kv_quant_scheme(std::string kv_cache_dtype) {
-        switch (parse_dtype(kv_cache_dtype)) {
-        case infinicore::DataType::I8: {
-            this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::INT8;
-            break;
-        }
-        default: {
+        if (kv_cache_dtype.empty()) {
             this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::NONE;
-            break;
+            // spdlog::debug("kv_cache_dtype is empty, using default NONE");
+            return;
         }
+
+        try {
+            switch (parse_dtype(kv_cache_dtype)) {
+            case infinicore::DataType::I8: {
+                this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::INT8;
+                break;
+            }
+            default: {
+                spdlog::warn("Unsupported kv_cache_dtype: '{}', fallback to NONE", kv_cache_dtype);
+                this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::NONE;
+                break;
+            }
+            }
+        } catch (const std::exception &e) {
+            spdlog::error("Failed to parse kv_cache_dtype '{}': {}", kv_cache_dtype, e.what());
+            this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::NONE;
         }
     }
 

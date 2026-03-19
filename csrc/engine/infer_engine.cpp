@@ -171,7 +171,7 @@ const distributed::DistConfig &InferEngine::get_dist_config() const {
 //------------------------------------------------------
 // reset_cache (overloaded with CacheConfig)
 //------------------------------------------------------
-void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
+void InferEngine::reset_cache(cache::CacheConfig *new_config) {
     for (auto &worker : workers_) {
         worker->reset_cache(new_config);
     }

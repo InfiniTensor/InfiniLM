@@ -237,7 +237,7 @@ def get_args():
         help="use paged cache",
     )
     parser.add_argument(
-        "--paged_kv_block_size",
+        "--paged-kv-block-size",
         type=int,
         default=256,
         help="num tokens each kv block can hold",
@@ -260,7 +260,7 @@ def get_args():
         help="attention backend to use: 'default' or 'flash-attn'",
     )
     parser.add_argument(
-        "--kv_cache_dtype",
+        "--kv-cache-dtype",
         type=str,
         default="",
         choices=["", "int8"],

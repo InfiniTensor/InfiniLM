@@ -35,7 +35,7 @@ inline void bind_infer_engine(py::module &m) {
                           const InfinilmModel::Config &cfg,
                           const distributed::DistConfig &dist,
                           infinicore::Device::Type dev,
-                          std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
+                          std::shared_ptr<infinilm::cache::CacheConfig> cache_cfg,
                           bool enable_graph_compiling,
                           const std::string &attention_backend) {
                  return std::make_shared<InferEngine>(
@@ -67,7 +67,7 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", [](InferEngine &self, std::shared_ptr<const cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
@@ -78,7 +78,7 @@ inline void bind_infer_engine(py::module &m) {
                           const std::string &model_path,
                           const distributed::DistConfig &dist,
                           infinicore::Device::Type dev,
-                          std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
+                          std::shared_ptr<infinilm::cache::CacheConfig> cache_cfg,
                           bool enable_graph_compiling,
                           const std::string &attention_backend,
                           const std::string &kv_cache_dtype) {
@@ -113,7 +113,7 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", [](InferEngine &self, std::shared_ptr<const cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_cache_config", [](const InferEngine &self) {
             auto cfg = self.get_cache_config();
             return std::shared_ptr<cache::CacheConfig>(std::move(cfg->unique_copy())); })

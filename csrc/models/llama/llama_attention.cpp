@@ -198,16 +198,11 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope); // [bs, seq_len, n_q_head, head_dim]
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);   // [bs, seq_len, n_kv_head, head_dim]
 
-    switch (this->model_config_->get_kv_quant_scheme()) {
-    case (infinicore::quantization::KVQuantAlgo::INT8): {
-        k_reshaped = infinicore::op::per_tensor_quant_i8(k_reshaped, this->kv_cache_k_scale(), infinicore::Tensor::zeros({1}, k_reshaped->dtype(), k_reshaped->device()), true);
-        v_reshaped = infinicore::op::per_tensor_quant_i8(v_reshaped, this->kv_cache_v_scale(), infinicore::Tensor::zeros({1}, k_reshaped->dtype(), k_reshaped->device()), true);
-        break;
-    }
-    default: {
-        break;
-    }
-    }
+    infinilm::KVQuantUtils::quantize(
+        k_reshaped, v_reshaped,
+        this->model_config_->get_kv_quant_scheme(),
+        this->kv_cache_k_scale_,
+        this->kv_cache_v_scale_);
 
     // 5. Prepare KV caches
     // Convert to [batch, n_head, seq_len, head_dim] for cache
@@ -238,20 +233,13 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     } else {
         size_t total_seq_len = reinterpret_cast<int32_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
 
-        switch (this->model_config_->get_kv_quant_scheme()) {
-        case (infinicore::quantization::KVQuantAlgo::INT8): {
-            auto k_total_dequant = infinicore::Tensor::strided_empty(k_total->shape(), k_total->strides(), q_reshaped->dtype(), q_reshaped->device());
-            auto v_total_dequant = infinicore::Tensor::strided_empty(v_total->shape(), v_total->strides(), q_reshaped->dtype(), q_reshaped->device());
-            infinicore::op::per_tensor_dequant_i8_(k_total_dequant, k_total, this->kv_cache_k_scale(), infinicore::Tensor::zeros({1}, k_reshaped->dtype(), k_reshaped->device()));
-            infinicore::op::per_tensor_dequant_i8_(v_total_dequant, v_total, this->kv_cache_v_scale(), infinicore::Tensor::zeros({1}, k_reshaped->dtype(), k_reshaped->device()));
-            k_total = k_total_dequant;
-            v_total = v_total_dequant;
-            break;
-        }
-        default: {
-            break;
-        }
-        }
+        infinilm::KVQuantUtils::dequantize(
+            k_total, v_total,
+            this->model_config_->get_kv_quant_scheme(),
+            this->kv_cache_k_scale_,
+            this->kv_cache_v_scale_,
+            q_reshaped);
+
         k_total = k_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
         v_total = v_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
 

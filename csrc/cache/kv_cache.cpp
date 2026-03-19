@@ -2,6 +2,7 @@
 
 #include "../utils.hpp"
 #include "infinicore/ops.hpp"
+#include <iostream>
 #include <stdexcept>
 
 namespace infinilm::cache {
@@ -22,11 +23,8 @@ StaticKVCacheConfig::StaticKVCacheConfig(
     std::string kv_cache_dtype)
     : max_batch_size_(_max_batch_size),
       max_cache_len_(_max_cache_len) {
-    if (kv_cache_dtype.empty()) {
-        kv_cache_dtype_set_ = false;
-    } else {
-        this->kv_cache_dtype_ = parse_dtype(kv_cache_dtype);
-        kv_cache_dtype_set_ = true;
+    if (!kv_cache_dtype.empty()) {
+        this->kv_cache_dtype_ = std::make_optional(parse_dtype(kv_cache_dtype));
     }
 }
 
@@ -130,11 +128,14 @@ StaticKVCache::update(size_t layer_idx,
 
 infinicore::DataType
 StaticKVCacheConfig::kv_cache_dtype() const {
-    return kv_cache_dtype_;
+    return kv_cache_dtype_.value();
 }
-
-void StaticKVCacheConfig::set_kv_cache_dtype(infinicore::DataType dtype) const {
-    kv_cache_dtype_ = dtype;
+void StaticKVCacheConfig::set_kv_cache_dtype(infinicore::DataType dtype) {
+    if (!this->kv_cache_dtype_.has_value()) {
+        this->kv_cache_dtype_ = std::make_optional(dtype);
+    } else {
+        return;
+    }
 }
 
 // ==========================
@@ -145,9 +146,10 @@ PagedKVCacheConfig::PagedKVCacheConfig(
     std::string kv_cache_dtype,
     size_t block_size)
     : num_blocks_(num_blocks),
-      block_size_(block_size),
-      kv_cache_dtype_(parse_dtype(kv_cache_dtype)) {
-    kv_cache_dtype_set_ = true;
+      block_size_(block_size) {
+    if (!kv_cache_dtype.empty()) {
+        this->kv_cache_dtype_ = std::make_optional(parse_dtype(kv_cache_dtype));
+    }
 }
 
 PagedKVCacheConfig::PagedKVCacheConfig(
@@ -174,11 +176,15 @@ PagedKVCacheConfig::block_size() const {
 
 infinicore::DataType
 PagedKVCacheConfig::kv_cache_dtype() const {
-    return kv_cache_dtype_;
+    return kv_cache_dtype_.value();
 }
 
-void PagedKVCacheConfig::set_kv_cache_dtype(infinicore::DataType dtype) const {
-    kv_cache_dtype_ = dtype;
+void PagedKVCacheConfig::set_kv_cache_dtype(infinicore::DataType dtype) {
+    if (!this->kv_cache_dtype_.has_value()) {
+        this->kv_cache_dtype_ = std::make_optional(dtype);
+    } else {
+        return;
+    }
 }
 
 // ==========================

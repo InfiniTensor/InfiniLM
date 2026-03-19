@@ -5,6 +5,7 @@
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
 #include "../../layers/fused_linear.hpp"
+#include "../../layers/kv_quant.hpp"
 #include "llama_config.hpp"
 
 #include "infinicore/nn/linear.hpp"
@@ -111,13 +112,6 @@ private:
                                       std::optional<infinicore::Tensor> cu_seqlens,
                                       std::optional<infinicore::Tensor> block_tables,
                                       std::optional<infinicore::Tensor> slot_mapping) const;
-
-    infinicore::Tensor kv_cache_k_scale() const {
-        return kv_cache_k_scale_;
-    }
-    infinicore::Tensor kv_cache_v_scale() const {
-        return kv_cache_v_scale_;
-    }
 
 protected:
     // Projection layers
