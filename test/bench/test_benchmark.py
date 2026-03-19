@@ -684,104 +684,226 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
 def _load_ceval_from_cache(cache_dir, subject_name, split, ceval_subjects):
     """
     Load CEval data from local cache avoiding network calls.
-    Scans cached Arrow files under ceval___ceval-exam and filters by split.
+    Handles both:
+    1. Simplified structure: cache_dir/ceval/subject/split/*.arrow
+    2. HuggingFace structure: cache_dir/ceval___ceval-exam/subject/version/hash/*.arrow
     """
-    split_names = (
-        ["test"] if split == "test" else ["val"] if split == "val" else ["val", "test"]
-    )
+    records = []
 
-    base = os.path.join(cache_dir, "ceval___ceval-exam", subject_name)
-    if os.path.isdir(base):
-        records = []
-        for root, _, files in os.walk(base):
-            for fname in files:
-                if not fname.endswith(".arrow"):
+    # ===== Try HuggingFace structure first (ceval___ceval-exam/) =====
+    hf_base = os.path.join(cache_dir, "ceval___ceval-exam", subject_name)
+    if os.path.isdir(hf_base):
+        # Walk through version directories (0.0.0/, etc.)
+        for version_dir in os.listdir(hf_base):
+            version_path = os.path.join(hf_base, version_dir)
+            if not os.path.isdir(version_path):
+                continue
+
+            # Walk through hash directories
+            for hash_dir in os.listdir(version_path):
+                hash_path = os.path.join(version_path, hash_dir)
+                if not os.path.isdir(hash_path):
                     continue
-                lower = fname.lower()
-                if split == "test" and "test" not in lower:
-                    continue
-                if split == "val" and not any(
-                    x in lower for x in ["val", "validation", "dev"]
-                ):
-                    continue
-                if split == "all" and not any(
-                    x in lower for x in ["val", "validation", "dev", "test"]
-                ):
-                    continue
-                try:
-                    ds = Dataset.from_file(os.path.join(root, fname))
-                    records.extend(ds.to_list())
-                except Exception:
-                    continue
+
+                # Look for arrow files in the hash directory
+                for fname in os.listdir(hash_path):
+                    if not fname.endswith(".arrow"):
+                        continue
+
+                    # Determine split from filename
+                    fname_lower = fname.lower()
+                    if "test" in fname_lower:
+                        file_split = "test"
+                    elif "val" in fname_lower:
+                        file_split = "val"
+                    elif "dev" in fname_lower:
+                        file_split = "dev"
+                    else:
+                        continue
+
+                    # Check if this split should be included
+                    if (
+                        split == "all"
+                        or file_split == split
+                        or (split == "val" and file_split == "dev")
+                    ):
+                        try:
+                            ds = Dataset.from_file(os.path.join(hash_path, fname))
+                            records.extend(ds.to_list())
+                            print(
+                                f"Loaded from HuggingFace cache: {os.path.join(hash_path, fname)}"
+                            )
+                        except Exception as e:
+                            print(f"Warning: Could not load {fname}: {e}")
+                            continue
+
         if records:
+            print(
+                f"Total loaded {len(records)} samples from HuggingFace structure for {subject_name}"
+            )
             return records
 
-    # If cache_dir provided and nothing loaded, fail without network
+    # ===== Try simplified structure next (ceval/) =====
+    simplified_base = os.path.join(cache_dir, "ceval", subject_name)
+    if os.path.isdir(simplified_base):
+        # Determine which splits to load
+        if split == "all":
+            split_dirs = ["test", "val"]
+        else:
+            split_dirs = [split]
+
+        for split_name in split_dirs:
+            split_path = os.path.join(simplified_base, split_name)
+            if os.path.isdir(split_path):
+                for fname in os.listdir(split_path):
+                    if not fname.endswith(".arrow"):
+                        continue
+                    try:
+                        ds = Dataset.from_file(os.path.join(split_path, fname))
+                        records.extend(ds.to_list())
+                        print(
+                            f"Loaded from simplified cache: {os.path.join(split_path, fname)}"
+                        )
+                    except Exception as e:
+                        print(f"Warning: Could not load {fname}: {e}")
+                        continue
+
+        if records:
+            print(
+                f"Total loaded {len(records)} samples from simplified structure for {subject_name}"
+            )
+            return records
+
+    # If neither structure worked
     raise FileNotFoundError(
-        f"CEval cached data not found for subject '{subject_name}' with splits {split_names}"
+        f"CEval cached data not found for subject '{subject_name}' with split '{split}'. "
+        f"Looked in:\n  HuggingFace: {os.path.join(cache_dir, 'ceval___ceval-exam', subject_name)}\n"
+        f"  Simplified: {os.path.join(cache_dir, 'ceval', subject_name)}"
     )
 
 
 def _load_mmlu_from_cache(cache_dir, subject_name, split, mmlu_subjects):
     """
     Load MMLU data from local cache avoiding network calls.
-    Scans cached Arrow files under cache_dir/cais___mmlu and filters by split.
+    Handles both:
+    1. Simplified structure: cache_dir/mmlu/subject/split/*.arrow
+    2. HuggingFace structure: cache_dir/cais___mmlu/subject/version/hash/*.arrow
     """
 
     def load_one(subj):
-        split_names = (
-            ["test"]
-            if split == "test"
-            else (
-                ["validation", "dev"]
-                if split == "val"
-                else ["validation", "dev", "test"]
-            )
-        )
-
-        base = os.path.join(cache_dir, "cais___mmlu", subj)
-        if not os.path.isdir(base):
-            raise FileNotFoundError(f"MMLU cache dir not found: {base}")
-
         records = []
-        for root, _, files in os.walk(base):
-            for fname in files:
-                if not fname.endswith(".arrow"):
+
+        # ===== Try HuggingFace structure first (cais___mmlu/) =====
+        hf_base = os.path.join(cache_dir, "cais___mmlu", subj)
+        if os.path.isdir(hf_base):
+            # Walk through version directories (0.0.0/, etc.)
+            for version_dir in os.listdir(hf_base):
+                version_path = os.path.join(hf_base, version_dir)
+                if not os.path.isdir(version_path):
                     continue
-                lower = fname.lower()
-                if split == "test" and "test" not in lower:
-                    continue
-                if split == "val" and not any(
-                    x in lower for x in ["validation", "dev"]
-                ):
-                    continue
-                if split == "all" and not any(
-                    x in lower for x in ["validation", "dev", "test"]
-                ):
-                    continue
-                try:
-                    ds = Dataset.from_file(os.path.join(root, fname))
-                    records.extend(ds.to_list())
-                except Exception:
-                    continue
-        if records:
-            return records
+
+                # Walk through hash directories
+                for hash_dir in os.listdir(version_path):
+                    hash_path = os.path.join(version_path, hash_dir)
+                    if not os.path.isdir(hash_path):
+                        continue
+
+                    # Look for arrow files in the hash directory
+                    for fname in os.listdir(hash_path):
+                        if not fname.endswith(".arrow"):
+                            continue
+
+                        # Determine split from filename
+                        fname_lower = fname.lower()
+                        if "test" in fname_lower:
+                            file_split = "test"
+                        elif "validation" in fname_lower:
+                            file_split = "validation"
+                        elif "dev" in fname_lower:
+                            file_split = "dev"
+                        else:
+                            continue
+
+                        # Check if this split should be included
+                        if split == "all":
+                            include = True
+                        elif split == "test":
+                            include = file_split == "test"
+                        else:  # val
+                            include = file_split in ["validation", "dev"]
+
+                        if include:
+                            try:
+                                ds = Dataset.from_file(os.path.join(hash_path, fname))
+                                records.extend(ds.to_list())
+                                print(
+                                    f"Loaded from HuggingFace cache: {os.path.join(hash_path, fname)}"
+                                )
+                            except Exception as e:
+                                print(f"Warning: Could not load {fname}: {e}")
+                                continue
+
+            if records:
+                print(
+                    f"Total loaded {len(records)} samples from HuggingFace structure for {subj}"
+                )
+                return records
+
+        # ===== Try simplified structure next (mmlu/) =====
+        simplified_base = os.path.join(cache_dir, "mmlu", subj)
+        if os.path.isdir(simplified_base):
+            # Determine which splits to load
+            if split == "all":
+                split_dirs = ["test", "validation", "dev"]
+            elif split == "test":
+                split_dirs = ["test"]
+            else:  # val
+                split_dirs = ["validation", "dev"]
+
+            for split_name in split_dirs:
+                split_path = os.path.join(simplified_base, split_name)
+                if os.path.isdir(split_path):
+                    for fname in os.listdir(split_path):
+                        if not fname.endswith(".arrow"):
+                            continue
+                        try:
+                            ds = Dataset.from_file(os.path.join(split_path, fname))
+                            records.extend(ds.to_list())
+                            print(
+                                f"Loaded from simplified cache: {os.path.join(split_path, fname)}"
+                            )
+                        except Exception as e:
+                            print(f"Warning: Could not load {fname}: {e}")
+                            continue
+
+            if records:
+                print(
+                    f"Total loaded {len(records)} samples from simplified structure for {subj}"
+                )
+                return records
+
         raise FileNotFoundError(
-            f"MMLU cached data not found for subject '{subj}' with splits {split_names}"
+            f"MMLU cached data not found for subject '{subj}' with split '{split}'. "
+            f"Looked in:\n  HuggingFace: {os.path.join(cache_dir, 'cais___mmlu', subj)}\n"
+            f"  Simplified: {simplified_base}"
         )
 
     if subject_name == "all":
-        # Use hardcoded list of MMLU subjects, excluding "all"
         all_samples = []
         for subj in mmlu_subjects:
             try:
-                all_samples.extend(load_one(subj))
-            except FileNotFoundError:
+                samples = load_one(subj)
+                all_samples.extend(samples)
+                print(f"Loaded {len(samples)} samples for subject: {subj}")
+            except FileNotFoundError as e:
+                print(f"Warning: {e}")
                 continue
+
         if not all_samples:
             raise FileNotFoundError(
                 f"No MMLU cached data found for any subject. Please ensure datasets are cached."
             )
+        print(f"Total loaded {len(all_samples)} samples across all MMLU subjects")
         return all_samples, "all"
 
     return load_one(subject_name), subject_name
