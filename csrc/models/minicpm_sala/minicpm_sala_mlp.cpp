@@ -21,9 +21,8 @@ infinicore::Tensor MiniCPMSALAMLP::forward(const infinicore::Tensor &x) const {
     auto gate = gate_proj_->forward(x_mut);
     auto up = up_proj_->forward(x_mut);
 
-    // SwiGLU: silu(gate) * up
-    infinicore::op::silu_(gate, gate);
-    auto act = infinicore::op::mul(gate, up);
+    // SwiGLU: silu(gate) * up — fused single kernel (swiglu(a,b) = a*b*sigmoid(b) => swiglu(up,gate))
+    auto act = infinicore::op::swiglu(up, gate);
 
     auto act_mut = act;
     return down_proj_->forward(act_mut);

@@ -63,6 +63,27 @@ public:
            const infinicore::Tensor &v,
            const infinicore::Tensor &past_sequence_lengths);
 
+    /**
+     * @brief Get KV cache tensors for a layer (views).
+     *
+     * @return (k_cache_layer, v_cache_layer)
+     *         k_cache_layer: [batch, num_rank_k_heads, max_cache_len, k_dim]
+     *         v_cache_layer: [batch, num_rank_v_heads, max_cache_len, v_dim]
+     */
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    get_layer_kv(size_t layer_idx);
+
+    /**
+     * @brief Get KV cache tensors for a layer in seq-major layout (views).
+     *
+     * This layout matches InfLLM-v2 kvcache expectation for dense cache:
+     *   k/v: [batch, max_cache_len, num_rank_kv_heads, dim]
+     *
+     * @return (k_cache_layer, v_cache_layer)
+     */
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    get_layer_kv_seq_major(size_t layer_idx);
+
     ~StaticKVCache() override = default;
 
 private:
@@ -80,6 +101,13 @@ private:
 
     // [num_layers, max_batch, num_rank_v_heads, max_cache_len, v_dim]
     infinicore::Tensor v_caches_;
+
+    // Seq-major caches for dense kvcache kernels:
+    // [num_layers, max_batch, max_cache_len, num_rank_k_heads, k_dim]
+    infinicore::Tensor k_caches_seq_major_;
+
+    // [num_layers, max_batch, max_cache_len, num_rank_v_heads, v_dim]
+    infinicore::Tensor v_caches_seq_major_;
 };
 
 class PagedKVCacheConfig final : public CacheConfig {

@@ -50,7 +50,11 @@ private:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     engine::distributed::RankInfo rank_info_;
     backends::AttentionBackend attention_backend_;
-    std::shared_ptr<cache::Cache> kv_cache_;
+    // MiniCPM-SALA is hybrid: minicpm4 vs lightning layers can have different KV shapes.
+    // Use two StaticKVCache instances to avoid per-layer padding/copies during long prefill.
+    std::shared_ptr<cache::StaticKVCache> kv_cache_minicpm4_;
+    std::shared_ptr<cache::StaticKVCache> kv_cache_lightning_;
+    std::vector<std::string> mixer_types_;
     infinicore::Device compute_device_;
 
     size_t hidden_size_;

@@ -74,6 +74,26 @@ StaticKVCache::StaticKVCache(
          v_dim_},
         dtype_,
         rank_info.device);
+
+    // Allocate seq-major KV caches (for kernels that expect [B, T, H, D]).
+    // NOTE: These buffers are fully written by `update()` for the used prefix length.
+    // Zero-initializing large long-context caches can be extremely expensive and launch-bound.
+    k_caches_seq_major_ = infinicore::Tensor::empty(
+        {rank_num_layers_,
+         rank_batch_size_,
+         cache_len_,
+         num_rank_k_heads_,
+         k_dim_},
+        dtype_,
+        rank_info.device);
+    v_caches_seq_major_ = infinicore::Tensor::empty(
+        {rank_num_layers_,
+         rank_batch_size_,
+         cache_len_,
+         num_rank_v_heads_,
+         v_dim_},
+        dtype_,
+        rank_info.device);
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor>
@@ -90,6 +110,8 @@ StaticKVCache::update(size_t layer_idx,
 
     auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
     auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
+    auto k_cache_layer_seq = k_caches_seq_major_->narrow({{0, layer_idx, 1}})->squeeze(0);
+    auto v_cache_layer_seq = v_caches_seq_major_->narrow({{0, layer_idx, 1}})->squeeze(0);
 
     auto device = k_cache_layer->device();
 
@@ -112,6 +134,34 @@ StaticKVCache::update(size_t layer_idx,
     v_cache_update->copy_from(v);
 #endif
 
+    // Always maintain the seq-major caches as well (used by InfLLM-v2 kvcache).
+    // k/v are [B, H, S, D] -> [B, S, H, D]
+    size_t cache_pos2 = reinterpret_cast<int32_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
+    auto result_len2 = cache_pos2 + update_len;
+    ASSERT(result_len2 <= cache_len_);
+    auto k_seq_update = k_cache_layer_seq->narrow({{1, cache_pos2, update_len}});
+    auto v_seq_update = v_cache_layer_seq->narrow({{1, cache_pos2, update_len}});
+    auto k_bshd = k->permute({0, 2, 1, 3})->contiguous();
+    auto v_bshd = v->permute({0, 2, 1, 3})->contiguous();
+    k_seq_update->copy_from(k_bshd);
+    v_seq_update->copy_from(v_bshd);
+
+    return {k_cache_layer, v_cache_layer};
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+StaticKVCache::get_layer_kv(size_t layer_idx) {
+    ASSERT(layer_idx < rank_num_layers_);
+    auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
+    auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
+    return {k_cache_layer, v_cache_layer};
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+StaticKVCache::get_layer_kv_seq_major(size_t layer_idx) {
+    ASSERT(layer_idx < rank_num_layers_);
+    auto k_cache_layer = k_caches_seq_major_->narrow({{0, layer_idx, 1}})->squeeze(0);
+    auto v_cache_layer = v_caches_seq_major_->narrow({{0, layer_idx, 1}})->squeeze(0);
     return {k_cache_layer, v_cache_layer};
 }
 

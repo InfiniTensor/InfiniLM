@@ -1,38 +1,21 @@
 #include "minicpm_sala_attention.hpp"
 
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/infllmv2_attention.hpp"
+#include "infinicore/ops/simple_gla_attention.hpp"
+#include "infinicore/ops/simple_gla_prefill.hpp"
+#include "../debug_utils/tensor_utils.hpp"
 
 #include <cmath>
 #include <cstdlib>
+#include <dlfcn.h>
 #include <fstream>
-#include <chrono>
 #include <stdexcept>
 #include <vector>
 
 namespace infinilm::models::minicpm_sala {
 
 namespace {
-static void dump_tensor_f32(const infinicore::Tensor &t, const char *path) {
-    if (!path || !std::getenv("INFINI_DEBUG_ATTN_DUMP")) return;
-    try {
-        auto cpu = t->to(infinicore::Device::cpu());
-        const size_t n = cpu->numel();
-        const auto dt = cpu->dtype();
-        std::vector<float> buf(n);
-        if (dt == infinicore::DataType::BF16) {
-            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu->data());
-            for (size_t i = 0; i < n; ++i) {
-                uint32_t u = static_cast<uint32_t>(p[i]) << 16;
-                buf[i] = *reinterpret_cast<const float *>(&u);
-            }
-        } else if (dt == infinicore::DataType::F32) {
-            const float *p = reinterpret_cast<const float *>(cpu->data());
-            for (size_t i = 0; i < n; ++i) buf[i] = p[i];
-        } else return;
-        std::ofstream f(path, std::ios::binary);
-        if (f) f.write(reinterpret_cast<const char *>(buf.data()), n * sizeof(float));
-    } catch (...) {}
-}
 // Same as HF MiniCPM-SALA _build_slope_tensor (used for Simple GLA decay).
 std::vector<float> build_slope_tensor(size_t n) {
     auto get_slopes_power_of_2 = [](size_t n) -> std::vector<float> {
@@ -59,7 +42,152 @@ std::vector<float> build_slope_tensor(size_t n) {
     }
     return first;
 }
+
+inline void log_vram_trace_if_enabled(const char *tag,
+                                      size_t layer_idx,
+                                      size_t cache_pos,
+                                      size_t total_seq_len,
+                                      size_t seq_len) {
+    const char *env = std::getenv("MINICPM_SALA_VRAM_TRACE");
+    if (!env || env[0] == '\0' || env[0] == '0') return;
+    static bool banner_printed = false;
+    if (!banner_printed) {
+        banner_printed = true;
+        fprintf(stderr, "[minicpm_sala][vram] tracing enabled (MINICPM_SALA_VRAM_TRACE=%s)\n", env);
+        fflush(stderr);
+    }
+
+    // Query VRAM via CUDA driver API without CUDA headers/toolkit.
+    using CUresult = int;
+    using CUdevice = int;
+    using CUcontext = void *;
+    using size_t_ = size_t;
+    constexpr CUresult CUDA_SUCCESS = 0;
+
+    using PFN_cuInit = CUresult (*)(unsigned int);
+    using PFN_cuMemGetInfo = CUresult (*)(size_t_ *, size_t_ *);
+    using PFN_cuGetErrorString = CUresult (*)(CUresult, const char **);
+
+    static void *lib = nullptr;
+    static PFN_cuInit p_cuInit = nullptr;
+    static PFN_cuMemGetInfo p_cuMemGetInfo = nullptr;
+    static PFN_cuGetErrorString p_cuGetErrorString = nullptr;
+    static bool init_attempted = false;
+    static bool init_ok = false;
+
+    if (!init_attempted) {
+        init_attempted = true;
+        lib = dlopen("libcuda.so.1", RTLD_LAZY | RTLD_LOCAL);
+        if (lib) {
+            p_cuInit = reinterpret_cast<PFN_cuInit>(dlsym(lib, "cuInit"));
+            p_cuMemGetInfo = reinterpret_cast<PFN_cuMemGetInfo>(dlsym(lib, "cuMemGetInfo_v2"));
+            if (!p_cuMemGetInfo) {
+                p_cuMemGetInfo = reinterpret_cast<PFN_cuMemGetInfo>(dlsym(lib, "cuMemGetInfo"));
+            }
+            p_cuGetErrorString = reinterpret_cast<PFN_cuGetErrorString>(dlsym(lib, "cuGetErrorString"));
+            if (p_cuInit && p_cuMemGetInfo) {
+                CUresult st = p_cuInit(0);
+                init_ok = (st == CUDA_SUCCESS);
+                if (!init_ok && p_cuGetErrorString) {
+                    const char *msg = nullptr;
+                    p_cuGetErrorString(st, &msg);
+                    fprintf(stderr, "[minicpm_sala][vram] cuInit failed: %s\n", msg ? msg : "unknown");
+                    fflush(stderr);
+                }
+            }
+        }
+        if (!lib || !p_cuInit || !p_cuMemGetInfo) {
+            fprintf(stderr, "[minicpm_sala][vram] could not resolve CUDA driver symbols (libcuda.so.1)\n");
+            fflush(stderr);
+        }
+    }
+
+    if (!init_ok || !p_cuMemGetInfo) return;
+    size_t free_b = 0;
+    size_t total_b = 0;
+    CUresult st = p_cuMemGetInfo(&free_b, &total_b);
+    if (st != CUDA_SUCCESS || total_b == 0) return;
+    const size_t used_b = total_b - free_b;
+    const double used_mib = static_cast<double>(used_b) / (1024.0 * 1024.0);
+    const double free_mib = static_cast<double>(free_b) / (1024.0 * 1024.0);
+    fprintf(stderr,
+            "[minicpm_sala][vram] layer=%zu cache_pos=%zu total_seq_len=%zu seq_len=%zu tag=%s used_mib=%.1f free_mib=%.1f\n",
+            layer_idx, cache_pos, total_seq_len, seq_len, (tag ? tag : "null"), used_mib, free_mib);
+    fflush(stderr);
+}
 } // namespace
+
+static void log_tensor_stats_to_file_if_enabled(const infinicore::Tensor &tensor,
+                                                const char *tag,
+                                                size_t layer_idx,
+                                                size_t cache_pos,
+                                                size_t total_seq_len,
+                                                size_t seq_len) {
+    const char *log_path = std::getenv("INFINI_DEBUG_LOG");
+    if (!log_path || !tag) return;
+    try {
+        auto cpu_t = tensor->to(infinicore::Device::cpu());
+        const size_t n = cpu_t->numel();
+        const auto dt = cpu_t->dtype();
+        const auto &shp = cpu_t->shape();
+
+        std::ofstream f(log_path, std::ios::app);
+        if (!f) return;
+        f << "[minicpm_sala][dump] layer=" << layer_idx
+          << " cache_pos=" << cache_pos
+          << " total_seq_len=" << total_seq_len
+          << " seq_len=" << seq_len
+          << " tag=" << tag
+          << " shape=[";
+        for (size_t i = 0; i < shp.size(); ++i) {
+            if (i) f << ",";
+            f << shp[i];
+        }
+        f << "] dtype=" << static_cast<int>(dt) << " numel=" << n << "\n";
+
+        if (n == 0) return;
+        const size_t k = std::min<size_t>(n, 16);
+        std::vector<float> vals(n);
+
+        if (dt == infinicore::DataType::BF16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t u = static_cast<uint32_t>(p[i]) << 16;
+                vals[i] = *reinterpret_cast<float *>(&u);
+            }
+        } else if (dt == infinicore::DataType::F16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t u = (p[i] & 0x8000) << 16 | ((p[i] & 0x7fff) + (127 - 15)) << 23 | (p[i] & 0x03ff) << 13;
+                vals[i] = *reinterpret_cast<float *>(&u);
+            }
+        } else if (dt == infinicore::DataType::F32) {
+            const float *p = reinterpret_cast<const float *>(cpu_t->data());
+            for (size_t i = 0; i < n; ++i) vals[i] = p[i];
+        } else {
+            f << "  (stats skipped for dtype)\n";
+            return;
+        }
+
+        float mn = vals[0], mx = vals[0];
+        double sum = 0.0;
+        for (float v : vals) {
+            mn = std::min(mn, v);
+            mx = std::max(mx, v);
+            sum += static_cast<double>(v);
+        }
+        f << "  min=" << mn << " max=" << mx << " mean=" << (sum / (double)n) << "\n";
+        f << "  first[" << k << "]:";
+        for (size_t i = 0; i < k; ++i) f << " " << vals[i];
+        f << "\n";
+        if (n > k) {
+            f << "  last[" << k << "]:";
+            for (size_t i = n - k; i < n; ++i) f << " " << vals[i];
+            f << "\n";
+        }
+    } catch (...) {
+    }
+}
 
 MiniCPMSALAAttention::MiniCPMSALAAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                            const infinicore::Device &device,
@@ -116,7 +244,7 @@ MiniCPMSALAAttention::MiniCPMSALAAttention(std::shared_ptr<infinilm::config::Mod
         INFINICORE_NN_MODULE_INIT(o_norm, hidden_size_, model_config_->get<double>("rms_norm_eps"), dtype, device);
         INFINICORE_NN_MODULE_INIT(z_proj, hidden_size_, hidden_size_, false, dtype, device);
     }
-    // Simple GLA decay for lightning path (and when MINICPM_SALA_FORCE_ALL_LIGHTNING): g_gamma = _build_slope_tensor * -1.
+    // Simple GLA decay for lightning path: g_gamma = _build_slope_tensor * -1.
     std::vector<float> slopes = build_slope_tensor(num_attention_heads_);
     auto g_cpu = infinicore::Tensor::empty(
         {num_attention_heads_}, infinicore::DataType::F32, infinicore::Device::cpu());
@@ -131,9 +259,51 @@ void MiniCPMSALAAttention::set_rotary_emb(const std::shared_ptr<infinicore::nn::
 }
 
 void MiniCPMSALAAttention::reset_cache() {
-    k_cache_ = infinicore::Tensor();
-    v_cache_ = infinicore::Tensor();
-    kv_capacity_ = 0;
+    // KV state is maintained by the shared engine cache (StaticKVCache).
+}
+
+static void dump_tensor_brief_append(const infinicore::Tensor &t, const char *name, const char *path) {
+    if (!path) return;
+    try {
+        auto cpu_t = t->to(infinicore::Device::cpu());
+        const auto &shp = cpu_t->shape();
+        const auto dt = cpu_t->dtype();
+        std::ofstream f(path, std::ios::app);
+        if (!f) return;
+        f << name << " shape=[";
+        for (size_t i = 0; i < shp.size(); ++i) {
+            if (i) f << ",";
+            f << shp[i];
+        }
+        f << "] dtype=" << static_cast<int>(dt) << "\n";
+
+        const size_t n = cpu_t->numel();
+        const size_t k = std::min<size_t>(n, 16);
+        std::vector<float> buf(k);
+        if (dt == infinicore::DataType::BF16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
+            for (size_t i = 0; i < k; ++i) {
+                uint32_t u = static_cast<uint32_t>(p[i]) << 16;
+                buf[i] = *reinterpret_cast<float *>(&u);
+            }
+        } else if (dt == infinicore::DataType::F16) {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
+            for (size_t i = 0; i < k; ++i) {
+                uint32_t u = (p[i] & 0x8000) << 16 | ((p[i] & 0x7fff) + (127 - 15)) << 23 | (p[i] & 0x03ff) << 13;
+                buf[i] = *reinterpret_cast<float *>(&u);
+            }
+        } else if (dt == infinicore::DataType::F32) {
+            const float *p = reinterpret_cast<const float *>(cpu_t->data());
+            for (size_t i = 0; i < k; ++i) buf[i] = p[i];
+        } else {
+            f << "  (brief dump skipped for dtype)\n";
+            return;
+        }
+        f << "  first[" << k << "]:";
+        for (size_t i = 0; i < k; ++i) f << " " << buf[i];
+        f << "\n";
+    } catch (...) {
+    }
 }
 
 infinicore::Tensor MiniCPMSALAAttention::forward(const infinicore::Tensor &hidden_states,
@@ -145,64 +315,31 @@ infinicore::Tensor MiniCPMSALAAttention::forward(const infinicore::Tensor &hidde
                                                  std::optional<infinicore::Tensor> cu_seqlens,
                                                  std::optional<infinicore::Tensor> block_tables,
                                                  std::optional<infinicore::Tensor> slot_mapping) const {
-    (void)kv_cache;
     (void)input_offsets;
-    (void)cu_seqlens;
     (void)block_tables;
     (void)slot_mapping;
-    return forward_dense_(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths);
+    return forward_dense_(hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, cu_seqlens);
 }
 
 infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor &hidden_states,
                                                        const infinicore::Tensor &position_ids,
                                                        std::shared_ptr<infinilm::cache::Cache> kv_cache,
                                                        std::optional<infinicore::Tensor> past_sequence_lengths,
-                                                       std::optional<infinicore::Tensor> total_sequence_lengths) const {
+                                                       std::optional<infinicore::Tensor> total_sequence_lengths,
+                                                       std::optional<infinicore::Tensor> cu_seqlens) const {
     // Input: [B, S, H]
     auto shape = hidden_states->shape();
     const size_t batch_size = shape[0];
     const size_t seq_len = shape[1];
 
-    // #region agent log
-    if (layer_idx_ == 0) {
-        const char *log_path = std::getenv("INFINI_DEBUG_LOG");
-        if (log_path) {
-            std::ofstream log(log_path, std::ios::app);
-            if (log) {
-                const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                        std::chrono::system_clock::now().time_since_epoch())
-                                        .count();
-                log << "{\"sessionId\":\"9146ea\",\"hypothesisId\":\"H3\",\"location\":\"minicpm_sala_attention.cpp:forward_dense_entry\",\"message\":\"Inf layer0 attn env/config\",\"data\":{"
-                    << "\"INFINI_DEBUG_ATTN_DUMP\":" << (std::getenv("INFINI_DEBUG_ATTN_DUMP") ? 1 : 0) << ","
-                    << "\"use_rope\":" << (use_rope_ ? 1 : 0) << ","
-                    << "\"use_qk_norm\":" << (use_qk_norm_ ? 1 : 0) << ","
-                    << "\"use_output_gate\":" << (use_output_gate_ ? 1 : 0) << ","
-                    << "\"use_output_norm\":" << (use_output_norm_ ? 1 : 0) << ","
-                    << "\"is_sparse_layer\":" << (is_sparse_layer_ ? 1 : 0) << ","
-                    << "\"n_head\":" << num_attention_heads_ << ","
-                    << "\"n_kv\":" << num_key_value_heads_ << ","
-                    << "\"head_dim\":" << head_dim_ << ","
-                    << "\"scaling\":" << scaling_ << ","
-                    << "\"batch\":" << batch_size << ","
-                    << "\"seqlen\":" << seq_len
-                    << "},\"timestamp\":" << now_ms << "}\n";
-            }
-        }
-    }
-    // #endregion
-
     auto hs_mut = hidden_states;
     auto q = q_proj_->forward(hs_mut);
     auto k = k_proj_->forward(hs_mut);
     auto v = v_proj_->forward(hs_mut);
-    q = q->contiguous();
-    k = k->contiguous();
-    v = v->contiguous();
-
-    // Reshape: [B, S, n_head, head_dim]
-    auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
-    auto k_reshaped = k->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
-    auto v_reshaped = v->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
+    // View requires contiguous layout; only call contiguous when needed (proj output often already contiguous).
+    auto q_reshaped = q->contiguous()->view({batch_size, seq_len, num_attention_heads_, head_dim_});
+    auto k_reshaped = k->contiguous()->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
+    auto v_reshaped = v->contiguous()->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
 
     if (use_qk_norm_) {
         // RMSNorm op only supports 2D/3D; normalize over head_dim with a 3D view.
@@ -237,60 +374,58 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
 
     // Compute dense attention (GQA): reshape as LlamaAttention does
     size_t total_seq_len = seq_len;
-    if (total_sequence_lengths.has_value()) {
+    size_t cache_pos = 0;
+    const bool has_cache_meta = past_sequence_lengths.has_value() && total_sequence_lengths.has_value();
+    if (has_cache_meta) {
+        // Single device-to-host sync: read both scalars (engine could pass these as scalars later).
+        auto past_cpu = past_sequence_lengths.value()->to(infinicore::Device::cpu());
+        auto total_cpu = total_sequence_lengths.value()->to(infinicore::Device::cpu());
+        cache_pos = reinterpret_cast<int32_t *>(past_cpu->data())[0];
+        size_t total_seq_len_raw = reinterpret_cast<int32_t *>(total_cpu->data())[0];
+        total_seq_len = total_seq_len_raw;
+        // Some engine call sites pass `total_sequence_lengths` as the *input* length (e.g. 1 for decode),
+        // while `past_sequence_lengths` is the cached KV length. Attention needs total KV length.
+        // Use KV semantics: total_kv_len = cache_pos + current seq_len.
+        total_seq_len = cache_pos + seq_len;
+        if (const char *dump_env = std::getenv("MINICPM_SALA_DUMP_DECODE")) {
+            if (dump_env[0] != '\0' && dump_env[0] != '0') {
+                if (const char *log_path = std::getenv("INFINI_DEBUG_LOG")) {
+                    try {
+                        std::ofstream f(log_path, std::ios::app);
+                        if (f) {
+                            f << "[minicpm_sala][kv_len_fix] layer=" << layer_idx_
+                              << " cache_pos=" << cache_pos
+                              << " seq_len=" << seq_len
+                              << " total_seq_len_raw=" << total_seq_len_raw
+                              << " total_seq_len_used=" << total_seq_len
+                              << "\n";
+                        }
+                    } catch (...) {
+                    }
+                }
+            }
+        }
+    } else if (total_sequence_lengths.has_value()) {
         total_seq_len = reinterpret_cast<int32_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
     }
 
-    auto q_perm = q_reshaped->permute({0, 2, 1, 3})->contiguous(); // [B, n_q, S, D]
     auto k_permuted = k_reshaped->permute({0, 2, 1, 3})->contiguous(); // [B, n_kv, S, D]
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3})->contiguous(); // [B, n_kv, S, D]
 
-    // Dense fallback KV cache (per-layer).
-    // The engine passes only the newly generated token on decode steps (seq_len=1),
-    // so we must accumulate K/V to attend over the full prefix.
+    // HF-like dense KV caching using the engine-provided StaticKVCache.
     infinicore::Tensor k_total = k_permuted;
     infinicore::Tensor v_total = v_permuted;
-    if (past_sequence_lengths.has_value() && total_sequence_lengths.has_value()) {
-        size_t cache_pos = reinterpret_cast<int32_t *>(
-            past_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
-        const size_t update_len = seq_len;
-        const size_t max_cache_len = model_config_->get<size_t>("max_position_embeddings");
-
-        // Grow-on-demand to avoid allocating huge max_position_embeddings upfront.
-        const size_t needed_len = std::max(total_seq_len, cache_pos + update_len);
-        if (needed_len > max_cache_len) {
-            throw std::runtime_error("MiniCPMSALAAttention: needed KV length exceeds max_position_embeddings");
+    std::shared_ptr<cache::StaticKVCache> static_kv_cache = nullptr;
+    if (kv_cache != nullptr && has_cache_meta) {
+        static_kv_cache = std::dynamic_pointer_cast<cache::StaticKVCache>(kv_cache);
+        if (!static_kv_cache) {
+            throw std::runtime_error("MiniCPMSALAAttention: Unsupported cache type (expected StaticKVCache)");
         }
-
-        if (kv_capacity_ < needed_len) {
-            size_t new_cap = (kv_capacity_ == 0) ? 128 : kv_capacity_;
-            while (new_cap < needed_len) new_cap *= 2;
-            new_cap = std::min(new_cap, max_cache_len);
-
-            auto new_k = infinicore::Tensor::empty({batch_size, num_key_value_heads_, new_cap, head_dim_},
-                                                   k_permuted->dtype(), k_permuted->device());
-            auto new_v = infinicore::Tensor::empty({batch_size, num_key_value_heads_, new_cap, head_dim_},
-                                                   v_permuted->dtype(), v_permuted->device());
-
-            if (k_cache_ && v_cache_) {
-                auto k_dst = new_k->narrow({{2, 0, kv_capacity_}});
-                auto v_dst = new_v->narrow({{2, 0, kv_capacity_}});
-                k_dst->copy_from(k_cache_->narrow({{2, 0, kv_capacity_}}));
-                v_dst->copy_from(v_cache_->narrow({{2, 0, kv_capacity_}}));
-            }
-
-            k_cache_ = new_k;
-            v_cache_ = new_v;
-            kv_capacity_ = new_cap;
-        }
-
-        auto k_cache_update = k_cache_->narrow({{2, cache_pos, update_len}});
-        auto v_cache_update = v_cache_->narrow({{2, cache_pos, update_len}});
-        k_cache_update->copy_from(k_permuted);
-        v_cache_update->copy_from(v_permuted);
-
-        k_total = k_cache_;
-        v_total = v_cache_;
+        // Default behavior: update cache here. For minicpm4 decode we may override and let InfLLM-v2 update.
+        auto [k_cached, v_cached] = static_kv_cache->update(
+            layer_idx_, k_permuted, v_permuted, past_sequence_lengths.value());
+        k_total = k_cached;
+        v_total = v_cached;
     } else {
         // No cache metadata => treat as prefill-only.
         total_seq_len = seq_len;
@@ -303,9 +438,31 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
     k_total = k_total->narrow({{2, 0, total_seq_len}});
     v_total = v_total->narrow({{2, 0, total_seq_len}});
 
-    const bool force_all_lightning = std::getenv("MINICPM_SALA_FORCE_ALL_LIGHTNING") != nullptr;
+    // Debug marker to confirm which attention path is used at decode.
+    if (const char *dump_env = std::getenv("MINICPM_SALA_DUMP_DECODE")) {
+        if (dump_env[0] != '\0' && dump_env[0] != '0') {
+            if (const char *log_path = std::getenv("INFINI_DEBUG_LOG")) {
+                try {
+                    std::ofstream f(log_path, std::ios::app);
+                    if (f) {
+                        f << "[minicpm_sala][attn_enter] layer=" << layer_idx_
+                          << " is_sparse=" << (is_sparse_layer_ ? 1 : 0)
+                          << " has_cache_meta=" << (has_cache_meta ? 1 : 0)
+                          << " kv_cache_null=" << (kv_cache == nullptr ? 1 : 0)
+                          << " static_kv_cache_null=" << (static_kv_cache ? 0 : 1)
+                          << " cache_pos=" << cache_pos
+                          << " total_seq_len=" << total_seq_len
+                          << " seq_len=" << seq_len
+                          << "\n";
+                    }
+                } catch (...) {
+                }
+            }
+        }
+    }
+
     infinicore::Tensor attn_output;
-    if (!is_sparse_layer_ || force_all_lightning) {
+    if (!is_sparse_layer_) {
         // Lightning-attn: Simple GLA (HF-aligned), same as test/infinicore/ops/gla_attention.py.
         // simple_gla_attention(q,k,v,g_gamma,scale) expects [B, T, H, D]; g_gamma [H].
         const size_t n_h = num_attention_heads_;
@@ -314,36 +471,28 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
         infinicore::Tensor v_use = v_total;
         if (n_kv < n_h) {
             // Repeat KV heads to match n_h (same as HF repeat_kv / repeat_interleave).
-            // Use explicit copy instead of as_strided to avoid backend stride semantics issues.
+            // Use as_strided view then contiguous() so one copy instead of n_h narrow/copy_from calls.
             const size_t ngroup = n_h / n_kv;
-            k_use = infinicore::Tensor::empty(
-                {batch_size, n_h, total_seq_len, head_dim_}, k_total->dtype(), k_total->device());
-            v_use = infinicore::Tensor::empty(
-                {batch_size, n_h, total_seq_len, head_dim_}, v_total->dtype(), v_total->device());
-            for (size_t kv = 0; kv < n_kv; ++kv) {
-                for (size_t g = 0; g < ngroup; ++g) {
-                    const size_t h = kv * ngroup + g;
-                    k_use->narrow({{1, h, 1}})->copy_from(k_total->narrow({{1, kv, 1}}));
-                    v_use->narrow({{1, h, 1}})->copy_from(v_total->narrow({{1, kv, 1}}));
-                }
-            }
+            const std::vector<ptrdiff_t> repeat_strides = {
+                static_cast<ptrdiff_t>(n_kv * total_seq_len * head_dim_),
+                static_cast<ptrdiff_t>(total_seq_len * head_dim_),
+                0,
+                static_cast<ptrdiff_t>(head_dim_),
+                1,
+            };
+            k_use = k_total->as_strided(
+                         {batch_size, n_kv, ngroup, total_seq_len, head_dim_}, repeat_strides)
+                         ->contiguous()
+                         ->view({batch_size, n_h, total_seq_len, head_dim_});
+            v_use = v_total->as_strided(
+                         {batch_size, n_kv, ngroup, total_seq_len, head_dim_}, repeat_strides)
+                         ->contiguous()
+                         ->view({batch_size, n_h, total_seq_len, head_dim_});
         }
-        auto q_bthd = q_perm->view({batch_size, n_h, seq_len, head_dim_})
-                          ->permute({0, 2, 1, 3})
-                          ->contiguous(); // [B, S_q, H, D]
+        // GLA expects [B, S, H, D]. `q_reshaped` is already [B, S, H, D], so avoid permute+contiguous.
+        auto q_bthd = q_reshaped->contiguous(); // [B, S_q, H, D]
         auto k_bthd = k_use->permute({0, 2, 1, 3})->contiguous(); // [B, S_kv, H, D]
         auto v_bthd = v_use->permute({0, 2, 1, 3})->contiguous(); // [B, S_kv, H, D]
-        if (layer_idx_ == 0) {
-            dump_tensor_f32(q_bthd, "/tmp/inf_layer0_q.bin");
-            dump_tensor_f32(k_bthd, "/tmp/inf_layer0_k.bin");
-            dump_tensor_f32(v_bthd, "/tmp/inf_layer0_v.bin");
-            dump_tensor_f32(g_gamma_, "/tmp/inf_layer0_g_gamma.bin");
-        } else if (layer_idx_ == 1) {
-            dump_tensor_f32(q_bthd, "/tmp/inf_layer1_q.bin");
-            dump_tensor_f32(k_bthd, "/tmp/inf_layer1_k.bin");
-            dump_tensor_f32(v_bthd, "/tmp/inf_layer1_v.bin");
-            dump_tensor_f32(g_gamma_, "/tmp/inf_layer1_g_gamma.bin");
-        }
         infinicore::Tensor q_full;
         if (seq_len == total_seq_len) {
             q_full = q_bthd;
@@ -354,115 +503,193 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
             auto q_slot = q_full->narrow({{1, total_seq_len - seq_len, seq_len}});
             q_slot->copy_from(q_bthd);
         }
-        auto gla_out = infinicore::op::simple_gla_attention(q_full, k_bthd, v_bthd, g_gamma_, scaling_);
+        infinicore::Tensor gla_out;
+        // Fused prefill: naive kernel for head_dim<=64; chunked/tiled kernel for head_dim>64 (e.g. 128).
+        const bool use_fused_prefill = (seq_len == total_seq_len && batch_size == 1);
+        if (seq_len == total_seq_len && batch_size == 1) {
+            const char *dbg = std::getenv("INFINI_DEBUG_GLA_PREFILL");
+            if (dbg && dbg[0] != '\0' && dbg[0] != '0') {
+                static bool logged_gla_prefill = false;
+                if (!logged_gla_prefill) {
+                    logged_gla_prefill = true;
+                    if (use_fused_prefill) {
+                        fprintf(stderr, "[minicpm_sala] GLA prefill: using simple_gla_prefill (head_dim=%zu)\n", static_cast<size_t>(head_dim_));
+                    } else {
+                        fprintf(stderr, "[minicpm_sala] GLA prefill: using simple_gla_attention (head_dim=%zu)\n", static_cast<size_t>(head_dim_));
+                    }
+                }
+            }
+        }
+        if (use_fused_prefill) {
+            // Prefill fast path: fused kernel (naive for D<=64, chunked for D>64).
+            log_vram_trace_if_enabled("gla_prefill:before", layer_idx_, cache_pos, total_seq_len, seq_len);
+            gla_out = infinicore::op::simple_gla_prefill(q_full, k_bthd, v_bthd, g_gamma_, scaling_);
+            log_vram_trace_if_enabled("gla_prefill:after", layer_idx_, cache_pos, total_seq_len, seq_len);
+        } else {
+            gla_out = infinicore::op::simple_gla_attention(q_full, k_bthd, v_bthd, g_gamma_, scaling_);
+        }
         // gla_out [B, total_seq_len, H, D]; take last seq_len positions.
         auto out_slice = gla_out->narrow({{1, total_seq_len - seq_len, seq_len}});
         attn_output = out_slice->view({batch_size, seq_len, n_h * head_dim_});
     } else {
-        // Match HF MiniCPM4 dense attention semantics during alignment bring-up:
-        // repeat KV heads explicitly, then apply per-head causal attention.
-        const size_t ngroup = num_attention_heads_ / num_key_value_heads_;
-        auto q_contig = q_perm->contiguous();
-        auto k_contig = k_total->contiguous();
-        auto v_contig = v_total->contiguous();
+        // minicpm4 layers must use InfLLM-v2 attention (hard error if not available).
+        // NOTE: Lightning layers keep Simple GLA for correctness; only minicpm4 routes here.
+        try {
+            if (!total_sequence_lengths.has_value()) {
+                throw std::runtime_error(
+                    "MiniCPMSALAAttention(minicpm4): total_sequence_lengths is required for InfLLM-v2 path");
+            }
+            const auto cache_lens = total_sequence_lengths.value();
 
-        infinicore::Tensor k_repeated = k_contig;
-        infinicore::Tensor v_repeated = v_contig;
-        if (ngroup > 1) {
-            const std::vector<ptrdiff_t> repeated_kv_strides = {
-                static_cast<ptrdiff_t>(num_key_value_heads_ * total_seq_len * head_dim_),
-                static_cast<ptrdiff_t>(total_seq_len * head_dim_),
-                0,
-                static_cast<ptrdiff_t>(head_dim_),
-                1,
-            };
-            k_repeated = k_contig
-                             ->as_strided(
-                                 {batch_size, num_key_value_heads_, ngroup, total_seq_len, head_dim_},
-                                 repeated_kv_strides)
-                             ->contiguous()
-                             ->view({batch_size, num_attention_heads_, total_seq_len, head_dim_});
-            v_repeated = v_contig
-                             ->as_strided(
-                                 {batch_size, num_key_value_heads_, ngroup, total_seq_len, head_dim_},
-                                 repeated_kv_strides)
-                             ->contiguous()
-                             ->view({batch_size, num_attention_heads_, total_seq_len, head_dim_});
-        }
+            // Prefill should use InfLLM-v2 varlen; decode should use kvcache.
+            const bool is_prefill = (cache_pos == 0) && (seq_len == total_seq_len);
 
-        auto Q = q_contig->view({batch_size * num_attention_heads_, seq_len, head_dim_});
-        auto K = k_repeated->view({batch_size * num_attention_heads_, total_seq_len, head_dim_});
-        auto V = v_repeated->view({batch_size * num_attention_heads_, total_seq_len, head_dim_});
+            if (seq_len == total_seq_len || !static_kv_cache) {
+                // Prefill: use varlen attention over full prompt and update cache via StaticKVCache::update above.
+                if (batch_size != 1) {
+                    throw std::runtime_error("MiniCPMSALAAttention(minicpm4): varlen prefill path currently requires batch_size=1");
+                }
+                auto q_bshd = q_reshaped->contiguous();                     // [B, S, n_h, D]
+                auto k_btkd = k_total->permute({0, 2, 1, 3})->contiguous();  // [B, T, n_kv, D]
+                auto v_btkd = v_total->permute({0, 2, 1, 3})->contiguous();  // [B, T, n_kv, D]
+                auto q_var = q_bshd->view({static_cast<ptrdiff_t>(seq_len), static_cast<ptrdiff_t>(num_attention_heads_), static_cast<ptrdiff_t>(head_dim_)});
+                auto k_var = k_btkd->view({static_cast<ptrdiff_t>(total_seq_len), static_cast<ptrdiff_t>(num_key_value_heads_), static_cast<ptrdiff_t>(head_dim_)});
+                auto v_var = v_btkd->view({static_cast<ptrdiff_t>(total_seq_len), static_cast<ptrdiff_t>(num_key_value_heads_), static_cast<ptrdiff_t>(head_dim_)});
 
-        auto Kt = K->permute({0, 2, 1})->contiguous();
-        auto attn_weight = infinicore::op::matmul(Q, Kt, scaling_);
-        infinicore::op::causal_softmax_(attn_weight, attn_weight);
+                infinicore::Tensor cu_q = cu_seqlens.has_value() ? cu_seqlens.value() : infinicore::Tensor();
+                infinicore::Tensor cu_k = cu_seqlens.has_value() ? cu_seqlens.value() : infinicore::Tensor();
+                if (!cu_seqlens.has_value()) {
+                    auto cuq_cpu = infinicore::Tensor::empty({2}, infinicore::DataType::I32, infinicore::Device::cpu());
+                    auto cuk_cpu = infinicore::Tensor::empty({2}, infinicore::DataType::I32, infinicore::Device::cpu());
+                    reinterpret_cast<int32_t *>(cuq_cpu->data())[0] = 0;
+                    reinterpret_cast<int32_t *>(cuq_cpu->data())[1] = static_cast<int32_t>(seq_len);
+                    reinterpret_cast<int32_t *>(cuk_cpu->data())[0] = 0;
+                    reinterpret_cast<int32_t *>(cuk_cpu->data())[1] = static_cast<int32_t>(total_seq_len);
+                    cu_q = cuq_cpu->to(q_var->device());
+                    cu_k = cuk_cpu->to(q_var->device());
+                }
 
-        auto out = infinicore::op::matmul(attn_weight, V); // [B*n_head, S, D]
-        attn_output = out->view({batch_size, num_attention_heads_, seq_len, head_dim_})
-                           ->permute({0, 2, 1, 3})
-                           ->contiguous()
-                           ->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
-    }
+                auto out_var = infinicore::op::infllmv2_varlen(
+                    q_var, k_var, v_var,
+                    cu_q, cu_k,
+                    static_cast<int>(seq_len),
+                    static_cast<int>(total_seq_len),
+                    scaling_,
+                    /*causal=*/true);
+                attn_output = out_var->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
+            } else {
+                // Decode: use InfLLM-v2 varlen as a correctness-first path.
+                // We construct a 1-token varlen query and attend over the full KV prefix.
+                // This avoids potential issues in the kvcache kernel for certain GQA shapes.
+                if (batch_size != 1) {
+                    throw std::runtime_error("MiniCPMSALAAttention(minicpm4): varlen decode path currently requires batch_size=1");
+                }
+                auto q_bshd = q_reshaped->contiguous();                     // [B, S_q, n_h, D]
+                auto k_btkd = k_total->permute({0, 2, 1, 3})->contiguous();  // [B, T, n_kv, D]
+                auto v_btkd = v_total->permute({0, 2, 1, 3})->contiguous();  // [B, T, n_kv, D]
+                auto q_var = q_bshd->view({static_cast<ptrdiff_t>(seq_len), static_cast<ptrdiff_t>(num_attention_heads_), static_cast<ptrdiff_t>(head_dim_)});
+                auto k_var = k_btkd->view({static_cast<ptrdiff_t>(total_seq_len), static_cast<ptrdiff_t>(num_key_value_heads_), static_cast<ptrdiff_t>(head_dim_)});
+                auto v_var = v_btkd->view({static_cast<ptrdiff_t>(total_seq_len), static_cast<ptrdiff_t>(num_key_value_heads_), static_cast<ptrdiff_t>(head_dim_)});
 
-    // #region agent log
-    if (layer_idx_ < 2 && std::getenv("INFINI_DEBUG_ATTN_DUMP")) {
-        const char *log_path = std::getenv("INFINI_DEBUG_LOG");
-        if (log_path) {
-            auto dump_stats = [&](const infinicore::Tensor &t,
-                                  const char *msg,
-                                  const char *loc,
-                                  const char *bin_path) {
-                auto cpu_t = t->to(infinicore::Device::cpu());
-                const size_t n = cpu_t->numel();
-                const auto &shp = cpu_t->shape();
-                const auto dt = cpu_t->dtype();
-                std::vector<float> f32_buf(n);
-                if (dt == infinicore::DataType::BF16) {
-                    const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
-                    for (size_t i = 0; i < n; ++i) {
-                        uint32_t u = static_cast<uint32_t>(p[i]) << 16;
-                        f32_buf[i] = *reinterpret_cast<float *>(&u);
+                // cache_lens must be the current cache length BEFORE appending.
+                if (!past_sequence_lengths.has_value()) {
+                    throw std::runtime_error("MiniCPMSALAAttention(minicpm4): past_sequence_lengths is required for decode");
+                }
+                auto cache_lens_before = past_sequence_lengths.value();
+                // Quick scalar dump of cache length (helps catch dtype/value issues).
+                if (const char *dump_env = std::getenv("MINICPM_SALA_DUMP_DECODE")) {
+                    if (dump_env[0] != '\0' && dump_env[0] != '0') {
+                        if (const char *log_path = std::getenv("INFINI_DEBUG_LOG")) {
+                            try {
+                                auto cpu_lens = cache_lens_before->to(infinicore::Device::cpu());
+                                int64_t v0 = 0;
+                                if (cpu_lens->dtype() == infinicore::DataType::I32) {
+                                    v0 = reinterpret_cast<const int32_t *>(cpu_lens->data())[0];
+                                } else if (cpu_lens->dtype() == infinicore::DataType::I64) {
+                                    v0 = reinterpret_cast<const int64_t *>(cpu_lens->data())[0];
+                                }
+                                std::ofstream f(log_path, std::ios::app);
+                                if (f) {
+                                    f << "[minicpm_sala][cache_lens_before] layer=" << layer_idx_
+                                      << " cache_pos=" << cache_pos
+                                      << " dtype=" << static_cast<int>(cpu_lens->dtype())
+                                      << " v0=" << v0
+                                      << " k_cache_T=" << (static_kv_cache ? std::get<0>(static_kv_cache->get_layer_kv_seq_major(layer_idx_))->shape()[1] : 0)
+                                      << "\n";
+                                }
+                            } catch (...) {
+                            }
+                        }
                     }
-                } else if (dt == infinicore::DataType::F32) {
-                    const float *p = reinterpret_cast<const float *>(cpu_t->data());
-                    for (size_t i = 0; i < n; ++i) f32_buf[i] = p[i];
-                } else if (dt == infinicore::DataType::F16) {
-                    const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
-                    for (size_t i = 0; i < n; ++i) {
-                        uint32_t u = (p[i] & 0x8000) << 16 | ((p[i] & 0x7fff) + (127 - 15)) << 23 | (p[i] & 0x03ff) << 13;
-                        f32_buf[i] = *reinterpret_cast<float *>(&u);
+                }
+
+                // Optional debug dump for decode: enable with MINICPM_SALA_DUMP_DECODE=1
+                // We dump only for early decode steps (small cache_pos) to keep logs small.
+                if (const char *dump_env = std::getenv("MINICPM_SALA_DUMP_DECODE")) {
+                    if (dump_env[0] != '\0' && dump_env[0] != '0') {
+                        // Typical prompt lengths are small in sanity; dump the first few decode positions.
+                        // Dump for all minicpm4 layers to avoid relying on layer index assumptions.
+                        if (cache_pos <= 8) {
+                            // Cache views from seq-major cache for debugging only.
+                            auto [k_cache, v_cache] = static_kv_cache->get_layer_kv_seq_major(layer_idx_);
+                            size_t tail_start = cache_pos > 2 ? cache_pos - 2 : 0;
+                            size_t tail_len = std::min<size_t>(k_cache->shape()[1] - tail_start, 4);
+                            auto k_tail = k_cache->narrow({{1, tail_start, tail_len}});
+                            auto v_tail = v_cache->narrow({{1, tail_start, tail_len}});
+                            auto k_pos = k_cache->narrow({{1, cache_pos, 1}});
+                            auto v_pos = v_cache->narrow({{1, cache_pos, 1}});
+                            auto k_prefix = k_cache->narrow({{1, 0, std::min<size_t>(k_cache->shape()[1], 5)}});
+                            auto v_prefix = v_cache->narrow({{1, 0, std::min<size_t>(v_cache->shape()[1], 5)}});
+
+                            // Marker line so we can confirm dump executed.
+                            log_tensor_stats_to_file_if_enabled(hidden_states, "DUMP_TRIGGER", layer_idx_, cache_pos, total_seq_len, seq_len);
+                            log_tensor_stats_to_file_if_enabled(hidden_states, "hidden_states_in", layer_idx_, cache_pos, total_seq_len, seq_len);
+                            log_tensor_stats_to_file_if_enabled(q_bshd, "q_bshd", layer_idx_, cache_pos, total_seq_len, seq_len);
+                            log_tensor_stats_to_file_if_enabled(k_tail, "k_cache_tail_bthd", layer_idx_, cache_pos, total_seq_len, seq_len);
+                            log_tensor_stats_to_file_if_enabled(v_tail, "v_cache_tail_bthd", layer_idx_, cache_pos, total_seq_len, seq_len);
+                            log_tensor_stats_to_file_if_enabled(k_pos, "k_cache_pos_b1thd", layer_idx_, cache_pos, total_seq_len, seq_len);
+                            log_tensor_stats_to_file_if_enabled(v_pos, "v_cache_pos_b1thd", layer_idx_, cache_pos, total_seq_len, seq_len);
+                            log_tensor_stats_to_file_if_enabled(k_prefix, "k_cache_prefix5_b5thd", layer_idx_, cache_pos, total_seq_len, seq_len);
+                            log_tensor_stats_to_file_if_enabled(v_prefix, "v_cache_prefix5_b5thd", layer_idx_, cache_pos, total_seq_len, seq_len);
+                        }
                     }
                 }
-                if (bin_path) {
-                    std::ofstream bin(bin_path, std::ios::binary);
-                    if (bin) bin.write(reinterpret_cast<const char *>(f32_buf.data()), n * sizeof(float));
-                }
-                float mn = f32_buf.empty() ? 0 : f32_buf[0], mx = mn, sum = 0, ss = 0;
-                for (float v : f32_buf) { mn = std::min(mn, v); mx = std::max(mx, v); sum += v; ss += v * v; }
-                const double norm = ss > 0 ? std::sqrt(ss) : 0.0;
-                std::ofstream log(log_path, std::ios::app);
-                if (log) {
-                    std::string shape_json = "[";
-                    for (size_t i = 0; i < shp.size(); ++i) shape_json += (i ? "," : "") + std::to_string(shp[i]);
-                    shape_json += "]";
-                    log << "{\"sessionId\":\"9146ea\",\"hypothesisId\":\"H1\",\"location\":\"" << loc << "\",\"message\":\"" << msg << "\",\"data\":{\"scaling_\":" << scaling_ << ",\"head_dim\":" << head_dim_ << ",\"shape\":" << shape_json << ",\"min\":" << mn << ",\"max\":" << mx << ",\"mean\":" << (n ? sum / n : 0) << ",\"l2\":" << norm << "},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
-                }
-            };
 
-            // Pre-gate attention output (matches earlier behavior for layer0; extended to layer1).
-            const char *loc = (layer_idx_ == 0)
-                                  ? "minicpm_sala_attention.cpp:attn_pre_gate_l0"
-                                  : "minicpm_sala_attention.cpp:attn_pre_gate_l1";
-            const char *msg = (layer_idx_ == 0)
-                                  ? "Inf layer0 attn pre-gate"
-                                  : "Inf layer1 attn pre-gate";
-            const char *bin = (layer_idx_ == 0) ? "/tmp/inf_attn_out_layer0.bin"
-                                                : (layer_idx_ == 1) ? "/tmp/inf_attn_out_layer1.bin" : nullptr;
-            dump_stats(attn_output, msg, loc, bin);
+                infinicore::Tensor cu_q;
+                infinicore::Tensor cu_k;
+                // cu_seqlens for single batch: [0, seq_len] and [0, total_seq_len]
+                auto cuq_cpu = infinicore::Tensor::empty({2}, infinicore::DataType::I32, infinicore::Device::cpu());
+                auto cuk_cpu = infinicore::Tensor::empty({2}, infinicore::DataType::I32, infinicore::Device::cpu());
+                reinterpret_cast<int32_t *>(cuq_cpu->data())[0] = 0;
+                reinterpret_cast<int32_t *>(cuq_cpu->data())[1] = static_cast<int32_t>(seq_len);
+                reinterpret_cast<int32_t *>(cuk_cpu->data())[0] = 0;
+                reinterpret_cast<int32_t *>(cuk_cpu->data())[1] = static_cast<int32_t>(total_seq_len);
+                cu_q = cuq_cpu->to(q_var->device());
+                cu_k = cuk_cpu->to(q_var->device());
+
+                auto out_var = infinicore::op::infllmv2_varlen(
+                    q_var, k_var, v_var, cu_q, cu_k,
+                    static_cast<int>(seq_len),
+                    static_cast<int>(total_seq_len),
+                    scaling_,
+                    /*causal=*/true);
+                auto out_bshd = out_var->view({batch_size, seq_len, num_attention_heads_, head_dim_});
+                if (const char *dump_env = std::getenv("MINICPM_SALA_DUMP_DECODE")) {
+                    if (dump_env[0] != '\0' && dump_env[0] != '0') {
+                        if (cache_pos <= 8) {
+                            log_tensor_stats_to_file_if_enabled(out_bshd, "out_bshd", layer_idx_, cache_pos, total_seq_len, seq_len);
+                        }
+                    }
+                }
+                attn_output = out_bshd->contiguous()->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
+            }
+        } catch (const std::exception &e) {
+            throw std::runtime_error(
+                std::string("MiniCPMSALAAttention(minicpm4): InfLLM-v2 attention failed. ")
+                + "This build must provide InfLLM-v2 (ENABLE_INFLLMV2+ENABLE_ATEN) and the infllmv2_cuda_impl .so "
+                + "must be available via LD_PRELOAD/LD_LIBRARY_PATH. Original error: " + e.what());
         }
     }
-    // #endregion
 
     // Output norm + gate variants
     if (use_output_gate_) {
@@ -488,69 +715,6 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
 
     auto attn_out_mut = attn_output;
     auto out = o_proj_->forward(attn_out_mut);
-
-    // #region agent log
-    if (layer_idx_ < 2 && std::getenv("INFINI_DEBUG_ATTN_DUMP")) {
-        const char *log_path = std::getenv("INFINI_DEBUG_LOG");
-        if (log_path) {
-            // Mirror the same stats helper (minimal duplication)
-            auto dump_stats = [&](const infinicore::Tensor &t,
-                                  const char *msg,
-                                  const char *loc,
-                                  const char *bin_path) {
-                auto cpu_t = t->to(infinicore::Device::cpu());
-                const size_t n = cpu_t->numel();
-                const auto &shp = cpu_t->shape();
-                const auto dt = cpu_t->dtype();
-                std::vector<float> f32_buf(n);
-                if (dt == infinicore::DataType::BF16) {
-                    const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
-                    for (size_t i = 0; i < n; ++i) {
-                        uint32_t u = static_cast<uint32_t>(p[i]) << 16;
-                        f32_buf[i] = *reinterpret_cast<float *>(&u);
-                    }
-                } else if (dt == infinicore::DataType::F32) {
-                    const float *p = reinterpret_cast<const float *>(cpu_t->data());
-                    for (size_t i = 0; i < n; ++i) f32_buf[i] = p[i];
-                } else if (dt == infinicore::DataType::F16) {
-                    const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
-                    for (size_t i = 0; i < n; ++i) {
-                        uint32_t u = (p[i] & 0x8000) << 16 | ((p[i] & 0x7fff) + (127 - 15)) << 23 | (p[i] & 0x03ff) << 13;
-                        f32_buf[i] = *reinterpret_cast<float *>(&u);
-                    }
-                }
-                if (bin_path) {
-                    std::ofstream bin(bin_path, std::ios::binary);
-                    if (bin) bin.write(reinterpret_cast<const char *>(f32_buf.data()), n * sizeof(float));
-                }
-                float mn = f32_buf.empty() ? 0 : f32_buf[0], mx = mn, sum = 0, ss = 0;
-                for (float v : f32_buf) { mn = std::min(mn, v); mx = std::max(mx, v); sum += v; ss += v * v; }
-                const double norm = ss > 0 ? std::sqrt(ss) : 0.0;
-                std::ofstream log(log_path, std::ios::app);
-                if (log) {
-                    std::string shape_json = "[";
-                    for (size_t i = 0; i < shp.size(); ++i) shape_json += (i ? "," : "") + std::to_string(shp[i]);
-                    shape_json += "]";
-                    log << "{\"sessionId\":\"9146ea\",\"hypothesisId\":\"H2\",\"location\":\"" << loc << "\",\"message\":\"" << msg << "\",\"data\":{\"shape\":" << shape_json << ",\"min\":" << mn << ",\"max\":" << mx << ",\"mean\":" << (n ? sum / n : 0) << ",\"l2\":" << norm << "},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
-                }
-            };
-            const char *loc_gate = (layer_idx_ == 0)
-                                       ? "minicpm_sala_attention.cpp:attn_post_gate_l0"
-                                       : "minicpm_sala_attention.cpp:attn_post_gate_l1";
-            const char *loc_oproj = (layer_idx_ == 0)
-                                         ? "minicpm_sala_attention.cpp:attn_post_oproj_l0"
-                                         : "minicpm_sala_attention.cpp:attn_post_oproj_l1";
-            const char *msg_gate = (layer_idx_ == 0)
-                                       ? "Inf layer0 attn post-gate/norm"
-                                       : "Inf layer1 attn post-gate/norm";
-            const char *msg_oproj = (layer_idx_ == 0)
-                                        ? "Inf layer0 attn post-o_proj"
-                                        : "Inf layer1 attn post-o_proj";
-            dump_stats(attn_output, msg_gate, loc_gate, nullptr);
-            dump_stats(out, msg_oproj, loc_oproj, nullptr);
-        }
-    }
-    // #endregion
 
     return out;
 }

@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <stdexcept>
+#include <algorithm>
 #include <vector>
 
 namespace infinilm::models::minicpm_sala {
@@ -153,6 +154,7 @@ MiniCPMSALAModel::MiniCPMSALAModel(std::shared_ptr<infinilm::config::ModelConfig
     if (mixer_types.size() != num_layers) {
         mixer_types.resize(num_layers, mixer_types.empty() ? "minicpm4" : mixer_types.back());
     }
+    mixer_types_ = mixer_types;
 
     layers_.reserve(num_layers);
     for (size_t i = 0; i < num_layers; ++i) {
@@ -163,8 +165,47 @@ MiniCPMSALAModel::MiniCPMSALAModel(std::shared_ptr<infinilm::config::ModelConfig
 }
 
 void MiniCPMSALAModel::reset_cache(const cache::CacheConfig *cache_config) {
-    (void)cache_config;
-    kv_cache_.reset();
+    if (cache_config == nullptr) {
+        kv_cache_minicpm4_ = nullptr;
+        kv_cache_lightning_ = nullptr;
+        for (auto &layer : layers_) {
+            layer->reset_cache();
+        }
+        return;
+    }
+
+    if (auto static_cfg = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
+        // Allocate separate caches by KV shape to avoid per-layer padding copies.
+        const size_t base_kv_heads = model_config_->get<size_t>("num_key_value_heads");
+        const size_t base_head_dim = model_config_->get<size_t>("head_dim");
+        const size_t lightning_kv_heads = model_config_->get_or<size_t>("lightning_nkv", base_kv_heads);
+        const size_t lightning_head_dim = model_config_->get_or<size_t>("lightning_head_dim", base_head_dim);
+
+        kv_cache_minicpm4_ = std::make_shared<cache::StaticKVCache>(
+            /*k_dim=*/base_head_dim,
+            /*v_dim=*/base_head_dim,
+            /*num_k_heads=*/base_kv_heads,
+            /*num_v_heads=*/base_kv_heads,
+            /*num_layers=*/model_config_->get<size_t>("num_hidden_layers"),
+            /*max_positional_embedding=*/model_config_->get<size_t>("max_position_embeddings"),
+            /*dtype=*/model_config_->get_dtype(),
+            *static_cfg,
+            rank_info_);
+        kv_cache_lightning_ = std::make_shared<cache::StaticKVCache>(
+            /*k_dim=*/lightning_head_dim,
+            /*v_dim=*/lightning_head_dim,
+            /*num_k_heads=*/lightning_kv_heads,
+            /*num_v_heads=*/lightning_kv_heads,
+            /*num_layers=*/model_config_->get<size_t>("num_hidden_layers"),
+            /*max_positional_embedding=*/model_config_->get<size_t>("max_position_embeddings"),
+            /*dtype=*/model_config_->get_dtype(),
+            *static_cfg,
+            rank_info_);
+    } else {
+        // This refactor implements HF-like dense caching only.
+        throw std::runtime_error("MiniCPMSALAModel::reset_cache: Unsupported cache type (expected StaticKVCacheConfig)");
+    }
+
     for (auto &layer : layers_) {
         layer->reset_cache();
     }
@@ -190,15 +231,29 @@ infinicore::Tensor MiniCPMSALAModel::forward(const infinicore::Tensor &input_ids
     dump_tensor_to_bin_if_enabled(hs, "/tmp/inf_embed_out.bin");
 
     for (size_t i = 0; i < layers_.size(); ++i) {
+        std::shared_ptr<cache::Cache> layer_cache;
+        if (!mixer_types_.empty() && mixer_types_[i] == "minicpm4") {
+            layer_cache = kv_cache_minicpm4_;
+        } else {
+            layer_cache = kv_cache_lightning_;
+        }
         hs = layers_[i]->forward(hs,
                                  position_ids,
-                                 kv_cache_,
+                                 layer_cache,
                                  past_sequence_lengths,
                                  total_sequence_lengths,
                                  input_offsets,
                                  cu_seqlens,
                                  block_tables,
                                  slot_mapping);
+        if (const char *env = std::getenv("MINICPM_SALA_LAYER_TRACE")) {
+            if (env[0] != '\0' && env[0] != '0') {
+                fprintf(stderr, "[minicpm_sala][layer_trace] layer=%zu mixer=%s\n",
+                        i,
+                        mixer_types_.empty() ? "unknown" : mixer_types_[i].c_str());
+                fflush(stderr);
+            }
+        }
     }
 
     hs = norm_->forward(hs);

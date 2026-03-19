@@ -19,6 +19,8 @@ namespace infinilm::models::minicpm_sala {
 // Dense attention fallback implementation used for Milestone 1.
 // Parameter names are aligned with HF MiniCPM-SALA safetensors keys:
 //   model.layers.N.self_attn.{q_proj,k_proj,v_proj,o_proj,...}
+// TODO(refactor): KV cache is currently per-layer dense; refactor to use engine paged KV pool
+// and block_tables/slot_mapping to match SGLang minicpm-sala pattern (see minicpm_sala_attention.cpp).
 class MiniCPMSALAAttention : public infinicore::nn::Module {
 public:
     MiniCPMSALAAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -46,7 +48,8 @@ private:
                                      const infinicore::Tensor &position_ids,
                                      std::shared_ptr<infinilm::cache::Cache> kv_cache,
                                      std::optional<infinicore::Tensor> past_sequence_lengths,
-                                     std::optional<infinicore::Tensor> total_sequence_lengths) const;
+                                     std::optional<infinicore::Tensor> total_sequence_lengths,
+                                     std::optional<infinicore::Tensor> cu_seqlens) const;
 
 protected:
     // Projections (HF-aligned naming)
@@ -82,12 +85,6 @@ protected:
     bool is_sparse_layer_ = false;
 
     backends::AttentionBackend attention_backend_;
-
-    // Dense fallback KV cache (per-layer). Needed for multi-token decode when
-    // using non-paged attention.
-    mutable infinicore::Tensor k_cache_;
-    mutable infinicore::Tensor v_cache_;
-    mutable size_t kv_capacity_ = 0;
 
     // Lightning layers only: per-head log-decay for Simple GLA (HF _build_slope_tensor * -1).
     infinicore::Tensor g_gamma_;

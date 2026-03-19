@@ -6,9 +6,14 @@ import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from infllmv2_loader import preload_infllmv2_if_available
+
+preload_infllmv2_if_available()
+
 import infinicore
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
+from infinilm.cache import StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
 
 
@@ -324,7 +329,8 @@ def run_prefill_only(model_path: str, prompt: str, k: int) -> None:
     import time
     os.environ["INFINI_DEBUG_LOG"] = DEBUG_LOG_PATH
     os.environ["INFINI_DEBUG_ATTN_DUMP"] = "1"
-    device = torch.device("cuda")
+    hf_cuda_index = int(os.environ.get("HF_CUDA_INDEX", "0"))
+    device = torch.device(f"cuda:{hf_cuda_index}")
 
     tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     enc = tok(prompt, return_tensors="pt")
@@ -334,44 +340,59 @@ def run_prefill_only(model_path: str, prompt: str, k: int) -> None:
         attn_mask = attn_mask.to(device)
 
     # ---------- HF reference (single prefill) ----------
-    hf = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        torch_dtype=torch.bfloat16,
-        device_map=None,
-        trust_remote_code=True,
-    ).to(device)
-    hf.eval()
-    hf_hooks = _register_hf_layer_hooks(hf_model=hf, max_layers=3)
-    hf_embed_hooks = _register_hf_embed_hook(hf)
-    hf_layer0_attn_input_hooks = _register_hf_layer0_attn_input_hook(hf)
-    hf_final_hooks = _register_hf_final_hidden_hook(hf)
-    # So triton's ptxas subprocess is not run with LD_PRELOAD (which can break it)
+    # Important: if InfLLM-v2 is enabled via LD_PRELOAD, it can break triton/ptxas subprocesses
+    # during HF model load/forward (because LD_PRELOAD affects /bin/sh subprocesses).
+    # Temporarily clear LD_PRELOAD for the entire HF reference segment.
     _saved_ld_preload = os.environ.pop("LD_PRELOAD", None)
     try:
+        # Force eager attention when supported; fall back if transformers doesn't accept the kwarg.
+        try:
+            hf = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map=None,
+                trust_remote_code=True,
+                attn_implementation="eager",
+            ).to(device)
+        except TypeError:
+            hf = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map=None,
+                trust_remote_code=True,
+            ).to(device)
+        hf.eval()
+        hf_hooks = _register_hf_layer_hooks(hf_model=hf, max_layers=3)
+        hf_embed_hooks = _register_hf_embed_hook(hf)
+        hf_layer0_attn_input_hooks = _register_hf_layer0_attn_input_hook(hf)
+        hf_final_hooks = _register_hf_final_hidden_hook(hf)
+
         hf_out = hf(input_ids=input_ids, attention_mask=attn_mask)
+        hf_logits_last = hf_out.logits[0, -1].float().cpu()
+        # Save HF embed (layer0 input) for alignment check
+        with torch.no_grad():
+            hf_embed = hf.model.embed_tokens(input_ids) * getattr(hf.config, "scale_emb", 1.0)
+            torch.save(hf_embed.detach().float().cpu(), "/tmp/hf_embed_out.pt")
+        for h in hf_hooks:
+            h.remove()
+        for h in hf_embed_hooks:
+            h.remove()
+        for h in hf_layer0_attn_input_hooks:
+            h.remove()
+        for h in hf_final_hooks:
+            h.remove()
     finally:
         if _saved_ld_preload is not None:
             os.environ["LD_PRELOAD"] = _saved_ld_preload
-    hf_logits_last = hf_out.logits[0, -1].float().cpu()
-    # Save HF embed (layer0 input) for alignment check
-    with torch.no_grad():
-        hf_embed = hf.model.embed_tokens(input_ids) * getattr(hf.config, "scale_emb", 1.0)
-        torch.save(hf_embed.detach().float().cpu(), "/tmp/hf_embed_out.pt")
-    for h in hf_hooks:
-        h.remove()
-    for h in hf_embed_hooks:
-        h.remove()
-    for h in hf_layer0_attn_input_hooks:
-        h.remove()
-    for h in hf_final_hooks:
-        h.remove()
 
     # ---------- InfiniLM (single prefill) ----------
-    inf_dev = infinicore.device("cuda", 0)
+    inf_cuda_index = int(os.environ.get("INFINILM_CUDA_INDEX", "0"))
+    inf_dev = infinicore.device("cuda", inf_cuda_index)
     eng = InferEngine(
         model_path=model_path,
         device=inf_dev,
         distributed_config=DistConfig(1),
+        cache_config=StaticKVCacheConfig(max_batch_size=1, max_cache_len=2048),
         enable_graph_compiling=False,
         attention_backend="default",
     )
@@ -695,7 +716,8 @@ def run_prefill_only(model_path: str, prompt: str, k: int) -> None:
 
 @torch.no_grad()
 def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
-    device = torch.device("cuda")
+    hf_cuda_index = int(os.environ.get("HF_CUDA_INDEX", "0"))
+    device = torch.device(f"cuda:{hf_cuda_index}")
 
     tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     enc = tok(prompt, return_tensors="pt")
@@ -705,17 +727,25 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
         attn_mask = attn_mask.to(device)
 
     # ---------- HF reference ----------
-    hf = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        torch_dtype=torch.bfloat16,
-        device_map=None,
-        trust_remote_code=True,
-    ).to(device)
-    hf.eval()
-
-    # So triton's ptxas subprocess is not run with LD_PRELOAD
     _saved_ld_preload = os.environ.pop("LD_PRELOAD", None)
     try:
+        try:
+            hf = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map=None,
+                trust_remote_code=True,
+                attn_implementation="eager",
+            ).to(device)
+        except TypeError:
+            hf = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map=None,
+                trust_remote_code=True,
+            ).to(device)
+        hf.eval()
+
         # Prefill
         hf_out = hf(input_ids=input_ids, attention_mask=attn_mask)
         hf_logits_last_prefill_gpu = hf_out.logits[0, -1].float()
@@ -730,11 +760,13 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
             os.environ["LD_PRELOAD"] = _saved_ld_preload
 
     # ---------- InfiniLM ----------
-    inf_dev = infinicore.device("cuda", 0)
+    inf_cuda_index = int(os.environ.get("INFINILM_CUDA_INDEX", "0"))
+    inf_dev = infinicore.device("cuda", inf_cuda_index)
     eng = InferEngine(
         model_path=model_path,
         device=inf_dev,
         distributed_config=DistConfig(1),
+        cache_config=StaticKVCacheConfig(max_batch_size=1, max_cache_len=2048),
         enable_graph_compiling=False,
         attention_backend="default",
     )
@@ -765,15 +797,16 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
     # One-step decode in InfiniLM (append last token from InfiniLM prefill)
     next_token_inf = torch.argmax(inf_logits_last_prefill_t, dim=-1).view(1, 1).to(torch.int64)
     input_ids2 = torch.cat([input_ids.cpu(), next_token_inf], dim=1)
-    bsz2, seqlen2 = input_ids2.shape
-    pos2 = torch.arange(seqlen2, dtype=torch.int64).view(1, seqlen2)
-    input_offsets2 = torch.tensor([0, seqlen2], dtype=torch.int32)
     past2 = torch.tensor([seqlen], dtype=torch.int32)
-    total2 = torch.tensor([seqlen2], dtype=torch.int32)
+    total2 = torch.tensor([seqlen + 1], dtype=torch.int32)
+    # Decode must pass only the new token to keep KV cache consistent.
+    input_ids2_last = input_ids2[:, -1:].contiguous()
+    pos2_last = torch.tensor([[seqlen]], dtype=torch.int64)
+    input_offsets2 = torch.tensor([0, 1], dtype=torch.int32)
 
     inf_logits_last_decode = eng.forward_logits(
-        infinicore.from_torch(input_ids2),
-        position_ids=infinicore.from_torch(pos2),
+        infinicore.from_torch(input_ids2_last.to(torch.int32)),
+        position_ids=infinicore.from_torch(pos2_last),
         past_kv_lengths=infinicore.from_torch(past2),
         total_kv_lengths=infinicore.from_torch(total2),
         input_offsets=infinicore.from_torch(input_offsets2),
@@ -804,42 +837,79 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
 
 @torch.no_grad()
 def run_decode_loop(model_path: str, prompt: str, k: int, steps: int) -> None:
-    device = torch.device("cuda")
+    hf_cuda_index = int(os.environ.get("HF_CUDA_INDEX", "0"))
+    device = torch.device(f"cuda:{hf_cuda_index}")
 
     tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     enc = tok(prompt, return_tensors="pt")
     input_ids = enc["input_ids"].to(device)
 
-    hf = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        torch_dtype=torch.bfloat16,
-        device_map=None,
-        trust_remote_code=True,
-    ).to(device)
-    hf.eval()
-
-    # So triton's ptxas subprocess is not run with LD_PRELOAD
     _saved_ld_preload = os.environ.pop("LD_PRELOAD", None)
     try:
+        try:
+            hf = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map=None,
+                trust_remote_code=True,
+                attn_implementation="eager",
+            ).to(device)
+        except TypeError:
+            hf = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map=None,
+                trust_remote_code=True,
+            ).to(device)
+        hf.eval()
+
         # HF decode loop
         hf_ids = input_ids.clone()
         hf_topk_history = []
+        # Optional: dump HF hidden states for decode debugging.
+        dump_hf = os.environ.get("DUMP_HF_DECODE_HIDDEN", "") not in ("", "0")
+        dump_path = os.environ.get("DUMP_HF_DECODE_HIDDEN_PATH", "/tmp/hf_decode_hidden.pt")
+        hf_hidden_dump = []
         for _ in range(steps):
-            out = hf(input_ids=hf_ids)
+            out = hf(input_ids=hf_ids, output_hidden_states=dump_hf, return_dict=True)
             logits_last = out.logits[0, -1].float().cpu()
             hf_topk_history.append(topk(logits_last, k)[:10])
+            if dump_hf:
+                # Save a small subset to keep files reasonable.
+                # hidden_states is a tuple: (emb, layer1, ..., final)
+                hs = out.hidden_states
+                hf_hidden_dump.append(
+                    {
+                        "seq_len": hf_ids.shape[1],
+                        "input_ids": hf_ids[0].detach().cpu(),
+                        "emb": hs[0][0].detach().float().cpu(),
+                        "layer0": hs[1][0].detach().float().cpu() if len(hs) > 1 else None,
+                        "final": hs[-1][0].detach().float().cpu(),
+                    }
+                )
             next_token = torch.argmax(logits_last, dim=-1).view(1, 1).to(device)
             hf_ids = torch.cat([hf_ids, next_token], dim=1)
+        if dump_hf:
+            try:
+                torch.save(hf_hidden_dump, dump_path)
+                print(f"[DUMP] wrote HF hidden states to: {dump_path}")
+            except Exception as e:
+                print(f"[DUMP] failed to write HF hidden dump: {e}")
     finally:
         if _saved_ld_preload is not None:
             os.environ["LD_PRELOAD"] = _saved_ld_preload
 
     # InfiniLM decode loop
-    inf_dev = infinicore.device("cuda", 0)
+    # If C++ dumping is enabled, ensure we have a log path.
+    if os.environ.get("MINICPM_SALA_DUMP_DECODE", "") not in ("", "0"):
+        os.environ.setdefault("INFINI_DEBUG_LOG", "/tmp/minicpm_sala_decode_debug.log")
+    inf_cuda_index = int(os.environ.get("INFINILM_CUDA_INDEX", "0"))
+    inf_dev = infinicore.device("cuda", inf_cuda_index)
     eng = InferEngine(
         model_path=model_path,
         device=inf_dev,
         distributed_config=DistConfig(1),
+        cache_config=StaticKVCacheConfig(max_batch_size=1, max_cache_len=2048),
         enable_graph_compiling=False,
         attention_backend="default",
     )
@@ -875,7 +945,7 @@ def run_decode_loop(model_path: str, prompt: str, k: int, steps: int) -> None:
         ids_inf = torch.cat([ids_inf, next_token], dim=1)
         seqlen = ids_inf.shape[1]
         # Single-token input for decode (past tokens are in KV cache)
-        decode_input = next_token
+        decode_input = next_token.to(torch.int32)
         pos_decode = torch.tensor([[seqlen - 1]], dtype=torch.int64)
         input_offsets_decode = torch.tensor([0, 1], dtype=torch.int32)
         past = torch.tensor([seqlen - 1], dtype=torch.int32)

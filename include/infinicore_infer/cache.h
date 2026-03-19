@@ -3,6 +3,11 @@
 
 #include <infinirt.h>
 
+#ifndef __INFINI_C
+// Compat: older InfiniCore headers use `__C` instead of `__INFINI_C`.
+#define __INFINI_C __C
+#endif
+
 __INFINI_C __export struct KVCache *createKVCache(
     size_t nlayers,
     size_t max_len,

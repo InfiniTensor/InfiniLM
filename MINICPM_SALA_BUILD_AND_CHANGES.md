@@ -59,8 +59,10 @@ InfiniLM was extended to support the **MiniCPM-SALA** model (embedding, layers, 
 
 ### 2.2 Behaviour notes
 
-- **Attention:** Layer 0 (minicpm4) can use compiled InfLLM-v2 when InfiniCore is built with `--infllmv2=` and the .so is preloaded; other layers use lightning (GLA) path. `MINICPM_SALA_FORCE_ALL_LIGHTNING=1` forces all layers to GLA (no infllmv2).
+- **Attention:** Layer 0 (minicpm4) can use compiled InfLLM-v2 when InfiniCore is built with `--infllmv2=` and the .so is preloaded; other layers use lightning (GLA) path.
+- **Attention overhead optimizations:** In `minicpm_sala_attention.cpp`: (1) sequence lengths are read in one place when both `past_sequence_lengths` and `total_sequence_lengths` are present (`has_cache_meta`), avoiding duplicate logic; (2) Q/K/V use a single `contiguous()->view` chain after projections; (3) lightning path builds `q_bthd` via one `permute->contiguous` from `q_perm`; (4) sparse path uses `q_perm` directly (already contiguous) and only calls `contiguous()` on K/V when repeating heads. Semantics and logits are unchanged.
 - **KV cache:** Decode must use **single-token input** per step; passing the full sequence each step would misalign the per-layer KV cache (see sanity script).
+- **Engine / KV cache config:** MiniCPM-SALA uses per-layer dense KV cache in C++; the engine’s `cache_config` is used only for scheduling (e.g. `past_sequence_lengths` / `total_sequence_lengths`). **Static cache** is recommended (default in `jiuge.py` when not passing `--enable-paged-attn`). For static, `jiuge.py` sets `max_cache_len = max(initial_capacity, max_position_embeddings)` when `model_type == "minicpm_sala"` so long contexts are supported without re-alloc.
 
 ---
 

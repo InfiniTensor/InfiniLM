@@ -241,9 +241,13 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
     # ---------------------------------------------------------------------------- #
+    batch_size = 1 if isinstance(prompts, str) else len(prompts)
+    initial_capacity = max_new_tokens + len(input_ids_list[0])
+    # MiniCPM-SALA uses per-layer dense KV cache in C++; engine cache_config drives
+    # scheduling only. Static cache is recommended (no paged bookkeeping) unless
+    # --enable-paged-attn is explicitly set.
     if enable_paged_attn:
-        batch_size = 1 if prompts is str else len(prompts)
-        max_total_tokens = max_new_tokens + len(input_ids_list[0])
+        max_total_tokens = initial_capacity
         cache_config = PagedKVCacheConfig(
             num_blocks=(
                 (max_total_tokens + (_PAGED_KV_BLOCK_SIZE - 1)) // _PAGED_KV_BLOCK_SIZE
@@ -252,10 +256,12 @@ def test(
             block_size=_PAGED_KV_BLOCK_SIZE,
         )
     else:
-        batch_size = 1 if prompts is str else len(prompts)
-        initial_capacity = max_new_tokens + len(input_ids_list[0])
+        max_cache_len = initial_capacity
+        if getattr(model.config, "model_type", None) == "minicpm_sala":
+            max_pos = getattr(model.config, "max_position_embeddings", 4096)
+            max_cache_len = max(initial_capacity, max_pos)
         cache_config = StaticKVCacheConfig(
-            max_batch_size=batch_size, max_cache_len=initial_capacity
+            max_batch_size=batch_size, max_cache_len=max_cache_len
         )
 
     model.reset_cache(cache_config)

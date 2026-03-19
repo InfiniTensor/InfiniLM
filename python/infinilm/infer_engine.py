@@ -73,7 +73,7 @@ class InferEngine(_infinilm.InferEngine):
             past_kv_lengths._underlying if past_kv_lengths is not None else None
         )
         total_kv_lengths = (
-            total_kv_lengths._underlying if past_kv_lengths is not None else None
+            total_kv_lengths._underlying if total_kv_lengths is not None else None
         )
         input_offsets = input_offsets._underlying if input_offsets is not None else None
         block_tables = block_tables._underlying if block_tables is not None else None
@@ -128,7 +128,7 @@ class InferEngine(_infinilm.InferEngine):
             past_kv_lengths._underlying if past_kv_lengths is not None else None
         )
         total_kv_lengths = (
-            total_kv_lengths._underlying if past_kv_lengths is not None else None
+            total_kv_lengths._underlying if total_kv_lengths is not None else None
         )
         input_offsets = input_offsets._underlying if input_offsets is not None else None
         block_tables = block_tables._underlying if block_tables is not None else None
