@@ -6,15 +6,15 @@
 namespace infinilm::models::qwen3_next {
 
 Qwen3NextSparseMoeBlock::Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                               const infinicore::Device &device,
-                                               engine::distributed::RankInfo rank_info) {
+                                                 const infinicore::Device &device,
+                                                 engine::distributed::RankInfo rank_info) {
 
     const auto &dtype{model_config->get_dtype()};
 
     size_t hidden_size = model_config->get<size_t>("hidden_size");
-    size_t   moe_intermediate_size = model_config->get<size_t>("moe_intermediate_size");
-    size_t   shared_expert_intermediate_size = model_config->get<size_t>("shared_expert_intermediate_size");
-    size_t   num_experts = model_config->get<size_t>("num_experts");
+    size_t moe_intermediate_size = model_config->get<size_t>("moe_intermediate_size");
+    size_t shared_expert_intermediate_size = model_config->get<size_t>("shared_expert_intermediate_size");
+    size_t num_experts = model_config->get<size_t>("num_experts");
 
     INFINICORE_NN_MODULE_INIT(gate, hidden_size, num_experts, false, dtype, device);
     experts_.reserve(num_experts);

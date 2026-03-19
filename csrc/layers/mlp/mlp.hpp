@@ -10,7 +10,7 @@
 
 #include "../../engine/distributed/distributed.hpp"
 
-namespace infinilm::models::layers::mlp {
+namespace infinilm::layers::mlp {
 
 /**
  * @brief MLP (Feed-Forward Network) module for Llama
@@ -33,8 +33,6 @@ public:
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
     MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        size_t hidden_size,
-        size_t intermediate_size,
         const infinicore::Device &device,
         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -55,11 +53,11 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
 
     engine::distributed::RankInfo rank_info_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
+
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
-
-    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
-} // namespace infinilm::models::layers::mlp
+} // namespace infinilm::layers::mlp

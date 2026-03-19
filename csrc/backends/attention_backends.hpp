@@ -10,6 +10,7 @@ enum class AttentionBackend {
     StaticAttn,
     PagedAttn,
     FlashAttn,
+    FlashInferAttn,
     Default = StaticAttn // 与 StaticAttn 共享同一底层值（0）
 };
 

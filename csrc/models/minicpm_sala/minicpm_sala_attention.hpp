@@ -12,6 +12,10 @@
 #include "infinicore/tensor.hpp"
 #include <memory>
 
+namespace infinilm::layers::attention {
+class AttentionLayer;
+}
+
 namespace infinilm::models::minicpm_sala {
 
 /**
@@ -25,9 +29,10 @@ protected:
     AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                   size_t num_attention_heads,
                   size_t num_key_value_heads,
-                  const infinicore::Device &device,
                   size_t layer_idx,
-                  engine::distributed::RankInfo rank_info);
+                  const infinicore::Device &device,
+                  engine::distributed::RankInfo rank_info,
+                  ::infinilm::backends::AttentionBackend attention_backend);
 
 public:
     size_t layer_idx() const { return layer_idx_; }
@@ -46,6 +51,8 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
     engine::distributed::RankInfo rank_info_;
+
+    std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
 
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_ = std::make_shared<infinilm::config::ModelConfig>();
@@ -67,9 +74,10 @@ protected:
 class InfLLMv2Attention : public AttentionBase {
 public:
     InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                      const infinicore::Device &device,
                       size_t layer_idx,
-                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                      const infinicore::Device &device,
+                      engine::distributed::RankInfo rank_info,
+                      ::infinilm::backends::AttentionBackend attention_backend);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                const infinilm::InfinilmModel::Input &input,
@@ -86,9 +94,10 @@ protected:
 class LightningAttention : public AttentionBase {
 public:
     LightningAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                       const infinicore::Device &device,
                        size_t layer_idx,
-                       engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                       const infinicore::Device &device,
+                       engine::distributed::RankInfo rank_info,
+                       ::infinilm::backends::AttentionBackend attention_backend);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                const infinilm::InfinilmModel::Input &input,

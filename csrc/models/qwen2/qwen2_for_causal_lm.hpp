@@ -2,8 +2,6 @@
 
 #include "../qwen3/qwen3_for_causal_lm.hpp"
 
-#include <variant>
-
 namespace infinilm::models::qwen2 {
 
 using Qwen2ForCausalLM = qwen3::Qwen3ForCausalLM;
@@ -27,5 +25,4 @@ static std::shared_ptr<infinilm::config::ModelConfig> create_qwen2_model_config(
 
     return model_config;
 }
-
 } // namespace infinilm::models::qwen2

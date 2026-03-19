@@ -1,22 +1,27 @@
 #include "TemplateCausalLM.hpp"
 #include "TemplateDecoderLayer.hpp"
 #include "TemplateModel.hpp"
-#include "attention/flash_attn.hpp"
-#include "attention/flashinfer_attn.hpp"
-#include "attention/paged_attn.hpp"
-#include "attention/static_attn.hpp"
+#include "attention/attention.hpp"
+#include "attention/backends/flash_attn.hpp"
+#include "attention/backends/flashinfer_attn.hpp"
+#include "attention/backends/paged_attn.hpp"
+#include "attention/backends/static_attn.hpp"
 #include "fused_linear.hpp"
 #include "mlp/mlp.hpp"
 #include "mlp/moe_mlp.hpp"
+#include <spdlog/spdlog.h>
 
-namespace infinilm::models::layers {
+namespace infinilm::layers {
 
-using StaticAttention = infinilm::models::layers::attention::StaticAttention;
-using PagedAttention = infinilm::models::layers::attention::PagedAttention;
-using FlashAttention = infinilm::models::layers::attention::FlashAttention;
-using FlashInferAttention = infinilm::models::layers::attention::FlashInferAttention;
+using Attention = infinilm::layers::attention::Attention;
 
-using MLP = infinilm::models::layers::mlp::MLP;
-using MoeMLP = infinilm::models::layers::mlp::MoeMLP;
+using MLP = infinilm::layers::mlp::MLP;
+using MoeMLP = infinilm::layers::mlp::MoeMLP;
 
-} // namespace infinilm::models::layers
+} // namespace infinilm::layers
+
+namespace infinilm::layers::attention {
+
+using AttentionLayer = infinilm::layers::attention::AttentionLayer;
+
+} // namespace infinilm::layers::attention

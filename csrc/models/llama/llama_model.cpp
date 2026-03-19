@@ -23,7 +23,7 @@ LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_conf
     layers_.reserve(model_config_->get<size_t>("num_hidden_layers"));
     for (size_t i = 0; i < model_config_->get<size_t>("num_hidden_layers"); ++i) {
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
-            "layers." + std::to_string(i), model_config_, device, i, rank_info, attention_backend));
+            "layers." + std::to_string(i), model_config_, i, device, rank_info, attention_backend));
     }
     // Initialize final layer normalization
     INFINICORE_NN_MODULE_INIT(norm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),

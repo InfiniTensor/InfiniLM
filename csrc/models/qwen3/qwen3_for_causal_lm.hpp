@@ -1,26 +1,23 @@
 #pragma once
 #include "../../layers/common_modules.hpp"
 #include <memory>
-#include <variant>
+// #include <variant>
 
 namespace infinilm::models::qwen3 {
 
 /** @brief Type alias for Qwen3 MLP module */
-using Qwen3MLP = infinilm::models::layers::MLP;
+using Qwen3MLP = infinilm::layers::MLP;
 
 /** @brief Qwen3 attention: only one of ENABLE_*_ATTN may be defined. Sentinel detects multiple assignment. */
-using StaticAttn = infinilm::models::layers::StaticAttention;
-using PagedAttn = infinilm::models::layers::PagedAttention;
-using FlashAttn = infinilm::models::layers::FlashAttention;
-using Qwen3Attention = std::variant<std::shared_ptr<StaticAttn>, std::shared_ptr<PagedAttn>, std::shared_ptr<FlashAttn>>;
+using Qwen3Attention = infinilm::layers::Attention;
 
 /** @brief Qwen3 decoder layer type alias */
-using Qwen3DecoderLayer = infinilm::models::layers::TemplateDecoderLayer<Qwen3Attention, Qwen3MLP>;
+using Qwen3DecoderLayer = infinilm::layers::TemplateDecoderLayer<Qwen3Attention, Qwen3MLP>;
 
 /** @brief Qwen3 model architecture (without language modeling head) */
-using Qwen3Model = infinilm::models::layers::TemplateModel<Qwen3DecoderLayer>;
+using Qwen3Model = infinilm::layers::TemplateModel<Qwen3DecoderLayer>;
 
-using Qwen3ForCausalLM = infinilm::models::layers::TemplateCausalLM<Qwen3Model>;
+using Qwen3ForCausalLM = infinilm::layers::TemplateCausalLM<Qwen3Model>;
 
 static std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");

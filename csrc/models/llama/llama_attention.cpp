@@ -20,8 +20,8 @@
 namespace infinilm::models::llama {
 
 LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                               const infinicore::Device &device,
                                size_t layer_idx,
+                               const infinicore::Device &device,
                                engine::distributed::RankInfo rank_info,
                                backends::AttentionBackend attention_backend)
     : model_config_(model_config),

@@ -10,7 +10,7 @@
 
 #include "../engine/distributed/distributed.hpp"
 
-namespace infinilm::models::layers {
+namespace infinilm::layers {
 
 /**
  * @brief Template Causal Language Modeling class
@@ -46,6 +46,8 @@ public:
         attention_backend_ = attention_backend;
         model_config_ = model_config;
         rank_info_ = rank_info;
+        size_t hidden_size = model_config->get<size_t>("hidden_size");
+        size_t vocab_size = model_config->get<size_t>("vocab_size");
 
         // Initialize module's device_ member
         device_ = device;
@@ -56,7 +58,7 @@ public:
         // Initialize language modeling head
         // Note: If tie_word_embeddings is true, we would share weights with embed_tokens
         // For now, we create a separate linear layer
-        lm_head_ = this->register_module<infinicore::nn::Linear>("lm_head", model_config->get<size_t>("hidden_size"), model_config->get<size_t>("vocab_size"), false, dtype, device);
+        lm_head_ = this->register_module<infinicore::nn::Linear>("lm_head", hidden_size, vocab_size, false, dtype, device);
     }
 
     /**
@@ -87,4 +89,4 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::Linear, lm_head);
 };
 
-} // namespace infinilm::models::layers
+} // namespace infinilm::layers

@@ -11,7 +11,7 @@
 
 namespace infinilm::models::qwen3_moe {
 
-using Qwen3MoeMLP = infinilm::models::layers::MoeMLP;
+using Qwen3MoeMLP = infinilm::layers::MoeMLP;
 
 /**
  * @brief Sparse MoE (Mixture of Experts) block for Qwen3 MoE
@@ -34,8 +34,6 @@ public:
      * @param rank_info Rank information for distributed training
      */
     Qwen3MoeSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                           size_t hidden_size,
-                           size_t intermediate_size,
                            const infinicore::Device &device,
                            engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 

@@ -3,7 +3,7 @@
 #include "infinicore/ops.hpp"
 #include <cstddef>
 
-namespace infinilm::models::layers::mlp {
+namespace infinilm::layers::mlp {
 
 MoeMLP::MoeMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                size_t hidden_size,
@@ -45,4 +45,4 @@ infinicore::Tensor MoeMLP::forward(const infinicore::Tensor &hidden_states) cons
     return output;
 }
 
-} // namespace infinilm::models::layers::mlp
+} // namespace infinilm::layers::mlp

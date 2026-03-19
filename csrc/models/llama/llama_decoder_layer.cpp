@@ -6,8 +6,8 @@
 namespace infinilm::models::llama {
 
 LlamaDecoderLayer::LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                     const infinicore::Device &device,
                                      size_t layer_idx,
+                                     const infinicore::Device &device,
                                      engine::distributed::RankInfo rank_info,
                                      backends::AttentionBackend attention_backend) : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
     const auto &dtype{model_config_->get_dtype()};
@@ -18,7 +18,7 @@ LlamaDecoderLayer::LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConf
                               dtype, device);
 
     // Initialize attention and MLP modules
-    INFINICORE_NN_MODULE_INIT(self_attn, model_config_, device, layer_idx, rank_info_, attention_backend);
+    INFINICORE_NN_MODULE_INIT(self_attn, model_config_, layer_idx, device, rank_info_, attention_backend);
     INFINICORE_NN_MODULE_INIT(mlp, model_config_, device, rank_info_);
 }
 

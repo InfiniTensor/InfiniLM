@@ -4,21 +4,16 @@
 #include "qwen3_moe_sparse_moe_block.hpp"
 namespace infinilm::models::qwen3_moe {
 
-/** @brief Type alias for Qwen3 MoE attention module */
-using StaticAttn = infinilm::models::layers::StaticAttention;
-using PagedAttn = infinilm::models::layers::PagedAttention;
-using FlashAttn = infinilm::models::layers::FlashAttention;
-
-using Qwen3MoeAttention = std::variant<std::shared_ptr<StaticAttn>, std::shared_ptr<PagedAttn>, std::shared_ptr<FlashAttn>>;
+using Qwen3MoeAttention = infinilm::layers::Attention;
 
 /** @brief Qwen3 MoE decoder layer type alias */
-using Qwen3MoeDecoderLayer = infinilm::models::layers::TemplateDecoderLayer<Qwen3MoeAttention, Qwen3MoeSparseMoeBlock>;
+using Qwen3MoeDecoderLayer = infinilm::layers::TemplateDecoderLayer<Qwen3MoeAttention, Qwen3MoeSparseMoeBlock>;
 
 /** @brief Qwen3 MoE model architecture (without language modeling head) */
-using Qwen3MoeModel = infinilm::models::layers::TemplateModel<Qwen3MoeDecoderLayer>;
+using Qwen3MoeModel = infinilm::layers::TemplateModel<Qwen3MoeDecoderLayer>;
 
 /** @brief Qwen3 MoE model for Causal Language Modeling */
-using Qwen3MoeForCausalLM = infinilm::models::layers::TemplateCausalLM<Qwen3MoeModel>;
+using Qwen3MoeForCausalLM = infinilm::layers::TemplateCausalLM<Qwen3MoeModel>;
 
 static std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_moe_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");

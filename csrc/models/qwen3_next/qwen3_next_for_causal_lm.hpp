@@ -1,14 +1,15 @@
 #pragma once
 #include "../../layers/common_modules.hpp"
-#include "qwen3_next_sparse_moe_block.hpp"
 #include "qwen3_next_decoderLayer.hpp"
+#include "qwen3_next_sparse_moe_block.hpp"
+
 namespace infinilm::models::qwen3_next {
 
 /** @brief Qwen3 Next model architecture (without language modeling head) */
-using Qwen3NextModel = infinilm::models::layers::TemplateModel<Qwen3NextDecoderLayer>;
+using Qwen3NextModel = infinilm::layers::TemplateModel<Qwen3NextDecoderLayer>;
 
 /** @brief Qwen3 Next model for Causal Language Modeling */
-using Qwen3NextForCausalLM = infinilm::models::layers::TemplateCausalLM<Qwen3NextModel>;
+using Qwen3NextForCausalLM = infinilm::layers::TemplateCausalLM<Qwen3NextModel>;
 
 } // namespace infinilm::models::qwen3_next
 

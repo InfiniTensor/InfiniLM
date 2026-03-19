@@ -17,7 +17,7 @@
 
 #include "../engine/distributed/distributed.hpp"
 
-namespace infinilm::models::layers {
+namespace infinilm::layers {
 
 /**
  * @brief Template model architecture (without language modeling head)
@@ -70,8 +70,9 @@ public:
         layers_.reserve(model_config_->get<size_t>("num_hidden_layers"));
         for (size_t i = 0; i < model_config_->get<size_t>("num_hidden_layers"); ++i) {
             layers_.push_back(this->register_module<DecoderLayer>(
-                "layers." + std::to_string(i), model_config_, device, i, rank_info, attention_backend));
+                "layers." + std::to_string(i), model_config_, i, device, rank_info, attention_backend));
         }
+
         // Initialize final layer normalization
         norm_ = this->register_module<infinicore::nn::RMSNorm>("norm", hidden_size, rms_norm_eps, dtype, device);
         // Initialize Rotary Position Embeddings (shared across all layers)
@@ -140,4 +141,4 @@ private:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
-} // namespace infinilm::models::layers
+} // namespace infinilm::layers

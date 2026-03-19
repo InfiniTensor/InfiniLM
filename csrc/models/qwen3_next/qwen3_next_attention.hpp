@@ -11,28 +11,6 @@
 #include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::qwen3_next {
-using Qwen3Next_Fake_RMSNormGated = infinicore::nn::RMSNorm;
-
-class FakeConv1d : public infinicore::nn::Module {
-public:
-    FakeConv1d(size_t in_channels,
-               size_t out_channels,
-               size_t kernel_size,
-               size_t stride,
-               size_t padding,
-               size_t dilation,
-               size_t groups,
-               bool bias,
-               const infinicore::DataType dtype,
-               const infinicore::Device device) {
-
-        INFINICORE_NN_PARAMETER_INIT(weight, ({out_channels, 1, kernel_size}, dtype, device));
-    }
-
-private:
-    size_t layer_idx_;
-    INFINICORE_NN_PARAMETER(weight);
-};
 
 class Qwen3NextGatedDeltaNet : public infinicore::nn::Module {
 public:

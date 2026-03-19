@@ -7,22 +7,18 @@
 namespace infinilm::models::fm9g {
 
 /** @brief Type alias for fm9g MLP module */
-using FM9GMLP = infinilm::models::layers::MLP;
+using FM9GMLP = infinilm::layers::MLP;
 
-/** @brief fm9g attention: only one of ENABLE_*_ATTN may be defined. Sentinel detects multiple assignment. */
-using StaticAttn = infinilm::models::layers::StaticAttention;
-using PagedAttn = infinilm::models::layers::PagedAttention;
-using FlashAttn = infinilm::models::layers::FlashAttention;
-using FM9GAttention = std::variant<std::shared_ptr<StaticAttn>, std::shared_ptr<PagedAttn>, std::shared_ptr<FlashAttn>>;
+using FM9GAttention = infinilm::layers::Attention;
 
 /** @brief fm9g decoder layer type alias */
-using FM9GDecoderLayer = infinilm::models::layers::TemplateDecoderLayer<FM9GAttention, FM9GMLP>;
+using FM9GDecoderLayer = infinilm::layers::TemplateDecoderLayer<FM9GAttention, FM9GMLP>;
 
 /** @brief fm9g model architecture (without language modeling head) */
-using FM9GModel = infinilm::models::layers::TemplateModel<FM9GDecoderLayer>;
+using FM9GModel = infinilm::layers::TemplateModel<FM9GDecoderLayer>;
 
 /** @brief fm9g model for Causal Language Modeling */
-using FM9GForCausalLM = infinilm::models::layers::TemplateCausalLM<FM9GModel>;
+using FM9GForCausalLM = infinilm::layers::TemplateCausalLM<FM9GModel>;
 
 static std::shared_ptr<infinilm::config::ModelConfig> create_fm9g_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");

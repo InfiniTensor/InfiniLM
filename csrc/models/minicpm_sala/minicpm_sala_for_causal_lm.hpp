@@ -9,7 +9,7 @@
 namespace infinilm::models::minicpm_sala {
 
 /** @brief Type alias for MiniCPM-SALA MLP module */
-using MiniCPMMLP = infinilm::models::layers::MLP;
+using MiniCPMMLP = infinilm::layers::MLP;
 
 /** @brief MiniCPM-SALA attention variant (InfLLMv2 / Lightning) */
 using MiniCPMSALAAttention = std::variant<std::shared_ptr<InfLLMv2Attention>, std::shared_ptr<LightningAttention>>;
@@ -18,10 +18,10 @@ using MiniCPMSALAAttention = std::variant<std::shared_ptr<InfLLMv2Attention>, st
 using MiniCPMSALADecoderLayerImpl = MiniCPMSALADecoderLayer<MiniCPMSALAAttention, MiniCPMMLP>;
 
 /** @brief MiniCPM-SALA model architecture (without language modeling head) */
-using MiniCPMSALAModel = infinilm::models::layers::TemplateModel<MiniCPMSALADecoderLayerImpl>;
+using MiniCPMSALAModel = infinilm::layers::TemplateModel<MiniCPMSALADecoderLayerImpl>;
 
 /** @brief MiniCPM model for Causal Language Modeling */
-using MiniCPMSALAForCausalLM = infinilm::models::layers::TemplateCausalLM<MiniCPMSALAModel>;
+using MiniCPMSALAForCausalLM = infinilm::layers::TemplateCausalLM<MiniCPMSALAModel>;
 
 static std::shared_ptr<infinilm::config::ModelConfig> create_minicpm_sala_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");

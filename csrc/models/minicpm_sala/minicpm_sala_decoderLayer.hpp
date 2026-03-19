@@ -56,29 +56,30 @@ public:
      * @param attention_backend Reserved (unused; attention type selected via config mixer_types)
      */
     MiniCPMSALADecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                            const infinicore::Device &device,
                             size_t layer_idx,
+                            const infinicore::Device &device,
                             engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
                             backends::AttentionBackend attention_backend = backends::AttentionBackend::Default)
         : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
         const auto &dtype{model_config_->get_dtype()};
         size_t hidden_size = model_config_->get<size_t>("hidden_size");
         size_t intermediate_size = model_config_->get<size_t>("intermediate_size");
+        double rms_norm_eps = model_config_->get<double>("rms_norm_eps");
 
         // Initialize layer normalization layers
-        input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("input_layernorm", hidden_size, model_config_->get<double>("rms_norm_eps"), dtype, device);
-        post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, model_config_->get<double>("rms_norm_eps"), dtype, device);
+        input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("input_layernorm", hidden_size, rms_norm_eps, dtype, device);
+        post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
 
         // Initialize attention and MLP modules
-        mlp_ = this->register_module<MLP>("mlp", model_config_, hidden_size, intermediate_size, device, rank_info_);
+        mlp_ = this->register_module<MLP>("mlp", model_config_, device, rank_info_);
 
         std::vector<std::string> mixer_types = model_config_->get<std::vector<std::string>>("mixer_types");
         std::string mixer_type = mixer_types[layer_idx];
 
         if ("minicpm4" == mixer_type) {
-            self_attn_ = std::make_shared<Attention>(this->register_module<InfLLMv2Attention>("self_attn", model_config_, device, layer_idx, rank_info_));
+            self_attn_ = std::make_shared<Attention>(this->register_module<InfLLMv2Attention>("self_attn", model_config_, layer_idx, device, rank_info_, attention_backend));
         } else if ("lightning" == mixer_type || "lightning_attn" == mixer_type || "lightning-attn" == mixer_type) {
-            self_attn_ = std::make_shared<Attention>(this->register_module<LightningAttention>("self_attn", model_config_, device, layer_idx, rank_info_));
+            self_attn_ = std::make_shared<Attention>(this->register_module<LightningAttention>("self_attn", model_config_, layer_idx, device, rank_info_, attention_backend));
         }
     }
 

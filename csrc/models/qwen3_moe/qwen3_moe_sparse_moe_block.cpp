@@ -6,11 +6,10 @@
 namespace infinilm::models::qwen3_moe {
 
 Qwen3MoeSparseMoeBlock::Qwen3MoeSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                               size_t /* hidden_size */,
-                                               size_t /* intermediate_size */,
                                                const infinicore::Device &device,
                                                engine::distributed::RankInfo rank_info)
-    : model_config_(model_config), rank_info_(rank_info), use_bias_(false) {
+    : model_config_(model_config),
+      rank_info_(rank_info), use_bias_(false) {
 
     const auto &dtype{model_config_->get_dtype()};
 

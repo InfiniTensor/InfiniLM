@@ -18,9 +18,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
-#include <variant>
-
-namespace infinilm::models::layers {
+namespace infinilm::layers {
 
 /**
  * @brief Template decoder layer (transformer block) class
@@ -56,8 +54,8 @@ public:
      * @param attention_backend Attention backend to use
      */
     TemplateDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                         const infinicore::Device &device,
                          size_t layer_idx,
+                         const infinicore::Device &device,
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
                          backends::AttentionBackend attention_backend = backends::AttentionBackend::Default)
         : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
@@ -72,25 +70,8 @@ public:
         post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
 
         // Initialize attention and MLP modules
-        mlp_ = this->register_module<MLP>("mlp", model_config_, hidden_size, intermediate_size, device, rank_info_);
-
-        switch (attention_backend) {
-        case backends::AttentionBackend::StaticAttn:
-            self_attn_ = std::make_shared<Attention>(
-                this->register_module<StaticAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
-            break;
-        case backends::AttentionBackend::PagedAttn:
-            self_attn_ = std::make_shared<Attention>(
-                this->register_module<PagedAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
-            break;
-        case backends::AttentionBackend::FlashAttn:
-            self_attn_ = std::make_shared<Attention>(
-                this->register_module<FlashAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
-            break;
-        default:
-            throw std::invalid_argument("Invalid attention backend: " + std::to_string(static_cast<int>(attention_backend)));
-            break;
-        }
+        mlp_ = this->register_module<MLP>("mlp", model_config_, device, rank_info_);
+        self_attn_ = this->register_module<Attention>("self_attn", model_config_, layer_idx, device, rank_info_, attention_backend);
     }
 
     /**
@@ -113,9 +94,7 @@ public:
         input_layernorm_->forward_inplace(hidden_states, residual);
 
         // 2. Self-attention
-        // self_attn_->forward(hidden_states, input, kv_cache);
-        hidden_states = std::visit(
-            [&](auto &attn_ptr) { return attn_ptr->forward(hidden_states, input, kv_cache); }, *self_attn_);
+        hidden_states = self_attn_->forward(hidden_states, input, kv_cache);
 
         // 3. Post-attention layer normalization
         post_attention_layernorm_->forward_inplace(hidden_states, residual);
@@ -132,16 +111,11 @@ public:
 
     void set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) {
         if (self_attn_) {
-            // self_attn_->set_rotary_emb(rotary_emb);
-            std::visit([&](auto &attn_ptr) { attn_ptr->set_rotary_emb(rotary_emb); }, *self_attn_);
+            self_attn_->set_rotary_emb(rotary_emb);
         }
     }
 
 protected:
-    using StaticAttn = infinilm::models::layers::StaticAttention;
-    using PagedAttn = infinilm::models::layers::PagedAttention;
-    using FlashAttn = infinilm::models::layers::FlashAttention;
-
     // Layer normalization
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
@@ -156,4 +130,4 @@ private:
     size_t layer_idx_; // Layer index for cache management and debugging
 };
 
-} // namespace infinilm::models::layers
+} // namespace infinilm::layers

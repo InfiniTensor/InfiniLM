@@ -10,7 +10,7 @@
 
 #include "../../engine/distributed/distributed.hpp"
 
-namespace infinilm::models::layers::mlp {
+namespace infinilm::layers::mlp {
 
 /**
  * @brief MLP (Feed-Forward Network) module for Llama
@@ -63,4 +63,4 @@ private:
     size_t moe_intermediate_size_;
 };
 
-} // namespace infinilm::models::layers::mlp
+} // namespace infinilm::layers::mlp

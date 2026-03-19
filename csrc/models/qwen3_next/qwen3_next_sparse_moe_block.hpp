@@ -11,7 +11,7 @@
 
 namespace infinilm::models::qwen3_next {
 
-using Qwen3NextMLP = infinilm::models::layers::MoeMLP;
+using Qwen3NextMLP = infinilm::layers::MoeMLP;
 
 /**
  * @brief Sparse MoE (Mixture of Experts) block for Qwen3 MoE
@@ -33,9 +33,9 @@ public:
      * @param device Device to create tensors on
      * @param rank_info Rank information for distributed training
      */
-     Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                           const infinicore::Device &device,
-                           engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+    Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                            const infinicore::Device &device,
+                            engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     /**
      * @brief Forward pass: compute MoE output
@@ -44,7 +44,6 @@ public:
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
-
 
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::Linear, gate);

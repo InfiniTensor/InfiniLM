@@ -14,6 +14,7 @@
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
+#include "qwen3_next_sparse_moe_block.hpp"
 
 #include <memory>
 #include <optional>
@@ -23,10 +24,7 @@
 
 namespace infinilm::models::qwen3_next {
 
-using StaticAttn = infinilm::models::layers::StaticAttention;
-using PagedAttn = infinilm::models::layers::PagedAttention;
-using FlashAttn = infinilm::models::layers::FlashAttention;
-using Qwen3NextAttention = std::variant<std::shared_ptr<StaticAttn>, std::shared_ptr<PagedAttn>, std::shared_ptr<FlashAttn>>;
+using Qwen3NextAttention = infinilm::layers::Attention;
 
 /**
  * @brief Template decoder layer (transformer block) class
@@ -62,21 +60,22 @@ public:
      * @param attention_backend Reserved (unused; attention type selected via config mixer_types)
      */
     Qwen3NextDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                          const infinicore::Device &device,
                           size_t layer_idx,
+                          const infinicore::Device &device,
                           engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
                           backends::AttentionBackend attention_backend = backends::AttentionBackend::Default)
         : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
         const auto &dtype{model_config_->get_dtype()};
         size_t hidden_size = model_config_->get<size_t>("hidden_size");
         size_t intermediate_size = model_config_->get<size_t>("intermediate_size");
+        double rms_norm_eps = model_config_->get<double>("rms_norm_eps");
 
         // Initialize layer normalization layers
-        input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("input_layernorm", hidden_size, model_config_->get<double>("rms_norm_eps"), dtype, device);
-        post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, model_config_->get<double>("rms_norm_eps"), dtype, device);
+        input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("input_layernorm", hidden_size, rms_norm_eps, dtype, device);
+        post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
 
         // Initialize MLP
-        mlp_ = this->register_module<Qwen3NextSparseMoeBlock>("mlp", model_config_,  device, rank_info_);
+        mlp_ = this->register_module<Qwen3NextSparseMoeBlock>("mlp", model_config_, device, rank_info_);
 
         // Initialize attention
         std::vector<std::string> layer_types = model_config_->get<std::vector<std::string>>("layer_types");
@@ -84,22 +83,7 @@ public:
         if ("linear_attention" == layer_type_) {
             linear_attn_ = this->register_module<Qwen3NextGatedDeltaNet>("linear_attn", model_config_, layer_idx, device, rank_info_);
         } else if ("full_attention" == layer_type_) {
-            switch (attention_backend) {
-            case backends::AttentionBackend::StaticAttn:
-                self_attn_ = std::make_shared<Qwen3NextAttention>(
-                    this->register_module<StaticAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
-                break;
-            case backends::AttentionBackend::PagedAttn:
-                self_attn_ = std::make_shared<Qwen3NextAttention>(
-                    this->register_module<PagedAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
-                break;
-            case backends::AttentionBackend::FlashAttn:
-                self_attn_ = std::make_shared<Qwen3NextAttention>(
-                    this->register_module<FlashAttn>("self_attn", model_config_, device, layer_idx, rank_info_));
-                break;
-            default:
-                throw std::invalid_argument("Invalid attention backend for full_attention: " +  std::to_string(static_cast<int>(attention_backend)));
-            }
+            self_attn_ = this->register_module<Qwen3NextAttention>("self_attn", model_config_, layer_idx, device, rank_info_, attention_backend);
         }
     }
 
@@ -126,7 +110,7 @@ public:
         if ("linear_attention" == layer_type_) {
             hidden_states = linear_attn_->forward(hidden_states);
         } else if ("full_attention" == layer_type_) {
-            hidden_states = std::visit([&](auto &attn_ptr) { return attn_ptr->forward(hidden_states, input, kv_cache); }, *self_attn_);
+            hidden_states = self_attn_->forward(hidden_states, input, kv_cache);
         }
 
         // 3. Post-attention layer normalization
@@ -144,7 +128,7 @@ public:
 
     void set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) {
         if (self_attn_) {
-            std::visit([&](auto &attn_ptr) { attn_ptr->set_rotary_emb(rotary_emb); }, *self_attn_);
+            self_attn_->set_rotary_emb(rotary_emb);
         }
     }
 

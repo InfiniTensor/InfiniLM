@@ -52,8 +52,8 @@ public:
      */
 
     LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                   const infinicore::Device &device,
                    size_t layer_idx,
+                   const infinicore::Device &device,
                    engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
                    backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
