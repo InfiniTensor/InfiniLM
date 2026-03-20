@@ -19,14 +19,10 @@ inline void bind_cache(py::module &m) {
                infinilm::cache::CacheConfig,
                std::shared_ptr<infinilm::cache::StaticKVCacheConfig>>(m, "StaticKVCacheConfig")
         .def(
-            py::init<infinicore::Size, infinicore::Size>(),
-            py::arg("max_batch_size") = 1,
-            py::arg("max_cache_len") = std::numeric_limits<infinicore::Size>::max())
-        .def(
-            py::init<infinicore::Size, infinicore::Size, std::string>(),
+            py::init<infinicore::Size, infinicore::Size, std::optional<infinicore::DataType>>(),
             py::arg("max_batch_size") = 1,
             py::arg("max_cache_len") = std::numeric_limits<infinicore::Size>::max(),
-            py::arg("kv_cache_dtype"))
+            py::arg("kv_cache_dtype") = std::nullopt)
         .def(
             "max_batch_size",
             &infinilm::cache::StaticKVCacheConfig::max_batch_size)
@@ -43,14 +39,10 @@ inline void bind_cache(py::module &m) {
                infinilm::cache::CacheConfig,
                std::shared_ptr<infinilm::cache::PagedKVCacheConfig>>(m, "PagedKVCacheConfig")
         .def(
-            py::init<size_t, size_t>(),
+            py::init<size_t, size_t, std::optional<infinicore::DataType>>(),
             py::arg("num_blocks"),
-            py::arg("block_size") = 256)
-        .def(
-            py::init<size_t, std::string, size_t>(),
-            py::arg("num_blocks"),
-            py::arg("kv_cache_dtype"),
-            py::arg("block_size") = 16)
+            py::arg("block_size") = 256,
+            py::arg("kv_cache_dtype") = std::nullopt)
         .def(
             "num_blocks",
             &infinilm::cache::PagedKVCacheConfig::num_blocks)

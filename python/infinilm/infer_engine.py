@@ -30,7 +30,7 @@ class InferEngine(_infinilm.InferEngine):
         cache_config=None,
         enable_graph_compiling=False,
         attention_backend="default",
-        kv_cache_dtype="",
+        kv_cache_dtype=None,
     ):
         self.config = AutoConfig.from_pretrained(model_path)
 

@@ -12,20 +12,11 @@ namespace infinilm::cache {
 
 StaticKVCacheConfig::StaticKVCacheConfig(
     infinicore::Size _max_batch_size,
-    infinicore::Size _max_cache_len)
-    : max_batch_size_(_max_batch_size),
-      max_cache_len_(_max_cache_len) {
-}
-
-StaticKVCacheConfig::StaticKVCacheConfig(
-    infinicore::Size _max_batch_size,
     infinicore::Size _max_cache_len,
-    std::string kv_cache_dtype)
+    std::optional<infinicore::DataType> kv_cache_dtype)
     : max_batch_size_(_max_batch_size),
-      max_cache_len_(_max_cache_len) {
-    if (!kv_cache_dtype.empty()) {
-        this->kv_cache_dtype_ = std::make_optional(parse_dtype(kv_cache_dtype));
-    }
+      max_cache_len_(_max_cache_len),
+      kv_cache_dtype_(kv_cache_dtype) {
 }
 
 std::unique_ptr<CacheConfig>
@@ -143,20 +134,11 @@ void StaticKVCacheConfig::set_kv_cache_dtype(infinicore::DataType dtype) {
 // ==========================
 PagedKVCacheConfig::PagedKVCacheConfig(
     size_t num_blocks,
-    std::string kv_cache_dtype,
-    size_t block_size)
+    size_t block_size,
+    std::optional<infinicore::DataType> kv_cache_dtype)
     : num_blocks_(num_blocks),
-      block_size_(block_size) {
-    if (!kv_cache_dtype.empty()) {
-        this->kv_cache_dtype_ = std::make_optional(parse_dtype(kv_cache_dtype));
-    }
-}
-
-PagedKVCacheConfig::PagedKVCacheConfig(
-    size_t num_blocks,
-    size_t block_size)
-    : num_blocks_(num_blocks),
-      block_size_(block_size) {
+      block_size_(block_size),
+      kv_cache_dtype_(kv_cache_dtype) {
 }
 
 std::unique_ptr<CacheConfig>

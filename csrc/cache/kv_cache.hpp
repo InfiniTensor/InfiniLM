@@ -22,12 +22,8 @@ class StaticKVCacheConfig final : public CacheConfig {
 public:
     StaticKVCacheConfig(
         infinicore::Size _max_batch_size = 1,
-        infinicore::Size _max_cache_len = std::numeric_limits<infinicore::Size>::max());
-
-    StaticKVCacheConfig(
-        infinicore::Size _max_batch_size,
-        infinicore::Size _max_cache_len,
-        std::string kv_cache_dtype);
+        infinicore::Size _max_cache_len = std::numeric_limits<infinicore::Size>::max(),
+        std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt);
 
     std::unique_ptr<CacheConfig> unique_copy() const override;
     infinicore::Size max_batch_size() const;
@@ -40,7 +36,7 @@ private:
     infinicore::Size max_batch_size_;
     infinicore::Size max_cache_len_;
 
-    std::optional<infinicore::DataType> kv_cache_dtype_ = std::nullopt;
+    std::optional<infinicore::DataType> kv_cache_dtype_;
 };
 
 class StaticKVCache final : public Cache {
@@ -97,12 +93,8 @@ class PagedKVCacheConfig final : public CacheConfig {
 public:
     PagedKVCacheConfig(
         size_t num_blocks,
-        size_t block_size = 256);
-
-    PagedKVCacheConfig(
-        size_t num_blocks,
-        std::string kv_cache_dtype,
-        size_t block_size = 16);
+        size_t block_size = 256,
+        std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt);
 
     std::unique_ptr<CacheConfig> unique_copy() const override;
     size_t num_blocks() const;
