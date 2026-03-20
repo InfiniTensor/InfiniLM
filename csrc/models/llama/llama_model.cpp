@@ -122,12 +122,12 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
     return hidden_states;
 }
 
-void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
+void LlamaModel::reset_cache(cache::CacheConfig *cache_config) {
     if (cache_config == nullptr) {
         kv_cache_ = nullptr;
         return;
     }
-    if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
+    if (auto kv_cache_config = dynamic_cast<cache::StaticKVCacheConfig *>(cache_config);
         kv_cache_config && model_config_ == nullptr) {
         kv_cache_ = std::make_shared<cache::StaticKVCache>(
             config_.head_dim,
@@ -136,10 +136,9 @@ void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
             config_.num_key_value_heads,
             config_.num_hidden_layers,
             config_.max_position_embeddings,
-            config_.dtype,
             *kv_cache_config,
             rank_info_);
-    } else if (auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+    } else if (auto paged_kv_cache_config = dynamic_cast<cache::PagedKVCacheConfig *>(cache_config);
                paged_kv_cache_config && model_config_ == nullptr) {
         kv_cache_ = std::make_shared<cache::PagedKVCache>(
             config_.head_dim,
@@ -147,10 +146,10 @@ void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
             config_.num_key_value_heads,
             config_.num_key_value_heads,
             config_.num_hidden_layers,
-            config_.dtype,
             *paged_kv_cache_config,
             rank_info_);
-    } else if (auto kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
+    } else if (auto kv_cache_config = dynamic_cast<cache::StaticKVCacheConfig *>(cache_config)) {
+        kv_cache_config->set_kv_cache_dtype(model_config_->get_dtype());
         kv_cache_ = std::make_shared<cache::StaticKVCache>(
             model_config_->get_head_dim(),
             model_config_->get_head_dim(),
@@ -158,17 +157,16 @@ void LlamaModel::reset_cache(const cache::CacheConfig *cache_config) {
             model_config_->get<size_t>("num_key_value_heads"),
             model_config_->get<size_t>("num_hidden_layers"),
             model_config_->get<size_t>("max_position_embeddings"),
-            model_config_->get_dtype(),
             *kv_cache_config,
             rank_info_);
-    } else if (auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config)) {
+    } else if (auto paged_kv_cache_config = dynamic_cast<cache::PagedKVCacheConfig *>(cache_config)) {
+        paged_kv_cache_config->set_kv_cache_dtype(model_config_->get_dtype());
         kv_cache_ = std::make_shared<cache::PagedKVCache>(
             model_config_->get_head_dim(),
             model_config_->get_head_dim(),
             model_config_->get<size_t>("num_key_value_heads"),
             model_config_->get<size_t>("num_key_value_heads"),
             model_config_->get<size_t>("num_hidden_layers"),
-            model_config_->get_dtype(),
             *paged_kv_cache_config,
             rank_info_);
     } else {

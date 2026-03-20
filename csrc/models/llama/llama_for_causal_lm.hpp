@@ -58,7 +58,7 @@ public:
      */
     Output forward(const Input &input) const;
 
-    void reset_cache(const cache::CacheConfig *cache_config) override;
+    void reset_cache(cache::CacheConfig *cache_config) override;
 
     const cache::CacheConfig *get_cache_config() const override;
 

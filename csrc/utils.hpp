@@ -1,4 +1,5 @@
 #pragma once
+#include <infinicore/dtype.hpp>
 #include <infinirt.h>
 
 #include <cstring>
@@ -122,4 +123,23 @@ inline uint16_t f32_to_bf16(float val) {
 // Hash combine utility (similar to boost::hash_combine)
 inline void hash_combine(size_t &seed, size_t value) {
     seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+inline infinicore::DataType parse_dtype(const std::string &dtype_str) {
+    static const std::unordered_map<std::string, infinicore::DataType> dtype_map = {
+        {"float32", infinicore::DataType::F32},
+        {"float16", infinicore::DataType::F16},
+        {"bfloat16", infinicore::DataType::BF16},
+        {"int8", infinicore::DataType::I8},
+        // 可根据需要扩展
+        {"int32", infinicore::DataType::I32},
+        {"int64", infinicore::DataType::I64},
+    };
+
+    auto it = dtype_map.find(dtype_str);
+    if (it != dtype_map.end()) {
+        return it->second;
+    }
+
+    throw std::runtime_error("Unsupported dtype string: " + dtype_str);
 }

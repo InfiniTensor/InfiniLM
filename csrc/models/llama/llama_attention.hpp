@@ -5,6 +5,7 @@
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
 #include "../../layers/fused_linear.hpp"
+#include "../../layers/kv_quant.hpp"
 #include "llama_config.hpp"
 
 #include "infinicore/nn/linear.hpp"
@@ -122,6 +123,10 @@ protected:
 
     // Shared Rotary Position Embeddings (RoPE)
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+
+    // For off-line kv cache quantization
+    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
+    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 
 private:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_ = std::make_shared<infinilm::config::ModelConfig>();

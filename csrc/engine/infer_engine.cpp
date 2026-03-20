@@ -55,7 +55,8 @@ InferEngine::InferEngine(
     infinicore::Device::Type device_type,
     const cache::CacheConfig *cache_config,
     bool enable_graph_compiling,
-    backends::AttentionBackend attention_backend) // Changed parameter
+    backends::AttentionBackend attention_backend,
+    const std::string &kv_cache_dtype) // Changed parameter
     : communication_group_(distributed_config, device_type), attention_backend_(attention_backend) {
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
@@ -63,6 +64,8 @@ InferEngine::InferEngine(
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = std::make_shared<infinilm::config::ModelConfig>(model_path + "/config.json");
+    // Only support offline int8 kv cache quantization in this version
+    this->model_config_->set_kv_quant_scheme(kv_cache_dtype);
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
     barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
@@ -168,7 +171,7 @@ const distributed::DistConfig &InferEngine::get_dist_config() const {
 //------------------------------------------------------
 // reset_cache (overloaded with CacheConfig)
 //------------------------------------------------------
-void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
+void InferEngine::reset_cache(cache::CacheConfig *new_config) {
     for (auto &worker : workers_) {
         worker->reset_cache(new_config);
     }

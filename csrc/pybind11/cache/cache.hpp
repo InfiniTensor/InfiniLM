@@ -1,4 +1,5 @@
 #include "../../cache/cache.hpp"
+#include "infinicore/dtype.hpp"
 #include "infinicore/tensor.hpp"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -18,15 +19,18 @@ inline void bind_cache(py::module &m) {
                infinilm::cache::CacheConfig,
                std::shared_ptr<infinilm::cache::StaticKVCacheConfig>>(m, "StaticKVCacheConfig")
         .def(
-            py::init<infinicore::Size, infinicore::Size>(),
+            py::init<infinicore::Size, infinicore::Size, std::optional<infinicore::DataType>>(),
             py::arg("max_batch_size") = 1,
-            py::arg("max_cache_len") = std::numeric_limits<infinicore::Size>::max())
+            py::arg("max_cache_len") = std::numeric_limits<infinicore::Size>::max(),
+            py::arg("kv_cache_dtype") = std::nullopt)
         .def(
             "max_batch_size",
             &infinilm::cache::StaticKVCacheConfig::max_batch_size)
         .def(
             "max_cache_len",
             &infinilm::cache::StaticKVCacheConfig::max_cache_len)
+        .def("kv_cache_dtype",
+             &infinilm::cache::StaticKVCacheConfig::kv_cache_dtype)
         .def("__repr__", [](const infinilm::cache::StaticKVCacheConfig &) {
             return "<StaticKVCacheConfig>";
         });
@@ -35,15 +39,18 @@ inline void bind_cache(py::module &m) {
                infinilm::cache::CacheConfig,
                std::shared_ptr<infinilm::cache::PagedKVCacheConfig>>(m, "PagedKVCacheConfig")
         .def(
-            py::init<size_t, size_t>(),
+            py::init<size_t, size_t, std::optional<infinicore::DataType>>(),
             py::arg("num_blocks"),
-            py::arg("block_size") = 256)
+            py::arg("block_size") = 256,
+            py::arg("kv_cache_dtype") = std::nullopt)
         .def(
             "num_blocks",
             &infinilm::cache::PagedKVCacheConfig::num_blocks)
         .def(
             "block_size",
             &infinilm::cache::PagedKVCacheConfig::block_size)
+        .def("kv_cache_dtype",
+             &infinilm::cache::PagedKVCacheConfig::kv_cache_dtype)
         .def("__repr__", [](const infinilm::cache::PagedKVCacheConfig &) {
             return "<PagedKVCacheConfig>";
         });

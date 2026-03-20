@@ -186,7 +186,7 @@ void RankWorker::wait() {
     }
 }
 
-void RankWorker::reset_cache(const cache::CacheConfig *new_config) {
+void RankWorker::reset_cache(cache::CacheConfig *new_config) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (should_exit_) {
         throw std::runtime_error("RankWorker is closing; cannot reset_cache");

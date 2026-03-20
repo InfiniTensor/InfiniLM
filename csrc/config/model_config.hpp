@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../utils.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
 #include "quant_config.hpp"
@@ -63,6 +64,12 @@ public:
     infinicore::DataType get_dtype() const;
     infinicore::quantization::QuantScheme get_quant_scheme() const;
     std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> get_rope_scaling() const;
+    void set_kv_quant_scheme(std::string kv_cache_dtype) {
+        this->quant_config.set_kv_quant_scheme(kv_cache_dtype);
+    }
+    infinicore::quantization::KVQuantAlgo get_kv_quant_scheme() const {
+        return quant_config.get_kv_quant_scheme();
+    }
 
 private:
     nlohmann::json config_json;
