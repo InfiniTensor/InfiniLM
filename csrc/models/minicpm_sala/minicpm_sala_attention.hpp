@@ -30,9 +30,7 @@ protected:
                   size_t num_attention_heads,
                   size_t num_key_value_heads,
                   size_t layer_idx,
-                  const infinicore::Device &device,
-                  engine::distributed::RankInfo rank_info,
-                  ::infinilm::backends::AttentionBackend attention_backend);
+                  const infinicore::Device &device);
 
 public:
     size_t layer_idx() const { return layer_idx_; }
@@ -75,13 +73,9 @@ class InfLLMv2Attention : public AttentionBase {
 public:
     InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                       size_t layer_idx,
-                      const infinicore::Device &device,
-                      engine::distributed::RankInfo rank_info,
-                      ::infinilm::backends::AttentionBackend attention_backend);
+                      const infinicore::Device &device);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinilm::InfinilmModel::Input &input,
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache) const;
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
 protected:
     const bool use_output_gate_;
@@ -95,13 +89,9 @@ class LightningAttention : public AttentionBase {
 public:
     LightningAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                        size_t layer_idx,
-                       const infinicore::Device &device,
-                       engine::distributed::RankInfo rank_info,
-                       ::infinilm::backends::AttentionBackend attention_backend);
+                       const infinicore::Device &device);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinilm::InfinilmModel::Input &input,
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache) const;
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
 protected:
     const bool qk_norm_;

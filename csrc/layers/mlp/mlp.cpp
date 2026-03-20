@@ -1,4 +1,5 @@
 #include "mlp.hpp"
+#include "../../engine/parallel_state.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
 #include <cstddef>
@@ -6,16 +7,16 @@
 namespace infinilm::layers::mlp {
 
 MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-         const infinicore::Device &device,
-         engine::distributed::RankInfo rank_info)
-    : model_config_(model_config),
-      rank_info_(rank_info) {
+         const infinicore::Device &device)
+    : model_config_(model_config) {
 
     hidden_size_ = model_config->get<size_t>("hidden_size");
     intermediate_size_ = model_config->get<size_t>("intermediate_size");
     use_bias_ = model_config->get_or<bool>("mlp_bias", false);
 
     const auto &dtype{model_config_->get_dtype()};
+
+    const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
 
@@ -26,20 +27,20 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
     switch (quant_scheme) {
     case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
         INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, quantization_method,
-                                          use_bias_, dtype, device, rank_info_);
+                                          use_bias_, dtype, device, rank_info);
         INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, quantization_method, use_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     case infinicore::quantization::QuantScheme::AWQ_W4A16:
         INFINILM_GATE_UP_LINEAR_W4A16AWQ_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, quantization_method,
-                                              use_bias_, dtype, device, rank_info_);
+                                              use_bias_, dtype, device, rank_info);
         INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, quantization_method, use_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
 
     default:
         INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, quantization_method,
-                                     use_bias_, dtype, device, rank_info_);
+                                     use_bias_, dtype, device, rank_info);
         INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, quantization_method, use_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;

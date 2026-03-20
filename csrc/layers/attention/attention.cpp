@@ -1,14 +1,49 @@
 #include "attention.hpp"
+#include "../../engine/forward_context.hpp"
+#include "../../engine/parallel_state.hpp"
 
 namespace infinilm::layers::attention {
 
+using infinilm::engine::AttentionMetadata;
+using infinilm::engine::get_forward_context;
+
+/*
+https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/attention/attention.py
+
+def get_attention_context(
+    layer_name: str,
+) -> tuple[Any, "Attention | MLAAttention", torch.Tensor, torch.Tensor]:
+    """Extract attention context for a given layer.
+
+    This helper function extracts the attention metadata, attention layer
+    instance, KV cache tensor, and slot mapping for a specific layer.
+
+    Args:
+        layer_name: The name/identifier of the attention layer.
+
+    Returns:
+        A tuple containing:
+        - attn_metadata: Attention metadata for this specific layer, or None if
+            no metadata available
+        - attn_layer: The attention layer instance (Attention or MLAAttention)
+        - kv_cache: The KV cache tensor for current forward pass
+        - slot_mapping: The slot mapping for this specific layer
+
+        Note: attn_metadata may be None, but attn_layer and kv_cache are always
+        extracted from the forward context.
+    """
+    pass
+*/
+inline AttentionMetadata get_attention_context() {
+    return get_forward_context().attn_metadata;
+}
+
 Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      size_t layer_idx,
-                     const infinicore::Device &device,
-                     engine::distributed::RankInfo rank_info,
-                     ::infinilm::backends::AttentionBackend attention_backend) {
+                     const infinicore::Device &device) {
     layer_idx_ = layer_idx;
-    attention_backend_ = attention_backend;
+
+    attention_backend_ = config::get_current_infinilm_config().attention_backend;
 
     const auto &dtype{model_config->get_dtype()};
 
@@ -26,8 +61,11 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
 
     auto quant_scheme = model_config->get_quant_scheme();
     auto quantization_method = model_config->get_quantization_method();
-    int tp_rank = rank_info.tp_rank;
-    int tp_size = rank_info.tp_size;
+
+    const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
+    int tp_rank = infinilm::engine::get_tensor_model_parallel_rank();
+    int tp_size = infinilm::engine::get_tensor_model_parallel_world_size();
+
     switch (quant_scheme) {
     case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
         INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, num_attention_heads_, num_key_value_heads_, quantization_method, use_bias, dtype, device, rank_info);
@@ -60,13 +98,15 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
         throw std::runtime_error("num_attention_heads / tp_size error.");
     }
 
-    attn_ = std::make_shared<AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_, attention_backend);
+    attn_ = std::make_shared<AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_, attention_backend_);
 }
 
-infinicore::Tensor Attention::forward(const infinicore::Tensor &hidden_states,
-                                      const infinilm::InfinilmModel::Input &attn_metadata,
-                                      std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
-    if (::infinilm::backends::AttentionBackend::StaticAttn == attention_backend_) {
+infinicore::Tensor Attention::forward(const infinicore::Tensor &hidden_states) const {
+    auto &forward_context = get_forward_context();
+    AttentionMetadata &attn_metadata = forward_context.attn_metadata;
+    std::shared_ptr<infinilm::cache::Cache> &kv_cache = forward_context.kv_cache;
+
+    if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
         return forward_static_(hidden_states, attn_metadata, kv_cache);
     }
     return forward_paged_(hidden_states, attn_metadata, kv_cache);

@@ -8,9 +8,7 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
                              size_t num_attention_heads,
                              size_t num_key_value_heads,
                              size_t layer_idx,
-                             const infinicore::Device &device,
-                             engine::distributed::RankInfo rank_info,
-                             ::infinilm::backends::AttentionBackend attention_backend)
+                             const infinicore::Device &device)
     : model_config_(model_config),
       layer_idx_(layer_idx),
       hidden_size_(model_config->get<size_t>("hidden_size")),
@@ -20,11 +18,12 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
       kv_dim_(model_config->get_kv_dim()),
       use_bias_(model_config->get_or<bool>("attention_bias", true)),
       use_output_bias_(model_config->get_or<bool>("attention_output_bias", false)),
-      max_position_embeddings_(model_config->get<size_t>("max_position_embeddings")),
-      rank_info_(rank_info) {
+      max_position_embeddings_(model_config->get<size_t>("max_position_embeddings")) {
     const auto &dtype{model_config_->get_dtype()};
-    int tp_rank = rank_info.tp_rank;
-    int tp_size = rank_info.tp_size;
+
+    const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
+    int tp_rank = infinilm::engine::get_tensor_model_parallel_rank();
+    int tp_size = infinilm::engine::get_tensor_model_parallel_world_size();
 
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
@@ -50,27 +49,20 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
         break;
     }
 
-    if ((num_key_value_heads >= tp_size) && (0 == (num_key_value_heads % tp_size))) {
-        this->num_attention_heads_ = num_attention_heads / tp_size;
-        this->num_key_value_heads_ = num_key_value_heads / tp_size;
-    } else {
-        throw std::runtime_error("num_attention_heads / tp_size error.");
-    }
-
+    size_t num_attention_heads_tp = num_attention_heads / tp_size;
+    size_t num_key_value_heads_tp = num_key_value_heads / tp_size;
+    const backends::AttentionBackend attention_backend = config::get_current_infinilm_config().attention_backend;
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
-        num_attention_heads_, head_dim_, scaling_, num_key_value_heads_, layer_idx_, attention_backend);
+        num_attention_heads_tp, head_dim_, scaling_, num_key_value_heads_tp, layer_idx_, attention_backend);
 }
 
 InfLLMv2Attention::InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      size_t layer_idx,
-                                     const infinicore::Device &device,
-                                     engine::distributed::RankInfo rank_info,
-                                     ::infinilm::backends::AttentionBackend attention_backend)
+                                     const infinicore::Device &device)
     : AttentionBase(model_config,
                     model_config->get<size_t>("num_attention_heads"),
                     model_config->get<size_t>("num_key_value_heads"),
-                    layer_idx, device, rank_info,
-                    attention_backend),
+                    layer_idx, device),
       use_output_gate_(model_config->get_or<bool>("use_output_gate", false)) {
 
     const auto &dtype{model_config->get_dtype()};
@@ -80,23 +72,18 @@ InfLLMv2Attention::InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConf
     }
 }
 
-infinicore::Tensor InfLLMv2Attention::forward(const infinicore::Tensor &hidden_states,
-                                              const infinilm::InfinilmModel::Input &input,
-                                              std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
+infinicore::Tensor InfLLMv2Attention::forward(const infinicore::Tensor &hidden_states) const {
     spdlog::error("InfLLMv2Attention is not implemented");
     return hidden_states;
 }
 
 LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                        size_t layer_idx,
-                                       const infinicore::Device &device,
-                                       engine::distributed::RankInfo rank_info,
-                                       ::infinilm::backends::AttentionBackend attention_backend)
+                                       const infinicore::Device &device)
     : AttentionBase(model_config,
                     model_config->get<size_t>("num_attention_heads"),
                     model_config->get<size_t>("lightning_nkv"),
-                    layer_idx, device, rank_info,
-                    attention_backend),
+                    layer_idx, device),
       qk_norm_(model_config->get_or<bool>("qk_norm", false)),
       use_output_norm_(model_config->get_or<bool>("use_output_norm", false)),
       use_output_gate_(model_config->get_or<bool>("use_output_gate", false)) {
@@ -119,11 +106,7 @@ LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelCo
     }
 }
 
-infinicore::Tensor LightningAttention::forward(const infinicore::Tensor &hidden_states,
-                                               const infinilm::InfinilmModel::Input &input,
-                                               std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
-    (void)input;
-    (void)kv_cache;
+infinicore::Tensor LightningAttention::forward(const infinicore::Tensor &hidden_states) const {
     spdlog::error("LightningAttention is not implemented");
     return hidden_states;
 }

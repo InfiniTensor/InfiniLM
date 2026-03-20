@@ -18,11 +18,8 @@ class Qwen3NextAttention : public infinicore::nn::Module {
 public:
     Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                        size_t layer_idx,
-                       const infinicore::Device &device,
-                       engine::distributed::RankInfo rank_info,
-                       ::infinilm::backends::AttentionBackend attention_backend = ::infinilm::backends::AttentionBackend::Default) {
+                       const infinicore::Device &device) {
         layer_idx_ = layer_idx;
-        attention_backend_ = attention_backend;
 
         const auto &dtype{model_config->get_dtype()};
 
@@ -41,8 +38,10 @@ public:
 
         auto quant_schem = model_config->get_quant_scheme();
         auto quantization_method = model_config->get_quantization_method();
-        int tp_rank = rank_info.tp_rank;
-        int tp_size = rank_info.tp_size;
+
+        const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
+        int tp_rank = infinilm::engine::get_tensor_model_parallel_rank();
+        int tp_size = infinilm::engine::get_tensor_model_parallel_world_size();
 
         size_t total_num_heads = num_attention_heads_;
 
@@ -80,13 +79,12 @@ public:
             throw std::runtime_error("num_attention_heads / tp_size error.");
         }
 
+        attention_backend_ = config::get_current_infinilm_config().attention_backend;
         attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
             num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_, attention_backend_);
     }
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinilm::InfinilmModel::Input &attn_metadata,
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const {
 
         spdlog::error("Qwen3NextAttention: forward not implemented");
         return hidden_states;

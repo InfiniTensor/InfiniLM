@@ -15,8 +15,7 @@ class ModelConfig {
     // and passed through the InferEngine during inference.
 public:
     ModelConfig() = default;
-    // Not Implemented
-    // ModelConfig(const nlohmann::json &json) : config_json(json) {};
+    ModelConfig(const nlohmann::json &json);
     ModelConfig(const std::string &path);
 
     nlohmann::json &get_config_json() {

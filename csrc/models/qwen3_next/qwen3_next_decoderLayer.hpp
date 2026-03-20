@@ -1,7 +1,5 @@
 #pragma once
 
-#include "../../backends/attention_backends.hpp"
-#include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
 #include "qwen3_next_gated_deltanet.hpp"
@@ -55,14 +53,11 @@ public:
      * @param device Device to create tensors on
      * @param layer_idx Layer index for cache management and debugging
      * @param rank_info Rank information for distributed training
-     * @param attention_backend Reserved (unused; attention type selected via config mixer_types)
      */
     Qwen3NextDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                           size_t layer_idx,
-                          const infinicore::Device &device,
-                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                          backends::AttentionBackend attention_backend = backends::AttentionBackend::Default)
-        : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
+                          const infinicore::Device &device)
+        : model_config_(model_config), layer_idx_(layer_idx) {
         const auto &dtype{model_config_->get_dtype()};
         size_t hidden_size = model_config_->get<size_t>("hidden_size");
         size_t intermediate_size = model_config_->get<size_t>("intermediate_size");
@@ -81,7 +76,7 @@ public:
         if ("linear_attention" == layer_type_) {
             linear_attn_ = this->register_module<Qwen3NextGatedDeltaNet>("linear_attn", model_config_, layer_idx, device, rank_info_);
         } else if ("full_attention" == layer_type_) {
-            self_attn_ = this->register_module<Qwen3NextAttention>("self_attn", model_config_, layer_idx, device, rank_info_, attention_backend);
+            self_attn_ = this->register_module<Qwen3NextAttention>("self_attn", model_config_, layer_idx, device);
         }
     }
 
@@ -97,9 +92,7 @@ public:
      */
     std::tuple<infinicore::Tensor, infinicore::Tensor>
     forward(infinicore::Tensor &hidden_states,
-            infinicore::Tensor &residual,
-            const infinilm::InfinilmModel::Input &input,
-            std::shared_ptr<infinilm::cache::Cache> kv_cache) {
+            infinicore::Tensor &residual) {
 
         // 1. Attention layer normalization
         input_layernorm_->forward_inplace(hidden_states, residual);
@@ -108,7 +101,7 @@ public:
         if ("linear_attention" == layer_type_) {
             hidden_states = linear_attn_->forward(hidden_states);
         } else if ("full_attention" == layer_type_) {
-            hidden_states = self_attn_->forward(hidden_states, input, kv_cache);
+            hidden_states = self_attn_->forward(hidden_states);
         }
 
         // 3. Post-attention layer normalization
@@ -117,6 +110,19 @@ public:
         // 4. MLP
         hidden_states = mlp_->forward(hidden_states);
         return std::make_tuple(hidden_states, residual);
+    }
+
+    // Compatibility overload for TemplateModel::forward_naive, which expects:
+    // DecoderLayer::forward(hidden_states, input, kv_cache) -> hidden_states
+    infinicore::Tensor forward(infinicore::Tensor &hidden_states) {
+
+        // Initialize residual as a copy of hidden_states, matching typical decoder semantics.
+        auto residual = hidden_states;
+        auto [new_hidden, new_residual] = forward(hidden_states, residual);
+        // Update hidden_states reference to keep behavior consistent with other decoders.
+        hidden_states = new_hidden;
+        (void)new_residual; // residual is not used by TemplateModel
+        return hidden_states;
     }
 
     /**

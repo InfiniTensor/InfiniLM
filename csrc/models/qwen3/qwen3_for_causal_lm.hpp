@@ -12,12 +12,12 @@ using Qwen3MLP = infinilm::layers::MLP;
 using Qwen3Attention = infinilm::layers::Attention;
 
 /** @brief Qwen3 decoder layer type alias */
-using Qwen3DecoderLayer = infinilm::layers::TemplateDecoderLayer<Qwen3Attention, Qwen3MLP>;
+using Qwen3DecoderLayer = infinilm::layers::TextDecoderLayer<Qwen3Attention, Qwen3MLP>;
 
 /** @brief Qwen3 model architecture (without language modeling head) */
-using Qwen3Model = infinilm::layers::TemplateModel<Qwen3DecoderLayer>;
+using Qwen3Model = infinilm::layers::TextModel<Qwen3DecoderLayer>;
 
-using Qwen3ForCausalLM = infinilm::layers::TemplateCausalLM<Qwen3Model>;
+using Qwen3ForCausalLM = infinilm::layers::TextCausalLM<Qwen3Model>;
 
 static std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");

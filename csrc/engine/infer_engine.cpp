@@ -24,6 +24,12 @@ InferEngine::InferEngine(
 
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
+
+    // size_t device_count = infinicore::context::getDeviceCount(device_type);
+    // if (device_count > world_size) {
+    //     throw std::runtime_error("Device count is greater than world size");
+    // }
+
     barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
     workers_.reserve(world_size);
     for (int r = 0; r < world_size; ++r) {
@@ -75,7 +81,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         return t.has_value() ? t.value()->to(device) : t;
     };
 
-    return {
+    infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
         to_device(past_sequence_lengths), // @todo: on device in the future
@@ -85,6 +91,10 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(block_tables),
         to_device(slot_mapping),
     };
+
+    // Make forward context available to lower-level ops.
+    infinilm::engine::set_forward_context(input);
+    return input;
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {

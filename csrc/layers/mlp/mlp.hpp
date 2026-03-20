@@ -33,8 +33,7 @@ public:
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
     MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const infinicore::Device &device,
-        engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+        const infinicore::Device &device);
 
     /**
      * @brief Forward pass: compute MLP output
@@ -52,7 +51,6 @@ protected:
     INFINICORE_NN_MODULE(infinilm::layers::GateUpParallelLinear, gate_up_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
 
-    engine::distributed::RankInfo rank_info_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 
     size_t hidden_size_;

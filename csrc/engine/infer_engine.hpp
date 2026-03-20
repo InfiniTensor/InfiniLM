@@ -4,10 +4,10 @@
 #include "../models/infinilm_model.hpp"
 #include "../models/llama/llama_config.hpp"
 #include "distributed/distributed.hpp"
+#include "forward_context.hpp"
 #include "infinicore/tensor.hpp"
 #include "rank_barrier.hpp"
 #include "rank_worker.hpp"
-
 #include <optional>
 #include <vector>
 

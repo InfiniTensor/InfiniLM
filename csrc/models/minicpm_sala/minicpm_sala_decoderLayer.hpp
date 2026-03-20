@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../backends/attention_backends.hpp"
-#include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
 
@@ -53,14 +52,11 @@ public:
      * @param device Device to create tensors on
      * @param layer_idx Layer index for cache management and debugging
      * @param rank_info Rank information for distributed training
-     * @param attention_backend Reserved (unused; attention type selected via config mixer_types)
      */
     MiniCPMSALADecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                             size_t layer_idx,
-                            const infinicore::Device &device,
-                            engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                            backends::AttentionBackend attention_backend = backends::AttentionBackend::Default)
-        : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
+                            const infinicore::Device &device)
+        : model_config_(model_config), layer_idx_(layer_idx) {
         const auto &dtype{model_config_->get_dtype()};
         size_t hidden_size = model_config_->get<size_t>("hidden_size");
         size_t intermediate_size = model_config_->get<size_t>("intermediate_size");
@@ -71,15 +67,15 @@ public:
         post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
 
         // Initialize attention and MLP modules
-        mlp_ = this->register_module<MLP>("mlp", model_config_, device, rank_info_);
+        mlp_ = this->register_module<MLP>("mlp", model_config_, device);
 
         std::vector<std::string> mixer_types = model_config_->get<std::vector<std::string>>("mixer_types");
         std::string mixer_type = mixer_types[layer_idx];
 
         if ("minicpm4" == mixer_type) {
-            self_attn_ = std::make_shared<Attention>(this->register_module<InfLLMv2Attention>("self_attn", model_config_, layer_idx, device, rank_info_, attention_backend));
+            self_attn_ = std::make_shared<Attention>(this->register_module<InfLLMv2Attention>("self_attn", model_config_, layer_idx, device));
         } else if ("lightning" == mixer_type || "lightning_attn" == mixer_type || "lightning-attn" == mixer_type) {
-            self_attn_ = std::make_shared<Attention>(this->register_module<LightningAttention>("self_attn", model_config_, layer_idx, device, rank_info_, attention_backend));
+            self_attn_ = std::make_shared<Attention>(this->register_module<LightningAttention>("self_attn", model_config_, layer_idx, device));
         }
     }
 
@@ -95,16 +91,14 @@ public:
      */
     std::tuple<infinicore::Tensor, infinicore::Tensor>
     forward(infinicore::Tensor &hidden_states,
-            infinicore::Tensor &residual,
-            const infinilm::InfinilmModel::Input &input,
-            std::shared_ptr<infinilm::cache::Cache> kv_cache) {
+            infinicore::Tensor &residual) {
 
         // 1. Attention layer normalization
         input_layernorm_->forward_inplace(hidden_states, residual);
 
         // 2. Self-attention
         hidden_states = std::visit(
-            [&](auto &attn_ptr) { return attn_ptr->forward(hidden_states, input, kv_cache); }, *self_attn_);
+            [&](auto &attn_ptr) { return attn_ptr->forward(hidden_states); }, *self_attn_);
 
         // 3. Post-attention layer normalization
         post_attention_layernorm_->forward_inplace(hidden_states, residual);
@@ -112,6 +106,16 @@ public:
         // 4. MLP
         hidden_states = mlp_->forward(hidden_states);
         return std::make_tuple(hidden_states, residual);
+    }
+
+    // Compatibility overload for TemplateModel::forward_naive: expects
+    // DecoderLayer::forward(hidden_states, input, kv_cache) -> hidden_states
+    infinicore::Tensor forward(infinicore::Tensor &hidden_states) {
+        auto residual = hidden_states;
+        auto [new_hidden, new_residual] = forward(hidden_states, residual);
+        hidden_states = new_hidden;
+        (void)new_residual;
+        return hidden_states;
     }
 
     /**

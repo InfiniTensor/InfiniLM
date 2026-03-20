@@ -247,6 +247,7 @@ def test(
             for text in input_contents
         ]
 
+    # input_ids_list = [[151644,872, 198, 53481, 108893, 45930, 13, 151645,198, 151644,77091,198]] qwen3_vl
 
     print("input_ids_list: ", input_ids_list)
     # input_ids_list =[[151644]]

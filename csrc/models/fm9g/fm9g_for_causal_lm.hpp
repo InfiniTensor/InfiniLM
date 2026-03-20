@@ -12,13 +12,13 @@ using FM9GMLP = infinilm::layers::MLP;
 using FM9GAttention = infinilm::layers::Attention;
 
 /** @brief fm9g decoder layer type alias */
-using FM9GDecoderLayer = infinilm::layers::TemplateDecoderLayer<FM9GAttention, FM9GMLP>;
+using FM9GDecoderLayer = infinilm::layers::TextDecoderLayer<FM9GAttention, FM9GMLP>;
 
 /** @brief fm9g model architecture (without language modeling head) */
-using FM9GModel = infinilm::layers::TemplateModel<FM9GDecoderLayer>;
+using FM9GModel = infinilm::layers::TextModel<FM9GDecoderLayer>;
 
 /** @brief fm9g model for Causal Language Modeling */
-using FM9GForCausalLM = infinilm::layers::TemplateCausalLM<FM9GModel>;
+using FM9GForCausalLM = infinilm::layers::TextCausalLM<FM9GModel>;
 
 static std::shared_ptr<infinilm::config::ModelConfig> create_fm9g_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");

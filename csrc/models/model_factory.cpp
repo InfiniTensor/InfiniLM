@@ -1,11 +1,7 @@
 #include "model_factory.hpp"
-// #include "fm9g/fm9g_for_causal_lm.hpp"
-#include "llama/llama_for_causal_lm.hpp"
-#include "minicpm_sala/minicpm_sala_for_causal_lm.hpp"
-#include "qwen2/qwen2_for_causal_lm.hpp"
-#include "qwen3/qwen3_for_causal_lm.hpp"
-#include "qwen3_moe/qwen3_moe_for_causal_lm.hpp"
-#include "qwen3_next/qwen3_next_for_causal_lm.hpp"
+#include "../config/infinilm_config.hpp"
+#include "../engine/parallel_state.hpp"
+#include "models.hpp"
 
 namespace infinilm {
 
@@ -28,6 +24,7 @@ std::map<std::string, ModelCreator> &InfinilmModelFactory::_modelsForCausalLM() 
         REGISTER_CAUSAL_LM_MODEL("qwen3_moe", models::qwen3_moe::Qwen3MoeForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("minicpm_sala", models::minicpm_sala::MiniCPMSALAForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("qwen3_next", models::qwen3_next::Qwen3NextForCausalLM);
+        REGISTER_CAUSAL_LM_MODEL("qwen3_vl", models::qwen3_vl::Qwen3VLForConditionalGeneration);
     }
 #undef REGISTER_CAUSAL_LM_MODEL
 
@@ -45,8 +42,15 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     std::shared_ptr<InfinilmModel> model;
     auto it = _modelsForCausalLM().find(model_type);
     if (it != _modelsForCausalLM().end()) {
+
+        // init enviromnet
+        infinilm::engine::initialize_model_parallel(rank_info);
+        infinilm::config::set_current_infinilm_config(infinilm::config::InfinilmConfig(attention_backend));
+
+        // create model
         ModelCreator model_creator = it->second;
         model = model_creator(model_config, rank_info.device, rank_info, attention_backend);
+
     } else {
         throw std::invalid_argument("InfinilmModelFactory::createModel: Unsupported model config type");
     }

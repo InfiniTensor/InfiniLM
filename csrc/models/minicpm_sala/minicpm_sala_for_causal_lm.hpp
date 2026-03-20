@@ -18,10 +18,10 @@ using MiniCPMSALAAttention = std::variant<std::shared_ptr<InfLLMv2Attention>, st
 using MiniCPMSALADecoderLayerImpl = MiniCPMSALADecoderLayer<MiniCPMSALAAttention, MiniCPMMLP>;
 
 /** @brief MiniCPM-SALA model architecture (without language modeling head) */
-using MiniCPMSALAModel = infinilm::layers::TemplateModel<MiniCPMSALADecoderLayerImpl>;
+using MiniCPMSALAModel = infinilm::layers::TextModel<MiniCPMSALADecoderLayerImpl>;
 
 /** @brief MiniCPM model for Causal Language Modeling */
-using MiniCPMSALAForCausalLM = infinilm::layers::TemplateCausalLM<MiniCPMSALAModel>;
+using MiniCPMSALAForCausalLM = infinilm::layers::TextCausalLM<MiniCPMSALAModel>;
 
 static std::shared_ptr<infinilm::config::ModelConfig> create_minicpm_sala_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");

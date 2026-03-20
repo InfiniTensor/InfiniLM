@@ -250,7 +250,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
 
     if (is_prefill) {
-        if (attention_backend_ == backends::AttentionBackend::FlashAttn) {
+        if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
             infinicore::op::mha_varlen_(
                 attn_output,
                 q_reshaped,

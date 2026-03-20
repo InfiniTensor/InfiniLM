@@ -134,6 +134,9 @@ def load_model_state_dict_by_file(
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
 
+    # print(model_keys)
+    # exit(-1)
+
     already_loaded_keys = []
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))

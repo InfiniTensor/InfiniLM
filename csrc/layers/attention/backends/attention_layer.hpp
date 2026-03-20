@@ -2,6 +2,7 @@
 
 #include "../../../backends/attention_backends.hpp"
 #include "../../../cache/kv_cache.hpp"
+#include "../../../config/infinilm_config.hpp"
 #include "../../../models/infinilm_model.hpp"
 #include "flash_attn.hpp"
 #include "flashinfer_attn.hpp"
@@ -128,16 +129,16 @@ public:
                    size_t layer_idx,
                    ::infinilm::backends::AttentionBackend attention_backend) {
         switch (attention_backend) {
-        case ::infinilm::backends::AttentionBackend::StaticAttn:
+        case ::infinilm::backends::AttentionBackend::STATIC_ATTN:
             attn_backend_impl_ = std::make_shared<backends::StaticAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
             break;
-        case ::infinilm::backends::AttentionBackend::PagedAttn:
+        case ::infinilm::backends::AttentionBackend::PAGED_ATTN:
             attn_backend_impl_ = std::make_shared<backends::PagedAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
             break;
-        case ::infinilm::backends::AttentionBackend::FlashAttn:
+        case ::infinilm::backends::AttentionBackend::FLASH_ATTN:
             attn_backend_impl_ = std::make_shared<backends::FlashAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
             break;
-        case ::infinilm::backends::AttentionBackend::FlashInferAttn:
+        case ::infinilm::backends::AttentionBackend::FLASHINFER:
             attn_backend_impl_ = std::make_shared<backends::FlashInferAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
             break;
         default:

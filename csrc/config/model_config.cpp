@@ -1,6 +1,11 @@
 #include "model_config.hpp"
 
 namespace infinilm::config {
+
+ModelConfig::ModelConfig(const nlohmann::json &json) : config_json(json) {
+    this->quant_config = QuantConfig(config_json["quantization_config"]);
+};
+
 ModelConfig::ModelConfig(const std::string &path) {
     std::ifstream file(path);
     if (file.is_open()) {
@@ -33,11 +38,15 @@ ModelConfig::get_rope_scaling() const {
         throw std::runtime_error("rope_scaling must be an object");
     }
 
-    if (!rope_scaling.contains("type")) {
-        throw std::runtime_error("rope_scaling must contain 'type' field");
+    std::string type_str;
+    if (rope_scaling.contains("type")) {
+        type_str = rope_scaling["type"].get<std::string>();
+    } else if (rope_scaling.contains("rope_type")) {
+        type_str = rope_scaling["rope_type"].get<std::string>();
+    } else {
+        throw std::runtime_error("rope_scaling must contain 'type' or 'rope_type' field");
     }
 
-    std::string type_str = rope_scaling["type"].get<std::string>();
     if (type_str == "longrope") {
         // Required fields for LongRopeConfig
         if (!rope_scaling.contains("short_factor") || !rope_scaling.contains("long_factor") || !rope_scaling.contains("original_max_position_embeddings")) {
@@ -70,7 +79,15 @@ ModelConfig::get_rope_scaling() const {
 infinicore::DataType
 ModelConfig::get_dtype() const {
     try {
-        std::string dtype_str = this->get<std::string>("torch_dtype");
+        std::string dtype_str;
+        if (config_json.contains("dtype")) {
+            dtype_str = config_json.at("dtype").get<std::string>();
+        } else if (config_json.contains("torch_dtype")) {
+            dtype_str = config_json.at("torch_dtype").get<std::string>();
+        } else {
+            throw std::runtime_error("No dtype found in config");
+        }
+
         if (dtype_str == "float32") {
             return infinicore::DataType::F32;
         } else if (dtype_str == "float16") {

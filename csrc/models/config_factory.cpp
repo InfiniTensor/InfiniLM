@@ -1,12 +1,5 @@
 #include "config_factory.hpp"
-
-#include "fm9g/fm9g_for_causal_lm.hpp"
-#include "minicpm_sala/minicpm_sala_for_causal_lm.hpp"
-#include "qwen2/qwen2_for_causal_lm.hpp"
-#include "qwen3/qwen3_for_causal_lm.hpp"
-#include "qwen3_moe/qwen3_moe_for_causal_lm.hpp"
-#include "qwen3_next/qwen3_next_for_causal_lm.hpp"
-
+#include "models.hpp"
 #include <stdexcept>
 
 namespace infinilm {
@@ -25,6 +18,8 @@ std::map<std::string, ConfigCreator> &InfinilmConfigFactory::_modelConfigs() {
 
         // hybrid
         _map["qwen3_next"] = models::qwen3_next::create_qwen3_next_model_config;
+
+        _map["qwen3_vl"] = models::qwen3_vl::create_qwen3_vl_model_config;
     }
     return _map;
 }

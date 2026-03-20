@@ -2,6 +2,7 @@
 
 #include "../../backends/attention_backends.hpp"
 #include "../../cache/kv_cache.hpp"
+#include "../../config/infinilm_config.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
 #include "../../models/infinilm_model.hpp"
@@ -25,13 +26,9 @@ class Attention : public infinicore::nn::Module {
 public:
     Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
               size_t layer_idx,
-              const infinicore::Device &device,
-              engine::distributed::RankInfo rank_info,
-              ::infinilm::backends::AttentionBackend attention_backend);
+              const infinicore::Device &device);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinilm::InfinilmModel::Input &attn_metadata,
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache) const;
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
 private:
     infinicore::Tensor forward_paged_(const infinicore::Tensor &hidden_states,

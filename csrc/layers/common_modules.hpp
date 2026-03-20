@@ -1,6 +1,3 @@
-#include "TemplateCausalLM.hpp"
-#include "TemplateDecoderLayer.hpp"
-#include "TemplateModel.hpp"
 #include "attention/attention.hpp"
 #include "attention/backends/flash_attn.hpp"
 #include "attention/backends/flashinfer_attn.hpp"
@@ -9,19 +6,20 @@
 #include "fused_linear.hpp"
 #include "mlp/mlp.hpp"
 #include "mlp/moe_mlp.hpp"
+#include "text_causal_lm.hpp"
+#include "text_decoder_layer.hpp"
+#include "text_model.hpp"
 #include <spdlog/spdlog.h>
 
 namespace infinilm::layers {
 
-using Attention = infinilm::layers::attention::Attention;
-
 using MLP = infinilm::layers::mlp::MLP;
 using MoeMLP = infinilm::layers::mlp::MoeMLP;
+using Attention = infinilm::layers::attention::Attention;
 
-} // namespace infinilm::layers
-
-namespace infinilm::layers::attention {
+namespace attention {
 
 using AttentionLayer = infinilm::layers::attention::AttentionLayer;
 
-} // namespace infinilm::layers::attention
+} // namespace attention
+} // namespace infinilm::layers
