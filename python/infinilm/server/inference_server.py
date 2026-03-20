@@ -51,6 +51,21 @@ def chunk_json(
     }
 
 
+def stream_usage_only_chunk_json(
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+):
+    """Streaming chunk with only ``usage`` (vLLM bench ``openai-comp`` uses elif usage)."""
+    return {
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        },
+    }
+
+
 def completion_json(
     id_,
     content,
@@ -197,8 +212,12 @@ class InferenceServer:
 
         # OpenAI-compatible chat completions endpoint.
         # Support both legacy path and OpenAI-style /v1 prefix for proxy/router compatibility.
+        # Also expose /v1/completions so vLLM `bench serve` (openai-comp) works without
+        # --endpoint override; `prompt` is accepted and mapped to a user message (see below).
         @app.post("/chat/completions")
         @app.post("/v1/chat/completions")
+        @app.post("/completions")
+        @app.post("/v1/completions")
         async def chat_completions(request: Request):
             try:
                 data = await request.json()
@@ -301,7 +320,8 @@ class InferenceServer:
     def _build_sampling_params(self, data: dict) -> SamplingParams:
         """Build SamplingParams from request data."""
         # Support both:
-        # - top-level OpenAI-ish fields: temperature/top_p/top_k/max_tokens/stop
+        # - top-level OpenAI-ish fields: temperature/top_p/top_k/max_tokens/
+        #   max_new_tokens/max_completion_tokens/stop
         # - nested dict: sampling_params: { ... }
         sp = data.get("sampling_params") or {}
         if not isinstance(sp, dict):
@@ -315,11 +335,12 @@ class InferenceServer:
                 return sp.get(key)
             return default
 
-        # Accept common alias
+        # Accept common aliases (OpenAI chat / vLLM bench serve use max_completion_tokens)
         max_tokens = pick("max_tokens", self.max_tokens)
         if max_tokens is None:
-            # Some clients use max_new_tokens
             max_tokens = pick("max_new_tokens", self.max_tokens)
+        if max_tokens is None:
+            max_tokens = pick("max_completion_tokens", self.max_tokens)
 
         stop = pick("stop", None)
         if isinstance(stop, str):
@@ -407,6 +428,21 @@ class InferenceServer:
                         ensure_ascii=False,
                     )
                     yield f"data: {chunk}\n\n"
+                    stream_options = data.get("stream_options") or {}
+                    if (
+                        isinstance(stream_options, dict)
+                        and stream_options.get("include_usage")
+                        and req is not None
+                    ):
+                        usage_chunk = json.dumps(
+                            stream_usage_only_chunk_json(
+                                prompt_tokens=req.get_prompt_length(),
+                                completion_tokens=req.get_num_generated_tokens(),
+                                total_tokens=req.get_total_length(),
+                            ),
+                            ensure_ascii=False,
+                        )
+                        yield f"data: {usage_chunk}\n\n"
                     break
 
         except asyncio.CancelledError:
