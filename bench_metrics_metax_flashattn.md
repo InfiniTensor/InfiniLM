@@ -223,6 +223,66 @@ Artifacts (inside `dev2`):
 - `/tmp/vllm_bench_long_paged/bench_paged_default_8192_512.json`
 - `/tmp/vllm_bench_long_paged/bench_paged_flash_8192_512.json`
 
+## Serving long I/O with vLLM bench serve (paged KV enabled, graph enabled) (dev2)
+
+Re-run the same paged KV workload as above, but start `inference_server` with `--enable-graph` (MetaX graph compiling).
+
+### Server
+
+```bash
+python -m infinilm.server.inference_server \
+  --metax \
+  --model_path=/data-aisoft/zenghua/models/9g_8b_thinking_llama \
+  --host=0.0.0.0 --port=8000 \
+  --max_tokens=4096 \
+  --cache_type paged \
+  --max_batch_size=4 --num_blocks=512 --block_size=256 \
+  --attn=default --enable-graph
+```
+
+Second run:
+
+```bash
+... --attn=flash-attn --host=0.0.0.0 --port=8001 --enable-graph
+```
+
+### vLLM bench serve (fixed lengths)
+
+```bash
+mkdir -p /tmp/vllm_bench_long_paged_graph
+vllm bench serve \
+  --endpoint-type openai-comp \
+  --base-url http://127.0.0.1:8000 \
+  --model 9g_8b_thinking_llama \
+  --tokenizer /data-aisoft/zenghua/models/9g_8b_thinking_llama \
+  --dataset-name random \
+  --num-prompts 8 \
+  --request-rate inf \
+  --max-concurrency 2 \
+  --random-input-len 8192 \
+  --random-output-len 512 \
+  --random-range-ratio 0 \
+  --random-prefix-len 0 \
+  --disable-tqdm \
+  --save-result \
+  --result-dir /tmp/vllm_bench_long_paged_graph \
+  --result-filename bench_paged_default_graph_8192_512.json
+```
+
+Second run switches `--base-url` to `:8001` and `--result-filename` to `bench_paged_flash_attn_graph_8192_512.json`.
+
+### Results (vLLM bench summary, `--enable-graph`)
+
+| `--attn`     | duration (s) | Req/s | Output tok/s | Mean TTFT (ms) | Mean TPOT (ms) | Mean ITL (ms) |
+| ------------ | ------------- | ----- | ------------- | --------------: | --------------: | -------------: |
+| `default`    | 153.63        | 0.05  | 13.84         | 9187.62         | 129.20           | 110.18        |
+| `flash-attn` | 64.32         | 0.12  | 33.07         | 1081.94          | 59.12            | 56.52         |
+
+Artifacts (inside `dev2`):
+
+- `/tmp/vllm_bench_long_paged_graph/bench_paged_default_graph_8192_512.json`
+- `/tmp/vllm_bench_long_paged_graph/bench_paged_flash_attn_graph_8192_512.json`
+
 ## Serving long I/O with worktree vLLM runner (paged KV enabled) (dev2)
 
 This section re-runs the same long-I/O workload using the **worktree** vLLM code at `fla-support/vllm` by directly calling `vllm.benchmarks.serve.main_async` (no `vllm` CLI from the worktree). This avoids the container’s packaged vLLM client version skew.
@@ -258,16 +318,28 @@ Re-run with:
 - `--num-prompts 8`
 - `--max-concurrency 4`
 - `--request-rate inf`
-- `--num-warmups 2`
 
 #### Results (worktree runner JSON, `max_concurrency=4`)
 
+
 | `--attn` (server) | duration (s) | Req/s | Output tok/s | Mean TTFT (ms) | Mean TPOT (ms) | Mean ITL (ms) |
 | ------------------ | ------------- | ----- | ------------- | --------------: | --------------: | --------------: |
-| `default`          | 158.30        | 0.0505 | 25.87         | 45012.21         | 66.80           | 66.87           |
-| `flash-attn`       | 67.29         | 0.1189 | 60.32         | 4220.47          | 58.09           | 58.13           |
+| `default`          | 140.26        | 0.06   | 15.16         | 18416.29         | 212.28          | 190.68          |
+| `flash-attn`       | 64.20         | 0.12   | 32.74         | 1933.66          | 123.73          | 108.86          |
 
 Artifacts (inside `dev2`):
 
-- `/tmp/vllm_bench_localvllm_runner_long_conc/localvllm_paged_default_conc4_8192_512.json`
-- `/tmp/vllm_bench_localvllm_runner_long_conc/localvllm_paged_flash_conc4_8192_512.json`
+- `/tmp/vllm_bench_localvllm_runner_long_conc_warm2/localvllm_paged_default_conc4_8192_512_warm2.json`
+- `/tmp/vllm_bench_localvllm_runner_long_conc_warm2/localvllm_paged_flash_conc4_8192_512_warm2.json`
+
+#### Graph enabled (warm2 semantics, conc=4)
+
+| `--attn` (server) | duration (s) | Req/s | Output tok/s | Mean TTFT (ms) | Mean TPOT (ms) | Mean ITL (ms) |
+| ------------------ | ------------- | ----- | ------------- | --------------: | --------------: | --------------: |
+| `default`          | 138.53        | 0.06   | 14.84         | 18343.82         | 212.02          | 192.85          |
+| `flash-attn`       | 55.75         | 0.14   | 38.16         | 1992.03          | 104.28          | 92.01            |
+
+Artifacts (inside `dev2`):
+
+- `/tmp/vllm_bench_conc4_warm2_graph_on/localvllm_paged_default_conc4_8192_512_warm2_graph_on.json`
+- `/tmp/vllm_bench_conc4_warm2_graph_on/localvllm_paged_flash_conc4_8192_512_warm2_graph_on.json`

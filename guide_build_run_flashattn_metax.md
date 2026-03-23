@@ -1,6 +1,6 @@
 # MetaX Flash-Attn Build & Run Guide (InfiniCore + InfiniLM)
 
-This guide documents how to build **InfiniCore** + **InfiniLM** for **MetaX / hpcc** with **Flash-Attn**, run `jiuge.py`, and start the **HTTP inference server** with `--attn=flash-attn`.
+This guide documents how to build **InfiniCore** + **InfiniLM** for **MetaX / hpcc** with **Flash-Attn**, run `jiuge.py`, and start the **HTTP inference server** with `--attn=flash-attn` (optionally with `--enable-graph`).
 
 Assumptions:
 - You run everything inside Docker container `dev2`.
@@ -104,6 +104,8 @@ python -m infinilm.server.inference_server \
   --metax \
   --model_path=/data-aisoft/zenghua/models/9g_8b_thinking_llama \
   --attn=flash-attn \
+  # Enable graph compiling/capture (recommended for the graph-mode flash-attn validation)
+  --enable-graph \
   --host=0.0.0.0 --port=8000 \
   --max_tokens=2048 \
   --cache_type paged \
