@@ -18,7 +18,6 @@ std::map<std::string, ConfigCreator> &InfinilmConfigFactory::_modelConfigs() {
 
         // hybrid
         _map["qwen3_next"] = models::qwen3_next::create_qwen3_next_model_config;
-
         _map["qwen3_vl"] = models::qwen3_vl::create_qwen3_vl_model_config;
     }
     return _map;
