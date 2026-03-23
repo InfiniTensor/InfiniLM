@@ -1,6 +1,7 @@
 #include "minicpm_sala_decoder_layer.hpp"
 
 #include "infinicore/ops.hpp"
+#include "infinicore/context/context.hpp"
 #include <cmath>
 #include <cstdio>
 #include <chrono>
@@ -86,6 +87,9 @@ void log_tensor_stats_if_enabled(const infinicore::Tensor &tensor,
 void tensor_to_f32_and_dump(const infinicore::Tensor &tensor, const char *bin_path) {
     if (!bin_path || !std::getenv("INFINI_DEBUG_ATTN_DUMP")) return;
     try {
+        // Debug-only: ensure pending GPU work for `tensor` is complete
+        // before CPU copy so the binary dump reflects real values.
+        infinicore::context::syncStream();
         auto cpu_t = tensor->to(infinicore::Device::cpu());
         const size_t n = cpu_t->numel();
         const auto dt = cpu_t->dtype();
@@ -156,7 +160,14 @@ infinicore::Tensor MiniCPMSALADecoderLayer::forward(const infinicore::Tensor &hi
     auto hs1 = input_layernorm_->forward(hidden_states);
     if (layer_idx_ == 0)
         tensor_to_f32_and_dump(hs1, "/tmp/inf_layer0_attn_input.bin");
-    if (layer_idx_ < 2) {
+
+    const bool log_all_layers = []() {
+        const char *env = std::getenv("INFINI_DEBUG_LOG_ALL_LAYERS");
+        if (!env) return false;
+        return env[0] != '\0' && env[0] != '0';
+    }();
+
+    if (log_all_layers || layer_idx_ < 2) {
         log_tensor_stats_if_enabled(hs1,
                                     layer_idx_,
                                     "INF_B",
@@ -188,7 +199,7 @@ infinicore::Tensor MiniCPMSALADecoderLayer::forward(const infinicore::Tensor &hi
     auto out2 = infinicore::op::addcmul(out1, mlp_out, ones_mlp, static_cast<float>(residual_scale_));
 
     // #region agent log
-    if (layer_idx_ < 3) {
+    if (log_all_layers || layer_idx_ < 3) {
         log_tensor_stats_if_enabled(out2,
                                     layer_idx_,
                                     "INF_L",

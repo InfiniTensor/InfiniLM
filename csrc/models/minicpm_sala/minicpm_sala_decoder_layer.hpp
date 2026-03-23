@@ -51,4 +51,3 @@ protected:
 };
 
 } // namespace infinilm::models::minicpm_sala
-

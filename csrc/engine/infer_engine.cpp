@@ -113,7 +113,15 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
 
     auto to_device = [&](const std::optional<infinicore::Tensor> &t)
         -> std::optional<infinicore::Tensor> {
-        return t.has_value() ? t.value()->to(device) : t;
+        if (!t.has_value()) {
+            return t;
+        }
+        auto ten = t.value();
+        // Avoid redundant copies when the tensor is already on the target device.
+        if (ten->device() == device) {
+            return ten;
+        }
+        return ten->to(device);
     };
 
     return {

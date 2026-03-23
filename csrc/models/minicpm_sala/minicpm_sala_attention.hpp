@@ -72,6 +72,9 @@ protected:
     engine::distributed::RankInfo rank_info_;
 
     size_t layer_idx_;
+    // Layer index remapped into the cache instance (minicpm4-cache vs lightning-cache).
+    // StaticKVCache allocates a compact [num_layers, ...] slab per cache type.
+    size_t cache_layer_idx_ = 0;
     size_t hidden_size_;
     size_t num_attention_heads_;
     size_t num_key_value_heads_;

@@ -405,6 +405,7 @@ def run_prefill_only(model_path: str, prompt: str, k: int) -> None:
     input_offsets = torch.tensor([0, seqlen], dtype=torch.int32)
     past = torch.tensor([0], dtype=torch.int32)
     total = torch.tensor([seqlen], dtype=torch.int32)
+    cu_seqlens_prefill = torch.tensor([0, seqlen], dtype=torch.int32)
 
     # Workaround: use int32 input_ids (int64 H2D/copy can produce wrong indices and embed mismatch).
     input_ids_inf = input_ids.cpu().to(torch.int32)
@@ -414,6 +415,7 @@ def run_prefill_only(model_path: str, prompt: str, k: int) -> None:
         past_kv_lengths=infinicore.from_torch(past),
         total_kv_lengths=infinicore.from_torch(total),
         input_offsets=infinicore.from_torch(input_offsets),
+        cu_seqlens=infinicore.from_torch(cu_seqlens_prefill),
         top_k=1,
         top_p=1.0,
         temperature=1.0,
@@ -750,11 +752,8 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
         hf_out = hf(input_ids=input_ids, attention_mask=attn_mask)
         hf_logits_last_prefill_gpu = hf_out.logits[0, -1].float()
         hf_logits_last_prefill = hf_logits_last_prefill_gpu.cpu()
-
-        # One-step decode (HF)
-        next_token_hf = torch.argmax(hf_logits_last_prefill_gpu, dim=-1).view(1, 1).to(device)
-        hf_out2 = hf(input_ids=torch.cat([input_ids, next_token_hf], dim=1), attention_mask=None)
-        hf_logits_last_decode = hf_out2.logits[0, -1].float().cpu()
+        # One-step decode (HF) is computed after Inf prefill so we can use
+        # a shared decode input token (apples-to-apples).
     finally:
         if _saved_ld_preload is not None:
             os.environ["LD_PRELOAD"] = _saved_ld_preload
@@ -780,13 +779,19 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
     input_offsets = torch.tensor([0, seqlen], dtype=torch.int32)
     past = torch.tensor([0], dtype=torch.int32)
     total = torch.tensor([seqlen], dtype=torch.int32)
+    # Match InferEngine.generate() metadata (batch=1): cu_seqlens = [0, past+cur_len]
+    cu_seqlens_prefill = torch.tensor([0, seqlen], dtype=torch.int32)
+    # Match `run_prefill_only()` workaround: use int32 input_ids to avoid
+    # incorrect indices due to int64 H2D/copy behavior.
+    input_ids_inf = input_ids.cpu().to(torch.int32)
 
     inf_logits_last_prefill = eng.forward_logits(
-        infinicore.from_torch(input_ids.cpu()),
+        infinicore.from_torch(input_ids_inf),
         position_ids=infinicore.from_torch(pos),
         past_kv_lengths=infinicore.from_torch(past),
         total_kv_lengths=infinicore.from_torch(total),
         input_offsets=infinicore.from_torch(input_offsets),
+        cu_seqlens=infinicore.from_torch(cu_seqlens_prefill),
         top_k=1,
         top_p=1.0,
         temperature=1.0,
@@ -794,28 +799,83 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
     _sync_infini_device()
     inf_logits_last_prefill_t = _infini_cpu_tensor_to_float32_torch(inf_logits_last_prefill).reshape(-1).cpu()
 
-    # One-step decode in InfiniLM (append last token from InfiniLM prefill)
+    # One-step decode in InfiniLM.
     next_token_inf = torch.argmax(inf_logits_last_prefill_t, dim=-1).view(1, 1).to(torch.int64)
-    input_ids2 = torch.cat([input_ids.cpu(), next_token_inf], dim=1)
+    if os.getenv("INFINI_DEBUG_PRINT_NEXT_TOKEN", "0") not in ("0", "", "false", "False"):
+        try:
+            vocab_size = getattr(tok, "vocab_size", None)
+            if vocab_size is None and hasattr(hf, "config") and hasattr(hf.config, "vocab_size"):
+                vocab_size = hf.config.vocab_size
+            print(f"[DEBUG] next_token_inf={int(next_token_inf.item())} vocab_size={vocab_size}")
+        except Exception:
+            print(f"[DEBUG] next_token_inf={int(next_token_inf.item())}")
+    input_ids2 = torch.cat([input_ids.cpu(), next_token_inf.cpu()], dim=1)
     past2 = torch.tensor([seqlen], dtype=torch.int32)
     total2 = torch.tensor([seqlen + 1], dtype=torch.int32)
+    cu_seqlens_decode = torch.tensor([0, seqlen + 1], dtype=torch.int32)
     # Decode must pass only the new token to keep KV cache consistent.
     input_ids2_last = input_ids2[:, -1:].contiguous()
     pos2_last = torch.tensor([[seqlen]], dtype=torch.int64)
     input_offsets2 = torch.tensor([0, 1], dtype=torch.int32)
 
+    # If we want HF decode hooks, also clear Inf decode dumps *before* the Inf decode call.
+    use_hf_decode_hooks = os.environ.get("INFINI_DEBUG_ATTN_DUMP", "") not in ("", "0")
+    if use_hf_decode_hooks:
+        import glob
+        for p in glob.glob("/tmp/inf_layer_out_*.bin"):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+    # Important: keep decode indices tensor alive through the forward.
+    # Creating the `infinicore.from_torch(...)` wrapper inline can lead to stale
+    # indices for very small decode shapes ([1,1]) because decode kernels run
+    # asynchronously; the embedding output (debug dump) may otherwise become
+    # all zeros. Use the same pattern as prefill (`input_ids_inf`).
+    input_ids2_last_int32 = input_ids2_last.to(torch.int32).contiguous()
+    input_ids2_last_inf = infinicore.from_torch(input_ids2_last_int32)
+
     inf_logits_last_decode = eng.forward_logits(
-        infinicore.from_torch(input_ids2_last.to(torch.int32)),
+        input_ids2_last_inf,
         position_ids=infinicore.from_torch(pos2_last),
         past_kv_lengths=infinicore.from_torch(past2),
         total_kv_lengths=infinicore.from_torch(total2),
         input_offsets=infinicore.from_torch(input_offsets2),
+        cu_seqlens=infinicore.from_torch(cu_seqlens_decode),
         top_k=1,
         top_p=1.0,
         temperature=1.0,
     )
     _sync_infini_device()
     inf_logits_last_decode_t = _infini_cpu_tensor_to_float32_torch(inf_logits_last_decode).reshape(-1).cpu()
+
+    # One-step decode (HF) on the same appended token we used for Inf.
+    # Optional: dump per-layer HF outputs specifically for the decode step so we
+    # can compare against InfiniLM decode dumps (which are last-token only).
+    if use_hf_decode_hooks:
+        import glob
+
+        # Clear stale files from any earlier run.
+        for p in glob.glob("/tmp/hf_layer_out_*.pt") + glob.glob("/tmp/hf_layer0_attn_input.pt"):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+        hf_hooks = _register_hf_layer_hooks(hf_model=hf, max_layers=3)
+        hf_layer0_attn_input_hooks = _register_hf_layer0_attn_input_hook(hf)
+    else:
+        hf_hooks = []
+        hf_layer0_attn_input_hooks = []
+
+    hf_out2 = hf(input_ids=torch.cat([input_ids, next_token_inf.to(device)], dim=1), attention_mask=None)
+    if use_hf_decode_hooks:
+        for h in hf_hooks:
+            h.remove()
+        for h in hf_layer0_attn_input_hooks:
+            h.remove()
+    hf_logits_last_decode = hf_out2.logits[0, -1].float().cpu()
 
     print("== logits sanity check (prefill + 1 decode) ==")
     print("prompt:", repr(prompt))
@@ -830,6 +890,11 @@ def run_prefill_decode1(model_path: str, prompt: str, k: int) -> None:
     print("Inf  topk:", topk(inf_logits_last_prefill_t, k)[:10])
 
     print("-- Decode last token --")
+    if torch.isnan(inf_logits_last_decode_t).any():
+        print(
+            "WARN: InfiniLM decode logits contain NaN (seen when prefill len is roughly >= 5 tokens on this build). "
+            "Prefill gate above is still the primary correctness check; decode path needs further minicpm4/GLA work."
+        )
     print("abs_diff: max =", diff_decode.max().item(), "mean =", diff_decode.mean().item())
     print("HF   topk:", topk(hf_logits_last_decode, k)[:10])
     print("Inf  topk:", topk(inf_logits_last_decode_t, k)[:10])
@@ -951,8 +1016,15 @@ def run_decode_loop(model_path: str, prompt: str, k: int, steps: int) -> None:
         past = torch.tensor([seqlen - 1], dtype=torch.int32)
         total = torch.tensor([seqlen], dtype=torch.int32)
 
+        # Keep decode indices tensor alive through the forward.
+        # For tiny decode shapes ([1,1]), constructing `infinicore.from_torch(...)`
+        # inline has previously caused stale indices -> embedding output becomes
+        # zeros and decode logits diverge. Mirror the prefill int32 workaround.
+        decode_input_int32 = decode_input.to(torch.int32).contiguous()
+        decode_input_inf = infinicore.from_torch(decode_input_int32)
+
         logits = eng.forward_logits(
-            infinicore.from_torch(decode_input),
+            decode_input_inf,
             position_ids=infinicore.from_torch(pos_decode),
             past_kv_lengths=infinicore.from_torch(past),
             total_kv_lengths=infinicore.from_torch(total),

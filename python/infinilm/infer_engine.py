@@ -1,4 +1,5 @@
 import time
+import os
 from dataclasses import dataclass
 
 import infinicore
@@ -165,7 +166,17 @@ class InferEngine(_infinilm.InferEngine):
             eos_token_id = generation_config.eos_token_id
 
         past_seq_len = 0
-        output_ids = []
+
+        # Profiling option: don't retain per-step output tensors.
+        # This reduces Python-side list growth and tensor references.
+        collect_outputs = os.environ.get("INFINI_PROFILE_COLLECT_OUTPUT_IDS", "1") not in (
+            "",
+            "0",
+            "false",
+            "False",
+        )
+        output_ids = [] if collect_outputs else None
+        last_output_id = None
         initial_batch_size, initial_seqlen = input_ids.shape[:2]
         seq_len = initial_seqlen
         batch_size = initial_batch_size
@@ -177,6 +188,14 @@ class InferEngine(_infinilm.InferEngine):
 
         if _measure_and_log_time:
             time_measurements = []
+        # Optional NVTX markers for decode-vs-prefill attribution in nsys.
+        try:
+            import torch  # type: ignore
+            _nvtx_push = torch.cuda.nvtx.range_push
+            _nvtx_pop = torch.cuda.nvtx.range_pop
+        except Exception:
+            _nvtx_push = None
+            _nvtx_pop = None
 
         block_tables = None
         max_blocks_per_batch = 0
@@ -195,9 +214,42 @@ class InferEngine(_infinilm.InferEngine):
                 dtype=infinicore.int32,
             )
 
+        # Decode metadata fast path (batch=1, static cache):
+        # avoid per-step from_list()/numpy allocations for tiny scalar tensors.
+        fast_decode_meta = (not self.enable_paged_attn) and (initial_batch_size == 1)
+        if fast_decode_meta:
+            cpu = infinicore.device("cpu", 0)
+
+            # Reusable metadata tensors; values updated via pybind write_i32/write_i64.
+            position_ids_decode = infinicore.empty(
+                [1, 1], dtype=infinicore.int64, device=cpu
+            )
+            past_kv_lengths_decode = infinicore.empty(
+                [1], dtype=infinicore.int32, device=cpu
+            )
+            total_kv_lengths_decode = infinicore.empty(
+                [1], dtype=infinicore.int32, device=cpu
+            )
+            cu_seqlens_decode = infinicore.empty(
+                [2], dtype=infinicore.int32, device=cpu
+            )
+            input_offsets_decode = infinicore.empty(
+                [2], dtype=infinicore.int32, device=cpu
+            )
+            input_offsets_decode.write_i32(0, 0)
+            input_offsets_decode.write_i32(1, 1)
+
+        decode_total_open = False
         for iter in range(0, generation_config.max_new_tokens):
             if _measure_and_log_time:
                 start_time = time.perf_counter()
+            if _nvtx_push is not None:
+                if iter == 0:
+                    _nvtx_push("infinilm_prefill_step")
+                elif iter == 1:
+                    _nvtx_push("infinilm_decode_total")
+                    decode_total_open = True
+                _nvtx_push("infinilm_decode_step")
 
             batch_size, seq_len = input_ids.shape[:2]
 
@@ -234,29 +286,54 @@ class InferEngine(_infinilm.InferEngine):
                     dtype=infinicore.int64,
                 )
             else:
-                position_ids = infinicore.from_list(
-                    [
-                        list(range(past_seq_len, past_seq_len + seq_len))
-                        for _ in range(batch_size)
-                    ],
-                    dtype=infinicore.int64,
-                )
+                if fast_decode_meta and iter > 0 and batch_size == 1 and seq_len == 1:
+                    position_ids_decode.write_i64(0, int(past_seq_len))
+                    past_kv_lengths_decode.write_i32(0, int(past_seq_len))
+                    total_kv_lengths_decode.write_i32(0, int(past_seq_len + seq_len))
+                    cu_seqlens_decode.write_i32(0, 0)
+                    cu_seqlens_decode.write_i32(1, int(past_seq_len + seq_len))
+                    position_ids = position_ids_decode
+                    past_kv_lengths = past_kv_lengths_decode
+                    total_kv_lengths = total_kv_lengths_decode
+                    cu_seqlens = cu_seqlens_decode
+                    input_offsets = input_offsets_decode
+                else:
+                    position_ids = infinicore.from_list(
+                        [
+                            list(range(past_seq_len, past_seq_len + seq_len))
+                            for _ in range(batch_size)
+                        ],
+                        dtype=infinicore.int64,
+                    )
+                    past_kv_lengths = infinicore.from_list(
+                        [past_seq_len] * batch_size, dtype=infinicore.int32
+                    )
+                    total_kv_lengths = infinicore.from_list(
+                        [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
+                    )
+                    cu_seqlens = infinicore.from_list(
+                        [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
+                        dtype=infinicore.int32,
+                    )
+                    input_offsets = infinicore.from_list(
+                        [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
+                    )
 
                 slot_mapping = None
-
-            past_kv_lengths = infinicore.from_list(
-                [past_seq_len] * batch_size, dtype=infinicore.int32
-            )
-            total_kv_lengths = infinicore.from_list(
-                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
-            )
-            cu_seqlens = infinicore.from_list(
-                [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
-                dtype=infinicore.int32,
-            )
-            input_offsets = infinicore.from_list(
-                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
-            )
+            if self.enable_paged_attn:
+                past_kv_lengths = infinicore.from_list(
+                    [past_seq_len] * batch_size, dtype=infinicore.int32
+                )
+                total_kv_lengths = infinicore.from_list(
+                    [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
+                )
+                cu_seqlens = infinicore.from_list(
+                    [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
+                    dtype=infinicore.int32,
+                )
+                input_offsets = infinicore.from_list(
+                    [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
+                )
 
             output_id = self(
                 input_ids=input_ids,
@@ -271,8 +348,15 @@ class InferEngine(_infinilm.InferEngine):
                 top_k=generation_config.top_k,
                 top_p=generation_config.top_p,
             )
+            if _nvtx_pop is not None:
+                _nvtx_pop()
+                if iter == 0:
+                    _nvtx_pop()
 
-            output_ids.append(output_id)
+            if collect_outputs:
+                output_ids.append(output_id)
+            else:
+                last_output_id = output_id
 
             if (
                 initial_batch_size == 1
@@ -291,6 +375,8 @@ class InferEngine(_infinilm.InferEngine):
                 end_time = time.perf_counter()
 
                 time_measurements.append((end_time - start_time))
+        if decode_total_open and _nvtx_pop is not None:
+            _nvtx_pop()
 
         if _measure_and_log_time:
             print(
@@ -307,7 +393,10 @@ class InferEngine(_infinilm.InferEngine):
                     f" Decode  Avg ITL: {round(sum(time_measurements[1:]) * 1000 / (len(time_measurements) - 1), 2)} ms   Throughput: {round((initial_batch_size * (len(time_measurements) - 1)) / sum(time_measurements[1:]), 2)} tok/s\n",
                 )
 
-        return output_ids
+        if collect_outputs:
+            return output_ids
+        # Keep return type compatible (list of tensors).
+        return [last_output_id] if last_output_id is not None else []
 
     def reset_cache(self, cache_config):
         infinicore.sync_device()

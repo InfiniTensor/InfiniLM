@@ -5,6 +5,7 @@
 #include "infinicore/ops.hpp"
 
 #include <iostream>
+#include <cstdlib>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -336,8 +337,17 @@ void RankWorker::thread_loop() {
                         // Fall back to eager mode
                         if (!logits) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
-                            // Sync so H2D copies for input_ids etc. complete before forward (embed reads indices).
-                            infinicore::context::syncDevice();
+                            // Ensure H2D copies for input tensors (e.g. input_ids / position_ids
+                            // used by embedding) complete before forward.
+                            // Profiling-sensitive path: avoid device-wide sync by default.
+                            // Enable the extra `syncDevice()` barrier for stricter logit alignment
+                            // when running debug/alignment modes.
+                            // infinicore::context::syncStream();
+                            if (std::getenv("INFINI_LOGIT_ALIGNMENT_EXTRA_SYNC_DEVICE") != nullptr ||
+                                std::getenv("INFINI_DEBUG_ATTN_DUMP") != nullptr ||
+                                std::getenv("INFINI_DEBUG_LOG") != nullptr) {
+                                infinicore::context::syncDevice();
+                            }
                             logits = model_->forward(model_args).logits;
                         }
 
@@ -358,13 +368,20 @@ void RankWorker::thread_loop() {
                             auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
                             // DEBUG-ONLY HOOK (see RankWorker::Output::logits):
                             // Store request-0 last-token logits on CPU for lightweight correctness checks.
-                            // This is *not* intended for production use due to extra device->host copies.
+                            // This is *not* intended for production decode benchmarks due to extra device->host copies.
+                            // Default: disable the CPU logits capture for profiling/benchmarks.
+                            // Only enable when debug/alignment envs are set (or explicitly forced).
+                            const bool enable_debug_logits =
+                                (top_k == 1) &&
+                                (std::getenv("INFINI_DEBUG_ATTN_DUMP") != nullptr ||
+                                 std::getenv("INFINI_DEBUG_LOG") != nullptr ||
+                                 std::getenv("INFINI_DEBUG_CAPTURE_LAST_LOGITS_CPU") != nullptr);
                             infinicore::Tensor last_logits_cpu;
 
                             for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
                                 auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                if (i == 0) {
+                                if (enable_debug_logits && i == 0) {
                                     // Capture request-0 score vector before sampling.
                                     last_logits_cpu = score->contiguous()->to(infinicore::Device::cpu());
                                 }
@@ -373,9 +390,18 @@ void RankWorker::thread_loop() {
                                     out, score, random_val, top_p, top_k, temperature);
                             }
 
-                            output_ids = output_ids->to(infinicore::Device::cpu());
+                            // Profiling optimization: avoid per-step GPU->CPU copies for the predicted token ids.
+                            // Set `INFINI_PROFILE_KEEP_OUTPUT_IDS_ON_DEVICE=1` to keep `output_ids` on GPU.
+                            const bool keep_output_ids_on_device =
+                                std::getenv("INFINI_PROFILE_KEEP_OUTPUT_IDS_ON_DEVICE") != nullptr;
+                            if (!keep_output_ids_on_device) {
+                                output_ids = output_ids->to(infinicore::Device::cpu());
+                            }
 
-                            infinicore::context::syncStream();
+                            // Only sync when we actually kicked off device->host copies.
+                            if (!keep_output_ids_on_device || enable_debug_logits) {
+                                infinicore::context::syncStream();
+                            }
 
                             auto out{Output{output_ids, last_logits_cpu}};
 

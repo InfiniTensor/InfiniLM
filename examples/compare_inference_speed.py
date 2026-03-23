@@ -228,6 +228,124 @@ def run_hf_forward_prefill(
     }
 
 
+def run_hf_decode_loop(
+    model_path: str,
+    prompt: str,
+    max_new_tokens: int,
+    device: str = "cuda",
+    *,
+    attn_implementation: Optional[str] = None,
+    use_cache: bool = True,
+    warmup: int = 8,
+    iters: int = 1,
+):
+    """
+    Measure HF *decode-only* per-token latency using a manual loop with past_key_values.
+
+    Protocol:
+    - Prefill once on the full prompt (not included in decode timing).
+    - Then decode `max_new_tokens` tokens with 1-token steps, timing the whole decode loop
+      (optionally best-of `iters`).
+    """
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if max_new_tokens <= 0:
+        raise ValueError("--max_new_tokens must be > 0 for hf decode_loop")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    model_kwargs = {
+        "torch_dtype": "auto",
+        "trust_remote_code": True,
+    }
+    if attn_implementation is not None:
+        model_kwargs["attn_implementation"] = attn_implementation  # type: ignore[assignment]
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs).to(device)
+    except TypeError:
+        model_kwargs.pop("attn_implementation", None)
+        model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs).to(device)
+    model.eval()
+
+    conversation = [{"role": "user", "content": prompt}]
+    text = tokenizer.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
+    inputs = tokenizer(text, return_tensors="pt").to(device)
+    input_len = int(inputs.input_ids.shape[1])
+
+    # Prefill once to build cache.
+    with torch.inference_mode():
+        try:
+            pre = model(**inputs, use_cache=use_cache, logits_to_keep=1)
+        except TypeError:
+            pre = model(**inputs, use_cache=use_cache)
+        past = getattr(pre, "past_key_values", None)
+        # Greedy next token from last logits.
+        logits = pre.logits[:, -1, :]
+        next_token = torch.argmax(logits, dim=-1, keepdim=True)
+
+    # Warmup decode steps (not timed) to reduce first-step effects.
+    with torch.inference_mode():
+        for _ in range(max(0, warmup)):
+            try:
+                out = model(input_ids=next_token, use_cache=use_cache, past_key_values=past, logits_to_keep=1)
+            except TypeError:
+                out = model(input_ids=next_token, use_cache=use_cache, past_key_values=past)
+            past = getattr(out, "past_key_values", past)
+            logits = out.logits[:, -1, :]
+            next_token = torch.argmax(logits, dim=-1, keepdim=True)
+        torch.cuda.synchronize()
+
+    # Timed decode loops (best-of iters).
+    times = []
+    with torch.inference_mode():
+        for _ in range(max(1, iters)):
+            # Re-prefill to avoid measuring a "warmed" cache from prior iteration.
+            try:
+                pre = model(**inputs, use_cache=use_cache, logits_to_keep=1)
+            except TypeError:
+                pre = model(**inputs, use_cache=use_cache)
+            past = getattr(pre, "past_key_values", None)
+            logits = pre.logits[:, -1, :]
+            next_token = torch.argmax(logits, dim=-1, keepdim=True)
+
+            torch.cuda.synchronize()
+            start = time.perf_counter()
+            try:
+                torch.cuda.nvtx.range_push("hf_decode_loop")
+            except Exception:
+                pass
+            for _t in range(max_new_tokens):
+                try:
+                    out = model(input_ids=next_token, use_cache=use_cache, past_key_values=past, logits_to_keep=1)
+                except TypeError:
+                    out = model(input_ids=next_token, use_cache=use_cache, past_key_values=past)
+                past = getattr(out, "past_key_values", past)
+                logits = out.logits[:, -1, :]
+                next_token = torch.argmax(logits, dim=-1, keepdim=True)
+            torch.cuda.synchronize()
+            elapsed = time.perf_counter() - start
+            try:
+                torch.cuda.nvtx.range_pop()
+            except Exception:
+                pass
+            times.append(elapsed)
+
+    best = min(times) if times else 0.0
+    itl_ms = (best * 1000.0 / max_new_tokens) if best > 0 else None
+    thr = (max_new_tokens / best) if best > 0 else None
+    return {
+        "backend": "hf_decode_loop",
+        "total_time_ms": round(best * 1000, 2),
+        "input_tokens": int(input_len),
+        "output_tokens": int(max_new_tokens),
+        "decode_itl_ms": round(itl_ms, 4) if itl_ms is not None else None,
+        "decode_throughput_tok_s": round(thr, 2) if thr is not None else None,
+        "use_cache": bool(use_cache),
+        "warmup": int(warmup),
+        "iters": int(iters),
+    }
+
+
 def run_infinilm_inprocess(
     model_path: str,
     prompt: str,
@@ -327,7 +445,14 @@ def run_infinilm_inprocess(
         try:
             model.generate(
                 input_ids_infini,
-                GenerationConfig(max_new_tokens=max_new_tokens, temperature=1.0, top_k=1, top_p=1.0),
+                GenerationConfig(
+                    max_new_tokens=max_new_tokens,
+                    temperature=1.0,
+                    top_k=1,
+                    top_p=1.0,
+                    # Profiling: avoid per-step EOS checks + early stop variability.
+                    stop_on_eos=False,
+                ),
                 _measure_and_log_time=True,
             )
         finally:
@@ -528,8 +653,8 @@ def main():
         "--hf_mode",
         type=str,
         default="generate",
-        choices=["generate", "forward_prefill"],
-        help="HF run mode: generate() end-to-end, or forward-only prefill for profiling.",
+        choices=["generate", "forward_prefill", "decode_loop"],
+        help="HF run mode: generate() end-to-end, forward-only prefill, or manual decode_loop timing with KV cache.",
     )
     parser.add_argument(
         "--hf_forward_use_cache",
@@ -547,6 +672,18 @@ def main():
         type=int,
         default=1,
         help="Measured iterations for HF forward_prefill (best-of).",
+    )
+    parser.add_argument(
+        "--hf_decode_warmup",
+        type=int,
+        default=8,
+        help="Warmup steps for HF decode_loop (not timed).",
+    )
+    parser.add_argument(
+        "--hf_decode_iters",
+        type=int,
+        default=1,
+        help="Measured iterations for HF decode_loop (best-of).",
     )
     parser.add_argument("--sglang_url", default=None, help="SGLang server URL (e.g. http://127.0.0.1:30000); if set, query SGLang")
     parser.add_argument("--backends", default="hf,infinilm", help="Comma-separated: hf,infinilm,sglang")
@@ -601,6 +738,16 @@ def main():
                     use_cache=args.hf_forward_use_cache,
                     warmup=args.hf_forward_warmup,
                     iters=args.hf_forward_iters,
+                )
+            elif args.hf_mode == "decode_loop":
+                r = run_hf_decode_loop(
+                    args.model_path,
+                    args.prompt,
+                    args.max_new_tokens,
+                    attn_implementation=args.hf_attn_implementation,
+                    use_cache=True,
+                    warmup=args.hf_decode_warmup,
+                    iters=args.hf_decode_iters,
                 )
             else:
                 r = run_hf(

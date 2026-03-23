@@ -17,6 +17,10 @@ namespace {
 void dump_tensor_to_bin_if_enabled(const infinicore::Tensor &tensor, const char *bin_path) {
     if (!bin_path || !std::getenv("INFINI_DEBUG_ATTN_DUMP")) return;
     try {
+        // Debug-only: make sure any pending GPU work for `tensor` is finished
+        // before reading/copying values to host. This avoids stale/uninitialized
+        // dumps that can look like all-zeros.
+        infinicore::context::syncStream();
         auto cpu_t = tensor->to(infinicore::Device::cpu());
         const size_t n = cpu_t->numel();
         const auto dt = cpu_t->dtype();
@@ -176,31 +180,42 @@ void MiniCPMSALAModel::reset_cache(const cache::CacheConfig *cache_config) {
 
     if (auto static_cfg = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
         // Allocate separate caches by KV shape to avoid per-layer padding copies.
+        const size_t num_hidden_layers = model_config_->get<size_t>("num_hidden_layers");
+        // mixer_types_ is filled in ctor from model_config_->get("mixer_types").
+        const size_t minicpm4_layer_count =
+            !mixer_types_.empty() ? std::count(mixer_types_.begin(), mixer_types_.end(), "minicpm4") : num_hidden_layers;
+        const size_t lightning_layer_count = num_hidden_layers - minicpm4_layer_count;
+
         const size_t base_kv_heads = model_config_->get<size_t>("num_key_value_heads");
         const size_t base_head_dim = model_config_->get<size_t>("head_dim");
         const size_t lightning_kv_heads = model_config_->get_or<size_t>("lightning_nkv", base_kv_heads);
         const size_t lightning_head_dim = model_config_->get_or<size_t>("lightning_head_dim", base_head_dim);
 
-        kv_cache_minicpm4_ = std::make_shared<cache::StaticKVCache>(
-            /*k_dim=*/base_head_dim,
-            /*v_dim=*/base_head_dim,
-            /*num_k_heads=*/base_kv_heads,
-            /*num_v_heads=*/base_kv_heads,
-            /*num_layers=*/model_config_->get<size_t>("num_hidden_layers"),
-            /*max_positional_embedding=*/model_config_->get<size_t>("max_position_embeddings"),
-            /*dtype=*/model_config_->get_dtype(),
-            *static_cfg,
-            rank_info_);
-        kv_cache_lightning_ = std::make_shared<cache::StaticKVCache>(
-            /*k_dim=*/lightning_head_dim,
-            /*v_dim=*/lightning_head_dim,
-            /*num_k_heads=*/lightning_kv_heads,
-            /*num_v_heads=*/lightning_kv_heads,
-            /*num_layers=*/model_config_->get<size_t>("num_hidden_layers"),
-            /*max_positional_embedding=*/model_config_->get<size_t>("max_position_embeddings"),
-            /*dtype=*/model_config_->get_dtype(),
-            *static_cfg,
-            rank_info_);
+        kv_cache_minicpm4_ = (minicpm4_layer_count > 0)
+                                 ? std::make_shared<cache::StaticKVCache>(
+                                       /*k_dim=*/base_head_dim,
+                                       /*v_dim=*/base_head_dim,
+                                       /*num_k_heads=*/base_kv_heads,
+                                       /*num_v_heads=*/base_kv_heads,
+                                       /*num_layers=*/minicpm4_layer_count,
+                                       /*max_positional_embedding=*/model_config_->get<size_t>("max_position_embeddings"),
+                                       /*dtype=*/model_config_->get_dtype(),
+                                       *static_cfg,
+                                       rank_info_)
+                                 : nullptr;
+
+        kv_cache_lightning_ = (lightning_layer_count > 0)
+                                   ? std::make_shared<cache::StaticKVCache>(
+                                         /*k_dim=*/lightning_head_dim,
+                                         /*v_dim=*/lightning_head_dim,
+                                         /*num_k_heads=*/lightning_kv_heads,
+                                         /*num_v_heads=*/lightning_kv_heads,
+                                         /*num_layers=*/lightning_layer_count,
+                                         /*max_positional_embedding=*/model_config_->get<size_t>("max_position_embeddings"),
+                                         /*dtype=*/model_config_->get_dtype(),
+                                         *static_cfg,
+                                         rank_info_)
+                                   : nullptr;
     } else {
         // This refactor implements HF-like dense caching only.
         throw std::runtime_error("MiniCPMSALAModel::reset_cache: Unsupported cache type (expected StaticKVCacheConfig)");
@@ -257,9 +272,16 @@ infinicore::Tensor MiniCPMSALAModel::forward(const infinicore::Tensor &input_ids
     }
 
     hs = norm_->forward(hs);
+    // Debug-only: help locate where non-finite values first appear
+    // during decode (final norm before lm_head).
+    if (std::getenv("INFINI_DEBUG_LOG")) {
+        log_tensor_stats_if_enabled(hs,
+                                    "INF_H",
+                                    "minicpm_sala_model.cpp:final_norm",
+                                    "Inf final hidden after norm");
+    }
     dump_tensor_to_bin_if_enabled(hs, "/tmp/inf_final_hidden.bin");
     return hs;
 }
 
 } // namespace infinilm::models::minicpm_sala
-
