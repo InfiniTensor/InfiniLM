@@ -36,7 +36,7 @@ infinicore::Tensor StaticAttentionImpl::forward(void *layer,
                                                 const infinicore::Tensor &q_reshaped,
                                                 const infinicore::Tensor &k_permuted,
                                                 const infinicore::Tensor &v_permuted,
-                                                std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                                                std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                                 const infinilm::InfinilmModel::Input &attn_metadata) const {
     (void)layer;
     auto shape = q_reshaped->shape();
@@ -47,18 +47,9 @@ infinicore::Tensor StaticAttentionImpl::forward(void *layer,
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
 
     // 5. Prepare KV caches
-    infinicore::Tensor k_total; // [bs, n_kv_head, max_seq_len, head_dim]
-    infinicore::Tensor v_total; // [bs, n_kv_head, max_seq_len, head_dim]
-    if (kv_cache == nullptr) {
-        k_total = k_permuted;
-        v_total = v_permuted;
-    } else if (auto static_kv_cache = std::dynamic_pointer_cast<cache::StaticKVCache>(kv_cache)) {
-        auto [k_total_tmp, v_total_tmp] = static_kv_cache->update(layer_idx_, k_permuted, v_permuted, past_sequence_lengths.value());
-        k_total = k_total_tmp;
-        v_total = v_total_tmp;
-    } else {
-        throw std::runtime_error("StaticAttention: Unsupported kvcache type");
-    }
+    // k_total:  [bs, n_kv_head, max_seq_len, head_dim]
+    // v_total : [bs, n_kv_head, max_seq_len, head_dim]
+    auto [k_total, v_total] = do_kv_cache_update(nullptr, k_permuted, v_permuted, kv_cache, past_sequence_lengths.value());
 
     infinicore::Tensor attn_output;
     if (false) {
@@ -95,4 +86,30 @@ infinicore::Tensor StaticAttentionImpl::forward(void *layer,
     return attn_output;
 }
 
+std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_cache_update(void *layer,
+                                                                                           const infinicore::Tensor key,
+                                                                                           const infinicore::Tensor value,
+                                                                                           std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
+                                                                                           const infinicore::Tensor past_sequence_lengths) const {
+    auto batch_size = key->size(0);
+    auto update_len = key->size(2);
+
+    auto k_cache_layer = std::get<0>(kv_cache);
+    auto v_cache_layer = std::get<1>(kv_cache);
+    size_t max_seq_len = k_cache_layer->size(2);
+
+    auto device = k_cache_layer->device();
+
+    size_t cache_pos = reinterpret_cast<int32_t *>(past_sequence_lengths->to(infinicore::Device::cpu())->data())[0];
+    auto result_len = cache_pos + update_len;
+    ASSERT(result_len <= max_seq_len);
+
+    auto k_cache_update = k_cache_layer->narrow({{2, cache_pos, update_len}});
+    auto v_cache_update = v_cache_layer->narrow({{2, cache_pos, update_len}});
+
+    k_cache_update->copy_from(key);
+    v_cache_update->copy_from(value);
+
+    return {k_cache_layer, v_cache_layer};
+}
 } // namespace infinilm::layers::attention::backends

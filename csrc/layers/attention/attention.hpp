@@ -7,7 +7,7 @@
 #include "../../engine/distributed/distributed.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "../../utils.hpp"
-#include "../fused_linear.hpp"
+#include "../linear/fused_linear.hpp"
 #include "backends/attention_layer.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
@@ -33,11 +33,11 @@ public:
 private:
     infinicore::Tensor forward_paged_(const infinicore::Tensor &hidden_states,
                                       const infinilm::InfinilmModel::Input &attn_metadata,
-                                      std::shared_ptr<infinilm::cache::Cache> kv_cache) const;
+                                      std::tuple<infinicore::Tensor, infinicore::Tensor>) const;
 
     infinicore::Tensor forward_static_(const infinicore::Tensor &hidden_states,
                                        const infinilm::InfinilmModel::Input &attn_metadata,
-                                       std::shared_ptr<infinilm::cache::Cache> kv_cache) const;
+                                       std::tuple<infinicore::Tensor, infinicore::Tensor>) const;
 
 public:
     size_t layer_idx() const { return layer_idx_; }
@@ -48,7 +48,7 @@ public:
     void set_rotary_emb(const std::shared_ptr<infinicore::nn::RoPE> &rotary_emb) { rotary_emb_ = rotary_emb; }
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::QKVParallelLinear, qkv_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);

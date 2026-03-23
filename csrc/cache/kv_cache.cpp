@@ -220,7 +220,7 @@ PagedKVCache::PagedKVCache(
         rank_info.device);
 }
 
-std::tuple<infinicore::Tensor, infinicore::Tensor> create_layer_kv_cache(
+std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::create_layer_kv_cache(
     infinicore::Size k_dim,
     infinicore::Size v_dim,
     infinicore::Size num_k_heads,
@@ -254,7 +254,7 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> create_layer_kv_cache(
         rank_info.device);
 
     return {k_caches, v_caches};
-};
+}
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::update(
     size_t layer_idx,

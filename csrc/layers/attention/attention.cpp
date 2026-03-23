@@ -104,7 +104,7 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
 infinicore::Tensor Attention::forward(const infinicore::Tensor &hidden_states) const {
     auto &forward_context = get_forward_context();
     AttentionMetadata &attn_metadata = forward_context.attn_metadata;
-    std::shared_ptr<infinilm::cache::Cache> &kv_cache = forward_context.kv_cache;
+    std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache = forward_context.kv_cache_vec[layer_idx_];
 
     if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
         return forward_static_(hidden_states, attn_metadata, kv_cache);
@@ -114,7 +114,7 @@ infinicore::Tensor Attention::forward(const infinicore::Tensor &hidden_states) c
 
 infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &hidden_states,
                                              const infinilm::InfinilmModel::Input &attn_metadata,
-                                             std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
+                                             std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache) const {
     if (!rotary_emb_) {
         throw std::runtime_error("Attention: rotary_emb not configured");
     }
@@ -169,13 +169,9 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &hidden_st
 
 infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &hidden_states,
                                               const infinilm::InfinilmModel::Input &attn_metadata,
-                                              std::shared_ptr<infinilm::cache::Cache> kv_cache) const {
+                                              std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache) const {
     if (!rotary_emb_) {
         throw std::runtime_error("StaticAttention: rotary_emb not configured");
-    }
-
-    if (auto paged_kv_cache = std::dynamic_pointer_cast<cache::PagedKVCache>(kv_cache)) {
-        throw std::runtime_error("StaticAttention: paged_kv_cache not supported");
     }
 
     auto position_ids = attn_metadata.position_ids.value();

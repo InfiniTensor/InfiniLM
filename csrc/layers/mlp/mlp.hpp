@@ -1,10 +1,8 @@
 #pragma once
 
-#include "../fused_linear.hpp"
-
 #include "../../config/model_config.hpp"
 #include "infinicore/device.hpp"
-#include "infinicore/nn/linear.hpp"
+#include "../linear/fused_linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 
@@ -48,7 +46,7 @@ public:
     size_t intermediate_size() const { return intermediate_size_; }
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::GateUpParallelLinear, gate_up_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::GateUpParallelLinear, gate_up_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
 
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;

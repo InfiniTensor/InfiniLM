@@ -24,8 +24,7 @@ class ForwardContext:
 struct ForwardContext {
     AttentionMetadata attn_metadata;
     std::shared_ptr<cache::Cache> kv_cache;
-    std::vector<infinicore::Tensor> k_caches; // 显示shape信息
-    std::vector<infinicore::Tensor> v_caches;
+    std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> kv_cache_vec; // 显示shape信息
 };
 
 /*

@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <tuple>
 #include <utility>
 namespace infinilm::layers::attention::backends {
 
@@ -132,8 +133,24 @@ public:
                                const infinicore::Tensor &query,
                                const infinicore::Tensor &key,
                                const infinicore::Tensor &value,
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                               std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                const infinilm::InfinilmModel::Input &attn_metadata) const;
+    /*
+    def do_kv_cache_update(
+        self,
+        layer: torch.nn.Module,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        kv_cache: torch.Tensor,
+        slot_mapping: torch.Tensor,
+    ) -> None:
+        pass
+    */
+    std::tuple<infinicore::Tensor, infinicore::Tensor> do_kv_cache_update(void *layer,
+                                                                          const infinicore::Tensor key,
+                                                                          const infinicore::Tensor value,
+                                                                          std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
+                                                                          const infinicore::Tensor slot_mapping) const;
 
 private:
     size_t num_heads_;

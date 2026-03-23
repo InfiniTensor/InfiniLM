@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../layers/fused_linear.hpp"
+#include "../../layers/linear/fused_linear.hpp"
 #include "llama_config.hpp"
 
 #include "../../config/model_config.hpp"
@@ -64,7 +64,7 @@ public:
     size_t intermediate_size() const { return intermediate_size_; }
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::GateUpParallelLinear, gate_up_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::GateUpParallelLinear, gate_up_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
 
     engine::distributed::RankInfo rank_info_;

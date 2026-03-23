@@ -148,7 +148,7 @@ public:
     inline infinicore::Tensor forward(const infinicore::Tensor &query,
                                       const infinicore::Tensor &key,
                                       const infinicore::Tensor &value,
-                                      std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                                      std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                       const infinilm::InfinilmModel::Input &attn_metadata) const {
         return std::visit(
             [&](auto &impl_ptr) -> infinicore::Tensor {

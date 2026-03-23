@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../fused_linear.hpp"
+#include "../linear/fused_linear.hpp"
 
 #include "../../config/model_config.hpp"
 #include "infinicore/device.hpp"

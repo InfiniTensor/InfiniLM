@@ -3,7 +3,7 @@
 #include "attention/backends/flashinfer_attn.hpp"
 #include "attention/backends/paged_attn.hpp"
 #include "attention/backends/static_attn.hpp"
-#include "fused_linear.hpp"
+#include "linear/fused_linear.hpp"
 #include "mlp/mlp.hpp"
 #include "mlp/moe_mlp.hpp"
 #include "text_causal_lm.hpp"
@@ -16,6 +16,12 @@ namespace infinilm::layers {
 using MLP = infinilm::layers::mlp::MLP;
 using MoeMLP = infinilm::layers::mlp::MoeMLP;
 using Attention = infinilm::layers::attention::Attention;
+
+using RowParallelLinear = infinicore::nn::RowParallelLinear;
+using ColumnParallelLinear = infinicore::nn::ColumnParallelLinear;
+using ReplicatedLinear = infinicore::nn::Linear;
+using QKVParallelLinear = infinilm::layers::linear::QKVParallelLinear;
+using GateUpParallelLinear = infinilm::layers::linear::GateUpParallelLinear;
 
 namespace attention {
 

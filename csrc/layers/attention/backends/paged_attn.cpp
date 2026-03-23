@@ -16,6 +16,7 @@
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <tuple>
 #include <vector>
 
 namespace infinilm::layers::attention::backends {
@@ -36,7 +37,7 @@ infinicore::Tensor PagedAttentionImpl::forward(void *layer,
                                                const infinicore::Tensor &query,
                                                const infinicore::Tensor &key,
                                                const infinicore::Tensor &value,
-                                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                                               std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                                const infinilm::InfinilmModel::Input &attn_metadata) const {
     (void)layer;
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
@@ -46,18 +47,10 @@ infinicore::Tensor PagedAttentionImpl::forward(void *layer,
     ASSERT(block_tables.has_value());
     ASSERT(slot_mapping.has_value());
 
-    auto paged_kv_cache = std::dynamic_pointer_cast<infinilm::cache::PagedKVCache>(kv_cache);
-    if (!paged_kv_cache) {
-        throw std::runtime_error("Attention: kvcache is not a PagedKVCache");
-    }
+    auto [k_total, v_total] = do_kv_cache_update(nullptr, key, value, kv_cache, slot_mapping.value());
 
     size_t seq_len = query->shape()[0];
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
-
-    auto [k_total, v_total] = paged_kv_cache->update(layer_idx_,
-                                                     key,
-                                                     value,
-                                                     slot_mapping.value());
 
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
     if (is_prefill) {
@@ -85,4 +78,22 @@ infinicore::Tensor PagedAttentionImpl::forward(void *layer,
     return attn_output;
 }
 
+std::tuple<infinicore::Tensor, infinicore::Tensor> PagedAttentionImpl::do_kv_cache_update(void *layer,
+                                                                                          const infinicore::Tensor key,
+                                                                                          const infinicore::Tensor value,
+                                                                                          std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
+                                                                                          const infinicore::Tensor slot_mapping) const {
+
+    auto key_cache = std::get<0>(kv_cache);
+    auto value_cache = std::get<1>(kv_cache);
+
+    infinicore::op::paged_caching_(
+        key_cache,
+        value_cache,
+        key,
+        value,
+        slot_mapping);
+
+    return {key_cache, value_cache};
+}
 } // namespace infinilm::layers::attention::backends

@@ -4,7 +4,7 @@
 #include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
-#include "../../layers/fused_linear.hpp"
+#include "../../layers/linear/fused_linear.hpp"
 #include "llama_config.hpp"
 
 #include "infinicore/nn/linear.hpp"
@@ -112,7 +112,7 @@ private:
 
 protected:
     // Projection layers
-    INFINICORE_NN_MODULE(infinilm::layers::QKVParallelLinear, qkv_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);

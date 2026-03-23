@@ -30,8 +30,13 @@ public:
                                const infinicore::Tensor &q_reshaped, //  query
                                const infinicore::Tensor &k_permuted, // key
                                const infinicore::Tensor &v_permuted, // value
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                               std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                const infinilm::InfinilmModel::Input &attn_metadata) const;
+    std::tuple<infinicore::Tensor, infinicore::Tensor> do_kv_cache_update(void *layer,
+                                                                          const infinicore::Tensor key,
+                                                                          const infinicore::Tensor value,
+                                                                          std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
+                                                                          const infinicore::Tensor past_sequence_lengths) const;
 
 private:
     size_t num_heads_;

@@ -5,7 +5,7 @@
 #include "../../../config/model_config.hpp"
 #include "../../../engine/distributed/distributed.hpp"
 #include "../../../models/infinilm_model.hpp"
-#include "../../fused_linear.hpp"
+#include "../../linear/fused_linear.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
@@ -42,7 +42,7 @@ public:
                                const infinicore::Tensor &query,
                                const infinicore::Tensor &key,
                                const infinicore::Tensor &value,
-                               std::shared_ptr<infinilm::cache::Cache> kv_cache,
+                               std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                const infinilm::InfinilmModel::Input &attn_metadata) const;
 
 private:
