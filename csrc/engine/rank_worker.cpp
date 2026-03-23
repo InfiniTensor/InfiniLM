@@ -366,22 +366,21 @@ void RankWorker::thread_loop() {
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
                             auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
-                            // DEBUG-ONLY HOOK (see RankWorker::Output::logits):
-                            // Store request-0 last-token logits on CPU for lightweight correctness checks.
-                            // This is *not* intended for production decode benchmarks due to extra device->host copies.
-                            // Default: disable the CPU logits capture for profiling/benchmarks.
-                            // Only enable when debug/alignment envs are set (or explicitly forced).
-                            const bool enable_debug_logits =
-                                (top_k == 1) &&
-                                (std::getenv("INFINI_DEBUG_ATTN_DUMP") != nullptr ||
-                                 std::getenv("INFINI_DEBUG_LOG") != nullptr ||
-                                 std::getenv("INFINI_DEBUG_CAPTURE_LAST_LOGITS_CPU") != nullptr);
+                            // Request-0 last-token logits on CPU (see RankWorker::Output::logits).
+                            // InferEngine.forward_logits() returns this; it must not be left default-constructed
+                            // (null tensor) or Python will segfault on .device / readback.
+                            // Greedy sampling uses top_k==1; capture in that case by default.
+                            // Profiling: set INFINI_SKIP_LAST_LOGITS_CPU=1 to skip the extra D2H copy.
+                            const char *skip_logits_env = std::getenv("INFINI_SKIP_LAST_LOGITS_CPU");
+                            const bool skip_last_logits_cpu =
+                                skip_logits_env && skip_logits_env[0] != '\0' && skip_logits_env[0] != '0';
+                            const bool enable_last_logits_cpu = (top_k == 1) && !skip_last_logits_cpu;
                             infinicore::Tensor last_logits_cpu;
 
                             for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
                                 auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                if (enable_debug_logits && i == 0) {
+                                if (enable_last_logits_cpu && i == 0) {
                                     // Capture request-0 score vector before sampling.
                                     last_logits_cpu = score->contiguous()->to(infinicore::Device::cpu());
                                 }
@@ -399,7 +398,7 @@ void RankWorker::thread_loop() {
                             }
 
                             // Only sync when we actually kicked off device->host copies.
-                            if (!keep_output_ids_on_device || enable_debug_logits) {
+                            if (!keep_output_ids_on_device || enable_last_logits_cpu) {
                                 infinicore::context::syncStream();
                             }
 

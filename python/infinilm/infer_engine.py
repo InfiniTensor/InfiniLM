@@ -122,6 +122,9 @@ class InferEngine(_infinilm.InferEngine):
         Run a forward pass and return last-token logits for request 0 (CPU).
         Intended for sanity checks (e.g. comparing top-k logits vs HF on a fixed prompt).
         Not designed for throughput/serving usage.
+
+        RankWorker copies last-token logits when top_k==1 unless INFINI_SKIP_LAST_LOGITS_CPU=1
+        (used to avoid an extra D2H copy during profiling).
         """
         input_ids = input_ids._underlying if input_ids is not None else None
         position_ids = position_ids._underlying if position_ids is not None else None
@@ -216,7 +219,17 @@ class InferEngine(_infinilm.InferEngine):
 
         # Decode metadata fast path (batch=1, static cache):
         # avoid per-step from_list()/numpy allocations for tiny scalar tensors.
-        fast_decode_meta = (not self.enable_paged_attn) and (initial_batch_size == 1)
+        # Those tensors live on CPU and are H2D-copied each forward; for profiling
+        # comparisons vs `from_list` device metadata, set:
+        #   INFINI_PROFILE_DISABLE_FAST_DECODE_META=1
+        disable_fast_decode_meta = os.environ.get(
+            "INFINI_PROFILE_DISABLE_FAST_DECODE_META", "0"
+        ) not in ("", "0", "false", "False")
+        fast_decode_meta = (
+            (not self.enable_paged_attn)
+            and (initial_batch_size == 1)
+            and not disable_fast_decode_meta
+        )
         if fast_decode_meta:
             cpu = infinicore.device("cpu", 0)
 

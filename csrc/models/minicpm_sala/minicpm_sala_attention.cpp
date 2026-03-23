@@ -45,78 +45,6 @@ std::vector<float> build_slope_tensor(size_t n) {
 
 } // namespace
 
-static void log_tensor_stats_to_file_if_enabled(const infinicore::Tensor &tensor,
-                                                const char *tag,
-                                                size_t layer_idx,
-                                                size_t cache_pos,
-                                                size_t total_seq_len,
-                                                size_t seq_len) {
-    const char *log_path = std::getenv("INFINI_DEBUG_LOG");
-    if (!log_path || !tag) return;
-    try {
-        auto cpu_t = tensor->to(infinicore::Device::cpu());
-        const size_t n = cpu_t->numel();
-        const auto dt = cpu_t->dtype();
-        const auto &shp = cpu_t->shape();
-
-        std::ofstream f(log_path, std::ios::app);
-        if (!f) return;
-        f << "[minicpm_sala][dump] layer=" << layer_idx
-          << " cache_pos=" << cache_pos
-          << " total_seq_len=" << total_seq_len
-          << " seq_len=" << seq_len
-          << " tag=" << tag
-          << " shape=[";
-        for (size_t i = 0; i < shp.size(); ++i) {
-            if (i) f << ",";
-            f << shp[i];
-        }
-        f << "] dtype=" << static_cast<int>(dt) << " numel=" << n << "\n";
-
-        if (n == 0) return;
-        const size_t k = std::min<size_t>(n, 16);
-        std::vector<float> vals(n);
-
-        if (dt == infinicore::DataType::BF16) {
-            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
-            for (size_t i = 0; i < n; ++i) {
-                uint32_t u = static_cast<uint32_t>(p[i]) << 16;
-                vals[i] = *reinterpret_cast<float *>(&u);
-            }
-        } else if (dt == infinicore::DataType::F16) {
-            const uint16_t *p = reinterpret_cast<const uint16_t *>(cpu_t->data());
-            for (size_t i = 0; i < n; ++i) {
-                uint32_t u = (p[i] & 0x8000) << 16 | ((p[i] & 0x7fff) + (127 - 15)) << 23 | (p[i] & 0x03ff) << 13;
-                vals[i] = *reinterpret_cast<float *>(&u);
-            }
-        } else if (dt == infinicore::DataType::F32) {
-            const float *p = reinterpret_cast<const float *>(cpu_t->data());
-            for (size_t i = 0; i < n; ++i) vals[i] = p[i];
-        } else {
-            f << "  (stats skipped for dtype)\n";
-            return;
-        }
-
-        float mn = vals[0], mx = vals[0];
-        double sum = 0.0;
-        for (float v : vals) {
-            mn = std::min(mn, v);
-            mx = std::max(mx, v);
-            sum += static_cast<double>(v);
-        }
-        f << "  min=" << mn << " max=" << mx << " mean=" << (sum / (double)n) << "\n";
-        f << "  first[" << k << "]:";
-        for (size_t i = 0; i < k; ++i) f << " " << vals[i];
-        f << "\n";
-        if (n > k) {
-            f << "  last[" << k << "]:";
-            for (size_t i = n - k; i < n; ++i) f << " " << vals[i];
-            f << "\n";
-        }
-    } catch (...) {
-    }
-}
-
 MiniCPMSALAAttention::MiniCPMSALAAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                            const infinicore::Device &device,
                                            size_t layer_idx,
@@ -136,6 +64,24 @@ MiniCPMSALAAttention::MiniCPMSALAAttention(std::shared_ptr<infinilm::config::Mod
         num_attention_heads_ = model_config_->get<size_t>("num_attention_heads");
         num_key_value_heads_ = model_config_->get<size_t>("num_key_value_heads");
         head_dim_ = model_config_->get<size_t>("head_dim");
+
+        // InfLLM-v2 local-window masking (causal-local semantics) for minicpm4.
+        // Prefer `sparse_window_size`, but fall back to `window_size` if needed.
+        int sparse_window_size = model_config_->get_or<int>("sparse_window_size", -1);
+        if (sparse_window_size <= 0) {
+            // Some HF configs store this under `sparse_config.window_size`.
+            auto sparse_cfg = model_config_->get_or<nlohmann::json>("sparse_config", nlohmann::json{});
+            if (!sparse_cfg.is_null() && sparse_cfg.contains("window_size")) {
+                sparse_window_size = sparse_cfg["window_size"].get<int>();
+            } else {
+                sparse_window_size = model_config_->get_or<int>("window_size", -1);
+            }
+        }
+        if (sparse_window_size > 0) {
+            infllmv2_window_left_ = sparse_window_size;
+            infllmv2_window_right_ = 0;
+            use_local_window_ = true;
+        }
     } else {
         // Lightning layers have their own head config.
         num_attention_heads_ = model_config_->get_or<size_t>("lightning_nh", model_config_->get<size_t>("num_attention_heads"));
@@ -479,54 +425,60 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
         // Correctness: restore contiguous layout for K/V before `simple_gla_attention`.
         auto k_bthd = k_use->permute({0, 2, 1, 3})->contiguous(); // [B, S_kv, H, D]
         auto v_bthd = v_use->permute({0, 2, 1, 3})->contiguous(); // [B, S_kv, H, D]
-        infinicore::Tensor q_full;
-        if (seq_len == total_seq_len) {
-            q_full = q_bthd;
-        } else {
-            // Decode: q has seq_len (e.g. 1), kv has total_seq_len; pad q to [B, total_seq_len, H, D].
-            q_full = infinicore::Tensor::zeros(
-                {batch_size, total_seq_len, n_h, head_dim_}, q_bthd->dtype(), q_bthd->device());
-            auto q_slot = q_full->narrow({{1, total_seq_len - seq_len, seq_len}});
-            q_slot->copy_from(q_bthd);
+
+        // Lightning GLA decode must use recurrent state (StaticKVCache) whenever available.
+        const bool is_lightning_decode = has_cache_meta && static_kv_cache && (seq_len < total_seq_len);
+        if (is_lightning_decode && !static_kv_cache->has_gla_recurrent_state()) {
+            throw std::runtime_error(
+                "MiniCPMSALAAttention(lightning): Lightning decode requires StaticKVCache gla_recurrent_state "
+                "(missing recurrent buffer in StaticKVCache).");
         }
+
+        const bool recurrent_gla = static_kv_cache && static_kv_cache->has_gla_recurrent_state() && has_cache_meta;
+
         infinicore::Tensor gla_out;
-        // Fused prefill: naive kernel for head_dim<=64; chunked/tiled kernel for head_dim>64 (e.g. 128).
-        // Default routing: use it only when q spans the full KV length (prefill).
-        // On decode, q is length-1 and we pad q to [B, total_seq_len, H, D] with zeros; historically
-        // simple_gla_prefill on that masked layout could produce NaNs, so default uses simple_gla_attention.
-        bool use_fused_prefill = (batch_size == 1) && (seq_len == total_seq_len);
+        if (recurrent_gla && seq_len == 1 && total_seq_len > 1) {
+            auto S = static_kv_cache->gla_recurrent_state_for_layer(cache_layer_idx_);
+            auto q_new = q_bthd;
+            auto k_new = k_bthd->narrow({{1, total_seq_len - 1, 1}});
+            auto v_new = v_bthd->narrow({{1, total_seq_len - 1, 1}});
+            gla_out = infinicore::op::simple_gla_decode_step(q_new, k_new, v_new, S, g_gamma_, scaling_);
+        } else {
+            infinicore::Tensor q_full;
+            if (seq_len == total_seq_len) {
+                q_full = q_bthd;
+            } else {
+                // Decode: q has seq_len (e.g. 1), kv has total_seq_len; pad q to [B, total_seq_len, H, D].
+                q_full = infinicore::Tensor::zeros(
+                    {batch_size, total_seq_len, n_h, head_dim_}, q_bthd->dtype(), q_bthd->device());
+                auto q_slot = q_full->narrow({{1, total_seq_len - seq_len, seq_len}});
+                q_slot->copy_from(q_bthd);
+            }
+            // Fused prefill: naive kernel for head_dim<=64; chunked/tiled kernel for head_dim>64 (e.g. 128).
+            bool use_fused_prefill = (batch_size == 1) && (seq_len == total_seq_len);
+            if (use_fused_prefill) {
+                gla_out = infinicore::op::simple_gla_prefill(q_full, k_bthd, v_bthd, g_gamma_, scaling_);
+            } else {
+                gla_out = infinicore::op::simple_gla_attention(q_full, k_bthd, v_bthd, g_gamma_, scaling_);
+            }
 
-        // Optional experiment: route Lightning decode to simple_gla_prefill to better match HF full forward.
-        // This is env-gated because it may be numerically/stability different for some shapes.
-        bool force_prefill_on_decode = false;
-        {
-            const char *env = std::getenv("INFINI_DEBUG_USE_GLA_PREFILL_ON_DECODE");
-            force_prefill_on_decode = env && env[0] != '\0' && env[0] != '0' && (batch_size == 1) && (seq_len < total_seq_len);
-        }
-        use_fused_prefill = use_fused_prefill || force_prefill_on_decode;
-
-        if (seq_len == total_seq_len && batch_size == 1) {
-            const char *dbg = std::getenv("INFINI_DEBUG_GLA_PREFILL");
-            if (dbg && dbg[0] != '\0' && dbg[0] != '0') {
-                static bool logged_gla_prefill = false;
-                if (!logged_gla_prefill) {
-                    logged_gla_prefill = true;
-                    if (use_fused_prefill) {
-                        fprintf(stderr, "[minicpm_sala] GLA prefill: using simple_gla_prefill (head_dim=%zu)\n", static_cast<size_t>(head_dim_));
-                    } else {
-                        fprintf(stderr, "[minicpm_sala] GLA prefill: using simple_gla_attention (head_dim=%zu)\n", static_cast<size_t>(head_dim_));
-                    }
+            // Keep per-layer recurrent state aligned with simple_gla_attention / prefill outputs.
+            // Use batched GEMM (CUDA+ATen) instead of O(seq_len) decode_step launches; see
+            // simple_gla_recurrent_state_append_segment (closed form: S <- g^L S + Σ g^{L-1-j} outer(k,v)).
+            if (recurrent_gla) {
+                auto S = static_kv_cache->gla_recurrent_state_for_layer(cache_layer_idx_);
+                if (cache_pos == 0) {
+                    infinicore::op::zeros_(S);
                 }
+                auto k_seg = k_bthd->narrow({{1, cache_pos, seq_len}});
+                auto v_seg = v_bthd->narrow({{1, cache_pos, seq_len}});
+                infinicore::op::simple_gla_recurrent_state_append_segment(S, k_seg, v_seg, g_gamma_);
             }
         }
-        if (use_fused_prefill) {
-            // Prefill fast path: fused kernel (naive for D<=64, chunked for D>64).
-            gla_out = infinicore::op::simple_gla_prefill(q_full, k_bthd, v_bthd, g_gamma_, scaling_);
-        } else {
-            gla_out = infinicore::op::simple_gla_attention(q_full, k_bthd, v_bthd, g_gamma_, scaling_);
-        }
-        // gla_out [B, total_seq_len, H, D]; take last seq_len positions.
-        auto out_slice = gla_out->narrow({{1, total_seq_len - seq_len, seq_len}});
+
+        infinicore::Tensor out_slice = (recurrent_gla && seq_len == 1 && total_seq_len > 1)
+                                           ? gla_out
+                                           : gla_out->narrow({{1, total_seq_len - seq_len, seq_len}});
         attn_output = out_slice->view({batch_size, seq_len, n_h * head_dim_});
     } else {
         // minicpm4 layers must use InfLLM-v2 attention (hard error if not available).
@@ -572,13 +524,19 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
                 reinterpret_cast<int32_t *>(cuk_cpu->data())[1] = static_cast<int32_t>(total_seq_len);
                 infinicore::Tensor cu_k = cuk_cpu->to(q_var->device());
 
+                const bool infllmv2_causal = !use_local_window_;
+                const int window_left = use_local_window_ ? infllmv2_window_left_ : -1;
+                const int window_right = use_local_window_ ? 0 : -1;
+
                 auto out_var = infinicore::op::infllmv2_varlen(
                     q_var, k_var, v_var,
                     cu_q, cu_k,
                     static_cast<int>(seq_len),
                     static_cast<int>(total_seq_len),
                     scaling_,
-                    /*causal=*/true);
+                    /*causal=*/infllmv2_causal,
+                    /*window_size_left=*/window_left,
+                    /*window_size_right=*/window_right);
                 attn_output = out_var->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
             } else if (static_kv_cache) {
                 if (batch_size != 1) {
@@ -587,13 +545,20 @@ infinicore::Tensor MiniCPMSALAAttention::forward_dense_(const infinicore::Tensor
                 auto q_bshd = q_reshaped->contiguous();                     // [B, S_q, n_h, D]
                 auto k_bthd = k_total->permute({0, 2, 1, 3})->contiguous(); // [B, T, n_kv, D]
                 auto v_bthd = v_total->permute({0, 2, 1, 3})->contiguous(); // [B, T, n_kv, D]
+
+                const bool infllmv2_causal = !use_local_window_;
+                const int window_left = use_local_window_ ? infllmv2_window_left_ : -1;
+                const int window_right = use_local_window_ ? 0 : -1;
+
                 auto out_bshd = infinicore::op::infllmv2_kvcache(
                     q_bshd,
                     k_bthd,
                     v_bthd,
                     cache_lens,
                     scaling_,
-                    /*causal=*/true);
+                    /*causal=*/infllmv2_causal,
+                    /*window_size_left=*/window_left,
+                    /*window_size_right=*/window_right);
                 attn_output = out_bshd->contiguous()->view(
                     {batch_size, seq_len, num_attention_heads_ * head_dim_});
             } else {

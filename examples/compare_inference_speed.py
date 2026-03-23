@@ -270,14 +270,22 @@ def run_hf_decode_loop(
     conversation = [{"role": "user", "content": prompt}]
     text = tokenizer.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
     inputs = tokenizer(text, return_tensors="pt").to(device)
-    input_len = int(inputs.input_ids.shape[1])
+    input_ids = inputs.input_ids
+    input_len = int(input_ids.shape[1])
+    # Some decoder-only models require attention_mask even when no padding is used.
+    attention_mask = inputs.get("attention_mask", None)
+    if attention_mask is None:
+        attention_mask = input_ids.new_ones(input_ids.shape)
+    attention_mask = attention_mask.to(device)
+    # Precompute full (input_len + max_new_tokens) causal attention mask for past-key decoding.
+    attention_mask_full = attention_mask.new_ones((attention_mask.shape[0], input_len + max_new_tokens))
 
     # Prefill once to build cache.
     with torch.inference_mode():
         try:
-            pre = model(**inputs, use_cache=use_cache, logits_to_keep=1)
+            pre = model(input_ids=input_ids, attention_mask=attention_mask, use_cache=use_cache, logits_to_keep=1)
         except TypeError:
-            pre = model(**inputs, use_cache=use_cache)
+            pre = model(input_ids=input_ids, attention_mask=attention_mask, use_cache=use_cache)
         past = getattr(pre, "past_key_values", None)
         # Greedy next token from last logits.
         logits = pre.logits[:, -1, :]
@@ -285,57 +293,109 @@ def run_hf_decode_loop(
 
     # Warmup decode steps (not timed) to reduce first-step effects.
     with torch.inference_mode():
-        for _ in range(max(0, warmup)):
+        for warm_i in range(max(0, warmup)):
             try:
-                out = model(input_ids=next_token, use_cache=use_cache, past_key_values=past, logits_to_keep=1)
+                # Attention mask must cover (past + current token).
+                attn_mask_step = attention_mask_full[:, : input_len + warm_i + 1]
+                out = model(
+                    input_ids=next_token,
+                    attention_mask=attn_mask_step,
+                    use_cache=use_cache,
+                    past_key_values=past,
+                    logits_to_keep=1,
+                )
             except TypeError:
-                out = model(input_ids=next_token, use_cache=use_cache, past_key_values=past)
+                attn_mask_step = attention_mask_full[:, : input_len + warm_i + 1]
+                out = model(
+                    input_ids=next_token,
+                    attention_mask=attn_mask_step,
+                    use_cache=use_cache,
+                    past_key_values=past,
+                )
             past = getattr(out, "past_key_values", past)
             logits = out.logits[:, -1, :]
             next_token = torch.argmax(logits, dim=-1, keepdim=True)
         torch.cuda.synchronize()
 
     # Timed decode loops (best-of iters).
-    times = []
+    # We report total_time_ms as end-to-end (prefill + decode), but keep
+    # decode_itl_ms / decode_throughput_tok_s based on decode-only time.
+    total_times = []
+    decode_times = []
     with torch.inference_mode():
         for _ in range(max(1, iters)):
             # Re-prefill to avoid measuring a "warmed" cache from prior iteration.
+            # Time prefill separately so decode_itl_ms stays decode-only.
+            torch.cuda.synchronize()
+            prefill_start = time.perf_counter()
             try:
-                pre = model(**inputs, use_cache=use_cache, logits_to_keep=1)
+                pre = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    use_cache=use_cache,
+                    logits_to_keep=1,
+                )
             except TypeError:
-                pre = model(**inputs, use_cache=use_cache)
+                # Some model/transformers combinations may not accept attention_mask.
+                pre = model(input_ids=input_ids, use_cache=use_cache)
             past = getattr(pre, "past_key_values", None)
             logits = pre.logits[:, -1, :]
             next_token = torch.argmax(logits, dim=-1, keepdim=True)
 
             torch.cuda.synchronize()
-            start = time.perf_counter()
+            prefill_elapsed = time.perf_counter() - prefill_start
+
+            torch.cuda.synchronize()
+            start = time.perf_counter()  # decode start
             try:
                 torch.cuda.nvtx.range_push("hf_decode_loop")
             except Exception:
                 pass
-            for _t in range(max_new_tokens):
+            for t in range(max_new_tokens):
+                attn_mask_step = attention_mask_full[:, : input_len + t + 1]
                 try:
-                    out = model(input_ids=next_token, use_cache=use_cache, past_key_values=past, logits_to_keep=1)
+                    out = model(
+                        input_ids=next_token,
+                        attention_mask=attn_mask_step,
+                        use_cache=use_cache,
+                        past_key_values=past,
+                        logits_to_keep=1,
+                    )
                 except TypeError:
-                    out = model(input_ids=next_token, use_cache=use_cache, past_key_values=past)
+                    out = model(
+                        input_ids=next_token,
+                        attention_mask=attn_mask_step,
+                        use_cache=use_cache,
+                        past_key_values=past,
+                    )
                 past = getattr(out, "past_key_values", past)
                 logits = out.logits[:, -1, :]
                 next_token = torch.argmax(logits, dim=-1, keepdim=True)
             torch.cuda.synchronize()
-            elapsed = time.perf_counter() - start
+            decode_elapsed = time.perf_counter() - start
+            total_elapsed = prefill_elapsed + decode_elapsed
             try:
                 torch.cuda.nvtx.range_pop()
             except Exception:
                 pass
-            times.append(elapsed)
+            total_times.append(total_elapsed)
+            decode_times.append(decode_elapsed)
 
-    best = min(times) if times else 0.0
-    itl_ms = (best * 1000.0 / max_new_tokens) if best > 0 else None
-    thr = (max_new_tokens / best) if best > 0 else None
+    # Pick the iteration with the best end-to-end time; compute decode metrics
+    # from the corresponding decode-only time.
+    if total_times:
+        best_idx = min(range(len(total_times)), key=lambda i: total_times[i])
+        best_total = total_times[best_idx]
+        best_decode = decode_times[best_idx]
+    else:
+        best_total = 0.0
+        best_decode = 0.0
+
+    itl_ms = (best_decode * 1000.0 / max_new_tokens) if best_decode > 0 else None
+    thr = (max_new_tokens / best_decode) if best_decode > 0 else None
     return {
         "backend": "hf_decode_loop",
-        "total_time_ms": round(best * 1000, 2),
+        "total_time_ms": round(best_total * 1000, 2),
         "input_tokens": int(input_len),
         "output_tokens": int(max_new_tokens),
         "decode_itl_ms": round(itl_ms, 4) if itl_ms is not None else None,

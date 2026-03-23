@@ -87,6 +87,12 @@ protected:
     bool use_rope_ = false;
     bool is_sparse_layer_ = false;
 
+    // InfLLM-v2 local-window masking plumbing for `mixer_type=="minicpm4"`.
+    // When enabled: causal=false + window_size_left=sparse_window_size + window_size_right=0.
+    int infllmv2_window_left_ = -1;
+    int infllmv2_window_right_ = -1;
+    bool use_local_window_ = false;
+
     backends::AttentionBackend attention_backend_;
 
     // Lightning layers only: per-head log-decay for Simple GLA (HF _build_slope_tensor * -1).

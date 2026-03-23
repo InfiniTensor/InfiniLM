@@ -45,7 +45,9 @@ StaticKVCache::StaticKVCache(
     infinicore::Size max_positional_embedding,
     infinicore::DataType dtype,
     const StaticKVCacheConfig &config,
-    const engine::distributed::RankInfo &rank_info)
+    const engine::distributed::RankInfo &rank_info,
+    infinicore::Size gla_recurrent_num_heads,
+    infinicore::Size gla_recurrent_head_dim)
     : Cache(),
       k_dim_(k_dim),
       v_dim_(v_dim),
@@ -54,7 +56,9 @@ StaticKVCache::StaticKVCache(
       rank_batch_size_(config.max_batch_size()),
       cache_len_(config.max_cache_len() == std::numeric_limits<infinicore::Size>::max() || config.max_cache_len() == 0 ? max_positional_embedding : config.max_cache_len()),
       rank_num_layers_(num_layers),
-      dtype_(dtype) {
+      dtype_(dtype),
+      gla_recurrent_num_heads_(gla_recurrent_num_heads),
+      gla_recurrent_head_dim_(gla_recurrent_head_dim) {
 
     // Allocate K cache
     k_caches_ = infinicore::Tensor::empty(
@@ -76,6 +80,16 @@ StaticKVCache::StaticKVCache(
         dtype_,
         rank_info.device);
 
+    if (gla_recurrent_num_heads_ > 0 && gla_recurrent_head_dim_ > 0) {
+        gla_state_ = infinicore::Tensor::zeros(
+            {rank_num_layers_,
+             rank_batch_size_,
+             gla_recurrent_num_heads_,
+             gla_recurrent_head_dim_,
+             gla_recurrent_head_dim_},
+            infinicore::DataType::F32,
+            rank_info.device);
+    }
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor>
@@ -138,6 +152,18 @@ StaticKVCache::get_layer_kv(size_t layer_idx) {
     auto k_cache_layer = k_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
     auto v_cache_layer = v_caches_->narrow({{0, layer_idx, 1}})->squeeze(0);
     return {k_cache_layer, v_cache_layer};
+}
+
+bool
+StaticKVCache::has_gla_recurrent_state() const {
+    return gla_recurrent_num_heads_ > 0 && gla_recurrent_head_dim_ > 0 && static_cast<bool>(gla_state_);
+}
+
+infinicore::Tensor
+StaticKVCache::gla_recurrent_state_for_layer(size_t layer_idx) {
+    ASSERT(layer_idx < rank_num_layers_);
+    ASSERT(has_gla_recurrent_state());
+    return gla_state_->narrow({{0, layer_idx, 1}})->squeeze(0);
 }
 
 // ==========================

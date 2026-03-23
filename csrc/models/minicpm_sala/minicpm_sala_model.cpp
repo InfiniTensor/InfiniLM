@@ -190,6 +190,9 @@ void MiniCPMSALAModel::reset_cache(const cache::CacheConfig *cache_config) {
         const size_t base_head_dim = model_config_->get<size_t>("head_dim");
         const size_t lightning_kv_heads = model_config_->get_or<size_t>("lightning_nkv", base_kv_heads);
         const size_t lightning_head_dim = model_config_->get_or<size_t>("lightning_head_dim", base_head_dim);
+        const size_t lightning_nh = model_config_->get_or<size_t>("lightning_nh", model_config_->get<size_t>("num_attention_heads"));
+        const int tp_sz = std::max(1, rank_info_.tp_size);
+        const size_t lightning_nh_rank = lightning_nh / static_cast<size_t>(tp_sz);
 
         kv_cache_minicpm4_ = (minicpm4_layer_count > 0)
                                  ? std::make_shared<cache::StaticKVCache>(
@@ -214,8 +217,10 @@ void MiniCPMSALAModel::reset_cache(const cache::CacheConfig *cache_config) {
                                          /*max_positional_embedding=*/model_config_->get<size_t>("max_position_embeddings"),
                                          /*dtype=*/model_config_->get_dtype(),
                                          *static_cfg,
-                                         rank_info_)
-                                   : nullptr;
+                                         rank_info_,
+                                         /*gla_recurrent_num_heads=*/lightning_nh_rank,
+                                         /*gla_recurrent_head_dim=*/lightning_head_dim)
+                                 : nullptr;
     } else {
         // This refactor implements HF-like dense caching only.
         throw std::runtime_error("MiniCPMSALAModel::reset_cache: Unsupported cache type (expected StaticKVCacheConfig)");

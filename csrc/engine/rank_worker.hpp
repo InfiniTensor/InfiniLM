@@ -67,7 +67,7 @@ public:
         // Limitations / assumptions:
         // - Only populated on rank 0 (tp_rank==0)
         // - Only captures request 0 (i==0) in a continuous batch
-        // - Always copied to CPU (adds overhead; not for production serving)
+        // - Copied to CPU when top_k==1 (greedy); skip with INFINI_SKIP_LAST_LOGITS_CPU=1
         // - Not guaranteed to be set if caller doesn’t provide input_offsets
         infinicore::Tensor logits;
     };
