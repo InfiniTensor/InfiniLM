@@ -1,11 +1,12 @@
 #pragma once
 
 #include "../cache/cache.hpp"
+#include "../config/infinilm_config.hpp"
+#include "../config/model_config.hpp"
 #include "infinicore/nn/module.hpp"
 #include "nlohmann/json.hpp"
 
 #include <any>
-
 #include <optional>
 
 namespace infinilm {
@@ -43,7 +44,16 @@ public:
     virtual ~InfinilmModel() = default;
     virtual Output forward(const Input &input) const = 0;
 
-    virtual void reset_cache(const cache::CacheConfig *cache_config) = 0;
-    virtual const cache::CacheConfig *get_cache_config() const = 0;
+    virtual void reset_cache(const cache::CacheConfig *cache_config) {
+        initialize_kv_cache(cache_config); // todo: 写在其他地方
+    }
+
+    virtual const cache::CacheConfig *get_cache_config() const {
+        return infinilm::config::get_current_infinilm_config().cache_config;
+    }
+
+protected:
+    void initialize_kv_cache(const cache::CacheConfig *cache_config,
+                             const std::shared_ptr<infinilm::config::ModelConfig> &text_config = nullptr);
 };
 } // namespace infinilm

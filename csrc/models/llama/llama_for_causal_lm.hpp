@@ -76,4 +76,9 @@ protected:
     std::unique_ptr<cache::CacheConfig> cache_config_;
 };
 
+static std::shared_ptr<infinilm::config::ModelConfig> create_llama_model_config(
+    std::shared_ptr<infinilm::config::ModelConfig> model_config) {
+    return model_config;
+}
+
 } // namespace infinilm::models::llama

@@ -1,4 +1,5 @@
 #include "infer_engine.hpp"
+#include "../models/config_factory.hpp"
 #include "spdlog/spdlog.h"
 
 namespace infinilm::engine {
@@ -63,11 +64,12 @@ InferEngine::InferEngine(
     }
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
-    this->model_config_ = std::make_shared<infinilm::config::ModelConfig>(model_path + "/config.json");
+    this->model_config_ = InfinilmConfigFactory::createConfig(model_path);
     // Only support offline int8 kv cache quantization in this version
     if (kv_cache_dtype.has_value()) {
         this->model_config_->set_kv_quant_scheme(kv_cache_dtype.value());
     }
+
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
     barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
@@ -121,7 +123,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         return t.has_value() ? t.value()->to(device) : t;
     };
 
-    return {
+    infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
         to_device(past_sequence_lengths), // @todo: on device in the future
@@ -131,6 +133,9 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(block_tables),
         to_device(slot_mapping),
     };
+
+    infinilm::engine::set_forward_context(input);
+    return input;
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {

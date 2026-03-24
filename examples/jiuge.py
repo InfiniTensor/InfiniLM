@@ -177,6 +177,9 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        Create Model
     # ---------------------------------------------------------------------------- #
+    if enable_paged_attn and attn_backend == "default":
+        attn_backend = "paged-attn"
+
     model = InferEngine(
         model_path,
         device=infini_device,
@@ -190,6 +193,8 @@ def test(
     # ---------------------------------------------------------------------------- #
     load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
 
+    # import time
+    # time.sleep(10)
     # ---------------------------------------------------------------------------- #
     #                        create tokenizer
     # ---------------------------------------------------------------------------- #
@@ -266,8 +271,9 @@ def test(
             max_batch_size=batch_size, max_cache_len=initial_capacity
         )
 
-    model.reset_cache(cache_config)
 
+    model.reset_cache(cache_config)
+ 
     # ---------------------------------------------------------------------------- #
     #                        Generate
     # ---------------------------------------------------------------------------- #

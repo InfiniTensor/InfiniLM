@@ -5,7 +5,9 @@
 #include "infinicore/ops.hpp"
 #include "quant_config.hpp"
 #include <fstream>
+#include <iostream>
 #include <string>
+#include <vector>
 
 namespace infinilm::config {
 class ModelConfig {
@@ -15,8 +17,12 @@ class ModelConfig {
 public:
     ModelConfig() = default;
     // Not Implemented
-    // ModelConfig(const nlohmann::json &json) : config_json(json) {};
+    ModelConfig(const nlohmann::json &json);
     ModelConfig(const std::string &path);
+
+    nlohmann::json &get_config_json() {
+        return config_json;
+    }
 
     // Template Function to get a value by key with type safety
     template <typename T>
@@ -77,6 +83,12 @@ public:
             return this->get_dtype();
         }
     }
+
+    // Stream output operator
+    friend std::ostream &operator<<(std::ostream &os, const ModelConfig &config);
+
+    // Returns eos_token_id as a list. Handles both single int and array in config.
+    std::vector<int64_t> get_eos_token_ids() const;
 
 private:
     nlohmann::json config_json;
