@@ -17,17 +17,18 @@ std::map<std::string, InfinilmModelFactory::ModelCreator> &InfinilmModelFactory:
     }
 
     if (_map.empty()) {
-
         REGISTER_CAUSAL_LM_MODEL("llama", models::llama::LlamaForCausalLM);
+        REGISTER_CAUSAL_LM_MODEL("fm9g", models::llama::LlamaForCausalLM);
+        REGISTER_CAUSAL_LM_MODEL("qwen2", models::llama::LlamaForCausalLM);
+
         /////////
-        // REGISTER_CAUSAL_LM_MODEL("llama", models::fm9g::FM9GForCausalLM); // llama -> fm9g
         // REGISTER_CAUSAL_LM_MODEL("fm9g", models::fm9g::FM9GForCausalLM);
         // REGISTER_CAUSAL_LM_MODEL("qwen2", models::qwen2::Qwen2ForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("qwen3", models::qwen3::Qwen3ForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("qwen3_moe", models::qwen3_moe::Qwen3MoeForCausalLM);
-        REGISTER_CAUSAL_LM_MODEL("minicpm_sala", models::minicpm_sala::MiniCPMSALAForCausalLM);
-        REGISTER_CAUSAL_LM_MODEL("qwen3_next", models::qwen3_next::Qwen3NextForCausalLM);
         REGISTER_CAUSAL_LM_MODEL("qwen3_vl", models::qwen3_vl::Qwen3VLForConditionalGeneration);
+        REGISTER_CAUSAL_LM_MODEL("qwen3_next", models::qwen3_next::Qwen3NextForCausalLM);
+        REGISTER_CAUSAL_LM_MODEL("minicpm_sala", models::minicpm_sala::MiniCPMSALAForCausalLM);
     }
 #undef REGISTER_CAUSAL_LM_MODEL
 

@@ -8,16 +8,18 @@ std::map<std::string, InfinilmConfigFactory::ConfigCreator> &InfinilmConfigFacto
     static std::map<std::string, ConfigCreator> _map;
     if (_map.empty()) {
         _map["llama"] = models::llama::create_llama_model_config;
-        //////
+        _map["fm9g"] = models::llama::create_llama_model_config;
+        _map["qwen2"] = models::llama::create_llama_model_config;
 
+        /////////
         // _map["qwen2"] = models::qwen2::create_qwen2_model_config;
         // _map["llama"] = models::fm9g::create_fm9g_model_config; // llama -> fm9g
         // _map["fm9g"] = models::fm9g::create_fm9g_model_config;
         _map["qwen3"] = models::qwen3::create_qwen3_model_config;
-        _map["minicpm_sala"] = models::minicpm_sala::create_minicpm_sala_model_config;
         _map["qwen3_moe"] = models::qwen3_moe::create_qwen3_moe_model_config;
-        _map["qwen3_next"] = models::qwen3_next::create_qwen3_next_model_config;
         _map["qwen3_vl"] = models::qwen3_vl::create_qwen3_vl_model_config;
+        _map["qwen3_next"] = models::qwen3_next::create_qwen3_next_model_config;
+        _map["minicpm_sala"] = models::minicpm_sala::create_minicpm_sala_model_config;
     }
     return _map;
 }
