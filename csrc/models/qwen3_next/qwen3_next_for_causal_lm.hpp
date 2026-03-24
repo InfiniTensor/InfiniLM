@@ -86,7 +86,7 @@ private:
             for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
                 const std::string &layer_type = layer_types[layer_idx];
 
-                // std::cout << "layer_type: " << layer_type << std::endl;
+                // std::cout << "layer_type: " << layer_idx << " " << layer_type << std::endl;
                 if ("linear_attention" == layer_type) {
                     kv_cache_vec.emplace_back();
                 } else if ("full_attention" == layer_type) {

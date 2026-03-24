@@ -1,39 +1,23 @@
 #include "model_factory.hpp"
 #include "../config/infinilm_config.hpp"
 #include "../engine/parallel_state.hpp"
-#include "models.hpp"
+#include "llama/llama_for_causal_lm.hpp"
+#include "models_registry.hpp"
 
 namespace infinilm {
 
-std::map<std::string, InfinilmModelFactory::ModelCreator> &InfinilmModelFactory::_modelsForCausalLM() {
-    static std::map<std::string, ModelCreator> _map;
+namespace {
 
-#define REGISTER_CAUSAL_LM_MODEL(model_type, model)                         \
-    _map[model_type] = [](std::shared_ptr<config::ModelConfig> config,      \
-                          const infinicore::Device &device,                 \
-                          engine::distributed::RankInfo rank_info,          \
-                          backends::AttentionBackend backend) {             \
-        return std::make_shared<model>(config, device, rank_info, backend); \
-    }
-
-    if (_map.empty()) {
-        REGISTER_CAUSAL_LM_MODEL("llama", models::llama::LlamaForCausalLM);
-        REGISTER_CAUSAL_LM_MODEL("fm9g", models::llama::LlamaForCausalLM);
-        REGISTER_CAUSAL_LM_MODEL("qwen2", models::llama::LlamaForCausalLM);
-
-        /////////
-        // REGISTER_CAUSAL_LM_MODEL("fm9g", models::fm9g::FM9GForCausalLM);
-        // REGISTER_CAUSAL_LM_MODEL("qwen2", models::qwen2::Qwen2ForCausalLM);
-        REGISTER_CAUSAL_LM_MODEL("qwen3", models::qwen3::Qwen3ForCausalLM);
-        REGISTER_CAUSAL_LM_MODEL("qwen3_moe", models::qwen3_moe::Qwen3MoeForCausalLM);
-        REGISTER_CAUSAL_LM_MODEL("qwen3_vl", models::qwen3_vl::Qwen3VLForConditionalGeneration);
-        REGISTER_CAUSAL_LM_MODEL("qwen3_next", models::qwen3_next::Qwen3NextForCausalLM);
-        REGISTER_CAUSAL_LM_MODEL("minicpm_sala", models::minicpm_sala::MiniCPMSALAForCausalLM);
-    }
-#undef REGISTER_CAUSAL_LM_MODEL
-
-    return _map;
+std::map<std::string, models::ModelCreator> &_modelsForCausalLM() {
+    static std::map<std::string, models::ModelCreator> map = [] {
+        std::map<std::string, models::ModelCreator> m;
+        models::register_causal_lm_models(m);
+        return m;
+    }();
+    return map;
 }
+
+} // namespace
 
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
@@ -77,8 +61,9 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     const std::string model_type = model_config->get<std::string>("model_type");
     std::shared_ptr<InfinilmModel> model;
 
-    auto it = _modelsForCausalLM().find(model_type);
-    if (it != _modelsForCausalLM().end()) {
+    auto &model_map = _modelsForCausalLM();
+    auto it = model_map.find(model_type);
+    if (it != model_map.end()) {
         // init enviromnet
         infinilm::engine::initialize_model_parallel(rank_info);
         infinilm::config::set_current_infinilm_config(infinilm::config::InfinilmConfig(attention_backend, model_config, cache));

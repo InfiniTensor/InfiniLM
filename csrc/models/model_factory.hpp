@@ -9,13 +9,6 @@
 namespace infinilm {
 
 class InfinilmModelFactory {
-    /** @brief Factory function type: creates a model from config, device, rank_info, and attention backend */
-    using ModelCreator = std::function<std::shared_ptr<InfinilmModel>(
-        std::shared_ptr<config::ModelConfig>,
-        const infinicore::Device &,
-        engine::distributed::RankInfo,
-        backends::AttentionBackend)>;
-
 public:
     /**
      * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
@@ -41,7 +34,5 @@ public:
         const cache::CacheConfig *cache = nullptr,
         backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
-private:
-    static std::map<std::string, ModelCreator> &_modelsForCausalLM();
 };
 } // namespace infinilm
