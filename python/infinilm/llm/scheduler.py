@@ -59,6 +59,7 @@ class SchedulerOutput:
         slot_mapping = []
         cached_lens = []
         position_ids = []
+        cu_seqlens = [0]
 
         max_block_table_len = max(
             len(req.block_table) for req in self.scheduled_requests
@@ -73,37 +74,37 @@ class SchedulerOutput:
                 tokens_to_compute = req_tokens[num_cached:]
                 tokens.extend(tokens_to_compute)
 
-                seq_len = len(tokens_to_compute)
-                seq_lens.append(len(req_tokens))
+                compute_len = len(tokens_to_compute)
+                seq_len = len(req_tokens)
+                seq_lens.append(seq_len)
 
-                current_offset += seq_len
+                current_offset += compute_len
                 seq_offsets.append(current_offset)
 
                 slot_mapping.extend(req.slot_mapping)
                 cached_lens.append(num_cached)
-                position_ids.extend(range(num_cached, num_cached + seq_len))
+                position_ids.extend(range(num_cached, num_cached + compute_len))
 
             else:
                 # Decode phase
+                seq_len = req.get_total_length()
                 last_token = req.generated_token_ids[-1]
                 tokens.append(last_token)
-                seq_lens.append(req.get_total_length())
+                seq_lens.append(seq_len)
 
                 current_offset += 1
                 seq_offsets.append(current_offset)
 
                 slot_mapping.extend(req.slot_mapping)
                 cached_lens.append(num_cached)
-                position_ids.append(req.get_total_length() - 1)
+                position_ids.append(seq_len - 1)
 
             # Pad block_table to same length
             padded_block_table = req.block_table + [-1] * (
                 max_block_table_len - len(req.block_table)
             )
             block_tables.append(padded_block_table)
-            cu_seqlens = [0]
-            for l in seq_lens:
-                cu_seqlens.append(cu_seqlens[-1] + l)
+            cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
         return {
             "input_ids": [tokens],
