@@ -98,6 +98,9 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
     size_t num_attention_heads_rank = num_attention_heads_ / tp_size;
     size_t num_key_value_heads_rank = num_key_value_heads_ / tp_size;
     attn_ = std::make_shared<AttentionLayer>(num_attention_heads_rank, head_dim_, scaling, num_key_value_heads_rank, layer_idx_, attention_backend_);
+
+    num_attention_heads_ = num_attention_heads_rank;
+    num_key_value_heads_ = num_key_value_heads_rank;
 }
 
 infinicore::Tensor Attention::forward(const infinicore::Tensor &hidden_states) const {

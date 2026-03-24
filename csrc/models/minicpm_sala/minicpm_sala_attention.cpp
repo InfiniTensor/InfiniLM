@@ -60,6 +60,9 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
     size_t num_key_value_heads_rank = num_key_value_heads_ / tp_size;
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_rank, head_dim_, scaling,
                                                                           num_key_value_heads_rank, layer_idx_, attention_backend_);
+
+    num_attention_heads_ = num_attention_heads_rank;
+    num_key_value_heads_ = num_key_value_heads_rank;
 }
 
 InfLLMv2Attention::InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,

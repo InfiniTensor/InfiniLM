@@ -5,6 +5,7 @@
 #include "qwen3_next_gated_deltanet.hpp"
 
 #include "../infinilm_model.hpp"
+#include "../qwen3_moe/qwen3_moe_sparse_moe_block.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/io.hpp"
 #include "infinicore/nn/module.hpp"
@@ -13,7 +14,7 @@
 #include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
 #include "qwen3_next_attention.hpp"
-#include "qwen3_next_sparse_moe_block.hpp"
+
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -21,6 +22,7 @@
 #include <variant>
 
 namespace infinilm::models::qwen3_next {
+using Qwen3NextSparseMoeBlock = qwen3_moe::Qwen3MoeSparseMoeBlock;
 
 class Qwen3NextDecoderLayer : public infinicore::nn::Module {
 public:
@@ -49,8 +51,7 @@ public:
         } else if ("full_attention" == layer_type_) {
             INFINICORE_NN_MODULE_INIT(self_attn, model_config, layer_idx, device);
         } else {
-            throw std::runtime_error("infinilm::models::qwen3_next::Qwen3NextDecoderLayer: unsupported layer_type '" +
-                                    layer_type_ + "' for layer " + std::to_string(layer_idx));
+            throw std::runtime_error("infinilm::models::qwen3_next::Qwen3NextDecoderLayer: unsupported layer_type '" + layer_type_ + "' for layer " + std::to_string(layer_idx));
         }
     }
 

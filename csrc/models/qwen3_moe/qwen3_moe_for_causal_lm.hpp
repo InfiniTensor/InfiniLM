@@ -2,12 +2,11 @@
 
 #include "../../layers/common_modules.hpp"
 #include "../qwen3/qwen3_attention.hpp"
-#include "../qwen3_next/qwen3_next_sparse_moe_block.hpp"
+#include "qwen3_moe_sparse_moe_block.hpp"
 
 namespace infinilm::models::qwen3_moe {
 
 using Qwen3MoeAttention = qwen3::Qwen3Attention;
-using Qwen3MoeSparseMoeBlock = qwen3_next::Qwen3NextSparseMoeBlock;
 
 using Qwen3MoeDecoderLayer = infinilm::layers::TextDecoderLayer<Qwen3MoeAttention, Qwen3MoeSparseMoeBlock>;
 

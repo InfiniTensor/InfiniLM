@@ -4,7 +4,6 @@
 #include "../../config/model_config.hpp"
 #include "../../layers/common_modules.hpp"
 #include "infinicore/device.hpp"
-#include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 

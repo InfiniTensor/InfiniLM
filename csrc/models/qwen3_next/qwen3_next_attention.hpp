@@ -5,7 +5,6 @@
 #include "../../engine/parallel_state.hpp"
 #include "../../layers/common_modules.hpp"
 #include "infinicore/device.hpp"
-#include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 
@@ -83,6 +82,9 @@ public:
         size_t num_key_value_heads_rank = num_key_value_heads_ / tp_size;
         attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
             num_attention_heads_rank, head_dim_, scaling, num_key_value_heads_rank, layer_idx_, attention_backend_);
+
+        num_attention_heads_ = num_attention_heads_rank;
+        num_key_value_heads_ = num_key_value_heads_rank;
     }
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const {
