@@ -1,12 +1,12 @@
 #pragma once
 
 #include "../../../engine/forward_context.hpp"
-#include "../../../models/infinilm_model.hpp"
 #include "infinicore/tensor.hpp"
-#include <memory>
-#include <stdexcept>
 #include <tuple>
-#include <utility>
+
+namespace infinilm::layers::attention {
+class AttentionLayer;
+}
 
 namespace infinilm::layers::attention::backends {
 
@@ -19,14 +19,14 @@ public:
                         size_t num_kv_heads,
                         size_t layer_idx);
 
-    infinicore::Tensor forward(void *layer,
+    infinicore::Tensor forward(const AttentionLayer &layer,
                                const infinicore::Tensor &q_reshaped, // query
                                const infinicore::Tensor &k_permuted, // key
                                const infinicore::Tensor &v_permuted, // value
                                std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                const infinilm::engine::AttentionMetadata &attn_metadata) const;
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> do_kv_cache_update(void *layer,
+    std::tuple<infinicore::Tensor, infinicore::Tensor> do_kv_cache_update(const AttentionLayer &layer,
                                                                           const infinicore::Tensor key,
                                                                           const infinicore::Tensor value,
                                                                           std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,

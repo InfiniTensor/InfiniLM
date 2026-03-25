@@ -56,10 +56,7 @@ infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
     auto hidden_states_mutable = hidden_states;
     auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
     // 2. Apply SwiGLU: silu(gate) * up
-    // Note: swiglu kernel expects (up, gate) and computes gate * sigmoid(gate) * up
-    // So we pass (up, gate) to get the correct result: gate * sigmoid(gate) * up
     auto intermediate = infinicore::op::swiglu(up, gate);
-
     // 3. Project down
     auto output = down_proj_->forward(intermediate);
     return output;

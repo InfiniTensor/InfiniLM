@@ -1,12 +1,8 @@
 #pragma once
 
 #include "../../backends/attention_backends.hpp"
-#include "../../config/infinilm_config.hpp"
 #include "../../config/model_config.hpp"
-#include "../../engine/distributed/distributed.hpp"
 #include "../../engine/forward_context.hpp"
-#include "../../models/infinilm_model.hpp"
-#include "../../utils.hpp"
 #include "../linear/linear.hpp"
 #include "backends/attention_layer.hpp"
 #include "infinicore/nn/module.hpp"
@@ -15,8 +11,7 @@
 #include "infinicore/tensor.hpp"
 #include <cstddef>
 #include <memory>
-#include <stdexcept>
-#include <utility>
+#include <tuple>
 
 namespace infinilm::layers::attention {
 class Attention : public infinicore::nn::Module {

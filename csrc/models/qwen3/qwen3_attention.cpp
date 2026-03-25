@@ -19,7 +19,6 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
     num_key_value_heads_ = model_config->get<size_t>("num_key_value_heads");
     hidden_size_ = model_config->get<size_t>("hidden_size");
     head_dim_ = model_config->get<size_t>("head_dim");
-    qk_norm_ = model_config->get_or<bool>("qk_norm", false);
 
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
@@ -64,10 +63,8 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
     }
     }
 
-    if (qk_norm_) {
-        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
-        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
-    }
+    INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
     if ((num_key_value_heads_ < tp_size) || (0 != (num_key_value_heads_ % tp_size))) {
         throw std::runtime_error("infinilm::models::qwen3::Qwen3Attention: num_key_value_heads must be divisible by tp_size");
     }
@@ -110,10 +107,8 @@ infinicore::Tensor Qwen3Attention::forward_static_(const infinicore::Tensor &hid
     // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
-    if (qk_norm_) {
-        q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
-        k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
-    }
+    q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
+    k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
@@ -138,7 +133,6 @@ infinicore::Tensor Qwen3Attention::forward_static_(const infinicore::Tensor &hid
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
 
     // 5. Prepare Attn
-    // TODO: 确认这个shape对不对
     q_reshaped = q_rope->permute({0, 2, 1, 3});          // [bs, n_q_head, seq_len, head_dim]
     auto k_permuted = k_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
@@ -173,11 +167,8 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &hidd
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
-
-    if (qk_norm_) {
-        q_reshaped = q_norm_->forward(q_reshaped);
-        k_reshaped = k_norm_->forward(k_reshaped);
-    }
+    q_reshaped = q_norm_->forward(q_reshaped);
+    k_reshaped = k_norm_->forward(k_reshaped);
 
     // 3. Prepare position_ids for RoPE
     auto pos_shape = position_ids->shape();

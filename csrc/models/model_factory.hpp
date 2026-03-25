@@ -1,10 +1,8 @@
 #pragma once
 
-#include "../config/model_config.hpp"
-#include "infinilm_model.hpp"
-
 #include "../backends/attention_backends.hpp"
 #include "../engine/distributed/distributed.hpp"
+#include "infinilm_model.hpp"
 
 namespace infinilm {
 

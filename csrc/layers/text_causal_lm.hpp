@@ -1,11 +1,7 @@
 #pragma once
 
-#include "../backends/attention_backends.hpp"
-#include "../engine/distributed/distributed.hpp"
 #include "../models/infinilm_model.hpp"
 #include "infinicore/device.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
 
 namespace infinilm::layers {
 
@@ -34,11 +30,6 @@ public:
      * @param device Device to create tensors on
      * @param attention_backend Attention backend to use
      */
-    TextCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                 const infinicore::Device &device,
-                 engine::distributed::RankInfo,
-                 backends::AttentionBackend) : TextCausalLM(model_config, device) {}
-
     TextCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                  const infinicore::Device &device) {
 

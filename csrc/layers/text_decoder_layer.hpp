@@ -1,14 +1,12 @@
 #pragma once
 
 #include "../config/model_config.hpp"
-#include "../models/infinilm_model.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
-#include "infinicore/nn/rope.hpp"
-#include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
+#include <tuple>
 namespace infinilm::layers {
 
 /**

@@ -2,9 +2,7 @@
 
 #include "../../config/model_config.hpp"
 #include "../linear/linear.hpp"
-#include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
 
 namespace infinilm::layers::moe_mlp {
 

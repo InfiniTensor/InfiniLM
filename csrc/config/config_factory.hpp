@@ -1,8 +1,6 @@
 #pragma once
 
-#include "../config/model_config.hpp"
-#include <functional>
-#include <map>
+#include "model_config.hpp"
 #include <memory>
 #include <string>
 

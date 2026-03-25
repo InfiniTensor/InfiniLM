@@ -1,41 +1,11 @@
 #include "attention.hpp"
 #include "../../engine/parallel_state.hpp"
+#include "../../utils.hpp"
 
 namespace infinilm::layers::attention {
 
 using infinilm::engine::AttentionMetadata;
 using infinilm::engine::get_forward_context;
-
-/*
-https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/attention/attention.py
-
-def get_attention_context(
-    layer_name: str,
-) -> tuple[Any, "Attention | MLAAttention", torch.Tensor, torch.Tensor]:
-    """Extract attention context for a given layer.
-
-    This helper function extracts the attention metadata, attention layer
-    instance, KV cache tensor, and slot mapping for a specific layer.
-
-    Args:
-        layer_name: The name/identifier of the attention layer.
-
-    Returns:
-        A tuple containing:
-        - attn_metadata: Attention metadata for this specific layer, or None if
-            no metadata available
-        - attn_layer: The attention layer instance (Attention or MLAAttention)
-        - kv_cache: The KV cache tensor for current forward pass
-        - slot_mapping: The slot mapping for this specific layer
-
-        Note: attn_metadata may be None, but attn_layer and kv_cache are always
-        extracted from the forward context.
-    """
-    pass
-*/
-inline AttentionMetadata get_attention_context() {
-    return get_forward_context().attn_metadata;
-}
 
 Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      size_t layer_idx,
@@ -157,7 +127,6 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &hidden_s
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
 
     // 5. Prepare Attn
-    // TODO: 确认这个shape对不对
     q_reshaped = q_rope->permute({0, 2, 1, 3});          // [bs, n_q_head, seq_len, head_dim]
     auto k_permuted = k_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
@@ -213,7 +182,6 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &hidden_st
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped, kv_cache, attn_metadata);
 
     // 6. Project output
-    attn_output = attn_output->view({1, seq_len, num_attention_heads_ * head_dim_});
     return o_proj_->forward(attn_output);
 }
 } // namespace infinilm::layers::attention

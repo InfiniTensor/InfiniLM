@@ -6,19 +6,6 @@
 
 namespace infinilm {
 
-namespace {
-
-std::map<std::string, models::ModelCreator> &_modelsForCausalLM() {
-    static std::map<std::string, models::ModelCreator> map = [] {
-        std::map<std::string, models::ModelCreator> m;
-        models::register_causal_lm_models(m);
-        return m;
-    }();
-    return map;
-}
-
-} // namespace
-
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
  *
@@ -61,7 +48,7 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     const std::string model_type = model_config->get<std::string>("model_type");
     std::shared_ptr<InfinilmModel> model;
 
-    auto &model_map = _modelsForCausalLM();
+    const auto &model_map = models::get_causal_lm_model_map();
     auto it = model_map.find(model_type);
     if (it != model_map.end()) {
         // init enviromnet
@@ -70,9 +57,10 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
 
         // create model
         auto &model_creator = it->second;
-        model = model_creator(model_config, rank_info.device, rank_info, attention_backend);
+        model = model_creator(model_config, rank_info.device);
     } else {
-        throw std::invalid_argument("InfinilmModelFactory::createModel: Unsupported model config type");
+        model = std::make_shared<models::llama::LlamaForCausalLM>(model_config, rank_info.device, rank_info, attention_backend);
+        // throw std::invalid_argument("InfinilmModelFactory::createModel: Unsupported model config type");
     }
 
     if (cache) {

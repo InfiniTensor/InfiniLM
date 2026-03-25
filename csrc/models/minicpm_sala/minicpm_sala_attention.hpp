@@ -1,17 +1,6 @@
 #pragma once
 
-#include "../../cache/kv_cache.hpp"
-#include "../../config/model_config.hpp"
-#include "../../engine/distributed/distributed.hpp"
 #include "../../layers/common_modules.hpp"
-#include "../../models/infinilm_model.hpp"
-
-#include "infinicore/device.hpp"
-
-#include "infinicore/nn/module.hpp"
-#include "infinicore/nn/rmsnorm.hpp"
-#include "infinicore/tensor.hpp"
-#include <memory>
 
 namespace infinilm::layers::attention {
 class AttentionLayer;

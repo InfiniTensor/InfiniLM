@@ -1,5 +1,5 @@
 #include "infer_engine.hpp"
-#include "../models/config_factory.hpp"
+#include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
 
 namespace infinilm::engine {

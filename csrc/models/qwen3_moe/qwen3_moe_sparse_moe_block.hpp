@@ -1,12 +1,6 @@
 #pragma once
 
-#include "../../config/model_config.hpp"
 #include "../../layers/common_modules.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
-
-#include "../../engine/distributed/distributed.hpp"
 
 namespace infinilm::models::qwen3_moe {
 

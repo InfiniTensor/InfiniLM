@@ -28,8 +28,8 @@ FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
     max_position_embeddings_ = infinilm_config.model_config->get<size_t>("max_position_embeddings");
 }
 
-infinicore::Tensor FlashAttentionImpl::forward(const void *layer,
-                                               const infinicore::Tensor &query, // TODO: 补充shape信息
+infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
+                                               const infinicore::Tensor &query,
                                                const infinicore::Tensor &key,
                                                const infinicore::Tensor &value,
                                                std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
@@ -45,7 +45,7 @@ infinicore::Tensor FlashAttentionImpl::forward(const void *layer,
     ASSERT(slot_mapping.has_value());
 
     // 1. update paged kv cache
-    auto [k_total, v_total] = do_kv_cache_update(nullptr, key, value, kv_cache, slot_mapping.value());
+    auto [k_total, v_total] = do_kv_cache_update(layer, key, value, kv_cache, slot_mapping.value());
 
     size_t seq_len = query->shape()[0];
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
@@ -86,7 +86,7 @@ infinicore::Tensor FlashAttentionImpl::forward(const void *layer,
     return attn_output;
 }
 
-std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cache_update(const void *layer,
+std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,
                                                                                           const infinicore::Tensor key,
                                                                                           const infinicore::Tensor value,
                                                                                           std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,

@@ -3,9 +3,7 @@
 #include "../config/model_config.hpp"
 #include "../models/infinilm_model.hpp"
 #include "infinicore/nn/embedding.hpp"
-#include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
-#include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
 #include <vector>

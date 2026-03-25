@@ -17,7 +17,7 @@ StaticAttentionImpl::StaticAttentionImpl(size_t num_heads,
       layer_idx_(layer_idx),
       head_dim_(head_size) {}
 
-infinicore::Tensor StaticAttentionImpl::forward(void *layer,
+infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
                                                 const infinicore::Tensor &q_reshaped,
                                                 const infinicore::Tensor &k_permuted,
                                                 const infinicore::Tensor &v_permuted,
@@ -34,7 +34,7 @@ infinicore::Tensor StaticAttentionImpl::forward(void *layer,
     // update static kv cache
     // k_total:  [bs, n_kv_head, max_seq_len, head_dim]
     // v_total : [bs, n_kv_head, max_seq_len, head_dim]
-    auto [k_total, v_total] = do_kv_cache_update(nullptr, k_permuted, v_permuted, kv_cache, past_sequence_lengths.value());
+    auto [k_total, v_total] = do_kv_cache_update(layer, k_permuted, v_permuted, kv_cache, past_sequence_lengths.value());
 
     infinicore::Tensor attn_output;
     if (false) {
@@ -71,7 +71,7 @@ infinicore::Tensor StaticAttentionImpl::forward(void *layer,
     return attn_output;
 }
 
-std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_cache_update(void *layer,
+std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,
                                                                                            const infinicore::Tensor key,
                                                                                            const infinicore::Tensor value,
                                                                                            std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,

@@ -1,7 +1,6 @@
 #include "minicpm_sala_attention.hpp"
 
 #include "../../engine/parallel_state.hpp"
-#include "../../layers/common_modules.hpp"
 
 #include <stdexcept>
 
