@@ -6,6 +6,7 @@ This module provides:
 - AsyncLLM class for asynchronous streaming (server use)
 """
 
+import asyncio
 import time
 import uuid
 import logging
@@ -189,16 +190,18 @@ class LLMEngine:
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
-    def step(self) -> List[InferenceRequest]:
+    def step(self) -> tuple[list[InferenceRequest], list[tuple]]:
         """Run one inference step.
 
         Returns:
-            List of requests that were processed in this step.
+            A tuple of:
+            - scheduled_requests: Requests that were scheduled and processed in this step.
+            - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
         """
         # Schedule requests
         scheduler_output = self.scheduler.schedule()
         if scheduler_output is None or not scheduler_output.scheduled_requests:
-            return []
+            return [], []
 
         # Build model inputs
         model_input_dict = scheduler_output.build_model_inputs(
@@ -211,13 +214,13 @@ class LLMEngine:
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
         # Update request status
-        self._update_requests(
+        pending = self._update_requests(
             scheduler_output.is_prefill,
             scheduler_output.scheduled_requests,
             sampled_tokens_list,
         )
 
-        return scheduler_output.scheduled_requests
+        return scheduler_output.scheduled_requests, pending
 
     def _prepare_model_input(self, model_input_dict: dict) -> dict:
         """Convert model input dict to infinicore tensors."""
@@ -246,7 +249,7 @@ class LLMEngine:
         is_prefill: bool,
         requests: List[InferenceRequest],
         sampled_tokens: List[int],
-    ):
+    ) -> List[tuple]:
         """Update request status after inference step."""
         if is_prefill:
             match self.cache_type:
@@ -256,9 +259,8 @@ class LLMEngine:
                     self.scheduler.update_cache()
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
-
+        pending = []
         for req, token_id in zip(requests, sampled_tokens):
-
             if req.is_aborted():
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
@@ -320,16 +322,10 @@ class LLMEngine:
                         f"Request {req.request_id} aborted before putting token"
                     )
                     continue
-                try:
-                    req.output_queue.sync_q.put(output)
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to put token for {req.request_id}: {e}. "
-                        f"Likely due to client disconnecting or request cancelation."
-                    )
-                    continue
+                pending.append((req.output_queue.async_q, output))
 
         self.scheduler.complete_requests(requests)
+        return pending
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
         """Check if request generation is finished."""
@@ -597,6 +593,7 @@ class AsyncLLMEngine:
 
         self._running = False
         self._step_thread: Optional[threading.Thread] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
 
     def is_healthy(self) -> bool:
@@ -608,6 +605,7 @@ class AsyncLLMEngine:
             logger.warning("AsyncLLMEngine is already running")
             return
 
+        self._loop = asyncio.get_running_loop()
         self._running = True
         self._step_thread = threading.Thread(
             target=self._step_loop, daemon=True, name="AsyncLLMEngineStepThread"
@@ -630,14 +628,27 @@ class AsyncLLMEngine:
         """Background loop that runs inference steps."""
         while self._running:
             try:
-                requests = self.engine.step()
+                requests, pending = self.engine.step()
                 if not requests:
                     time.sleep(0.01)
+                elif pending:
+                    self._loop.call_soon_threadsafe(self._batch_put, pending)
             except Exception as e:
                 logger.error(f"Error in step loop: {e}", exc_info=True)
                 self._healthy = False
                 self._running = False
                 break
+
+    @staticmethod
+    def _batch_put(pending):
+        for async_q, output in pending:
+            try:
+                async_q.put_nowait(output)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to put token for request {output.request_id}: {e}. "
+                    f"Likely due to client disconnecting or request cancelation."
+                )
 
     def add_request(
         self,
