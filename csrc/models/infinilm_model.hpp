@@ -47,7 +47,8 @@ public:
     }
 
     virtual const cache::CacheConfig *get_cache_config() const {
-        return infinilm::config::get_current_infinilm_config().cache_config;
+        throw std::runtime_error(" InfinilmModel::get_cache_config: not implemented");
+        // return infinilm::config::get_current_infinilm_config().cache_config;
     }
 
 protected:

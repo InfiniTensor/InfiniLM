@@ -2,12 +2,12 @@
 #include "../models/models_registry.hpp"
 #include <stdexcept>
 
-namespace infinilm {
+namespace infinilm::config {
 
-std::shared_ptr<infinilm::config::ModelConfig> InfinilmConfigFactory::createConfig(const std::string &model_path) {
+std::shared_ptr<infinilm::config::ModelConfig> ConfigFactory::createConfig(const std::string &model_path) {
     auto model_config = std::make_shared<infinilm::config::ModelConfig>(model_path + "/config.json");
     if (nullptr == model_config) {
-        throw std::runtime_error("InfinilmConfigFactory::createConfig: model_config is not initialized");
+        throw std::runtime_error("ConfigFactory::createConfig: model_config is not initialized");
     }
 
     const std::string model_type = model_config->get<std::string>("model_type");
@@ -17,10 +17,10 @@ std::shared_ptr<infinilm::config::ModelConfig> InfinilmConfigFactory::createConf
         it->second(model_config);
     } else {
         model_config;
-        // throw std::invalid_argument("InfinilmConfigFactory::createConfig: Unsupported model config type: " + model_type);
+        // throw std::invalid_argument("ConfigFactory::createConfig: Unsupported model config type: " + model_type);
     }
 
     return model_config;
 }
 
-} // namespace infinilm
+} // namespace infinilm::config

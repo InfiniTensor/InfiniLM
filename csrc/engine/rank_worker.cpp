@@ -78,6 +78,35 @@ RankWorker::RankWorker(
     cv_.wait(lk, [&] { return init_done_; });
 }
 
+RankWorker::RankWorker(
+    std::shared_ptr<infinilm::config::InfinilmConfig> infinilm_config,
+    const distributed::RankInfo &rank_info,
+    const cache::CacheConfig *cache_config,
+    RankBarrier *barrier,
+    bool enable_graph_compiling,
+    backends::AttentionBackend attention_backend)
+    : infinilm_config_(infinilm_config),
+      model_config_(infinilm_config->model_config),
+      rank_info_(rank_info),
+      attention_backend_(attention_backend),
+      enable_graph_compiling_(enable_graph_compiling),
+      job_cmd_(Command::INIT),
+      has_job_(false),
+      job_done_(false),
+      should_exit_(false),
+      init_done_(false),
+      rng_(std::random_device{}()),
+      barrier_(barrier) {
+    if (cache_config != nullptr) {
+        pending_cache_config_ = cache_config->unique_copy();
+    }
+    // start the thread
+    thread_ = std::thread(&RankWorker::thread_loop, this);
+    // Wait until the worker thread finishes initialization (model created)
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return init_done_; });
+}
+
 std::string RankWorker::info() const {
     std::stringstream ss;
 
@@ -238,12 +267,20 @@ void RankWorker::thread_loop() {
 
             // Create model using factory (may be expensive)
             if (model_config_ == nullptr) {
+                // model_ = InfinilmModelFactory::createModel(
+                //     legacy_model_config_,
+                //     rank_info_,
+                //     pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
+                //     attention_backend_);
+                throw std::runtime_error("RankWorker::thread_loop(): the way of creating models using LlamaConfig is no longer supported !!!");
+            }
+
+            if (infinilm_config_) {
                 model_ = InfinilmModelFactory::createModel(
-                    legacy_model_config_,
+                    infinilm_config_,
                     rank_info_,
                     pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
                     attention_backend_);
-
             } else {
                 model_ = InfinilmModelFactory::createModel(
                     model_config_,

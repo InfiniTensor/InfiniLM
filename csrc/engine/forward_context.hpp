@@ -23,7 +23,7 @@ class ForwardContext:
 */
 struct ForwardContext {
     AttentionMetadata attn_metadata;
-    std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> kv_cache_vec; // 显示shape信息
+    std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> kv_cache_vec;
 };
 
 /*

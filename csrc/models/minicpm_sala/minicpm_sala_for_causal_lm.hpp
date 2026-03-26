@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../../layers/common_modules.hpp"
 #include "minicpm_sala_decoderLayer.hpp"
 
 namespace infinilm::models::minicpm_sala {
@@ -10,7 +9,7 @@ using MiniCPMSALAModel = infinilm::layers::TextModel<MiniCPMSALADecoderLayer>;
 class MiniCPMSALAForCausalLM : public InfinilmModel {
 public:
     MiniCPMSALAForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                             const infinicore::Device &device);
+                           const infinicore::Device &device);
 
     Output forward(const Input &input) const override;
 

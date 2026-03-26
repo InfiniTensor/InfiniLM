@@ -1,6 +1,7 @@
 #include "qwen3_vl_for_conditional_generation.hpp"
 
 #include "../../config/infinilm_config.hpp"
+#include "../models_registry.hpp"
 #include <stdexcept>
 #include <string>
 
@@ -44,7 +45,7 @@ infinilm::InfinilmModel::Output Qwen3VLForConditionalGeneration::forward(const i
 }
 
 void Qwen3VLForConditionalGeneration::reset_cache(const cache::CacheConfig *cache_config) {
-    if (cache_config == nullptr) {
+    if (nullptr == cache_config) {
         InfinilmModel::reset_cache(nullptr);
         return;
     }
@@ -77,3 +78,10 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_vl_model_config(std:
 }
 
 } // namespace infinilm::models::qwen3_vl
+
+namespace {
+INFINILM_REGISTER_CAUSAL_LM_MODEL(
+    qwen3_vl,
+    infinilm::models::qwen3_vl::Qwen3VLForConditionalGeneration,
+    infinilm::models::qwen3_vl::create_qwen3_vl_model_config);
+} // namespace

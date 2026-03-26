@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../../layers/common_modules.hpp"
 #include "qwen3_next_decoderLayer.hpp"
 
 namespace infinilm::models::qwen3_next {

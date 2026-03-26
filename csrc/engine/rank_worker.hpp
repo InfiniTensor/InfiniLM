@@ -74,6 +74,13 @@ public:
                bool enable_graph_compiling,
                backends::AttentionBackend attention_backend);
 
+    RankWorker(std::shared_ptr<infinilm::config::InfinilmConfig> infinilm_config,
+               const distributed::RankInfo &rank_info,
+               const cache::CacheConfig *cache_config,
+               RankBarrier *barrier,
+               bool enable_graph_compiling,
+               backends::AttentionBackend attention_backend);
+
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
                     const infinicore::Tensor &param);
@@ -107,6 +114,7 @@ private:
 private:
     // Worker properties
     const InfinilmModel::Config &legacy_model_config_ = InfinilmModel::Config();
+    std::shared_ptr<infinilm::config::InfinilmConfig> infinilm_config_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;

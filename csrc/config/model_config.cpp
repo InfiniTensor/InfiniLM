@@ -88,17 +88,6 @@ infinicore::DataType ModelConfig::get_dtype() const {
     return parse_dtype(dtype_str);
 }
 
-std::vector<int64_t> ModelConfig::get_eos_token_ids() const {
-    if (!config_json.contains("eos_token_id")) {
-        return {};
-    }
-    const auto &v = config_json["eos_token_id"];
-    if (v.is_array()) {
-        return v.get<std::vector<int64_t>>();
-    }
-    return {v.get<int64_t>()};
-}
-
 std::ostream &operator<<(std::ostream &os, const ModelConfig &config) {
     os << config.config_json.dump(4);
     return os;

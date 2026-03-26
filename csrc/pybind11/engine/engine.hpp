@@ -121,7 +121,6 @@ inline void bind_infer_engine(py::module &m) {
         .def("get_cache_config", [](const InferEngine &self) {
             auto cfg = self.get_cache_config();
             return std::shared_ptr<cache::CacheConfig>(std::move(cfg->unique_copy())); })
-        .def("get_model_config", &InferEngine::get_model_config, "Get model configuration")
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
 
     py::class_<InferEngine::Input>(infer_engine, "Input")

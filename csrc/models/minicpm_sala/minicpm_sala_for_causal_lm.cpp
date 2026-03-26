@@ -5,6 +5,7 @@
 #include "../../config/infinilm_config.hpp"
 #include "../../engine/forward_context.hpp"
 #include "../../engine/parallel_state.hpp"
+#include "../models_registry.hpp"
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -30,7 +31,7 @@ infinilm::InfinilmModel::Output MiniCPMSALAForCausalLM::forward(const infinilm::
 }
 
 void MiniCPMSALAForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
-    if (cache_config == nullptr) {
+    if (nullptr == cache_config) {
         InfinilmModel::reset_cache(nullptr);
         return;
     }
@@ -46,7 +47,7 @@ void MiniCPMSALAForCausalLM::initialize_kv_cache_(const cache::CacheConfig *cach
     auto &kv_cache_vec = forward_ctx.kv_cache_vec;
     kv_cache_vec.clear();
 
-    if (cache_config == nullptr) {
+    if (nullptr == cache_config) {
         return;
     }
 
@@ -118,3 +119,12 @@ std::shared_ptr<infinilm::config::ModelConfig> create_minicpm_sala_model_config(
 }
 
 } // namespace infinilm::models::minicpm_sala
+
+namespace {
+
+INFINILM_REGISTER_CAUSAL_LM_MODEL(
+    minicpm_sala,
+    infinilm::models::minicpm_sala::MiniCPMSALAForCausalLM,
+    infinilm::models::minicpm_sala::create_minicpm_sala_model_config);
+
+} // namespace

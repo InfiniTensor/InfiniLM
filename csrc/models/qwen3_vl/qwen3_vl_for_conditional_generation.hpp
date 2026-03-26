@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../../layers/common_modules.hpp"
 #include "../../models/qwen3/qwen3_for_causal_lm.hpp"
 
 namespace infinilm::models::qwen3_vl {

@@ -148,9 +148,6 @@ def load_model_state_dict_by_file(
     print(" load weights ......")
     t1 = time.time()
 
-    # Convert raw DataType enum from C++ (e.g. model.config.dtype) to infinicore dtype
-    if hasattr(dtype, "name") and not hasattr(dtype, "_underlying"):
-        dtype = infinicore.dtype(dtype)
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)

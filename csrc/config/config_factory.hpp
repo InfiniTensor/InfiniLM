@@ -4,12 +4,11 @@
 #include <memory>
 #include <string>
 
-namespace infinilm {
+namespace infinilm::config {
 
-class InfinilmConfigFactory {
+class ConfigFactory {
 public:
     static std::shared_ptr<infinilm::config::ModelConfig> createConfig(const std::string &model_path);
-
 };
 
-} // namespace infinilm
+} // namespace infinilm::config

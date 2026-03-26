@@ -64,7 +64,9 @@ InferEngine::InferEngine(
     }
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
-    this->model_config_ = InfinilmConfigFactory::createConfig(model_path);
+    this->model_config_ = infinilm::config::ConfigFactory::createConfig(model_path);
+    auto infinilm_config = std::make_shared<infinilm::config::InfinilmConfig>(attention_backend, this->model_config_);
+
     // Only support offline int8 kv cache quantization in this version
     if (kv_cache_dtype.has_value()) {
         this->model_config_->set_kv_quant_scheme(kv_cache_dtype.value());
@@ -75,13 +77,23 @@ InferEngine::InferEngine(
     barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
     workers_.reserve(world_size);
     for (int r = 0; r < world_size; ++r) {
-        workers_.emplace_back(std::make_unique<RankWorker>(
-            model_config_,
-            communication_group_.get_rank_info(r),
-            cache_config_ != nullptr ? cache_config_.get() : nullptr,
-            barrier_.get(),
-            enable_graph_compiling,
-            attention_backend_));
+        if (0) {
+            workers_.emplace_back(std::make_unique<RankWorker>(
+                model_config_,
+                communication_group_.get_rank_info(r),
+                cache_config_ != nullptr ? cache_config_.get() : nullptr,
+                barrier_.get(),
+                enable_graph_compiling,
+                attention_backend_));
+        } else {
+            workers_.emplace_back(std::make_unique<RankWorker>(
+                infinilm_config,
+                communication_group_.get_rank_info(r),
+                cache_config_ != nullptr ? cache_config_.get() : nullptr,
+                barrier_.get(),
+                enable_graph_compiling,
+                attention_backend_));
+        }
     }
     // Compile the model on all workers
     this->compile();

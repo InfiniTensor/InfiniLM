@@ -40,5 +40,6 @@ public:
 
 private:
     AttentionImpl attn_backend_impl_;
+    ::infinilm::backends::AttentionBackend attn_backend_;
 };
 } // namespace infinilm::layers::attention

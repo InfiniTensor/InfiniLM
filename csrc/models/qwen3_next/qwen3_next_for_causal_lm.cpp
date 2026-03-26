@@ -5,6 +5,7 @@
 #include "../../config/infinilm_config.hpp"
 #include "../../engine/forward_context.hpp"
 #include "../../engine/parallel_state.hpp"
+#include "../models_registry.hpp"
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -30,7 +31,7 @@ infinilm::InfinilmModel::Output Qwen3NextForCausalLM::forward(const infinilm::In
 }
 
 void Qwen3NextForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
-    if (cache_config == nullptr) {
+    if (nullptr == cache_config) {
         InfinilmModel::reset_cache(nullptr);
         return;
     }
@@ -46,7 +47,7 @@ void Qwen3NextForCausalLM::initialize_kv_cache_(const cache::CacheConfig *cache_
     auto &kv_cache_vec = forward_ctx.kv_cache_vec;
     kv_cache_vec.clear();
 
-    if (cache_config == nullptr) {
+    if (nullptr == cache_config) {
         return;
     }
 
@@ -135,3 +136,12 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(st
 }
 
 } // namespace infinilm::models::qwen3_next
+
+namespace {
+
+INFINILM_REGISTER_CAUSAL_LM_MODEL(
+    qwen3_next,
+    infinilm::models::qwen3_next::Qwen3NextForCausalLM,
+    infinilm::models::qwen3_next::create_qwen3_next_model_config);
+
+} // namespace

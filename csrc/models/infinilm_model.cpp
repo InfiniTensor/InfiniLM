@@ -17,7 +17,7 @@ void InfinilmModel::initialize_kv_cache(const cache::CacheConfig *cache_config,
     auto &kv_cache_vec = forward_ctx.kv_cache_vec;
     kv_cache_vec.clear();
 
-    if (cache_config == nullptr) {
+    if (nullptr == cache_config) {
         return;
     }
 
@@ -25,6 +25,7 @@ void InfinilmModel::initialize_kv_cache(const cache::CacheConfig *cache_config,
     if (nullptr == effective_text_config) {
         effective_text_config = infinilm::config::get_current_infinilm_config().model_config;
     }
+
     if (nullptr == effective_text_config) {
         throw std::runtime_error("infinilm::InfinilmModel::initialize_kv_cache: text_config is null");
     }

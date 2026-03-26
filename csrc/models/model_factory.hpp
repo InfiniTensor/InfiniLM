@@ -32,5 +32,10 @@ public:
         const cache::CacheConfig *cache = nullptr,
         backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 
+    static std::shared_ptr<InfinilmModel> createModel(
+        std::shared_ptr<infinilm::config::InfinilmConfig> infinilm_config,
+        engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+        const cache::CacheConfig *cache = nullptr,
+        backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
 };
 } // namespace infinilm

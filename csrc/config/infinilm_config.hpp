@@ -30,16 +30,13 @@ struct InfinilmConfig {
 public:
     InfinilmConfig() = default;
     InfinilmConfig(const infinilm::backends::AttentionBackend &backend,
-                   const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
-                   const cache::CacheConfig *cache_config)
+                   const std::shared_ptr<infinilm::config::ModelConfig> &model_config)
         : attention_backend(backend),
-          model_config(model_config),
-          cache_config(cache_config) {}
+          model_config(model_config) {}
 
 public:
     infinilm::backends::AttentionBackend attention_backend;
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
-    const cache::CacheConfig *cache_config;
 };
 
 /*
@@ -58,7 +55,7 @@ def set_current_vllm_config(
     old_vllm_config = _current_vllm_config
 
 */
-void set_current_infinilm_config(const InfinilmConfig &config);
+void set_current_infinilm_config(const std::shared_ptr<InfinilmConfig> &config);
 
 /*
 def get_current_vllm_config() -> VllmConfig:
