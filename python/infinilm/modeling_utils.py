@@ -7,6 +7,24 @@ import glob
 from tqdm import tqdm
 import infinicore
 
+
+def parse_dtype(dtype_str: str):
+    if dtype_str == "float32":
+        return infinicore.float32
+    elif dtype_str == "float16":
+        return infinicore.float16
+    elif dtype_str == "bfloat16":
+        return infinicore.bfloat16
+    elif dtype_str == "int8":
+        return infinicore.int8
+    elif dtype_str == "int32":
+        return infinicore.int32
+    elif dtype_str == "int64":
+        return infinicore.int64
+    else:
+        raise ValueError(f"Unknown dtype string: {dtype_str}")
+
+
 str_to_torch_dtype = {
     "BOOL": torch.bool,
     "U8": torch.uint8,

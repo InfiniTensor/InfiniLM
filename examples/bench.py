@@ -237,7 +237,7 @@ def get_args():
         help="use paged cache",
     )
     parser.add_argument(
-        "--paged_kv_block_size",
+        "--paged-kv-block-size",
         type=int,
         default=256,
         help="num tokens each kv block can hold",
@@ -259,6 +259,13 @@ def get_args():
         choices=["default", "flash-attn"],
         help="attention backend to use: 'default' or 'flash-attn'",
     )
+    parser.add_argument(
+        "--kv-cache-dtype",
+        type=str,
+        default=None,
+        choices=["int8"],
+    )
+
     return parser.parse_args()
 
 
@@ -298,6 +305,7 @@ class TestModel:
             cache_config=cache_config,
             enable_graph_compiling=enable_graph,
             attention_backend=attn_backend,
+            kv_cache_dtype=args.kv_cache_dtype,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -536,7 +544,8 @@ if __name__ == "__main__":
             initial_capacity = input_len + output_len
             test.model.reset_cache(
                 StaticKVCacheConfig(
-                    max_batch_size=batch_size, max_cache_len=initial_capacity
+                    max_batch_size=batch_size,
+                    max_cache_len=initial_capacity
                 )
             )
 

@@ -8,6 +8,8 @@ from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
+from .modeling_utils import parse_dtype
+
 
 @dataclass
 class GenerationConfig:
@@ -30,6 +32,7 @@ class InferEngine(_infinilm.InferEngine):
         cache_config=None,
         enable_graph_compiling=False,
         attention_backend="default",
+        kv_cache_dtype=None,
     ):
         self.config = AutoConfig.from_pretrained(model_path)
 
@@ -43,6 +46,9 @@ class InferEngine(_infinilm.InferEngine):
             cache_config,
             enable_graph_compiling,
             attention_backend,
+            parse_dtype(kv_cache_dtype)._underlying
+            if kv_cache_dtype is not None
+            else None,
         )
         self.use_cache = False
 

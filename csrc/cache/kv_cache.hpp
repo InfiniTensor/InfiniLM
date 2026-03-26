@@ -5,6 +5,7 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/tensor.hpp"
+#include <infinicore/dtype.hpp>
 
 #include <algorithm>
 #include <limits>
@@ -34,7 +35,6 @@ private:
 class StaticKVCache final : public Cache {
 public:
     StaticKVCache(
-
         infinicore::Size k_dim,
         infinicore::Size v_dim,
         infinicore::Size num_k_heads,
@@ -100,7 +100,6 @@ private:
 class PagedKVCache final : public Cache {
 public:
     PagedKVCache(
-
         infinicore::Size k_dim,
         infinicore::Size v_dim,
         infinicore::Size num_k_heads,

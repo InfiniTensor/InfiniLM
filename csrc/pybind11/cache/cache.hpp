@@ -6,7 +6,6 @@
 namespace py = pybind11;
 
 namespace infinilm::cache {
-
 inline void bind_cache(py::module &m) {
     py::class_<infinilm::cache::CacheConfig,
                std::shared_ptr<infinilm::cache::CacheConfig>>(m, "CacheConfig")
