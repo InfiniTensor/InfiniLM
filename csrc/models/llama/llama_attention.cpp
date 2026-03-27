@@ -1,6 +1,5 @@
 #include "llama_attention.hpp"
 
-#include "../../layers/kv_quant.hpp"
 #include "../../utils.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"

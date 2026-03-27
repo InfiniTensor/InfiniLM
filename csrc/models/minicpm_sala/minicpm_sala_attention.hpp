@@ -32,7 +32,6 @@ protected:
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;
-
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 
     size_t layer_idx_;
@@ -45,7 +44,7 @@ protected:
 };
 
 /**
- * @brief InfLLMv2/MiniCPM4-style attention with optional output gate
+ * @brief InfLLMv2 attention with optional output gate
  */
 class InfLLMv2Attention : public AttentionBase {
 public:
@@ -61,7 +60,7 @@ protected:
 };
 
 /**
- * @brief Lightning-style attention with optional output norm and gate
+ * @brief Lightning attention with optional output norm and gate
  */
 class LightningAttention : public AttentionBase {
 public:

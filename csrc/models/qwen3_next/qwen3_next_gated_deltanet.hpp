@@ -32,8 +32,6 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
 private:
-    size_t layer_idx_;
-
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, in_proj_qkvz);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, in_proj_ba);
     INFINICORE_NN_MODULE(FakeConv1d, conv1d);
@@ -41,6 +39,8 @@ private:
     INFINICORE_NN_PARAMETER(A_log);
     INFINICORE_NN_MODULE(Qwen3Next_Fake_RMSNormGated, norm);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, out_proj);
+
+    size_t layer_idx_;
 };
 
 } // namespace infinilm::models::qwen3_next

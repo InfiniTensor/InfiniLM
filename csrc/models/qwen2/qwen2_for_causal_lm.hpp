@@ -1,8 +1,7 @@
 #pragma once
 
-#include <memory>
-
 #include "../../layers/common_modules.hpp"
+#include <memory>
 
 namespace infinilm::models::qwen2 {
 

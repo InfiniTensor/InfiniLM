@@ -21,7 +21,6 @@ FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
       head_dim_(head_size) {
 
     const infinilm::config::InfinilmConfig &infinilm_config = infinilm::config::get_current_infinilm_config();
-
     if (!infinilm_config.model_config) {
         throw std::runtime_error("infinilm::layers::attention::backends::FlashAttentionImpl: model_config is null");
     }
@@ -34,7 +33,6 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
                                                const infinicore::Tensor &value,
                                                std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                                const infinilm::engine::AttentionMetadata &attn_metadata) const {
-    (void)layer;
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
     auto input_offsets = attn_metadata.input_offsets;
     auto block_tables = attn_metadata.block_tables;

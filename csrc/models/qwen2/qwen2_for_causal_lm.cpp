@@ -8,17 +8,14 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen2_model_config(std::sh
     if ("qwen2" != model_type) {
         throw std::runtime_error("infinilm::models::qwen2::create_qwen2_model_config: model_type is not qwen2");
     }
-
     return model_config;
 }
 
 } // namespace infinilm::models::qwen2
 
 namespace {
-
 // INFINILM_REGISTER_CAUSAL_LM_MODEL(
 //     qwen2,
 //     infinilm::models::qwen2::Qwen2ForCausalLM,
 //     infinilm::models::qwen2::create_qwen2_model_config);
-
 } // namespace

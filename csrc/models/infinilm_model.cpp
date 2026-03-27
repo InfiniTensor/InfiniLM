@@ -1,5 +1,4 @@
 #include "infinilm_model.hpp"
-
 #include "../backends/attention_backends.hpp"
 #include "../cache/kv_cache.hpp"
 #include "../config/infinilm_config.hpp"
@@ -26,9 +25,6 @@ std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> InfinilmModel::d
     const cache::CacheConfig *cache_config,
     const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
     const backends::AttentionBackend &attention_backend) {
-
-    std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> kv_cache_vec;
-
     if (nullptr == cache_config) {
         return {};
     }
@@ -36,6 +32,7 @@ std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> InfinilmModel::d
         throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: text_config is null");
     }
 
+    std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> kv_cache_vec;
     switch (attention_backend) {
     case backends::AttentionBackend::STATIC_ATTN: {
         auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
@@ -49,7 +46,6 @@ std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> InfinilmModel::d
         size_t num_key_value_heads = text_config->get<size_t>("num_key_value_heads");
         size_t max_position_embeddings = text_config->get<size_t>("max_position_embeddings");
         const auto &dtype{text_config->get_dtype()};
-
         for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
             auto kv_cache = cache::StaticKVCache::create_layer_kv_cache(
                 head_dim,
@@ -64,20 +60,17 @@ std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> InfinilmModel::d
         break;
     }
     case backends::AttentionBackend::PAGED_ATTN: {
-
         auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (nullptr == paged_kv_cache_config) {
             throw std::runtime_error(
-                "infinilm::InfinilmModel::default_allocate_kv_cache_tensors: expected PagedKVCacheConfig when attention_backend is paged-attn or flash-attn");
+                "infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid paged kv cache config type");
         }
-
         const size_t num_hidden_layers = text_config->get<size_t>("num_hidden_layers");
         kv_cache_vec.reserve(num_hidden_layers);
 
         size_t head_dim = text_config->get<size_t>("head_dim");
         size_t num_key_value_heads = text_config->get<size_t>("num_key_value_heads");
         const auto &dtype{text_config->get_dtype()};
-
         for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
             auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
                 head_dim,
@@ -88,12 +81,10 @@ std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> InfinilmModel::d
                 *paged_kv_cache_config);
             kv_cache_vec.push_back(kv_cache);
         }
-
         break;
     }
     case backends::AttentionBackend::FLASH_ATTN: {
         throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: flash-attn is not supported");
-
         break;
     }
     default:

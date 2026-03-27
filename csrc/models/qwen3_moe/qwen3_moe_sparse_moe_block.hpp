@@ -3,7 +3,6 @@
 #include "../../layers/common_modules.hpp"
 
 namespace infinilm::models::qwen3_moe {
-
 using Qwen3MoeMLP = infinilm::layers::MoeMLP;
 
 class Qwen3MoeSparseMoeBlock : public infinicore::nn::Module {

@@ -13,7 +13,6 @@ public:
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
-    // Module information
     size_t hidden_size() const { return hidden_size_; }
     size_t moe_intermediate_size() const { return moe_intermediate_size_; }
 

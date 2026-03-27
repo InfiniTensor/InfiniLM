@@ -29,7 +29,6 @@ infinicore::Tensor AttentionLayer::forward(const infinicore::Tensor &query,
                                            const infinicore::Tensor &value,
                                            std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                            const infinilm::engine::AttentionMetadata &attn_metadata) const {
-
     // switch (attn_backend_) {
     // case ::infinilm::backends::AttentionBackend::STATIC_ATTN:
     //     return std::get<std::shared_ptr<backends::StaticAttentionImpl>>(attn_backend_impl_)->forward(*this, query, key, value, kv_cache, attn_metadata);

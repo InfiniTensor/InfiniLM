@@ -7,7 +7,7 @@
 namespace infinilm::layers::mlp {
 
 /**
- * @brief MLP (Feed-Forward Network) module for Llama
+ * @brief MLP (Feed-Forward Network) module.
  *
  * Implements the MLP block with:
  * - Gate projection
@@ -22,7 +22,7 @@ public:
     /**
      * @brief Construct MLP module
      *
-     * @param config Model configuration
+     * @param model_config: Model configuration.
      * @param device Device to create tensors on
      */
     MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,

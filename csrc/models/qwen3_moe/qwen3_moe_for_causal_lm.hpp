@@ -1,9 +1,8 @@
 #pragma once
 
-#include <memory>
-
 #include "../qwen3/qwen3_attention.hpp"
 #include "qwen3_moe_sparse_moe_block.hpp"
+#include <memory>
 
 namespace infinilm::models::qwen3_moe {
 

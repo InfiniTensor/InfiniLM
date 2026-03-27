@@ -1,5 +1,4 @@
 #include "static_attn.hpp"
-
 #include "../../../utils.hpp"
 #include "infinicore/ops.hpp"
 
@@ -23,7 +22,6 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
                                                 const infinicore::Tensor &v_permuted,
                                                 std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                                 const infinilm::engine::AttentionMetadata &attn_metadata) const {
-    (void)layer;
     auto shape = q_reshaped->shape();
     size_t batch_size = shape[0];
     size_t seq_len = shape[2];
@@ -78,7 +76,6 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_ca
                                                                                            const infinicore::Tensor past_sequence_lengths) const {
     auto batch_size = key->size(0);
     auto update_len = key->size(2);
-
     auto k_cache_layer = std::get<0>(kv_cache);
     auto v_cache_layer = std::get<1>(kv_cache);
 

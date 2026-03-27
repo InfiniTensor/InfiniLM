@@ -23,8 +23,6 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
                                                const infinicore::Tensor &value,
                                                std::tuple<infinicore::Tensor, infinicore::Tensor> kv_cache,
                                                const infinilm::engine::AttentionMetadata &attn_metadata) const {
-
-    (void)layer;
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
     auto input_offsets = attn_metadata.input_offsets;
     auto block_tables = attn_metadata.block_tables;

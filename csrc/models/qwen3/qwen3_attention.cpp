@@ -1,13 +1,10 @@
 #include "qwen3_attention.hpp"
-
 #include "../../config/infinilm_config.hpp"
 #include "../../engine/parallel_state.hpp"
 #include "../../utils.hpp"
 
 namespace infinilm::models::qwen3 {
-
 using infinilm::engine::AttentionMetadata;
-using infinilm::engine::get_forward_context;
 
 Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                size_t layer_idx,
@@ -26,17 +23,15 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
     bool use_output_bias = model_config->get_or<bool>("attention_output_bias", false);
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-    auto quant_scheme = model_config->get_quant_scheme();
-    auto quantization_method = model_config->get_quantization_method();
-
     attention_backend_ = infinilm::config::get_current_infinilm_config().attention_backend;
     const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
     int tp_rank = infinilm::engine::get_tensor_model_parallel_rank();
     int tp_size = infinilm::engine::get_tensor_model_parallel_world_size();
 
+    auto quant_scheme = model_config->get_quant_scheme();
+    auto quantization_method = model_config->get_quantization_method();
     switch (quant_scheme) {
     case infinicore::quantization::QuantScheme::NONE: {
-
         INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, num_attention_heads_, num_key_value_heads_,
                                  quantization_method, use_bias, dtype, device, rank_info);
         INFINICORE_NN_MODULE_INIT(o_proj, num_attention_heads_ * head_dim_, hidden_size_, quantization_method,
@@ -82,7 +77,7 @@ infinicore::Tensor Qwen3Attention::forward(const infinicore::Tensor &hidden_stat
         throw std::runtime_error("infinilm::models::qwen3::Qwen3Attention: rotary_emb not configured");
     }
 
-    auto &forward_context = get_forward_context();
+    auto &forward_context = infinilm::engine::get_forward_context();
     AttentionMetadata &attn_metadata = forward_context.attn_metadata;
     std::tuple<infinicore::Tensor, infinicore::Tensor> &kv_cache = forward_context.kv_cache_vec[layer_idx_];
 
@@ -95,7 +90,6 @@ infinicore::Tensor Qwen3Attention::forward(const infinicore::Tensor &hidden_stat
 infinicore::Tensor Qwen3Attention::forward_static_(const infinicore::Tensor &hidden_states,
                                                    const infinilm::engine::AttentionMetadata &attn_metadata,
                                                    std::tuple<infinicore::Tensor, infinicore::Tensor> &kv_cache) const {
-
     auto position_ids = attn_metadata.position_ids.value();
 
     // hidden_states shape: [batch, seq_len, hidden_size]
@@ -148,7 +142,6 @@ infinicore::Tensor Qwen3Attention::forward_static_(const infinicore::Tensor &hid
 infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &hidden_states,
                                                   const infinilm::engine::AttentionMetadata &attn_metadata,
                                                   std::tuple<infinicore::Tensor, infinicore::Tensor> &kv_cache) const {
-
     auto position_ids = attn_metadata.position_ids.value();
 
     // hidden_states shape: [batch, seq_len, hidden_size]

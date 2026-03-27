@@ -71,7 +71,6 @@ InferEngine::InferEngine(
     if (kv_cache_dtype.has_value()) {
         this->model_config_->set_kv_quant_scheme(kv_cache_dtype.value());
     }
-
     // Create one RankWorker per rank
     int world_size = communication_group_.get_world_size();
     barrier_ = std::make_unique<RankBarrier>((size_t)world_size);

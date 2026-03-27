@@ -26,7 +26,6 @@ public:
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
-
     INFINICORE_NN_MODULE(Qwen3NextAttention, self_attn);
     INFINICORE_NN_MODULE(Qwen3NextGatedDeltaNet, linear_attn);
     INFINICORE_NN_MODULE(Qwen3NextSparseMoeBlock, mlp);

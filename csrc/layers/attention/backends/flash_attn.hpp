@@ -12,7 +12,6 @@ class AttentionLayer;
 namespace infinilm::layers::attention::backends {
 
 class FlashAttentionImpl {
-
 public:
     FlashAttentionImpl(size_t num_heads,
                        size_t head_size,

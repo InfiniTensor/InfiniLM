@@ -2,21 +2,19 @@
 
 #include "../../config/model_config.hpp"
 #include "infinicore/device.hpp"
-#include "infinicore/ops.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
+#include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
 #include <tuple>
 namespace infinilm::layers::causal_lm_templates {
 
 /**
- * @brief Text decoder layer (transformer block) class
+ * @brief Generic Text decoder layer (transformer block) class.
  *
- * Generic decoder layer that can work with any attention and MLP types.
- *
- * @tparam Attention The attention module type (e.g., LlamaAttention)
- * @tparam MLP The MLP module type (e.g., MLP)
+ * @tparam Attention: The attention module type (e.g., Qwen3Attention)
+ * @tparam MLP: The MLP module type (e.g., Qwen3MLP)
  */
 template <typename Attention, typename MLP>
 class TextDecoderLayer : public infinicore::nn::Module {
@@ -27,7 +25,6 @@ public:
         : layer_idx_(layer_idx) {
 
         const auto &dtype{model_config->get_dtype()};
-
         size_t hidden_size = model_config->get<size_t>("hidden_size");
         double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
@@ -49,7 +46,6 @@ public:
 
     infinicore::Tensor forward(infinicore::Tensor &hidden_states) {
         auto residual = hidden_states;
-
         hidden_states = input_layernorm_->forward(hidden_states);
         hidden_states = self_attn_->forward(hidden_states);
         hidden_states = infinicore::op::add(residual, hidden_states);
@@ -72,7 +68,6 @@ public:
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
-
     INFINICORE_NN_MODULE(Attention, self_attn);
     INFINICORE_NN_MODULE(MLP, mlp);
 

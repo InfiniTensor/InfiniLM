@@ -1,5 +1,4 @@
 #include "qwen3_next_gated_deltanet.hpp"
-
 #include <spdlog/spdlog.h>
 
 namespace infinilm::models::qwen3_next {
@@ -21,7 +20,6 @@ FakeConv1d::FakeConv1d(size_t in_channels,
 Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                                size_t layer_idx,
                                                const infinicore::Device &device) {
-
     layer_idx_ = layer_idx;
     const auto &dtype{model_config->get_dtype()};
     size_t hidden_size = model_config->get<size_t>("hidden_size");

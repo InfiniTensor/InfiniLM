@@ -4,6 +4,7 @@
 #include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
+#include "../../layers/kv_quant.hpp"
 #include "../../layers/linear/fused_linear.hpp"
 #include "llama_config.hpp"
 

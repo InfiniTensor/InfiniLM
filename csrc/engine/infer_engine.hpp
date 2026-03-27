@@ -8,6 +8,7 @@
 #include "infinicore/tensor.hpp"
 #include "rank_barrier.hpp"
 #include "rank_worker.hpp"
+
 #include <optional>
 #include <vector>
 
@@ -68,9 +69,6 @@ public:
 
     // Get current KV configuration
     const cache::CacheConfig *get_cache_config() const { return cache_config_.get(); }
-
-    // Get model configuration
-    std::shared_ptr<infinilm::config::ModelConfig> get_model_config() const { return model_config_; }
 
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;

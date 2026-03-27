@@ -9,16 +9,13 @@ namespace infinilm::layers::causal_lm_templates {
 /**
  * @brief Text Causal Language Modeling class
  *
- * A generic template class for Causal Language Modeling that can work with any model type.
- * This class extends any model (specified via template parameter) by adding a language
- * modeling head (lm_head) that projects hidden states to vocabulary logits.
+ * A generic template class for Causal Language Modeling.
  *
- * @tparam Model The base model type (e.g., Qwen3Model, LlamaModel, Qwen3MoeModel)
+ * @tparam Model The base model type (e.g., Qwen3Model, Qwen3MoeModel)
  *
  * Usage example:
  * @code
- * using MyCausalLM = TextCausalLM<Qwen3Model>;
- * MyCausalLM model(config, device );
+ * using Qwen3CausalLM = TextCausalLM<Qwen3Model>;
  * @endcode
  */
 template <typename Model>
@@ -27,8 +24,8 @@ public:
     /**
      * @brief Construct TextCausalLM module
      *
-     * @param model_config Model configuration
-     * @param device Device to create tensors on
+     * @param model_config: Model configuration.
+     * @param device: Device to create tensors on
      */
     TextCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                  const infinicore::Device &device) {
@@ -36,7 +33,6 @@ public:
 
         size_t hidden_size = model_config->get<size_t>("hidden_size");
         size_t vocab_size = model_config->get<size_t>("vocab_size");
-
         const auto &dtype{model_config->get_dtype()};
 
         model_ = this->register_module<Model>("model", model_config, device);

@@ -11,7 +11,7 @@
 namespace infinilm::layers::causal_lm_templates {
 
 /**
- * @brief Text model architecture (without language modeling head)
+ * @brief Text model architecture (without language modeling head).
  *
  * Generic transformer model consisting of:
  * - Token embeddings
@@ -19,7 +19,7 @@ namespace infinilm::layers::causal_lm_templates {
  * - Final layer normalization
  * - Rotary Position Embeddings
  *
- * @tparam DecoderLayer The decoder layer type (e.g., TextDecoderLayer, Qwen3DecoderLayer)
+ * @tparam DecoderLayer The decoder layer type (e.g., Qwen3DecoderLayer)
  */
 template <typename DecoderLayer>
 class TextModel : public infinicore::nn::Module {
@@ -27,7 +27,6 @@ public:
     TextModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
               const infinicore::Device &device) {
         const auto &dtype{model_config->get_dtype()};
-
         size_t vocab_size = model_config->get<size_t>("vocab_size");
         size_t hidden_size = model_config->get<size_t>("hidden_size");
         size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
@@ -71,7 +70,6 @@ public:
         }
 
         norm_->forward_inplace(hidden_states, residual);
-
         return hidden_states;
     }
 

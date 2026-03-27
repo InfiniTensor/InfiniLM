@@ -5,7 +5,6 @@
 #include "infinilm_model.hpp"
 
 namespace infinilm {
-
 class InfinilmModelFactory {
 public:
     /**

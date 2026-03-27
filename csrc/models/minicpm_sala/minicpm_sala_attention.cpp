@@ -1,7 +1,6 @@
 #include "minicpm_sala_attention.hpp"
 #include "../../config/infinilm_config.hpp"
 #include "../../engine/parallel_state.hpp"
-
 #include <stdexcept>
 
 namespace infinilm::models::minicpm_sala {
@@ -24,25 +23,21 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
-    auto quant_scheme = model_config->get_quant_scheme();
-    auto quantization_method = model_config->get_quantization_method();
-
     attention_backend_ = infinilm::config::get_current_infinilm_config().attention_backend;
     const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
     int tp_rank = infinilm::engine::get_tensor_model_parallel_rank();
     int tp_size = infinilm::engine::get_tensor_model_parallel_world_size();
 
+    auto quant_scheme = model_config->get_quant_scheme();
+    auto quantization_method = model_config->get_quantization_method();
     switch (quant_scheme) {
     case infinicore::quantization::QuantScheme::NONE:
         INFINICORE_NN_MODULE_INIT(q_proj, hidden_size_, num_attention_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-
         INFINICORE_NN_MODULE_INIT(k_proj, hidden_size_, num_key_value_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-
         INFINICORE_NN_MODULE_INIT(v_proj, hidden_size_, num_key_value_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-
         INFINICORE_NN_MODULE_INIT(o_proj, num_attention_heads * head_dim_, hidden_size_, quantization_method,
                                   use_output_bias_, dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
@@ -71,10 +66,8 @@ InfLLMv2Attention::InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConf
                     model_config->get<size_t>("num_attention_heads"),
                     model_config->get<size_t>("num_key_value_heads"),
                     layer_idx, device) {
-
     use_output_gate_ = model_config->get_or<bool>("use_output_gate", false);
     const auto &dtype{model_config->get_dtype()};
-
     size_t num_attention_heads = model_config->get<size_t>("num_attention_heads");
     if (use_output_gate_) {
         INFINICORE_NN_MODULE_INIT(o_gate, hidden_size_, num_attention_heads * head_dim_,
@@ -98,7 +91,6 @@ LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelCo
     qk_norm_ = model_config->get_or<bool>("qk_norm", false);
     use_output_norm_ = model_config->get_or<bool>("use_output_norm", false);
     use_output_gate_ = model_config->get_or<bool>("use_output_gate", false);
-
     const auto &dtype{model_config->get_dtype()};
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
     size_t num_attention_heads = model_config->get<size_t>("num_attention_heads");
@@ -107,11 +99,9 @@ LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelCo
         INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
         INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
     }
-
     if (use_output_norm_) {
         INFINICORE_NN_MODULE_INIT(o_norm, num_attention_heads * head_dim_, rms_norm_eps, dtype, device);
     }
-
     if (use_output_gate_) {
         INFINICORE_NN_MODULE_INIT(z_proj, hidden_size_, num_attention_heads * head_dim_,
                                   model_config->get_quantization_method(), use_bias_, dtype, device);

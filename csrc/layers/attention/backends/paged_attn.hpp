@@ -12,7 +12,6 @@ class AttentionLayer;
 namespace infinilm::layers::attention::backends {
 
 class PagedAttentionImpl {
-
 public:
     PagedAttentionImpl(size_t num_heads,
                        size_t head_size,

@@ -11,8 +11,7 @@ thread_local std::unique_ptr<engine::distributed::RankInfo> _TP;
 } // namespace
 
 void initialize_model_parallel(const engine::distributed::RankInfo &rank_info) {
-    assert(nullptr == _TP);
-
+    assert(nullptr == _TP && "Tensor model parallel state is already initialized, cannot be initialized again.");
     _TP = std::make_unique<engine::distributed::RankInfo>();
     _TP->device = rank_info.device;
     _TP->tp_size = rank_info.tp_size;
@@ -21,17 +20,17 @@ void initialize_model_parallel(const engine::distributed::RankInfo &rank_info) {
 }
 
 const size_t get_tensor_model_parallel_world_size() {
-    assert(nullptr != _TP);
+    assert(nullptr != _TP && "Tensor model parallel state is not initialized.");
     return _TP->tp_size;
 }
 
 const size_t get_tensor_model_parallel_rank() {
-    assert(nullptr != _TP);
+    assert(nullptr != _TP && "Tensor model parallel state is not initialized.");
     return _TP->tp_rank;
 }
 
 const engine::distributed::RankInfo &get_tensor_model_parallel_rank_info() {
-    assert(nullptr != _TP);
+    assert(nullptr != _TP && "Tensor model parallel state is not initialized.");
     return *_TP;
 }
 

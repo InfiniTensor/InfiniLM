@@ -72,7 +72,6 @@ RankWorker::RankWorker(
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
     }
-
     // start the thread
     thread_ = std::thread(&RankWorker::thread_loop, this);
     // Wait until the worker thread finishes initialization (model created)
@@ -194,11 +193,8 @@ void RankWorker::reset_cache(const cache::CacheConfig *new_config) {
         throw std::runtime_error("RankWorker is closing; cannot reset_cache");
     }
 
-    if (new_config != nullptr) {
-        pending_cache_config_ = new_config->unique_copy();
-    } else {
-        pending_cache_config_.reset();
-    }
+    // Store both the position and the new config
+    pending_cache_config_ = new_config->unique_copy();
     job_cmd_ = Command::RESET_CACHE;
     has_job_ = true;
     job_done_ = false;
@@ -241,7 +237,7 @@ void RankWorker::thread_loop() {
             // Initialize device & model outside of holding the main mutex to avoid blocking callers.
             infinicore::context::setDevice(rank_info_.device);
 
-            // init global enviromnet
+            // Initialize global enviromnet.
             infinilm::engine::initialize_model_parallel(rank_info_);
             infinilm::config::set_current_infinilm_config(infinilm_config_);
 

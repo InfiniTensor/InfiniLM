@@ -11,7 +11,6 @@ class AttentionLayer;
 namespace infinilm::layers::attention::backends {
 
 class StaticAttentionImpl {
-
 public:
     StaticAttentionImpl(size_t num_heads,
                         size_t head_size,

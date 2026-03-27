@@ -1,5 +1,4 @@
 #include "minicpm_sala_for_causal_lm.hpp"
-
 #include "../../config/infinilm_config.hpp"
 #include "../../engine/forward_context.hpp"
 #include "../models_registry.hpp"
@@ -13,7 +12,6 @@ MiniCPMSALAForCausalLM::MiniCPMSALAForCausalLM(std::shared_ptr<infinilm::config:
     model_config_ = model_config;
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     size_t vocab_size = model_config->get<size_t>("vocab_size");
-
     const auto &dtype{model_config->get_dtype()};
 
     INFINICORE_NN_MODULE_INIT(model, model_config, device);
@@ -31,7 +29,6 @@ void MiniCPMSALAForCausalLM::reset_cache(const cache::CacheConfig *cache_config)
         InfinilmModel::reset_cache(nullptr);
         return;
     }
-
     cache_config_ = cache_config->unique_copy();
 
     auto &kv_cache_vec = engine::get_forward_context().kv_cache_vec;
@@ -53,10 +50,8 @@ std::shared_ptr<infinilm::config::ModelConfig> create_minicpm_sala_model_config(
 } // namespace infinilm::models::minicpm_sala
 
 namespace {
-
 INFINILM_REGISTER_CAUSAL_LM_MODEL(
     minicpm_sala,
     infinilm::models::minicpm_sala::MiniCPMSALAForCausalLM,
     infinilm::models::minicpm_sala::create_minicpm_sala_model_config);
-
 } // namespace

@@ -11,17 +11,14 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_moe_model_config(std
     if ("qwen3_moe" != model_type) {
         throw std::runtime_error("create_qwen3_moe_model_config: model_type is not qwen3_moe");
     }
-
     return model_config;
 }
 
 } // namespace infinilm::models::qwen3_moe
 
 namespace {
-
 INFINILM_REGISTER_CAUSAL_LM_MODEL(
     qwen3_moe,
     infinilm::models::qwen3_moe::Qwen3MoeForCausalLM,
     infinilm::models::qwen3_moe::create_qwen3_moe_model_config);
-
 } // namespace

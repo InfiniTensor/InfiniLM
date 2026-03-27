@@ -1,5 +1,4 @@
 #include "qwen3_next_for_causal_lm.hpp"
-
 #include "../../config/infinilm_config.hpp"
 #include "../../engine/forward_context.hpp"
 #include "../models_registry.hpp"
@@ -14,7 +13,6 @@ Qwen3NextForCausalLM::Qwen3NextForCausalLM(std::shared_ptr<infinilm::config::Mod
     model_config_ = model_config;
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     size_t vocab_size = model_config->get<size_t>("vocab_size");
-
     const auto &dtype{model_config->get_dtype()};
 
     INFINICORE_NN_MODULE_INIT(model, model_config, device);
@@ -32,12 +30,12 @@ void Qwen3NextForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
         InfinilmModel::reset_cache(nullptr);
         return;
     }
-
     cache_config_ = cache_config->unique_copy();
 
     auto &kv_cache_vec = engine::get_forward_context().kv_cache_vec;
     kv_cache_vec.clear();
     const backends::AttentionBackend attention_backend = infinilm::config::get_current_infinilm_config().attention_backend;
+
     auto new_kv_cache_vec = qwen3_next_allocate_kv_cache_tensors(cache_config, model_config_, attention_backend);
     kv_cache_vec = std::move(new_kv_cache_vec);
 }
@@ -63,17 +61,14 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(st
     if (!config_json.contains("attention_bias")) {
         config_json["attention_bias"] = false;
     }
-
     return model_config;
 }
 
 } // namespace infinilm::models::qwen3_next
 
 namespace {
-
 INFINILM_REGISTER_CAUSAL_LM_MODEL(
     qwen3_next,
     infinilm::models::qwen3_next::Qwen3NextForCausalLM,
     infinilm::models::qwen3_next::create_qwen3_next_model_config);
-
 } // namespace

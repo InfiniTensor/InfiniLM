@@ -1,5 +1,4 @@
 #include "qwen3_vl_for_conditional_generation.hpp"
-
 #include "../../config/infinilm_config.hpp"
 #include "../../engine/forward_context.hpp"
 #include "../models_registry.hpp"
@@ -10,7 +9,6 @@ namespace infinilm::models::qwen3_vl {
 
 Qwen3VLModel::Qwen3VLModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                            const infinicore::Device &device) {
-
     nlohmann::json &config_json = model_config->get_config_json();
     nlohmann::json &text_config_json = config_json["text_config"];
     std::shared_ptr<infinilm::config::ModelConfig> text_config = std::make_shared<infinilm::config::ModelConfig>(text_config_json);
@@ -32,7 +30,6 @@ Qwen3VLForConditionalGeneration::Qwen3VLForConditionalGeneration(std::shared_ptr
 
     size_t hidden_size = text_config->get<size_t>("hidden_size");
     size_t vocab_size = text_config->get<size_t>("vocab_size");
-
     const auto &dtype{model_config->get_dtype()};
 
     INFINICORE_NN_MODULE_INIT(model, model_config, device);
@@ -50,7 +47,6 @@ void Qwen3VLForConditionalGeneration::reset_cache(const cache::CacheConfig *cach
         InfinilmModel::reset_cache(nullptr);
         return;
     }
-
     cache_config_ = cache_config->unique_copy();
 
     const nlohmann::json &config_json = model_config_->get_config_json();
@@ -60,8 +56,7 @@ void Qwen3VLForConditionalGeneration::reset_cache(const cache::CacheConfig *cach
     auto &kv_cache_vec = engine::get_forward_context().kv_cache_vec;
     kv_cache_vec.clear();
     const backends::AttentionBackend attention_backend = infinilm::config::get_current_infinilm_config().attention_backend;
-    kv_cache_vec =
-        std::move(default_allocate_kv_cache_tensors(cache_config, text_model_config, attention_backend));
+    kv_cache_vec = std::move(default_allocate_kv_cache_tensors(cache_config, text_model_config, attention_backend));
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_vl_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
@@ -76,11 +71,6 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_vl_model_config(std:
         std::string dtype = text_config_json["dtype"];
         config_json["torch_dtype"] = dtype;
     }
-
-    if (!text_config_json.contains("qk_norm")) {
-        text_config_json["qk_norm"] = true;
-    }
-
     return model_config;
 }
 

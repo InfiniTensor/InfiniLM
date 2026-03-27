@@ -6,7 +6,6 @@
 #include <variant>
 
 namespace infinilm::models::minicpm_sala {
-
 using MiniCPMMLP = infinilm::layers::MLP;
 using MiniCPMSALAAttention = std::variant<std::shared_ptr<InfLLMv2Attention>, std::shared_ptr<LightningAttention>>;
 
