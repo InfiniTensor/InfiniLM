@@ -334,7 +334,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
 
     if (is_prefill) {
-        if (attention_backend_ == backends::AttentionBackend::FlashAttn) {
+        if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
             infinicore::op::mha_varlen_(
                 attn_output,
                 q_reshaped,
@@ -360,7 +360,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                 scaling_);
         }
     } else {
-        if (attention_backend_ == backends::AttentionBackend::FlashAttn) {
+        if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
             // FA2 decode path: flash::mha_fwd_kvcache
             // In paged-attn mode, seq_len = actual batch_size (one query token per sequence).
             // q_reshaped: [seq_len, num_heads, head_dim] → [seq_len, 1, num_heads, head_dim]

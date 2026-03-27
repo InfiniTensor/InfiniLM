@@ -1,12 +1,14 @@
 #pragma once
 
+#include "../backends/attention_backends.hpp"
 #include "../cache/cache.hpp"
+#include "../config/model_config.hpp"
 #include "infinicore/nn/module.hpp"
-#include "nlohmann/json.hpp"
-
-#include <any>
+#include "infinicore/tensor.hpp"
 
 #include <optional>
+#include <tuple>
+#include <vector>
 
 namespace infinilm {
 class InfinilmModel : public infinicore::nn::Module {
@@ -42,8 +44,18 @@ public:
 
     virtual ~InfinilmModel() = default;
     virtual Output forward(const Input &input) const = 0;
+    virtual void reset_cache(const cache::CacheConfig *cache_config);
+    virtual const cache::CacheConfig *get_cache_config() const {
+        return cache_config_.get();
+    }
 
-    virtual void reset_cache(const cache::CacheConfig *cache_config) = 0;
-    virtual const cache::CacheConfig *get_cache_config() const = 0;
+protected:
+    std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> default_allocate_kv_cache_tensors(
+        const cache::CacheConfig *cache_config,
+        const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
+        const backends::AttentionBackend &attention_backend);
+
+    std::unique_ptr<cache::CacheConfig> cache_config_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 } // namespace infinilm

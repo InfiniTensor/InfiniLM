@@ -153,7 +153,7 @@ def get_args():
     parser.add_argument(
         "--kv-cache-dtype",
         type=str,
-        default="",
+        default=None,
         choices=["", "int8"],
     )
 
@@ -177,6 +177,9 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        Create Model
     # ---------------------------------------------------------------------------- #
+    if enable_paged_attn and attn_backend == "default":
+        attn_backend = "paged-attn"
+
     model = InferEngine(
         model_path,
         device=infini_device,
@@ -267,7 +270,7 @@ def test(
         )
 
     model.reset_cache(cache_config)
-
+    
     # ---------------------------------------------------------------------------- #
     #                        Generate
     # ---------------------------------------------------------------------------- #

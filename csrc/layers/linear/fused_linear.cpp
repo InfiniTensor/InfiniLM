@@ -2,7 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
-namespace infinilm::layers {
+namespace infinilm::layers::linear {
 // ---------------------------------------------------------
 // QKV Parallel Linear
 // ---------------------------------------------------------
@@ -397,4 +397,4 @@ infinicore::nn::Parameter GateUpParallelLinear::get_up_weight_zeros_awq() const 
     return infinicore::nn::Parameter(weight_zeros_->narrow({{1, weight_zeros_->size(1) / 2, weight_zeros_->size(1) / 2}}), 1, tp_rank_, tp_size_);
 }
 
-} // namespace infinilm::layers
+} // namespace infinilm::layers::linear

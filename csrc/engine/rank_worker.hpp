@@ -2,6 +2,7 @@
 
 #include "../backends/attention_backends.hpp"
 #include "../cache/cache.hpp"
+#include "../config/infinilm_config.hpp"
 #include "../config/model_config.hpp"
 #include "../models/model_factory.hpp"
 #include "compiler/general_compiler.hpp"
@@ -67,7 +68,7 @@ public:
                bool enable_graph_compiling,
                backends::AttentionBackend attention_backend);
 
-    RankWorker(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    RankWorker(std::shared_ptr<infinilm::config::InfinilmConfig> infinilm_config,
                const distributed::RankInfo &rank_info,
                const cache::CacheConfig *cache_config,
                RankBarrier *barrier,
@@ -107,6 +108,7 @@ private:
 private:
     // Worker properties
     const InfinilmModel::Config &legacy_model_config_ = InfinilmModel::Config();
+    std::shared_ptr<infinilm::config::InfinilmConfig> infinilm_config_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     distributed::RankInfo rank_info_;
     std::shared_ptr<InfinilmModel> model_;
