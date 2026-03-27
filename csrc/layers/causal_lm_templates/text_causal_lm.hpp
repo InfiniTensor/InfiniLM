@@ -1,9 +1,10 @@
 #pragma once
 
-#include "../models/infinilm_model.hpp"
+#include "../../models/infinilm_model.hpp"
+#include "../linear/linear.hpp"
 #include "infinicore/device.hpp"
 
-namespace infinilm::layers {
+namespace infinilm::layers::causal_lm_templates {
 
 /**
  * @brief Text Causal Language Modeling class
@@ -28,10 +29,10 @@ public:
      *
      * @param model_config Model configuration
      * @param device Device to create tensors on
-     * @param attention_backend Attention backend to use
      */
     TextCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                  const infinicore::Device &device) {
+        model_config_ = model_config;
 
         size_t hidden_size = model_config->get<size_t>("hidden_size");
         size_t vocab_size = model_config->get<size_t>("vocab_size");
@@ -56,4 +57,4 @@ protected:
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
 };
 
-} // namespace infinilm::layers
+} // namespace infinilm::layers::causal_lm_templates

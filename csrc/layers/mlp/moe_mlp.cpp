@@ -31,7 +31,7 @@ MoeMLP::MoeMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
         break;
     }
     default: {
-        throw std::runtime_error("infinilm::layers::mlp::MLP: unsupported quantization scheme");
+        throw std::runtime_error("infinilm::layers::moe_mlp::MoeMLP: unsupported quantization scheme");
         break;
     }
     }

@@ -1,14 +1,14 @@
 #pragma once
 
-#include "../config/model_config.hpp"
-#include "../models/infinilm_model.hpp"
+#include "../../config/model_config.hpp"
+#include "../../models/infinilm_model.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
 #include <vector>
 
-namespace infinilm::layers {
+namespace infinilm::layers::causal_lm_templates {
 
 /**
  * @brief Text model architecture (without language modeling head)
@@ -95,4 +95,4 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::RoPE, rotary_emb);
 };
 
-} // namespace infinilm::layers
+} // namespace infinilm::layers::causal_lm_templates

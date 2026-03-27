@@ -153,7 +153,7 @@ def get_args():
     parser.add_argument(
         "--kv-cache-dtype",
         type=str,
-        default="",
+        default=None,
         choices=["", "int8"],
     )
 
@@ -193,8 +193,6 @@ def test(
     # ---------------------------------------------------------------------------- #
     load_model_state_dict_by_file(model, model_path, dtype=model.config.dtype)
 
-    # import time
-    # time.sleep(10)
     # ---------------------------------------------------------------------------- #
     #                        create tokenizer
     # ---------------------------------------------------------------------------- #
@@ -270,7 +268,6 @@ def test(
         cache_config = StaticKVCacheConfig(
             max_batch_size=batch_size, max_cache_len=initial_capacity
         )
-
 
     model.reset_cache(cache_config)
     # ---------------------------------------------------------------------------- #

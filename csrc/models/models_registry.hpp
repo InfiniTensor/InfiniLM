@@ -52,7 +52,7 @@ const std::map<std::string, ModelCreator> &get_causal_lm_model_map();
 const std::map<std::string, ConfigCreator> &get_model_config_map();
 
 /**
- * @brief Header-only helper: registers model + config handler in its constructor.
+ * @brief Used by `INFINILM_REGISTER_CAUSAL_LM_MODEL`: registers model factory + config handler at static init.
  *
  * @tparam ModelT Causal LM type constructible as `std::make_shared<ModelT>(config, device)`.
  * @tparam ConfigCreatorFn Type of a function like `create_qwen3_model_config` (for `decltype`).

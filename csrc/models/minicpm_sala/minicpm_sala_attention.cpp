@@ -1,5 +1,5 @@
 #include "minicpm_sala_attention.hpp"
-
+#include "../../config/infinilm_config.hpp"
 #include "../../engine/parallel_state.hpp"
 
 #include <stdexcept>
@@ -74,8 +74,10 @@ InfLLMv2Attention::InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConf
 
     use_output_gate_ = model_config->get_or<bool>("use_output_gate", false);
     const auto &dtype{model_config->get_dtype()};
+
+    size_t num_attention_heads = model_config->get<size_t>("num_attention_heads");
     if (use_output_gate_) {
-        INFINICORE_NN_MODULE_INIT(o_gate, hidden_size_, num_attention_heads_ * head_dim_,
+        INFINICORE_NN_MODULE_INIT(o_gate, hidden_size_, num_attention_heads * head_dim_,
                                   model_config->get_quantization_method(), use_bias_, dtype, device);
     }
 }
@@ -99,6 +101,7 @@ LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelCo
 
     const auto &dtype{model_config->get_dtype()};
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+    size_t num_attention_heads = model_config->get<size_t>("num_attention_heads");
 
     if (qk_norm_) {
         INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
@@ -106,11 +109,11 @@ LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelCo
     }
 
     if (use_output_norm_) {
-        INFINICORE_NN_MODULE_INIT(o_norm, num_attention_heads_ * head_dim_, rms_norm_eps, dtype, device);
+        INFINICORE_NN_MODULE_INIT(o_norm, num_attention_heads * head_dim_, rms_norm_eps, dtype, device);
     }
 
     if (use_output_gate_) {
-        INFINICORE_NN_MODULE_INIT(z_proj, hidden_size_, num_attention_heads_ * head_dim_,
+        INFINICORE_NN_MODULE_INIT(z_proj, hidden_size_, num_attention_heads * head_dim_,
                                   model_config->get_quantization_method(), use_bias_, dtype, device);
     }
 }

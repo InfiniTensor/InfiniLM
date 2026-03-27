@@ -6,7 +6,7 @@ namespace infinilm::engine {
 
 namespace {
 
-thread_local std::shared_ptr<ForwardContext> _forward_context = std::make_shared<ForwardContext>();
+thread_local std::unique_ptr<ForwardContext> _forward_context = std::make_unique<ForwardContext>();
 
 } // namespace
 

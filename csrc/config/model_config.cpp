@@ -84,7 +84,6 @@ infinicore::DataType ModelConfig::get_dtype() const {
         throw std::runtime_error("ModelConfig::get_dtype(): No dtype or torch_dtype found in config");
     }
 
-    std::string dtype_str = this->get<std::string>("torch_dtype");
     return parse_dtype(dtype_str);
 }
 

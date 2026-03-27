@@ -1,10 +1,7 @@
 #include "qwen3_next_for_causal_lm.hpp"
 
-#include "../../backends/attention_backends.hpp"
-#include "../../cache/kv_cache.hpp"
 #include "../../config/infinilm_config.hpp"
 #include "../../engine/forward_context.hpp"
-#include "../../engine/parallel_state.hpp"
 #include "../models_registry.hpp"
 #include <stdexcept>
 #include <string>
@@ -14,7 +11,7 @@ namespace infinilm::models::qwen3_next {
 
 Qwen3NextForCausalLM::Qwen3NextForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                            const infinicore::Device &device) {
-
+    model_config_ = model_config;
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     size_t vocab_size = model_config->get<size_t>("vocab_size");
 
@@ -35,75 +32,14 @@ void Qwen3NextForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
         InfinilmModel::reset_cache(nullptr);
         return;
     }
-    auto &model_config = infinilm::config::get_current_infinilm_config().model_config;
 
-    initialize_kv_cache_(cache_config, model_config);
-}
+    cache_config_ = cache_config->unique_copy();
 
-void Qwen3NextForCausalLM::initialize_kv_cache_(const cache::CacheConfig *cache_config,
-                                                const std::shared_ptr<infinilm::config::ModelConfig> &text_config) {
-
-    auto &forward_ctx = engine::get_forward_context();
-    auto &kv_cache_vec = forward_ctx.kv_cache_vec;
+    auto &kv_cache_vec = engine::get_forward_context().kv_cache_vec;
     kv_cache_vec.clear();
-
-    if (nullptr == cache_config) {
-        return;
-    }
-
-    std::shared_ptr<infinilm::config::ModelConfig> effective_text_config = text_config;
-    if (nullptr == effective_text_config) {
-        effective_text_config = infinilm::config::get_current_infinilm_config().model_config;
-    }
-    if (nullptr == effective_text_config) {
-        throw std::runtime_error("infinilm::InfinilmModel::initialize_kv_cache: text_config is null");
-    }
-
     const backends::AttentionBackend attention_backend = infinilm::config::get_current_infinilm_config().attention_backend;
-    const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
-
-    switch (attention_backend) {
-    case backends::AttentionBackend::STATIC_ATTN: {
-        auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
-        if (nullptr == static_kv_cache_config) {
-            throw std::runtime_error("infinilm::InfinilmModel::initialize_kv_cache: invalid static kv cache config type");
-        }
-        const size_t num_hidden_layers = effective_text_config->get<size_t>("num_hidden_layers");
-        kv_cache_vec.reserve(num_hidden_layers);
-
-        const size_t head_dim = effective_text_config->get<size_t>("head_dim");
-        const size_t num_key_value_heads = effective_text_config->get<size_t>("num_key_value_heads");
-        const size_t max_position_embeddings = effective_text_config->get<size_t>("max_position_embeddings");
-
-        const auto &dtype{effective_text_config->get_dtype()};
-        const std::vector<std::string> layer_types = effective_text_config->get<std::vector<std::string>>("layer_types");
-
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
-            const std::string &layer_type = layer_types[layer_idx];
-
-            if ("linear_attention" == layer_type) {
-                kv_cache_vec.emplace_back();
-            } else if ("full_attention" == layer_type) {
-                auto kv_cache = cache::StaticKVCache::create_layer_kv_cache(
-                    head_dim,
-                    head_dim,
-                    num_key_value_heads,
-                    num_key_value_heads,
-                    max_position_embeddings,
-                    dtype,
-                    *static_kv_cache_config,
-                    rank_info);
-
-                kv_cache_vec.push_back(kv_cache);
-            } else {
-                throw std::runtime_error("infinilm::models::qwen3_next::Qwen3NextForCausalLM::initialize_kv_cache_: unsupported layer_type '" + layer_type + "' for layer " + std::to_string(layer_idx));
-            }
-        }
-        break;
-    }
-    default:
-        throw std::runtime_error("infinilm::InfinilmModel::initialize_kv_cache: Unsupported attention backend: " + std::to_string(static_cast<int>(attention_backend)));
-    }
+    auto new_kv_cache_vec = qwen3_next_allocate_kv_cache_tensors(cache_config, model_config_, attention_backend);
+    kv_cache_vec = std::move(new_kv_cache_vec);
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
@@ -126,10 +62,6 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(st
 
     if (!config_json.contains("attention_bias")) {
         config_json["attention_bias"] = false;
-    }
-
-    if (!config_json.contains("qk_norm")) {
-        config_json["qk_norm"] = true;
     }
 
     return model_config;

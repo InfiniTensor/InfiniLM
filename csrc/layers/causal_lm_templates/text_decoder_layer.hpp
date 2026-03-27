@@ -1,13 +1,14 @@
 #pragma once
 
-#include "../config/model_config.hpp"
+#include "../../config/model_config.hpp"
 #include "infinicore/device.hpp"
+#include "infinicore/ops.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
 #include <tuple>
-namespace infinilm::layers {
+namespace infinilm::layers::causal_lm_templates {
 
 /**
  * @brief Text decoder layer (transformer block) class
@@ -28,7 +29,6 @@ public:
         const auto &dtype{model_config->get_dtype()};
 
         size_t hidden_size = model_config->get<size_t>("hidden_size");
-        size_t intermediate_size = model_config->get<size_t>("intermediate_size");
         double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
         input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("input_layernorm", hidden_size, rms_norm_eps, dtype, device);
@@ -79,4 +79,4 @@ protected:
     size_t layer_idx_;
 };
 
-} // namespace infinilm::layers
+} // namespace infinilm::layers::causal_lm_templates

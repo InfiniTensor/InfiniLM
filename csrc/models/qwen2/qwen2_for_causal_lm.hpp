@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "../../layers/common_modules.hpp"
 
 namespace infinilm::models::qwen2 {
@@ -8,11 +10,11 @@ using Qwen2MLP = infinilm::layers::MLP;
 
 using Qwen2Attention = infinilm::layers::attention::Attention;
 
-using Qwen2DecoderLayer = infinilm::layers::TextDecoderLayer<Qwen2Attention, Qwen2MLP>;
+using Qwen2DecoderLayer = infinilm::layers::causal_lm_templates::TextDecoderLayer<Qwen2Attention, Qwen2MLP>;
 
-using Qwen2Model = infinilm::layers::TextModel<Qwen2DecoderLayer>;
+using Qwen2Model = infinilm::layers::causal_lm_templates::TextModel<Qwen2DecoderLayer>;
 
-using Qwen2ForCausalLM = infinilm::layers::TextCausalLM<Qwen2Model>;
+using Qwen2ForCausalLM = infinilm::layers::causal_lm_templates::TextCausalLM<Qwen2Model>;
 
 } // namespace infinilm::models::qwen2
 

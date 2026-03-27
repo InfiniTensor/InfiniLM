@@ -148,7 +148,6 @@ def load_model_state_dict_by_file(
     print(" load weights ......")
     t1 = time.time()
 
-
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()

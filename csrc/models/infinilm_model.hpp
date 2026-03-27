@@ -1,11 +1,14 @@
 #pragma once
 
+#include "../backends/attention_backends.hpp"
 #include "../cache/cache.hpp"
-#include "../config/infinilm_config.hpp"
 #include "../config/model_config.hpp"
 #include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
 
 #include <optional>
+#include <tuple>
+#include <vector>
 
 namespace infinilm {
 class InfinilmModel : public infinicore::nn::Module {
@@ -42,17 +45,19 @@ public:
     virtual ~InfinilmModel() = default;
     virtual Output forward(const Input &input) const = 0;
 
-    virtual void reset_cache(const cache::CacheConfig *cache_config) {
-        initialize_kv_cache(cache_config); // todo: 写在其他地方
-    }
+    virtual void reset_cache(const cache::CacheConfig *cache_config);
 
     virtual const cache::CacheConfig *get_cache_config() const {
-        throw std::runtime_error(" InfinilmModel::get_cache_config: not implemented");
-        // return infinilm::config::get_current_infinilm_config().cache_config;
+        return cache_config_.get();
     }
 
 protected:
-    void initialize_kv_cache(const cache::CacheConfig *cache_config,
-                             const std::shared_ptr<infinilm::config::ModelConfig> &text_config = nullptr);
+    std::vector<std::tuple<infinicore::Tensor, infinicore::Tensor>> default_allocate_kv_cache_tensors(
+        const cache::CacheConfig *cache_config,
+        const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
+        const backends::AttentionBackend &attention_backend);
+
+    std::unique_ptr<cache::CacheConfig> cache_config_;
+    std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 } // namespace infinilm

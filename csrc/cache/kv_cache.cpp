@@ -1,5 +1,6 @@
 #include "kv_cache.hpp"
 
+#include "../engine/parallel_state.hpp"
 #include "../utils.hpp"
 #include "infinicore/ops.hpp"
 #include <stdexcept>
@@ -83,8 +84,9 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> StaticKVCache::create_layer_k
     const infinicore::Size num_v_heads,
     const infinicore::Size max_positional_embedding,
     const infinicore::DataType dtype,
-    const StaticKVCacheConfig &config,
-    const engine::distributed::RankInfo &rank_info) {
+    const StaticKVCacheConfig &config) {
+
+    const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
 
     size_t rank_batch_size = (config.max_batch_size());
     size_t num_rank_k_heads = (num_k_heads / rank_info.tp_size);
@@ -225,8 +227,9 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedKVCache::create_layer_kv
     infinicore::Size num_k_heads,
     infinicore::Size num_v_heads,
     infinicore::DataType dtype,
-    const PagedKVCacheConfig &config,
-    const engine::distributed::RankInfo &rank_info) {
+    const PagedKVCacheConfig &config) {
+
+    const engine::distributed::RankInfo &rank_info = infinilm::engine::get_tensor_model_parallel_rank_info();
 
     size_t num_rank_k_heads(num_k_heads / rank_info.tp_size);
     size_t num_rank_v_heads(num_v_heads / rank_info.tp_size);

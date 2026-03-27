@@ -18,7 +18,7 @@ using AttentionImpl = std::variant<std::shared_ptr<backends::StaticAttentionImpl
  * This class takes query, key, and value tensors as input.
  * The input tensors can either contain prompt tokens or generation tokens.
  *
- * The class does the following::
+ * The class does the following:
  * - Update the KV cache.
  * - Perform (multi-head/multi-query/grouped-query) attention.
  * - Return the output tensor.

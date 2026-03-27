@@ -1,6 +1,7 @@
 #include "qwen3_vl_for_conditional_generation.hpp"
 
 #include "../../config/infinilm_config.hpp"
+#include "../../engine/forward_context.hpp"
 #include "../models_registry.hpp"
 #include <stdexcept>
 #include <string>
@@ -24,10 +25,10 @@ infinicore::Tensor Qwen3VLModel::forward(const infinilm::InfinilmModel::Input &i
 
 Qwen3VLForConditionalGeneration::Qwen3VLForConditionalGeneration(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                                                  const infinicore::Device &device) {
-
+    model_config_ = model_config;
     const nlohmann::json &config_json = model_config->get_config_json();
     const nlohmann::json &text_config_json = config_json["text_config"];
-    const auto &text_config = std::make_shared<infinilm::config::ModelConfig>(text_config_json);
+    auto text_config = std::make_shared<infinilm::config::ModelConfig>(text_config_json);
 
     size_t hidden_size = text_config->get<size_t>("hidden_size");
     size_t vocab_size = text_config->get<size_t>("vocab_size");
@@ -49,12 +50,18 @@ void Qwen3VLForConditionalGeneration::reset_cache(const cache::CacheConfig *cach
         InfinilmModel::reset_cache(nullptr);
         return;
     }
-    auto &model_config = infinilm::config::get_current_infinilm_config().model_config;
-    const nlohmann::json &config_json = model_config->get_config_json();
-    const nlohmann::json &text_config_json = config_json["text_config"];
-    const auto &text_model_config = std::make_shared<infinilm::config::ModelConfig>(text_config_json);
 
-    initialize_kv_cache(cache_config, text_model_config);
+    cache_config_ = cache_config->unique_copy();
+
+    const nlohmann::json &config_json = model_config_->get_config_json();
+    const nlohmann::json &text_config_json = config_json["text_config"];
+    auto text_model_config = std::make_shared<infinilm::config::ModelConfig>(text_config_json);
+
+    auto &kv_cache_vec = engine::get_forward_context().kv_cache_vec;
+    kv_cache_vec.clear();
+    const backends::AttentionBackend attention_backend = infinilm::config::get_current_infinilm_config().attention_backend;
+    kv_cache_vec =
+        std::move(default_allocate_kv_cache_tensors(cache_config, text_model_config, attention_backend));
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_vl_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {

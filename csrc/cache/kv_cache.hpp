@@ -52,8 +52,8 @@ public:
         const infinicore::Size num_v_heads,
         const infinicore::Size max_positional_embedding,
         const infinicore::DataType dtype,
-        const StaticKVCacheConfig &config,
-        const engine::distributed::RankInfo &rank_info);
+        const StaticKVCacheConfig &config);
+
     /**
      * @brief Update KV cache at a given layer and cache position.
      *
@@ -124,8 +124,7 @@ public:
         infinicore::Size num_k_heads,
         infinicore::Size num_v_heads,
         infinicore::DataType dtype,
-        const PagedKVCacheConfig &config,
-        const engine::distributed::RankInfo &rank_info);
+        const PagedKVCacheConfig &config);
 
     /**
      * @brief Update Paged KV cache at a given layer given slot info for each token.

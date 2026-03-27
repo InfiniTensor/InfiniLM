@@ -1,4 +1,5 @@
 #include "paged_compiler.hpp"
+#include "../forward_context.hpp"
 
 namespace {
 // Todo: replace with Tensor::zeros when it is available
@@ -58,6 +59,9 @@ void PagedCompiler::compile() {
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             set_zeros(input.slot_mapping.value());
+
+            // Attention reads attn_metadata from thread-local forward context.
+            set_forward_context(input);
 
             barrier_->wait();
             infinicore::context::startGraphRecording();

@@ -9,7 +9,6 @@
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
-#include <cstddef>
 #include <memory>
 #include <tuple>
 

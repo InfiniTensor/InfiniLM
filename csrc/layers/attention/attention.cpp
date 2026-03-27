@@ -1,4 +1,5 @@
 #include "attention.hpp"
+#include "../../config/infinilm_config.hpp"
 #include "../../engine/parallel_state.hpp"
 #include "../../utils.hpp"
 

@@ -6,14 +6,14 @@ namespace infinilm::engine {
 
 namespace {
 
-thread_local std::shared_ptr<engine::distributed::RankInfo> _TP;
+thread_local std::unique_ptr<engine::distributed::RankInfo> _TP;
 
 } // namespace
 
 void initialize_model_parallel(const engine::distributed::RankInfo &rank_info) {
     assert(nullptr == _TP);
 
-    _TP = std::make_shared<engine::distributed::RankInfo>();
+    _TP = std::make_unique<engine::distributed::RankInfo>();
     _TP->device = rank_info.device;
     _TP->tp_size = rank_info.tp_size;
     _TP->tp_rank = rank_info.tp_rank;

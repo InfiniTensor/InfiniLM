@@ -1,7 +1,7 @@
 #include "qwen3_moe_sparse_moe_block.hpp"
-#include <cstdio>
 
-#include "infinicore/io.hpp"
+#include <spdlog/spdlog.h>
+
 namespace infinilm::models::qwen3_moe {
 
 Qwen3MoeSparseMoeBlock::Qwen3MoeSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,

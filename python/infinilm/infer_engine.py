@@ -2,6 +2,7 @@ import time
 from dataclasses import dataclass
 
 import infinicore
+
 from infinilm.auto_config import AutoConfig
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 from infinilm.distributed import DistConfig
@@ -52,7 +53,6 @@ class InferEngine(_infinilm.InferEngine):
         self.use_cache = False
 
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
-
 
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
@@ -116,7 +116,8 @@ class InferEngine(_infinilm.InferEngine):
         if generation_config.eos_token_id is None:
             eos_token_id = self.config.eos_token_id
         else:
-            eos_token_id = generation_config.eos_token_id  
+            eos_token_id = generation_config.eos_token_id
+
         past_seq_len = 0
         output_ids = []
         initial_batch_size, initial_seqlen = input_ids.shape[:2]
