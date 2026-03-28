@@ -785,7 +785,7 @@ class JiugeForCauslLM:
                 batch_id += 1
 
             batch_inputs = JiugeBatchedTask(tasks[:batch_id])
-            logits = torch.zeros(
+            log_probs = torch.zeros(
                 (batch_inputs.ntok, self.meta.dvoc), dtype=self.meta.torch_dtype_logits
             )
             self.jiuge_model.forward_batch(
@@ -796,12 +796,12 @@ class JiugeForCauslLM:
                 batch_inputs.nreq,
                 batch_inputs.req_pos,
                 batch_inputs.kv_caches,
-                logits.data_ptr(),
+                log_probs.data_ptr(),
             )
 
-            logits = logits.float()
+            # forward_batch now returns log_softmax results, no need for additional calculation
+            log_probs = log_probs.float()
             token_ids = torch.tensor(true_tokens, dtype=torch.int64)  # [ntok,]
-            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # (ntok, vocab)
             token_logprobs = log_probs[
                 torch.arange(batch_inputs.ntok), token_ids
             ]  # (ntok,)
