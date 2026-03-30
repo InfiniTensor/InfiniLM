@@ -149,12 +149,12 @@ def get_args():
         choices=["default", "flash-attn"],
         help="attention backend to use: 'default' or 'flash-attn'",
     )
-    
+
     parser.add_argument(
         "--kv-cache-dtype",
         type=str,
-        default="",
-        choices=["", "int8"],
+        default=None,
+        choices=["int8"],
     )
 
     return parser.parse_args()
