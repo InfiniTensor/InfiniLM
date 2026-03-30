@@ -8,6 +8,12 @@ inline void set_zeros(infinicore::Tensor &tensor) {
     infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
 }
 
+inline void set_minus_one(infinicore::Tensor &tensor) {
+    // For int32 tensors, 0xFF bytes correspond to -1 in two's complement.
+    std::vector<uint8_t> minus_one(tensor->nbytes(), 0xFF);
+    infinicore::context::memcpyH2D(tensor->data(), minus_one.data(), tensor->nbytes(), false);
+}
+
 } // namespace
 namespace infinilm::engine {
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
@@ -35,10 +41,9 @@ void PagedCompiler::compile() {
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
         compiled_map_decode_.clear();
         block_tables_holder_ = infinicore::Tensor::empty(
-            {nblocks}, infinicore::DataType::I32, infinicore::context::getDevice());
+            {nblocks * max_batch_size}, infinicore::DataType::I32, infinicore::context::getDevice());
         set_zeros(block_tables_holder_);
         for (size_t b : decode_batch_sizes_) {
-            size_t block_per_req = nblocks / b;
             InfinilmModel::Input input;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.position_ids = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
@@ -56,6 +61,7 @@ void PagedCompiler::compile() {
             infinicore::context::memcpyH2D(input.input_offsets.value()->data(), input_offsets_vec.data(), (b + 1) * sizeof(int32_t), false);
             input.cu_seqlens = infinicore::Tensor::empty({b + 1}, infinicore::DataType::I32, infinicore::context::getDevice());
             infinicore::context::memcpyH2D(input.cu_seqlens.value()->data(), input_offsets_vec.data(), (b + 1) * sizeof(int32_t), false);
+            const size_t block_per_req = nblocks;
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             set_zeros(input.slot_mapping.value());
@@ -105,6 +111,17 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
             graph_input.input_offsets.value()->copy_from(input.input_offsets.value());
             graph_input.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
+
+            const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
+            if (block_per_req > compiled_block_per_req) {
+                // Runtime width exceeds compiled graph slot; fall back to eager path.
+                return {nullptr, nullptr};
+            }
+
+            // Initialize full padding to -1, then overwrite the narrowed logical region.
+            // This matches scheduler padding semantics without risking -1 access during graph recording.
+            auto &graph_block_tables = graph_input.block_tables.value();
+            set_minus_one(graph_block_tables);
             graph_input.block_tables.value()->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
 
