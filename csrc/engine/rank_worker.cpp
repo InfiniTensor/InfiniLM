@@ -1,9 +1,9 @@
 #include "rank_worker.hpp"
 
+#include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
-
+#include "../models/models_registry.hpp"
 #include "infinicore/ops.hpp"
-
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -51,13 +51,14 @@ RankWorker::RankWorker(const InfinilmModel::Config &model_config,
 }
 
 RankWorker::RankWorker(
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
     const distributed::RankInfo &rank_info,
     const cache::CacheConfig *cache_config,
     RankBarrier *barrier,
     bool enable_graph_compiling,
     backends::AttentionBackend attention_backend)
-    : model_config_(model_config),
+    : infinilm_config_(infinilm_config),
+      model_config_(infinilm_config->model_config),
       rank_info_(rank_info),
       attention_backend_(attention_backend),
       enable_graph_compiling_(enable_graph_compiling),
@@ -236,20 +237,40 @@ void RankWorker::thread_loop() {
             // Initialize device & model outside of holding the main mutex to avoid blocking callers.
             infinicore::context::setDevice(rank_info_.device);
 
+            // Initialize global enviromnet.
+            infinilm::global_state::initialize_model_parallel(rank_info_);
+            infinilm::global_state::initialize_forward_context(forward_context_);
+            infinilm::global_state::initialize_infinilm_config(infinilm_config_);
+
             // Create model using factory (may be expensive)
             if (model_config_ == nullptr) {
-                model_ = InfinilmModelFactory::createModel(
-                    legacy_model_config_,
-                    rank_info_,
-                    pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
-                    attention_backend_);
+                // model_ = InfinilmModelFactory::createModel(
+                //     legacy_model_config_,
+                //     rank_info_,
+                //     pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
+                //     attention_backend_);
+                throw std::runtime_error("RankWorker::thread_loop(): the way of creating models using LlamaConfig is no longer supported !!!");
+            }
 
-            } else {
+            const std::string &model_type = model_config_->get<std::string>("model_type");
+            const auto &model_map = models::get_causal_lm_model_map();
+            auto it = model_map.find(model_type);
+            if (it != model_map.end()) {
                 model_ = InfinilmModelFactory::createModel(
                     model_config_,
-                    rank_info_,
-                    pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
-                    attention_backend_);
+                    rank_info_.device,
+                    pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            } else {
+                std::vector<std::string> classic_models = {"llama", "qwen2", "minicpm", "fm9g", "fm9g7b"};
+                if ((std::find(classic_models.begin(), classic_models.end(), model_type) != classic_models.end())) {
+                    model_ = InfinilmModelFactory::createModel(
+                        model_config_,
+                        rank_info_,
+                        pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
+                        attention_backend_);
+                } else {
+                    throw std::runtime_error("RankWorker::thread_loop(): Unsupported model config type: " + model_type);
+                }
             }
 
             if (!model_) {
@@ -431,7 +452,6 @@ void RankWorker::thread_loop() {
                 // Shouldn't reach here (no-op)
             }
         } // while
-
         // Some clean up should be done before exiting the thread
         compiler_.reset();
     } catch (const std::exception &e) {

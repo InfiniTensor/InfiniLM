@@ -441,7 +441,8 @@ if __name__ == "__main__":
     output_len = args.output_len
     enable_paged_attn = args.enable_paged_attn
     enable_graph = args.enable_graph
-
+    attn_backend = args.attn
+    
     if isinstance(batch_size, int):
         batch_size = [batch_size]
 
@@ -471,6 +472,9 @@ if __name__ == "__main__":
     else:
         cache_config = None
 
+    if enable_paged_attn and attn_backend == "default":
+        attn_backend = "paged-attn"
+
     test = TestModel(
         model_path,
         infini_device=infini_device,
@@ -478,7 +482,7 @@ if __name__ == "__main__":
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,
-        attn_backend=args.attn,
+        attn_backend=attn_backend,
     )
 
     # ---------------------------------------------------------------------------- #

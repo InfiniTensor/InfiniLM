@@ -18,6 +18,16 @@ if has_config("use-kv-caching") then
     add_defines("ENABLE_KV_CACHING")
 end
 
+option("use-classic-llama")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to using the classic LlamaForCausalLM")
+option_end()
+
+if has_config("use-classic-llama") then
+    add_defines("USE_CLASSIC_LLAMA")
+end
+
 target("infinicore_infer")
     set_kind("shared")
 

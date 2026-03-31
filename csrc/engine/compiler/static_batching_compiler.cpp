@@ -1,6 +1,6 @@
 #include "static_batching_compiler.hpp"
-
 #include "../../cache/cache.hpp"
+#include "../../global_state/global_state.hpp"
 
 namespace infinilm::engine {
 StaticBatchingCompiler::StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
@@ -17,6 +17,17 @@ void StaticBatchingCompiler::compile() {
         input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
         std::vector<int64_t> total_sequence_lengths_vec(b, 1);
         infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int64_t), false);
+
+        // Attention reads attn_metadata from thread-local forward context.
+        infinilm::global_state::get_forward_context().attn_metadata = {
+            input.position_ids,
+            input.past_sequence_lengths,
+            input.total_sequence_lengths,
+            input.input_offsets,
+            input.cu_seqlens,
+            input.block_tables,
+            input.slot_mapping,
+        };
 
         barrier_->wait();
         infinicore::context::startGraphRecording();
