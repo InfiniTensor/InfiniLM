@@ -19,6 +19,7 @@ LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
                                    const infinicore::Device &device,
                                    engine::distributed::RankInfo rank_info,
                                    backends::AttentionBackend attention_backend) {
+    spdlog::warn("infinilm::models::llama: LlamaForCausalLM is no longer supported, please use the new model instead.");
 
     // Initialize module's device_ member
     device_ = device;
@@ -37,6 +38,7 @@ LlamaForCausalLM::LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig
                                    const infinicore::Device &device,
                                    engine::distributed::RankInfo rank_info,
                                    backends::AttentionBackend attention_backend) {
+    spdlog::warn("infinilm::models::llama: LlamaForCausalLM is no longer supported, please use the new model instead.");
 
     // Initialize module's device_ member
     device_ = device;

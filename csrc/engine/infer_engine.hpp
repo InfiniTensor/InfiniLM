@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../config/model_config.hpp"
+#include "../global_state/global_state.hpp"
 #include "../models/infinilm_model.hpp"
 #include "../models/llama/llama_config.hpp"
 #include "distributed/distributed.hpp"

@@ -1,4 +1,5 @@
 #include "infer_engine.hpp"
+#include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
 
 namespace infinilm::engine {
@@ -63,7 +64,9 @@ InferEngine::InferEngine(
     }
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
-    this->model_config_ = std::make_shared<infinilm::config::ModelConfig>(model_path + "/config.json");
+    this->model_config_ = infinilm::config::ConfigFactory::createConfig(model_path);
+    auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(attention_backend, this->model_config_);
+
     // Only support offline int8 kv cache quantization in this version
     if (kv_cache_dtype.has_value()) {
         this->model_config_->set_kv_quant_scheme(kv_cache_dtype.value());
@@ -74,7 +77,7 @@ InferEngine::InferEngine(
     workers_.reserve(world_size);
     for (int r = 0; r < world_size; ++r) {
         workers_.emplace_back(std::make_unique<RankWorker>(
-            model_config_,
+            infinilm_config,
             communication_group_.get_rank_info(r),
             cache_config_ != nullptr ? cache_config_.get() : nullptr,
             barrier_.get(),
@@ -121,7 +124,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         return t.has_value() ? t.value()->to(device) : t;
     };
 
-    return {
+    infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
         to_device(past_sequence_lengths), // @todo: on device in the future
@@ -131,6 +134,17 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(block_tables),
         to_device(slot_mapping),
     };
+
+    infinilm::global_state::get_forward_context().attn_metadata = {
+        input.position_ids,
+        input.past_sequence_lengths,
+        input.total_sequence_lengths,
+        input.input_offsets,
+        input.cu_seqlens,
+        input.block_tables,
+        input.slot_mapping,
+    };
+    return input;
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {

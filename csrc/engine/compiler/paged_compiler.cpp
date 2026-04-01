@@ -1,4 +1,5 @@
 #include "paged_compiler.hpp"
+#include "../../global_state/global_state.hpp"
 
 namespace {
 // Todo: replace with Tensor::zeros when it is available
@@ -58,6 +59,17 @@ void PagedCompiler::compile() {
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             set_zeros(input.slot_mapping.value());
+
+            // Attention reads attn_metadata from thread-local forward context.
+            infinilm::global_state::get_forward_context().attn_metadata = {
+                input.position_ids,
+                input.past_sequence_lengths,
+                input.total_sequence_lengths,
+                input.input_offsets,
+                input.cu_seqlens,
+                input.block_tables,
+                input.slot_mapping,
+            };
 
             barrier_->wait();
             infinicore::context::startGraphRecording();

@@ -6,10 +6,17 @@ namespace infinilm::engine::distributed {
 CommunicationGroup::CommunicationGroup(const DistConfig &dist_config, infinicore::Device::Type device_type)
     : dist_config_(dist_config), device_type_(device_type),
       communicators_(std::vector<infinicclComm_t>(dist_config.tp_device_ids.size(), nullptr)) {
+
+    size_t world_size = dist_config_.tp_device_ids.size();
+    size_t device_count = infinicore::context::getDeviceCount(device_type);
+    if (device_count < world_size) {
+        throw std::runtime_error("infinilm::engine::distributed::CommunicationGroup error, world size is larger than the number of available GPUs. world size: " + std::to_string(world_size) + ", device count: " + std::to_string(device_count));
+    }
+
     if (infinicore::context::getDevice().getType() != device_type_) {
         infinicore::context::setDevice(infinicore::Device(device_type_, 0));
     }
-    if (dist_config_.tp_device_ids.size() > 1) {
+    if (world_size > 1) {
         RUN_INFINI(infinicclCommInitAll(
             (infiniDevice_t)infinicore::context::getDevice().getType(),
             communicators_.data(),
