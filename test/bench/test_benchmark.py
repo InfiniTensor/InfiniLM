@@ -701,7 +701,7 @@ def _load_ceval_from_cache(cache_dir, subject_name, split, ceval_subjects):
                 if split == "test" and "test" not in lower:
                     continue
                 if split == "val" and not any(
-                    x in lower for x in ["val", "validation", "dev"]
+                    x in lower for x in ["-val", "validation", "dev"]
                 ):
                     continue
                 if split == "all" and not any(
