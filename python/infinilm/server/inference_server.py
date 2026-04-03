@@ -621,7 +621,7 @@ def parse_args():
         "--attn",
         type=str,
         default="default",
-        choices=["default", "flash-attn"],
+        choices=["default", "paged-attn", "flash-attn"],
         help="Attention backend to use: 'default' or 'flash-attn'",
     )
     parser.add_argument(
