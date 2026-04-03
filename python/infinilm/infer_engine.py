@@ -1,5 +1,3 @@
-import logging
-import os
 import time
 from dataclasses import dataclass
 
@@ -11,63 +9,7 @@ from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
 from .modeling_utils import parse_dtype
-
-
-logger = logging.getLogger(__name__)
-
-def _iter_exception_chain(e: BaseException, *, max_depth: int = 6):
-    cur: BaseException | None = e
-    depth = 0
-    seen: set[int] = set()
-    while cur is not None and depth < max_depth:
-        cur_id = id(cur)
-        if cur_id in seen:
-            break
-        seen.add(cur_id)
-        yield cur
-        depth += 1
-        cur = cur.__cause__ or cur.__context__
-
-
-def is_oom_exception(e: BaseException) -> bool:
-    """
-    Conservative OOM detector for MetaX allocator failures and CUDA/PyTorch OOMs.
-    Checks exception type (when available) and message substrings across chained exceptions.
-    """
-    # PyTorch OOM exception type (only if torch is present in this environment)
-    try:
-        import torch  # type: ignore
-
-        oom_type = getattr(torch, "OutOfMemoryError", None)
-        if oom_type is not None:
-            for ex in _iter_exception_chain(e):
-                if isinstance(ex, oom_type):
-                    return True
-    except Exception:
-        pass
-
-    # Common patterns observed for allocator failures.
-    # Keep this allowlist small to avoid hard-exiting on unrelated errors.
-    patterns = (
-        # MetaX / infinirt allocator
-        "hcmalloc",
-        "infinirtmalloc",
-        "out of memory",
-        # CUDA / driver / runtime alloc failures
-        "cuda out of memory",
-        "cumemalloc",
-        "cublas_status_alloc_failed",
-        "cudnn_status_alloc_failed",
-    )
-
-    for ex in _iter_exception_chain(e):
-        msg = str(ex)
-        if not msg:
-            continue
-        msg_l = msg.lower()
-        if any(p in msg_l for p in patterns):
-            return True
-    return False
+from .exception_utils import handle_oom_and_exit
 
 
 @dataclass
@@ -105,9 +47,11 @@ class InferEngine(_infinilm.InferEngine):
             cache_config,
             enable_graph_compiling,
             attention_backend,
-            parse_dtype(kv_cache_dtype)._underlying
-            if kv_cache_dtype is not None
-            else None,
+            (
+                parse_dtype(kv_cache_dtype)._underlying
+                if kv_cache_dtype is not None
+                else None
+            ),
         )
         self.use_cache = False
 
@@ -134,7 +78,9 @@ class InferEngine(_infinilm.InferEngine):
         try:
             # TODO: Remove `_underlying` and simplify the corresponding code.
             input_ids = input_ids._underlying if input_ids is not None else None
-            position_ids = position_ids._underlying if position_ids is not None else None
+            position_ids = (
+                position_ids._underlying if position_ids is not None else None
+            )
             past_kv_lengths = (
                 past_kv_lengths._underlying if past_kv_lengths is not None else None
             )
@@ -172,13 +118,7 @@ class InferEngine(_infinilm.InferEngine):
                 .output_ids
             )
         except BaseException as e:
-            if is_oom_exception(e):
-                logger.error(
-                    "OOM-like exception: exiting worker with code 137: %r",
-                    e,
-                    exc_info=False,
-                )
-                os._exit(137)
+            handle_oom_and_exit(e)
             raise
 
     def generate(
