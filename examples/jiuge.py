@@ -146,7 +146,7 @@ def get_args():
         "--attn",
         type=str,
         default="default",
-        choices=["default", "flash-attn"],
+        choices=["default", "paged-attn", "flash-attn"],
         help="attention backend to use: 'default' or 'flash-attn'",
     )
 
@@ -270,7 +270,7 @@ def test(
         )
 
     model.reset_cache(cache_config)
-    
+
     # ---------------------------------------------------------------------------- #
     #                        Generate
     # ---------------------------------------------------------------------------- #

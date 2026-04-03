@@ -256,7 +256,7 @@ def get_args():
         "--attn",
         type=str,
         default="default",
-        choices=["default", "flash-attn"],
+        choices=["default", "paged-attn", "flash-attn"],
         help="attention backend to use: 'default' or 'flash-attn'",
     )
     parser.add_argument(
@@ -442,7 +442,7 @@ if __name__ == "__main__":
     enable_paged_attn = args.enable_paged_attn
     enable_graph = args.enable_graph
     attn_backend = args.attn
-    
+
     if isinstance(batch_size, int):
         batch_size = [batch_size]
 
@@ -548,8 +548,7 @@ if __name__ == "__main__":
             initial_capacity = input_len + output_len
             test.model.reset_cache(
                 StaticKVCacheConfig(
-                    max_batch_size=batch_size,
-                    max_cache_len=initial_capacity
+                    max_batch_size=batch_size, max_cache_len=initial_capacity
                 )
             )
 

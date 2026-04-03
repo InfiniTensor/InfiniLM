@@ -122,6 +122,9 @@ class InfiniLMBenchmark(BaseBenchmark):
         if backend != "cpp":
             raise ValueError(f"Unsupported backend: {backend}.")
 
+        if enable_paged_attn and attn_backend == "default":
+            attn_backend = "paged-attn"
+
         # Create model with cpp backend
         print("Loading model with cpp backend...")
         print(f"Graph compilation: {'enabled' if enable_graph else 'disabled'}")
@@ -933,7 +936,7 @@ Examples:
         "--attn",
         type=str,
         default="default",
-        choices=["default", "flash-attn"],
+        choices=["default", "paged-attn", "flash-attn"],
         help="Attention backend for InfiniLM (default: default)",
     )
 
