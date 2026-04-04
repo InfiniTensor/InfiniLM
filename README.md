@@ -1,5 +1,7 @@
 # InfiniLM
 
+![star](https://atomgit.com/InfiniTensor/InfiniLM/star/badge.svg)
+
 本项目是基于 [`InfiniCore`](https://github.com/InfiniTensor/InfiniCore) 的推理引擎。
 
 ## 使用方式
