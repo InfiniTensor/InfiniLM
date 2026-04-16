@@ -197,4 +197,20 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     this->compile();
 }
 
+std::vector<std::vector<infinicore::Tensor>> InferEngine::get_kv_cache() {
+    std::vector<std::vector<infinicore::Tensor>> kv_cache_list;
+    if (workers_.empty()) {
+        throw std::runtime_error("InferEngine::get_cache_vec: no workers");
+    }
+    kv_cache_list.reserve(workers_.size());
+    for (auto &worker : workers_) {
+        kv_cache_list.push_back(std::move(worker->get_kv_cache()));
+    }
+
+    for (auto &worker : workers_) {
+        worker->wait();
+    }
+    return kv_cache_list;
+}
+
 } // namespace infinilm::engine

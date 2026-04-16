@@ -63,6 +63,8 @@ public:
 
     void reset_cache(const cache::CacheConfig *new_config);
 
+    std::vector<std::vector<infinicore::Tensor>> get_kv_cache();
+
     ~InferEngine();
 
     const distributed::DistConfig &get_dist_config() const;

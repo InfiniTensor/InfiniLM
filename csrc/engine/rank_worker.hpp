@@ -90,6 +90,8 @@ public:
     // Reset the internal cache with a new configuration
     void reset_cache(const cache::CacheConfig *new_config);
 
+    std::vector<infinicore::Tensor> get_kv_cache();
+
     // Compile the model graph if enabled.
     void compile();
 

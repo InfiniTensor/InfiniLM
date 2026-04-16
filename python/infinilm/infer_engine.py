@@ -286,6 +286,12 @@ class InferEngine(_infinilm.InferEngine):
     def state_dict_keyname(self):
         return super().state_dict()[0].keys()
 
+    def get_kv_cache(self) -> list[list[infinicore.Tensor]]:
+        """
+        get per-rank kv cache.
+        """
+        return super().get_kv_cache()
+
     def load_state_dict(self, state_dict, strict=None):
         for name, param in state_dict.items():
             super().load_param(name, param._underlying)

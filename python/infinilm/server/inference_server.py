@@ -110,6 +110,10 @@ class InferenceServer:
         enable_graph: bool = False,
         attn_backend: str = "default",
         ignore_eos: bool = False,
+        # ---- PD separation (optional) ----
+        kv_connector_type: str = "null",
+        kv_connector_role: str = "none",
+        kv_connector_kwargs: dict = None,
     ):
         """Initialize inference server.
 
@@ -131,6 +135,9 @@ class InferenceServer:
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            kv_connector_type: KV connector type for PD separation.
+            kv_connector_role: KV connector role ('none', 'sender', 'receiver').
+            kv_connector_kwargs: Extra KV connector arguments.
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -152,6 +159,10 @@ class InferenceServer:
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
         self.ignore_eos = ignore_eos
+        # PD separation
+        self.kv_connector_type = kv_connector_type
+        self.kv_connector_role = kv_connector_role
+        self.kv_connector_kwargs = kv_connector_kwargs or {}
 
         self.engine: AsyncLLMEngine = None
 
@@ -183,10 +194,18 @@ class InferenceServer:
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
                 attn_backend=self.attn_backend,
+                # PD separation
+                kv_connector_type=self.kv_connector_type,
+                kv_connector_role=self.kv_connector_role,
+                kv_connector_kwargs=self.kv_connector_kwargs,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
             logger.info(f"  enable_graph: {self.enable_graph}")
+            logger.info(
+                f"  kv_connector: {self.kv_connector_type} "
+                f"(role={self.kv_connector_role})"
+            )
             yield
             self.engine.stop()
 
@@ -631,6 +650,22 @@ def parse_args():
         choices=["default", "paged-attn", "flash-attn"],
         help="Attention backend to use: 'default' or 'flash-attn'",
     )
+    # ---- PD separation arguments ----
+    parser.add_argument(
+        "--kv-connector",
+        type=str,
+        default="null",
+        help="KV connector type for PD separation (default: 'null' = disabled)",
+    )
+    parser.add_argument(
+        "--kv-role",
+        type=str,
+        default="none",
+        choices=["none", "sender", "receiver", "both"],
+        help="KV connector role: 'none' (standalone), 'sender' (prefill), "
+        "'receiver' (decode), 'both'",
+    )
+    # ----------------------------------
     parser.add_argument(
         "--log_level",
         type=str,
@@ -680,7 +715,7 @@ def main():
             "Example: python infinilm.server.inference_server --nvidia --model_path=/data/shared/models/9G7B_MHA/ "
             "--max_tokens=100 --max_batch_size=32 --tp=1 --temperature=1.0 --top_p=0.8 --top_k=1"
             "\n"
-            "Optional: --enable-paged-attn --enable-graph --attn=default"
+            "Optional: --enable-paged-attn --enable-graph --attn=default --kv-connector=null --kv-role=none"
         )
         sys.exit(1)
 
@@ -703,6 +738,9 @@ def main():
         enable_graph=args.enable_graph,
         attn_backend=args.attn,
         ignore_eos=args.ignore_eos,
+        # PD separation
+        kv_connector_type=args.kv_connector,
+        kv_connector_role=args.kv_role,
     )
     server.start()
 

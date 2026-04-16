@@ -202,6 +202,22 @@ void RankWorker::reset_cache(const cache::CacheConfig *new_config) {
 }
 
 //------------------------------------------------------
+// get_forward_context
+//------------------------------------------------------
+std::vector<infinicore::Tensor> RankWorker::get_kv_cache() {
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return init_done_ || should_exit_; });
+
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker stopped; cannot get_cache_vec");
+    }
+
+    ASSERT(forward_context_.kv_cache_vec.size() > 0 && "RankWorker::get_kv_cache(): kv_cache_vec is empty");
+
+    return forward_context_.kv_cache_vec;
+}
+
+//------------------------------------------------------
 // close -- request shutdown and join thread
 //------------------------------------------------------
 void RankWorker::close() {
