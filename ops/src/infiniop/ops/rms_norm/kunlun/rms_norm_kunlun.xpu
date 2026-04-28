@@ -1,0 +1,147 @@
+#include "../../../devices/kunlun/kunlun_common.h"
+#include "../../../devices/kunlun/kunlun_handle.h"
+#include "../../../devices/kunlun/kunlun_kernel_common.h"
+#include "kernel.h"
+#include "rms_norm_kunlun.h"
+#include <memory>
+#include <stdint.h>
+
+// Kernel function for computing RMS-norm
+template <unsigned int BLOCK_SIZE, typename Tcompute, typename Tdata, typename Tweight>
+__global__ void rmsnormKernel(
+    Tdata *y,
+    int32_t stride_y,
+    const Tdata *x,
+    int32_t stride_x,
+    const Tweight *w,
+    uint32_t dim,
+    float epsilon) {
+
+    __shared__ Tdata x_sm[SM_SIZE / sizeof(Tdata)];
+    __shared__ Tweight w_sm[SM_SIZE / sizeof(Tweight)];
+    __shared__ Tdata y_sm[SM_SIZE / sizeof(Tdata)];
+
+    // Copy x and w to shared memory in 0 core
+    if (core_id() == 0) {
+        GM2SM_ASYNC(x + stride_x * cluster_id(), x_sm, dim * sizeof(Tdata));
+        GM2SM_ASYNC(w, w_sm, dim * sizeof(Tweight));
+    }
+    sync_cluster();
+
+    // Compute RMS-norm in shared memory
+    rmsnormBlock<BLOCK_SIZE, Tcompute>(y_sm, x_sm, w_sm, dim, epsilon);
+
+    if (core_id() == 0) {
+        SM2GM_ASYNC(y_sm, y + stride_y * cluster_id(), dim * sizeof(Tdata));
+    }
+    sync_cluster();
+}
+
+namespace op::rms_norm::kunlun {
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::kunlun::Handle::Internal> internal;
+};
+
+Descriptor::~Descriptor() {
+    delete _opaque;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x_desc,
+    infiniopTensorDescriptor_t w_desc,
+    float epsilon) {
+    auto result = RMSNormInfo::create(y_desc, x_desc, w_desc, epsilon);
+    CHECK_RESULT(result);
+    auto info = result.take();
+
+    *desc_ptr = new Descriptor(
+        new Descriptor::Opaque{static_cast<device::kunlun::Handle *>(handle)->internal()},
+        info,
+        0,
+        handle->device,
+        handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+template <unsigned int BLOCK_SIZE>
+infiniStatus_t launchKernel(
+    size_t batch_size, size_t nhead, size_t dim,
+    void *y, infiniDtype_t atype, ptrdiff_t stride_y_batch, ptrdiff_t stride_y_nhead,
+    const void *x, ptrdiff_t stride_x_batch, ptrdiff_t stride_x_nhead,
+    const void *w, infiniDtype_t wtype,
+    float epsilon,
+    kunlunStream_t stream) {
+
+    uint32_t batch_size_ = static_cast<uint32_t>(batch_size);
+    uint32_t dim_ = static_cast<uint32_t>(dim);
+    uint32_t nhead_ = static_cast<uint32_t>(nhead);
+    auto stride_x_batch_ = static_cast<int32_t>(stride_x_batch);
+    auto stride_x_nhead_ = static_cast<int32_t>(stride_x_nhead);
+    auto stride_y_batch_ = static_cast<int32_t>(stride_y_batch);
+    auto stride_y_nhead_ = static_cast<int32_t>(stride_y_nhead);
+
+#define LAUNCH_KERNEL(Tdata, Tweight, Tcompute)                          \
+    for (uint32_t i = 0; i < batch_size_; ++i) {                         \
+        rmsnormKernel<BLOCK_SIZE, Tcompute, Tdata, Tweight>              \
+            <<<nhead_, BLOCK_SIZE, stream>>>(                            \
+                (Tdata *)y + i * stride_y_batch_, stride_y_nhead_,       \
+                (const Tdata *)x + i * stride_x_batch_, stride_x_nhead_, \
+                (const Tweight *)w, dim, epsilon);                       \
+    }
+
+    if (atype == INFINI_DTYPE_F16 && wtype == INFINI_DTYPE_F16) {
+        LAUNCH_KERNEL(half, half, float);
+    } else if (atype == INFINI_DTYPE_F16 && wtype == INFINI_DTYPE_BF16) {
+        LAUNCH_KERNEL(half, bfloat16_t, float);
+    } else if (atype == INFINI_DTYPE_F16 && wtype == INFINI_DTYPE_F32) {
+        LAUNCH_KERNEL(half, float, float);
+    } else if (atype == INFINI_DTYPE_BF16 && wtype == INFINI_DTYPE_BF16) {
+        LAUNCH_KERNEL(bfloat16_t, bfloat16_t, float);
+    } else if (atype == INFINI_DTYPE_BF16 && wtype == INFINI_DTYPE_F16) {
+        LAUNCH_KERNEL(bfloat16_t, half, float);
+    } else if (atype == INFINI_DTYPE_BF16 && wtype == INFINI_DTYPE_F32) {
+        LAUNCH_KERNEL(bfloat16_t, float, float);
+    } else if (atype == INFINI_DTYPE_F32 && wtype == INFINI_DTYPE_F32) {
+        LAUNCH_KERNEL(float, float, float);
+    } else {
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+#undef LAUNCH_KERNEL
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace, size_t workspace_size,
+    void *y, const void *x, const void *w,
+    void *stream) const {
+
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    auto stride_x_batch = _info.x_strides[0];
+    auto stride_x_nhead = _info.x_strides[1];
+    auto stride_y_batch = _info.y_strides[0];
+    auto stride_y_nhead = _info.y_strides[1];
+    auto dim = _info.dim();
+    auto batch_size = _info.shape[0];
+    auto nhead = _info.shape.size() > 2 ? _info.shape[1] : 1;
+
+    kunlunStream_t stream_ = static_cast<kunlunStream_t>(stream);
+
+    // launch kernel with different block sizes
+    CHECK_STATUS(launchKernel<64>(batch_size, nhead, dim,
+                                  y, _info.atype, stride_y_batch, stride_y_nhead,
+                                  x, stride_x_batch, stride_x_nhead,
+                                  w, _info.wtype, _info.epsilon, stream_));
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::rms_norm::kunlun

@@ -1,0 +1,289 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "scatter_metax.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <vector>
+
+
+namespace op::scatter::metax {
+
+constexpr int MAX_DIMS = 8;
+
+struct TensorGeometry {
+    int ndim;
+    int64_t updates_shape[MAX_DIMS];
+    int64_t updates_strides[MAX_DIMS];
+    int64_t output_strides[MAX_DIMS];
+    int64_t indices_strides[MAX_DIMS];
+};
+
+// 类型转换辅助函数
+__device__ __forceinline__ float to_float(float val) { return val; }
+__device__ __forceinline__ float to_float(double val) { return static_cast<float>(val); }
+__device__ __forceinline__ float to_float(__half val) { return __half2float(val); }
+__device__ __forceinline__ float to_float(cuda_bfloat16 val) { return __bfloat162float(val); }
+
+template <typename T>
+__device__ __forceinline__ T from_float(float val) { return static_cast<T>(val); }
+template <>
+__device__ __forceinline__ __half from_float<__half>(float val) { return __float2half(val); }
+template <>
+__device__ __forceinline__ cuda_bfloat16 from_float<cuda_bfloat16>(float val) { return __float2bfloat16(val); }
+
+// 坐标变换辅助函数
+__device__ __forceinline__ void offset_to_coords(int64_t offset, int ndim, const int64_t *shape, int64_t *coords) {
+#pragma unroll
+    for (int i = ndim - 1; i >= 0; --i) {
+        coords[i] = offset % shape[i];
+        offset /= shape[i];
+    }
+}
+
+__device__ __forceinline__ int64_t coords_to_offset(int ndim, const int64_t *coords, const int64_t *strides) {
+    int64_t offset = 0;
+#pragma unroll
+    for (int i = 0; i < ndim; ++i) {
+        offset += coords[i] * strides[i];
+    }
+    return offset;
+}
+
+// Scatter Kernel
+template <typename T, typename IdxT>
+__global__ void scatter_kernel(
+    T *__restrict__ output,
+    const T *__restrict__ updates,
+    const IdxT *__restrict__ indices,
+    TensorGeometry geometry,
+    int axis,
+    int reduction,
+    size_t num_updates) {
+
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+
+    int64_t coords[MAX_DIMS];
+
+    for (size_t i = idx; i < num_updates; i += stride) {
+        // 1. 计算 updates 的多维坐标
+        offset_to_coords(static_cast<int64_t>(i), geometry.ndim, geometry.updates_shape, coords);
+
+        // 2. 读取 update 值
+        int64_t upd_offset = coords_to_offset(geometry.ndim, coords, geometry.updates_strides);
+        T upd_val = updates[upd_offset];
+
+        // 3. 读取 index 值 (注意：使用 indices_strides)
+        int64_t idx_offset = coords_to_offset(geometry.ndim, coords, geometry.indices_strides);
+        IdxT idx_val = indices[idx_offset];
+
+        // 4. 计算 output 的多维坐标 (替换指定 axis 的索引)
+        coords[axis] = static_cast<int64_t>(idx_val);
+        int64_t out_offset = coords_to_offset(geometry.ndim, coords, geometry.output_strides);
+
+        // 5. 执行 Scatter 操作 (None, Add, Mul)
+        if (reduction == 0) {
+            output[out_offset] = upd_val;
+        } else if (reduction == 1) { // Add
+            float existing = to_float(output[out_offset]);
+            float update = to_float(upd_val);
+            output[out_offset] = from_float<T>(existing + update);
+        } else if (reduction == 2) { // Mul
+            float existing = to_float(output[out_offset]);
+            float update = to_float(upd_val);
+            output[out_offset] = from_float<T>(existing * update);
+        }
+    }
+}
+
+// ==================================================================
+// 3. Opaque 结构体
+// ==================================================================
+struct ScatterMetaxOpaque {
+    TensorGeometry geometry;
+    size_t input_bytes;
+
+    ScatterMetaxOpaque(const infiniopTensorDescriptor_t updates_desc,
+                       const infiniopTensorDescriptor_t indices_desc,
+                       const infiniopTensorDescriptor_t output_desc) {
+
+        geometry.ndim = static_cast<int>(updates_desc->ndim());
+
+        // 计算 Input 字节数 (用于拷贝)
+        size_t total_elements = 1;
+        for (size_t i = 0; i < output_desc->ndim(); ++i) {
+            total_elements *= output_desc->shape()[i];
+        }
+
+        size_t dt_size = 0;
+        if (output_desc->dtype() == INFINI_DTYPE_F32) {
+            dt_size = 4;
+        } else if (output_desc->dtype() == INFINI_DTYPE_F64) {
+            dt_size = 8;
+        } else {
+            dt_size = 2; // f16/bf16
+        }
+
+        input_bytes = total_elements * dt_size;
+
+        // 填充 Geometry
+        int ndim = geometry.ndim;
+        for (int i = 0; i < ndim; ++i) {
+            geometry.updates_shape[i] = updates_desc->shape()[i];
+            geometry.updates_strides[i] = updates_desc->strides()[i];
+            geometry.output_strides[i] = output_desc->strides()[i];
+            geometry.indices_strides[i] = indices_desc->strides()[i];
+        }
+    }
+};
+
+struct Descriptor::Opaque : public ScatterMetaxOpaque {
+    using ScatterMetaxOpaque::ScatterMetaxOpaque;
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+// ==================================================================
+// 4. Kernel Launch Logic
+// ==================================================================
+template <typename T, typename IdxT>
+void launch_kernel(
+    void *output,
+    const void *updates,
+    const void *indices,
+    const ScatterMetaxOpaque *opaque,
+    const ScatterInfo &info,
+    void *stream) {
+
+    auto out_ptr = reinterpret_cast<T *>(output);
+    auto upd_ptr = reinterpret_cast<const T *>(updates);
+    auto idx_ptr = reinterpret_cast<const IdxT *>(indices);
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    size_t num_updates = 1;
+    for (int i = 0; i < opaque->geometry.ndim; ++i) {
+        num_updates *= opaque->geometry.updates_shape[i];
+    }
+
+    if (num_updates == 0) {
+        return;
+    }
+
+    size_t block_size = 256;
+    size_t grid_size = (num_updates + block_size - 1) / block_size;
+    // 限制 grid size，防止溢出
+    grid_size = std::min(grid_size, static_cast<size_t>(2147483647));
+
+    scatter_kernel<T, IdxT>
+        <<<grid_size, block_size, 0, hc_stream>>>(
+            out_ptr,
+            upd_ptr,
+            idx_ptr,
+            opaque->geometry,
+            info.axis(),
+            info.reduction(),
+            num_updates);
+}
+
+// ==================================================================
+// 5. Descriptor Create
+// ==================================================================
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle, Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t input_desc,
+    infiniopTensorDescriptor_t indices_desc,
+    infiniopTensorDescriptor_t updates_desc,
+    int axis,
+    int reduction) {
+
+    auto handle_ptr = reinterpret_cast<device::metax::Handle *>(handle);
+    auto info_result = ScatterInfo::create(out_desc, input_desc, indices_desc, updates_desc, axis, reduction);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    if (out_desc->ndim() > MAX_DIMS) {
+        return INFINI_STATUS_BAD_TENSOR_SHAPE;
+    }
+
+    auto opaque = new Opaque(updates_desc, indices_desc, out_desc);
+    size_t workspace_size = 0;
+
+    *desc_ptr = new Descriptor(opaque, info_result.take(), workspace_size, handle_ptr->device, handle_ptr->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+// ==================================================================
+// 6. Calculate Dispatch
+// ==================================================================
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    const void *indices,
+    const void *updates,
+    void *stream) const {
+
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    // 1. Input -> Output 拷贝 (Scatter 通常是 In-place 语义的变体)
+    if (input != output) {
+        hcMemcpyAsync(output, input, _opaque->input_bytes, hcMemcpyDeviceToDevice, hc_stream);
+    }
+
+    // 2. 启动 Kernel
+    auto dtype = _info.dtype();
+    auto idx_dtype = _info.idx_dtype();
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        if (idx_dtype == INFINI_DTYPE_I32) {
+            launch_kernel<__half, int32_t>(output, updates, indices, _opaque, _info, stream);
+        } else {
+            launch_kernel<__half, int64_t>(output, updates, indices, _opaque, _info, stream);
+        }
+        break;
+
+    case INFINI_DTYPE_BF16:
+#if defined(__MACA__) || defined(__MACACC__)
+        if (idx_dtype == INFINI_DTYPE_I32) {
+            launch_kernel<cuda_bfloat16, int32_t>(output, updates, indices, _opaque, _info, stream);
+        } else {
+            launch_kernel<cuda_bfloat16, int64_t>(output, updates, indices, _opaque, _info, stream);
+        }
+#endif
+        break;
+
+    case INFINI_DTYPE_F32:
+        if (idx_dtype == INFINI_DTYPE_I32) {
+            launch_kernel<float, int32_t>(output, updates, indices, _opaque, _info, stream);
+        } else {
+            launch_kernel<float, int64_t>(output, updates, indices, _opaque, _info, stream);
+        }
+        break;
+
+    case INFINI_DTYPE_F64:
+        if (idx_dtype == INFINI_DTYPE_I32) {
+            launch_kernel<double, int32_t>(output, updates, indices, _opaque, _info, stream);
+        } else {
+            launch_kernel<double, int64_t>(output, updates, indices, _opaque, _info, stream);
+        }
+        break;
+
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::scatter::metax

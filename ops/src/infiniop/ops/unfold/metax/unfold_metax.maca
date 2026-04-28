@@ -1,0 +1,206 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "unfold_metax.h"
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+
+namespace op::unfold::metax {
+
+// ==================================================================
+// 2. Kernel 实现
+// ==================================================================
+template <typename T>
+__global__ void unfold_kernel(
+    T *__restrict__ output,      // [N, C_out, L]
+    const T *__restrict__ input, // [N, C, H, W]
+    // 维度参数
+    int C, int H, int W,  // 输入维度
+    int out_h, int out_w, // 输出空间维度
+    // 算子参数
+    int k_h, int k_w,           // Kernel Size
+    int pad_h, int pad_w,       // Padding
+    int stride_h, int stride_w, // Stride
+    int dil_h, int dil_w,       // Dilation
+    // 总任务量
+    size_t total_elements) {
+
+    // 平铺式索引：每个线程处理输出的一个元素
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < total_elements) {
+        // --------------------------------------------------------
+        // 1. 坐标反算：从线性 idx 解析出逻辑维度
+        // 输出形状逻辑上为: [N, (C * kH * kW), (out_h * out_w)]
+        // --------------------------------------------------------
+        int L = out_h * out_w;
+        int kernel_area = k_h * k_w;
+        int C_col = C * kernel_area; // 输出的通道数 (Column Channel)
+
+        // 优化除法/取模运算顺序
+        int l_idx = idx % L;
+        size_t temp = idx / L;
+        int c_col_idx = temp % C_col;
+        int n_idx = temp / C_col;
+
+        // 解析空间坐标 (h_out, w_out)
+        int w_out = l_idx % out_w;
+        int h_out = l_idx / out_w;
+
+        // 解析通道坐标 -> (c_in, kh, kw)
+        int kw = c_col_idx % k_w;
+        int temp_k = c_col_idx / k_w;
+        int kh = temp_k % k_h;
+        int c_in = temp_k / k_h;
+
+        // 计算对应的输入坐标
+        int h_in = h_out * stride_h - pad_h + kh * dil_h;
+        int w_in = w_out * stride_w - pad_w + kw * dil_w;
+
+        T val;
+
+        // 边界检查与赋值
+        if (h_in >= 0 && h_in < H && w_in >= 0 && w_in < W) {
+            // 计算输入线性索引：[n, c, h, w]
+            size_t in_idx = ((static_cast<size_t>(n_idx) * C + c_in) * H + h_in) * W + w_in;
+            val = input[in_idx];
+        } else {
+            // Padding 区域填 0
+            val = static_cast<T>(0.0f);
+        }
+
+        output[idx] = val;
+    }
+}
+
+// ==================================================================
+// 3. Kernel Launch Logic
+// ==================================================================
+template <typename T>
+void launch_kernel(
+    void *output,
+    const void *input,
+    const UnfoldInfo &info,
+    void *stream) {
+
+    // 1. 准备指针
+    // [修复] 修正了这里的拼写错误 (autoin_ptr -> auto in_ptr)
+    auto in_ptr = reinterpret_cast<const T *>(input);
+    auto out_ptr = reinterpret_cast<T *>(output);
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    // 2. 准备参数 (从 Info 的向量中解包)
+    if (info._kernel_sizes.size() < 2) {
+        return;
+    }
+
+    int C = info._C_in;
+    int H = info._input_spatial_shape[0];
+    int W = info._input_spatial_shape[1];
+
+    int out_h = info._output_spatial_shape[0];
+    int out_w = info._output_spatial_shape[1];
+
+    int k_h = info._kernel_sizes[0];
+    int k_w = info._kernel_sizes[1];
+    int pad_h = info._paddings[0];
+    int pad_w = info._paddings[1];
+    int stride_h = info._strides[0];
+    int stride_w = info._strides[1];
+    int dil_h = info._dilations[0];
+    int dil_w = info._dilations[1];
+
+    // 3. 计算 Grid
+    size_t out_channels = info._C_out;
+    size_t out_spatial = info._L;
+    size_t total_elements = info._N * out_channels * out_spatial;
+
+    size_t block_size = 256;
+    size_t grid_size = (total_elements + block_size - 1) / block_size;
+
+    // 4. 调用 Kernel
+    unfold_kernel<T>
+        <<<grid_size, block_size, 0, hc_stream>>>(
+            out_ptr, in_ptr,
+            C, H, W,
+            out_h, out_w,
+            k_h, k_w,
+            pad_h, pad_w,
+            stride_h, stride_w,
+            dil_h, dil_w,
+            total_elements);
+}
+
+// ==================================================================
+// 4. Descriptor 实现
+// ==================================================================
+struct Descriptor::Opaque {};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t input_desc,
+    const int *kernel_sizes,
+    const int *strides,
+    const int *paddings,
+    const int *dilations) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    // 1. 创建并校验 Info
+    auto result = UnfoldInfo::infer(out_desc, input_desc, kernel_sizes, strides, paddings, dilations);
+    if (!result) {
+        return result.status();
+    }
+
+    size_t workspace_size = 0;
+
+    *desc_ptr = new Descriptor(
+        new Opaque(),
+        result.take(),
+        workspace_size,
+        handle->device,
+        handle->device_id);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    void *stream) const {
+
+    auto dtype = _info.dtype_val();
+
+    // 3. 根据数据类型分发 Kernel
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, input, _info, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::unfold::metax

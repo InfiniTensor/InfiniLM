@@ -1,0 +1,111 @@
+#include "../../../devices/kunlun/kunlun_common.h"
+#include "../../../devices/kunlun/kunlun_handle.h"
+#include "../../../devices/kunlun/kunlun_kernel_common.h"
+#include "causal_softmax_kunlun.h"
+#include "kernel.h"
+
+template <unsigned int BLOCK_SIZE, typename Tdata, typename Tcompute>
+__global__ void causalSoftmaxKernel(
+    Tdata *y,
+    const Tdata *x,
+    uint32_t batch,
+    uint32_t height,
+    uint32_t width,
+    int32_t y_stride_h,
+    int32_t x_stride_h) {
+
+    __shared__ Tdata x_sm[SM_SIZE / sizeof(Tdata)];
+    __shared__ Tdata y_sm[SM_SIZE / sizeof(Tdata)];
+
+    int row_id = cluster_id();
+
+    __global_ptr__ Tdata *y_ = y + row_id * y_stride_h;
+    __global_ptr__ const Tdata *x_ = x + row_id * x_stride_h;
+
+    if (core_id() == 0) {
+        GM2SM_ASYNC(x_, x_sm, width * sizeof(Tdata));
+    }
+    sync_cluster();
+
+    causalSoftmaxBlock<BLOCK_SIZE, Tdata, Tcompute>(y_sm, x_sm, height, width, row_id);
+
+    if (core_id() == 0) {
+        SM2GM_ASYNC(y_sm, y_, width * sizeof(Tdata));
+    }
+    sync_cluster();
+}
+
+namespace op::causal_softmax::kunlun {
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::kunlun::Handle::Internal> internal;
+};
+
+Descriptor::~Descriptor() {
+    delete _opaque;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x_desc) {
+    auto info = CausalSoftmaxInfo::create(y_desc, x_desc);
+    CHECK_RESULT(info);
+    *desc_ptr = new Descriptor(
+        new Opaque{reinterpret_cast<device::kunlun::Handle *>(handle)->internal()},
+        info.take(), 0, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+template <unsigned int BLOCK_SIZE>
+infiniStatus_t launchKernel(void *y, const void *x, infiniDtype_t dtype,
+                            size_t batch_size, size_t seq_len, size_t total_seq_len,
+                            ptrdiff_t y_stride_b, ptrdiff_t y_stride_h,
+                            ptrdiff_t x_stride_b, ptrdiff_t x_stride_h,
+                            kunlunStream_t stream) {
+
+    // Kunlunxin kernel dont support ptrdiff_t and size_t as parameters
+    uint32_t batch_size_ = static_cast<uint32_t>(batch_size);
+    uint32_t seq_len_ = static_cast<uint32_t>(seq_len);
+    uint32_t total_seq_len_ = static_cast<uint32_t>(total_seq_len);
+    int32_t y_stride_b_ = static_cast<int32_t>(y_stride_b);
+    int32_t y_stride_h_ = static_cast<int32_t>(y_stride_h);
+    int32_t x_stride_b_ = static_cast<int32_t>(x_stride_b);
+    int32_t x_stride_h_ = static_cast<int32_t>(x_stride_h);
+
+#define LAUCH_KERNEL(Tdata, Tcompute)                                                                            \
+    for (uint32_t i = 0; i < batch_size_; ++i) {                                                                 \
+        causalSoftmaxKernel<BLOCK_SIZE, Tdata, Tcompute>                                                         \
+            <<<seq_len_, BLOCK_SIZE, stream>>>((Tdata *)y + i * y_stride_b_, (const Tdata *)x + i * x_stride_b_, \
+                                               batch_size, seq_len, total_seq_len,                               \
+                                               y_stride_h, x_stride_h);                                          \
+    }
+
+    if (dtype == INFINI_DTYPE_F16) {
+        LAUCH_KERNEL(half, float);
+    } else if (dtype == INFINI_DTYPE_BF16) {
+        LAUCH_KERNEL(bfloat16_t, float);
+    } else if (dtype == INFINI_DTYPE_F32) {
+        LAUCH_KERNEL(float, float);
+    } else {
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+    return INFINI_STATUS_SUCCESS;
+
+#undef LAUCH_KERNEL
+}
+
+infiniStatus_t Descriptor::calculate(void *workspace,
+                                     size_t workspace_size,
+                                     void *y,
+                                     const void *x,
+                                     void *stream_) const {
+    kunlunStream_t stream = (kunlunStream_t)stream_;
+    CHECK_STATUS(launchKernel<64>(
+        y, x, _info.dtype, _info.batch_size, _info.seq_len, _info.total_seq_len,
+        _info.y_stride_b, _info.y_stride_i, _info.x_stride_b, _info.x_stride_i, stream));
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::causal_softmax::kunlun

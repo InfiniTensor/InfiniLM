@@ -1,0 +1,278 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+
+#include "ldexp_metax.h"
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <vector>
+
+namespace op::ldexp::metax {
+
+static constexpr int MAX_DIMS = 8;
+template <typename T>
+__device__ __forceinline__ float to_float(T val) {
+    return static_cast<float>(val);
+}
+
+// 特化 half/bf16 的转换
+template <>
+__device__ __forceinline__ float to_float<__half>(__half val) {
+    return __half2float(val);
+}
+template <>
+__device__ __forceinline__ float to_float<cuda_bfloat16>(cuda_bfloat16 val) {
+    return __bfloat162float(val);
+}
+
+// 2. ldexp 包装器
+template <typename T>
+__device__ __forceinline__ T ldexp_wrapper(float x_f, int exp_i) {
+    return static_cast<T>(::ldexpf(x_f, exp_i));
+}
+
+// 特化 double
+template <>
+__device__ __forceinline__ double ldexp_wrapper<double>(float x_f, int exp_i) {
+    return ::ldexp((double)x_f, exp_i);
+}
+
+struct KernelShapeInfo {
+    int ndim;
+    int shape[MAX_DIMS];
+    int stride_x[MAX_DIMS];
+    int stride_exp[MAX_DIMS];
+};
+
+template <typename T, typename TExp>
+__global__ void ldexp_broadcast_kernel(
+    T *__restrict__ output,
+    const T *__restrict__ x,
+    const TExp *__restrict__ exp,
+    size_t n,
+    KernelShapeInfo info) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+
+    for (size_t i = idx; i < n; i += stride) {
+        size_t temp_idx = i;
+        size_t offset_x = 0;
+        size_t offset_exp = 0;
+
+#pragma unroll
+        for (int d = info.ndim - 1; d >= 0; --d) {
+            int dim_size = info.shape[d];
+            int coord = temp_idx % dim_size;
+            temp_idx /= dim_size;
+            offset_x += coord * info.stride_x[d];
+            offset_exp += coord * info.stride_exp[d];
+        }
+
+        float x_val = to_float(x[offset_x]);
+        float exp_val_f = to_float(exp[offset_exp]);
+
+        output[i] = ldexp_wrapper<T>(x_val, static_cast<int>(exp_val_f));
+    }
+}
+
+// ==================================================================
+// Host Functions
+// ==================================================================
+
+template <typename T, typename TExp>
+void launch_kernel(
+    void *output,
+    const void *x,
+    const void *exp,
+    const LdexpInfo &info,
+    void *stream) {
+
+    auto out_ptr = reinterpret_cast<T *>(output);
+    auto x_ptr = reinterpret_cast<const T *>(x);
+    auto exp_ptr = reinterpret_cast<const TExp *>(exp);
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    size_t n = info.count();
+
+    // 填充 KernelShapeInfo
+    KernelShapeInfo k_info;
+    k_info.ndim = info.ndim();
+    if (k_info.ndim > MAX_DIMS) {
+        k_info.ndim = MAX_DIMS;
+    }
+
+    for (int i = 0; i < k_info.ndim; ++i) {
+        k_info.shape[i] = info.shape()[i];
+        k_info.stride_x[i] = info.x_strides()[i];
+        k_info.stride_exp[i] = info.exp_strides()[i];
+    }
+
+    constexpr int block_size = 256;
+    size_t grid_size = (n + block_size - 1) / block_size;
+
+    ldexp_broadcast_kernel<T, TExp>
+        <<<grid_size, block_size, 0, hc_stream>>>(
+            out_ptr, x_ptr, exp_ptr, n, k_info);
+}
+
+// ==================================================================
+// Descriptor Implementation
+// ==================================================================
+
+struct Descriptor::Opaque {
+    // 占位符，如果后续需要保存额外信息可在此扩展
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x_desc,
+    infiniopTensorDescriptor_t exp_desc) {
+
+    auto info_result = LdexpInfo::create(y_desc, x_desc, exp_desc);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    // handle 转换，获取设备信息
+    auto metax_handle = reinterpret_cast<device::metax::Handle *>(handle);
+
+    *desc_ptr = new Descriptor(
+        new Opaque(),
+        info_result.take(),
+        0, // workspace size
+        metax_handle->device,
+        metax_handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    std::vector<const void *> inputs,
+    void *stream) const {
+
+    if (inputs.size() != 2) {
+        return INFINI_STATUS_BAD_PARAM;
+    }
+    return calculate(workspace, workspace_size, output, inputs[0], inputs[1], stream);
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *x,
+    const void *exp,
+    void *stream) const {
+
+    auto dtype = _info.dtype();
+    auto exp_dtype = _info.exp_dtype();
+
+    // 显式展开的双层 Switch 分发
+    switch (dtype) {
+    case INFINI_DTYPE_F32:
+        switch (exp_dtype) {
+        case INFINI_DTYPE_I32:
+            launch_kernel<float, int32_t>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_I64:
+            launch_kernel<float, int64_t>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_F32:
+            launch_kernel<float, float>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_F16:
+            launch_kernel<float, __half>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_BF16:
+            launch_kernel<float, cuda_bfloat16>(output, x, exp, _info, stream);
+            break;
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+        break;
+
+    case INFINI_DTYPE_F64:
+        switch (exp_dtype) {
+        case INFINI_DTYPE_I32:
+            launch_kernel<double, int32_t>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_I64:
+            launch_kernel<double, int64_t>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_F32:
+            launch_kernel<double, float>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_F16:
+            launch_kernel<double, __half>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_BF16:
+            launch_kernel<double, cuda_bfloat16>(output, x, exp, _info, stream);
+            break;
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+        break;
+
+    case INFINI_DTYPE_F16:
+        switch (exp_dtype) {
+        case INFINI_DTYPE_I32:
+            launch_kernel<__half, int32_t>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_I64:
+            launch_kernel<__half, int64_t>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_F32:
+            launch_kernel<__half, float>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_F16:
+            launch_kernel<__half, __half>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_BF16:
+            launch_kernel<__half, cuda_bfloat16>(output, x, exp, _info, stream);
+            break;
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+        break;
+
+    case INFINI_DTYPE_BF16:
+        switch (exp_dtype) {
+        case INFINI_DTYPE_I32:
+            launch_kernel<cuda_bfloat16, int32_t>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_I64:
+            launch_kernel<cuda_bfloat16, int64_t>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_F32:
+            launch_kernel<cuda_bfloat16, float>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_F16:
+            launch_kernel<cuda_bfloat16, __half>(output, x, exp, _info, stream);
+            break;
+        case INFINI_DTYPE_BF16:
+            launch_kernel<cuda_bfloat16, cuda_bfloat16>(output, x, exp, _info, stream);
+            break;
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+        break;
+
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::ldexp::metax

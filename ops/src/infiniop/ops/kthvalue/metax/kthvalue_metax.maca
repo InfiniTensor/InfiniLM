@@ -1,0 +1,254 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+
+#include "kthvalue_metax.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <limits>
+#include <type_traits>
+
+namespace op::kthvalue::metax {
+
+template <typename T>
+__device__ __forceinline__ bool is_smaller(const T &a, const T &b) {
+    return a < b;
+}
+
+__device__ __forceinline__ bool is_smaller(const cuda_bfloat16 &a, const cuda_bfloat16 &b) {
+    return __bfloat162float(a) < __bfloat162float(b);
+}
+
+__device__ __forceinline__ bool is_smaller(const __half &a, const __half &b) {
+    return __half2float(a) < __half2float(b);
+}
+
+template <typename T>
+struct alignas(sizeof(int64_t) * 2) KeyValuePair {
+    T val;
+    int64_t idx;
+
+    __device__ __forceinline__ KeyValuePair() {}
+    __device__ __forceinline__ KeyValuePair(T v, int64_t i) : val(v), idx(i) {}
+
+    __device__ __forceinline__ static KeyValuePair<T> max_value() {
+        if constexpr (std::is_floating_point_v<T>) {
+            return {static_cast<T>(INFINITY), -1};
+        } else if constexpr (std::is_same_v<T, __half>) {
+            unsigned short inf_val = 0x7C00;
+            return {*reinterpret_cast<__half *>(&inf_val), -1};
+        } else if constexpr (std::is_same_v<T, cuda_bfloat16>) {
+            return {__float2bfloat16(1e30f), -1};
+        } else {
+            return {static_cast<T>(1e30), -1};
+        }
+    }
+};
+
+template <typename T>
+__device__ __forceinline__ void compare_and_swap(KeyValuePair<T> &a, KeyValuePair<T> &b, bool dir) {
+    bool smaller = is_smaller(a.val, b.val) || (a.val == b.val && a.idx < b.idx);
+    if (smaller != dir) {
+        KeyValuePair<T> tmp = a;
+        a = b;
+        b = tmp;
+    }
+}
+
+template <typename T>
+__global__ void kthvalue_kernel(
+    T *__restrict__ out_values,
+    int64_t *__restrict__ out_indices,
+    const T *__restrict__ input,
+    size_t dim_size,
+    size_t inner_size,
+    int k,
+    size_t power_of_2_dim) {
+    extern __shared__ char smem[];
+    KeyValuePair<T> *s_data = reinterpret_cast<KeyValuePair<T> *>(smem);
+
+    unsigned int tid = threadIdx.x;
+    unsigned int bid = blockIdx.x;
+
+    size_t outer_idx = bid / inner_size;
+    size_t inner_idx = bid % inner_size;
+    size_t input_base = outer_idx * dim_size * inner_size + inner_idx;
+    size_t stride = inner_size;
+
+    for (unsigned int i = tid; i < power_of_2_dim; i += blockDim.x) {
+        if (i < dim_size) {
+            T val = input[input_base + i * stride];
+            s_data[i] = KeyValuePair<T>(val, static_cast<int64_t>(i));
+        } else {
+            s_data[i] = KeyValuePair<T>::max_value();
+        }
+    }
+    __syncthreads();
+
+    for (unsigned int size = 2; size <= power_of_2_dim; size <<= 1) {
+        bool dir = (tid & (size / 2)) == 0;
+        for (unsigned int stride_step = size >> 1; stride_step > 0; stride_step >>= 1) {
+            unsigned int pos = 2 * tid - (tid & (stride_step - 1));
+            if (pos + stride_step < power_of_2_dim) {
+                unsigned int next_pos = pos + stride_step;
+                bool direction = ((pos & size) == 0);
+                compare_and_swap(s_data[pos], s_data[next_pos], direction);
+            }
+            __syncthreads();
+        }
+    }
+
+    if (tid == 0) {
+        int target_k = k - 1;
+        if (target_k >= 0 && target_k < dim_size) {
+            out_values[bid] = s_data[target_k].val;
+            out_indices[bid] = s_data[target_k].idx;
+        }
+    }
+}
+
+static inline size_t next_power_of_2(size_t n) {
+    if (n == 0) {
+        return 1;
+    }
+    size_t p = 1;
+    while (p < n) {
+        p <<= 1;
+    }
+    return p;
+}
+
+template <typename T>
+void launch_kernel(
+    void *values,
+    void *indices,
+    const void *input,
+    int outer_size,
+    int inner_size,
+    int dim_size,
+    int k,
+    void *stream) {
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    size_t power_of_2_dim = next_power_of_2(dim_size);
+    size_t total_slices = (size_t)outer_size * inner_size;
+
+    unsigned int threads_per_block = std::max(1u, (unsigned int)(power_of_2_dim / 2));
+    if (threads_per_block > 1024) {
+        threads_per_block = 1024;
+    }
+
+    size_t smem_size = power_of_2_dim * sizeof(KeyValuePair<T>);
+
+    if (power_of_2_dim > 2048) {
+        return;
+    }
+
+    kthvalue_kernel<T><<<total_slices, threads_per_block, smem_size, hc_stream>>>(
+        reinterpret_cast<T *>(values),
+        reinterpret_cast<int64_t *>(indices),
+        reinterpret_cast<const T *>(input),
+        dim_size,
+        inner_size,
+        k,
+        power_of_2_dim);
+}
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::metax::Handle::Internal> internal;
+    int k;
+    int outer_size, inner_size, dim_size;
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_, Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t values_desc,
+    infiniopTensorDescriptor_t indices_desc,
+    infiniopTensorDescriptor_t input_desc,
+    int k,
+    int dim,
+    int keepdim) {
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    auto info_result = KthvalueInfo::create(values_desc, indices_desc, input_desc, k, dim, keepdim);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    auto in_d = reinterpret_cast<const InfiniopTensorDescriptor *>(input_desc);
+    int ndim = in_d->ndim();
+    int64_t real_dim = dim < 0 ? dim + ndim : dim;
+
+    int outer = 1;
+    for (int i = 0; i < real_dim; ++i) {
+        outer *= in_d->shape()[i];
+    }
+    int inner = 1;
+    for (int i = real_dim + 1; i < ndim; ++i) {
+        inner *= in_d->shape()[i];
+    }
+    int dim_s = in_d->shape()[real_dim];
+
+    if (next_power_of_2(dim_s) > 2048) {
+        return INFINI_STATUS_BAD_PARAM;
+    }
+
+    auto opaque = new Opaque{handle->internal(), (int)k, outer, inner, dim_s};
+    *desc_ptr = new Descriptor(opaque, info_result.take(), 0, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *values,
+    void *indices,
+    const void *input,
+    void *stream) const {
+    auto dtype = _info.dtype();
+    int k = _opaque->k;
+    int outer = _opaque->outer_size;
+    int inner = _opaque->inner_size;
+    int dim_s = _opaque->dim_size;
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(values, indices, input, outer, inner, dim_s, k, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(values, indices, input, outer, inner, dim_s, k, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(values, indices, input, outer, inner, dim_s, k, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(values, indices, input, outer, inner, dim_s, k, stream);
+        break;
+    case INFINI_DTYPE_I32:
+        launch_kernel<int32_t>(values, indices, input, outer, inner, dim_s, k, stream);
+        break;
+    case INFINI_DTYPE_I64:
+        launch_kernel<int64_t>(values, indices, input, outer, inner, dim_s, k, stream);
+        break;
+    case INFINI_DTYPE_U32:
+        launch_kernel<uint32_t>(values, indices, input, outer, inner, dim_s, k, stream);
+        break;
+    case INFINI_DTYPE_U64:
+        launch_kernel<uint64_t>(values, indices, input, outer, inner, dim_s, k, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::kthvalue::metax

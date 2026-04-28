@@ -1,0 +1,78 @@
+#include "hypot_metax.h"
+
+#include "../../../elementwise/metax/elementwise_metax.h"
+
+#include "../cuda/kernel.cuh"
+
+namespace op::hypot::metax {
+
+Descriptor::~Descriptor() = default;
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+    auto dtype = out_desc->dtype();
+
+    // 3. Hypot 是二元算子，需要确保有两个输入
+    if (input_desc_vec.size() != 2) {
+        return INFINI_STATUS_BAD_PARAM;
+    }
+    const auto &input_a_desc = input_desc_vec.at(0);
+    const auto &input_b_desc = input_desc_vec.at(1);
+
+    const auto &out_shape = out_desc->shape();
+    const auto &in_a_shape = input_a_desc->shape();
+    const auto &in_b_shape = input_b_desc->shape();
+
+    // 检查数据类型 (通常 Hypot 支持浮点类型)
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64, INFINI_DTYPE_BF16);
+
+    // 4. 检查形状一致性
+    // 注意：如果框架支持 Broadcasting (广播)，这里可能不需要严格相等
+    // 但参照你的 Floor 实现，这里先进行严格形状检查
+    CHECK_SAME_SHAPE(out_shape, in_a_shape);
+    CHECK_SAME_SHAPE(out_shape, in_b_shape);
+
+    // create CUDA elementwise descriptor
+    // 宏会自动处理 input_desc_vec 里的所有输入信息
+    CREATE_ELEMENTWISE_METAX_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    std::vector<const void *> inputs,
+    void *stream) const {
+
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    // 5. 调用 calculate 并传入 cuda::HypotOp
+    // HypotOp 通常定义为二元运算： sqrt(x*x + y*y)
+    switch (_dtype) {
+    case INFINI_DTYPE_F16:
+        return _device_info->calculate<256, cuda::HypotOp, half>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<256, cuda::HypotOp, cuda_bfloat162>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F32:
+        return _device_info->calculate<256, cuda::HypotOp, float>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F64:
+        return _device_info->calculate<256, cuda::HypotOp, double>(_info, workspace, output, inputs, stream);
+
+    // Hypot 通常返回浮点数，如果是整数输入通常需要转为浮点计算，
+    // 这里暂时保持与 Floor 一致的浮点支持列表。
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+} // namespace op::hypot::metax

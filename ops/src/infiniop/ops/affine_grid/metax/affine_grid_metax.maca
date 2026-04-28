@@ -1,0 +1,192 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "affine_grid_metax.h"
+#include <cmath>
+#include <cstdio>
+#include <vector>
+
+#include "../../../tensor.h"
+#include "../cuda/kernel.cuh"
+
+namespace op::affine_grid::metax {
+
+// ==================================================================
+// Kernel: Index-Based Double Precision (Maximum Accuracy)
+// ==================================================================
+__global__ void affine_grid_kernel_f32_double_index(
+    float *__restrict__ output,
+    const float *__restrict__ theta,
+    int N, int H, int W, int align_corners_int,
+    int in_s_n, int in_s_h, int in_s_w,
+    int out_s_n, int out_s_h, int out_s_w, int out_s_c) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_elements = N * H * W;
+
+    if (idx >= total_elements) {
+        return;
+    }
+
+    // 1. 索引分解
+    int w_idx = idx % W;
+    int temp = idx / W;
+    int h_idx = temp % H;
+    int n_idx = temp / H;
+
+    // 2. 坐标生成 (Double Precision + Index Formula)
+    double x, y;
+
+    if (align_corners_int == 1) {
+        // align_corners = True
+        // Formula: (i * 2) / (N - 1) - 1
+        if (W > 1) {
+            x = ((double)w_idx * 2.0) / (double)(W - 1) - 1.0;
+        } else {
+            x = 0.0;
+        }
+
+        if (H > 1) {
+            y = ((double)h_idx * 2.0) / (double)(H - 1) - 1.0;
+        } else {
+            y = 0.0;
+        }
+    } else {
+        // align_corners = False
+        // Formula: (2 * i + 1) / N - 1
+        x = ((double)(2 * w_idx + 1)) / (double)W - 1.0;
+        y = ((double)(2 * h_idx + 1)) / (double)H - 1.0;
+    }
+
+    // 3. 读取 Theta (Convert to Double)
+    int theta_base = n_idx * in_s_n;
+    double r00 = (double)theta[theta_base + 0 * in_s_h + 0 * in_s_w];
+    double r01 = (double)theta[theta_base + 0 * in_s_h + 1 * in_s_w];
+    double tx = (double)theta[theta_base + 0 * in_s_h + 2 * in_s_w];
+
+    double r10 = (double)theta[theta_base + 1 * in_s_h + 0 * in_s_w];
+    double r11 = (double)theta[theta_base + 1 * in_s_h + 1 * in_s_w];
+    double ty = (double)theta[theta_base + 1 * in_s_h + 2 * in_s_w];
+
+    double grid_x = r00 * x + r01 * y + tx;
+    double grid_y = r10 * x + r11 * y + ty;
+
+    // 5. 结果写入 (Cast back to float)
+    int out_base = n_idx * out_s_n + h_idx * out_s_h + w_idx * out_s_w;
+    output[out_base + 0 * out_s_c] = (float)grid_x;
+    output[out_base + 1 * out_s_c] = (float)grid_y;
+}
+
+// ==================================================================
+// Launch Helper & Descriptor
+// ==================================================================
+template <typename T>
+void launch_kernel(
+    void *output, const void *input, size_t batch, size_t height, size_t width, bool align_corners,
+    void *stream, const int64_t *in_strides = nullptr, const int64_t *out_strides = nullptr) {
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+    size_t total_elements = batch * height * width;
+    size_t block_size = 256;
+    size_t grid_size = (total_elements + block_size - 1) / block_size;
+
+    if constexpr (std::is_same_v<T, float>) {
+
+        auto out_ptr = reinterpret_cast<float *>(output);
+        auto in_ptr = reinterpret_cast<const float *>(input);
+        int align_corners_i32 = align_corners ? 1 : 0;
+
+        int is_n = 6, is_h = 3, is_w = 1;
+        if (in_strides) {
+            is_n = (int)in_strides[0];
+            is_h = (int)in_strides[1];
+            is_w = (int)in_strides[2];
+        }
+
+        int os_n = height * width * 2, os_h = width * 2, os_w = 2, os_c = 1;
+        if (out_strides) {
+            os_n = (int)out_strides[0];
+            os_h = (int)out_strides[1];
+            os_w = (int)out_strides[2];
+            os_c = (int)out_strides[3];
+        }
+
+        affine_grid_kernel_f32_double_index<<<grid_size, block_size, 0, hc_stream>>>(
+            out_ptr, in_ptr, (int)batch, (int)height, (int)width, align_corners_i32,
+            is_n, is_h, is_w, os_n, os_h, os_w, os_c);
+    } else {
+        // [FP16 / BF16 路径] 使用通用模板
+        auto out_ptr = reinterpret_cast<T *>(output);
+        auto in_ptr = reinterpret_cast<const T *>(input);
+        op::affine_grid::cuda::affine_grid_kernel<T><<<grid_size, block_size, 0, hc_stream>>>(
+            out_ptr, in_ptr, batch, height, width, align_corners);
+    }
+}
+
+// ==================================================================
+// Descriptor Implementation
+// ==================================================================
+struct Descriptor::Opaque {
+    std::shared_ptr<device::metax::Handle::Internal> internal;
+    std::vector<int64_t> in_strides;
+    std::vector<int64_t> out_strides;
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_, Descriptor **desc_ptr, infiniopTensorDescriptor_t out_desc, infiniopTensorDescriptor_t in_desc, bool align_corners) {
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+    auto info_result = AffineGridInfo::create(out_desc, in_desc, align_corners);
+    if (!info_result) {
+        return info_result.status();
+    }
+    auto opaque = new Opaque{handle->internal()};
+
+    // 获取 Input Strides
+    auto idesc = reinterpret_cast<const InfiniopTensorDescriptor *>(in_desc);
+    if (idesc && idesc->ndim() == 3) {
+        auto s = idesc->strides();
+        for (auto val : s) {
+            opaque->in_strides.push_back((int64_t)val);
+        }
+    }
+    // 获取 Output Strides
+    auto odesc = reinterpret_cast<const InfiniopTensorDescriptor *>(out_desc);
+    if (odesc && odesc->ndim() == 4) {
+        auto s = odesc->strides();
+        for (auto val : s) {
+            opaque->out_strides.push_back((int64_t)val);
+        }
+    }
+    *desc_ptr = new Descriptor(opaque, info_result.take(), 0, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace, size_t workspace_size, void *output, const void *input, void *stream) const {
+    auto dtype = _info.dtype();
+    const int64_t *in_strides_ptr = _opaque->in_strides.empty() ? nullptr : _opaque->in_strides.data();
+    const int64_t *out_strides_ptr = _opaque->out_strides.empty() ? nullptr : _opaque->out_strides.data();
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, input, _info.batch(), _info.height(), _info.width(), _info.align_corners(), stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, input, _info.batch(), _info.height(), _info.width(), _info.align_corners(), stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, input, _info.batch(), _info.height(), _info.width(), _info.align_corners(), stream, in_strides_ptr, out_strides_ptr);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, input, _info.batch(), _info.height(), _info.width(), _info.align_corners(), stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+    return INFINI_STATUS_SUCCESS;
+}
+} // namespace op::affine_grid::metax

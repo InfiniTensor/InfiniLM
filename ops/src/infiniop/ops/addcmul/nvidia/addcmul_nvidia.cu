@@ -1,0 +1,178 @@
+#include "../../../elementwise/nvidia/elementwise_nvidia.cuh"
+#include "../cuda/kernel.cuh"
+#include "addcmul_nvidia.cuh"
+
+namespace op::addcmul::nvidia {
+
+Descriptor::~Descriptor() = default;
+
+// 将 TensorDescriptor 中的 shape/strides 填充到 TensorMeta 结构中
+static inline infiniStatus_t fill_tensor_meta(
+    infiniopTensorDescriptor_t desc,
+    Descriptor::TensorMeta &meta) {
+
+    auto ndim = desc->ndim();
+    if (ndim > Descriptor::MAX_NDIM) {
+        return INFINI_STATUS_NOT_IMPLEMENTED;
+    }
+
+    meta.ndim = static_cast<int>(ndim);
+    const auto &shape = desc->shape();
+    const auto &strides = desc->strides();
+    for (int i = 0; i < meta.ndim; ++i) {
+        meta.shape[i] = shape[i];
+        meta.strides[i] = strides[i];
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    std::vector<infiniopTensorDescriptor_t> input_desc_vec,
+    float value) {
+
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
+    auto dtype = out_desc->dtype();
+
+    // 1. 类型检查
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_BF16, INFINI_DTYPE_F64);
+
+    // 2. 形状检查：要求输出与三个输入形状一致（若不支持广播）
+    const auto &out_shape = out_desc->shape();
+    const auto &input_desc = input_desc_vec.at(0);
+    const auto &t1_desc = input_desc_vec.at(1);
+    const auto &t2_desc = input_desc_vec.at(2);
+    CHECK_SAME_SHAPE(out_shape, input_desc->shape());
+    CHECK_SAME_SHAPE(out_shape, t1_desc->shape());
+    CHECK_SAME_SHAPE(out_shape, t2_desc->shape());
+
+    // 3. 创建底层的 Elementwise CUDA 描述符
+    CREATE_ELEMENTWISE_CUDA_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
+
+    // 4. 记录张量元信息和输出元素个数，供自定义 CUDA kernel 使用
+    auto *desc = *desc_ptr;
+    desc->_output_size = out_desc->numel();
+
+    CHECK_STATUS(fill_tensor_meta(out_desc, desc->_out_meta));
+    CHECK_STATUS(fill_tensor_meta(input_desc, desc->_input_meta));
+    CHECK_STATUS(fill_tensor_meta(t1_desc, desc->_t1_meta));
+    CHECK_STATUS(fill_tensor_meta(t2_desc, desc->_t2_meta));
+
+    // 5. 将标量属性 value 存入 Descriptor 内部
+    desc->_value = value;
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+// 自定义 addcmul CUDA kernel：使用 Descriptor 中的 TensorMeta 做通用 strided 访问
+template <typename T>
+INFINIOP_CUDA_KERNEL addcmul_kernel(
+    size_t output_size,
+    Descriptor::TensorMeta out_meta,
+    Descriptor::TensorMeta in_meta,
+    Descriptor::TensorMeta t1_meta,
+    Descriptor::TensorMeta t2_meta,
+    T *out,
+    const T *input,
+    const T *t1,
+    const T *t2,
+    float value) {
+
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= output_size) {
+        return;
+    }
+
+    // 根据输出 shape/stride 计算各个张量的偏移
+    ptrdiff_t out_offset = 0;
+    ptrdiff_t in_offset = 0;
+    ptrdiff_t t1_offset = 0;
+    ptrdiff_t t2_offset = 0;
+
+    size_t linear = idx;
+    for (int dim = out_meta.ndim - 1; dim >= 0; --dim) {
+        size_t dim_size = out_meta.shape[dim];
+        size_t coord = linear % dim_size;
+        linear /= dim_size;
+
+        out_offset += static_cast<ptrdiff_t>(coord) * out_meta.strides[dim];
+        in_offset += static_cast<ptrdiff_t>(coord) * in_meta.strides[dim];
+        t1_offset += static_cast<ptrdiff_t>(coord) * t1_meta.strides[dim];
+        t2_offset += static_cast<ptrdiff_t>(coord) * t2_meta.strides[dim];
+    }
+
+    T in_val = input[in_offset];
+    T t1_val = t1[t1_offset];
+    T t2_val = t2[t2_offset];
+
+    out[out_offset] = op::addcmul::cuda::AddcmulOp{}(in_val, t1_val, t2_val, value);
+}
+
+template <typename T>
+static inline infiniStatus_t launch_addcmul_kernel(
+    const Descriptor *desc,
+    void *output,
+    const std::vector<const void *> &inputs,
+    void *stream) {
+
+    size_t output_size = desc->_output_size;
+    if (output_size == 0) {
+        return INFINI_STATUS_SUCCESS;
+    }
+
+    auto *out_ptr = reinterpret_cast<T *>(output);
+    auto *in_ptr = reinterpret_cast<const T *>(inputs.at(0));
+    auto *t1_ptr = reinterpret_cast<const T *>(inputs.at(1));
+    auto *t2_ptr = reinterpret_cast<const T *>(inputs.at(2));
+
+    cudaStream_t cuda_stream = reinterpret_cast<cudaStream_t>(stream);
+
+    constexpr uint32_t BLOCK_SIZE = 256;
+    uint32_t grid = static_cast<uint32_t>((output_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    addcmul_kernel<T><<<grid, BLOCK_SIZE, 0, cuda_stream>>>(
+        output_size,
+        desc->_out_meta,
+        desc->_input_meta,
+        desc->_t1_meta,
+        desc->_t2_meta,
+        out_ptr,
+        in_ptr,
+        t1_ptr,
+        t2_ptr,
+        desc->getValue());
+
+    CHECK_CUDA(cudaGetLastError());
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    std::vector<const void *> inputs,
+    void *stream) const {
+
+    // 目前不依赖 workspace 内容，只检查大小是否足够以保持与其他算子一致的接口语义
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    // 直接调用自定义 CUDA kernel，避免通过通用 elementwise 框架
+    switch (_dtype) {
+    case INFINI_DTYPE_F16:
+        return launch_addcmul_kernel<half>(this, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return launch_addcmul_kernel<cuda_bfloat16>(this, output, inputs, stream);
+    case INFINI_DTYPE_F32:
+        return launch_addcmul_kernel<float>(this, output, inputs, stream);
+    case INFINI_DTYPE_F64:
+        return launch_addcmul_kernel<double>(this, output, inputs, stream);
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+}
+} // namespace op::addcmul::nvidia

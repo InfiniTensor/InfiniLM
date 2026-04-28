@@ -1,0 +1,208 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "upsample_nearest_metax.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+
+namespace op::upsample_nearest::metax {
+
+// ==================================================================
+// 1. Device Kernel Implementation
+// ==================================================================
+
+__device__ __forceinline__ int get_nearest_index(
+    int out_index,
+    float scale,
+    int input_size) {
+    // 使用 floorf 计算最近邻索引
+    int idx = static_cast<int>(floorf(out_index * scale));
+    // 边界钳制，防止索引越界
+    return min(max(idx, 0), input_size - 1);
+}
+
+template <typename T>
+__global__ void upsample_nearest_kernel(
+    T *__restrict__ output,      // [N, C, H_out, W_out]
+    const T *__restrict__ input, // [N, C, H_in, W_in]
+    size_t N,
+    size_t C,
+    size_t H_in,
+    size_t W_in,
+    size_t H_out,
+    size_t W_out,
+    float scale_h,   // 预计算的缩放比例 (in_size / out_size)
+    float scale_w) { // 预计算的缩放比例 (in_size / out_size)
+
+    // Grid-Stride Loop: 处理每一个输出元素
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t total_elements = N * C * H_out * W_out;
+    size_t stride = blockDim.x * gridDim.x;
+
+    for (size_t i = idx; i < total_elements; i += stride) {
+        // 1. 解构索引 (N, C, H_out, W_out)
+        // Layout: NCHW
+        size_t w_out_idx = i % W_out;
+        size_t temp = i / W_out;
+        size_t h_out_idx = temp % H_out;
+        temp /= H_out;
+        size_t c_idx = temp % C;
+        size_t n_idx = temp / C;
+
+        // 2. 计算源索引 (Source Indices)
+        int h_in_idx = get_nearest_index(static_cast<int>(h_out_idx), scale_h, static_cast<int>(H_in));
+        int w_in_idx = get_nearest_index(static_cast<int>(w_out_idx), scale_w, static_cast<int>(W_in));
+
+        // 3. 计算输入数据的线性偏移量
+        // Input layout: [N, C, H_in, W_in]
+        size_t in_offset = (n_idx * C + c_idx) * H_in * W_in + h_in_idx * W_in + w_in_idx;
+
+        // 4. 读取并写入数据 (直接赋值，无插值)
+        output[i] = input[in_offset];
+    }
+}
+
+// ==================================================================
+// 2. Host Launch Logic
+// ==================================================================
+
+template <typename T>
+void launch_kernel(
+    void *output,
+    const void *input,
+    const UpsampleNearestInfo &info,
+    void *stream) {
+
+    // 1. Prepare Pointers
+    auto in_ptr = reinterpret_cast<const T *>(input);
+    auto out_ptr = reinterpret_cast<T *>(output);
+
+    // MACA stream conversion
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    // 2. Prepare Dimensions
+    size_t N = info.n();
+    size_t C = info.c();
+    size_t H_in = info.h_in();
+    size_t W_in = info.w_in();
+    size_t H_out = info.h_out();
+    size_t W_out = info.w_out();
+
+    // 3. Pre-compute Scaling Factors on Host
+    // Nearest neighbor scaling: in_size / out_size
+    float scale_h = static_cast<float>(H_in) / H_out;
+    float scale_w = static_cast<float>(W_in) / W_out;
+
+    // 4. Configure Grid/Block
+    // Total number of output elements
+    size_t total_elements = N * C * H_out * W_out;
+    size_t block_size = 256;
+    size_t grid_size = (total_elements + block_size - 1) / block_size;
+
+    // Cap grid size to avoid launch failures on huge tensors
+    // MetaX/CUDA grid limitation
+    if (grid_size > 65535) {
+        grid_size = 65535;
+    }
+
+    upsample_nearest_kernel<T>
+        <<<grid_size, block_size, 0, hc_stream>>>(
+            out_ptr,
+            in_ptr,
+            N, C, H_in, W_in, H_out, W_out,
+            scale_h, scale_w);
+}
+
+// ==================================================================
+// 3. Descriptor Implementation
+// ==================================================================
+struct Descriptor::Opaque {};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t input_desc) {
+
+    auto handle_ptr = reinterpret_cast<device::metax::Handle *>(handle);
+    auto info_result = UpsampleNearestInfo::create(out_desc, input_desc);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    // No extra workspace needed for this op
+    size_t workspace_size = 0;
+
+    *desc_ptr = new Descriptor(new Opaque(), info_result.take(), workspace_size, handle_ptr->device, handle_ptr->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    void *stream) const {
+
+    auto dtype = _info.dtype();
+
+    // Verify pointers
+    if (!output || !input) {
+        return INFINI_STATUS_BAD_PARAM;
+    }
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, input, _info, stream);
+        break;
+    // Nearest Neighbor 插值通常也支持整型
+    case INFINI_DTYPE_U8:
+        launch_kernel<uint8_t>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_I8:
+        launch_kernel<int8_t>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_I16:
+        launch_kernel<int16_t>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_U16:
+        launch_kernel<uint16_t>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_I32:
+        launch_kernel<int32_t>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_U32:
+        launch_kernel<uint32_t>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_I64:
+        launch_kernel<int64_t>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_U64:
+        launch_kernel<uint64_t>(output, input, _info, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::upsample_nearest::metax

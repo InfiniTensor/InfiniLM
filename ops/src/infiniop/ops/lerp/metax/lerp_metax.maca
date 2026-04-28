@@ -1,0 +1,297 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+
+#include "lerp_metax.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <vector>
+
+namespace op::lerp::metax {
+
+// ==================================================================
+// Device Helper Functions (Kernel Logic)
+// ==================================================================
+
+// 辅助函数: 广播坐标映射
+// 根据输出的线性索引，结合形状和广播步长，计算输入 Tensor 的物理偏移量
+__device__ __forceinline__ int64_t get_element_offset(
+    size_t linear_idx,
+    int ndim,
+    const int64_t *__restrict__ shape,   // Output Shape
+    const int64_t *__restrict__ strides) // Input Effective Strides
+{
+    int64_t offset = 0;
+    size_t remainder = linear_idx;
+
+// 从倒数第 1 维开始向第 0 维反向重构坐标
+#pragma unroll
+    for (int i = ndim - 1; i >= 0; --i) {
+        int64_t dim_size = shape[i];
+        int64_t coord = remainder % dim_size;
+        remainder /= dim_size;
+
+        // stride 为 0 表示该维度被广播，否则累加物理偏移
+        offset += coord * strides[i];
+    }
+    return offset;
+}
+
+// ==================================================================
+// Kernel: Lerp
+// ==================================================================
+template <typename T>
+__global__ void lerp_kernel(
+    T *__restrict__ output,
+    const T *__restrict__ start,
+    const T *__restrict__ end,
+    const T *__restrict__ weight, // nullptr 表示标量模式
+    float weight_scalar,
+    size_t numel,
+    int ndim,
+    const int64_t *__restrict__ shape,         // Output Shape [ndim]
+    const int64_t *__restrict__ start_strides, // Broadcasted Strides for Start [ndim]
+    const int64_t *__restrict__ end_strides,   // Broadcasted Strides for End [ndim]
+    const int64_t *__restrict__ weight_strides // Broadcasted Strides for Weight [ndim] (Optional)
+) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < numel) {
+        // 1. 计算 Start 和 End 的偏移量 (支持广播)
+        int64_t off_start = get_element_offset(idx, ndim, shape, start_strides);
+        int64_t off_end = get_element_offset(idx, ndim, shape, end_strides);
+
+        float s = static_cast<float>(start[off_start]);
+        float e = static_cast<float>(end[off_end]);
+        float w;
+
+        // 2. 获取权重 (Tensor 或 Scalar)
+        if (weight != nullptr) {
+            int64_t off_weight = get_element_offset(idx, ndim, shape, weight_strides);
+            w = static_cast<float>(weight[off_weight]);
+        } else {
+            w = weight_scalar;
+        }
+
+        // 3. 计算公式: output = start + weight * (end - start)
+        float res = s + w * (e - s);
+
+        output[idx] = static_cast<T>(res);
+    }
+}
+
+// ==================================================================
+// Host Functions
+// ==================================================================
+
+// 定义 Opaque 数据结构
+struct LerpOpaqueData {
+    int ndim;
+
+    // Device Pointers
+    int64_t *d_shape = nullptr;
+    int64_t *d_start_strides = nullptr;
+    int64_t *d_end_strides = nullptr;
+    int64_t *d_weight_strides = nullptr;
+};
+
+// 计算广播后的步长
+static std::vector<int64_t> compute_broadcast_strides(
+    const std::vector<size_t> &out_shape,
+    infiniopTensorDescriptor_t input_desc) {
+
+    int out_ndim = static_cast<int>(out_shape.size());
+    int in_ndim = static_cast<int>(input_desc->ndim());
+
+    const auto &in_shape = input_desc->shape();
+    const auto &in_strides = input_desc->strides();
+
+    std::vector<int64_t> effective_strides(out_ndim, 0);
+
+    for (int i = 0; i < out_ndim; ++i) {
+        int out_idx = out_ndim - 1 - i;
+        int in_idx = in_ndim - 1 - i;
+
+        if (in_idx >= 0) {
+            size_t dim_size = in_shape[in_idx];
+            if (dim_size == 1) {
+                effective_strides[out_idx] = 0; // Broadcast
+            } else {
+                effective_strides[out_idx] = in_strides[in_idx];
+            }
+        } else {
+            effective_strides[out_idx] = 0; // Broadcast new dim
+        }
+    }
+    return effective_strides;
+}
+
+// 上传数据到 Device
+template <typename T>
+static T *upload_to_device(const std::vector<T> &host_vec) {
+    if (host_vec.empty()) {
+        return nullptr;
+    }
+    T *d_ptr = nullptr;
+    size_t size_bytes = host_vec.size() * sizeof(T);
+    hcMalloc(&d_ptr, size_bytes);
+    hcMemcpy(d_ptr, host_vec.data(), size_bytes, hcMemcpyHostToDevice);
+    return d_ptr;
+}
+
+// Kernel Launch Logic
+template <typename T>
+void launch_kernel(
+    void *output,
+    const void *start,
+    const void *end,
+    const void *weight,
+    const LerpInfo &info,
+    const LerpOpaqueData *opaque,
+    void *stream) {
+
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    auto out_ptr = reinterpret_cast<T *>(output);
+    auto start_ptr = reinterpret_cast<const T *>(start);
+    auto end_ptr = reinterpret_cast<const T *>(end);
+
+    const T *weight_ptr = nullptr;
+    float weight_scalar = 0.0f;
+
+    if (info.is_scalar_weight()) {
+        weight_scalar = info.weight_scalar();
+    } else {
+        weight_ptr = reinterpret_cast<const T *>(weight);
+    }
+
+    size_t numel = info.numel();
+    int ndim = opaque->ndim;
+
+    size_t block_size = 256;
+    size_t grid_size = (numel + block_size - 1) / block_size;
+
+    lerp_kernel<T>
+        <<<grid_size, block_size, 0, hc_stream>>>(
+            out_ptr,
+            start_ptr,
+            end_ptr,
+            weight_ptr,
+            weight_scalar,
+            numel,
+            ndim,
+            opaque->d_shape,
+            opaque->d_start_strides,
+            opaque->d_end_strides,
+            opaque->d_weight_strides);
+}
+
+// ==================================================================
+// Descriptor Implementation
+// ==================================================================
+
+struct Descriptor::Opaque : public LerpOpaqueData {};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        if (_opaque->d_shape) {
+            hcFree(_opaque->d_shape);
+        }
+        if (_opaque->d_start_strides) {
+            hcFree(_opaque->d_start_strides);
+        }
+        if (_opaque->d_end_strides) {
+            hcFree(_opaque->d_end_strides);
+        }
+        if (_opaque->d_weight_strides) {
+            hcFree(_opaque->d_weight_strides);
+        }
+        delete _opaque;
+        _opaque = nullptr;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t start_desc,
+    infiniopTensorDescriptor_t end_desc,
+    infiniopTensorDescriptor_t weight_desc,
+    float weight_scalar) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    auto result = LerpInfo::create(out_desc, start_desc, end_desc, weight_desc, weight_scalar);
+    // CHECK_RESULT(result); // 假设有类似的宏或直接检查
+    if (!result) {
+        return result.status();
+    }
+
+    auto info = result.take();
+
+    auto opaque = new Opaque();
+    opaque->ndim = static_cast<int>(out_desc->ndim());
+
+    const auto &shape_vec = out_desc->shape();
+    std::vector<int64_t> host_shape(shape_vec.begin(), shape_vec.end());
+
+    opaque->d_shape = upload_to_device(host_shape);
+
+    std::vector<size_t> shape_dims(host_shape.begin(), host_shape.end());
+
+    auto start_strides = compute_broadcast_strides(shape_dims, start_desc);
+    opaque->d_start_strides = upload_to_device(start_strides);
+
+    auto end_strides = compute_broadcast_strides(shape_dims, end_desc);
+    opaque->d_end_strides = upload_to_device(end_strides);
+
+    if (!info.is_scalar_weight() && weight_desc != nullptr) {
+        auto weight_strides = compute_broadcast_strides(shape_dims, weight_desc);
+        opaque->d_weight_strides = upload_to_device(weight_strides);
+    }
+
+    *desc_ptr = new Descriptor(
+        opaque,
+        info,
+        0,
+        handle->device,
+        handle->device_id);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *start,
+    const void *end,
+    const void *weight,
+    void *stream) const {
+
+    auto dtype = _info.dtype();
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, start, end, weight, _info, _opaque, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, start, end, weight, _info, _opaque, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, start, end, weight, _info, _opaque, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, start, end, weight, _info, _opaque, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::lerp::metax

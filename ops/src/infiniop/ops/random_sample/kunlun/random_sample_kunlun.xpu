@@ -1,0 +1,151 @@
+#include "../../../devices/kunlun/kunlun_common.h"
+#include "../../../devices/kunlun/kunlun_handle.h"
+#include "random_sample_kunlun.h"
+
+#include "../info.h"
+#include "kernel.h"
+
+template <typename Tval, typename Tidx>
+void launchKernel(void *workspace,
+                  void *result,
+                  const void *probs,
+                  float random_val,
+                  float topp,
+                  int topk,
+                  float temperature,
+                  int64_t n,
+                  XPUStream stream) {
+    constexpr unsigned int cluster_num = 8;
+    constexpr unsigned int core_num = 64;
+    char *workspace_value = reinterpret_cast<char *>(workspace);
+    int topk_ = topk <= (int)n ? topk : (int)n;
+    bool dosample = topk_ > 1 && temperature != 0.0f && topp != 0.0f && random_val != 0.0f;
+
+    Tval *values = (Tval *)workspace_value;
+    xpu_memcpy(values, (Tval *)probs, n * sizeof(Tval), XPU_DEVICE_TO_DEVICE);
+    Tval *values_global = values + n;
+    char *workspace_sum = workspace_value + (n + cluster_num * core_num * topk_) * sizeof(Tval);
+    float *sum_global = (float *)workspace_sum;
+    char *workspace_index = workspace_sum + cluster_num * sizeof(float);
+    Tidx *indices = (Tidx *)workspace_index;
+    Tidx *indices_global = indices + n;
+    if (dosample) {
+        randomSampleKernel<cluster_num, core_num, Tval, float, Tidx>
+            <<<cluster_num, core_num, stream>>>((Tidx *)result,
+                                                (Tval *)probs,
+                                                random_val,
+                                                topp,
+                                                n,
+                                                topk_,
+                                                temperature,
+                                                indices,
+                                                values,
+                                                indices_global,
+                                                values_global,
+                                                sum_global);
+    }
+
+    else {
+        argmaxKernel<Tval, Tidx>
+            <<<cluster_num, core_num, stream>>>((Tidx *)result, (Tval *)probs, n,
+                                                indices,
+                                                values,
+                                                indices_global,
+                                                values_global);
+    }
+}
+
+#define LAUNCH_KERNEL(Tval, Tidx) \
+    launchKernel<Tval, Tidx>(workspace, result, probs, random_val, topp, topk, temperature, n, reinterpret_cast<kunlunStream_t>(stream));
+
+namespace op::random_sample::kunlun {
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::kunlun::Handle::Internal> internal;
+};
+
+Descriptor::~Descriptor() {
+    delete _opaque;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t result_desc,
+    infiniopTensorDescriptor_t probs_desc) {
+    auto handle = reinterpret_cast<device::kunlun::Handle *>(handle_);
+
+    auto result = RandomSampleInfo::create(result_desc, probs_desc);
+    CHECK_RESULT(result);
+
+    auto info = result.take();
+
+    int cluster_num = 8;
+    int core_num = 64;
+    int n = probs_desc->numel();
+
+    size_t workspace_size = (n + cluster_num * core_num * n) * (infiniSizeOf(probs_desc->dtype()) + infiniSizeOf(result_desc->dtype())) + cluster_num * sizeof(float);
+    *desc_ptr = new Descriptor(
+        info,
+        workspace_size,
+        new Opaque{handle->internal()},
+        handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+size_t Descriptor::minWorkspaceSize() const {
+    return _min_workspace_size;
+}
+
+infiniStatus_t
+Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *result,
+    const void *probs,
+    float random_val,
+    float topp,
+    int topk,
+    float temperature,
+    void *stream) const {
+
+    if (workspace_size < _min_workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+    int n = (int)_info.n;
+    if (_info.dt_i == INFINI_DTYPE_I32) {
+        switch (_info.dt_p) {
+        case INFINI_DTYPE_F16:
+            LAUNCH_KERNEL(half, int32_t);
+            break;
+        case INFINI_DTYPE_BF16:
+            LAUNCH_KERNEL(bfloat16_t, int32_t);
+            break;
+        case INFINI_DTYPE_F32:
+            LAUNCH_KERNEL(float, int32_t);
+            break;
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+    } else if (_info.dt_i == INFINI_DTYPE_I64) {
+        switch (_info.dt_p) {
+        case INFINI_DTYPE_F16:
+            LAUNCH_KERNEL(half, int64_t);
+            break;
+        case INFINI_DTYPE_BF16:
+            LAUNCH_KERNEL(bfloat16_t, int64_t);
+            break;
+        case INFINI_DTYPE_F32:
+            LAUNCH_KERNEL(float, int64_t);
+            break;
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+    } else {
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::random_sample::kunlun

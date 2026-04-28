@@ -354,10 +354,21 @@ void RankWorker::thread_loop() {
                                 logits = output->logits;
                             }
                         }
-                        // Fall back to eager mode
+                        // Fall back to eager mode.
+                        // Bracket model_->forward with cross-rank barriers so all
+                        // ranks enter and exit the forward call in lock-step.
+                        // On Hygon DCU, divergent first-call JIT-load across ranks
+                        // wedges the DTK HSA loader's BLIT-DMA freeze (one rank's
+                        // freeze stalls; others queue forever); the lock-step
+                        // entry mirrors what PagedCompiler's barrier-bracketed
+                        // capture loop does (paged_compiler.cpp:76,80) and lets
+                        // the eager path reach the same kernel-cache state.
                         if (!logits) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
+                            barrier_->wait();
                             logits = model_->forward(model_args).logits;
+                            infinicore::context::syncStream();
+                            barrier_->wait();
                         }
 
                         // Random sampling (rank 0 only)

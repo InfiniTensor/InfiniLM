@@ -193,6 +193,14 @@ class InferEngine(_infinilm.InferEngine):
         if _measure_and_log_time:
             time_measurements = []
 
+        # For bs=1 decode (seq_len=1), input_offsets is the constant [0, 1];
+        # prebuild once to skip the per-step H2D memcpy.
+        cached_input_offsets = (
+            infinicore.from_list(list(range(initial_batch_size + 1)), dtype=infinicore.int32)
+            if initial_batch_size == 1
+            else None
+        )
+
         block_tables = None
         max_blocks_per_batch = 0
         if self.enable_paged_attn:
@@ -269,9 +277,12 @@ class InferEngine(_infinilm.InferEngine):
                 [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
                 dtype=infinicore.int32,
             )
-            input_offsets = infinicore.from_list(
-                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
-            )
+            if cached_input_offsets is not None and seq_len == 1:
+                input_offsets = cached_input_offsets
+            else:
+                input_offsets = infinicore.from_list(
+                    [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
+                )
 
             output_id = self(
                 input_ids=input_ids,

@@ -1,0 +1,327 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "multi_margin_loss_metax.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+
+
+namespace op::multi_margin_loss::metax {
+
+// ==================================================================
+// 2. Kernel 定义
+// ==================================================================
+
+// Functor: 核心数学逻辑
+struct MultiMarginLossFunctor {
+    int p;
+    float margin;
+
+    __host__ __device__ MultiMarginLossFunctor(int p_val, float margin_val)
+        : p(p_val), margin(margin_val) {}
+
+    // 计算单个 class c 的 loss 分量
+    __device__ __forceinline__ float compute(float diff) const {
+        if (diff > 0.0f) {
+            return (p == 1) ? diff : diff * diff;
+        }
+        return 0.0f;
+    }
+};
+
+// ------------------------------------------------------------------
+// Kernel 1: Elementwise 模式 (Reduction = None)
+// ------------------------------------------------------------------
+template <typename T>
+__global__ void multi_margin_loss_kernel(
+    T *__restrict__ output,             // [N]
+    const T *__restrict__ input,        // [N, C]
+    const int64_t *__restrict__ target, // [N]
+    const T *__restrict__ weight,       // [C] (Optional)
+    size_t N,
+    size_t C,
+    MultiMarginLossFunctor functor) {
+
+    size_t n = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (n < N) {
+        int64_t target_idx = target[n];
+
+        // 越界检查
+        if (target_idx < 0 || target_idx >= static_cast<int64_t>(C)) {
+            output[n] = static_cast<T>(0.0f);
+            return;
+        }
+
+        const T *row_ptr = input + n * C;
+        float target_score = static_cast<float>(row_ptr[target_idx]);
+        float sum_loss = 0.0f;
+
+        for (size_t c = 0; c < C; ++c) {
+            if (c == static_cast<size_t>(target_idx)) {
+                continue;
+            }
+
+            float other_score = static_cast<float>(row_ptr[c]);
+            float diff = functor.margin - target_score + other_score;
+            sum_loss += functor.compute(diff);
+        }
+
+        sum_loss /= static_cast<float>(C);
+
+        if (weight != nullptr) {
+            float w = static_cast<float>(weight[target_idx]);
+            sum_loss *= w;
+        }
+
+        output[n] = static_cast<T>(sum_loss);
+    }
+}
+
+// ------------------------------------------------------------------
+// Kernel 2: Reduction 模式 (Mean / Sum)
+// ------------------------------------------------------------------
+template <typename T>
+__global__ void multi_margin_loss_reduce_kernel(
+    float *output,                      // [1] Accumulator (Float)
+    const T *__restrict__ input,        // [N, C]
+    const int64_t *__restrict__ target, // [N]
+    const T *__restrict__ weight,       // [C]
+    size_t N,
+    size_t C,
+    MultiMarginLossFunctor functor,
+    float scale // Mean: 1/N, Sum: 1.0
+) {
+    // 声明 volatile 共享内存，防止编译器过度优化导致读取旧值
+    // 大小固定为 256，对应 Launch Logic 中的 Block Size
+    __shared__ volatile float shared_mem[256];
+
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+    float local_sum = 0.0f;
+
+    // 1. Grid-Stride Loop: 计算当前线程负责的所有样本的 Loss 总和
+    for (size_t n = idx; n < N; n += stride) {
+        int64_t target_idx = target[n];
+
+        if (target_idx >= 0 && target_idx < static_cast<int64_t>(C)) {
+            const T *row_ptr = input + n * C;
+            float target_score = static_cast<float>(row_ptr[target_idx]);
+            float sample_loss = 0.0f;
+
+            for (size_t c = 0; c < C; ++c) {
+                if (c == static_cast<size_t>(target_idx)) {
+                    continue;
+                }
+
+                float other_score = static_cast<float>(row_ptr[c]);
+                float diff = functor.margin - target_score + other_score;
+                sample_loss += functor.compute(diff);
+            }
+
+            sample_loss /= static_cast<float>(C);
+
+            if (weight != nullptr) {
+                float w = static_cast<float>(weight[target_idx]);
+                sample_loss *= w;
+            }
+
+            local_sum += sample_loss;
+        }
+    }
+
+    // 2. 将线程局部结果存入 Shared Memory
+    unsigned int tid = threadIdx.x;
+    // 初始化整个 shared memory，即使线程数少于 256 也要保证安全
+    if (tid < 256) {
+        shared_mem[tid] = local_sum;
+    }
+    __syncthreads();
+
+    // 3. Block 内树形归约 (Unrolled Tree Reduction)
+    if (tid < 128) {
+        shared_mem[tid] += shared_mem[tid + 128];
+    }
+    __syncthreads();
+    if (tid < 64) {
+        shared_mem[tid] += shared_mem[tid + 64];
+    }
+    __syncthreads();
+    if (tid < 32) {
+        shared_mem[tid] += shared_mem[tid + 32];
+    }
+    __syncthreads();
+    if (tid < 16) {
+        shared_mem[tid] += shared_mem[tid + 16];
+    }
+    __syncthreads();
+    if (tid < 8) {
+        shared_mem[tid] += shared_mem[tid + 8];
+    }
+    __syncthreads();
+    if (tid < 4) {
+        shared_mem[tid] += shared_mem[tid + 4];
+    }
+    __syncthreads();
+    if (tid < 2) {
+        shared_mem[tid] += shared_mem[tid + 2];
+    }
+    __syncthreads();
+    if (tid < 1) {
+        shared_mem[tid] += shared_mem[tid + 1];
+    }
+    __syncthreads();
+
+    // 4. 将 Block 的结果原子累加到全局内存
+    if (tid == 0) {
+        float block_sum = shared_mem[0];
+        atomicAdd(output, block_sum * scale);
+    }
+}
+
+// Kernel 3: 类型转换 (Float -> T)
+template <typename T>
+__global__ void cast_float_to_t(T *output, const float *src) {
+    *output = static_cast<T>(*src);
+}
+
+// ==================================================================
+// 3. Kernel Launch Logic
+// ==================================================================
+template <typename T>
+void launch_kernel(
+    void *output,
+    const void *input,
+    const void *target,
+    const void *weight,
+    void *workspace,
+    const MultiMarginLossInfo &info,
+    void *stream) {
+
+    auto in_ptr = reinterpret_cast<const T *>(input);
+    auto out_ptr = reinterpret_cast<T *>(output);
+    auto tar_ptr = reinterpret_cast<const int64_t *>(target);
+    auto w_ptr = (weight != nullptr) ? reinterpret_cast<const T *>(weight) : nullptr;
+
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    size_t N = info.batch_size();
+    size_t C = info.num_classes();
+    int reduction = info.reduction();
+
+    MultiMarginLossFunctor functor(info.p(), info.margin());
+
+    // ------------------------------------------
+    // Mode 1: Elementwise (Reduction = None)
+    // ------------------------------------------
+    if (reduction == 0) {
+        size_t block_size = 256;
+        size_t grid_size = (N + block_size - 1) / block_size;
+
+        multi_margin_loss_kernel<T>
+            <<<grid_size, block_size, 0, hc_stream>>>(
+                out_ptr, in_ptr, tar_ptr, w_ptr, N, C, functor);
+    }
+    // ------------------------------------------
+    // Mode 2: Reduction (Mean / Sum)
+    // ------------------------------------------
+    else {
+        // 使用 workspace 作为临时的 float 累加器
+        float *acc_ptr = reinterpret_cast<float *>(workspace);
+        hcMemsetAsync(acc_ptr, 0, sizeof(float), hc_stream);
+
+        float scale = (reduction == 1) ? (1.0f / static_cast<float>(N)) : 1.0f; // 1=Mean, 2=Sum
+
+        // 强制 Block Size 为 256 以匹配 Kernel 内的手写归约逻辑
+        size_t block_size = 256;
+        size_t grid_size = std::min((N + block_size - 1) / block_size, static_cast<size_t>(1024));
+        if (grid_size == 0) {
+            grid_size = 1;
+        }
+
+        multi_margin_loss_reduce_kernel<T>
+            <<<grid_size, block_size, 0, hc_stream>>>(
+                acc_ptr, in_ptr, tar_ptr, w_ptr, N, C, functor, scale);
+
+        // 将 float 结果转回目标类型 T
+        cast_float_to_t<T>
+            <<<1, 1, 0, hc_stream>>>(out_ptr, acc_ptr);
+    }
+}
+
+// ==================================================================
+// 4. Descriptor Implementation
+// ==================================================================
+struct Descriptor::Opaque {};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_, Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t input_desc,
+    infiniopTensorDescriptor_t target_desc,
+    infiniopTensorDescriptor_t weight_desc,
+    int p,
+    float margin,
+    int reduction) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+    auto info_result = MultiMarginLossInfo::create(out_desc, input_desc, target_desc, weight_desc, p, margin, reduction);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    // 如果需要归约，申请 4 字节 workspace 用于 atomicAdd
+    size_t workspace_size = 0;
+    if (reduction != 0) {
+        workspace_size = sizeof(float);
+    }
+
+    *desc_ptr = new Descriptor(new Opaque(), info_result.take(), workspace_size, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    const void *target,
+    const void *weight,
+    void *stream) const {
+
+    auto dtype = _info.dtype();
+    int reduction = _info.reduction();
+
+    if (reduction != 0 && workspace_size < sizeof(float)) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, input, target, weight, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, input, target, weight, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, input, target, weight, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, input, target, weight, workspace, _info, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::multi_margin_loss::metax

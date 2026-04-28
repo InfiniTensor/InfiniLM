@@ -1,0 +1,9 @@
+
+[bench] bs=64 in=256 out=256 n=1280 ok=1280/1280
+  req_throughput  : 1.15 req/s
+  out_token_thrpt : 294.4 tok/s
+  ttft_ms  mean=16156.8  p50=16385.3  p99=19884.3
+  itl_ms   mean=154.47  p50=0.05  p99=3121.74
+  tpot_ms  mean=154.49  p50=154.78  p99=173.75
+  e2el_ms  mean=55392  p50=55243  p99=57233
+{"config": {"model": "9g_8b_thinking", "num_prompts": 1280, "max_concurrency": 64, "random_input_len": 256, "random_output_len": 256, "seed": 42}, "successful_requests": 1280, "failed_requests": 0, "wall_time_s": 1108.5864613410085, "request_throughput_per_s": 1.154623517999345, "output_token_throughput_per_s": 294.38028641016734, "total_output_tokens": 326346, "ttft_ms": {"mean": 16156.772232879666, "p50": 16385.34214044921, "p99": 19884.348459893372, "min": 9568.60160001088, "max": 20226.33817291353}, "itl_ms": {"mean": 154.46591523422694, "p50": 0.04822993651032448, "p99": 3121.741943998495, "min": 0.036349985748529434, "max": 5696.044635027647}, "tpot_ms": {"mean": 154.49467011324464, "p50": 154.77871462976833, "p99": 173.7455244463324, "min": 142.63498522047922, "max": 175.12640163084373}, "e2el_ms": {"mean": 55391.868598060864, "p50": 55243.40212251991, "p99": 57232.83951219753, "min": 53692.68070894759, "max": 57243.24750795495}}

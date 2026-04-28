@@ -1,0 +1,299 @@
+#include "../../../devices/bang/bang_handle.h"
+#include "../../../devices/bang/common_bang.h"
+#include "rearrange_bang.h"
+
+namespace op::rearrange::bang {
+
+struct Descriptor::Opaque {
+    utils::RearrangeMeta meta;
+    size_t element_size;
+    int *d_idx_strides;
+    int *d_dst_strides;
+    int *d_src_strides;
+    bool use_2d_copy; // Flag to indicate if we should use 2D copy kernel
+    int outer_dim;    // For 2D copy: outer dimension size
+    int inner_dim;    // For 2D copy: inner dimension size
+    int dst_stride;   // For 2D copy: destination stride in elements
+    int src_stride;   // For 2D copy: source stride in elements
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        cnrtFree(_opaque->d_idx_strides);
+        cnrtFree(_opaque->d_dst_strides);
+        cnrtFree(_opaque->d_src_strides);
+        delete _opaque;
+    }
+}
+
+// Original kernel for general cases
+__mlu_global__ void rearrange(
+    char *dst,
+    const char *src,
+    const int *idx_strides,
+    const int *dst_strides,
+    const int *src_strides,
+    int ndim,
+    int count,
+    int unit_size) {
+
+    const int task_id = taskId;
+    const int task_dim = taskDimX * taskDimY;
+    const int chunk_size = 256; // Tuned for MLU cache lines
+    const int num_chunks = (count + chunk_size - 1) / chunk_size;
+    const int chunks_per_task = (num_chunks + task_dim - 1) / task_dim;
+    const int start_chunk = task_id * chunks_per_task;
+    const int end_chunk = std::min(start_chunk + chunks_per_task, num_chunks);
+
+    // Prefetch strides into registers
+    int local_idx_strides[8]; // Assume ndim <= 8
+    int local_dst_strides[8];
+    int local_src_strides[8];
+
+#pragma unroll
+    for (int j = 0; j < ndim; ++j) {
+        local_idx_strides[j] = idx_strides[j];
+        local_dst_strides[j] = dst_strides[j];
+        local_src_strides[j] = src_strides[j];
+    }
+
+    // Process chunks in parallel
+    for (int chunk = start_chunk; chunk < end_chunk; ++chunk) {
+        const int start = chunk * chunk_size;
+        const int end = std::min(start + chunk_size, count);
+
+        for (int i = start; i < end; ++i) {
+            int rem = i;
+            int dst_offset = 0;
+            int src_offset = 0;
+
+#pragma unroll
+            for (int j = 0; j < ndim; ++j) {
+                const int k = rem / local_idx_strides[j];
+                dst_offset += k * local_dst_strides[j];
+                src_offset += k * local_src_strides[j];
+                rem %= local_idx_strides[j];
+            }
+
+            switch (unit_size) {
+            case 4: // float
+                *reinterpret_cast<float *>(dst + dst_offset) = *reinterpret_cast<const float *>(src + src_offset);
+                break;
+            case 2: // int16_t
+                *reinterpret_cast<int16_t *>(dst + dst_offset) = *reinterpret_cast<const int16_t *>(src + src_offset);
+                break;
+            default:
+                __memcpy(dst + dst_offset, src + src_offset, unit_size, GDRAM2GDRAM);
+            }
+        }
+    }
+}
+
+__mlu_global__ void rearrange2d(
+    char *dst,
+    const char *src,
+    int outer_dim,
+    int inner_dim,
+    int dst_stride_bytes,
+    int src_stride_bytes,
+    int unit_size) {
+
+    const int task_id = taskId;
+    const int task_dim = taskDimX * taskDimY;
+
+    // Process multiple columns per task instead of rows
+    const int cols_per_task = 16; // Tune this based on performance
+    const int num_col_blocks = (inner_dim + cols_per_task - 1) / cols_per_task;
+    const int blocks_per_task = (num_col_blocks + task_dim - 1) / task_dim;
+    const int start_block = task_id * blocks_per_task;
+    const int end_block = std::min(start_block + blocks_per_task, num_col_blocks);
+
+    for (int block = start_block; block < end_block; ++block) {
+        const int start_col = block * cols_per_task;
+        const int end_col = std::min(start_col + cols_per_task, inner_dim);
+        const int cols_in_block = end_col - start_col;
+
+        // Calculate base addresses for this block
+        const char *src_base = src + start_col * unit_size;
+        char *dst_base = dst + start_col * dst_stride_bytes;
+
+        // Use 3D memcpy to copy all rows for these columns
+        __memcpy(dst_base,
+                 src_base,
+                 unit_size, // Size of each element
+                 GDRAM2GDRAM,
+                 unit_size,          // dst stride between rows (contiguous)
+                 outer_dim - 1,      // Number of rows - 1
+                 dst_stride_bytes,   // dst stride between columns
+                 cols_in_block - 1,  // Number of columns in this block - 1
+                 src_stride_bytes,   // src stride between rows
+                 outer_dim - 1,      // Number of rows - 1
+                 unit_size,          // src stride between columns (contiguous)
+                 cols_in_block - 1); // Number of columns in this block - 1
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x_desc) {
+
+    auto handle = reinterpret_cast<device::bang::Handle *>(handle_);
+    auto dtype = y_desc->dtype();
+    auto ndim = y_desc->ndim();
+
+    // Validate input and output tensors
+    auto y_shape = y_desc->shape();
+    auto x_shape = x_desc->shape();
+    CHECK_OR_RETURN(x_desc->dtype() == dtype, INFINI_STATUS_BAD_TENSOR_DTYPE);
+    CHECK_OR_RETURN(x_desc->ndim() == ndim, INFINI_STATUS_BAD_TENSOR_SHAPE);
+    CHECK_SAME_SHAPE(x_shape, y_shape);
+
+    // Get strides and element size
+    auto dst_strides = y_desc->strides();
+    auto src_strides = x_desc->strides();
+    auto element_size = infiniSizeOf(dtype);
+
+    // Create rearrange meta
+    auto meta_result = utils::RearrangeMeta::create(
+        y_shape.data(),
+        dst_strides.data(),
+        src_strides.data(),
+        ndim,
+        element_size);
+
+    CHECK_RESULT(meta_result);
+
+    // Check if this is a case suitable for 2D copy optimization
+    bool use_2d_copy = false;
+    int outer_dim = 0;
+    int inner_dim = 0;
+    int dst_stride = 0;
+    int src_stride = 0;
+
+    // Only enable 2D copy for pure transpose cases
+    if (ndim == 2) {
+        // Case 1: Full matrix transpose (e.g. (100,100) with strides (1,100) and (100,1))
+        if ((src_strides[0] == 1 && dst_strides[1] == 1 && src_strides[1] == (int)y_shape[0] && dst_strides[0] == (int)y_shape[1])) {
+            use_2d_copy = true;
+            outer_dim = y_shape[0];
+            inner_dim = y_shape[1];
+            dst_stride = dst_strides[0] * element_size;
+            src_stride = src_strides[1] * element_size;
+        }
+    }
+
+    // Convert stride arrays to 32-bit (only needed if not using 2D copy)
+    std::vector<int> idx_strides;
+    std::vector<int> dst_strides_32;
+    std::vector<int> src_strides_32;
+
+    if (!use_2d_copy) {
+        idx_strides.resize(meta_result->ndim());
+        dst_strides_32.resize(meta_result->ndim());
+        src_strides_32.resize(meta_result->ndim());
+
+        for (size_t i = 0; i < meta_result->ndim(); ++i) {
+            idx_strides[i] = static_cast<int>(meta_result->idx_strides()[i]);
+            dst_strides_32[i] = static_cast<int>(meta_result->dst_strides()[i]);
+            src_strides_32[i] = static_cast<int>(meta_result->src_strides()[i]);
+        }
+    }
+
+    // Allocate device memory for strides (only if not using 2D copy)
+    int *d_idx_strides = nullptr;
+    int *d_dst_strides = nullptr;
+    int *d_src_strides = nullptr;
+
+    if (!use_2d_copy) {
+        cnrtRet_t ret;
+        ret = cnrtMalloc((void **)&d_idx_strides, idx_strides.size() * sizeof(int));
+        CHECK_OR_RETURN(ret == cnrtSuccess, INFINI_STATUS_INTERNAL_ERROR);
+        ret = cnrtMalloc((void **)&d_dst_strides, dst_strides_32.size() * sizeof(int));
+        CHECK_OR_RETURN(ret == cnrtSuccess, INFINI_STATUS_INTERNAL_ERROR);
+        ret = cnrtMalloc((void **)&d_src_strides, src_strides_32.size() * sizeof(int));
+        CHECK_OR_RETURN(ret == cnrtSuccess, INFINI_STATUS_INTERNAL_ERROR);
+
+        // Create queue for async operations
+        cnrtQueue_t queue;
+        cnrtQueueCreate(&queue);
+
+        // Copy stride data to device
+        cnrtMemcpyAsync(d_idx_strides, idx_strides.data(),
+                        idx_strides.size() * sizeof(int), queue, cnrtMemcpyHostToDev);
+        cnrtMemcpyAsync(d_dst_strides, dst_strides_32.data(),
+                        dst_strides_32.size() * sizeof(int), queue, cnrtMemcpyHostToDev);
+        cnrtMemcpyAsync(d_src_strides, src_strides_32.data(),
+                        src_strides_32.size() * sizeof(int), queue, cnrtMemcpyHostToDev);
+        cnrtQueueSync(queue);
+        cnrtQueueDestroy(queue);
+    }
+
+    // Create opaque data
+    auto opaque = new Opaque{
+        meta_result.take(),
+        element_size,
+        d_idx_strides,
+        d_dst_strides,
+        d_src_strides,
+        use_2d_copy,
+        outer_dim,
+        inner_dim,
+        dst_stride,
+        src_stride};
+
+    *desc_ptr = new Descriptor(
+        meta_result.take(),
+        opaque,
+        handle->device,
+        handle->device_id);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *y,
+    const void *x,
+    void *stream) const {
+
+    cnrtQueue_t queue = reinterpret_cast<cnrtQueue_t>(stream);
+    auto &meta = _opaque->meta;
+
+    // Use original general-purpose kernel
+    cnrtDim3_t dim;
+    cnrtFunctionType_t func_type;
+
+    dim.x = 4; // Using 4 clusters
+    dim.y = 10;
+    dim.z = 1;
+    func_type = cnrtFuncTypeUnion1;
+
+    if (_opaque->use_2d_copy) {
+        // Use optimized 2D copy kernel
+        rearrange2d<<<dim, func_type, queue>>>(
+            reinterpret_cast<char *>(y),
+            reinterpret_cast<const char *>(x),
+            _opaque->outer_dim,
+            _opaque->inner_dim,
+            _opaque->dst_stride,
+            _opaque->src_stride,
+            static_cast<int>(_opaque->element_size));
+    } else {
+        // Use original general-purpose kernel
+        rearrange<<<dim, func_type, queue>>>(
+            reinterpret_cast<char *>(y),
+            reinterpret_cast<const char *>(x),
+            _opaque->d_idx_strides,
+            _opaque->d_dst_strides,
+            _opaque->d_src_strides,
+            static_cast<int>(meta.ndim()),
+            static_cast<int>(meta.count()),
+            static_cast<int>(meta.unit()));
+    }
+
+    cnrtQueueSync(queue);
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::rearrange::bang

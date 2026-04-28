@@ -1,0 +1,211 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "softplus_metax.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <type_traits>
+
+namespace op::softplus::metax {
+
+struct SoftplusOp {
+    static constexpr size_t num_inputs = 1;
+
+    template <typename T>
+    __device__ __forceinline__ T operator()(const T &x, float beta, float threshold) const {
+        if constexpr (std::is_same_v<T, __half>) {
+            float xf = __half2float(x);
+            float bx = beta * xf;
+            float out = (bx > threshold) ? xf : log1pf(expf(bx)) / beta;
+            return __float2half(out);
+        } else if constexpr (std::is_same_v<T, cuda_bfloat16>) {
+            float xf = __bfloat162float(x);
+            float bx = beta * xf;
+            float out = (bx > threshold) ? xf : log1pf(expf(bx)) / beta;
+            return __float2bfloat16(out);
+        } else {
+            using CalcType = std::conditional_t<std::is_same_v<T, double>, double, float>;
+
+            CalcType x_val = static_cast<CalcType>(x);
+            CalcType b_val = static_cast<CalcType>(beta);
+            CalcType t_val = static_cast<CalcType>(threshold);
+
+            CalcType bx = b_val * x_val;
+
+            if (bx > t_val) {
+                return static_cast<T>(x_val);
+            } else {
+                if constexpr (std::is_same_v<CalcType, double>) {
+                    return static_cast<T>(::log1p(::exp(bx)) / b_val);
+                } else {
+                    return static_cast<T>(::log1pf(::expf(bx)) / b_val);
+                }
+            }
+        }
+    }
+};
+
+static constexpr int MAX_DIMS = 8;
+
+struct TensorMetadata {
+    int ndim;
+    int64_t shape[MAX_DIMS];
+    int64_t strides[MAX_DIMS];
+};
+
+template <typename T>
+__global__ void softplus_kernel_contiguous(
+    T *output,
+    const T *input,
+    size_t n,
+    float beta,
+    float threshold) {
+
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < n) {
+        SoftplusOp functor;
+        output[idx] = functor(input[idx], beta, threshold);
+    }
+}
+
+template <typename T>
+__global__ void softplus_kernel_strided(
+    T *output,
+    const T *input,
+    size_t n,
+    float beta,
+    float threshold,
+    TensorMetadata meta) {
+
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < n) {
+        size_t input_offset = 0;
+        size_t temp_idx = idx;
+
+#pragma unroll
+        for (int d = meta.ndim - 1; d >= 0; --d) {
+            size_t dim_size = meta.shape[d];
+            size_t coord = temp_idx % dim_size;
+            temp_idx /= dim_size;
+            input_offset += coord * meta.strides[d];
+        }
+
+        SoftplusOp functor;
+        output[idx] = functor(input[input_offset], beta, threshold);
+    }
+}
+
+template <typename T>
+void launch_kernel(
+    void *output,
+    const void *input,
+    const SoftplusInfo &info,
+    void *stream) {
+
+    size_t n = info.num_elements();
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    dim3 block(256);
+    dim3 grid((n + block.x - 1) / block.x);
+    if (grid.x == 0) {
+        grid.x = 1;
+    }
+
+    if (info.is_contiguous()) {
+        softplus_kernel_contiguous<T><<<grid, block, 0, hc_stream>>>(
+            reinterpret_cast<T *>(output),
+            reinterpret_cast<const T *>(input),
+            n,
+            info.beta(),
+            info.threshold());
+    } else {
+        TensorMetadata meta;
+        meta.ndim = info.ndim();
+
+        const auto &shape_vec = info.shape();
+        const auto &stride_vec = info.strides();
+
+        for (int i = 0; i < meta.ndim && i < MAX_DIMS; ++i) {
+            meta.shape[i] = shape_vec[i];
+            meta.strides[i] = stride_vec[i];
+        }
+
+        softplus_kernel_strided<T><<<grid, block, 0, hc_stream>>>(
+            reinterpret_cast<T *>(output),
+            reinterpret_cast<const T *>(input),
+            n,
+            info.beta(),
+            info.threshold(),
+            meta);
+    }
+}
+
+struct Descriptor::Opaque {};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+        _opaque = nullptr;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t input_desc,
+    float beta,
+    float threshold) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    auto result = SoftplusInfo::create(out_desc, input_desc, beta, threshold);
+    if (!result) {
+        return result.status();
+    }
+
+    *desc_ptr = new Descriptor(
+        new Opaque(),
+        result.take(),
+        0,
+        handle->device,
+        handle->device_id);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    void *stream) const {
+
+    (void)workspace;
+    (void)workspace_size;
+
+    switch (_info.dtype()) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, input, _info, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::softplus::metax

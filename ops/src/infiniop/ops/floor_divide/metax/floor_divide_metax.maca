@@ -1,0 +1,120 @@
+#include "../../../elementwise/metax/elementwise_metax.h"
+#include "floor_divide_metax.h"
+#include <type_traits>
+
+namespace op::floor_divide::metax {
+
+struct FloorDivideOp {
+    static constexpr size_t num_inputs = 2;
+
+    template <typename T>
+    __device__ __forceinline__ T operator()(const T &a, const T &b) const {
+        // ------------------------------------------------
+        // 1. Half2 向量化
+        // ------------------------------------------------
+        if constexpr (std::is_same_v<T, __half2>) {
+            // MACA: 转为 float2 处理
+            float2 fa = __half22float2(a);
+            float2 fb = __half22float2(b);
+            float2 res;
+            res.x = floorf(fa.x / fb.x);
+            res.y = floorf(fa.y / fb.y);
+            return __float22half2_rn(res);
+        }
+        // ------------------------------------------------
+        // 2. Half 标量
+        // ------------------------------------------------
+        else if constexpr (std::is_same_v<T, __half>) {
+            return __float2half(floorf(__half2float(a) / __half2float(b)));
+        }
+        // ------------------------------------------------
+        // 3. BFloat16
+        // ------------------------------------------------
+        else if constexpr (std::is_same_v<T, cuda_bfloat16>) {
+            float val = __bfloat162float(a) / __bfloat162float(b);
+            return __float2bfloat16(floorf(val));
+        }
+        // ------------------------------------------------
+        // 4. Float / Double
+        // ------------------------------------------------
+        else if constexpr (std::is_same_v<T, float>) {
+            return floorf(a / b);
+        } else if constexpr (std::is_same_v<T, double>) {
+            return floor(a / b);
+        }
+        // ------------------------------------------------
+        // 5. 整数类型 (Int32 / Int64)
+        // ------------------------------------------------
+        else {
+            // Python 语义: 向负无穷取整
+            T res = a / b;
+            T rem = a % b;
+            if (rem != 0 && ((a < 0) ^ (b < 0))) {
+                res -= 1;
+            }
+            return res;
+        }
+    }
+};
+
+// ==================================================================
+// 3. Descriptor 实现
+// ==================================================================
+Descriptor::~Descriptor() = default;
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+    auto dtype = out_desc->dtype();
+
+    const auto &a_desc = input_desc_vec.at(0);
+    const auto &b_desc = input_desc_vec.at(1);
+    const auto &c_shape = out_desc->shape();
+    const auto &a_shape = a_desc->shape();
+    const auto &b_shape = b_desc->shape();
+
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_F64, INFINI_DTYPE_BF16, INFINI_DTYPE_I32, INFINI_DTYPE_I64);
+
+    CHECK_SAME_SHAPE(c_shape, a_shape, b_shape);
+
+    // create Metax elementwise descriptor
+    CREATE_ELEMENTWISE_METAX_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    std::vector<const void *> inputs,
+    void *stream) const {
+
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    switch (_dtype) {
+    case INFINI_DTYPE_F16:
+        return _device_info->calculate<256, FloorDivideOp, __half>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<256, FloorDivideOp, cuda_bfloat16>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F32:
+        return _device_info->calculate<256, FloorDivideOp, float>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F64:
+        return _device_info->calculate<256, FloorDivideOp, double>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_I32:
+        return _device_info->calculate<256, FloorDivideOp, int32_t>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_I64:
+        return _device_info->calculate<256, FloorDivideOp, int64_t>(_info, workspace, output, inputs, stream);
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+} // namespace op::floor_divide::metax

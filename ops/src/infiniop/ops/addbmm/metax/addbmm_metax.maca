@@ -1,0 +1,385 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "addbmm_metax.h"
+#include <algorithm>
+#include <cstdint>
+#include <vector>
+
+namespace op::addbmm::metax {
+
+// ==================================================================
+// 辅助 Kernel
+// ==================================================================
+template <typename T>
+__global__ void copy_tensor_kernel(
+    T *dst,
+    const T *src,
+    int batch, int rows, int cols,
+    int64_t stride_b, int64_t stride_h, int64_t stride_w) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = batch * rows * cols;
+    if (idx >= total) {
+        return;
+    }
+
+    int c = idx % cols;
+    int r = (idx / cols) % rows;
+    int b = idx / (rows * cols);
+
+    int64_t src_offset = b * stride_b + r * stride_h + c * stride_w;
+    dst[idx] = src[src_offset];
+}
+
+template <typename T>
+__global__ void copy_back_kernel(
+    T *dst,
+    const T *src,
+    int rows, int cols,
+    int64_t stride_h, int64_t stride_w) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = rows * cols;
+    if (idx >= total) {
+        return;
+    }
+
+    int c = idx % cols;
+    int r = idx / cols;
+
+    int64_t dst_offset = r * stride_h + c * stride_w;
+    dst[dst_offset] = src[idx];
+}
+
+bool needs_copy(const std::vector<int64_t> &strides, size_t rows, size_t cols) {
+    if (strides.empty()) {
+        return false;
+    }
+
+    int64_t stride_row = strides[strides.size() - 2];
+    int64_t stride_col = strides[strides.size() - 1];
+
+    if (stride_col != 1) {
+        return true;
+    }
+    if (stride_row != static_cast<int64_t>(cols)) {
+        return true;
+    }
+    return false;
+}
+
+std::pair<int64_t, int64_t> get_rc_strides(const std::vector<int64_t> &s) {
+    if (s.size() < 2) {
+        return {0, 1}; // Should not happen
+    }
+    return {s[s.size() - 2], s[s.size() - 1]};
+}
+
+// ==================================================================
+// Descriptor 实现
+// ==================================================================
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::metax::Handle::Internal> internal;
+    bool copy_b1 = false;
+    bool copy_b2 = false;
+    bool copy_out = false;
+    size_t size_b1 = 0;
+    size_t size_b2 = 0;
+    size_t size_out = 0;
+    size_t offset_b1 = 0;
+    size_t offset_b2 = 0;
+    size_t offset_out = 0;
+};
+
+Descriptor::~Descriptor() {
+    delete _opaque;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    std::vector<infiniopTensorDescriptor_t> input_desc_vec,
+    float alpha,
+    float beta) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    if (input_desc_vec.size() != 3) {
+        return INFINI_STATUS_BAD_PARAM;
+    }
+
+    auto in_desc = input_desc_vec[0];
+    auto b1_desc = input_desc_vec[1];
+    auto b2_desc = input_desc_vec[2];
+
+    auto dtype = out_desc->dtype();
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F16, INFINI_DTYPE_F32, INFINI_DTYPE_BF16);
+
+    auto result = AddbmmInfo::create(out_desc, in_desc, b1_desc, b2_desc, alpha, beta);
+    CHECK_RESULT(result);
+    auto info = result.take();
+
+    auto opaque = new Opaque{handle->internal()};
+
+    size_t dtype_size = (dtype == INFINI_DTYPE_F32) ? 4 : 2;
+    size_t total_workspace = 0;
+
+    // B1: (b, n, m)
+    if (needs_copy(info.b1_strides(), info.n(), info.m())) {
+        opaque->copy_b1 = true;
+        opaque->size_b1 = info.b() * info.n() * info.m() * dtype_size;
+        opaque->offset_b1 = total_workspace;
+        total_workspace += opaque->size_b1;
+        total_workspace = (total_workspace + 255) / 256 * 256;
+    }
+
+    // B2: (b, m, p)
+    if (needs_copy(info.b2_strides(), info.m(), info.p())) {
+        opaque->copy_b2 = true;
+        opaque->size_b2 = info.b() * info.m() * info.p() * dtype_size;
+        opaque->offset_b2 = total_workspace;
+        total_workspace += opaque->size_b2;
+        total_workspace = (total_workspace + 255) / 256 * 256;
+    }
+
+    // Out: (n, p)
+    if (needs_copy(info.out_strides(), info.n(), info.p())) {
+        opaque->copy_out = true;
+        opaque->size_out = info.n() * info.p() * dtype_size;
+        opaque->offset_out = total_workspace;
+        total_workspace += opaque->size_out;
+    }
+
+    *desc_ptr = new Descriptor(opaque, info, total_workspace, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    std::vector<const void *> inputs,
+    void *stream) const {
+
+    if (inputs.size() != 3) {
+        return INFINI_STATUS_BAD_PARAM;
+    }
+
+    const void *input_ptr = inputs[0];
+    const void *b1_ptr = inputs[1];
+    const void *b2_ptr = inputs[2];
+    auto hc_stream = (hcStream_t)stream;
+
+    decltype(HPCC_R_32F) a_type, b_type, c_type;
+    hcblasComputeType_t compute_type;
+
+    switch (_info.dtype()) {
+    case INFINI_DTYPE_F16:
+        a_type = b_type = c_type = HPCC_R_16F;
+        compute_type = HCBLAS_COMPUTE_32F;
+        break;
+    case INFINI_DTYPE_BF16:
+        a_type = b_type = c_type = HPCC_R_16BF;
+        compute_type = HCBLAS_COMPUTE_32F;
+        break;
+    case INFINI_DTYPE_F32:
+        a_type = b_type = c_type = HPCC_R_32F;
+        compute_type = HCBLAS_COMPUTE_32F;
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    char *ws_base = (char *)workspace;
+
+    // --- 准备 B1 ---
+    const void *b1_active = b1_ptr;
+
+    long long strideb_blas = _info.b1_strides()[0];
+    int ldb_blas = static_cast<int>(_info.b1_strides()[1]);
+
+    if (_opaque->copy_b1) {
+        void *b1_ws = ws_base + _opaque->offset_b1;
+        size_t total = _info.b() * _info.n() * _info.m();
+        size_t block = 256;
+        size_t grid = (total + block - 1) / block;
+
+        // 提取 stride
+        auto &s = _info.b1_strides();
+        int64_t sb = s[0], sh = s[1], sw = s[2];
+
+        if (_info.dtype() == INFINI_DTYPE_F32) {
+            copy_tensor_kernel<float><<<grid, block, 0, hc_stream>>>(
+                (float *)b1_ws, (const float *)b1_ptr,
+                _info.b(), _info.n(), _info.m(), sb, sh, sw);
+        } else if (_info.dtype() == INFINI_DTYPE_F16) {
+            copy_tensor_kernel<half><<<grid, block, 0, hc_stream>>>(
+                (half *)b1_ws, (const half *)b1_ptr,
+                _info.b(), _info.n(), _info.m(), sb, sh, sw);
+        } else {
+            copy_tensor_kernel<cuda_bfloat16><<<grid, block, 0, hc_stream>>>(
+                (cuda_bfloat16 *)b1_ws, (const cuda_bfloat16 *)b1_ptr,
+                _info.b(), _info.n(), _info.m(), sb, sh, sw);
+        }
+        b1_active = b1_ws;
+        strideb_blas = _info.n() * _info.m();
+        ldb_blas = _info.m();
+    }
+
+    // --- 准备 B2 ---
+    const void *b2_active = b2_ptr;
+    long long stridea_blas = _info.b2_strides()[0];
+    int lda_blas = static_cast<int>(_info.b2_strides()[1]);
+
+    if (_opaque->copy_b2) {
+        void *b2_ws = ws_base + _opaque->offset_b2;
+        size_t total = _info.b() * _info.m() * _info.p();
+        size_t block = 256;
+        size_t grid = (total + block - 1) / block;
+
+        auto &s = _info.b2_strides();
+        int64_t sb = s[0], sh = s[1], sw = s[2];
+
+        if (_info.dtype() == INFINI_DTYPE_F32) {
+            copy_tensor_kernel<float><<<grid, block, 0, hc_stream>>>(
+                (float *)b2_ws, (const float *)b2_ptr,
+                _info.b(), _info.m(), _info.p(), sb, sh, sw);
+        } else if (_info.dtype() == INFINI_DTYPE_F16) {
+            copy_tensor_kernel<half><<<grid, block, 0, hc_stream>>>(
+                (half *)b2_ws, (const half *)b2_ptr,
+                _info.b(), _info.m(), _info.p(), sb, sh, sw);
+        } else {
+            copy_tensor_kernel<cuda_bfloat16><<<grid, block, 0, hc_stream>>>(
+                (cuda_bfloat16 *)b2_ws, (const cuda_bfloat16 *)b2_ptr,
+                _info.b(), _info.m(), _info.p(), sb, sh, sw);
+        }
+        b2_active = b2_ws;
+        stridea_blas = _info.m() * _info.p();
+        lda_blas = _info.p();
+    }
+
+    // --- 准备 Output / Input(Beta) ---
+    void *out_active = output;
+
+    auto out_rc = get_rc_strides(_info.out_strides());
+    int ldc_blas = static_cast<int>(out_rc.first); // Row Stride
+
+    if (_opaque->copy_out) {
+        out_active = ws_base + _opaque->offset_out;
+        ldc_blas = _info.p();
+
+        size_t total = _info.n() * _info.p();
+        size_t block = 256;
+        size_t grid = (total + block - 1) / block;
+
+        auto in_rc = get_rc_strides(_info.in_strides());
+
+        if (_info.dtype() == INFINI_DTYPE_F32) {
+            copy_tensor_kernel<float><<<grid, block, 0, hc_stream>>>(
+                (float *)out_active, (const float *)input_ptr,
+                1, _info.n(), _info.p(),
+                0, in_rc.first, in_rc.second);
+        } else if (_info.dtype() == INFINI_DTYPE_F16) {
+            copy_tensor_kernel<half><<<grid, block, 0, hc_stream>>>(
+                (half *)out_active, (const half *)input_ptr,
+                1, _info.n(), _info.p(),
+                0, in_rc.first, in_rc.second);
+        } else {
+            copy_tensor_kernel<cuda_bfloat16><<<grid, block, 0, hc_stream>>>(
+                (cuda_bfloat16 *)out_active, (const cuda_bfloat16 *)input_ptr,
+                1, _info.n(), _info.p(),
+                0, in_rc.first, in_rc.second);
+        }
+    } else {
+        if (output != input_ptr) {
+            size_t total = _info.n() * _info.p();
+            size_t block = 256;
+            size_t grid = (total + block - 1) / block;
+
+            // [修复] 强制使用 kernel copy，并安全获取 stride
+            auto in_rc = get_rc_strides(_info.in_strides());
+
+            if (_info.dtype() == INFINI_DTYPE_F32) {
+                copy_tensor_kernel<float><<<grid, block, 0, hc_stream>>>(
+                    (float *)output, (const float *)input_ptr,
+                    1, _info.n(), _info.p(),
+                    0, in_rc.first, in_rc.second);
+            } else if (_info.dtype() == INFINI_DTYPE_F16) {
+                copy_tensor_kernel<half><<<grid, block, 0, hc_stream>>>(
+                    (half *)output, (const half *)input_ptr,
+                    1, _info.n(), _info.p(),
+                    0, in_rc.first, in_rc.second);
+            } else {
+                copy_tensor_kernel<cuda_bfloat16><<<grid, block, 0, hc_stream>>>(
+                    (cuda_bfloat16 *)output, (const cuda_bfloat16 *)input_ptr,
+                    1, _info.n(), _info.p(),
+                    0, in_rc.first, in_rc.second);
+            }
+        }
+    }
+
+    // --- 执行 BLAS 计算 ---
+    int m_blas = static_cast<int>(_info.p());
+    int n_blas = static_cast<int>(_info.n());
+    int k_blas = static_cast<int>(_info.m());
+    float alpha = _info.alpha();
+    float beta_user = _info.beta();
+    size_t batch_size = _info.b();
+    int data_width = (_info.dtype() == INFINI_DTYPE_F32 ? 4 : 2);
+
+    CHECK_STATUS(_opaque->internal->useMcblas(
+        (hcStream_t)stream,
+        [&](hcblasHandle_t handle) {
+            for (size_t i = 0; i < batch_size; ++i) {
+                float current_beta = (i == 0) ? beta_user : 1.0f;
+
+                const void *curr_b2 = static_cast<const char *>(b2_active) + i * stridea_blas * data_width;
+                const void *curr_b1 = static_cast<const char *>(b1_active) + i * strideb_blas * data_width;
+
+                hcblasGemmEx(
+                    handle,
+                    HCBLAS_OP_N, HCBLAS_OP_N,
+                    m_blas, n_blas, k_blas,
+                    &alpha,
+                    curr_b2, a_type, lda_blas,
+                    curr_b1, b_type, ldb_blas,
+                    &current_beta,
+                    out_active, c_type, ldc_blas,
+                    compute_type,
+                    HCBLAS_GEMM_DEFAULT);
+            }
+            return INFINI_STATUS_SUCCESS;
+        }));
+
+    // --- 拷回结果 ---
+    if (_opaque->copy_out) {
+        size_t total = _info.n() * _info.p();
+        size_t block = 256;
+        size_t grid = (total + block - 1) / block;
+
+        // [修复] 安全获取 output stride
+        auto out_rc = get_rc_strides(_info.out_strides());
+
+        if (_info.dtype() == INFINI_DTYPE_F32) {
+            copy_back_kernel<float><<<grid, block, 0, hc_stream>>>(
+                (float *)output, (const float *)out_active,
+                _info.n(), _info.p(),
+                out_rc.first, out_rc.second);
+        } else if (_info.dtype() == INFINI_DTYPE_F16) {
+            copy_back_kernel<half><<<grid, block, 0, hc_stream>>>(
+                (half *)output, (const half *)out_active,
+                _info.n(), _info.p(),
+                out_rc.first, out_rc.second);
+        } else {
+            copy_back_kernel<cuda_bfloat16><<<grid, block, 0, hc_stream>>>(
+                (cuda_bfloat16 *)output, (const cuda_bfloat16 *)out_active,
+                _info.n(), _info.p(),
+                out_rc.first, out_rc.second);
+        }
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::addbmm::metax

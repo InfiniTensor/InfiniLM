@@ -1,0 +1,108 @@
+#include "../../../devices/kunlun/kunlun_common.h"
+#include "../../../devices/kunlun/kunlun_handle.h"
+#include "../../../devices/kunlun/kunlun_kernel_common.h"
+#include "kernel.h"
+#include "topkrouter_kunlun.h"
+#include <memory>
+#include <stdint.h>
+
+namespace op::topkrouter::kunlun {
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::kunlun::Handle::Internal> internal;
+};
+
+Descriptor::~Descriptor() {
+    delete _opaque;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t x_desc,
+    infiniopTensorDescriptor_t correction_bias_desc) {
+    auto result = TopkrouterInfo::create(x_desc);
+    CHECK_RESULT(result);
+    auto info = result.take();
+
+    if (info.x_strides[1] != 1) {
+        return INFINI_STATUS_BAD_TENSOR_STRIDES;
+    }
+
+    *desc_ptr = new Descriptor(
+        new Opaque{reinterpret_cast<device::kunlun::Handle *>(handle)->internal()},
+        std::move(info),
+        0,
+        handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+template <int BLOCK_SIZE = 64>
+infiniStatus_t launch_topkrouter(float *d_values_out, int *d_indices_out, const void *d_input, const float *d_correction_bias,
+                                 const float routed_scaling_factor, const size_t N, const size_t width, const size_t topk, infiniDtype_t xtype,
+                                 kunlunStream_t stream) {
+
+    if (xtype == INFINI_DTYPE_F32) {
+        topkrouter_kernel<float, BLOCK_SIZE, 256, 8, 4, 2>
+            <<<N, BLOCK_SIZE, stream>>>(
+                d_values_out,
+                d_indices_out,
+                (float *)d_input,
+                (const float *)d_correction_bias,
+                routed_scaling_factor,
+                N,
+                width,
+                topk);
+    } else if (xtype == INFINI_DTYPE_F16) {
+        topkrouter_kernel<half, BLOCK_SIZE, 256, 8, 4, 2>
+            <<<N, BLOCK_SIZE, stream>>>(
+                d_values_out,
+                d_indices_out,
+                (half *)d_input,
+                (const float *)d_correction_bias,
+                routed_scaling_factor,
+                N,
+                width,
+                topk);
+    } else if (xtype == INFINI_DTYPE_BF16) {
+        topkrouter_kernel<bfloat16_t, BLOCK_SIZE, 256, 8, 4, 2>
+            <<<N, BLOCK_SIZE, stream>>>(
+                d_values_out,
+                d_indices_out,
+                (bfloat16_t *)d_input,
+                (const float *)d_correction_bias,
+                routed_scaling_factor,
+                N,
+                width,
+                topk);
+    } else {
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    float *values,
+    int *indices,
+    const void *x,
+    const float *correction_bias,
+    const float routed_scaling_factor,
+    const size_t topk,
+    void *stream) const {
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    size_t N = _info.N;
+    size_t width = _info.width;
+
+    auto kunlun_stream = reinterpret_cast<kunlunStream_t>(stream);
+
+    launch_topkrouter<64>(values, indices, x, correction_bias, routed_scaling_factor, N, width, topk, _info.xtype, kunlun_stream);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::topkrouter::kunlun

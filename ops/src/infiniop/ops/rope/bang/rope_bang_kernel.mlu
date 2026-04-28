@@ -1,0 +1,213 @@
+#include "../../../devices/bang/common_bang.h"
+#include "rope_bang.h"
+
+__nram__ char nram_buffer[NRAM_MAX_SIZE];
+
+template <typename Tdata>
+__mlu_device__ void calculateRope(
+    Tdata *out, const Tdata *in,
+    const Tdata *sin_table, const Tdata *cos_table,
+    Tdata *sin_cache, Tdata *cos_cache,
+    Tdata *x1sin, Tdata *x0cos, Tdata *x0sin, Tdata *x1cos,
+    Tdata *input_0, Tdata *input_1, Tdata *input_cache,
+    int theta_index, int out_index, int in_index,
+    int chunk_size, int half_chunk_size, int data_segsize,
+    int src_load_stride, int dst_load_stride, int src_write_stride, int dst_write_stride,
+    bool is_gpt_j_style) {
+
+    // Load sin/cos data
+    __memcpy(sin_cache, sin_table + theta_index, half_chunk_size * sizeof(Tdata), GDRAM2NRAM);
+    __memcpy(cos_cache, cos_table + theta_index, half_chunk_size * sizeof(Tdata), GDRAM2NRAM);
+
+    // Load input data
+    __memcpy(input_cache, in + in_index, chunk_size * sizeof(Tdata), GDRAM2NRAM);
+
+    if (is_gpt_j_style) {
+        // GPT-J: (x0, x1), (x2, x3), ...
+        // Split input into even and odd positions
+        __memcpy(input_0, input_cache, data_segsize, NRAM2NRAM, dst_load_stride, src_load_stride, half_chunk_size - 1);
+        __memcpy(input_1, input_cache + 1, data_segsize, NRAM2NRAM, dst_load_stride, src_load_stride, half_chunk_size - 1);
+    } else {
+        // GPT-NeoX: (x0...xd/2-1), (xd/2...xd-1)
+        __memcpy(input_0, input_cache, half_chunk_size * sizeof(Tdata), NRAM2NRAM);
+        __memcpy(input_1, input_cache + half_chunk_size, half_chunk_size * sizeof(Tdata), NRAM2NRAM);
+    }
+
+    // Compute rotations
+    __bang_mul(x0cos, input_0, cos_cache, half_chunk_size);
+    __bang_mul(x1sin, input_1, sin_cache, half_chunk_size);
+    __bang_mul(x0sin, input_0, sin_cache, half_chunk_size);
+    __bang_mul(x1cos, input_1, cos_cache, half_chunk_size);
+    __bang_sub(input_0, x0cos, x1sin, half_chunk_size);
+    __bang_add(input_1, x0sin, x1cos, half_chunk_size);
+
+    if (is_gpt_j_style) {
+        // GPT-J
+        __memcpy(input_cache, input_0, data_segsize, NRAM2NRAM, dst_write_stride, src_write_stride, half_chunk_size - 1);
+        __memcpy(input_cache + 1, input_1, data_segsize, NRAM2NRAM, dst_write_stride, src_write_stride, half_chunk_size - 1);
+    } else {
+        // GPT-NeoX
+        __memcpy(input_cache, input_0, half_chunk_size * sizeof(Tdata), NRAM2NRAM);
+        __memcpy(input_cache + half_chunk_size, input_1, half_chunk_size * sizeof(Tdata), NRAM2NRAM);
+    }
+
+    // Write back results
+    __memcpy(out + out_index, input_cache, chunk_size * sizeof(Tdata), NRAM2GDRAM);
+}
+
+template <typename Tdata, typename Tindex>
+__mlu_global__ void ropeKernel(
+    Tdata *y,
+    const Tdata *x,
+    const Tindex *pos_ids,
+    const Tdata *sin_table,
+    const Tdata *cos_table,
+    uint32_t batch_size,
+    uint32_t seqlen,
+    uint32_t nhead,
+    uint32_t table_dim,
+    ptrdiff_t y_stride_batch,
+    ptrdiff_t y_stride_seqlen,
+    ptrdiff_t y_stride_nhead,
+    ptrdiff_t x_stride_batch,
+    ptrdiff_t x_stride_seqlen,
+    ptrdiff_t x_stride_nhead,
+    infiniopRoPEAlgo_t algo) {
+
+    const bool is_gpt_j_style = (algo == INFINIOP_ROPE_ALGO_GPT_J);
+
+    // Calculate available NRAM space after alignment
+    const size_t nram_usable = NRAM_MAX_SIZE - (ALIGN_SIZE * 9);
+    const size_t max_chunk_elements = nram_usable / (9 * sizeof(Tdata));
+
+    // Key variables that determine execution path
+    const bool use_pos_ids_buffer = (seqlen * sizeof(Tindex) <= (nram_usable / 2));
+
+    int half_chunk_size;
+    if (is_gpt_j_style) {
+        half_chunk_size = std::min((int)(max_chunk_elements / 2), (int)table_dim);
+    } else {
+        half_chunk_size = std::min((int)(max_chunk_elements / 2), (int)table_dim);
+    }
+
+    int data_segsize, src_load_stride, dst_load_stride, src_write_stride, dst_write_stride;
+
+    if (is_gpt_j_style) {
+        // GPT-J
+        data_segsize = sizeof(Tdata);
+        src_load_stride = 2 * sizeof(Tdata);
+        dst_load_stride = 1 * sizeof(Tdata);
+        src_write_stride = 1 * sizeof(Tdata);
+        dst_write_stride = 2 * sizeof(Tdata);
+    } else {
+        // GPT-NeoX
+        data_segsize = half_chunk_size * sizeof(Tdata);
+        src_load_stride = 1 * sizeof(Tdata);
+        dst_load_stride = 1 * sizeof(Tdata);
+        src_write_stride = 1 * sizeof(Tdata);
+        dst_write_stride = 1 * sizeof(Tdata);
+    }
+
+    // Task distribution
+    const int batch_volume = batch_size * seqlen * nhead;
+    const int remaining_tasks = batch_volume % taskDim;
+    const int base_tasks_per_core = batch_volume / taskDim;
+    const int actual_tasks = base_tasks_per_core + (taskId < remaining_tasks ? 1 : 0);
+    const int task_start_idx = (taskId < remaining_tasks ? taskId * base_tasks_per_core + taskId : taskId * base_tasks_per_core + remaining_tasks);
+
+    // NRAM buffer allocation with proper alignment
+    char *aligned_nram = (char *)(((size_t)nram_buffer + ALIGN_SIZE - 1) & ~(ALIGN_SIZE - 1));
+
+    // Setup position IDs if they fit in NRAM
+    Tindex *srcP = nullptr;
+    if (use_pos_ids_buffer) {
+        srcP = (Tindex *)aligned_nram;
+        __memcpy(srcP, pos_ids, seqlen * sizeof(Tindex), GDRAM2NRAM);
+        aligned_nram = (char *)(((size_t)srcP + seqlen * sizeof(Tindex) + ALIGN_SIZE - 1) & ~(ALIGN_SIZE - 1));
+    }
+
+    // Main processing buffers (pointers will be set per chunk)
+    Tdata *sin_cache = nullptr;
+    Tdata *cos_cache = nullptr;
+    Tdata *x1sin = nullptr;
+    Tdata *x0cos = nullptr;
+    Tdata *x0sin = nullptr;
+    Tdata *x1cos = nullptr;
+    Tdata *input_0 = nullptr;
+    Tdata *input_1 = nullptr;
+    Tdata *input_cache = nullptr;
+
+    // Main processing loop
+    for (int i = task_start_idx; i < task_start_idx + actual_tasks; i++) {
+        // Calculate 3D indices from flattened task index
+        int batch_idx = i / (seqlen * nhead);
+        int seq_idx = (i % (seqlen * nhead)) / nhead;
+        int head_idx = i % nhead;
+
+        // Calculate offsets with batch dimension
+        // Note: For GPT-NeoX, the stride calculations might be different
+        int out_offset = batch_idx * y_stride_batch + seq_idx * y_stride_seqlen + head_idx * y_stride_nhead;
+        int in_offset = batch_idx * x_stride_batch + seq_idx * x_stride_seqlen + head_idx * x_stride_nhead;
+
+        // Get position index for this sequence
+        // Position IDs are shared across batches or per batch depending on input
+        Tindex pos_idx;
+        if (use_pos_ids_buffer) {
+            // Position IDs loaded in NRAM
+            pos_idx = srcP[seq_idx];
+        } else {
+            // Position IDs in global memory
+            // Handle both cases: position IDs shape could be [seqlen] or [batch_size, seqlen]
+            if (batch_size > 1) {
+                // Assume position IDs have shape [batch_size, seqlen]
+                int pos_flat_idx = batch_idx * seqlen + seq_idx;
+                pos_idx = pos_ids[pos_flat_idx];
+            } else {
+                // Single batch case: position IDs shape is [seqlen]
+                pos_idx = pos_ids[seq_idx];
+            }
+        }
+
+        int rot_offset = pos_idx * table_dim;
+
+        int processed = 0;
+        while (processed < table_dim) {
+            int current_half_chunk = std::min<uint32_t>(half_chunk_size, table_dim - processed);
+            int current_chunk_size = 2 * current_half_chunk;
+            int theta_offset = rot_offset + processed;
+
+            int dst_offset, src_offset;
+            if (is_gpt_j_style) {
+                dst_offset = out_offset + processed * 2;
+                src_offset = in_offset + processed * 2;
+            } else {
+                dst_offset = out_offset + processed;
+                src_offset = in_offset + processed;
+            }
+
+            // Set up NRAM buffers for this chunk
+            char *chunk_base = aligned_nram;
+            sin_cache = (Tdata *)chunk_base;
+            cos_cache = sin_cache + current_half_chunk;
+            x1sin = cos_cache + current_half_chunk;
+            x0cos = x1sin + current_half_chunk;
+            x0sin = x0cos + current_half_chunk;
+            x1cos = x0sin + current_half_chunk;
+            input_0 = x1cos + current_half_chunk;
+            input_1 = input_0 + current_half_chunk;
+            input_cache = input_1 + current_half_chunk;
+
+            calculateRope<Tdata>(
+                y, x, sin_table, cos_table,
+                sin_cache, cos_cache, x1sin, x0cos, x0sin, x1cos,
+                input_0, input_1, input_cache,
+                theta_offset, dst_offset, src_offset,
+                current_chunk_size, current_half_chunk,
+                data_segsize,
+                src_load_stride, dst_load_stride, src_write_stride, dst_write_stride,
+                is_gpt_j_style);
+
+            processed += current_half_chunk;
+        }
+    }
+}

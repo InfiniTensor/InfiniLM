@@ -239,10 +239,11 @@ class GenerationMixin:
             # ----------------------------------------------------------------- #
             #                得到下一个token的id，并解码为字符
             # ----------------------------------------------------------------- #
-            token_id = next_tokens.to_numpy()[0]
+            next_tokens_np = next_tokens.to_numpy()
+            token_id = next_tokens_np[0]
             output_str = tokenizer.decode([token_id], skip_special_tokens=True)
 
-            model_kwargs["next_token_ids"] = next_tokens.to_numpy().tolist()
+            model_kwargs["next_token_ids"] = next_tokens_np.tolist()
             output_tokens_list.append(token_id)
             output_content += output_str
 

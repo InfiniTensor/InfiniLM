@@ -1,0 +1,195 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "index_copy_metax.h"
+#include <cmath>
+#include <cstdio>
+#include <vector>
+
+#include "../../../tensor.h"
+#include "../cuda/kernel.cuh"
+
+namespace op::index_copy::metax {
+
+template <typename T, typename TIdx>
+__global__ void index_copy_kernel(
+    T *output, const T *source, const TIdx *indices,
+    int outer_size, int inner_size, int index_size, int dim_size) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_source = outer_size * index_size * inner_size;
+    if (idx >= total_source) {
+        return;
+    }
+
+    int inner = idx % inner_size;
+    int temp = idx / inner_size;
+    int i = temp % index_size;
+    int outer = temp / index_size;
+
+    TIdx idx_pos = indices[i];
+    if (idx_pos < 0) {
+        idx_pos += dim_size;
+    }
+
+    if (idx_pos >= 0 && idx_pos < dim_size) {
+        int out_offset = outer * (dim_size * inner_size) + idx_pos * inner_size + inner;
+        output[out_offset] = source[idx];
+    }
+}
+
+template <typename T, typename TIdx>
+void launch_kernel_impl(
+    void *output, const void *source, const void *indices,
+    int outer_size, int inner_size, int index_size, int dim_size, void *stream) {
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+    size_t total_elements = (size_t)outer_size * index_size * inner_size;
+    size_t block_size = 256;
+    size_t grid_size = (total_elements + block_size - 1) / block_size;
+    index_copy_kernel<T, TIdx><<<grid_size, block_size, 0, hc_stream>>>(
+        reinterpret_cast<T *>(output), reinterpret_cast<const T *>(source), reinterpret_cast<const TIdx *>(indices),
+        outer_size, inner_size, index_size, dim_size);
+}
+
+static size_t get_element_size(int dtype) {
+    if (dtype == INFINI_DTYPE_F64 || dtype == INFINI_DTYPE_I64) {
+        return 8;
+    }
+    if (dtype == INFINI_DTYPE_F32 || dtype == INFINI_DTYPE_I32) {
+        return 4;
+    }
+    return 2;
+}
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::metax::Handle::Internal> internal;
+    int64_t dim;
+    int outer_size, inner_size, index_size, dim_size;
+    size_t total_bytes;
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+// [修复 1] create 签名匹配头文件：dim 在 index_desc 之前
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_, Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t in_desc,
+    int64_t dim,
+    infiniopTensorDescriptor_t index_desc,
+    infiniopTensorDescriptor_t source_desc) {
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+    // Info 创建顺序通常是 out, in, dim, index, source
+    auto info_result = IndexCopyInfo::create(out_desc, in_desc, dim, index_desc, source_desc);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    auto out_d = reinterpret_cast<const InfiniopTensorDescriptor *>(out_desc);
+    auto idx_d = reinterpret_cast<const InfiniopTensorDescriptor *>(index_desc);
+
+    int ndim = out_d->ndim();
+    int64_t real_dim = dim < 0 ? dim + ndim : dim;
+
+    int outer = 1;
+    for (int i = 0; i < real_dim; ++i) {
+        outer *= out_d->shape()[i];
+    }
+    int inner = 1;
+    for (int i = real_dim + 1; i < ndim; ++i) {
+        inner *= out_d->shape()[i];
+    }
+    int dim_s = out_d->shape()[real_dim];
+    int idx_s = 1;
+    for (int i = 0; i < idx_d->ndim(); ++i) {
+        idx_s *= idx_d->shape()[i];
+    }
+
+    size_t bytes = (size_t)outer * dim_s * inner * get_element_size(out_d->dtype());
+
+    auto opaque = new Opaque{handle->internal(), dim, outer, inner, idx_s, dim_s, bytes};
+    *desc_ptr = new Descriptor(opaque, info_result.take(), 0, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+// [修复 2] calculate 签名匹配头文件：显式参数 input, index, source
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    const void *index,
+    const void *source,
+    void *stream) const {
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+    hcMemcpyAsync(output, input, _opaque->total_bytes, hcMemcpyDeviceToDevice, hc_stream);
+
+    auto dtype = _info.dtype();
+    auto idx_dtype = _info.idx_dtype();
+    int outer = _opaque->outer_size;
+    int inner = _opaque->inner_size;
+    int dim_s = _opaque->dim_size;
+    int idx_sz = _opaque->index_size;
+
+#define LAUNCH(T, TIdx) launch_kernel_impl<T, TIdx>(output, source, index, outer, inner, idx_sz, dim_s, stream)
+
+    if (idx_dtype == INFINI_DTYPE_I32) {
+        switch (dtype) {
+        case INFINI_DTYPE_F16:
+            LAUNCH(__half, int32_t);
+            break;
+        case INFINI_DTYPE_BF16:
+#if defined(__MACA__) || defined(ENABLE_METAX_MC_API)
+            LAUNCH(cuda_bfloat16, int32_t);
+#endif
+            break;
+        case INFINI_DTYPE_F32:
+            LAUNCH(float, int32_t);
+            break;
+        case INFINI_DTYPE_F64:
+            LAUNCH(double, int32_t);
+            break;
+        case INFINI_DTYPE_I32:
+            LAUNCH(int32_t, int32_t);
+            break;
+        case INFINI_DTYPE_I64:
+            LAUNCH(int64_t, int32_t);
+            break;
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+    } else if (idx_dtype == INFINI_DTYPE_I64) {
+        switch (dtype) {
+        case INFINI_DTYPE_F16:
+            LAUNCH(__half, int64_t);
+            break;
+        case INFINI_DTYPE_BF16:
+#if defined(__MACA__) || defined(ENABLE_METAX_MC_API)
+            LAUNCH(cuda_bfloat16, int64_t);
+#endif
+            break;
+        case INFINI_DTYPE_F32:
+            LAUNCH(float, int64_t);
+            break;
+        case INFINI_DTYPE_F64:
+            LAUNCH(double, int64_t);
+            break;
+        case INFINI_DTYPE_I32:
+            LAUNCH(int32_t, int64_t);
+            break;
+        case INFINI_DTYPE_I64:
+            LAUNCH(int64_t, int64_t);
+            break;
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+    } else {
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+#undef LAUNCH
+    return INFINI_STATUS_SUCCESS;
+}
+} // namespace op::index_copy::metax

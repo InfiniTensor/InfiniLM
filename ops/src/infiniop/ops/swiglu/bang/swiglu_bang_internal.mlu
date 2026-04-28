@@ -1,0 +1,37 @@
+#ifndef __SWIGLU_BANG_INTERNAL_H__
+#define __SWIGLU_BANG_INTERNAL_H__
+
+#include "../../../elementwise/bang/elementwise_bang_kernel.h"
+#include "bang.h"
+#include "bang_device_functions.h"
+
+typedef struct SwiGLUOp {
+public:
+    static constexpr size_t num_inputs = 2;
+    template <typename T>
+    __mlu_device__ void operator()(T *out, const T *up, const T *gate, size_t num_elements) const {
+        if constexpr (std::is_same_v<T, half> || std::is_same_v<T, bfloat16_t>) {
+            __bang_active_sigmoid(out, gate, num_elements);
+            __bang_mul(out, out, gate, num_elements);
+            __bang_mul(out, out, up, num_elements);
+        } else if constexpr (std::is_same_v<T, float>) {
+            __bang_neg(out, gate, num_elements);
+            __bang_active_exphp(out, out, num_elements);
+            __bang_add_scalar(out, out, 1.0f, num_elements);
+            __bang_div(out, gate, out, num_elements);
+            __bang_mul(out, up, out, num_elements);
+        } else {
+            for (size_t i = 0; i < num_elements; ++i) {
+                out[i] = up[i] * gate[i] / (1.0 + std::exp(-gate[i]));
+            }
+        }
+    }
+} SwiGLUOp;
+
+LAUNCH_ELEMENTWISE_KERNEL_IMPL(SwiGLU, SwiGLUOp)
+
+LAUNCH_ELEMENTWISE_KERNEL_INSTANTIATE(SwiGLU, half)
+LAUNCH_ELEMENTWISE_KERNEL_INSTANTIATE(SwiGLU, bfloat16_t)
+LAUNCH_ELEMENTWISE_KERNEL_INSTANTIATE(SwiGLU, float)
+
+#endif // __SWIGLU_BANG_INTERNAL_H__

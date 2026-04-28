@@ -1,0 +1,227 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "smooth_l1_loss_metax.h"
+#include <cmath>
+#include <cstdio>
+#include <vector>
+
+#include "../../../tensor.h"
+#include "../cuda/kernel.cuh"
+namespace op::smooth_l1_loss::metax {
+
+// ==================================================================
+// Atomic Helpers
+// ==================================================================
+
+template <typename T>
+__device__ __forceinline__ void gpuAtomicAdd(T *address, T val) { atomicAdd(address, val); }
+// Float atomic add is usually native, but explicitly defined just in case
+template <>
+__device__ __forceinline__ void gpuAtomicAdd(float *address, float val) { atomicAdd(address, val); }
+
+// ==================================================================
+// Stride Helper
+// ==================================================================
+struct TensorShape {
+    int ndim;
+    int dims[4];
+    int strides[4];
+};
+
+__device__ inline size_t get_offset(int idx, const TensorShape &shape) {
+    if (shape.ndim == 0) {
+        return 0;
+    }
+    size_t offset = 0;
+    int rem = idx;
+#pragma unroll
+    for (int i = shape.ndim - 1; i >= 0; --i) {
+        int dim_sz = shape.dims[i];
+        int pos = rem % dim_sz;
+        rem /= dim_sz;
+        offset += pos * shape.strides[i];
+    }
+    return offset;
+}
+
+// ==================================================================
+// Conversion Kernel
+// ==================================================================
+// 将 float 类型的累加结果转换回目标类型 T 并写入 output
+template <typename T>
+__global__ void cast_float_to_output(T *dest, const float *src) {
+    *dest = static_cast<T>(*src);
+}
+
+// ==================================================================
+// Main Kernel
+// ==================================================================
+
+// AccT: 累加器类型。Reduction模式下强制为 float 以保证精度。
+template <typename T, typename AccT, int ReductionMode>
+__global__ void smooth_l1_loss_kernel(
+    AccT *output, // Reduction时是 float* (workspace), None时是 T* (output)
+    const T *input,
+    const T *target,
+    size_t n,
+    float beta,
+    float scale,
+    TensorShape in_s, TensorShape tg_s, TensorShape out_s) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) {
+        return;
+    }
+
+    size_t in_off = get_offset(idx, in_s);
+    size_t tg_off = get_offset(idx, tg_s);
+
+    // 全部转为 float 进行高精度计算
+    float val_in = static_cast<float>(input[in_off]);
+    float val_tg = static_cast<float>(target[tg_off]);
+    float diff = val_in - val_tg;
+    float abs_diff = fabsf(diff);
+    float loss = (abs_diff < beta) ? (0.5f * diff * diff / beta) : (abs_diff - 0.5f * beta);
+
+    if constexpr (ReductionMode == 0) { // None
+        size_t out_off = get_offset(idx, out_s);
+        output[out_off] = static_cast<AccT>(loss);
+    } else { // Sum or Mean
+        loss *= scale;
+        // 使用 AccT (float) 进行原子累加
+        gpuAtomicAdd(output, static_cast<AccT>(loss));
+    }
+}
+
+// ==================================================================
+// Launcher
+// ==================================================================
+
+template <typename T>
+void launch_kernel_impl(
+    void *output, void *workspace,
+    const void *input, const void *target,
+    size_t n, float beta, int reduction,
+    const TensorShape &in_s, const TensorShape &tg_s, const TensorShape &out_s,
+    void *stream) {
+    auto mc_stream = reinterpret_cast<hcStream_t>(stream);
+    size_t grid = (n + 255) / 256;
+    float scale = (reduction == 1) ? (1.0f / static_cast<float>(n)) : 1.0f;
+
+    if (reduction == 0) { // None
+        // 直接输出到 output (T*)
+        smooth_l1_loss_kernel<T, T, 0><<<grid, 256, 0, mc_stream>>>(
+            (T *)output, (const T *)input, (const T *)target, n, beta, scale, in_s, tg_s, out_s);
+    } else { // Reduction
+        // 1. 累加到 workspace (float*)，避免 FP16 精度丢失
+        smooth_l1_loss_kernel<T, float, 1><<<grid, 256, 0, mc_stream>>>(
+            (float *)workspace, (const T *)input, (const T *)target, n, beta, scale, in_s, tg_s, out_s);
+
+        // 2. 将 workspace 的 float 结果转存到 output (T*)
+        cast_float_to_output<T><<<1, 1, 0, mc_stream>>>((T *)output, (const float *)workspace);
+    }
+}
+
+// ==================================================================
+// Descriptor
+// ==================================================================
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::metax::Handle::Internal> internal;
+    float beta;
+    int reduction;
+    size_t total_elements;
+    TensorShape in_shape;
+    TensorShape tg_shape;
+    TensorShape out_shape;
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+static TensorShape extract_shape(infiniopTensorDescriptor_t desc) {
+    auto d = reinterpret_cast<const InfiniopTensorDescriptor *>(desc);
+    TensorShape s;
+    s.ndim = d->ndim();
+    if (s.ndim > 4) {
+        s.ndim = 4;
+    }
+    for (int i = 0; i < s.ndim; ++i) {
+        s.dims[i] = d->shape()[i];
+        s.strides[i] = d->strides()[i];
+    }
+    if (d->ndim() == 0) {
+        s.ndim = 1;
+        s.dims[0] = 1;
+        s.strides[0] = 1;
+    }
+    return s;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_, Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc, infiniopTensorDescriptor_t input_desc,
+    infiniopTensorDescriptor_t target_desc, float beta, int reduction) {
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+    auto info_result = SmoothL1LossInfo::create(out_desc, input_desc, target_desc, beta, reduction);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    auto in_d = reinterpret_cast<const InfiniopTensorDescriptor *>(input_desc);
+    size_t total = 1;
+    for (int i = 0; i < in_d->ndim(); ++i) {
+        total *= in_d->shape()[i];
+    }
+
+    auto opaque = new Opaque{
+        handle->internal(), beta, reduction, total,
+        extract_shape(input_desc), extract_shape(target_desc), extract_shape(out_desc)};
+
+    // [关键] 如果需要 Reduction，申请 4 字节 workspace 用于存放 float 累加值
+    size_t ws_size = (reduction != 0) ? sizeof(float) : 0;
+
+    *desc_ptr = new Descriptor(opaque, info_result.take(), ws_size, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace, size_t workspace_size, void *output,
+    const void *input, const void *target, void *stream) const {
+    auto mc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    if (_opaque->reduction != 0) {
+        // Reduction 模式：清空 Workspace (float) 而不是 Output
+        // 这样可以确保累加从 0.0f 开始
+        hcMemsetAsync(workspace, 0, sizeof(float), mc_stream);
+    }
+
+    size_t n = _opaque->total_elements;
+    float beta = _opaque->beta;
+    int reduction = _opaque->reduction;
+
+#define LAUNCH(T) launch_kernel_impl<T>(output, workspace, input, target, n, beta, reduction, _opaque->in_shape, _opaque->tg_shape, _opaque->out_shape, stream)
+
+    switch (_info.dtype()) {
+    case INFINI_DTYPE_F16:
+        LAUNCH(__half);
+        break;
+    case INFINI_DTYPE_BF16:
+        LAUNCH(cuda_bfloat16);
+        break;
+    case INFINI_DTYPE_F32:
+        LAUNCH(float);
+        break;
+    case INFINI_DTYPE_F64:
+        LAUNCH(double);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+#undef LAUNCH
+    return INFINI_STATUS_SUCCESS;
+}
+} // namespace op::smooth_l1_loss::metax

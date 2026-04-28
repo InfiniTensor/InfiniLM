@@ -1,0 +1,161 @@
+#include "../../../devices/nvidia/nvidia_handle.cuh"
+#include "cdist_nvidia.cuh"
+#include <iostream>
+namespace op::cdist::nvidia {
+
+struct Descriptor::Opaque {};
+
+Descriptor::~Descriptor() = default;
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x1_desc,
+    infiniopTensorDescriptor_t x2_desc,
+    double p) {
+
+    auto handle = reinterpret_cast<device::nvidia::Handle *>(handle_);
+    auto dtype = y_desc->dtype();
+
+    // 目前 NVIDIA 后端仅支持 F32，测试也是 F32
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F32);
+
+    auto result = CdistInfo::create(y_desc, x1_desc, x2_desc);
+    CHECK_RESULT(result);
+
+    // 当前实现不使用 workspace
+    *desc_ptr = new Descriptor(
+        dtype, result.take(), p, 0,
+        nullptr,
+        handle->device, handle->device_id);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+// --- Kernel 1: L2 Epilogue ---
+// 保留占位，当前实现未使用 GEMM 加速路径
+template <typename T>
+__global__ void cdist_l2_epilogue_kernel(T *y, const T *x1_norm, const T *x2_norm,
+                                         int M, int N, int batch_stride_y) {
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int b = blockIdx.z;
+
+    if (i < M && j < N) {
+        int idx = b * batch_stride_y + i * N + j;
+        // GEMM 已经计算了 -2*x1*x2^T 并存入 y
+        float val = (float)x1_norm[b * M + i] + (float)x2_norm[b * N + j] + (float)y[idx];
+        y[idx] = (T)sqrtf(fmaxf(val, 0.0f));
+    }
+}
+
+// --- Kernel 2: Generic P-Norm (F32, 支持通用步长) ---
+__global__ void cdist_generic_kernel_f32(
+    float *y,
+    const float *x1,
+    const float *x2,
+    size_t m,
+    size_t n,
+    size_t d,
+    ptrdiff_t x1_stride,
+    ptrdiff_t x1_row_stride,
+    ptrdiff_t x1_col_stride,
+    ptrdiff_t x2_stride,
+    ptrdiff_t x2_row_stride,
+    ptrdiff_t x2_col_stride,
+    ptrdiff_t y_stride,
+    ptrdiff_t y_row_stride,
+    ptrdiff_t y_col_stride,
+    double p) {
+
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int i = blockIdx.y * blockDim.y + threadIdx.y;
+    int b = blockIdx.z;
+
+    if (i >= (int)m || j >= (int)n) {
+        return;
+    }
+
+    // 定位输出位置 y[b, i, j]
+    float *y_ptr = y + b * y_stride + i * y_row_stride + j * y_col_stride;
+
+    // 定位向量位置 x1[b, i, :] 和 x2[b, j, :]
+    const float *x1_vec = x1 + b * x1_stride + i * x1_row_stride;
+    const float *x2_vec = x2 + b * x2_stride + j * x2_row_stride;
+
+    double dist = 0.0;
+
+    for (size_t k = 0; k < d; ++k) {
+        float v1 = *(x1_vec + k * x1_col_stride);
+        float v2 = *(x2_vec + k * x2_col_stride);
+        float diff = fabsf(v1 - v2);
+
+        if (p == 1.0) {
+            dist += diff;
+        } else if (p == 2.0) {
+            dist += diff * diff;
+        } else if (isinf(p)) {
+            dist = fmaxf((float)dist, diff);
+        } else {
+            dist += powf((float)diff, (float)p);
+        }
+    }
+
+    if (p == 2.0) {
+        dist = sqrtf((float)dist);
+    } else if (!isinf(p) && p != 1.0) {
+        dist = powf((float)dist, 1.0f / (float)p);
+    }
+
+    *y_ptr = (float)dist;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *y,
+    const void *x1,
+    const void *x2,
+    void *stream) const {
+
+    (void)workspace;
+    (void)workspace_size;
+
+    if (_dtype != INFINI_DTYPE_F32) {
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    cudaStream_t custream = (cudaStream_t)stream;
+    dim3 block(16, 16);
+    dim3 grid(
+        static_cast<unsigned int>((_info.n + block.x - 1) / block.x),
+        static_cast<unsigned int>((_info.m + block.y - 1) / block.y),
+        static_cast<unsigned int>(_info.batch));
+
+    cdist_generic_kernel_f32<<<grid, block, 0, custream>>>(
+        static_cast<float *>(y),
+        static_cast<const float *>(x1),
+        static_cast<const float *>(x2),
+        _info.m,
+        _info.n,
+        _info.d,
+        _info.x1_matrix.stride,
+        _info.x1_matrix.row_stride,
+        _info.x1_matrix.col_stride,
+        _info.x2_matrix.stride,
+        _info.x2_matrix.row_stride,
+        _info.x2_matrix.col_stride,
+        _info.y_matrix.stride,
+        _info.y_matrix.row_stride,
+        _info.y_matrix.col_stride,
+        _p);
+
+    auto err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        return INFINI_STATUS_INTERNAL_ERROR;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+} // namespace op::cdist::nvidia

@@ -1,0 +1,91 @@
+#include "../../../elementwise/metax/elementwise_metax.h"
+#include "softsign_metax.h"
+
+#include <cmath>
+#include <type_traits>
+
+namespace op::softsign::metax {
+
+struct SoftsignOp {
+    static constexpr size_t num_inputs = 1;
+
+    template <typename T>
+    __device__ __forceinline__ T operator()(const T &x) const {
+        if constexpr (std::is_same_v<T, __half>) {
+            float xf = __half2float(x);
+            float res = xf / (1.0f + fabsf(xf));
+            return __float2half(res);
+        } else if constexpr (std::is_same_v<T, cuda_bfloat16>) {
+            T zero = T(0.0f);
+            T one = T(1.0f);
+            T abs_x = (x >= zero) ? x : -x;
+            return x / (one + abs_x);
+        } else if constexpr (std::is_same_v<T, float>) {
+            return x / (1.0f + fabsf(x));
+        } else if constexpr (std::is_same_v<T, double>) {
+            return x / (1.0 + std::fabs(x));
+        } else {
+            using std::abs;
+            return x / (static_cast<T>(1) + abs(x));
+        }
+    }
+};
+
+Descriptor::~Descriptor() = default;
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+    auto dtype = out_desc->dtype();
+
+    const auto &x_desc = input_desc_vec.at(0);
+    const auto &y_shape = out_desc->shape();
+    const auto &x_shape = x_desc->shape();
+
+    CHECK_DTYPE(dtype,
+                INFINI_DTYPE_F16,
+                INFINI_DTYPE_F32,
+                INFINI_DTYPE_BF16,
+                INFINI_DTYPE_F64);
+
+    CREATE_ELEMENTWISE_METAX_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    std::vector<const void *> inputs,
+    void *stream) const {
+
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    switch (_dtype) {
+    case INFINI_DTYPE_F16:
+        return _device_info->calculate<256, SoftsignOp, __half>(
+            _info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<256, SoftsignOp, cuda_bfloat16>(
+            _info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F32:
+        return _device_info->calculate<256, SoftsignOp, float>(
+            _info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F64:
+        return _device_info->calculate<256, SoftsignOp, double>(
+            _info, workspace, output, inputs, stream);
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::softsign::metax

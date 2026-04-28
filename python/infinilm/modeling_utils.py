@@ -48,6 +48,16 @@ def check_parameters(model_keys: list, already_loaded_keys: list):
 
     missing_keys = model_keys - intersection
     unexpected_keys = already_loaded_keys - intersection
+
+    # KV cache quantization scales (kv_cache_k_scale / kv_cache_v_scale) get
+    # default-initialized in C++ when the model is built; non-quant checkpoints
+    # don't ship them. Treat their absence as warning, not error.
+    kv_scale_missing = {k for k in missing_keys if k.endswith(".kv_cache_k_scale") or k.endswith(".kv_cache_v_scale")}
+    if kv_scale_missing:
+        import warnings
+        warnings.warn(f"check_parameters: {len(kv_scale_missing)} kv_cache_*_scale keys not in checkpoint; using C++ defaults (1.0)")
+        missing_keys -= kv_scale_missing
+
     error_msgs: list[str] = []
 
     if len(unexpected_keys) > 0:

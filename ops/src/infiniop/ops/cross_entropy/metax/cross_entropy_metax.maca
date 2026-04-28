@@ -1,0 +1,188 @@
+#include "../../../devices/metax/metax_common.h"
+#include "cross_entropy_metax.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+
+#include <cub/block/block_reduce.cuh>
+
+#include "../../../reduce/cuda/reduce.cuh"
+
+#include <cmath>
+
+namespace {
+
+template <unsigned int BLOCK_SIZE, typename Tdata, typename Tidx, typename Tcompute>
+__device__ void crossEntropyKernel(
+    Tdata *y_,
+    const Tdata *x_,
+    const void *target_,
+    size_t outer_size,
+    size_t vocab_size,
+    ptrdiff_t x_stride) {
+
+    size_t row_idx = blockIdx.x;
+    if (row_idx >= outer_size) {
+        return;
+    }
+
+    const Tdata *x = x_ + row_idx * x_stride;
+    const Tidx *target = reinterpret_cast<const Tidx *>(target_);
+
+    Tidx label = target[row_idx];
+
+    Tdata max_val_raw = op::common_cuda::reduce_op::max<BLOCK_SIZE, Tdata>(x, vocab_size);
+    __shared__ Tcompute max_val_shared;
+    if (threadIdx.x == 0) {
+        max_val_shared = static_cast<Tcompute>(max_val_raw);
+    }
+    __syncthreads();
+
+    Tcompute max_val = max_val_shared;
+
+    Tcompute thread_sum = Tcompute(0);
+    for (size_t col = threadIdx.x; col < vocab_size; col += BLOCK_SIZE) {
+        Tcompute val = static_cast<Tcompute>(x[col]);
+        thread_sum += expf(val - max_val);
+    }
+
+    using BlockReduce = cub::BlockReduce<Tcompute, BLOCK_SIZE>;
+    __shared__ typename BlockReduce::TempStorage temp_storage;
+    Tcompute block_sum = BlockReduce(temp_storage).Sum(thread_sum);
+
+    if (threadIdx.x == 0) {
+        if (label < 0 || static_cast<size_t>(label) >= vocab_size) {
+            y_[row_idx] = static_cast<Tdata>(0.0f);
+            return;
+        }
+        Tcompute log_term = logf(block_sum) + max_val;
+        Tcompute target_logit = static_cast<Tcompute>(x[label]);
+        y_[row_idx] = static_cast<Tdata>(log_term - target_logit);
+    }
+}
+
+template <unsigned int BLOCK_SIZE, typename Tdata, typename Tidx, typename Tcompute>
+INFINIOP_METAX_KERNEL crossEntropy(
+    Tdata *y, const Tdata *x, const void *target,
+    size_t outer_size, size_t vocab_size, ptrdiff_t x_stride) {
+    crossEntropyKernel<BLOCK_SIZE, Tdata, Tidx, Tcompute>(
+        y, x, target, outer_size, vocab_size, x_stride);
+}
+
+} // namespace
+
+namespace op::cross_entropy::metax {
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::metax::Handle::Internal> internal;
+};
+
+Descriptor::~Descriptor() {
+    delete _opaque;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x_desc,
+    infiniopTensorDescriptor_t target_desc) {
+
+    (void)y_desc;
+
+    auto x_dtype = x_desc->dtype();
+    auto t_dtype = target_desc->dtype();
+
+    CHECK_DTYPE(x_dtype, INFINI_DTYPE_F16, INFINI_DTYPE_BF16, INFINI_DTYPE_F32);
+    CHECK_DTYPE(t_dtype, INFINI_DTYPE_I32, INFINI_DTYPE_I64);
+
+    CrossEntropyInfo info{};
+    info.dtype = x_dtype;
+    info.target_dtype = t_dtype;
+    info.vocab_size = x_desc->shape().back();
+    info.outer_size = target_desc->numel();
+    info.x_stride = static_cast<ptrdiff_t>(info.vocab_size);
+
+    *desc_ptr = new Descriptor(
+        new Opaque{reinterpret_cast<device::metax::Handle *>(handle)->internal()},
+        info, 0, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+template <unsigned int BLOCK_SIZE>
+infiniStatus_t launchKernel(void *y, const void *x, const void *target,
+                            const CrossEntropyInfo &info, hcStream_t stream) {
+    dim3 grid(static_cast<uint32_t>(info.outer_size), 1, 1);
+
+    if (info.target_dtype == INFINI_DTYPE_I64) {
+        if (info.dtype == INFINI_DTYPE_F16) {
+            crossEntropy<BLOCK_SIZE, half, int64_t, float>
+                <<<grid, BLOCK_SIZE, 0, stream>>>(
+                    (half *)y, (const half *)x, target,
+                    info.outer_size, info.vocab_size, info.x_stride);
+        } else if (info.dtype == INFINI_DTYPE_BF16) {
+            crossEntropy<BLOCK_SIZE, cuda_bfloat16, int64_t, float>
+                <<<grid, BLOCK_SIZE, 0, stream>>>(
+                    (cuda_bfloat16 *)y, (const cuda_bfloat16 *)x, target,
+                    info.outer_size, info.vocab_size, info.x_stride);
+        } else if (info.dtype == INFINI_DTYPE_F32) {
+            crossEntropy<BLOCK_SIZE, float, int64_t, float>
+                <<<grid, BLOCK_SIZE, 0, stream>>>(
+                    (float *)y, (const float *)x, target,
+                    info.outer_size, info.vocab_size, info.x_stride);
+        } else {
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+    } else if (info.target_dtype == INFINI_DTYPE_I32) {
+        if (info.dtype == INFINI_DTYPE_F16) {
+            crossEntropy<BLOCK_SIZE, half, int32_t, float>
+                <<<grid, BLOCK_SIZE, 0, stream>>>(
+                    (half *)y, (const half *)x, target,
+                    info.outer_size, info.vocab_size, info.x_stride);
+        } else if (info.dtype == INFINI_DTYPE_BF16) {
+            crossEntropy<BLOCK_SIZE, cuda_bfloat16, int32_t, float>
+                <<<grid, BLOCK_SIZE, 0, stream>>>(
+                    (cuda_bfloat16 *)y, (const cuda_bfloat16 *)x, target,
+                    info.outer_size, info.vocab_size, info.x_stride);
+        } else if (info.dtype == INFINI_DTYPE_F32) {
+            crossEntropy<BLOCK_SIZE, float, int32_t, float>
+                <<<grid, BLOCK_SIZE, 0, stream>>>(
+                    (float *)y, (const float *)x, target,
+                    info.outer_size, info.vocab_size, info.x_stride);
+        } else {
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+    } else {
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *y,
+    const void *x,
+    const void *target,
+    void *stream_) const {
+
+    (void)workspace;
+
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    auto stream = reinterpret_cast<hcStream_t>(stream_);
+    int max_threads = _opaque->internal->maxThreadsPerBlock();
+
+    if (max_threads >= METAX_BLOCK_SIZE_1024) {
+        CHECK_STATUS(launchKernel<METAX_BLOCK_SIZE_1024>(y, x, target, _info, stream));
+    } else if (max_threads >= METAX_BLOCK_SIZE_512) {
+        CHECK_STATUS(launchKernel<METAX_BLOCK_SIZE_512>(y, x, target, _info, stream));
+    } else {
+        CHECK_STATUS(launchKernel<256>(y, x, target, _info, stream));
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::cross_entropy::metax

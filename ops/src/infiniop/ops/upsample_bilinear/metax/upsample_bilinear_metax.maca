@@ -1,0 +1,237 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+
+#include "upsample_bilinear_metax.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+
+namespace op::upsample_bilinear::metax {
+
+// ==================================================================
+// Device Helper Functions
+// ==================================================================
+
+// 1. 类型转换辅助函数
+template <typename T>
+__device__ __forceinline__ float to_float(T val) {
+    return static_cast<float>(val);
+}
+
+template <>
+__device__ __forceinline__ float to_float<__half>(__half val) {
+    return __half2float(val);
+}
+template <>
+__device__ __forceinline__ float to_float<cuda_bfloat16>(cuda_bfloat16 val) {
+    return __bfloat162float(val);
+}
+
+// 2. 坐标计算辅助函数
+__device__ __forceinline__ float get_source_coord(
+    float scale,
+    int out_index,
+    bool align_corners) {
+
+    if (align_corners) {
+        return static_cast<float>(out_index) * scale;
+    } else {
+        // formula: (x + 0.5) * scale - 0.5
+        return (static_cast<float>(out_index) + 0.5f) * scale - 0.5f;
+    }
+}
+
+__device__ __forceinline__ int clamp(int val, int min_val, int max_val) {
+    return max(min_val, min(val, max_val));
+}
+
+// ==================================================================
+// Kernel Implementation
+// ==================================================================
+
+template <typename T>
+__global__ void upsample_bilinear_kernel(
+    T *__restrict__ output,      // [N, C, H_out, W_out]
+    const T *__restrict__ input, // [N, C, H_in, W_in]
+    size_t N,
+    size_t C,
+    size_t H_in,
+    size_t W_in,
+    size_t H_out,
+    size_t W_out,
+    float scale_h, // 预计算的缩放比例
+    float scale_w, // 预计算的缩放比例
+    bool align_corners) {
+
+    // Grid-Stride Loop
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t total_elements = N * C * H_out * W_out;
+    size_t stride = blockDim.x * gridDim.x;
+
+    for (size_t i = idx; i < total_elements; i += stride) {
+        // 1. 解构索引 (N, C, H_out, W_out)
+        // Layout: NCHW
+        size_t w_out_idx = i % W_out;
+        size_t temp = i / W_out;
+        size_t h_out_idx = temp % H_out;
+        temp /= H_out;
+        size_t c_idx = temp % C;
+        size_t n_idx = temp / C;
+
+        // 2. 计算源坐标 (Source Coordinates)
+        float h_real = get_source_coord(scale_h, h_out_idx, align_corners);
+        float w_real = get_source_coord(scale_w, w_out_idx, align_corners);
+
+        // 3. 计算上下左右四个最近邻整数坐标
+        int h0 = static_cast<int>(floorf(h_real));
+        int h1 = h0 + 1;
+        int w0 = static_cast<int>(floorf(w_real));
+        int w1 = w0 + 1;
+
+        // 4. 计算插值权重 (Weights)
+        float h1_lambda = h_real - h0;
+        float h0_lambda = 1.0f - h1_lambda;
+        float w1_lambda = w_real - w0;
+        float w0_lambda = 1.0f - w1_lambda;
+
+        // 5. 边界处理 (Clamping)
+        h0 = clamp(h0, 0, static_cast<int>(H_in) - 1);
+        h1 = clamp(h1, 0, static_cast<int>(H_in) - 1);
+        w0 = clamp(w0, 0, static_cast<int>(W_in) - 1);
+        w1 = clamp(w1, 0, static_cast<int>(W_in) - 1);
+
+        // 6. 读取数据并转换为 float
+        const T *img_base = input + (n_idx * C + c_idx) * H_in * W_in;
+
+        float val00 = to_float(img_base[h0 * W_in + w0]);
+        float val01 = to_float(img_base[h0 * W_in + w1]);
+        float val10 = to_float(img_base[h1 * W_in + w0]);
+        float val11 = to_float(img_base[h1 * W_in + w1]);
+
+        // 7. 双线性插值计算
+        float val = h0_lambda * (w0_lambda * val00 + w1_lambda * val01) + h1_lambda * (w0_lambda * val10 + w1_lambda * val11);
+
+        output[i] = static_cast<T>(val);
+    }
+}
+
+// ==================================================================
+// Host Functions
+// ==================================================================
+
+template <typename T>
+void launch_kernel(
+    void *output,
+    const void *input,
+    const UpsampleBilinearInfo &info,
+    void *stream) {
+
+    auto in_ptr = reinterpret_cast<const T *>(input);
+    auto out_ptr = reinterpret_cast<T *>(output);
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    // 参数准备
+    size_t N = info.n();
+    size_t C = info.c();
+    size_t H_in = info.h_in();
+    size_t W_in = info.w_in();
+    size_t H_out = info.h_out();
+    size_t W_out = info.w_out();
+    bool align_corners = info.align_corners();
+
+    // 在 Host 端预计算 scaling factors
+    float scale_h, scale_w;
+    if (align_corners) {
+        scale_h = (H_out > 1) ? static_cast<float>(H_in - 1) / (H_out - 1) : 0.0f;
+        scale_w = (W_out > 1) ? static_cast<float>(W_in - 1) / (W_out - 1) : 0.0f;
+    } else {
+        scale_h = static_cast<float>(H_in) / H_out;
+        scale_w = static_cast<float>(W_in) / W_out;
+    }
+
+    // Grid/Block 配置
+    size_t total_elements = N * C * H_out * W_out;
+    size_t block_size = 256;
+    size_t grid_size = (total_elements + block_size - 1) / block_size;
+
+    // 限制 grid size (虽然 MACA 可能支持更大，但保险起见保持一致)
+    if (grid_size > 65535) {
+        grid_size = 65535;
+    }
+
+    upsample_bilinear_kernel<T>
+        <<<grid_size, block_size, 0, hc_stream>>>(
+            out_ptr,
+            in_ptr,
+            N, C, H_in, W_in, H_out, W_out,
+            scale_h, scale_w,
+            align_corners);
+}
+
+// ==================================================================
+// Descriptor Implementation
+// ==================================================================
+
+struct Descriptor::Opaque {
+    // 无需额外存储
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t input_desc,
+    int align_corners) {
+
+    auto metax_handle = reinterpret_cast<device::metax::Handle *>(handle);
+
+    auto info_result = UpsampleBilinearInfo::create(out_desc, input_desc, align_corners);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    *desc_ptr = new Descriptor(new Opaque(), info_result.take(), 0, metax_handle->device, metax_handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    void *stream) const {
+
+    auto dtype = _info.dtype();
+
+    if (!output || !input) {
+        return INFINI_STATUS_BAD_PARAM;
+    }
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, input, _info, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, input, _info, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::upsample_bilinear::metax

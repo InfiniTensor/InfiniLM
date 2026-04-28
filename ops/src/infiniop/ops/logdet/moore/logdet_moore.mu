@@ -1,0 +1,84 @@
+#include "../../../devices/moore/moore_common.h"
+#include "../../../devices/moore/moore_handle.h"
+#include "../../../devices/moore/moore_kernel_common.h"
+#include "../../../tensor.h"
+
+#include "../cuda/kernel.cuh"
+#include "logdet_moore.h"
+#include <cmath>
+#include <cstring>
+#include <limits>
+#include <vector>
+
+namespace op::logdet::moore {
+
+Descriptor::~Descriptor() = default;
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x_desc) {
+
+    auto dtype = x_desc->dtype();
+    CHECK_DTYPE(dtype, INFINI_DTYPE_F32, INFINI_DTYPE_F64);
+
+    auto x_shape = x_desc->shape();
+    auto y_shape = y_desc->shape();
+
+    if (x_shape.size() != 2 || x_shape[0] != x_shape[1]) {
+        return INFINI_STATUS_BAD_TENSOR_SHAPE;
+    }
+
+    if (y_shape.size() != 0 && (y_shape.size() != 1 || y_shape[0] != 1)) {
+        return INFINI_STATUS_BAD_TENSOR_SHAPE;
+    }
+
+    *desc_ptr = new Descriptor(dtype, x_shape[0], x_desc->numel(), x_desc->strides(),
+                               handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *y,
+    const void *x,
+    void *stream) const {
+
+    if (workspace_size < this->workspaceSize()) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    auto cuda_stream = reinterpret_cast<musaStream_t>(stream);
+
+    if (_dtype == INFINI_DTYPE_F32) {
+        using T = float;
+        T *packed = reinterpret_cast<T *>(workspace);
+        const ptrdiff_t s0 = input_strides[0];
+        const ptrdiff_t s1 = input_strides[1];
+        constexpr int BLOCK_SIZE = 256;
+        const int blocks = static_cast<int>((input_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        cuda::pack_matrix_kernel<T><<<blocks, BLOCK_SIZE, 0, cuda_stream>>>(
+            packed, reinterpret_cast<const T *>(x), s0, s1, matrix_size);
+        cuda::logdet_lu_kernel<T><<<1, 1, 0, cuda_stream>>>(
+            packed, matrix_size, reinterpret_cast<T *>(y));
+        return INFINI_STATUS_SUCCESS;
+    }
+
+    {
+        using T = double;
+        T *packed = reinterpret_cast<T *>(workspace);
+        const ptrdiff_t s0 = input_strides[0];
+        const ptrdiff_t s1 = input_strides[1];
+        constexpr int BLOCK_SIZE = 256;
+        const int blocks = static_cast<int>((input_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        cuda::pack_matrix_kernel<T><<<blocks, BLOCK_SIZE, 0, cuda_stream>>>(
+            packed, reinterpret_cast<const T *>(x), s0, s1, matrix_size);
+        cuda::logdet_lu_kernel<T><<<1, 1, 0, cuda_stream>>>(
+            packed, matrix_size, reinterpret_cast<T *>(y));
+        return INFINI_STATUS_SUCCESS;
+    }
+}
+
+} // namespace op::logdet::moore

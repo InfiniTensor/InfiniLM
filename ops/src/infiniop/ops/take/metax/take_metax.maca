@@ -1,0 +1,255 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "take_metax.h"
+#include <cmath>
+#include <cstdio>
+#include <vector>
+
+#include "../../../tensor.h"
+#include "../cuda/kernel.cuh"
+
+namespace op::take::metax {
+
+// ==================================================================
+// Kernel
+// ==================================================================
+
+template <typename T, typename TIdx>
+__global__ void take_kernel(
+    T *output,
+    const T *input,
+    const TIdx *indices,
+    int outer_size,
+    int inner_size,
+    int indices_size,
+    int input_dim_size) {
+    // Flattened Take Logic
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= static_cast<size_t>(indices_size)) {
+        return;
+    }
+
+    TIdx idx_val = indices[idx];
+
+    if (idx_val < 0) {
+        idx_val += input_dim_size;
+    }
+
+    if (idx_val >= 0 && idx_val < input_dim_size) {
+        output[idx] = input[idx_val];
+    } else {
+        output[idx] = T(0);
+    }
+}
+
+// ==================================================================
+// Kernel Launcher
+// ==================================================================
+
+template <typename T, typename TIdx>
+void launch_kernel_impl(
+    void *output,
+    const void *input,
+    const void *indices,
+    int outer_size,
+    int inner_size,
+    int indices_size,
+    int input_dim_size,
+    void *stream) {
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    size_t total_elements = static_cast<size_t>(outer_size) * indices_size * inner_size;
+
+    size_t block_size = 256;
+    size_t grid_size = (total_elements + block_size - 1) / block_size;
+
+    take_kernel<T, TIdx>
+        <<<grid_size, block_size, 0, hc_stream>>>(
+            reinterpret_cast<T *>(output),
+            reinterpret_cast<const T *>(input),
+            reinterpret_cast<const TIdx *>(indices),
+            outer_size,
+            inner_size,
+            indices_size,
+            input_dim_size);
+}
+
+// ==================================================================
+// Descriptor Implementation
+// ==================================================================
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::metax::Handle::Internal> internal;
+    int outer_size;
+    int inner_size;
+    int indices_size;
+    int input_dim_size;
+    size_t total_bytes;
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+static size_t get_element_size(int dtype) {
+    if (dtype == INFINI_DTYPE_F64 || dtype == INFINI_DTYPE_I64) {
+        return 8;
+    }
+    if (dtype == INFINI_DTYPE_F32 || dtype == INFINI_DTYPE_I32) {
+        return 4;
+    }
+    return 2;
+}
+
+// ==================================================================
+// Descriptor::create
+// ==================================================================
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t in_desc,
+    infiniopTensorDescriptor_t indices_desc) {
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    auto info_result = TakeInfo::create(out_desc, in_desc, indices_desc);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    auto out_d = reinterpret_cast<const InfiniopTensorDescriptor *>(out_desc);
+    auto in_d = reinterpret_cast<const InfiniopTensorDescriptor *>(in_desc);
+    auto idx_d = reinterpret_cast<const InfiniopTensorDescriptor *>(indices_desc);
+
+    int input_dim = 1;
+    for (int i = 0; i < in_d->ndim(); ++i) {
+        input_dim *= in_d->shape()[i];
+    }
+
+    int indices_numel = 1;
+    for (int i = 0; i < idx_d->ndim(); ++i) {
+        indices_numel *= idx_d->shape()[i];
+    }
+
+    int outer = 1;
+    int inner = 1;
+
+    size_t bytes = static_cast<size_t>(indices_numel) * get_element_size(out_d->dtype());
+
+    auto opaque = new Opaque{
+        handle->internal(),
+        outer,
+        inner,
+        indices_numel,
+        input_dim,
+        bytes};
+
+    *desc_ptr = new Descriptor(
+        opaque,
+        info_result.take(),
+        0,
+        handle->device,
+        handle->device_id);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+// ==================================================================
+// Descriptor::calculate
+// ==================================================================
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    const void *indices,
+    void *stream) const {
+    auto dtype = _info.dtype();
+    auto idx_dtype = _info.idx_dtype();
+
+    int outer = _opaque->outer_size;
+    int inner = _opaque->inner_size;
+    int input_dim = _opaque->input_dim_size;
+    int idx_sz = _opaque->indices_size;
+
+#define LAUNCH(T, TIdx)          \
+    launch_kernel_impl<T, TIdx>( \
+        output, input, indices,  \
+        outer, inner, idx_sz, input_dim, stream)
+
+    if (idx_dtype == INFINI_DTYPE_I32) {
+        switch (dtype) {
+
+        case INFINI_DTYPE_F16:
+            LAUNCH(__half, int32_t);
+            break;
+
+        case INFINI_DTYPE_BF16:
+            LAUNCH(cuda_bfloat16, int32_t);
+            break;
+
+        case INFINI_DTYPE_F32:
+            LAUNCH(float, int32_t);
+            break;
+
+        case INFINI_DTYPE_F64:
+            LAUNCH(double, int32_t);
+            break;
+
+        case INFINI_DTYPE_I32:
+            LAUNCH(int32_t, int32_t);
+            break;
+
+        case INFINI_DTYPE_I64:
+            LAUNCH(int64_t, int32_t);
+            break;
+
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+
+    } else if (idx_dtype == INFINI_DTYPE_I64) {
+        switch (dtype) {
+
+        case INFINI_DTYPE_F16:
+            LAUNCH(__half, int64_t);
+            break;
+
+        case INFINI_DTYPE_BF16:
+            LAUNCH(cuda_bfloat16, int64_t);
+            break;
+
+        case INFINI_DTYPE_F32:
+            LAUNCH(float, int64_t);
+            break;
+
+        case INFINI_DTYPE_F64:
+            LAUNCH(double, int64_t);
+            break;
+
+        case INFINI_DTYPE_I32:
+            LAUNCH(int32_t, int64_t);
+            break;
+
+        case INFINI_DTYPE_I64:
+            LAUNCH(int64_t, int64_t);
+            break;
+
+        default:
+            return INFINI_STATUS_BAD_TENSOR_DTYPE;
+        }
+
+    } else {
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+#undef LAUNCH
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::take::metax

@@ -1,0 +1,170 @@
+#include "../../../devices/metax/metax_common.h"
+#include "avg_pool1d_metax.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+
+#include <type_traits>
+
+namespace op::avg_pool1d::metax {
+
+struct Descriptor::Opaque {
+    std::shared_ptr<device::metax::Handle::Internal> internal;
+};
+
+Descriptor::~Descriptor() {
+    delete _opaque;
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t y_desc,
+    infiniopTensorDescriptor_t x_desc,
+    size_t kernel_size,
+    size_t stride,
+    size_t padding) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    auto info = AvgPool1dInfo::createAvgPool1dInfo(y_desc, x_desc, kernel_size, stride, padding);
+    CHECK_RESULT(info);
+
+    *desc_ptr = new Descriptor(
+        info.take(),
+        0,
+        new Opaque{handle->internal()},
+        handle->device,
+        handle->device_id);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+template <typename Tdata, typename Tcompute>
+__device__ __forceinline__ Tdata castToOutput(Tcompute val) {
+    if constexpr (std::is_same_v<Tdata, half>) {
+        return __float2half(static_cast<float>(val));
+    } else if constexpr (std::is_same_v<Tdata, cuda_bfloat16>) {
+        return __float2bfloat16(static_cast<float>(val));
+    } else {
+        return static_cast<Tdata>(val);
+    }
+}
+
+template <typename Tdata, typename Tcompute>
+INFINIOP_METAX_KERNEL avgPool1dGlobalKernel(
+    Tdata *y,
+    const Tdata *x,
+    size_t batch,
+    size_t channels,
+    size_t in_width,
+    size_t out_width,
+    size_t kernel_size,
+    size_t stride,
+    size_t padding,
+    ptrdiff_t y_stride_batch,
+    ptrdiff_t y_stride_channel,
+    ptrdiff_t y_stride_width,
+    ptrdiff_t x_stride_batch,
+    ptrdiff_t x_stride_channel,
+    ptrdiff_t x_stride_width) {
+
+    size_t total_elements = batch * channels * out_width;
+    Tcompute inv_kernel = Tcompute(1) / static_cast<Tcompute>(kernel_size);
+
+    for (size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+         idx < total_elements;
+         idx += gridDim.x * blockDim.x) {
+
+        size_t ow = idx % out_width;
+        size_t temp = idx / out_width;
+        size_t c = temp % channels;
+        size_t b = temp / channels;
+
+        size_t y_offset = b * y_stride_batch + c * y_stride_channel + ow * y_stride_width;
+        size_t x_base = b * x_stride_batch + c * x_stride_channel;
+
+        long long start_w = static_cast<long long>(ow * stride) - static_cast<long long>(padding);
+        long long end_w = start_w + static_cast<long long>(kernel_size);
+        long long iw_start = start_w < 0 ? 0 : start_w;
+        long long iw_end = end_w > static_cast<long long>(in_width) ? static_cast<long long>(in_width) : end_w;
+
+        Tcompute sum = Tcompute(0);
+        if (iw_start < iw_end) {
+            size_t x_offset = x_base + static_cast<size_t>(iw_start) * x_stride_width;
+            for (long long iw = iw_start; iw < iw_end; ++iw) {
+                sum += static_cast<Tcompute>(x[x_offset]);
+                x_offset += x_stride_width;
+            }
+        }
+
+        y[y_offset] = castToOutput<Tdata, Tcompute>(sum * inv_kernel);
+    }
+}
+
+template <typename Tdata, typename Tcompute>
+infiniStatus_t calculateAvgPool1d(
+    const AvgPool1dInfo &info,
+    int max_threads_per_block,
+    Tdata *y,
+    const Tdata *x,
+    hcStream_t stream) {
+
+    size_t total_elements = info.batch * info.channels * info.out_width;
+
+    int block_size = 256;
+    if (max_threads_per_block > 0 && max_threads_per_block < block_size) {
+        block_size = max_threads_per_block;
+    }
+
+    size_t grid_size = (total_elements + block_size - 1) / block_size;
+    if (grid_size > 65535) {
+        grid_size = 65535;
+    }
+
+    avgPool1dGlobalKernel<Tdata, Tcompute><<<grid_size, block_size, 0, stream>>>(
+        y, x,
+        info.batch, info.channels, info.in_width, info.out_width,
+        info.kernel_size, info.stride, info.padding,
+        info.y_stride_batch, info.y_stride_channel, info.y_stride_width,
+        info.x_stride_batch, info.x_stride_channel, info.x_stride_width);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+#define CALCULATE(TDATA, TCOMPUTE) \
+    calculateAvgPool1d<TDATA, TCOMPUTE>( \
+        _info, \
+        _opaque->internal->maxThreadsPerBlock(), \
+        (TDATA *)y, \
+        (const TDATA *)x, \
+        (hcStream_t)stream)
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *y,
+    const void *x,
+    void *stream) const {
+
+    (void)workspace;
+
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    switch (_info.dtype) {
+    case INFINI_DTYPE_F16:
+        return CALCULATE(half, float);
+    case INFINI_DTYPE_BF16:
+        return CALCULATE(cuda_bfloat16, float);
+    case INFINI_DTYPE_F32:
+        return CALCULATE(float, float);
+    case INFINI_DTYPE_F64:
+        return CALCULATE(double, double);
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+}
+
+#undef CALCULATE
+
+} // namespace op::avg_pool1d::metax

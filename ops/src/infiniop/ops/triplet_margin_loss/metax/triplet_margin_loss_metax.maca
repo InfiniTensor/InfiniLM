@@ -1,0 +1,334 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+
+#include "triplet_margin_loss_metax.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+
+namespace op::triplet_margin_loss::metax {
+
+// ==================================================================
+// Device Helper Functions (Kernel Logic)
+// ==================================================================
+
+// 归约辅助函数 (Warp & Block Reduction)
+__device__ __forceinline__ float warpReduceSum(float val) {
+    // [Fix] 使用 64 位掩码以兼容 MACA 的 64 线程 Warp (Wavefront)
+    // 32 位掩码 (0xffffffff) 在 64 线程 Warp 上会导致高 32 线程的数据丢失
+    unsigned long long mask = 0xffffffffffffffffULL;
+    for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+        val += __shfl_down_sync(mask, val, offset);
+    }
+    return val;
+}
+
+__device__ __forceinline__ float blockReduceSum(float val) {
+    // 假设最大 block size 1024，shared memory 大小需覆盖 max_warps
+    // MACA WarpSize 可能为 64，1024/64 = 16 Warps，64 float 足够
+    static __shared__ float shared[64];
+
+    int lane = threadIdx.x % warpSize;
+    int wid = threadIdx.x / warpSize;
+
+    // 1. Warp 内归约
+    val = warpReduceSum(val);
+
+    // 2. 每个 Warp 的第一个线程将结果写入 Shared Memory
+    if (lane == 0) {
+        shared[wid] = val;
+    }
+    __syncthreads();
+
+    // 3. 读取 Shared Memory 中的 Warp 结果
+    // 只有第一个 Warp 需要进行第二次归约 (负责汇总所有 Warp 的和)
+    val = (threadIdx.x < blockDim.x / warpSize) ? shared[lane] : 0.0f;
+
+    // 4. 对 Warp 结果进行归约
+    if (wid == 0) {
+        val = warpReduceSum(val);
+    }
+
+    return val;
+}
+
+// Functor: 核心数学逻辑
+struct TripletMarginLossFunctor {
+    float margin;
+    int p;
+    float eps;
+    bool swap;
+
+    __host__ __device__ TripletMarginLossFunctor(float margin_, int p_, float eps_, bool swap_)
+        : margin(margin_), p(p_), eps(eps_), swap(swap_) {}
+
+    // 辅助函数: 计算两个向量 x, y 之间的 p-范数距离
+    template <typename T>
+    __device__ __forceinline__ float compute_dist(const T *x, const T *y, size_t D) const {
+        float sum = 0.0f;
+        for (size_t i = 0; i < D; ++i) {
+            float diff = fabsf(static_cast<float>(x[i]) - static_cast<float>(y[i]));
+            if (p == 1) {
+                sum += diff;
+            } else if (p == 2) {
+                sum += diff * diff;
+            } else {
+                sum += powf(diff, static_cast<float>(p));
+            }
+        }
+
+        if (p == 1) {
+            return sum + eps;
+        } else if (p == 2) {
+            return sqrtf(sum + eps);
+        } else {
+            return powf(sum + eps, 1.0f / static_cast<float>(p));
+        }
+    }
+
+    // 计算单个 Triplet 的 Loss
+    __device__ __forceinline__ float compute_loss(float dist_pos, float dist_neg) const {
+        float val = dist_pos - dist_neg + margin;
+        return (val > 0.0f) ? val : 0.0f; // max(0, val)
+    }
+};
+
+// Kernel 1: Pointwise / No Reduction
+template <typename T>
+__global__ void triplet_margin_loss_kernel(
+    T *__restrict__ output,         // [N]
+    const T *__restrict__ anchor,   // [N, D]
+    const T *__restrict__ positive, // [N, D]
+    const T *__restrict__ negative, // [N, D]
+    size_t N,
+    size_t D,
+    TripletMarginLossFunctor functor) {
+
+    size_t n = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (n < N) {
+        const T *a_ptr = anchor + n * D;
+        const T *p_ptr = positive + n * D;
+        const T *n_ptr = negative + n * D;
+
+        float dist_pos = functor.compute_dist(a_ptr, p_ptr, D);
+        float dist_neg = functor.compute_dist(a_ptr, n_ptr, D);
+
+        // Swap 逻辑
+        if (functor.swap) {
+            float dist_swap = functor.compute_dist(p_ptr, n_ptr, D);
+            if (dist_swap < dist_neg) {
+                dist_neg = dist_swap;
+            }
+        }
+
+        float loss = functor.compute_loss(dist_pos, dist_neg);
+        output[n] = static_cast<T>(loss);
+    }
+}
+
+// Kernel 2: Reduction (Mean / Sum)
+template <typename T>
+__global__ void triplet_margin_loss_reduce_kernel(
+    float *output,                  // [1] Accumulator (Float)
+    const T *__restrict__ anchor,   // [N, D]
+    const T *__restrict__ positive, // [N, D]
+    const T *__restrict__ negative, // [N, D]
+    size_t N,
+    size_t D,
+    TripletMarginLossFunctor functor,
+    float scale // Mean模式传 1/N, Sum模式传 1.0
+) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+    float local_sum = 0.0f;
+
+    // Grid-Stride Loop
+    for (size_t n = idx; n < N; n += stride) {
+        const T *a_ptr = anchor + n * D;
+        const T *p_ptr = positive + n * D;
+        const T *n_ptr = negative + n * D;
+
+        float dist_pos = functor.compute_dist(a_ptr, p_ptr, D);
+        float dist_neg = functor.compute_dist(a_ptr, n_ptr, D);
+
+        if (functor.swap) {
+            float dist_swap = functor.compute_dist(p_ptr, n_ptr, D);
+            if (dist_swap < dist_neg) {
+                dist_neg = dist_swap;
+            }
+        }
+
+        local_sum += functor.compute_loss(dist_pos, dist_neg);
+    }
+
+    // Block Reduction
+    float block_sum = blockReduceSum(local_sum);
+
+    // Global Atomic Add (Thread 0 only)
+    if (threadIdx.x == 0) {
+        atomicAdd(output, block_sum * scale);
+    }
+}
+
+// 将 float accumulator 转换为 T 并写入 output
+template <typename T>
+__global__ void cast_float_to_t(T *output, const float *src) {
+    *output = static_cast<T>(*src);
+}
+
+// ==================================================================
+// Host Functions
+// ==================================================================
+
+// Kernel Launch Logic
+template <typename T>
+void launch_kernel(
+    void *output,
+    const void *anchor,
+    const void *positive,
+    const void *negative,
+    void *workspace,
+    const TripletMarginLossInfo &info,
+    void *stream) {
+
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    // 指针转换
+    auto out_ptr = reinterpret_cast<T *>(output);
+    auto anc_ptr = reinterpret_cast<const T *>(anchor);
+    auto pos_ptr = reinterpret_cast<const T *>(positive);
+    auto neg_ptr = reinterpret_cast<const T *>(negative);
+
+    // 参数准备
+    size_t N = info.batch_size();
+    size_t D = info.feature_dim();
+    int reduction = info.reduction();
+
+    TripletMarginLossFunctor functor(
+        info.margin(),
+        info.p(),
+        info.eps(),
+        info.swap());
+
+    // ------------------------------------------
+    // 模式 1: Pointwise (Reduction = None [0])
+    // ------------------------------------------
+    if (reduction == 0) {
+        size_t block_size = 256;
+        size_t grid_size = (N + block_size - 1) / block_size;
+
+        triplet_margin_loss_kernel<T>
+            <<<grid_size, block_size, 0, hc_stream>>>(
+                out_ptr, anc_ptr, pos_ptr, neg_ptr, N, D, functor);
+    }
+    // ------------------------------------------
+    // 模式 2: Reduction (Mean [1] / Sum [2])
+    // ------------------------------------------
+    else {
+        float *acc_ptr = reinterpret_cast<float *>(workspace);
+
+        hcMemsetAsync(acc_ptr, 0, sizeof(float), hc_stream);
+
+        // Scale 逻辑: 1=Mean, 2=Sum
+        // [Fix] 显式检查 reduction == 1 (Mean)，否则默认为 Sum (1.0)
+        // 确保 N > 0 避免除零
+        float scale = (reduction == 1 && N > 0) ? (1.0f / static_cast<float>(N)) : 1.0f;
+
+        size_t block_size = 256;
+        size_t grid_size = std::min((N + block_size - 1) / block_size, static_cast<size_t>(1024));
+        if (grid_size == 0) {
+            grid_size = 1;
+        }
+
+        triplet_margin_loss_reduce_kernel<T>
+            <<<grid_size, block_size, 0, hc_stream>>>(
+                acc_ptr, anc_ptr, pos_ptr, neg_ptr, N, D, functor, scale);
+
+        cast_float_to_t<T>
+            <<<1, 1, 0, hc_stream>>>(out_ptr, acc_ptr);
+    }
+}
+
+// ==================================================================
+// Descriptor Implementation
+// ==================================================================
+
+struct Descriptor::Opaque {
+    // 占位符
+};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_, Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t anchor_desc,
+    infiniopTensorDescriptor_t positive_desc,
+    infiniopTensorDescriptor_t negative_desc,
+    float margin,
+    int p,
+    float eps,
+    int swap,
+    int reduction) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    auto info_result = TripletMarginLossInfo::create(out_desc, anchor_desc, positive_desc, negative_desc, margin, p, eps, swap, reduction);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    // 如果需要 Reduction (reduction != 0)，分配一个 float 大小的 workspace
+    size_t workspace_size = 0;
+    if (reduction != 0) {
+        workspace_size = sizeof(float);
+    }
+
+    *desc_ptr = new Descriptor(new Opaque(), info_result.take(), workspace_size, handle->device, handle->device_id);
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *anchor,
+    const void *positive,
+    const void *negative,
+    void *stream) const {
+
+    auto dtype = _info.dtype();
+    int reduction = _info.reduction();
+
+    if (reduction != 0 && workspace_size < sizeof(float)) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, anchor, positive, negative, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, anchor, positive, negative, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, anchor, positive, negative, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, anchor, positive, negative, workspace, _info, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::triplet_margin_loss::metax

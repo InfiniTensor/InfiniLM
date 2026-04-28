@@ -49,6 +49,9 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
 
     // 2. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
+    // k_total/v_total come from kv_cache narrow+squeeze (no permute), so layout
+    // is `[num_blocks, block_size, num_kv_heads, head_dim]` (BSHD), which is
+    // exactly what flash-attn's mha_varlen_fwd / mha_fwd_kvcache expect.
     if (is_prefill) {
         infinicore::op::mha_varlen_(
             attn_output,
@@ -66,7 +69,6 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
         // FA2 decode path: flash::mha_fwd_kvcache
         // In paged-attn mode, seq_len = actual batch_size (one query token per sequence).
         // q_reshaped: [seq_len, num_heads, head_dim] → [seq_len, 1, num_heads, head_dim]
-        // k/v cache:  [num_blocks, block_size, num_kv_heads, head_dim]
         auto q_for_fa = query->view({seq_len, 1, num_heads_, head_dim_});
         auto attn_out_4d = infinicore::op::mha_kvcache(
             q_for_fa,

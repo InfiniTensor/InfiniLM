@@ -1,0 +1,27 @@
+#ifndef __ADD_BANG_INTERNAL_H__
+#define __ADD_BANG_INTERNAL_H__
+
+#include "../../../elementwise/bang/elementwise_bang_kernel.h"
+
+typedef struct AddOp {
+public:
+    static constexpr size_t num_inputs = 2;
+    template <typename T>
+    __mlu_device__ void operator()(T *out, const T *a, const T *b, size_t num_elements) const {
+        if constexpr (std::is_same_v<T, half> || std::is_same_v<T, bfloat16_t> || std::is_same_v<T, float> || std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t>) {
+            __bang_add(out, a, b, num_elements);
+        } else {
+            out = a + b;
+        }
+    }
+} AddOp;
+
+LAUNCH_ELEMENTWISE_KERNEL_IMPL(Add, AddOp)
+
+LAUNCH_ELEMENTWISE_KERNEL_INSTANTIATE(Add, half)
+LAUNCH_ELEMENTWISE_KERNEL_INSTANTIATE(Add, bfloat16_t)
+LAUNCH_ELEMENTWISE_KERNEL_INSTANTIATE(Add, float)
+LAUNCH_ELEMENTWISE_KERNEL_INSTANTIATE(Add, int32_t)
+LAUNCH_ELEMENTWISE_KERNEL_INSTANTIATE(Add, int64_t)
+
+#endif // __ADD_BANG_INTERNAL_H__

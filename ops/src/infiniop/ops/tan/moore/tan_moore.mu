@@ -1,0 +1,56 @@
+#include "../../../elementwise/moore/elementwise_moore.h"
+
+#include "../cuda/kernel.cuh"
+#include "tan_moore.h"
+
+namespace op::tan::moore {
+
+Descriptor::~Descriptor() = default;
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    std::vector<infiniopTensorDescriptor_t> input_desc_vec) {
+
+    auto handle = reinterpret_cast<device::moore::Handle *>(handle_);
+    auto dtype = out_desc->dtype();
+
+    const auto &input_desc = input_desc_vec.at(0);
+    const auto &output_shape = out_desc->shape();
+    const auto &input_shape = input_desc->shape();
+
+    CHECK_DTYPE(dtype, INFINI_DTYPE_BF16, INFINI_DTYPE_F16, INFINI_DTYPE_F32);
+
+    CHECK_SAME_SHAPE(output_shape, input_shape);
+
+    CREATE_ELEMENTWISE_MOORE_DESCRIPTOR(handle, dtype, out_desc, input_desc_vec)
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    std::vector<const void *> inputs,
+    void *stream) const {
+
+    if (workspace_size < _workspace_size) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    switch (_dtype) {
+    case INFINI_DTYPE_BF16:
+        return _device_info->calculate<256, cuda::TanOp, mt_bfloat16>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F16:
+        return _device_info->calculate<256, cuda::TanOp, half>(_info, workspace, output, inputs, stream);
+    case INFINI_DTYPE_F32:
+        return _device_info->calculate<256, cuda::TanOp, float>(_info, workspace, output, inputs, stream);
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+} // namespace op::tan::moore

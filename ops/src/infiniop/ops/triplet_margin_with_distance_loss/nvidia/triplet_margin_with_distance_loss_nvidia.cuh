@@ -1,0 +1,8 @@
+#ifndef __TRIPLET_MARGIN_WITH_DISTANCE_LOSS_NVIDIA_CUH__
+#define __TRIPLET_MARGIN_WITH_DISTANCE_LOSS_NVIDIA_CUH__
+
+#include "../triplet_margin_with_distance_loss.h"
+
+DESCRIPTOR(nvidia)
+
+#endif // __TRIPLET_MARGIN_WITH_DISTANCE_LOSS_NVIDIA_CUH__

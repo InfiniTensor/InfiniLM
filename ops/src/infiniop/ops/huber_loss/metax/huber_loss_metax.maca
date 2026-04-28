@@ -1,0 +1,291 @@
+#include "../../../devices/metax/metax_common.h"
+#include "../../../devices/metax/metax_handle.h"
+#include "../../../devices/metax/metax_kernel_common.h"
+#include "huber_loss_metax.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+
+namespace op::huber_loss::metax {
+
+// ==================================================================
+// 1. Functor: 核心数学逻辑
+// ==================================================================
+struct HuberLossFunctor {
+    float delta;
+    float half_delta;
+
+    __host__ __device__ HuberLossFunctor(float delta_val)
+        : delta(delta_val), half_delta(0.5f * delta_val) {}
+
+    __device__ __forceinline__ float compute(float input_val, float target_val) const {
+        float diff = input_val - target_val;
+        float abs_diff = fabsf(diff);
+
+        if (abs_diff < delta) {
+            return 0.5f * diff * diff;
+        } else {
+            return delta * (abs_diff - half_delta);
+        }
+    }
+};
+
+// ==================================================================
+// 2. Kernel 定义
+// ==================================================================
+
+// ------------------------------------------------------------------
+// Kernel 1: Elementwise 模式 (Reduction = None)
+// 输出形状同 input/target，长度为 count
+// ------------------------------------------------------------------
+template <typename T>
+__global__ void huber_loss_kernel(
+    T *__restrict__ output,       // [count]
+    const T *__restrict__ input,  // [count]
+    const T *__restrict__ target, // [count]
+    size_t count,                 // 元素个数
+    HuberLossFunctor functor) {
+
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < count) {
+        float in_val = static_cast<float>(input[idx]);
+        float tg_val = static_cast<float>(target[idx]);
+
+        float loss = functor.compute(in_val, tg_val);
+
+        output[idx] = static_cast<T>(loss);
+    }
+}
+
+// ------------------------------------------------------------------
+// Kernel 2: Reduction 模式 (Mean / Sum)
+// ------------------------------------------------------------------
+template <typename T>
+__global__ void huber_loss_reduce_kernel(
+    float *output,                // [1] Accumulator (Float)
+    const T *__restrict__ input,  // [count]
+    const T *__restrict__ target, // [count]
+    size_t count,                 // 元素个数
+    HuberLossFunctor functor,
+    float scale // Mean: 1/count, Sum: 1.0
+) {
+    __shared__ volatile float shared_mem[256];
+
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+    float local_sum = 0.0f;
+
+    // 1. Grid-Stride Loop 计算本线程负责的 loss 累加
+    for (size_t i = idx; i < count; i += stride) {
+        float in_val = static_cast<float>(input[i]);
+        float tg_val = static_cast<float>(target[i]);
+
+        local_sum += functor.compute(in_val, tg_val);
+    }
+
+    // 2. 写入 shared memory
+    unsigned int tid = threadIdx.x;
+    if (tid < 256) {
+        shared_mem[tid] = local_sum;
+    }
+    __syncthreads();
+
+    // 3. Block 内树形归约 (Unrolled Reduction)
+    if (tid < 128) {
+        shared_mem[tid] += shared_mem[tid + 128];
+    }
+    __syncthreads();
+    if (tid < 64) {
+        shared_mem[tid] += shared_mem[tid + 64];
+    }
+    __syncthreads();
+    if (tid < 32) {
+        shared_mem[tid] += shared_mem[tid + 32];
+    }
+    __syncthreads();
+    if (tid < 16) {
+        shared_mem[tid] += shared_mem[tid + 16];
+    }
+    __syncthreads();
+    if (tid < 8) {
+        shared_mem[tid] += shared_mem[tid + 8];
+    }
+    __syncthreads();
+    if (tid < 4) {
+        shared_mem[tid] += shared_mem[tid + 4];
+    }
+    __syncthreads();
+    if (tid < 2) {
+        shared_mem[tid] += shared_mem[tid + 2];
+    }
+    __syncthreads();
+    if (tid < 1) {
+        shared_mem[tid] += shared_mem[tid + 1];
+    }
+    __syncthreads();
+
+    // 4. Block 级结果累加到全局 output
+    if (tid == 0) {
+        float block_sum = shared_mem[0];
+        atomicAdd(output, block_sum * scale);
+    }
+}
+
+// ------------------------------------------------------------------
+// Kernel 3: 类型转换 (Float -> T)
+// ------------------------------------------------------------------
+template <typename T>
+__global__ void cast_float_to_t(T *output, const float *src) {
+    *output = static_cast<T>(*src);
+}
+
+// ==================================================================
+// 3. Kernel Launch Logic
+// ==================================================================
+template <typename T>
+void launch_kernel(
+    void *output,
+    const void *input,
+    const void *target,
+    void *workspace,
+    const HuberLossInfo &info,
+    void *stream) {
+
+    auto in_ptr = reinterpret_cast<const T *>(input);
+    auto tar_ptr = reinterpret_cast<const T *>(target);
+    auto out_ptr = reinterpret_cast<T *>(output);
+
+    auto hc_stream = reinterpret_cast<hcStream_t>(stream);
+
+    size_t count = info.count();
+    int reduction = info.reduction();
+
+    HuberLossFunctor functor(info.delta());
+
+    // --------------------------------------------------------------
+    // Mode 1: Elementwise (Reduction = None)
+    // --------------------------------------------------------------
+    if (reduction == 0) {
+        size_t block_size = 256;
+        size_t grid_size = (count + block_size - 1) / block_size;
+        if (grid_size == 0) {
+            grid_size = 1;
+        }
+
+        huber_loss_kernel<T>
+            <<<grid_size, block_size, 0, hc_stream>>>(
+                out_ptr, in_ptr, tar_ptr, count, functor);
+    }
+    // --------------------------------------------------------------
+    // Mode 2: Reduction (Mean / Sum)
+    // --------------------------------------------------------------
+    else {
+        // workspace 用作浮点累加器
+        float *acc_ptr = reinterpret_cast<float *>(workspace);
+        hcMemsetAsync(acc_ptr, 0, sizeof(float), hc_stream);
+
+        float scale = (reduction == 1)
+                        ? (1.0f / static_cast<float>(count)) // reduction == 1: mean
+                        : 1.0f;                              // reduction == 2: sum
+
+        size_t block_size = 256;
+        size_t grid_size = std::min(
+            (count + block_size - 1) / block_size,
+            static_cast<size_t>(1024));
+        if (grid_size == 0) {
+            grid_size = 1;
+        }
+
+        huber_loss_reduce_kernel<T>
+            <<<grid_size, block_size, 0, hc_stream>>>(
+                acc_ptr, in_ptr, tar_ptr, count, functor, scale);
+
+        // 将 float 标量结果转换回目标类型 T
+        cast_float_to_t<T>
+            <<<1, 1, 0, hc_stream>>>(out_ptr, acc_ptr);
+    }
+}
+
+// ==================================================================
+// 4. Descriptor Implementation
+// ==================================================================
+struct Descriptor::Opaque {};
+
+Descriptor::~Descriptor() {
+    if (_opaque) {
+        delete _opaque;
+    }
+}
+
+infiniStatus_t Descriptor::create(
+    infiniopHandle_t handle_,
+    Descriptor **desc_ptr,
+    infiniopTensorDescriptor_t out_desc,
+    infiniopTensorDescriptor_t input_desc,
+    infiniopTensorDescriptor_t target_desc,
+    float delta,
+    int reduction) {
+
+    auto handle = reinterpret_cast<device::metax::Handle *>(handle_);
+
+    auto info_result = HuberLossInfo::create(
+        out_desc, input_desc, target_desc, delta, reduction);
+    if (!info_result) {
+        return info_result.status();
+    }
+
+    // reduction 模式下需要一个 float workspace（用于 atomicAdd 累加）
+    size_t workspace_size = 0;
+    if (reduction != 0) {
+        workspace_size = sizeof(float);
+    }
+
+    *desc_ptr = new Descriptor(
+        new Opaque(),
+        info_result.take(),
+        workspace_size,
+        handle->device,
+        handle->device_id);
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+infiniStatus_t Descriptor::calculate(
+    void *workspace,
+    size_t workspace_size,
+    void *output,
+    const void *input,
+    const void *target,
+    void *stream) const {
+
+    auto dtype = _info.dtype();
+    int reduction = _info.reduction();
+
+    if (reduction != 0 && workspace_size < sizeof(float)) {
+        return INFINI_STATUS_INSUFFICIENT_WORKSPACE;
+    }
+
+    switch (dtype) {
+    case INFINI_DTYPE_F16:
+        launch_kernel<__half>(output, input, target, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_BF16:
+        launch_kernel<cuda_bfloat16>(output, input, target, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_F32:
+        launch_kernel<float>(output, input, target, workspace, _info, stream);
+        break;
+    case INFINI_DTYPE_F64:
+        launch_kernel<double>(output, input, target, workspace, _info, stream);
+        break;
+    default:
+        return INFINI_STATUS_BAD_TENSOR_DTYPE;
+    }
+
+    return INFINI_STATUS_SUCCESS;
+}
+
+} // namespace op::huber_loss::metax
