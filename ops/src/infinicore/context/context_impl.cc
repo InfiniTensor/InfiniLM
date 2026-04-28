@@ -192,8 +192,8 @@ void addGraphOperator(std::shared_ptr<graph::GraphOperator> op) {
     ContextImpl::singleton().getCurrentRuntime()->addGraphOperator(op);
 }
 
-std::shared_ptr<graph::Graph> stopGraphRecording() {
-    return ContextImpl::singleton().getCurrentRuntime()->stopGraphRecording();
+std::shared_ptr<graph::Graph> stopGraphRecording(const graph::GraphInstantiateFence &fence) {
+    return ContextImpl::singleton().getCurrentRuntime()->stopGraphRecording(fence);
 }
 
 std::shared_ptr<Memory> reinstantiateBlob(std::shared_ptr<Memory> blob) {

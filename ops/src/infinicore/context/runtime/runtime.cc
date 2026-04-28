@@ -167,8 +167,8 @@ void Runtime::addGraphOperator(std::shared_ptr<graph::GraphOperator> op) {
     return graph_manager_->add_operator(op);
 }
 
-std::shared_ptr<graph::Graph> Runtime::stopGraphRecording() {
-    auto graph = graph_manager_->stop_recording();
+std::shared_ptr<graph::Graph> Runtime::stopGraphRecording(const graph::GraphInstantiateFence &fence) {
+    auto graph = graph_manager_->stop_recording(fence);
     device_memory_allocator_->set_pin_mode(false);
     return graph;
 }

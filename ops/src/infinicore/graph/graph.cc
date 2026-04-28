@@ -77,7 +77,7 @@ void Graph::add_operator(std::shared_ptr<GraphOperator> op) {
     op_list_.push_back(op);
 }
 
-void Graph::instantiate() {
+void Graph::instantiate(const GraphInstantiateFence &fence) {
     device_graph_ = std::make_unique<DeviceGraph>();
 
     // Eager warmup. Empirically 4 iterations are needed for cublas algo
@@ -85,7 +85,18 @@ void Graph::instantiate() {
     // graph references not-yet-pinned algo state and replays wrong.
     constexpr size_t kEagerWarmupIters = 4;
     for (size_t iter = 0; iter < kEagerWarmupIters; ++iter) {
-        this->run();
+        if (iter == 0 && fence) {
+            // First-pass JIT-load: fence between every op so all ranks freeze
+            // the same kernel at the same moment. After this pass kernels are
+            // HSA-cached, so iter>=1 / capture-mode / capture replays don't
+            // re-freeze and don't need the fence.
+            for (auto &op : op_list_) {
+                op->run();
+                fence();
+            }
+        } else {
+            this->run();
+        }
     }
     // Full-device sync (not just stream): cublas/cudnn use helper streams that
     // can still have work in flight when only the active stream is drained,
@@ -169,14 +180,16 @@ void GraphManager::add_operator(std::shared_ptr<GraphOperator> op) {
     graph_->add_operator(op);
 }
 
-std::shared_ptr<Graph> GraphManager::stop_recording() {
+std::shared_ptr<Graph> GraphManager::stop_recording(const GraphInstantiateFence &fence) {
     if (!is_recording()) {
         spdlog::warn("Graph is not recording. Please start recording first.");
         return nullptr;
     }
     recording_ = false;
 #ifdef USE_INFINIRT_GRAPH
-    graph_->instantiate();
+    graph_->instantiate(fence);
+#else
+    (void)fence;
 #endif
     return std::exchange(graph_, nullptr);
 }

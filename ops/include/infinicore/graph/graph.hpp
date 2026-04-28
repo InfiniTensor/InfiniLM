@@ -1,11 +1,20 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <vector>
 
 #include "../tensor.hpp"
 
 namespace infinicore::graph {
+
+// Invoked between op->run() calls during the first eager-warmup replay of
+// Graph::instantiate. Used by multi-rank tp engines to lock-step JIT kernel
+// loads across ranks (DTK 2604 HSA loader has a freeze race for divergent
+// concurrent freezes — same-kernel concurrent freezes are fine, so syncing
+// every op makes JIT loads safe). Default nullptr keeps single-rank behavior.
+using GraphInstantiateFence = std::function<void()>;
+
 // Forward declarations
 class GraphManager;
 
@@ -42,7 +51,7 @@ public:
 
 protected:
     void add_operator(std::shared_ptr<GraphOperator> op);
-    void instantiate();
+    void instantiate(const GraphInstantiateFence &fence = nullptr);
     std::vector<std::shared_ptr<GraphOperator>> op_list_;
 
     friend class GraphManager;

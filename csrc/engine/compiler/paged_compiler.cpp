@@ -76,7 +76,14 @@ void PagedCompiler::compile() {
             barrier_->wait();
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
-            auto graph = infinicore::context::stopGraphRecording();
+            // Per-op fence locks the first eager-warmup pass inside instantiate
+            // step-by-step across ranks. Fixes DTK 2604 HSA-loader freeze race
+            // (divergent concurrent freezes wedge BLIT-DMA); same-kernel
+            // concurrent freezes are fine, so syncing every op makes it safe.
+            // Visible on 70B tp=4 graph (80-layer op_list); 8B tp=4 graph
+            // happened to fit within the loader's tolerance window.
+            auto graph = infinicore::context::stopGraphRecording(
+                [this]() { barrier_->wait(); });
             barrier_->wait();
 
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(

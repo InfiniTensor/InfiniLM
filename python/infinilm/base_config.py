@@ -1,6 +1,5 @@
 import argparse
 import json
-import os
 import sys
 import warnings
 
@@ -134,7 +133,6 @@ class BaseConfig:
         # that is the production-recommended path. The handwritten in-tree
         # `op::paged_attention_` is kept only as a fallback. Nudge users.
         if self.device == "hygon" and self.attn == "paged-attn":
-            import warnings
             warnings.warn(
                 "On Hygon DCU, --attn=paged-attn uses the in-tree handwritten "
                 "kernel. The DTK FA wheel's `flash::paged_attention` is the "

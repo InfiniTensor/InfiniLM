@@ -46,7 +46,7 @@ void streamWaitEvent(infinirtStream_t stream, infinirtEvent_t event);
 bool isGraphRecording();
 void startGraphRecording();
 void addGraphOperator(std::shared_ptr<graph::GraphOperator> op);
-std::shared_ptr<graph::Graph> stopGraphRecording();
+std::shared_ptr<graph::Graph> stopGraphRecording(const graph::GraphInstantiateFence &fence = nullptr);
 
 } // namespace context
 

@@ -28,7 +28,10 @@ inline void bind(py::module &m) {
     // Graph
     m.def("is_graph_recording", &isGraphRecording, "Check if graph recording is turned on");
     m.def("start_graph_recording", &startGraphRecording, "Start graph recording");
-    m.def("stop_graph_recording", &stopGraphRecording, "Stop graph recording and return the graph");
+    m.def(
+        "stop_graph_recording",
+        []() { return stopGraphRecording(); },
+        "Stop graph recording and return the graph");
 }
 
 } // namespace infinicore::context

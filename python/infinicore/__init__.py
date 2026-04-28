@@ -1,5 +1,47 @@
 import contextlib
 
+
+def _arm_hygon_serialize_workaround():
+    """Force AMD HIP runtime to serialize kernel launches and DMA copies on
+    Hygon DCU (DTK 2604+) for tp>1 eager mode only.
+
+    Background: when N ranks share one HIP context (InfiniLM's multi-thread tp
+    model), each rank's first forward call triggers concurrent
+    hsa_executable_freeze invocations. DTK's HSA loader uses BlitKernel-DMA
+    inside Freeze, and the BLIT engine queue races across ranks — one rank's
+    SubmitLinearCopyCommand wedges on hsa_signal_wait_scacquire and the rest
+    queue forever. AMD_SERIALIZE_KERNEL=3 + AMD_SERIALIZE_COPY=3 serializes
+    the BLIT engine work at the runtime layer.
+
+    Trade-off: SERIALIZE_KERNEL=3 is INCOMPATIBLE with HIP graph capture —
+    cudaDeviceSynchronize returns err 900 inside StreamBeginCapture. So when
+    graph mode is in use we skip the auto-arm and rely on the per-op fence
+    threaded through PagedCompiler → Graph::instantiate to lock-step JIT
+    loads across ranks (same-kernel concurrent freezes don't trip the loader
+    bug, only divergent ones do).
+
+    Detection:
+    - The dlsym shim presence gates Hygon-only behavior.
+    - argv `--enable-graph` and `INFINILM_HYGON_NO_SERIALIZE=1` opt out.
+
+    Must be set BEFORE any HIP/HSA library initializes — i.e. before
+    `import torch` or `from infinicore.lib import _infinicore`.
+    """
+    import os
+    import sys
+
+    here = os.path.dirname(__file__)
+    marker = os.path.join(os.path.dirname(here), "infinilm", "lib", "libflash_attn_hygon_dlsym.so")
+    if not os.path.exists(marker):
+        return
+    if "--enable-graph" in sys.argv or os.environ.get("INFINILM_HYGON_NO_SERIALIZE") == "1":
+        return
+    os.environ.setdefault("AMD_SERIALIZE_KERNEL", "3")
+    os.environ.setdefault("AMD_SERIALIZE_COPY", "3")
+
+
+_arm_hygon_serialize_workaround()
+
 with contextlib.suppress(ImportError):
     from ._preload import preload
 
