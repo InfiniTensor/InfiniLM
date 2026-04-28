@@ -26,6 +26,9 @@ __pycache__/
 # Cache
 .cache/
 
+# Local benchmark scratch (diagnostic dumps, intermediate runs)
+benchmark/opt_runs/
+
 # JSON
 *.json
 
