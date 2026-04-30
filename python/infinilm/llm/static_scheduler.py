@@ -28,66 +28,35 @@ class StaticSchedulerOutput:
         scheduled_requests: List[InferenceRequest],
         is_prefill: bool = False,
         prefix_hit_len: int = 0,
+        input_ids=None,
+        position_ids=None,
+        past_kv_lengths=None,
+        total_kv_lengths=None,
+        input_offsets=None,
+        cu_seqlens=None,
+        block_tables=None,
+        slot_mapping=None,
     ):
         self.scheduled_requests = scheduled_requests
         self.num_requests = len(scheduled_requests)
         self.is_prefill = is_prefill
         self.prefix_hit_len = prefix_hit_len
 
-    def build_model_inputs(
-        self, temperature: float = 1.0, top_p: float = 0.8, top_k: int = 1
-    ):
-        """Construct model inputs for prefill or decode phase.
+        self.kv_connector_metadata = None
 
-        Static cache model inputs:
+        self.input_ids = input_ids
+        self.position_ids = position_ids
+        self.past_kv_lengths = past_kv_lengths
+        self.total_kv_lengths = total_kv_lengths
+        self.input_offsets = input_offsets
+        self.cu_seqlens = cu_seqlens
+        self.block_tables = block_tables
+        self.slot_mapping = slot_mapping
 
-        Prefill phase (with prefix cache reuse):
-            - input_ids: Tokens after the cached prefix [1, prompt_length - prefix_hit_len]
-            - position_ids: [prefix_hit_len, ..., prompt_length-1]
-            - past_kv_lengths: [prefix_hit_len]  (reuse cached prefix)
-            - total_kv_lengths: [prompt_length]
-
-        Decode phase:
-            - input_ids: Only the last generated token [1, 1]
-            - position_ids: [current_position] (position in full sequence)
-            - past_kv_lengths: [num_cached_tokens]
-            - total_kv_lengths: [total_tokens]
-        """
-        req = self.scheduled_requests[0]
-
-        if self.is_prefill:
-            # Prefill: only send tokens not already in cache
-            tokens = req.get_input_tokens()
-            prefix_hit_len = self.prefix_hit_len
-            input_tokens = tokens[prefix_hit_len:]
-            input_ids = [input_tokens]
-            position_ids = [list(range(prefix_hit_len, len(tokens)))]
-            past_kv_len = prefix_hit_len
-            total_kv_len = len(tokens)
-            input_offsets = [0, len(input_tokens)]
-        else:
-            # Decode: send only the last generated token
-            last_token = req.generated_token_ids[-1]
-            current_position = req.get_total_length() - 1
-            input_ids = [[last_token]]
-            position_ids = [[current_position]]
-            past_kv_len = current_position
-            total_kv_len = req.get_total_length()
-            input_offsets = [0, 1]
-
-        return {
-            "input_ids": input_ids,
-            "position_ids": position_ids,
-            "past_kv_lengths": [past_kv_len],
-            "total_kv_lengths": [total_kv_len],
-            "input_offsets": input_offsets,
-            "cu_seqlens": [0, total_kv_len],
-            "block_tables": None,
-            "slot_mapping": None,
-            "temperature": temperature,
-            "top_k": top_k,
-            "top_p": top_p,
-        }
+    @property
+    def has_model_inputs(self) -> bool:
+        """Used by infer_engine.py to skip forward() when there are no model inputs."""
+        return self.input_ids is not None
 
 
 class StaticScheduler:
@@ -164,7 +133,11 @@ class StaticScheduler:
                             f"Decode: appended block hash at index {block_index}"
                         )
 
-                return StaticSchedulerOutput(scheduled_requests=[req], is_prefill=False)
+                # return StaticSchedulerOutput(scheduled_requests=[req], is_prefill=False)
+                return self.build_scheduler_output(
+                    scheduled_requests=[req],
+                    is_prefill=False,
+                )
 
             # Case 2: Get new request from waiting queue (prefill phase)
             try:
@@ -239,8 +212,10 @@ class StaticScheduler:
 
             req.status = RequestStatus.RUNNING
             self.running_request = req
-            return StaticSchedulerOutput(
-                scheduled_requests=[req], is_prefill=True, prefix_hit_len=prefix_hit_len
+            return self.build_scheduler_output(
+                scheduled_requests=[req],
+                is_prefill=True,
+                prefix_hit_len=prefix_hit_len,
             )
 
     def update_cache(self):
@@ -257,6 +232,64 @@ class StaticScheduler:
             if req.is_finished() and req == self.running_request:
                 self.running_request = None
                 logger.debug(f"Completed request {req.request_id}")
+
+    def build_scheduler_output(
+        self,
+        scheduled_requests: List[InferenceRequest],
+        is_prefill: bool = False,
+        prefix_hit_len: int = 0,
+    ) -> StaticSchedulerOutput:
+        """Construct and return a StaticSchedulerOutput with model inputs populated.
+
+        Prefill phase (with prefix cache reuse):
+            - input_ids: Tokens after the cached prefix [1, prompt_length - prefix_hit_len]
+            - position_ids: [prefix_hit_len, ..., prompt_length-1]
+            - past_kv_lengths: [prefix_hit_len]
+            - total_kv_lengths: [prompt_length]
+            - input_offsets: [0, num_new_tokens]
+            - cu_seqlens: [0, prompt_length]
+
+        Decode phase:
+            - input_ids: [[last_generated_token]]
+            - position_ids: [[current_position]]
+            - past_kv_lengths: [current_position]
+            - total_kv_lengths: [total_tokens]
+            - input_offsets: [0, 1]
+            - cu_seqlens: [0, total_tokens]
+        """
+
+        req = scheduled_requests[0]
+
+        if is_prefill:
+            tokens = req.get_input_tokens()
+            input_tokens = tokens[prefix_hit_len:]
+            input_ids = [input_tokens]
+            position_ids = [list(range(prefix_hit_len, len(tokens)))]
+            past_kv_len = prefix_hit_len
+            total_kv_len = len(tokens)
+            input_offsets = [0, len(input_tokens)]
+        else:
+            last_token = req.generated_token_ids[-1]
+            current_position = req.get_total_length() - 1
+            input_ids = [[last_token]]
+            position_ids = [[current_position]]
+            past_kv_len = current_position
+            total_kv_len = req.get_total_length()
+            input_offsets = [0, 1]
+
+        return StaticSchedulerOutput(
+            scheduled_requests=scheduled_requests,
+            is_prefill=is_prefill,
+            prefix_hit_len=prefix_hit_len,
+            input_ids=input_ids,
+            position_ids=position_ids,
+            past_kv_lengths=[past_kv_len],
+            total_kv_lengths=[total_kv_len],
+            input_offsets=input_offsets,
+            cu_seqlens=[0, total_kv_len],
+            block_tables=None,
+            slot_mapping=None,
+        )
 
     def get_cache_stats(self) -> dict:
         """Get cache statistics."""

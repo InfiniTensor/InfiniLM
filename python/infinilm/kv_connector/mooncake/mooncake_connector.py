@@ -130,10 +130,9 @@ class MooncakeConnector(KVConnectorBase):
 
     def build_connector_meta(
         self,
-        scheduler_output: SchedulerOutput,
     ) -> KVConnectorMetadata | None:
         assert self.connector_scheduler is not None
-        return self.connector_scheduler.build_connector_meta(scheduler_output)
+        return self.connector_scheduler.build_connector_meta()
 
     def request_finished(
         self,

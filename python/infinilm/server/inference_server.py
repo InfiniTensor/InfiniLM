@@ -18,7 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
-from infinilm.config.kv_transfer import KVTransferConfig
+from infinilm.config import KVTransferConfig
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class InferenceServer:
         enable_graph: bool = False,
         attn_backend: str = "default",
         ignore_eos: bool = False,
-        # PD separation
+        # PD disaggregation
         kv_transfer_config: Optional[KVTransferConfig] = None,
     ):
         """Initialize inference server.
@@ -156,10 +156,9 @@ class InferenceServer:
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
         self.ignore_eos = ignore_eos
+        self.kv_transfer_config = kv_transfer_config
 
         self.engine: AsyncLLMEngine = None
-
-        self.kv_transfer_config = kv_transfer_config
 
     def start(self):
         """Start the HTTP server."""

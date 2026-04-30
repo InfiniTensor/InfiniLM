@@ -25,12 +25,13 @@ from infinilm.llm.request import (
     FinishReason,
 )
 from infinilm.llm.sampling_params import SamplingParams
-from infinilm.llm.scheduler import Scheduler, SchedulerOutput
+from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
+
 from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.llm.model_runner.model_runner import ModelRunner
 from infinilm.llm.engine_config import EngineConfig
-from infinilm.kv_connector import create_kv_transfer, KVConnectorRole
+from infinilm.kv_connector import KVConnectorRole, KVConnectorFactory
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,14 @@ class LLMEngine:
 
         # Initialize device and dtype
         self._init_device()
+
         self.model_runner = ModelRunner(config)
+
+        # Initialize tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            config.model_path, trust_remote_code=True
+        )
+        self._fix_tokenizer_decoder()
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
@@ -52,20 +60,26 @@ class LLMEngine:
                 f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
             )
         elif config.cache_type == "paged":
+            connector = None
+            if config.kv_transfer_config and config.kv_transfer_config.kv_connector:
+                connector = KVConnectorFactory.create_connector(
+                    connector_name=config.kv_transfer_config.kv_connector,
+                    role=KVConnectorRole.SCHEDULER,
+                    kv_transfer_config=config.kv_transfer_config,
+                )
+                logger.info(
+                    f"KV Connector created: {config.kv_transfer_config.kv_connector} "
+                    f"(role={config.kv_transfer_config.kv_role})"
+                )
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
+                connector=connector,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
-
-        # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            config.model_path, trust_remote_code=True
-        )
-        self._fix_tokenizer_decoder()
 
         self.cache_type = config.cache_type
 
@@ -74,12 +88,9 @@ class LLMEngine:
         if isinstance(self.eos_token_ids, int):
             self.eos_token_ids = [self.eos_token_ids]
 
-        # prefill separation
-        self.kv_connector = None
-
         logger.info(
             f"LLMEngine initialized with model at {config.model_path} "
-            f"on device {config.device}"
+            f"on device {config.device}, "
             f"enable_graph={config.enable_graph}"
         )
 
@@ -132,31 +143,48 @@ class LLMEngine:
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
-    def step(self) -> tuple[list[InferenceRequest], list[tuple]]:
+    def step(self) -> tuple[bool, list[tuple]]:
         """Run one inference step.
 
         Returns:
             A tuple of:
-            - scheduled_requests: Requests that were scheduled and processed in this step.
+            - did_work
             - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
         """
-        # Schedule requests
+        # Schedule the next unit of work, which may be model execution,
+        # connector control metadata, or both.
         scheduler_output = self.scheduler.schedule()
-        if scheduler_output is None or not scheduler_output.scheduled_requests:
-            return [], []
+        if scheduler_output is None:
+            return False, []
+
+        scheduler_output.add_params(
+            self.config.temperature, self.config.top_p, self.config.top_k
+        )
 
         # Execute model
         runner_output = self.model_runner.execute_model(scheduler_output)
-        sampled_tokens_list = runner_output.sampled_token_ids
+
+        self.scheduler.update_from_output(runner_output)
 
         # Update request status
         pending = self._update_requests(
             scheduler_output.is_prefill,
             scheduler_output.scheduled_requests,
-            sampled_tokens_list,
+            runner_output.sampled_token_ids or [],
         )
 
-        return scheduler_output.scheduled_requests, pending
+        # Return False (no immediate work) only when no requests were scheduled
+        # and no KV transfers completed in this step.
+        if not scheduler_output.scheduled_requests:
+            if not runner_output.kv_connector_output or (
+                not getattr(runner_output.kv_connector_output, "finished_sending", None)
+                and not getattr(
+                    runner_output.kv_connector_output, "finished_recving", None
+                )
+            ):
+                return False, pending
+
+        return True, pending
 
     def _update_requests(
         self,
@@ -168,7 +196,7 @@ class LLMEngine:
         if is_prefill:
             match self.cache_type:
                 case "paged":
-                    self.scheduler.cache_manager.reset_req_blocks()
+                    pass
                 case "static":
                     self.scheduler.update_cache()
                 case _:
@@ -467,7 +495,6 @@ class AsyncLLMEngine:
         top_k: int = 1,
         enable_graph: bool = False,
         attn_backend: str = "default",
-        # PD separation
         kv_transfer_config: Optional[KVTransferConfig] = None,
     ):
         """Initialize AsyncLLMEngine.
@@ -488,6 +515,9 @@ class AsyncLLMEngine:
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            kv_connector: KV connector type ('lmcache', 'mooncake', or None).
+            kv_role: Role in KV connector ('kv_producer' or 'kv_consumer' or None).
+            kv_connector_extra_config: Extra config dict for KV connector.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -547,9 +577,9 @@ class AsyncLLMEngine:
         """Background loop that runs inference steps."""
         while self._running:
             try:
-                requests, pending = self.engine.step()
-                if not requests:
-                    time.sleep(0.01)
+                did_work, pending = self.engine.step()
+                if not did_work:
+                    time.sleep(0.003)
                 elif pending:
                     self._loop.call_soon_threadsafe(self._batch_put, pending)
             except Exception as e:
@@ -613,6 +643,10 @@ class AsyncLLMEngine:
             request_data=request_data,
             http_request=http_request,
         )
+
+        if request_data and "kv_transfer_params" in request_data:
+            kv_params = request_data["kv_transfer_params"]
+            request.kv_transfer_params = kv_params
 
         # Initialize output queue for streaming
         _ = request.output_queue

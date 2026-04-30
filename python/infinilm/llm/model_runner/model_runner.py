@@ -153,11 +153,22 @@ class ModelRunner:
         )
 
     def _model_forward(self, scheduler_output):
-        # Build model inputs
-        model_input_dict = scheduler_output.build_model_inputs(
-            self.config.temperature, self.config.top_p, self.config.top_k
+        model_input = self._prepare_model_input(
+            {
+                "input_ids": [scheduler_output.input_ids],
+                "position_ids": scheduler_output.position_ids,
+                "past_kv_lengths": scheduler_output.past_kv_lengths,
+                "total_kv_lengths": scheduler_output.total_kv_lengths,
+                "input_offsets": scheduler_output.input_offsets,
+                "cu_seqlens": scheduler_output.cu_seqlens,
+                "block_tables": scheduler_output.block_tables,
+                "slot_mapping": scheduler_output.slot_mapping,
+                "temperature": scheduler_output.temperature,
+                "top_p": scheduler_output.top_p,
+                "top_k": scheduler_output.top_k,
+            }
         )
-        model_input = self._prepare_model_input(model_input_dict)
+        logger.debug(f"Model input prepared: {scheduler_output.input_ids}")
 
         # Run inference
         sampled_tokens = self.model_engine.forward(**model_input)

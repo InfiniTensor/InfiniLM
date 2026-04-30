@@ -29,22 +29,18 @@ class KVConnectorRole(enum.Enum):
     WORKER = 1
 
 
-class KVConnectorHandshakeMetadata(ABC):  # noqa: B024
+class KVConnectorHandshakeMetadata:
     """
     Metadata used for out of band connector handshake between
     P/D workers. This needs to serializable.
     """
 
-    pass
 
-
-class KVConnectorMetadata(ABC):  # noqa: B024
+class KVConnectorMetadata:
     """
     Abstract Metadata used to communicate
     Scheduler KVConnector -> Worker KVConnector.
     """
-
-    pass
 
 
 class KVConnectorWorkerMetadata(ABC):
@@ -172,18 +168,8 @@ class KVConnectorBase(ABC):
         pass
 
     @abstractmethod
-    def build_connector_meta(
-        self, scheduler_output: SchedulerOutput
-    ) -> KVConnectorMetadata:
-        """
-        Build the connector metadata for this step.
-
-        This function should NOT modify fields in the scheduler_output.
-        Also, calling this function will reset the state of the connector.
-
-        Args:
-            scheduler_output (SchedulerOutput): the scheduler output object.
-        """
+    def build_connector_meta(self) -> KVConnectorMetadata:
+        """Build the connector metadata for this step."""
         pass
 
     @abstractmethod

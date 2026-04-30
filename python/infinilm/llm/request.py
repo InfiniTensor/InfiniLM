@@ -24,6 +24,7 @@ class RequestStatus(Enum):
     CANCELED = "canceled"
     FAILED = "failed"
     TIMEOUT = "timeout"
+    WAITING_FOR_REMOTE_KVS = "waiting_for_remote_kvs"
 
 
 class FinishReason(Enum):
@@ -138,8 +139,15 @@ class InferenceRequest:
         self.cache_id: Optional[int] = None
         self.block_table: List[int] = []
         self.slot_mapping: List[int] = []
-        self.num_cached_tokens: int = 0
+        self.num_cached_tokens: int = 0  # Number of locally cached (prefix-hit) tokens
         self.num_blocks: int = 0
+
+        # PD disaggregation support
+        self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
+        self.num_external_tokens: int = 0  # Tokens matched from remote KV cache
+        self.kv_transfer_params: Optional[dict] = (
+            None  # KV transfer parameters from the router
+        )
 
         # For server use
         self.request_data: Optional[dict] = request_data
@@ -153,9 +161,6 @@ class InferenceRequest:
         # Used by the engine to compute "delta" text chunks from a full decode.
         self._stream_last_yielded_length: int = 0
         self._pending_token_offset: int = 0
-
-        # PD
-        self.kv_transfer_params: Optional[dict] = None
 
     @property
     def output_queue(self) -> janus.Queue:
