@@ -66,7 +66,7 @@ ModelConfig::get_rope_scaling() const {
             std::move(long_factor),
             original_max_position_embeddings,
             factor);
-    } else if (type_str == "default" || type_str == "none") {
+    } else if (type_str == "default" || type_str == "none" || type_str == "dynamic") {
         // Default scaling, no scaling applied
         return nullptr;
     } else {
