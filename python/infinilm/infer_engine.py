@@ -210,6 +210,32 @@ class InferEngine(_infinilm.InferEngine):
                 dtype=infinicore.int32,
             )
 
+        # Decode metadata fast path (batch=1, static cache): avoid per-step from_list() allocations
+        # for tiny scalar tensors (these live on CPU and are H2D-copied each forward).
+        fast_decode_meta = (not self.enable_paged_attn) and (initial_batch_size == 1)
+        if fast_decode_meta:
+            cpu = infinicore.device("cpu", 0)
+
+            # Reusable metadata tensors; values updated via pybind write_i32/write_i64.
+            position_ids_decode = infinicore.empty(
+                [1, 1], dtype=infinicore.int64, device=cpu
+            )
+            past_kv_lengths_decode = infinicore.empty(
+                [1], dtype=infinicore.int32, device=cpu
+            )
+            total_kv_lengths_decode = infinicore.empty(
+                [1], dtype=infinicore.int32, device=cpu
+            )
+            cu_seqlens_decode = infinicore.empty(
+                [2], dtype=infinicore.int32, device=cpu
+            )
+            input_offsets_decode = infinicore.empty(
+                [2], dtype=infinicore.int32, device=cpu
+            )
+            input_offsets_decode.write_i32(0, 0)
+            input_offsets_decode.write_i32(1, 1)
+
+        decode_total_open = False
         for iter in range(0, generation_config.max_new_tokens):
             if _measure_and_log_time:
                 start_time = time.perf_counter()
@@ -249,29 +275,54 @@ class InferEngine(_infinilm.InferEngine):
                     dtype=infinicore.int64,
                 )
             else:
-                position_ids = infinicore.from_list(
-                    [
-                        list(range(past_seq_len, past_seq_len + seq_len))
-                        for _ in range(batch_size)
-                    ],
-                    dtype=infinicore.int64,
-                )
+                if fast_decode_meta and iter > 0 and batch_size == 1 and seq_len == 1:
+                    position_ids_decode.write_i64(0, int(past_seq_len))
+                    past_kv_lengths_decode.write_i32(0, int(past_seq_len))
+                    total_kv_lengths_decode.write_i32(0, int(past_seq_len + seq_len))
+                    cu_seqlens_decode.write_i32(0, 0)
+                    cu_seqlens_decode.write_i32(1, int(past_seq_len + seq_len))
+                    position_ids = position_ids_decode
+                    past_kv_lengths = past_kv_lengths_decode
+                    total_kv_lengths = total_kv_lengths_decode
+                    cu_seqlens = cu_seqlens_decode
+                    input_offsets = input_offsets_decode
+                else:
+                    position_ids = infinicore.from_list(
+                        [
+                            list(range(past_seq_len, past_seq_len + seq_len))
+                            for _ in range(batch_size)
+                        ],
+                        dtype=infinicore.int64,
+                    )
+                    past_kv_lengths = infinicore.from_list(
+                        [past_seq_len] * batch_size, dtype=infinicore.int32
+                    )
+                    total_kv_lengths = infinicore.from_list(
+                        [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
+                    )
+                    cu_seqlens = infinicore.from_list(
+                        [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
+                        dtype=infinicore.int32,
+                    )
+                    input_offsets = infinicore.from_list(
+                        [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
+                    )
 
                 slot_mapping = None
-
-            past_kv_lengths = infinicore.from_list(
-                [past_seq_len] * batch_size, dtype=infinicore.int32
-            )
-            total_kv_lengths = infinicore.from_list(
-                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
-            )
-            cu_seqlens = infinicore.from_list(
-                [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
-                dtype=infinicore.int32,
-            )
-            input_offsets = infinicore.from_list(
-                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
-            )
+            if self.enable_paged_attn:
+                past_kv_lengths = infinicore.from_list(
+                    [past_seq_len] * batch_size, dtype=infinicore.int32
+                )
+                total_kv_lengths = infinicore.from_list(
+                    [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
+                )
+                cu_seqlens = infinicore.from_list(
+                    [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
+                    dtype=infinicore.int32,
+                )
+                input_offsets = infinicore.from_list(
+                    [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
+                )
 
             output_id = self(
                 input_ids=input_ids,

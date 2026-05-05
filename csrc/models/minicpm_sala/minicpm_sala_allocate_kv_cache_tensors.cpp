@@ -32,7 +32,7 @@ std::vector<infinicore::Tensor> minicpm_sala_allocate_kv_cache_tensors(const cac
         const size_t num_key_value_heads = text_config->get<size_t>("num_key_value_heads");
         const size_t max_position_embeddings = text_config->get<size_t>("max_position_embeddings");
 
-        const auto &dtype{text_config->get_dtype()};
+        const auto &dtype{text_config->get_kv_cache_dtype()};
         std::vector<std::string> mixer_types = text_config->get<std::vector<std::string>>("mixer_types");
         size_t current_layer_head_dim, current_layer_num_key_value_heads;
         for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
@@ -70,7 +70,7 @@ std::vector<infinicore::Tensor> minicpm_sala_allocate_kv_cache_tensors(const cac
 
         const size_t head_dim = text_config->get<size_t>("head_dim");
         const size_t num_key_value_heads = text_config->get<size_t>("num_key_value_heads");
-        const auto &dtype{text_config->get_dtype()};
+        const auto &dtype{text_config->get_kv_cache_dtype()};
         std::vector<std::string> mixer_types = text_config->get<std::vector<std::string>>("mixer_types");
         size_t current_layer_head_dim, current_layer_num_key_value_heads;
         for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {

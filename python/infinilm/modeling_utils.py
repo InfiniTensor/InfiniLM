@@ -1,4 +1,6 @@
 import os
+import json
+import math
 from typing import Dict, Union
 import time
 import torch
@@ -152,6 +154,26 @@ def load_model_state_dict_by_file(
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
 
+    # MiniCPM-SALA scaling (bake selected MuP scales into weights).
+    # This matches `InfiniLM/scripts/jiuge.py` weight scaling behavior for `model_type=="minicpm_sala"`.
+    scale_input = 1.0
+    scale_output = 1.0
+    scale_o = 1.0
+    scale_down = 1.0
+    scale_lm_head = 1.0
+    try:
+        # TODO: fetch config from model rather than file directly
+        with open(os.path.join(model_path, "config.json")) as f:
+            cfg = json.load(f)
+        if cfg.get("model_type") == "minicpm_sala" and "scale_emb" in cfg and "scale_depth" in cfg:
+            scale_input = float(cfg["scale_emb"])
+            scale_o = float(cfg["scale_depth"]) / math.sqrt(float(cfg["num_hidden_layers"]))
+            scale_down = float(cfg["scale_depth"]) / math.sqrt(float(cfg["num_hidden_layers"]))
+            if "dim_model_base" in cfg and "hidden_size" in cfg:
+                scale_lm_head = float(cfg["dim_model_base"]) / float(cfg["hidden_size"])
+    except Exception:
+        pass
+
     already_loaded_keys = []
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
@@ -167,6 +189,24 @@ def load_model_state_dict_by_file(
             )
             already_loaded_keys.extend(model_param.keys())
 
+            # Apply MiniCPM scaling to loaded tensors (in torch space).
+            if scale_input != 1.0 and "model.embed_tokens.weight" in model_param:
+                model_param["model.embed_tokens.weight"] = (
+                    model_param["model.embed_tokens.weight"] * scale_input
+                )
+            if scale_output != 1.0 and "model.norm.weight" in model_param:
+                model_param["model.norm.weight"] = (
+                    model_param["model.norm.weight"] * scale_output
+                )
+            if scale_o != 1.0 or scale_down != 1.0:
+                for k, v in list(model_param.items()):
+                    if scale_o != 1.0 and k.endswith(".self_attn.o_proj.weight"):
+                        model_param[k] = v * scale_o
+                    elif scale_down != 1.0 and k.endswith(".mlp.down_proj.weight"):
+                        model_param[k] = v * scale_down
+            if scale_lm_head != 1.0 and "lm_head.weight" in model_param:
+                model_param["lm_head.weight"] = model_param["lm_head.weight"] * scale_lm_head
+
             # --------------------------------------------------------- #
             #         model_param_infini references torch.Tensor
             # --------------------------------------------------------- #
@@ -180,6 +220,19 @@ def load_model_state_dict_by_file(
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+
+        if scale_input != 1.0 and "model.embed_tokens.weight" in model_params:
+            model_params["model.embed_tokens.weight"] = model_params["model.embed_tokens.weight"] * scale_input
+        if scale_output != 1.0 and "model.norm.weight" in model_params:
+            model_params["model.norm.weight"] = model_params["model.norm.weight"] * scale_output
+        if scale_o != 1.0 or scale_down != 1.0:
+            for k, v in list(model_params.items()):
+                if scale_o != 1.0 and k.endswith(".self_attn.o_proj.weight"):
+                    model_params[k] = v * scale_o
+                elif scale_down != 1.0 and k.endswith(".mlp.down_proj.weight"):
+                    model_params[k] = v * scale_down
+        if scale_lm_head != 1.0 and "lm_head.weight" in model_params:
+            model_params["lm_head.weight"] = model_params["lm_head.weight"] * scale_lm_head
 
         model_param_infini = {}
         for key in model_params.keys():

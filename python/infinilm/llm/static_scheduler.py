@@ -60,9 +60,17 @@ class StaticSchedulerOutput:
             tokens = req.get_input_tokens()
             prefix_hit_len = self.prefix_hit_len
             input_tokens = tokens[prefix_hit_len:]
-            input_ids = [input_tokens]
-            position_ids = [list(range(prefix_hit_len, len(tokens)))]
-            past_kv_len = prefix_hit_len
+            if len(input_tokens) == 0:
+                # Full prefix hit: avoid empty tensor conversion in model input path.
+                # Recompute the last prompt token as a one-token prefill step.
+                input_tokens = [tokens[-1]]
+                input_ids = [input_tokens]
+                position_ids = [[len(tokens) - 1]]
+                past_kv_len = len(tokens) - 1
+            else:
+                input_ids = [input_tokens]
+                position_ids = [list(range(prefix_hit_len, len(tokens)))]
+                past_kv_len = prefix_hit_len
             total_kv_len = len(tokens)
             input_offsets = [0, len(input_tokens)]
         else:

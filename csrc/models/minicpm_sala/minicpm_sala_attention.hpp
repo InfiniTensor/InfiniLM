@@ -1,88 +1,108 @@
 #pragma once
 
-#include "../../layers/common_modules.hpp"
+#include "../../config/model_config.hpp"
+#include "../../layers/rotary_embedding/rotary_embedding.hpp"
 
-namespace infinilm::layers::attention {
-class AttentionLayer;
-}
+#include "infinicore/nn/linear.hpp"
+#include "infinicore/nn/module.hpp"
+#include "infinicore/nn/rmsnorm.hpp"
+#include "infinicore/nn/rope.hpp"
+#include "infinicore/tensor.hpp"
+
+#include <memory>
+#include <string>
 
 namespace infinilm::models::minicpm_sala {
 
-class AttentionBase : public infinicore::nn::Module {
-protected:
-    AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                  size_t num_attention_heads,
-                  size_t num_key_value_heads,
-                  size_t layer_idx,
-                  const infinicore::Device &device);
-
+class MiniCPMSALAAttentionBase : public infinicore::nn::Module {
 public:
-    size_t layer_idx() const { return layer_idx_; }
-    size_t num_heads() const { return num_attention_heads_; }
-    size_t num_kv_heads() const { return num_key_value_heads_; }
-    size_t head_dim() const { return head_dim_; }
-    size_t hidden_size() const { return hidden_size_; }
-
-protected:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, q_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, k_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, v_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
-
-    std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
-    ::infinilm::backends::AttentionBackend attention_backend_;
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
-
-    size_t layer_idx_;
-    size_t hidden_size_;
-    size_t num_attention_heads_;
-    size_t num_key_value_heads_;
-    size_t head_dim_;
-    bool use_bias_;
-    bool use_output_bias_;
-
-    // For off-line kv cache quantization
-    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
-    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+    virtual infinicore::Tensor forward(const infinicore::Tensor &position_ids,
+                                       const infinicore::Tensor &hidden_states) const = 0;
+    virtual void reset_state() = 0;
+    virtual ~MiniCPMSALAAttentionBase() = default;
 };
 
-/**
- * @brief InfLLMv2 attention with optional output gate
- */
-class InfLLMv2Attention : public AttentionBase {
+// Lightning attention path (Simple GLA). Parameter names align with HF:
+//   model.layers.N.self_attn.{q_proj,k_proj,v_proj,o_proj,q_norm,k_norm,o_norm,z_proj,...}
+class MiniCPMSALALightningAttention : public MiniCPMSALAAttentionBase {
 public:
-    InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                      size_t layer_idx,
-                      const infinicore::Device &device);
+    MiniCPMSALALightningAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                  const infinicore::Device &device,
+                                  size_t layer_idx);
 
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               const infinicore::Tensor &hidden_states) const;
+    // Match `infinilm::layers::attention::Attention` API: metadata is pulled from
+    // `global_state::get_forward_context().attn_metadata`.
+    infinicore::Tensor forward(const infinicore::Tensor &position_ids,
+                               const infinicore::Tensor &hidden_states) const override;
+
+    void reset_state() override;
 
 protected:
-    bool use_output_gate_;
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, o_gate);
-};
+    // Projections (HF-aligned naming)
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, q_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, k_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, v_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, o_proj);
 
-/**
- * @brief Lightning attention with optional output norm and gate
- */
-class LightningAttention : public AttentionBase {
-public:
-    LightningAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                       size_t layer_idx,
-                       const infinicore::Device &device);
-
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               const infinicore::Tensor &hidden_states) const;
-
-protected:
-    bool qk_norm_;
-    bool use_output_norm_;
-    bool use_output_gate_;
+    // Optional (Lightning layers): q_norm/k_norm/o_norm + z_proj
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, o_norm);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, z_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, z_proj);
+
+    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+
+    size_t layer_idx_;
+    size_t num_attention_heads_;
+    size_t num_key_value_heads_;
+    size_t head_dim_;
+    float scaling_;
+
+    bool use_qk_norm_ = false;
+    bool use_output_gate_ = false;
+    bool use_output_norm_ = false;
+    bool use_rope_ = false;
+
+    // Lightning layers only: per-head log-decay for Simple GLA (HF _build_slope_tensor * -1).
+    infinicore::Tensor g_gamma_;
+
+    // Lightning layers only: recurrent state for fast decode.
+    // Shape: [B, H, D, D] float32. Tracks how many KV tokens are folded into the state.
+    mutable infinicore::Tensor gla_state_;
+    mutable size_t gla_state_cached_len_ = 0;
+    mutable bool gla_state_valid_ = false;
+};
+
+// Sparse attention path (`mixer_type=="minicpm4"`) using InfLLM-v2 operators.
+// Parameter names align with HF:
+//   model.layers.N.self_attn.{q_proj,k_proj,v_proj,o_proj,o_gate,...}
+class MiniCPMSALAMinicpm4Attention : public MiniCPMSALAAttentionBase {
+public:
+    MiniCPMSALAMinicpm4Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                 const infinicore::Device &device,
+                                 size_t layer_idx);
+
+    infinicore::Tensor forward(const infinicore::Tensor &position_ids,
+                               const infinicore::Tensor &hidden_states) const override;
+
+    void reset_state() override;
+
+protected:
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, q_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, k_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, v_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, o_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, o_gate);
+
+    size_t layer_idx_;
+    size_t num_attention_heads_;
+    size_t num_key_value_heads_;
+    size_t head_dim_;
+    float scaling_;
+
+    // InfLLM-v2 local-window masking plumbing.
+    int infllmv2_window_left_ = -1;
+    bool use_local_window_ = false;
 };
 
 } // namespace infinilm::models::minicpm_sala
