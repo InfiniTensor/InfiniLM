@@ -68,6 +68,7 @@ ModelConfig::get_rope_scaling() const {
             factor);
     } else if (type_str == "default" || type_str == "none" || type_str == "dynamic") {
         // Default scaling, no scaling applied
+        // Currently not handling extended sequence lengths for dynamic scaling. Add specific branches when needed.
         return nullptr;
     } else {
         throw std::runtime_error("Unsupported rope_scaling type: " + type_str);

@@ -139,9 +139,14 @@ def test(
         else:
             raise ValueError(f"Unsupported multimodal model_type: {model.model_type}")
     else:
-        input_ids_list = tokenizer.batch_encode_plus(input_contents)[
-            "input_ids"
-        ]  # List: [[1, 1128, 526, 366, 29892]]
+        if hasattr(tokenizer, "batch_encode_plus"):
+            input_ids_list = tokenizer.batch_encode_plus(input_contents)["input_ids"]
+        elif hasattr(tokenizer, "_encode_plus"):
+            input_ids_list = tokenizer._encode_plus(input_contents)["input_ids"]
+        else:
+            input_ids_list = tokenizer(input_contents)[
+                "input_ids"
+            ]  # List: [[1, 1128, 526, 366, 29892]]
 
         # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
         #     "input_ids"
