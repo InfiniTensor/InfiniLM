@@ -10,7 +10,11 @@ from infinilm.infer_engine import InferEngine
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.llm.engine_config import EngineConfig
-from infinilm.kv_connector import KVConnectorRole, create_kv_transfer
+from infinilm.kv_connector import (
+    KVConnectorRole,
+    KVConnectorFactory,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +80,9 @@ class ModelRunner:
         # Initialize KV connector
         self.kv_connector = None
         if self.kv_transfer_config is not None:
-            self.kv_connector = create_kv_transfer(
+            connector_name = self.kv_transfer_config.kv_connector
+            self.kv_connector = KVConnectorFactory.create_connector(
+                connector_name=connector_name,
                 role=KVConnectorRole.WORKER,
                 kv_transfer_config=self.kv_transfer_config,
             )

@@ -179,8 +179,12 @@ class MooncakeConnectorWorker:
 
             # Start bootstrap server on global rank 0.
             if should_launch_bootstrap_server(self.parallel_config):
-                _, port = get_mooncake_bootstrap_addr(self.parallel_config)
-                self.bootstrap_server = MooncakeBootstrapServer("0.0.0.0", port)
+                bootstrap_host, bootstrap_port = get_mooncake_bootstrap_addr(
+                    self.parallel_config
+                )
+                self.bootstrap_server = MooncakeBootstrapServer(
+                    bootstrap_host, bootstrap_port
+                )
                 self.bootstrap_server.start()
 
         if not self.is_kv_producer:
@@ -252,6 +256,8 @@ class MooncakeConnectorWorker:
         try:
             while True:
                 identity, metadata_bytes = await sock.recv_multipart()
+                logger.debug("ZMQ recv one msg, identity: %s.", identity)
+
                 await self.sender_worker_queue.put((identity, metadata_bytes))
         except zmq.ContextTerminated:
             logger.debug("ZMQ context terminated, exiting Mooncake sender thread.")
@@ -526,7 +532,7 @@ class MooncakeConnectorWorker:
                     lengths.append(block_len * len(group_local_block_id))
 
             logger.debug(
-                "Sending kv_caches for request %s (%d blocks) to %s",
+                "Calculate kv_caches ptrs for request %s (%d blocks) to %s",
                 d_req_id,
                 num_remote_blocks,
                 remote_session,
@@ -547,9 +553,15 @@ class MooncakeConnectorWorker:
         )
         if ret_value == 0:
             logger.debug(
-                "Sending to %s done, took %s",
+                "mooncake engine sending to %s done, took %s",
                 remote_session,
                 time.perf_counter() - start_time,
+            )
+        else:
+            logger.debug(
+                "mooncake engine sending to %s failed, ret_value: %s",
+                remote_session,
+                ret_value,
             )
         return ret_value
 

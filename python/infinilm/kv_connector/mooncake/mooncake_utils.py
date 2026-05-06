@@ -66,16 +66,12 @@ def get_mooncake_bootstrap_addr(
     assert parallel_config
 
     # Port and Host used for Mooncake handshake between remote agents.
-    INFINILM_MOONCAKE_BOOTSTRAP_PORT = int(
-        os.getenv("INFINILM_MOONCAKE_BOOTSTRAP_PORT", "8998")
-    )
-    INFINILM_MOONCAKE_BOOTSTRAP_HOST = str(
+    mooncake_bootstrap_host = str(
         os.getenv("INFINILM_MOONCAKE_BOOTSTRAP_HOST", "127.0.0.1")
     )
+    mooncake_bootstrap_port = int(os.getenv("INFINILM_MOONCAKE_BOOTSTRAP_PORT", "8998"))
 
-    port = INFINILM_MOONCAKE_BOOTSTRAP_PORT
-    host = INFINILM_MOONCAKE_BOOTSTRAP_HOST
-    return (host, port)
+    return (mooncake_bootstrap_host, mooncake_bootstrap_port)
 
 
 class MooncakeBootstrapServer:
@@ -105,6 +101,7 @@ class MooncakeBootstrapServer:
         if self.server_thread:
             return
 
+        logger.info("Mooncake Bootstrap Server is starting ......")
         config = uvicorn.Config(app=self.app, host=self.host, port=self.port)
         self.server = uvicorn.Server(config=config)
         self.server_thread = threading.Thread(
@@ -173,12 +170,8 @@ class MooncakeBootstrapServer:
 
 
 def get_ip() -> str:
-    host_ip = os.getenv("INFINILM_HOST_IP")
-    if not host_ip:
-        host_ip = "127.0.0.1"
-        logger.warning(
-            "INFINILM_HOST_IP is not set, using default IP address: %s", host_ip
-        )
+    host_ip = os.getenv("INFINILM_HOST_IP", "127.0.0.1")
+    logger.info("INFINILM_HOST_IP is %s", host_ip)
     return host_ip
 
 

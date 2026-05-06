@@ -9,10 +9,13 @@ import traceback
 import urllib
 import uuid
 import uvicorn
+import logging
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 
 def maybe_wrap_ipv6_address(hostname):
@@ -35,6 +38,10 @@ async def get_prefiller_info(prefill_clients, ready_event):
                 response.raise_for_status()
             except Exception as e:
                 await asyncio.sleep(1)  # Wait before retrying
+                logger.warning(
+                    "waiting for handshake with prefill server: %s",
+                    prefill_client,
+                )
                 continue
 
             response = await prefill_client["client"].get(
@@ -43,6 +50,8 @@ async def get_prefiller_info(prefill_clients, ready_event):
             response.raise_for_status()
             data = response.json()
             break
+
+        logger.warning("successfully handshake with prefill server!")
 
         for dp_rank, engine_info in data.items():
             prefill_client["dp_engine_id"][int(dp_rank)] = engine_info["engine_id"]
@@ -61,7 +70,6 @@ def prefiller_cycle(prefill_clients):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-
     # Startup: Initialize client pools for prefiller and decoder services
     app.state.prefill_clients = []
     app.state.decode_clients = []
@@ -86,6 +94,7 @@ async def lifespan(app: FastAPI):
             }
         )
 
+    logger.info("global_args: %s", global_args)
     # Create decode clients
     for decode_url in global_args.decode:
         parsed_url = urllib.parse.urlparse(decode_url)
@@ -300,12 +309,17 @@ async def _handle_completions(api: str, request: Request):
 
 
 @app.post("/v1/completions")
-async def handle_completion(request: Request):
+async def handle_v1_completions(request: Request):
     return await _handle_completions("/v1/completions", request)
 
 
+@app.post("/chat/completions")
+async def handle_chat_completions(request: Request):
+    return await _handle_completions("/chat/completions", request)
+
+
 @app.post("/v1/chat/completions")
-async def handle_chat_completion(request: Request):
+async def handle_v1_chat_completions(request: Request):
     return await _handle_completions("/v1/chat/completions", request)
 
 

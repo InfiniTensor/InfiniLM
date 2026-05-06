@@ -26,23 +26,11 @@ KVConnectorFactory.register_connector(
 )
 
 
-def create_kv_transfer(
-    role: KVConnectorRole,
-    kv_transfer_config,
-) -> KVConnectorBase:
-    assert kv_transfer_config is not None
-
-    connector_name = kv_transfer_config.kv_connector
-    assert connector_name in ["MooncakeConnector"]
-
-    return KVConnectorFactory.create_connector(connector_name, role, kv_transfer_config)
-
-
 __all__ = [
     "KVConnectorBase",
     "KVConnectorRole",
     "KVConnectorMetadata",
     "KVConnectorHandshakeMetadata",
     "KVConnectorWorkerMetadata",
-    "create_kv_transfer",
+    "KVConnectorFactory",
 ]
