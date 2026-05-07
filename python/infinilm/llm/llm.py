@@ -14,9 +14,6 @@ import threading
 from typing import List, Optional, Union, AsyncIterator
 from dataclasses import dataclass
 
-from transformers import AutoTokenizer
-from tokenizers import decoders as _dec
-
 import infinicore
 
 from infinilm.llm.request import (
@@ -28,11 +25,12 @@ from infinilm.llm.request import (
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
-
+from infinilm.processors import AutoInfinilmProcessor
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
+from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +97,9 @@ class LLMEngine:
             self.model_engine, config.model_path, dtype=self.model_engine.dtype
         )
 
-        # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            config.model_path, trust_remote_code=True
-        )
-        self._fix_tokenizer_decoder()
+        # Initialize processor/tokenizer
+        self.processor = AutoInfinilmProcessor.from_pretrained(config.model_path)
+        self.tokenizer = self.processor.get_tokenizer()
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
@@ -166,26 +162,6 @@ class LLMEngine:
 
         self.dtype = dtype_map[self.config.dtype]
 
-    def _fix_tokenizer_decoder(self):
-        """Fix tokenizer decoder for llama models."""
-        if "llama" in self.model_engine.model_type.lower():
-            backend = getattr(self.tokenizer, "backend_tokenizer", None)
-            target = getattr(backend, "_tokenizer", backend)
-            norm = getattr(target, "normalizer", None)
-            dec = getattr(target, "decoder", None)
-            sn = repr(norm)[:800] if norm is not None else ""
-            sd = repr(dec)[:800] if dec is not None else ""
-            has_prepend = "Prepend" in sn
-            has_strip = "Strip" in sd
-            if has_prepend and has_strip:
-                target.decoder = _dec.Sequence(
-                    [
-                        _dec.Replace("▁", " "),
-                        _dec.ByteFallback(),
-                        _dec.Fuse(),
-                    ]
-                )
-
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
@@ -204,10 +180,12 @@ class LLMEngine:
             return [], []
 
         # Build model inputs
-        model_input_dict = scheduler_output.build_model_inputs(
-            self.config.temperature, self.config.top_p, self.config.top_k
+        model_input = self.processor.build_model_inputs(
+            scheduler_output,
+            self.config.temperature,
+            self.config.top_p,
+            self.config.top_k,
         )
-        model_input = self._prepare_model_input(model_input_dict)
 
         # Run inference
         sampled_tokens = self.model_engine.forward(**model_input)
@@ -221,28 +199,6 @@ class LLMEngine:
         )
 
         return scheduler_output.scheduled_requests, pending
-
-    def _prepare_model_input(self, model_input_dict: dict) -> dict:
-        """Convert model input dict to infinicore tensors."""
-        model_input = {}
-        for key, value in model_input_dict.items():
-            if value is None:
-                # Skip None values (block_tables/slot_mapping for static cache)
-                model_input[key] = None
-            elif key in ["input_ids", "position_ids", "slot_mapping"]:
-                model_input[key] = infinicore.from_list(value, dtype=infinicore.int64)
-            elif key in [
-                "past_kv_lengths",
-                "total_kv_lengths",
-                "input_offsets",
-                "cu_seqlens",
-                "block_tables",
-            ]:
-                model_input[key] = infinicore.from_list(value, dtype=infinicore.int32)
-            else:
-                # temperature, top_k, top_p, etc.
-                model_input[key] = value
-        return model_input
 
     def _update_requests(
         self,
@@ -361,6 +317,12 @@ class LLMEngine:
         """Detokenize token IDs to text."""
         return self.tokenizer.decode(token_ids)
 
+    def process(self, prompt, images, videos, audios, **kwargs) -> dict:
+        """Process the input prompt and media into final model inputs."""
+        return self.processor(
+            prompt, images=images, videos=videos, audios=audios, **kwargs
+        )
+
     def apply_chat_template(
         self,
         messages: List[dict],
@@ -369,7 +331,7 @@ class LLMEngine:
     ) -> str:
         """Apply chat template to messages."""
         chat_template_kwargs = chat_template_kwargs or {}
-        return self.tokenizer.apply_chat_template(
+        return self.processor.apply_chat_template(
             conversation=messages,
             add_generation_prompt=add_generation_prompt,
             tokenize=False,
@@ -654,6 +616,9 @@ class AsyncLLMEngine:
 
     def add_request(
         self,
+        messages: Optional[List[dict]],
+        apply_chat_template: bool = True,
+        add_generation_prompt: bool = True,
         prompt: Optional[str] = None,
         prompt_token_ids: Optional[List[int]] = None,
         sampling_params: Optional[SamplingParams] = None,
@@ -665,8 +630,28 @@ class AsyncLLMEngine:
         """Add a request to the engine.
 
         Args:
-            prompt: Text prompt for generation.
-            prompt_token_ids: Pre-tokenized prompt.
+            messages: List of message dicts (chat conversation). Following this format:
+                    [
+                        {
+                            "role": "user",
+                            "content": [
+                            {
+                                "type": "text",
+                                "text": "xxxxxxxxx"
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                "url": "xxx.jpg"
+                                }
+                            },
+                            ]
+                        },
+                    ]
+            apply_chat_template: Whether to apply the chat template.
+            add_generation_prompt: Whether to add a generation prompt.
+            prompt: Text prompt for generation. If provided, it will be used directly after encoded by tokenizer, ignoring messages.
+            prompt_token_ids: Pre-tokenized prompt. If provided, it will be used directly as input.
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict (for server use).
@@ -678,8 +663,32 @@ class AsyncLLMEngine:
         if request_id is None:
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
-        if prompt_token_ids is None and prompt is not None:
+        images, videos, audios = None, None, None
+        processed_inputs = None
+
+        if prompt_token_ids is not None:
+            prompt = self.engine.detokenize(prompt_token_ids)
+        elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
+        else:
+            assert messages is not None, (
+                "Either messages or prompt/prompt_token_ids must be provided"
+            )
+
+            assert apply_chat_template, (
+                "apply_chat_template needs to be true for multi-role conversation"
+            )
+
+            prompt = self.engine.apply_chat_template(
+                messages, add_generation_prompt=add_generation_prompt
+            )
+
+            images, videos, audios = resolve_multimodal_inputs(messages)
+            processed_inputs = self.engine.process(
+                prompt, images, videos, audios, return_tensors="pt"
+            )
+
+            prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
 
         if sampling_params is None:
             sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
@@ -691,6 +700,7 @@ class AsyncLLMEngine:
             request_id=request_id,
             prompt=prompt,
             prompt_token_ids=prompt_token_ids,
+            processed_inputs=processed_inputs,
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,
@@ -711,7 +721,7 @@ class AsyncLLMEngine:
         request_data: Optional[dict] = None,
         http_request: Optional[any] = None,
         add_generation_prompt: bool = True,
-        chat_template_kwargs: Optional[dict] = None,
+        **kwargs,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
 
@@ -725,13 +735,11 @@ class AsyncLLMEngine:
         Returns:
             The created InferenceRequest object.
         """
-        prompt = self.engine.apply_chat_template(
-            messages,
-            add_generation_prompt=add_generation_prompt,
-            chat_template_kwargs=chat_template_kwargs,
-        )
+
         return self.add_request(
-            prompt=prompt,
+            messages=messages,
+            apply_chat_template=True,
+            add_generation_prompt=add_generation_prompt,
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
