@@ -40,11 +40,18 @@ LlamaDecoderLayer::LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConf
                                      engine::distributed::RankInfo rank_info,
                                      backends::AttentionBackend attention_backend) : model_config_(model_config), layer_idx_(layer_idx), rank_info_(rank_info) {
     const auto &dtype{model_config_->get_dtype()};
+    use_glm4_post_norms_ = model_config_->get<std::string>("model_type") == "glm4";
     // Initialize layer normalization layers
     INFINICORE_NN_MODULE_INIT(input_layernorm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
                               dtype, device);
     INFINICORE_NN_MODULE_INIT(post_attention_layernorm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
                               dtype, device);
+    if (use_glm4_post_norms_) {
+        INFINICORE_NN_MODULE_INIT(post_self_attn_layernorm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
+                                  dtype, device);
+        INFINICORE_NN_MODULE_INIT(post_mlp_layernorm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
+                                  dtype, device);
+    }
 
     // Initialize attention and MLP modules
     INFINICORE_NN_MODULE_INIT(self_attn, model_config_, device, layer_idx, rank_info_, attention_backend);
@@ -62,6 +69,20 @@ LlamaDecoderLayer::forward(infinicore::Tensor &hidden_states,
                            std::optional<infinicore::Tensor> cu_seqlens,
                            std::optional<infinicore::Tensor> block_tables,
                            std::optional<infinicore::Tensor> slot_mapping) const {
+    if (use_glm4_post_norms_) {
+        hidden_states = forward_naive(
+            hidden_states,
+            position_ids,
+            kv_cache,
+            past_sequence_lengths,
+            total_sequence_lengths,
+            input_offsets,
+            cu_seqlens,
+            block_tables,
+            slot_mapping);
+        return std::make_tuple(hidden_states, residual);
+    }
+
     // 1. Attention layer normalization
     input_layernorm_->forward_inplace(hidden_states, residual);
 
@@ -76,6 +97,36 @@ LlamaDecoderLayer::forward(infinicore::Tensor &hidden_states,
     hidden_states = mlp_->forward(hidden_states);
 
     return std::make_tuple(hidden_states, residual);
+}
+
+infinicore::Tensor LlamaDecoderLayer::forward_naive(
+    infinicore::Tensor &hidden_states,
+    const infinicore::Tensor &position_ids,
+    std::shared_ptr<infinilm::cache::Cache> kv_cache,
+    std::optional<infinicore::Tensor> past_sequence_lengths,
+    std::optional<infinicore::Tensor> total_sequence_lengths,
+    std::optional<infinicore::Tensor> input_offsets,
+    std::optional<infinicore::Tensor> cu_seqlens,
+    std::optional<infinicore::Tensor> block_tables,
+    std::optional<infinicore::Tensor> slot_mapping) const {
+    auto residual = hidden_states;
+    hidden_states = input_layernorm_->forward(hidden_states);
+    hidden_states = self_attn_->forward(
+        hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, input_offsets, cu_seqlens, block_tables, slot_mapping);
+
+    if (use_glm4_post_norms_) {
+        hidden_states = post_self_attn_layernorm_->forward(hidden_states);
+    }
+    hidden_states = infinicore::op::add(residual, hidden_states);
+
+    residual = hidden_states;
+    hidden_states = post_attention_layernorm_->forward(hidden_states);
+    hidden_states = mlp_->forward(hidden_states);
+    if (use_glm4_post_norms_) {
+        hidden_states = post_mlp_layernorm_->forward(hidden_states);
+    }
+    hidden_states = infinicore::op::add(residual, hidden_states);
+    return hidden_states;
 }
 
 } // namespace infinilm::models::llama_legacy

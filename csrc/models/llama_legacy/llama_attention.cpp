@@ -1,6 +1,7 @@
 #include "llama_attention.hpp"
 
 #include "../../utils.hpp"
+#include "llama_utils.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
@@ -42,6 +43,7 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
       num_attention_heads_(config.num_attention_heads),
       num_key_value_heads_(config.num_key_value_heads),
       head_dim_(config.head_dim),
+      rotary_dim_(config.head_dim),
       kv_dim_(config.kv_dim()),
       use_bias_(config.attention_bias),
       use_output_bias_(config.attention_output_bias),
@@ -90,6 +92,7 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
       num_attention_heads_(model_config->get<size_t>("num_attention_heads")),
       num_key_value_heads_(model_config->get<size_t>("num_key_value_heads")),
       head_dim_(model_config->get_head_dim()),
+      rotary_dim_(get_rotary_dim(model_config->get_head_dim(), model_config->get_or<double>("partial_rotary_factor", 1.0))),
       kv_dim_(model_config->get_kv_dim()),
       use_bias_(model_config->get_or<bool>("attention_bias", true)),
       use_output_bias_(model_config->get_or<bool>("attention_output_bias", false)),
@@ -204,8 +207,21 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
 
     // 4. Apply RoPE to Q and K
     auto q_rope = infinicore::Tensor::empty({batch_size, num_attention_heads_, seq_len, head_dim_}, q_reshaped->dtype(), q_reshaped->device())->permute({0, 2, 1, 3});
-    rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope); // [bs, seq_len, n_q_head, head_dim]
-    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);   // [bs, seq_len, n_kv_head, head_dim]
+    q_rope->copy_from(q_reshaped);
+
+    auto k_rope = infinicore::Tensor::empty({batch_size, seq_len, num_key_value_heads_, head_dim_}, k_reshaped->dtype(), k_reshaped->device());
+    k_rope->copy_from(k_reshaped);
+
+    if (rotary_dim_ == head_dim_) {
+        rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope); // [bs, seq_len, n_q_head, head_dim]
+        rotary_emb_->forward(k_rope, pos_ids_for_rope, true);       // [bs, seq_len, n_kv_head, head_dim]
+    } else {
+        rotary_emb_->forward(
+            q_rope->narrow({{3, 0, rotary_dim_}}),
+            q_reshaped->narrow({{3, 0, rotary_dim_}}),
+            pos_ids_for_rope);
+        rotary_emb_->forward(k_rope->narrow({{3, 0, rotary_dim_}}), pos_ids_for_rope, true);
+    }
 
     infinilm::KVQuantUtils::quantize(
         k_reshaped, v_reshaped,
@@ -217,7 +233,7 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     // Convert to [batch, n_head, seq_len, head_dim] for cache
     // Ensure contiguous after permute for F16 compatibility with cache operations
     q_reshaped = q_rope->permute({0, 2, 1, 3});          // [bs, n_q_head, seq_len, head_dim]
-    auto k_permuted = k_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
+    auto k_permuted = k_rope->permute({0, 2, 1, 3});     // [bs, n_kv_head, seq_len, head_dim]
     auto v_permuted = v_reshaped->permute({0, 2, 1, 3}); // [bs, n_kv_head, seq_len, head_dim]
     infinicore::Tensor k_total;                          // [bs, n_kv_head, max_seq_len, head_dim]
     infinicore::Tensor v_total;                          // [bs, n_kv_head, max_seq_len, head_dim]
@@ -330,8 +346,19 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
     }
 
     // 4. Apply RoPE to Q and K
-    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true); // [bs, seq_len, n_q_head, head_dim]
-    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true); // [bs, seq_len, n_kv_head, head_dim]
+    if (rotary_dim_ == head_dim_) {
+        rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true); // [seq_len, n_q_head, head_dim]
+        rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true); // [seq_len, n_kv_head, head_dim]
+    } else {
+        auto q_rope = infinicore::Tensor::empty({seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
+        q_rope->copy_from(q_reshaped);
+        auto k_rope = infinicore::Tensor::empty({seq_len, num_key_value_heads_, head_dim_}, k_reshaped->dtype(), k_reshaped->device());
+        k_rope->copy_from(k_reshaped);
+        rotary_emb_->forward(q_rope->narrow({{2, 0, rotary_dim_}}), pos_ids_for_rope, true);
+        rotary_emb_->forward(k_rope->narrow({{2, 0, rotary_dim_}}), pos_ids_for_rope, true);
+        q_reshaped = q_rope;
+        k_reshaped = k_rope;
+    }
 
     //  5. Prepare KV caches
     //  Ensure contiguous after permute for F16 compatibility with cache operations

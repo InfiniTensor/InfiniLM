@@ -46,5 +46,9 @@ class AutoConfig:
             cfg = LlamaConfig(**config_dict)
             cfg.model_type = "minicpmv"
             return cfg
+        elif config_dict["model_type"] == "glm4":
+            return LlamaConfig(**config_dict)
+        elif config_dict["model_type"] == "chatglm":
+            return LlamaConfig(**config_dict)
 
         raise ValueError(f"Unsupported model type `{config_dict['model_type']}`.")
