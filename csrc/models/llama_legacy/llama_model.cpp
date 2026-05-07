@@ -1,4 +1,5 @@
 #include "llama_model.hpp"
+#include "llama_utils.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
@@ -6,6 +7,22 @@
 #include <iostream>
 
 namespace infinilm::models::llama_legacy {
+
+namespace {
+
+infinicore::nn::RoPE::Algo get_rope_algo(const std::string &model_type) {
+    if (model_type == "glm4") {
+        return infinicore::nn::RoPE::Algo::GPT_J;
+    }
+    return infinicore::nn::RoPE::Algo::GPT_NEOX;
+}
+
+bool uses_naive_residual_path(const std::shared_ptr<infinilm::config::ModelConfig> &model_config) {
+    return model_config != nullptr && model_config->get<std::string>("model_type") == "glm4";
+}
+
+} // namespace
+
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
  *
@@ -45,7 +62,7 @@ LlamaModel::LlamaModel(const LlamaConfig &config,
     // Initialize Rotary Position Embeddings (shared across all layers)
     // Use GPT-J-style inverse frequencies (default) and GPT_NEOX rotation pairing
     INFINICORE_NN_MODULE_INIT(rotary_emb, config.head_dim, config.max_position_embeddings,
-                              config.rope_theta, infinicore::nn::RoPE::Algo::GPT_NEOX,
+                              config.rope_theta, get_rope_algo(config.model_type),
                               dtype, device, config.rope_scaling);
 
     for (auto &layer : layers_) {
@@ -78,8 +95,8 @@ LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_conf
                               dtype, device);
     // Initialize Rotary Position Embeddings (shared across all layers)
     // Use GPT-J-style inverse frequencies (default) and GPT_NEOX rotation pairing
-    INFINICORE_NN_MODULE_INIT(rotary_emb, model_config_->get_head_dim(), model_config_->get<size_t>("max_position_embeddings"),
-                              model_config_->get<double>("rope_theta"), infinicore::nn::RoPE::Algo::GPT_NEOX,
+    INFINICORE_NN_MODULE_INIT(rotary_emb, get_rotary_dim(model_config_->get_head_dim(), model_config_->get_or<double>("partial_rotary_factor", 1.0)), model_config_->get<size_t>("max_position_embeddings"),
+                              model_config_->get<double>("rope_theta"), get_rope_algo(model_config_->get<std::string>("model_type")),
                               dtype, device, model_config_->get_rope_scaling());
 
     for (auto &layer : layers_) {
@@ -117,6 +134,10 @@ infinicore::Tensor LlamaModel::forward(const infinicore::Tensor &input_ids,
             slot_mapping);
     }
 
+    if (uses_naive_residual_path(model_config_)) {
+        return norm_->forward(hidden_states);
+    }
+
     norm_->forward_inplace(hidden_states, residual);
 
     return hidden_states;
@@ -136,6 +157,11 @@ infinicore::Tensor LlamaModel::forward_embeds(const infinicore::Tensor &inputs_e
     for (size_t i = 0; i < num_layers; ++i) {
         layers_.at(i)->forward(hidden_states, residual, position_ids, kv_cache_, past_sequence_lengths, total_sequence_lengths, input_offsets, cu_seqlens, block_tables, slot_mapping);
     }
+
+    if (uses_naive_residual_path(model_config_)) {
+        return norm_->forward(hidden_states);
+    }
+
     norm_->forward_inplace(hidden_states, residual);
 
     return hidden_states;

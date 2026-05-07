@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Dict, Union
 import time
 import torch
@@ -39,6 +40,43 @@ str_to_torch_dtype = {
     "F8_E4M3": torch.float8_e4m3fn,
     "F8_E5M2": torch.float8_e5m2,
 }
+
+
+def _split_first_dim(tensor, sizes, name):
+    if tensor.dim() not in (1, 2):
+        raise ValueError(f"Cannot split {name} with shape {tensor.shape}")
+    return torch.split(tensor, sizes, dim=0)
+
+
+def _remap_glm4_weights(state_dict):
+    new_sd = {}
+
+    for key, tensor in state_dict.items():
+        if "gate_up_proj" not in key:
+            new_sd[key] = tensor
+            continue
+
+        base_key = key.replace(".gate_up_proj.weight", "")
+        intermediate = tensor.shape[0] // 2
+        gate, up = _split_first_dim(
+            tensor,
+            [intermediate, tensor.shape[0] - intermediate],
+            "gate_up_proj",
+        )
+        new_sd[f"{base_key}.gate_proj.weight"] = gate
+        new_sd[f"{base_key}.up_proj.weight"] = up
+    return new_sd
+
+
+def maybe_remap_weights(state_dict, model):
+    if not hasattr(model, "hf_config"):
+        return state_dict
+
+    hf_config = model.hf_config
+    model_type = hf_config.get("model_type", "")
+    if model_type == "glm4":
+        return _remap_glm4_weights(state_dict)
+    return state_dict
 
 
 def check_parameters(model_keys: list, already_loaded_keys: list):
@@ -165,6 +203,7 @@ def load_model_state_dict_by_file(
             model_param = load_state_dict(
                 file_path, device=torch_device, dtype=torch_dtype
             )
+            model_param = maybe_remap_weights(model_param, model)
             already_loaded_keys.extend(model_param.keys())
 
             # --------------------------------------------------------- #
@@ -180,6 +219,8 @@ def load_model_state_dict_by_file(
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+
+        model_params = maybe_remap_weights(model_params, model)
 
         model_param_infini = {}
         for key in model_params.keys():

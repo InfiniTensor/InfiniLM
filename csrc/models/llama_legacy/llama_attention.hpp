@@ -135,6 +135,7 @@ private:
     size_t num_attention_heads_;
     size_t num_key_value_heads_;
     size_t head_dim_;
+    size_t rotary_dim_;
     size_t kv_dim_;
     bool use_bias_;                  // Bias for Q/K/V projections
     bool use_output_bias_;           // Bias for output projection (o_proj)
