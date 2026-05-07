@@ -281,7 +281,7 @@ void RankWorker::thread_loop() {
             const std::string &model_type = model_config_->get<std::string>("model_type");
             const auto &model_map = models::get_causal_lm_model_map();
             auto it = model_map.find(model_type);
-            if (model_type == "glm4") {
+            if (model_type == "glm4" || model_type == "chatglm") {
                 model_ = InfinilmModelFactory::createModel(
                     model_config_,
                     rank_info_,

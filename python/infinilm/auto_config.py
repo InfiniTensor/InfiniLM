@@ -48,5 +48,7 @@ class AutoConfig:
             return cfg
         elif config_dict["model_type"] == "glm4":
             return LlamaConfig(**config_dict)
+        elif config_dict["model_type"] == "chatglm":
+            return LlamaConfig(**config_dict)
 
         raise ValueError(f"Unsupported model type `{config_dict['model_type']}`.")

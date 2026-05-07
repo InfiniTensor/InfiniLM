@@ -17,7 +17,7 @@ std::shared_ptr<infinilm::config::ModelConfig> ConfigFactory::createConfig(const
     if (it != config_map.end()) {
         it->second(model_config);
     } else {
-        std::vector<std::string> classic_models = {"llama", "qwen2", "minicpm", "fm9g", "fm9g7b", "glm4"};
+        std::vector<std::string> classic_models = {"llama", "qwen2", "minicpm", "fm9g", "fm9g7b", "glm4", "chatglm"};
         const std::string &model_type = model_config->get<std::string>("model_type");
         if (std::find(classic_models.begin(), classic_models.end(), model_type) == classic_models.end()) {
             throw std::invalid_argument("infinilm::config::ConfigFactory::createConfig: Unsupported model config type: " + model_type);

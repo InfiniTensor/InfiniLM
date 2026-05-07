@@ -104,7 +104,10 @@ def test(
             updated_prompts.append(prompt)
         prompts = updated_prompts
 
-    if hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None:
+    used_chat_template = (
+        hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None
+    )
+    if used_chat_template:
         input_contents = [
             tokenizer.apply_chat_template(
                 conversation=[{"role": "user", "content": prompt}],
@@ -139,6 +142,10 @@ def test(
         else:
             raise ValueError(f"Unsupported multimodal model_type: {model.model_type}")
     else:
+        add_special_tokens = not used_chat_template or (
+            model.model_type == "chatglm"
+            and tokenizer.__class__.__name__ == "ChatGLM4Tokenizer"
+        )
         if hasattr(tokenizer, "batch_encode_plus"):
             input_ids_list = tokenizer.batch_encode_plus(input_contents)["input_ids"]
         elif hasattr(tokenizer, "_encode_plus"):
@@ -155,14 +162,20 @@ def test(
             # Ideally this is solved by upgrading transformers. However, doing so causes version mismatch between transformers and mlu pytorch on devices with Phytium CPU. So a branch is temporarily used.
             input_ids_list = [
                 tokenizer.encode_plus(
-                    text, truncation=True, max_length=2048, add_special_tokens=True
+                    text,
+                    truncation=True,
+                    max_length=2048,
+                    add_special_tokens=add_special_tokens,
                 )["input_ids"]
                 for text in input_contents
             ]
         else:
             input_ids_list = [
                 tokenizer._encode_plus(
-                    text, truncation=True, max_length=2048, add_special_tokens=True
+                    text,
+                    truncation=True,
+                    max_length=2048,
+                    add_special_tokens=add_special_tokens,
                 )["input_ids"]
                 for text in input_contents
             ]
