@@ -62,6 +62,22 @@ class BasicLLMProcessor(InfinilmProcessor):
     def _build_model_input_from_static_scheduler_output(
         self, scheduler_output: StaticSchedulerOutput, temperature, top_p, top_k
     ) -> dict:
+        """Construct model inputs for prefill or decode phase.
+
+        Static cache model inputs:
+
+        Prefill phase (with prefix cache reuse):
+            - input_ids: Tokens after the cached prefix [1, prompt_length - prefix_hit_len]
+            - position_ids: [prefix_hit_len, ..., prompt_length-1]
+            - past_kv_lengths: [prefix_hit_len]  (reuse cached prefix)
+            - total_kv_lengths: [prompt_length]
+
+        Decode phase:
+            - input_ids: Only the last generated token [1, 1]
+            - position_ids: [current_position] (position in full sequence)
+            - past_kv_lengths: [num_cached_tokens]
+            - total_kv_lengths: [total_tokens]
+        """
         import infinicore
 
         """Build model input from static scheduler output."""
@@ -112,7 +128,26 @@ class BasicLLMProcessor(InfinilmProcessor):
     def _build_model_input_from_batch_scheduler_output(
         self, scheduler_output: SchedulerOutput, temperature, top_p, top_k
     ) -> dict:
-        """Build model input from scheduler output."""
+        """Construct model inputs for prefill or decode phase.
+
+        Prefill phase:
+            - input_ids: Flattened token list (excluding cached tokens)
+            - position_ids: Position IDs for new tokens in complete sequence
+            - past_kv_lengths: Number of cached tokens per request
+            - total_kv_lengths: Total tokens (cached + new) per request
+            - input_offsets: Start position of each request in flattened array
+            - block_tables: Padded block_table for each request
+            - slot_mapping: Token to slot mappings
+
+        Decode phase:
+            - input_ids: Only last generated token per request
+            - position_ids: Position of last token in complete sequence
+            - past_kv_lengths: Number of cached tokens per request
+            - total_kv_lengths: Total sequence length per request
+            - input_offsets: Offsets for each request
+            - block_tables: Padded block_table for each request
+            - slot_mapping: Single slot per request
+        """
         import infinicore
 
         if not scheduler_output.scheduled_requests:
