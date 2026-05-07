@@ -14,9 +14,6 @@ import threading
 from typing import List, Optional, Union, AsyncIterator
 from dataclasses import dataclass
 
-from transformers import AutoTokenizer
-from tokenizers import decoders as _dec
-
 import infinicore
 
 from infinilm.llm.request import (
@@ -33,6 +30,7 @@ from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
+from infinilm.tokenizer_utils import InfiniLMTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +97,8 @@ class LLMEngine:
             self.model_engine, config.model_path, dtype=self.model_engine.dtype
         )
 
-        # Initialize tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            config.model_path, trust_remote_code=True
-        )
-        self._fix_tokenizer_decoder()
+        # Initialize tokenizer using InfiniLMTokenizer
+        self.tokenizer = InfiniLMTokenizer(config.model_path)
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
@@ -130,14 +125,14 @@ class LLMEngine:
         self.model_engine.reset_cache(cache_config)
         self.cache_type = config.cache_type
 
-        # Get EOS token IDs from model config
-        self.eos_token_ids = self.model_engine.eos_token_id or []
+        # Get EOS token IDs from tokenizer
+        self.eos_token_ids = self.tokenizer.eos_token_id or []
         if isinstance(self.eos_token_ids, int):
             self.eos_token_ids = [self.eos_token_ids]
 
         logger.info(
             f"LLMEngine initialized with model at {config.model_path} "
-            f"on device {config.device}"
+            f"on device {config.device} "
             f"enable_graph={config.enable_graph}"
         )
 
@@ -165,26 +160,6 @@ class LLMEngine:
             )
 
         self.dtype = dtype_map[self.config.dtype]
-
-    def _fix_tokenizer_decoder(self):
-        """Fix tokenizer decoder for llama models."""
-        if "llama" in self.model_engine.model_type.lower():
-            backend = getattr(self.tokenizer, "backend_tokenizer", None)
-            target = getattr(backend, "_tokenizer", backend)
-            norm = getattr(target, "normalizer", None)
-            dec = getattr(target, "decoder", None)
-            sn = repr(norm)[:800] if norm is not None else ""
-            sd = repr(dec)[:800] if dec is not None else ""
-            has_prepend = "Prepend" in sn
-            has_strip = "Strip" in sd
-            if has_prepend and has_strip:
-                target.decoder = _dec.Sequence(
-                    [
-                        _dec.Replace("▁", " "),
-                        _dec.ByteFallback(),
-                        _dec.Fuse(),
-                    ]
-                )
 
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
@@ -341,7 +316,8 @@ class LLMEngine:
                 req.finish_reason = FinishReason.EOS_TOKEN
                 return True
 
-            # While ignoring EOS, stop strings are also ignored to avoid requiring additional arguments for benchmarking.
+            # While ignoring EOS, stop strings are also ignored to avoid requiring
+            # additional arguments for benchmarking.
             # Check stop strings
             # Remove stop string from generated_text if STOP_STRING is the finishing reason
             stop_strings = req.sampling_params.stop or []
@@ -354,11 +330,11 @@ class LLMEngine:
         return False
 
     def tokenize(self, text: str) -> List[int]:
-        """Tokenize text to token IDs."""
+        """Tokenize text to token IDs using InfiniLMTokenizer."""
         return self.tokenizer.encode(text)
 
     def detokenize(self, token_ids: List[int]) -> str:
-        """Detokenize token IDs to text."""
+        """Detokenize token IDs to text using InfiniLMTokenizer."""
         return self.tokenizer.decode(token_ids)
 
     def apply_chat_template(
@@ -367,7 +343,7 @@ class LLMEngine:
         add_generation_prompt: bool = True,
         chat_template_kwargs: Optional[dict] = None,
     ) -> str:
-        """Apply chat template to messages."""
+        """Apply chat template to messages using InfiniLMTokenizer."""
         chat_template_kwargs = chat_template_kwargs or {}
         return self.tokenizer.apply_chat_template(
             conversation=messages,

@@ -1,10 +1,10 @@
 import infinicore
-from transformers import AutoTokenizer
-from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.distributed import DistConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
 from infinilm.base_config import BaseConfig
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
+from infinilm.distributed import DistConfig
+from infinilm.infer_engine import GenerationConfig, InferEngine
+from infinilm.modeling_utils import load_model_state_dict_by_file
+from infinilm.tokenizer_utils import InfiniLMTokenizer
 import argparse
 import sys
 import time
@@ -42,9 +42,9 @@ def get_test_cases(
     input_len_list: list[int],
     output_len_list: list[int],
 ):
+    """Generate cases ordered by ascending KV cache memory usage."""
     model_path = os.path.expanduser(model_path)
 
-    """Generate cases ordered by ascending KV cache memory usage."""
     # Load model config to derive attention dimensions
     config = read_json_file(os.path.join(model_path, "config.json"))
     head_dim = config.get(
@@ -92,19 +92,23 @@ def get_test_cases(
     return case_dict
 
 
+# Load benchmark prompt from file
 with open("examples/bench_prompt.md", "r") as f:
     prompt = f.read()
 
 
 def repeat_prompt(input_ids: list[int], target_length: int):
+    """Repeat or truncate input_ids to match target_length."""
     num = len(input_ids)
     repeat_times = (target_length + num - 1) // num
     return (input_ids * repeat_times)[:target_length]
 
 
 class TestModel:
+    """Benchmark model wrapper for performance testing."""
+
     model: infinicore.nn.Module
-    tokenizer: AutoTokenizer
+    tokenizer: InfiniLMTokenizer
     input_ids_list: list[int]
 
     def __init__(
@@ -118,8 +122,9 @@ class TestModel:
         attn_backend="default",
     ) -> None:
         model_path = os.path.expanduser(model_path)
+
         # ---------------------------------------------------------------------------- #
-        #                        创建模型,
+        #                        Create Model
         # ---------------------------------------------------------------------------- #
         model = InferEngine(
             model_path,
@@ -132,47 +137,30 @@ class TestModel:
         )
 
         # ---------------------------------------------------------------------------- #
-        #                        加载权重
+        #                        Load Weights
         # ---------------------------------------------------------------------------- #
         if not skip_load:
             load_model_state_dict_by_file(model, model_path, dtype=model.dtype)
 
         # ---------------------------------------------------------------------------- #
-        #                        创建 tokenizer
+        #                        Initialize Tokenizer
         # ---------------------------------------------------------------------------- #
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
-        if tokenizer.pad_token is None:
-            if tokenizer.eos_token is not None:
-                tokenizer.pad_token = tokenizer.eos_token
-                tokenizer.pad_token_id = tokenizer.eos_token_id
-            else:
-                tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        self.tokenizer = InfiniLMTokenizer(model_path)
 
         # ---------------------------------------------------------------------------- #
-        #                        token编码
+        #                        Encode Prompt
         # ---------------------------------------------------------------------------- #
         input_content = [
-            tokenizer.apply_chat_template(
+            self.tokenizer.apply_chat_template(
                 conversation=[{"role": "user", "content": prompt}],
                 add_generation_prompt=True,
                 tokenize=False,
             )
         ]
 
-        # print(input_content, end="", flush=True)
-        # Support Transformers >= 5.0 for batch_encode_plus deprecation
-        encoding = tokenizer(
-            input_content,
-            padding=True,
-            truncation=True,
-            max_length=8192,
-        )
-
-        input_ids_list = encoding["input_ids"]
+        input_ids_list = self.tokenizer.encode(input_content)
 
         self.model = model
-        self.tokenizer = tokenizer
         self.input_ids_list = input_ids_list
 
     def run(
@@ -184,11 +172,12 @@ class TestModel:
         top_p=1.0,
         temperature=1.0,
     ):
+        """Run a single benchmark test case."""
         input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
         input_ids_list = [input_ids] * batch_size
 
         # ---------------------------------------------------------------------------- #
-        #                        自回归生成
+        #                        Autoregressive Generation
         # ---------------------------------------------------------------------------- #
         input_ids_infini = infinicore.from_list(input_ids_list)
 
@@ -211,6 +200,7 @@ class TestModel:
         numpy_output_ids = np.array(
             [output_id.to_numpy()[0] for output_id in output_ids]
         )
+        # Use InfiniLMTokenizer for decoding
         print(self.tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
 
         print(
@@ -224,8 +214,9 @@ if __name__ == "__main__":
     device_str = cfg.get_device_str(cfg.device)
 
     _PAGED_KV_BLOCK_SIZE = cfg.block_size
+
     # -------------------------------------------------------- #
-    #             解析参数
+    #             Parse Arguments
     # -------------------------------------------------------- #
     model_path = cfg.model
 
@@ -252,8 +243,9 @@ if __name__ == "__main__":
         output_len = [output_len]
 
     cases_dict = get_test_cases(model_path, batch_size, input_len, output_len)
+
     # -------------------------------------------------------- #
-    #             测试
+    #             Initialize Test Configuration
     # -------------------------------------------------------- #
     if enable_paged_attn:
         paged_kv_block_size = _PAGED_KV_BLOCK_SIZE
@@ -290,7 +282,7 @@ if __name__ == "__main__":
     if cfg.warmup:
         warmup_steps = 1
 
-        # warmup cache capacity
+        # Warmup cache capacity
         warmup_cache_len = 128
         warmup_batch = len(test.input_ids_list)
 
@@ -316,7 +308,7 @@ if __name__ == "__main__":
             _ = test.model.generate(
                 input_ids_infini,
                 GenerationConfig(
-                    max_new_tokens=5,  # decode kernel warmup
+                    max_new_tokens=5,  # Decode kernel warmup
                     temperature=cfg.temperature,
                     top_k=cfg.top_k,
                     top_p=cfg.top_p,
@@ -327,12 +319,12 @@ if __name__ == "__main__":
 
         print("=================== warmup done ====================")
 
-        # reset cache back to benchmark config
+        # Reset cache back to benchmark config
         if cache_config is not None:
             test.model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #
-    #                                Warmup done
+    #                                Run Benchmarks
     # ---------------------------------------------------------------------------- #
 
     for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
@@ -343,7 +335,7 @@ if __name__ == "__main__":
         output_len = case["output_len"]
 
         if not enable_paged_attn:
-            # reset cache if static kvcache is used
+            # Reset cache if static KV cache is used
             initial_capacity = input_len + output_len
             test.model.reset_cache(
                 StaticKVCacheConfig(
@@ -351,7 +343,7 @@ if __name__ == "__main__":
                 )
             )
 
-        # run test one case
+        # Run test for one case
         test.run(
             batch_size=batch_size,
             input_len=input_len,

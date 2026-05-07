@@ -1,18 +1,16 @@
 import infinicore
-import transformers
-from transformers import AutoTokenizer
-from tokenizers import decoders as _dec
-from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.distributed import DistConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
 import argparse
 import sys
 import time
 import os
 import numpy as np
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
-from packaging import version
+
 from infinilm.base_config import BaseConfig
+from infinilm.distributed import DistConfig
+from infinilm.infer_engine import GenerationConfig, InferEngine
+from infinilm.modeling_utils import load_model_state_dict_by_file
+from infinilm.tokenizer_utils import InfiniLMTokenizer
 
 from PIL import Image
 import torch
@@ -37,6 +35,7 @@ def test(
     image_path=None,
 ):
     model_path = os.path.expanduser(model_path)
+
     # ---------------------------------------------------------------------------- #
     #                        Create Model
     # ---------------------------------------------------------------------------- #
@@ -51,16 +50,18 @@ def test(
         attention_backend=attn_backend,
         kv_cache_dtype=cfg.kv_cache_dtype,
     )
+
     # ---------------------------------------------------------------------------- #
     #                        Load Weights
     # ---------------------------------------------------------------------------- #
     load_model_state_dict_by_file(model, model_path, dtype=model.dtype)
 
     # ---------------------------------------------------------------------------- #
-    #                        create tokenizer
+    #                        Initialize Tokenizer
     # ---------------------------------------------------------------------------- #
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    tokenizer = InfiniLMTokenizer(model_path)
 
+    # Initialize processor for multimodal models
     processor = None
     if image_path is not None:
         if model.model_type == "minicpmv":
@@ -69,33 +70,14 @@ def test(
             processor = AutoProcessor.from_pretrained(
                 model_path, trust_remote_code=True
             )
-            tokenizer = processor.tokenizer
-
-    if "llama" == model.model_type:
-        backend = getattr(tokenizer, "backend_tokenizer", None)
-        target = getattr(backend, "_tokenizer", backend)
-        norm = getattr(target, "normalizer", None)
-        dec = getattr(target, "decoder", None)
-        sn = repr(norm)[:800] if norm is not None else ""
-        sd = repr(dec)[:800] if dec is not None else ""
-        has_prepend = "Prepend" in sn
-        has_strip = "Strip" in sd
-        if has_prepend and has_strip:
-            target.decoder = _dec.Sequence(
-                [
-                    _dec.Replace("▁", " "),
-                    _dec.ByteFallback(),
-                    _dec.Fuse(),
-                ]
-            )
 
     # ---------------------------------------------------------------------------- #
-    #                        tokenize
+    #                        Tokenize Inputs
     # ---------------------------------------------------------------------------- #
-    # prompt = "山东最高的山是？"
     if isinstance(prompts, str):
         prompts = [prompts]
 
+    # Handle image prompts for multimodal models
     if image_path is not None:
         updated_prompts = []
         for prompt in prompts:
@@ -104,18 +86,17 @@ def test(
             updated_prompts.append(prompt)
         prompts = updated_prompts
 
-    if hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None:
-        input_contents = [
-            tokenizer.apply_chat_template(
-                conversation=[{"role": "user", "content": prompt}],
-                add_generation_prompt=True,
-                tokenize=False,
-            )
-            for prompt in prompts
-        ]
-    else:
-        input_contents = prompts
+    # Apply chat template or use raw prompts
+    input_contents = [
+        tokenizer.apply_chat_template(
+            conversation=[{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+        for prompt in prompts
+    ]
 
+    # Process multimodal inputs or encode text
     pixel_values = None
     image_bound = None
     tgt_sizes = None
@@ -139,39 +120,14 @@ def test(
         else:
             raise ValueError(f"Unsupported multimodal model_type: {model.model_type}")
     else:
-        if hasattr(tokenizer, "batch_encode_plus"):
-            input_ids_list = tokenizer.batch_encode_plus(input_contents)["input_ids"]
-        elif hasattr(tokenizer, "_encode_plus"):
-            input_ids_list = tokenizer._encode_plus(input_contents)["input_ids"]
-        else:
-            input_ids_list = tokenizer(input_contents)[
-                "input_ids"
-            ]  # List: [[1, 1128, 526, 366, 29892]]
-
-        # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
-        #     "input_ids"
-        # ]  # List: [[1, 1128, 526, 366, 29892]]
-        if version.parse(transformers.__version__) < version.parse("5.0.0"):
-            # Ideally this is solved by upgrading transformers. However, doing so causes version mismatch between transformers and mlu pytorch on devices with Phytium CPU. So a branch is temporarily used.
-            input_ids_list = [
-                tokenizer.encode_plus(
-                    text, truncation=True, max_length=2048, add_special_tokens=True
-                )["input_ids"]
-                for text in input_contents
-            ]
-        else:
-            input_ids_list = [
-                tokenizer._encode_plus(
-                    text, truncation=True, max_length=2048, add_special_tokens=True
-                )["input_ids"]
-                for text in input_contents
-            ]
+        # Use InfiniLMTokenizer for encoding
+        input_ids_list = tokenizer.encode(input_contents)
 
     # ---------------------------------------------------------------------------- #
-    #                       Create KVCache
+    #                       Create KV Cache
     # ---------------------------------------------------------------------------- #
     if enable_paged_attn:
-        batch_size = 1 if prompts is str else len(prompts)
+        batch_size = 1 if isinstance(prompts, str) else len(prompts)
         max_total_tokens = max_new_tokens + len(input_ids_list[0])
         cache_config = PagedKVCacheConfig(
             num_blocks=(
@@ -181,7 +137,7 @@ def test(
             block_size=_PAGED_KV_BLOCK_SIZE,
         )
     else:
-        batch_size = 1 if prompts is str else len(prompts)
+        batch_size = 1 if isinstance(prompts, str) else len(prompts)
         initial_capacity = max_new_tokens + len(input_ids_list[0])
         cache_config = StaticKVCacheConfig(
             max_batch_size=batch_size, max_cache_len=initial_capacity
@@ -223,7 +179,7 @@ def test(
             )
             pixel_values_infini = infinicore.from_torch(pixel_values_tensor)
 
-            # 2. tgt_sizes
+            # 2. Target sizes
             all_tgt_sizes = [
                 tgt_size for tgt_size in tgt_sizes if isinstance(tgt_size, torch.Tensor)
             ]
@@ -232,7 +188,7 @@ def test(
 
             tgt_sizes_infini = infinicore.from_torch(tgt_sizes_tensor)
 
-            # 3. image_bound
+            # 3. Image bounds
             batch_size = len(image_bound)
             max_ranges = max(len(b) for b in image_bound)
 

@@ -3,6 +3,7 @@ from . import distributed
 from . import cache
 from . import llm
 from . import base_config
+from . import tokenizer_utils
 
 from .llm import (
     LLM,
@@ -18,6 +19,7 @@ __all__ = [
     "cache",
     "llm",
     "base_config",
+    "tokenizer_utils",
     # LLM classes
     "LLM",
     "AsyncLLMEngine",

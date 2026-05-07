@@ -9,40 +9,44 @@ import numpy as np
 from datasets import load_dataset, Dataset
 from abc import ABC, abstractmethod
 from infinilm.base_config import BaseConfig
+from infinilm.tokenizer_utils import InfiniLMTokenizer
 
 TOTAL_TOKENS = 0
 TOTAL_TIME = 0.0
 
 
 class BaseBenchmark(ABC):
-    """Base class for benchmark evaluation with common tokenizer and generation utilities"""
+    """Base class for benchmark evaluation with common tokenizer and generation utilities."""
+
+    def __init__(self):
+        self.tokenizer: InfiniLMTokenizer = None
 
     def encode_text(self, text):
-        """Encode text to token IDs - reused across backends"""
+        """Encode text to token IDs using InfiniLMTokenizer."""
         return self.tokenizer.encode(text)
 
-    def decode_token(self, token_id):
-        """Decode token ID to text - reused across backends"""
-        return self.tokenizer.decode(token_id)
+    def decode_token(self, token_ids):
+        """Decode token IDs to text using InfiniLMTokenizer."""
+        return self.tokenizer.decode(token_ids)
 
     @abstractmethod
     def render_input_content(self, *args, **kwargs):
-        """Render input content - benchmark-specific implementation"""
+        """Render input content - benchmark-specific implementation."""
         pass
 
     @abstractmethod
     def generate(self, *args, **kwargs):
-        """Generate response - benchmark-specific implementation"""
+        """Generate response - benchmark-specific implementation."""
         pass
 
     @abstractmethod
     def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
-        """Backend-specific generation implementation"""
+        """Backend-specific generation implementation."""
         pass
 
 
 class InfiniLMBenchmark(BaseBenchmark):
-    """Wrapper class for InfiniLM cpp backend for benchmark evaluation"""
+    """Wrapper class for InfiniLM cpp backend for benchmark evaluation."""
 
     def __init__(
         self,
@@ -55,7 +59,6 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_graph=False,
         attn_backend="default",
     ):
-        import transformers
         import infinicore
         from infinilm.modeling_utils import load_model_state_dict_by_file
         from infinilm.distributed import DistConfig
@@ -86,38 +89,15 @@ class InfiniLMBenchmark(BaseBenchmark):
         # So device index 0 will automatically map to the first visible device
         self.device = infinicore.device(device_name, 0)
 
-        # Load config and tokenizer
+        # Initialize tokenizer using InfiniLMTokenizer
+        self.tokenizer = InfiniLMTokenizer(model_dir_path)
+
+        # Load config for model parameters
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             self.config_dict = json.load(f)
 
-        # Align tokenizer initialization with jiuge backend (010)
-        # Match the exact same initialization logic based on model type
-        model_type = self.config_dict.get("model_type", "")
-        if model_type == "llama":
-            # For llama models: no trust_remote_code (matches jiuge line 465)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-        elif model_type in ["fm9g", "minicpm", "fm9g7b"]:
-            # For fm9g/minicpm/fm9g7b models: use trust_remote_code=True (matches jiuge lines 493-495, 518-520)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-        elif model_type in ["qwen2", "qwen3"]:
-            # For qwen2/qwen3 models: no trust_remote_code (matches jiuge line 534-536)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-        else:
-            # Default: use trust_remote_code=True for other models
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-
-        eos_token_id = self.config_dict.get("eos_token_id")
-        self.eos_token_id = (
-            [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
-        )
+        # Get EOS token IDs from tokenizer manager
+        self.eos_token_id = self.tokenizer.eos_token_id
 
         if backend != "cpp":
             raise ValueError(f"Unsupported backend: {backend}.")
@@ -154,10 +134,11 @@ class InfiniLMBenchmark(BaseBenchmark):
         print("Model loaded successfully")
 
     def max_context_len(self):
+        """Get maximum context length from model config."""
         return self.config_dict.get("max_position_embeddings", 2048)
 
     def render_input_content(self, *args, **kwargs):
-        """Render input content based on benchmark type"""
+        """Render input content based on benchmark type."""
         if self.benchmark == "ceval":
             return render_ceval(self.tokenizer, *args, **kwargs)
         elif self.benchmark == "mmlu":
@@ -166,12 +147,12 @@ class InfiniLMBenchmark(BaseBenchmark):
             raise ValueError(f"Unknown benchmark: {self.benchmark}")
 
     def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
-        """Generate response based on benchmark type"""
+        """Generate response based on benchmark type."""
         # Render input content
         input_content = self.render_input_content(*args)
         print(input_content, end="", flush=True)
 
-        # Encode input
+        # Encode input using InfiniLMTokenizer
         tokens = self.encode_text(input_content)
 
         # Delegate to backend-specific generation implementation
@@ -183,7 +164,7 @@ class InfiniLMBenchmark(BaseBenchmark):
 
     def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
         """
-        InfiniLM cpp backend-specific generation implementation
+        InfiniLM cpp backend-specific generation implementation.
 
         NOTE: Validation confirmed input configs are identical between backends.
         The issue was that manual generation loop called InferEngine.generate() which
@@ -227,6 +208,7 @@ class InfiniLMBenchmark(BaseBenchmark):
 
         # ---- post process ----
         generated_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
+        # Use InfiniLMTokenizer for decoding
         output_text = self.tokenizer.decode(generated_ids)
 
         # ---- stats ----
@@ -250,13 +232,13 @@ class InfiniLMBenchmark(BaseBenchmark):
         return output_text
 
     def destroy_model_instance(self):
-        # Cleanup if needed
+        """Cleanup model resources."""
         del self.model
         print("Model destroyed")
 
 
 class TorchBenchmark(BaseBenchmark):
-    """Torch backend using HuggingFace Transformers"""
+    """Torch backend using HuggingFace Transformers."""
 
     def __init__(self, model_dir_path, device_type_str="cpu", benchmark="ceval"):
         import torch
@@ -264,7 +246,7 @@ class TorchBenchmark(BaseBenchmark):
 
         self.benchmark = benchmark
 
-        # Device
+        # Device setup
         if device_type_str == "nvidia":
             self.device = torch.device("cuda")
         elif device_type_str == "cpu":
@@ -307,9 +289,11 @@ class TorchBenchmark(BaseBenchmark):
         )
 
     def max_context_len(self):
+        """Get maximum context length from model config."""
         return self.config_dict.get("max_position_embeddings", 2048)
 
     def render_input_content(self, *args, **kwargs):
+        """Render input content based on benchmark type."""
         if self.benchmark == "ceval":
             return render_ceval(self.tokenizer, *args, **kwargs)
         elif self.benchmark == "mmlu":
@@ -318,6 +302,7 @@ class TorchBenchmark(BaseBenchmark):
             raise ValueError(f"Unknown benchmark: {self.benchmark}")
 
     def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
+        """Torch backend-specific generation implementation."""
         import torch
         import time
 
@@ -339,7 +324,7 @@ class TorchBenchmark(BaseBenchmark):
             pad_token_id=2,
         )
 
-        # --- end sync ---
+        # Sync for accurate timing
         if self.device.type == "cuda":
             torch.cuda.synchronize()
 
@@ -370,20 +355,23 @@ class TorchBenchmark(BaseBenchmark):
         return output_text
 
     def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
+        """Generate response based on benchmark type."""
         input_content = self.render_input_content(*args)
         print(input_content, end="", flush=True)
 
+        # Encode input using InfiniLMTokenizer
         tokens = self.encode_text(input_content)
 
         return self._generate_step(tokens, max_steps, topp_, topk_, temperature_)
 
     def destroy_model_instance(self):
+        """Cleanup model resources."""
         del self.model
         print("Torch model destroyed")
 
 
 class VLLMBenchmark(BaseBenchmark):
-    """vLLM backend using vllm.LLM"""
+    """vLLM backend using vllm.LLM."""
 
     def __init__(
         self,
@@ -429,9 +417,11 @@ class VLLMBenchmark(BaseBenchmark):
         print("vLLM model loaded successfully")
 
     def max_context_len(self):
+        """Get maximum context length from model config."""
         return self.config_dict.get("max_position_embeddings", 2048)
 
     def render_input_content(self, *args, **kwargs):
+        """Render input content based on benchmark type."""
         if self.benchmark == "ceval":
             return render_ceval(self.tokenizer, *args, **kwargs)
         elif self.benchmark == "mmlu":
@@ -440,15 +430,19 @@ class VLLMBenchmark(BaseBenchmark):
             raise ValueError(f"Unknown benchmark: {self.benchmark}")
 
     def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
+        """Generate response based on benchmark type."""
         input_content = self.render_input_content(*args)
         print(input_content, end="", flush=True)
 
+        # Encode input using InfiniLMTokenizer
         tokens = self.encode_text(input_content)
         return self._generate_step(tokens, max_steps, topp_, topk_, temperature_)
 
     def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
+        """vLLM backend-specific generation implementation."""
         from vllm import SamplingParams
 
+        # Decode prompt from tokens
         prompt = self.tokenizer.decode(tokens)
 
         sampling_params = SamplingParams(
@@ -473,6 +467,7 @@ class VLLMBenchmark(BaseBenchmark):
 
         # ---- stats ----
         input_tokens = len(tokens)
+        # Use InfiniLMTokenizer for encoding to count tokens
         new_tokens = len(self.encode_text(output_text))
         total_tokens = input_tokens + new_tokens
 
@@ -494,12 +489,13 @@ class VLLMBenchmark(BaseBenchmark):
         return output_text
 
     def destroy_model_instance(self):
+        """Cleanup model resources."""
         del self.llm
         print("vLLM model destroyed")
 
 
 def render_ceval(_tokenizer, conversation):
-    """Render C-Eval conversation to input content"""
+    """Render C-Eval conversation to input content."""
     return (
         _tokenizer.apply_chat_template(
             conversation=conversation,
@@ -511,7 +507,7 @@ def render_ceval(_tokenizer, conversation):
 
 
 def render_mmlu(_tokenizer, question, choices):
-    """Render MMLU question and choices to input content"""
+    """Render MMLU question and choices to input content."""
     choices_text = "\n".join(
         [f"{chr(65 + i)}. {choice}" for i, choice in enumerate(choices)]
     )
@@ -542,7 +538,7 @@ def render_mmlu(_tokenizer, question, choices):
 
 
 def extract_answer_ceval(output_content, answer):
-    """Extract predicted answer from C-Eval output"""
+    """Extract predicted answer from C-Eval output."""
     output_upper = output_content.upper().strip()
     position = 0
     ABCD = output_upper[position : position + 2]
@@ -550,7 +546,7 @@ def extract_answer_ceval(output_content, answer):
 
 
 def extract_answer_mmlu(output_content):
-    """Extract predicted answer from MMLU output (returns 0-3 index or None)"""
+    """Extract predicted answer from MMLU output (returns 0-3 index or None)."""
     output_upper = output_content.upper().strip()
 
     # Find first meaningful token
@@ -565,7 +561,7 @@ def extract_answer_mmlu(output_content):
 
 
 def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=None):
-    """Evaluate samples for a single subject and return results"""
+    """Evaluate samples for a single subject and return results."""
     answers_list = []
     for idx, sample in enumerate(samples):
         if benchmark == "ceval":
@@ -640,7 +636,7 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
     true_num = 0
     all_num = 0
     for cont in answers_list:
-        id = cont["id"]
+        idx = cont["id"]
         all_num = all_num + 1
 
         if benchmark == "ceval":
@@ -648,16 +644,16 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
             is_correct = cont["is_correct"]
             if is_correct:
                 true_num = true_num + 1
-                print(f"id {id} : ", "正确")
+                print(f"id {idx} : ", "正确")
             else:
-                print(f"id {id}: ", "错误")
+                print(f"id {idx}: ", "错误")
 
         elif benchmark == "mmlu":
             answer = cont["answer"]
             predicted = cont["predicted"]
             if predicted is not None and predicted == answer:
                 true_num = true_num + 1
-                print(f"id {id}: Correct")
+                print(f"id {idx}: Correct")
             else:
                 answer_letter = chr(65 + answer) if answer < 4 else "?"
                 predicted_letter = (
@@ -666,7 +662,7 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
                     else "?"
                 )
                 print(
-                    f"id {id}: Wrong (correct: {answer_letter}, predicted: {predicted_letter})"
+                    f"id {idx}: Wrong (correct: {answer_letter}, predicted: {predicted_letter})"
                 )
 
     accuracy = true_num / all_num if all_num > 0 else 0.0
@@ -900,7 +896,7 @@ def load_dataset_samples(args):
                 return _load_ceval_from_cache(
                     args.cache_dir, subj, args.split, ceval_subjects
                 )
-            # online fallback via HF load_dataset
+            # Online fallback via HF load_dataset
             if args.split == "all":
                 records = []
                 for split_name in ["val", "test"]:
@@ -1104,7 +1100,7 @@ def load_dataset_samples(args):
 
 
 def main():
-    """Main function"""
+    """Main function."""
     cfg = BaseConfig()
 
     device_type_str = cfg.device
