@@ -1,4 +1,5 @@
 import os
+import json
 from typing import Dict, Union
 import time
 import torch
@@ -6,6 +7,17 @@ from safetensors import safe_open
 import glob
 from tqdm import tqdm
 import infinicore
+
+
+def _get_scale_emb(model_path: str) -> float:
+    config_path = os.path.join(model_path, "config.json")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"config.json not found at {config_path}")
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    if config.get("model_type") != "fm9g":
+        return 1.0
+    return config.get("scale_emb", 1.0)
 
 
 def parse_dtype(dtype_str: str):
@@ -122,8 +134,18 @@ def get_model_state_dict(
             load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
         )
 
+    # Apply scale_emb for fm9g models (embed_tokens uses lookup, not GEMM)
+    scale_emb = _get_scale_emb(model_path)
+    embed_tokens_unscaled = None
+    if "model.embed_tokens.weight" in model_param:
+        embed_tokens_unscaled = model_param["model.embed_tokens.weight"]
+        if scale_emb != 1.0:
+            model_param["model.embed_tokens.weight"] = embed_tokens_unscaled * float(scale_emb)
+
     if model_param.get("lm_head.weight", None) is None:
-        model_param["lm_head.weight"] = model_param["model.embed_tokens.weight"]
+        # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
+        if embed_tokens_unscaled is not None:
+            model_param["lm_head.weight"] = embed_tokens_unscaled
 
     # --------------------------------------------------------- #
     #         model_param_infini references torch.Tensor
@@ -151,8 +173,10 @@ def load_model_state_dict_by_file(
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
+    scale_emb = _get_scale_emb(model_path)
 
     already_loaded_keys = []
+    embed_tokens_torch_unscaled = None
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
     if len(file_list) > 0:
@@ -168,6 +192,15 @@ def load_model_state_dict_by_file(
             already_loaded_keys.extend(model_param.keys())
 
             # --------------------------------------------------------- #
+            #         Scale embed_tokens on torch side before converting
+            # --------------------------------------------------------- #
+            if "model.embed_tokens.weight" in model_param:
+                embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
+                if scale_emb != 1.0:
+                    model_param["model.embed_tokens.weight"] = \
+                        embed_tokens_torch_unscaled * float(scale_emb)
+
+            # --------------------------------------------------------- #
             #         model_param_infini references torch.Tensor
             # --------------------------------------------------------- #
             model_param_infini = {}
@@ -181,6 +214,13 @@ def load_model_state_dict_by_file(
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
 
+        # Scale embed_tokens on torch side before converting
+        if "model.embed_tokens.weight" in model_params:
+            embed_tokens_torch_unscaled = model_params["model.embed_tokens.weight"].to(dtype=torch_dtype)
+            if scale_emb != 1.0:
+                model_params["model.embed_tokens.weight"] = \
+                    embed_tokens_torch_unscaled * float(scale_emb)
+
         model_param_infini = {}
         for key in model_params.keys():
             model_param_infini[key] = infinicore.from_torch(
@@ -192,6 +232,14 @@ def load_model_state_dict_by_file(
         infinicore.sync_device()
     else:
         raise KeyError("Weight file not found.")
+
+    # Handle tied weights: if lm_head.weight is missing, share embed_tokens.weight
+    # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
+    if "lm_head.weight" in model_keys and "lm_head.weight" not in already_loaded_keys:
+        if embed_tokens_torch_unscaled is not None:
+            lm_head_tensor = infinicore.from_torch(embed_tokens_torch_unscaled)
+            model.load_state_dict({"lm_head.weight": lm_head_tensor}, strict=False)
+            already_loaded_keys.append("lm_head.weight")
 
     check_parameters(model_keys, already_loaded_keys)
 
@@ -213,7 +261,9 @@ def load_model_state_dict_by_tensor(
 
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
+    scale_emb = _get_scale_emb(model_path)
     already_loaded_keys = []
+    embed_tokens_torch_unscaled = None
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
     if len(file_list) > 0:
@@ -222,9 +272,14 @@ def load_model_state_dict_by_tensor(
 
             with safe_open(file_path, "pt", "cpu") as f:
                 for name in f.keys():
-                    weight_infini = infinicore.from_torch(
-                        f.get_tensor(name).to(dtype=torch_dtype)
-                    )
+                    tensor = f.get_tensor(name).to(dtype=torch_dtype)
+
+                    if name == "model.embed_tokens.weight":
+                        embed_tokens_torch_unscaled = tensor
+                        if scale_emb != 1.0:
+                            tensor = tensor * float(scale_emb)
+
+                    weight_infini = infinicore.from_torch(tensor)
                     model.load_param(name, weight_infini)
                     already_loaded_keys.append(name)
                     infinicore.sync_stream()
@@ -234,13 +289,24 @@ def load_model_state_dict_by_tensor(
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
 
         for key in model_params.keys():
-            weight_infini = infinicore.from_torch(
-                model_params[key].to(dtype=torch_dtype)
-            )
+            tensor = model_params[key].to(dtype=torch_dtype)
+            if key == "model.embed_tokens.weight":
+                embed_tokens_torch_unscaled = tensor
+                if scale_emb != 1.0:
+                    tensor = tensor * float(scale_emb)
+            weight_infini = infinicore.from_torch(tensor)
             model.load_param(key, weight_infini)
             already_loaded_keys.append(key)
     else:
         raise KeyError("Weight file not found.")
+
+    # Handle tied weights: if lm_head.weight is missing, share embed_tokens.weight
+    # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
+    if "lm_head.weight" in model_keys and "lm_head.weight" not in already_loaded_keys:
+        if embed_tokens_torch_unscaled is not None:
+            lm_head_tensor = infinicore.from_torch(embed_tokens_torch_unscaled)
+            model.load_param("lm_head.weight", lm_head_tensor)
+            already_loaded_keys.append("lm_head.weight")
 
     check_parameters(model_keys, already_loaded_keys)
 
