@@ -79,6 +79,17 @@ public:
             std::optional<infinicore::Tensor> block_tables,
             std::optional<infinicore::Tensor> slot_mappin) const;
 
+    infinicore::Tensor forward_naive(
+        infinicore::Tensor &hidden_states,
+        const infinicore::Tensor &position_ids,
+        std::shared_ptr<infinilm::cache::Cache> kv_cache,
+        std::optional<infinicore::Tensor> past_sequence_lengths,
+        std::optional<infinicore::Tensor> total_sequence_lengths,
+        std::optional<infinicore::Tensor> input_offsets,
+        std::optional<infinicore::Tensor> cu_seqlens,
+        std::optional<infinicore::Tensor> block_tables,
+        std::optional<infinicore::Tensor> slot_mapping) const;
+
     /**
      * @brief Get the layer index
      */
@@ -94,6 +105,8 @@ protected:
     // Layer normalization
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_self_attn_layernorm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_mlp_layernorm);
 
     // Attention and MLP
     INFINICORE_NN_MODULE(LlamaAttention, self_attn);
@@ -103,6 +116,7 @@ protected:
 
 private:
     size_t layer_idx_; // Layer index for cache management and debugging
+    bool use_glm4_post_norms_ = false;
 };
 
 } // namespace infinilm::models::llama_legacy
