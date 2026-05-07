@@ -6,6 +6,7 @@ from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
 import argparse
+import json
 import sys
 import time
 import os
@@ -20,6 +21,37 @@ import torch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
 _PAGED_KV_BLOCK_SIZE = 256
+
+
+def _get_baichuan_role_token_ids(model_path: str) -> tuple[int, int]:
+    user_token_id = 195
+    assistant_token_id = 196
+    generation_config_path = os.path.join(model_path, "generation_config.json")
+    if os.path.exists(generation_config_path):
+        with open(generation_config_path, "r") as f:
+            generation_config = json.load(f)
+        user_token_id = int(generation_config.get("user_token_id", user_token_id))
+        assistant_token_id = int(
+            generation_config.get("assistant_token_id", assistant_token_id)
+        )
+    return user_token_id, assistant_token_id
+
+
+def _encode_baichuan_chat_prompts(
+    prompts: list[str],
+    tokenizer: AutoTokenizer,
+    model_path: str,
+    max_length: int,
+) -> list[list[int]]:
+    user_token_id, assistant_token_id = _get_baichuan_role_token_ids(model_path)
+    max_content_length = max(0, max_length - 2)
+    input_ids_list = []
+    for prompt in prompts:
+        content_ids = tokenizer.encode(prompt, add_special_tokens=False)
+        if len(content_ids) > max_content_length:
+            content_ids = content_ids[-max_content_length:]
+        input_ids_list.append([user_token_id, *content_ids, assistant_token_id])
+    return input_ids_list
 
 
 def test(
@@ -104,7 +136,10 @@ def test(
             updated_prompts.append(prompt)
         prompts = updated_prompts
 
-    if hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None:
+    used_chat_template = (
+        hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None
+    )
+    if used_chat_template:
         input_contents = [
             tokenizer.apply_chat_template(
                 conversation=[{"role": "user", "content": prompt}],
@@ -139,20 +174,14 @@ def test(
         else:
             raise ValueError(f"Unsupported multimodal model_type: {model.model_type}")
     else:
-        if hasattr(tokenizer, "batch_encode_plus"):
-            input_ids_list = tokenizer.batch_encode_plus(input_contents)["input_ids"]
-        elif hasattr(tokenizer, "_encode_plus"):
-            input_ids_list = tokenizer._encode_plus(input_contents)["input_ids"]
-        else:
-            input_ids_list = tokenizer(input_contents)[
-                "input_ids"
-            ]  # List: [[1, 1128, 526, 366, 29892]]
-
-        # input_ids_list = tokenizer.batch_encode_plus(input_contents)[
-        #     "input_ids"
-        # ]  # List: [[1, 1128, 526, 366, 29892]]
-        if version.parse(transformers.__version__) < version.parse("5.0.0"):
-            # Ideally this is solved by upgrading transformers. However, doing so causes version mismatch between transformers and mlu pytorch on devices with Phytium CPU. So a branch is temporarily used.
+        if model.model_type == "baichuan" and not used_chat_template:
+            input_ids_list = _encode_baichuan_chat_prompts(
+                prompts,
+                tokenizer,
+                model_path,
+                max_length=2048,
+            )
+        elif version.parse(transformers.__version__) < version.parse("5.0.0"):
             input_ids_list = [
                 tokenizer.encode_plus(
                     text, truncation=True, max_length=2048, add_special_tokens=True

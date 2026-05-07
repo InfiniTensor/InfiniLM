@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Dict, Union
 import time
 import torch
@@ -39,6 +40,48 @@ str_to_torch_dtype = {
     "F8_E4M3": torch.float8_e4m3fn,
     "F8_E5M2": torch.float8_e5m2,
 }
+
+
+def _split_first_dim(tensor, sizes, name):
+    if tensor.dim() not in (1, 2):
+        raise ValueError(f"Cannot split {name} with shape {tensor.shape}")
+    return torch.split(tensor, sizes, dim=0)
+
+
+def _remap_baichuan_weights(state_dict, hf_config):
+    hidden_size = hf_config.get("hidden_size", 4096)
+    num_heads = hf_config.get("num_attention_heads", 32)
+    per_head_dim = num_heads * (hidden_size // num_heads)
+    new_sd = {}
+
+    for key, tensor in state_dict.items():
+        wpack_match = re.match(r"(.*\.)W_pack\.(weight|bias)", key)
+        if not wpack_match:
+            new_sd[key] = tensor
+            continue
+
+        prefix = wpack_match.group(1)
+        suffix = wpack_match.group(2)
+        q, k, v = _split_first_dim(
+            tensor,
+            [per_head_dim, per_head_dim, tensor.shape[0] - 2 * per_head_dim],
+            "W_pack",
+        )
+        new_sd[f"{prefix}q_proj.{suffix}"] = q
+        new_sd[f"{prefix}k_proj.{suffix}"] = k
+        new_sd[f"{prefix}v_proj.{suffix}"] = v
+    return new_sd
+
+
+def maybe_remap_weights(state_dict, model):
+    if not hasattr(model, "hf_config"):
+        return state_dict
+
+    hf_config = model.hf_config
+    model_type = hf_config.get("model_type", "")
+    if model_type == "baichuan":
+        return _remap_baichuan_weights(state_dict, hf_config)
+    return state_dict
 
 
 def check_parameters(model_keys: list, already_loaded_keys: list):
@@ -165,6 +208,7 @@ def load_model_state_dict_by_file(
             model_param = load_state_dict(
                 file_path, device=torch_device, dtype=torch_dtype
             )
+            model_param = maybe_remap_weights(model_param, model)
             already_loaded_keys.extend(model_param.keys())
 
             # --------------------------------------------------------- #
@@ -180,6 +224,8 @@ def load_model_state_dict_by_file(
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+
+        model_params = maybe_remap_weights(model_params, model)
 
         model_param_infini = {}
         for key in model_params.keys():

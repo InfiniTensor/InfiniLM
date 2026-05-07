@@ -47,4 +47,7 @@ class AutoConfig:
             cfg.model_type = "minicpmv"
             return cfg
 
+        elif config_dict["model_type"] == "baichuan":
+            return LlamaConfig(**config_dict)
+
         raise ValueError(f"Unsupported model type `{config_dict['model_type']}`.")
