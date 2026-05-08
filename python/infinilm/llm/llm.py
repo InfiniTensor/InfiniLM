@@ -55,6 +55,7 @@ class EngineConfig:
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
         attn_backend: Attention backend to use ('default', 'flash-attn').
+        skip_load: Whether to skip loading model weights (for testing).
     """
 
     model_path: str
@@ -72,6 +73,7 @@ class EngineConfig:
     top_k: int = 1
     enable_graph: bool = False
     attn_backend: str = "default"
+    skip_load: bool = False
 
 
 class LLMEngine:
@@ -93,9 +95,10 @@ class LLMEngine:
         )
 
         # Load model weights
-        load_model_state_dict_by_file(
-            self.model_engine, config.model_path, dtype=self.model_engine.dtype
-        )
+        if not self.config.skip_load:
+            load_model_state_dict_by_file(
+                self.model_engine, config.model_path, dtype=self.model_engine.dtype
+            )
 
         # Initialize processor/tokenizer
         self.processor = AutoInfinilmProcessor.from_pretrained(config.model_path)
@@ -359,6 +362,7 @@ class LLM:
         top_k: int = 1,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        skip_load: bool = False,
     ):
         """Initialize LLM.
 
@@ -395,13 +399,15 @@ class LLM:
             top_k=top_k,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            skip_load=skip_load,
         )
         self.engine = LLMEngine(config)
         self.config = config
 
     def generate(
         self,
-        prompts: Union[str, List[str]],
+        prompts: Union[str, List[str]] = None,
+        messages: Union[List[dict], List[List[dict]]] = None,
         sampling_params: Optional[SamplingParams] = None,
         use_tqdm: bool = True,
     ) -> List[RequestOutput]:
@@ -417,6 +423,14 @@ class LLM:
         """
         if isinstance(prompts, str):
             prompts = [prompts]
+        if isinstance(messages, list) and isinstance(messages[0], dict):
+            messages = [messages]
+
+        contents = prompts
+        apply_chat_template = False
+        if messages:
+            contents = messages
+            apply_chat_template = True
 
         if sampling_params is None:
             sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
@@ -425,13 +439,29 @@ class LLM:
             sampling_params.max_tokens = self.config.max_tokens
 
         requests = []
-        for prompt in prompts:
+        for content in contents:
             request_id = f"cmpl-{uuid.uuid4().hex}"
-            token_ids = self.engine.tokenize(prompt)
+            processed_inputs = None
+            if apply_chat_template:
+                prompt = self.engine.apply_chat_template(
+                    content, add_generation_prompt=True
+                )
+
+                images, videos, audios = resolve_multimodal_inputs(content)
+                processed_inputs = self.engine.process(
+                    prompt, images, videos, audios, return_tensors="pt"
+                )
+
+                prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
+            else:
+                prompt = content
+                prompt_token_ids = self.engine.tokenize(prompt)
+
             req = InferenceRequest(
                 request_id=request_id,
                 prompt=prompt,
-                prompt_token_ids=token_ids,
+                prompt_token_ids=prompt_token_ids,
+                processed_inputs=processed_inputs,
                 sampling_params=sampling_params,
                 eos_token_ids=self.engine.eos_token_ids,
             )
@@ -485,14 +515,9 @@ class LLM:
         if messages and isinstance(messages[0], dict):
             messages = [messages]
 
-        prompts = []
-        for conversation in messages:
-            prompt = self.engine.apply_chat_template(
-                conversation, add_generation_prompt=True
-            )
-            prompts.append(prompt)
-
-        return self.generate(prompts, sampling_params, use_tqdm)
+        return self.generate(
+            messages=messages, sampling_params=sampling_params, use_tqdm=use_tqdm
+        )
 
 
 class AsyncLLMEngine:

@@ -31,8 +31,19 @@ class BasicLLMProcessor(InfinilmProcessor):
         tokenize: bool = True,
         **kwargs,
     ):
+        normalized_conversation = []
+        for message in conversation:
+            if isinstance(message["content"], list):
+                assert len(message["content"]) == 1, "Only one content item supported in list"
+                content_item = message["content"][0]
+                assert "type" in content_item and "text" in content_item, "Content dict must have 'type' and 'text' keys"
+                normalized_conversation.append(
+                    {"role": message["role"], "content": content_item["text"]}
+                )
+            else:
+                normalized_conversation.append(message)
         return self.tokenizer.apply_chat_template(
-            conversation=conversation,
+            conversation=normalized_conversation,
             add_generation_prompt=add_generation_prompt,
             tokenize=tokenize,
             **kwargs,
@@ -86,7 +97,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         if scheduler_output.is_prefill:
             # Prefill: only send tokens not already in cache
             tokens = req.get_input_tokens()
-            prefix_hit_len = self.prefix_hit_len
+            prefix_hit_len = scheduler_output.prefix_hit_len
             input_tokens = tokens[prefix_hit_len:]
             input_ids = [input_tokens]
             position_ids = [list(range(prefix_hit_len, len(tokens)))]

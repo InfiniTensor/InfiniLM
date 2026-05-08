@@ -17,7 +17,9 @@ def resolve_multimodal_inputs(messages: Union[List[dict], dict]):
             continue
 
         for item in content:
-            if item.get("type") == "image":
+            if item.get("type") == "text":
+                pass
+            elif item.get("type") == "image":
                 # TODO support other image url formats
                 images.append(Image.open(item["image_url"]))
 
