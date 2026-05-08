@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import json
 from typing import Dict, Union
@@ -6,7 +8,7 @@ import torch
 from safetensors import safe_open
 import glob
 from tqdm import tqdm
-import infinicore
+import infinilm.core as infinicore
 
 
 def _get_scale_emb(model_path: str) -> float:
@@ -60,6 +62,23 @@ def check_parameters(model_keys: list, already_loaded_keys: list):
 
     missing_keys = model_keys - intersection
     unexpected_keys = already_loaded_keys - intersection
+
+    # KV cache quantization scales (kv_cache_k_scale / kv_cache_v_scale) get
+    # default-initialized in C++ when the model is built; non-quant checkpoints
+    # don't ship them. Treat their absence as warning, not error.
+    kv_scale_missing = {
+        k
+        for k in missing_keys
+        if k.endswith(".kv_cache_k_scale") or k.endswith(".kv_cache_v_scale")
+    }
+    if kv_scale_missing:
+        import warnings
+
+        warnings.warn(
+            f"check_parameters: {len(kv_scale_missing)} kv_cache_*_scale keys not in checkpoint; using C++ defaults (1.0)"
+        )
+        missing_keys -= kv_scale_missing
+
     error_msgs: list[str] = []
 
     if len(unexpected_keys) > 0:
@@ -140,7 +159,9 @@ def get_model_state_dict(
     if "model.embed_tokens.weight" in model_param:
         embed_tokens_unscaled = model_param["model.embed_tokens.weight"]
         if scale_emb != 1.0:
-            model_param["model.embed_tokens.weight"] = embed_tokens_unscaled * float(scale_emb)
+            model_param["model.embed_tokens.weight"] = embed_tokens_unscaled * float(
+                scale_emb
+            )
 
     if model_param.get("lm_head.weight", None) is None:
         # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
@@ -197,8 +218,9 @@ def load_model_state_dict_by_file(
             if "model.embed_tokens.weight" in model_param:
                 embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
                 if scale_emb != 1.0:
-                    model_param["model.embed_tokens.weight"] = \
+                    model_param["model.embed_tokens.weight"] = (
                         embed_tokens_torch_unscaled * float(scale_emb)
+                    )
 
             # --------------------------------------------------------- #
             #         model_param_infini references torch.Tensor
@@ -216,10 +238,13 @@ def load_model_state_dict_by_file(
 
         # Scale embed_tokens on torch side before converting
         if "model.embed_tokens.weight" in model_params:
-            embed_tokens_torch_unscaled = model_params["model.embed_tokens.weight"].to(dtype=torch_dtype)
+            embed_tokens_torch_unscaled = model_params["model.embed_tokens.weight"].to(
+                dtype=torch_dtype
+            )
             if scale_emb != 1.0:
-                model_params["model.embed_tokens.weight"] = \
+                model_params["model.embed_tokens.weight"] = (
                     embed_tokens_torch_unscaled * float(scale_emb)
+                )
 
         model_param_infini = {}
         for key in model_params.keys():

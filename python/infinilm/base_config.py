@@ -1,6 +1,5 @@
 import argparse
 import json
-import os
 import sys
 import warnings
 
@@ -106,7 +105,56 @@ class BaseConfig:
         self.image = self.args.image
 
         if self.enable_paged_attn and self.attn == "default":
-            self.attn = "paged-attn"
+            # On Hygon DCU the DTK fork's `flash::paged_attention` is the
+            # production-quality decode kernel. Route `--enable-paged-attn`
+            # there directly — it's faster than the in-tree handwritten
+            # the InfiniLM ops wrapper for some shapes, and (more importantly)
+            # avoids maintaining two parallel paged paths. Other platforms
+            # keep the handwritten kernel.
+            self.attn = (
+                "flash-attn"
+                if self.device in ("hygon", "ascend", "npu")
+                else "paged-attn"
+            )
+
+        if self.device in ("ascend", "npu"):
+            if not self.enable_paged_attn:
+                raise ValueError(
+                    "--device=ascend currently requires --enable-paged-attn "
+                    "with paged cache."
+                )
+            if self.attn != "flash-attn":
+                raise ValueError(
+                    "--device=ascend currently requires --attn=flash-attn."
+                )
+
+        # DTK fork's `paged_attention` symbol on gfx936 silently half-writes
+        # output for any block_size != 64. No TORCH_CHECK fires; user just
+        # sees garbled tokens. Sister symbol `vllm_mha_fwd_kvcache` enforces
+        # this with `block_size % 64 == 0`. Mirror at the CLI level so users
+        # don't have to debug this themselves.
+        if self.device == "hygon" and self.attn == "flash-attn":
+            if self.block_size != 64:
+                raise ValueError(
+                    f"--block-size must be 64 when --device=hygon and "
+                    f"--attn=flash-attn (got {self.block_size}). The DTK "
+                    f"fork's paged_attention kernel on gfx936 hard-codes "
+                    f"block_size=64 and silently produces wrong output for "
+                    f"other values."
+                )
+
+        # On Hygon, the DTK FA wheel ships its own paged_attention kernel
+        # that is the production-recommended path. The handwritten in-tree
+        # paged attention is kept only as a fallback. Nudge users.
+        if self.device == "hygon" and self.attn == "paged-attn":
+            warnings.warn(
+                "On Hygon DCU, --attn=paged-attn uses the in-tree handwritten "
+                "kernel. The DTK FA wheel's `flash::paged_attention` is the "
+                "recommended production path — pass --attn=flash-attn "
+                "--block-size 64 instead (or just --enable-paged-attn "
+                "--block-size 64 to auto-select FA).",
+                stacklevel=2,
+            )
 
     def _add_common_args(self):
         # --- base configuration ---

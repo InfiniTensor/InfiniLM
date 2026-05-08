@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 import transformers.utils.logging as logging
 
-import infinicore
+import infinilm.core as infinicore
 
 logger = logging.get_logger(__name__)
 

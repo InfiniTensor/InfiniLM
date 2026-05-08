@@ -20,21 +20,21 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    import infinicore
+    import infinilm.core as infinicore
 except ImportError as e:
     print(f"Error: InfiniCore package not found. Please install it: {e}")
     sys.exit(1)
 
 try:
-    from infinilm.models.llama import LlamaConfig, LlamaForCausalLM, Device
-    import _infinilm  # Import C++ bindings for HookRegistry
+    from infinilm.lib import _infinilm  # Import C++ bindings for HookRegistry
+    from infinilm.models.llama.configuration_llama import LlamaConfig
 except ImportError as e:
     print(f"Error: InfiniLM Python package not found. Please install it: {e}")
     sys.exit(1)
 
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 
-from infinicore.lib import _infinicore
+from infinilm.core.lib import _core as _infinicore
 
 from utils import (
     normalize_param_name,
@@ -392,7 +392,7 @@ def test_intermediate_validation(
             print("   ✗ InfiniLM configuration validation failed")
             return False
 
-        from infinicore.lib import _infinicore
+        from infinilm.core.lib import _core as _infinicore
 
         if device_type == "cuda":
             nvidia_device_type = _infinicore.Device.Type.NVIDIA
@@ -408,8 +408,9 @@ def test_intermediate_validation(
         device_type_upper = device_type.upper()
         if device_type_upper == "CUDA":
             device_type_upper = "NVIDIA"
-        device = Device(device_type_upper, device_index)
-        infinilm_model = LlamaForCausalLM(infinilm_config, device)
+        from infinilm.models.llama.modeling_llama import LlamaForCausalLM
+
+        infinilm_model = LlamaForCausalLM(infinilm_config, device=infini_device)
         print(f"   ✓ InfiniLM model created")
     except Exception as e:
         print(f"   ✗ Failed to create InfiniLM model: {e}")
@@ -1049,7 +1050,7 @@ def test_intermediate_validation(
                     f"\n   Validating with InfiniCore ops using validation pattern..."
                 )
                 try:
-                    import infinicore.nn.functional as F
+                    F = infinicore.nn.functional
 
                     # Get the input to this RMSNorm layer
                     if trans_name == "layer0_input_layernorm":
@@ -1135,8 +1136,8 @@ def test_intermediate_validation(
                     f"\n   Validating with InfiniCore ops using validation pattern..."
                 )
                 try:
-                    from infinicore.ops.matmul import matmul
-                    from infinicore.ops.add import add
+                    matmul = infinicore.matmul
+                    add = infinicore.add
 
                     # Get the input (layer0_input_layernorm)
                     trans_input = transformers_intermediates.get(
@@ -1590,8 +1591,8 @@ def test_intermediate_validation(
                     f"\n   Validating with InfiniCore ops using validation pattern..."
                 )
                 try:
-                    from infinicore.ops.matmul import matmul
-                    from infinicore.ops.add import add
+                    matmul = infinicore.matmul
+                    add = infinicore.add
 
                     # Get the input (layer0_input_layernorm)
                     trans_input = transformers_intermediates.get(

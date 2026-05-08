@@ -1,4 +1,6 @@
-import infinicore
+from __future__ import annotations
+
+import infinilm.core as infinicore
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine

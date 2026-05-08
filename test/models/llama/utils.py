@@ -9,7 +9,7 @@ from typing import Tuple, Dict, Callable, Optional, Any, List
 import torch
 
 try:
-    import infinicore
+    import infinilm.core as infinicore
 except ImportError:
     infinicore = None
 
@@ -91,9 +91,9 @@ def to_torch_dtype(infini_dtype):
     if infinicore is None:
         raise ImportError("InfiniCore package not found")
 
-    # infini_dtype is a dtype object from infinicore.dtype
+    # infini_dtype is an infinilm.core dtype object.
     # Access the underlying enum value for comparison
-    from infinicore.lib import _infinicore
+    from infinilm.core.lib import _core as _infinicore
 
     # Get underlying enum value
     if hasattr(infini_dtype, "_underlying"):

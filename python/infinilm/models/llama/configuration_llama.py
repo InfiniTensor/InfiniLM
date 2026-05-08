@@ -15,7 +15,7 @@
 
 """LLaMA model configuration"""
 
-import infinicore
+import infinilm.core as infinicore
 
 from infinilm.lib import _infinilm
 

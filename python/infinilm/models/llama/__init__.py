@@ -1,8 +1,7 @@
 import os
 from typing import Optional, Union
-import infinicore
+import infinilm.core as infinicore
 import time
-from . import modeling_llama
 
 __all__ = ["AutoLlamaModel"]
 
@@ -24,7 +23,9 @@ class AutoLlamaModel:
         print("***************************************************************\n")
         print(" create model ......")
 
-        instance = modeling_llama.LlamaForCausalLM.from_pretrained(
+        from .modeling_llama import LlamaForCausalLM
+
+        instance = LlamaForCausalLM.from_pretrained(
             model_path,
             device=device,
             **kwargs,

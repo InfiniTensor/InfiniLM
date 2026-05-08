@@ -1,4 +1,4 @@
-import infinicore
+import infinilm.core as infinicore
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import get_model_state_dict

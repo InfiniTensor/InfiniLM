@@ -15,7 +15,7 @@ import infinilm
 from infinilm.modeling_utils import get_model_state_dict
 from infinilm.cache_utils import DynamicCache
 from transformers import AutoTokenizer
-import infinicore
+import infinilm.core as infinicore
 import sys
 import os
 import argparse
@@ -40,12 +40,18 @@ sys.path.insert(0, test_dir)
 
 # Import utility functions from test directory
 try:
-    from utils import infinicore_to_torch_tensor, torch_to_infinicore_tensor
+    from utils import (
+        infinicore_to_torch_tensor,
+        torch_to_infinicore_tensor,
+    )
 except ImportError:
     # Fallback if utils not available - try to import from parent directory
     try:
         sys.path.insert(0, os.path.join(test_dir, ".."))
-        from utils import infinicore_to_torch_tensor, torch_to_infinicore_tensor
+        from utils import (
+            infinicore_to_torch_tensor,
+            torch_to_infinicore_tensor,
+        )
     except ImportError:
         print("Warning: Could not import utils. Some conversions may fail.")
 

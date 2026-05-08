@@ -18,7 +18,7 @@ import os
 from typing import Optional, Union
 
 
-import infinicore
+import infinilm.core as infinicore
 
 from ...cache_utils import Cache, DynamicCache
 from ...generation.utils import GenerationMixin

@@ -25,7 +25,7 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    import infinicore
+    import infinilm.core as infinicore
 except ImportError as e:
     print(f"Error: InfiniCore package not found. Please install it: {e}")
     sys.exit(1)
@@ -143,7 +143,7 @@ def validate_inference(
     # Check device availability
     print("\n1. Checking device availability...")
     try:
-        from infinicore.lib import _infinicore
+        from infinilm.core.lib import _core as _infinicore
 
         if device_type == "cuda":
             nvidia_device_type = _infinicore.Device.Type.NVIDIA
