@@ -10,6 +10,7 @@ python/infinilm/lib/*.so
 .vscode/
 
 *.sh
+!build.sh
 model_weight/
 
 # Python
@@ -30,6 +31,7 @@ __pycache__/
 
 # txt
 *.txt
+!CMakeLists.txt
 
 *.http
 
