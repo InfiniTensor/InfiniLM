@@ -1,6 +1,6 @@
 #include "siglip_vision.hpp"
+#include "backends/operators/operators.hpp"
 
-#include "infinicore/ops.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -22,7 +22,7 @@ infinicore::Tensor SiglipPatchEmbedding::forward(const infinicore::Tensor &pixel
     std::vector<infinicore::Size> pads{0, 0};
     std::vector<infinicore::Size> strides{patch_size_, patch_size_};
     std::vector<infinicore::Size> dilations{1, 1};
-    return infinicore::op::conv2d(pixel_values, weight_, bias_, pads, strides, dilations);
+    return infinilm::backends::ops::conv2d(pixel_values, weight_, bias_, pads, strides, dilations);
 }
 
 SiglipVisionEmbeddings::SiglipVisionEmbeddings(const nlohmann::json &config,
@@ -80,7 +80,7 @@ infinicore::Tensor SiglipVisionEmbeddings::forward(const infinicore::Tensor &pix
 
     auto pos_ids = pos_ids_cpu->to(embeddings->device());
     auto pos_embed = position_embedding_->forward(pos_ids);
-    return infinicore::op::add(embeddings, pos_embed);
+    return infinilm::backends::ops::add(embeddings, pos_embed);
 }
 
 SiglipAttention::SiglipAttention(const nlohmann::json &config,
@@ -119,12 +119,12 @@ infinicore::Tensor SiglipAttention::forward(const infinicore::Tensor &hidden_sta
     auto v_flat = v_reshaped->view({batch_size * num_heads_, seq_len, head_dim_});
 
     auto k_t = k_flat->permute({0, 2, 1});
-    auto attn_weights = infinicore::op::matmul(q_flat, k_t, scale_);
+    auto attn_weights = infinilm::backends::ops::matmul(q_flat, k_t, scale_);
 
     auto attn_view = attn_weights->view({batch_size * num_heads_, seq_len, seq_len});
-    infinicore::op::softmax_(attn_view, attn_view, -1);
+    infinilm::backends::ops::softmax_(attn_view, attn_view, -1);
 
-    auto attn_output = infinicore::op::matmul(attn_weights, v_flat);
+    auto attn_output = infinilm::backends::ops::matmul(attn_weights, v_flat);
     auto out = attn_output->view({batch_size, num_heads_, seq_len, head_dim_})
                    ->permute({0, 2, 1, 3})
                    ->contiguous()
@@ -146,11 +146,11 @@ SiglipMLP::SiglipMLP(const nlohmann::json &config,
 infinicore::Tensor SiglipMLP::forward(const infinicore::Tensor &hidden_states) const {
     auto x = fc1_->forward(const_cast<infinicore::Tensor &>(hidden_states));
     if (activation_ == "gelu_tanh") {
-        x = infinicore::op::gelu_tanh(x);
+        x = infinilm::backends::ops::gelu_tanh(x);
     } else if (activation_ == "gelu") {
-        x = infinicore::op::gelu(x);
+        x = infinilm::backends::ops::gelu(x);
     } else if (activation_ == "relu") {
-        x = infinicore::op::relu(x);
+        x = infinilm::backends::ops::relu(x);
     } else {
         throw std::runtime_error("SiglipMLP: unsupported activation " + activation_);
     }
@@ -173,12 +173,12 @@ infinicore::Tensor SiglipEncoderLayer::forward(const infinicore::Tensor &hidden_
     auto residual = hidden_states;
     auto x = layer_norm1_->forward(hidden_states);
     x = self_attn_->forward(x, attention_mask);
-    x = infinicore::op::add(x, residual);
+    x = infinilm::backends::ops::add(x, residual);
 
     residual = x;
     x = layer_norm2_->forward(x);
     x = mlp_->forward(x);
-    x = infinicore::op::add(x, residual);
+    x = infinilm::backends::ops::add(x, residual);
     return x;
 }
 

@@ -1,6 +1,6 @@
 #include "minicpm_sala_decoderLayer.hpp"
+#include "backends/operators/operators.hpp"
 
-#include "infinicore/ops.hpp"
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -49,12 +49,12 @@ infinicore::Tensor MiniCPMSALADecoderLayer::forward(const infinicore::Tensor &po
     hidden_states = std::visit(
         [&](auto &attn_ptr) { return attn_ptr->forward(positions, hidden_states); }, *self_attn_);
 
-    hidden_states = infinicore::op::add(residual, hidden_states);
+    hidden_states = infinilm::backends::ops::add(residual, hidden_states);
 
     residual = hidden_states;
     hidden_states = post_attention_layernorm_->forward(hidden_states);
     hidden_states = mlp_->forward(hidden_states);
-    hidden_states = infinicore::op::add(residual, hidden_states);
+    hidden_states = infinilm::backends::ops::add(residual, hidden_states);
     return hidden_states;
 }
 

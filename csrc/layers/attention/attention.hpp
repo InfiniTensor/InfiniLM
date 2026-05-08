@@ -4,9 +4,9 @@
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../linear/linear.hpp"
+#include "../rotary_embedding/rotary_embedding.hpp"
 #include "backends/attention_layer.hpp"
 #include "infinicore/nn/module.hpp"
-#include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
 
@@ -36,7 +36,7 @@ private:
 protected:
     INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
     INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+    std::shared_ptr<infinilm::layers::rotary_embedding::RotaryEmbedding> rotary_emb_;
 
     std::shared_ptr<AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;

@@ -1,6 +1,6 @@
 #include "llama_mlp.hpp"
+#include "backends/operators/operators.hpp"
 #include "infinicore/nn/linear.hpp"
-#include "infinicore/ops.hpp"
 
 namespace infinilm::models::llama_legacy {
 /**
@@ -83,7 +83,7 @@ infinicore::Tensor LlamaMLP::forward(const infinicore::Tensor &hidden_states) co
     // 2. Apply SwiGLU: silu(gate) * up
     // Note: swiglu kernel expects (up, gate) and computes gate * sigmoid(gate) * up
     // So we pass (up, gate) to get the correct result: gate * sigmoid(gate) * up
-    auto intermediate = infinicore::op::swiglu(up, gate);
+    auto intermediate = infinilm::backends::ops::swiglu(up, gate);
 
     // 3. Project down
     auto output = down_proj_->forward(intermediate);

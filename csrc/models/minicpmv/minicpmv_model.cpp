@@ -2,7 +2,6 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
-#include "infinicore/ops.hpp"
 
 #include <algorithm>
 #include <stdexcept>

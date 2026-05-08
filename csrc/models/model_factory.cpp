@@ -2,7 +2,21 @@
 #include "llama_legacy/llama_for_causal_lm.hpp"
 #include "models_registry.hpp"
 
+#include <stdexcept>
+#include <string>
+
 namespace infinilm {
+namespace {
+
+void reject_legacy_ascend(const infinicore::Device &device, const char *path) {
+    if (device.getType() == infinicore::Device::Type::ASCEND) {
+        throw std::runtime_error(
+            std::string(path) + ": Ascend does not support the legacy/classic model path. Use a registered ModelConfig-based model.");
+    }
+}
+
+} // namespace
+
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
  *
@@ -20,6 +34,8 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     engine::distributed::RankInfo rank_info,
     const cache::CacheConfig *cache,
     backends::AttentionBackend attention_backend) {
+    reject_legacy_ascend(rank_info.device, "InfinilmModelFactory::createModel");
+
     std::shared_ptr<InfinilmModel> model;
     if (const auto llama_config_ptr = dynamic_cast<const models::llama_legacy::LlamaConfig *>(&config)) {
         const auto &llama_config = *llama_config_ptr;
@@ -41,6 +57,8 @@ std::shared_ptr<InfinilmModel> InfinilmModelFactory::createModel(
     engine::distributed::RankInfo rank_info,
     const cache::CacheConfig *cache,
     backends::AttentionBackend attention_backend) {
+    reject_legacy_ascend(rank_info.device, "InfinilmModelFactory::createModel");
+
     std::shared_ptr<InfinilmModel> model;
     if (true) {
         model = std::make_shared<models::llama_legacy::LlamaForCausalLM>(

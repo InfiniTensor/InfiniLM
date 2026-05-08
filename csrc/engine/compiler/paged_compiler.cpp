@@ -1,5 +1,8 @@
 #include "paged_compiler.hpp"
+#include "backends/operators/operators.hpp"
 #include "../../global_state/global_state.hpp"
+
+#include <cstring>
 
 namespace {
 // Todo: replace with Tensor::zeros when it is available
@@ -8,16 +11,63 @@ inline void set_zeros(infinicore::Tensor &tensor) {
     infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
 }
 
-inline void set_minus_one(infinicore::Tensor &tensor) {
-    // For int32 tensors, 0xFF bytes correspond to -1 in two's complement.
-    std::vector<uint8_t> minus_one(tensor->nbytes(), 0xFF);
-    infinicore::context::memcpyH2D(tensor->data(), minus_one.data(), tensor->nbytes(), false);
+inline void set_zeros_cpu(infinicore::Tensor &tensor) {
+    std::memset(tensor->data(), 0, tensor->nbytes());
+}
+
+inline void set_minus_one_cpu(infinicore::Tensor &tensor) {
+    std::memset(tensor->data(), 0xFF, tensor->nbytes());
+}
+
+inline void copy_cpu_tensor_bytes(infinicore::Tensor &dst, const infinicore::Tensor &src) {
+    if (dst->device().getType() != infinicore::Device::Type::CPU
+        || src->device().getType() != infinicore::Device::Type::CPU
+        || dst->shape() != src->shape()
+        || dst->dtype() != src->dtype()
+        || !dst->is_contiguous()
+        || !src->is_contiguous()) {
+        throw std::runtime_error("PagedCompiler: expected matching contiguous CPU tensors for host metadata copy.");
+    }
+    std::memcpy(dst->data(), src->data(), dst->nbytes());
+}
+
+inline void copy_block_tables_to_host(infinicore::Tensor &dst,
+                                      const infinicore::Tensor &src,
+                                      size_t block_per_req) {
+    if (dst->device().getType() != infinicore::Device::Type::CPU
+        || src->device().getType() != infinicore::Device::Type::CPU
+        || dst->dtype() != infinicore::DataType::I32
+        || src->dtype() != infinicore::DataType::I32
+        || dst->ndim() != 2
+        || src->ndim() != 2
+        || dst->size(0) != src->size(0)
+        || src->size(1) != block_per_req
+        || dst->size(1) < block_per_req
+        || !dst->is_contiguous()
+        || !src->is_contiguous()) {
+        throw std::runtime_error("PagedCompiler: expected matching contiguous CPU block tables.");
+    }
+
+    const auto rows = dst->size(0);
+    const auto dst_cols = dst->size(1);
+    const auto *src_data = reinterpret_cast<const int32_t *>(src->data());
+    auto *dst_data = reinterpret_cast<int32_t *>(dst->data());
+    for (size_t row = 0; row < rows; ++row) {
+        std::memcpy(dst_data + row * dst_cols,
+                    src_data + row * block_per_req,
+                    block_per_req * sizeof(int32_t));
+    }
 }
 
 } // namespace
 namespace infinilm::engine {
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {
+    if (infinicore::context::getDevice().getType() == infinicore::Device::Type::ASCEND) {
+        decode_batch_sizes_.push_back(1);
+        return;
+    }
+
     for (size_t b = 1; b < 64; ++b) {
         decode_batch_sizes_.push_back(b);
     }
@@ -63,6 +113,13 @@ void PagedCompiler::compile() {
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             set_zeros(input.slot_mapping.value());
 
+            auto device = infinicore::context::getDevice();
+            auto total_sequence_lengths_host = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::Device::cpu());
+            std::memcpy(total_sequence_lengths_host->data(), total_sequence_lengths_vec.data(), b * sizeof(int32_t));
+            auto block_tables_host = infinicore::Tensor::empty({b, block_per_req}, infinicore::DataType::I32, infinicore::Device::cpu());
+            set_zeros_cpu(block_tables_host);
+            infinicore::context::setDevice(device);
+
             // Attention reads attn_metadata from thread-local forward context.
             infinilm::global_state::get_forward_context().attn_metadata = {
                 input.past_sequence_lengths,
@@ -71,18 +128,39 @@ void PagedCompiler::compile() {
                 input.cu_seqlens,
                 input.block_tables,
                 input.slot_mapping,
+                total_sequence_lengths_host,
+                block_tables_host,
             };
 
             barrier_->wait();
-            infinicore::context::startGraphRecording();
-            auto output = model_->forward(input);
-            auto graph = infinicore::context::stopGraphRecording();
-            barrier_->wait();
+            backends::ops::begin_graph_task_capture();
+            try {
+                infinicore::context::startGraphRecording();
+                auto output = model_->forward(input);
+                // Per-op fence locks the first eager-warmup pass inside instantiate
+                // step-by-step across ranks. Fixes DTK 2604 HSA-loader freeze race
+                // (divergent concurrent freezes wedge BLIT-DMA); same-kernel
+                // concurrent freezes are fine, so syncing every op makes it safe.
+                // Visible on 70B tp=4 graph (80-layer op_list); 8B tp=4 graph
+                // happened to fit within the loader's tolerance window.
+                auto graph = infinicore::context::stopGraphRecording(
+                    [this]() { barrier_->wait(); });
+                auto graph_task_updates = backends::ops::end_graph_task_capture();
+                barrier_->wait();
 
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
-                new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
+                auto shared_output = std::shared_ptr<InfinilmModel::Output>(
+                    new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
 
-            compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
+                compiled_map_decode_[b] = CompiledResult{
+                    std::move(input),
+                    total_sequence_lengths_host,
+                    block_tables_host,
+                    std::move(graph_task_updates),
+                    std::make_tuple(graph, shared_output)};
+            } catch (...) {
+                (void)backends::ops::end_graph_task_capture();
+                throw;
+            }
         }
     }
 }
@@ -107,6 +185,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
             graph_input.input_offsets.value()->copy_from(input.input_offsets.value());
             graph_input.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
+            copy_cpu_tensor_bytes(result->second.total_sequence_lengths_host, input.total_sequence_lengths.value());
 
             const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
             if (block_per_req > compiled_block_per_req) {
@@ -114,12 +193,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 return {nullptr, nullptr};
             }
 
-            // Initialize full padding to -1, then overwrite the narrowed logical region.
-            // This matches scheduler padding semantics without risking -1 access during graph recording.
-            auto &graph_block_tables = graph_input.block_tables.value();
-            set_minus_one(graph_block_tables);
-            graph_input.block_tables.value()->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
+            auto &host_block_tables = result->second.block_tables_host;
+            set_minus_one_cpu(host_block_tables);
+            copy_block_tables_to_host(host_block_tables, input.block_tables.value(), block_per_req);
+            graph_input.block_tables.value()->copy_from(host_block_tables);
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
+            backends::ops::update_graph_tasks(result->second.graph_task_updates);
 
             auto graph = std::get<0>(result->second.compiled);
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});

@@ -1,15 +1,13 @@
 #include "rank_worker.hpp"
-
+#include "../backends/operators/operators.hpp"
 #include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
-#include "infinicore/ops.hpp"
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace infinilm::engine {
-
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
  *
@@ -22,52 +20,27 @@ namespace infinilm::engine {
  * Reason: Legacy signature lacks support for dynamic quantization modes.
  * Removal target: v0.2.0 (Q2 2026)
  */
-RankWorker::RankWorker(const InfinilmModel::Config &model_config,
-                       const distributed::RankInfo &rank_info,
-                       const cache::CacheConfig *cache_config,
-                       RankBarrier *barrier,
-                       bool enable_graph_compiling,
+RankWorker::RankWorker(const InfinilmModel::Config &model_config, const distributed::RankInfo &rank_info,
+                       const cache::CacheConfig *cache_config, RankBarrier *barrier, bool enable_graph_compiling,
                        backends::AttentionBackend attention_backend)
-    : legacy_model_config_(model_config),
-      rank_info_(rank_info),
-      attention_backend_(attention_backend),
-      enable_graph_compiling_(enable_graph_compiling),
-      job_cmd_(Command::INIT),
-      has_job_(false),
-      job_done_(false),
-      should_exit_(false),
-      init_done_(false),
-      rng_(std::random_device{}()),
-      barrier_(barrier) {
+    : legacy_model_config_(model_config), rank_info_(rank_info), attention_backend_(attention_backend),
+      enable_graph_compiling_(enable_graph_compiling), job_cmd_(Command::INIT), has_job_(false), job_done_(false),
+      should_exit_(false), init_done_(false), rng_(std::random_device{}()), barrier_(barrier) {
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
     }
     // start the thread
     thread_ = std::thread(&RankWorker::thread_loop, this);
-
     // Wait until the worker thread finishes initialization (model created)
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return init_done_; });
 }
-
-RankWorker::RankWorker(
-    std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
-    const distributed::RankInfo &rank_info,
-    const cache::CacheConfig *cache_config,
-    RankBarrier *barrier,
-    bool enable_graph_compiling,
-    backends::AttentionBackend attention_backend)
-    : infinilm_config_(infinilm_config),
-      model_config_(infinilm_config->model_config),
-      rank_info_(rank_info),
-      attention_backend_(attention_backend),
-      enable_graph_compiling_(enable_graph_compiling),
-      job_cmd_(Command::INIT),
-      has_job_(false),
-      job_done_(false),
-      should_exit_(false),
-      init_done_(false),
-      rng_(std::random_device{}()),
+RankWorker::RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
+                       const distributed::RankInfo &rank_info, const cache::CacheConfig *cache_config,
+                       RankBarrier *barrier, bool enable_graph_compiling, backends::AttentionBackend attention_backend)
+    : infinilm_config_(infinilm_config), model_config_(infinilm_config->model_config), rank_info_(rank_info),
+      attention_backend_(attention_backend), enable_graph_compiling_(enable_graph_compiling), job_cmd_(Command::INIT),
+      has_job_(false), job_done_(false), should_exit_(false), init_done_(false), rng_(std::random_device{}()),
       barrier_(barrier) {
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
@@ -78,56 +51,43 @@ RankWorker::RankWorker(
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return init_done_; });
 }
-
 std::string RankWorker::info() const {
     std::stringstream ss;
-
     ss << "RankWorker{";
-
     // Rank related
     ss << rank_info_.to_string() << " ";
-
     // Flags
     ss << "| init_done: " << (init_done_ ? "true" : "false") << " ";
     ss << "| should_exit: " << (should_exit_ ? "true" : "false") << " ";
     ss << "| has_job: " << (has_job_ ? "true" : "false") << " ";
     ss << "| job_done: " << (job_done_ ? "true" : "false") << " ";
-
     ss << "}";
-
     return ss.str();
 }
-
 //------------------------------------------------------
 // load_param -- synchronous (blocks until worker finishes loading)
 //------------------------------------------------------
-void RankWorker::load_param(const std::string &name,
-                            const infinicore::Tensor &param) {
+void RankWorker::load_param(const std::string &name, const infinicore::Tensor &param) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         // If the worker is stopping, don't submit new jobs.
         if (should_exit_) {
             throw std::runtime_error("RankWorker is closing; cannot load_param");
         }
-
         pending_param_name_ = name;
         pending_param_ = param;
-
         job_cmd_ = Command::LOAD;
         has_job_ = true;
         job_done_ = false;
     }
     cv_.notify_all();
-
     // Wait for job completion
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return job_done_ || should_exit_; });
-
     if (should_exit_) {
         throw std::runtime_error("RankWorker stopped while loading parameter");
     }
 }
-
 //------------------------------------------------------
 // process_weights_after_loading -- asynchronous
 //------------------------------------------------------
@@ -138,54 +98,43 @@ void RankWorker::process_weights_after_loading() {
         if (should_exit_) {
             throw std::runtime_error("RankWorker is closing; cannot process_weights_after_loading");
         }
-
         job_cmd_ = Command::PREPROCESS;
         has_job_ = true;
         job_done_ = false;
     }
     cv_.notify_all();
-
     // Wait for job completion
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return job_done_ || should_exit_; });
-
     if (should_exit_) {
         throw std::runtime_error("RankWorker stopped while processing weights");
     }
 }
-
 //------------------------------------------------------
 // state_dict --
 //------------------------------------------------------
 std::unordered_map<std::string, infinicore::nn::Parameter> RankWorker::state_dict() {
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return init_done_ || should_exit_; });
-
     if (!model_) {
         throw std::runtime_error("state_dict called before model initialization");
     }
-
     return model_->state_dict();
 }
-
 //------------------------------------------------------
 // run -- asynchronous
 //------------------------------------------------------
 void RankWorker::run(const Input &args) {
     std::lock_guard<std::mutex> lock(mutex_);
-
     if (should_exit_) {
         throw std::runtime_error("RankWorker is closing; cannot run");
     }
-
     pending_args_ = args;
     job_cmd_ = Command::RUN;
     has_job_ = true;
     job_done_ = false;
-
     cv_.notify_all();
 }
-
 //------------------------------------------------------
 // compile -- asynchronous
 //------------------------------------------------------
@@ -194,31 +143,26 @@ void RankWorker::compile() {
     if (should_exit_) {
         throw std::runtime_error("RankWorker is closing; cannot run");
     }
-
     job_cmd_ = Command::COMPILE;
     has_job_ = true;
     job_done_ = false;
     cv_.notify_all();
 }
-
 //------------------------------------------------------
 // wait -- asynchronous
 //------------------------------------------------------
 void RankWorker::wait() {
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return job_done_ || should_exit_; });
-
     if (should_exit_) {
         throw std::runtime_error("RankWorker stopped during run");
     }
 }
-
 void RankWorker::reset_cache(const cache::CacheConfig *new_config) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (should_exit_) {
         throw std::runtime_error("RankWorker is closing; cannot reset_cache");
     }
-
     // Store both the position and the new config
     pending_cache_config_ = new_config->unique_copy();
     job_cmd_ = Command::RESET_CACHE;
@@ -226,7 +170,6 @@ void RankWorker::reset_cache(const cache::CacheConfig *new_config) {
     job_done_ = false;
     cv_.notify_all();
 }
-
 //------------------------------------------------------
 // close -- request shutdown and join thread
 //------------------------------------------------------
@@ -238,12 +181,10 @@ void RankWorker::close() {
         job_cmd_ = Command::STOP;
     }
     cv_.notify_all();
-
     if (thread_.joinable()) {
         thread_.join();
     }
 }
-
 //------------------------------------------------------
 // get_output (thread safe)
 //------------------------------------------------------
@@ -251,7 +192,6 @@ RankWorker::Output RankWorker::get_output() {
     std::lock_guard<std::mutex> lock(mutex_);
     return output_;
 }
-
 //------------------------------------------------------
 // thread_loop
 //------------------------------------------------------
@@ -259,15 +199,12 @@ void RankWorker::thread_loop() {
     try {
         {
             std::lock_guard<std::mutex> lk(mutex_);
-
             // Initialize device & model outside of holding the main mutex to avoid blocking callers.
             infinicore::context::setDevice(rank_info_.device);
-
             // Initialize global enviromnet.
             infinilm::global_state::initialize_model_parallel(rank_info_);
             infinilm::global_state::initialize_forward_context(forward_context_);
             infinilm::global_state::initialize_infinilm_config(infinilm_config_);
-
             // Create model using factory (may be expensive)
             if (model_config_ == nullptr) {
                 // model_ = InfinilmModelFactory::createModel(
@@ -275,41 +212,40 @@ void RankWorker::thread_loop() {
                 //     rank_info_,
                 //     pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
                 //     attention_backend_);
-                throw std::runtime_error("RankWorker::thread_loop(): the way of creating models using LlamaConfig is no longer supported !!!");
+                throw std::runtime_error("RankWorker::thread_loop(): the way of creating models using LlamaConfig is "
+                                         "no longer supported !!!");
             }
-
             const std::string &model_type = model_config_->get<std::string>("model_type");
             const auto &model_map = models::get_causal_lm_model_map();
             auto it = model_map.find(model_type);
             if (it != model_map.end()) {
                 model_ = InfinilmModelFactory::createModel(
-                    model_config_,
-                    rank_info_.device,
+                    model_config_, rank_info_.device,
                     pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
             } else {
                 std::vector<std::string> classic_models = {"llama", "qwen2", "minicpm", "fm9g", "fm9g7b"};
                 if ((std::find(classic_models.begin(), classic_models.end(), model_type) != classic_models.end())) {
+                    if (rank_info_.device.getType() == infinicore::Device::Type::ASCEND) {
+                        throw std::runtime_error("RankWorker::thread_loop(): Ascend does not support the classic model "
+                                                 "path for model_type: " +
+                                                 model_type);
+                    }
                     model_ = InfinilmModelFactory::createModel(
-                        model_config_,
-                        rank_info_,
-                        pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
-                        attention_backend_);
+                        model_config_, rank_info_,
+                        pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr, attention_backend_);
                 } else {
                     throw std::runtime_error("RankWorker::thread_loop(): Unsupported model config type: " + model_type);
                 }
             }
-
             if (!model_) {
                 throw std::runtime_error("Failed to create model");
             }
             if (enable_graph_compiling_) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }
-
             init_done_ = true;
         }
         cv_.notify_all();
-
         // Main loop: wait for jobs or exit
         while (true) {
             Command local_cmd = Command::INIT;
@@ -317,23 +253,19 @@ void RankWorker::thread_loop() {
             infinicore::Tensor local_param;
             Input local_args;
             std::unique_ptr<cache::CacheConfig> local_cache_config;
-
             // Wait for a job or exit
             {
                 std::unique_lock<std::mutex> lk(mutex_);
                 cv_.wait(lk, [&] { return has_job_ || should_exit_; });
-
                 if (should_exit_) {
                     break;
                 }
-
                 // capture job data and clear has_job_
                 local_cmd = job_cmd_;
                 if (local_cmd == Command::LOAD) {
                     local_param_name = pending_param_name_;
                     local_param = pending_param_;
                 } else if (local_cmd == Command::PREPROCESS) {
-
                 } else if (local_cmd == Command::RUN) {
                     local_args = pending_args_;
                 } else if (local_cmd == Command::RESET_CACHE) {
@@ -345,7 +277,6 @@ void RankWorker::thread_loop() {
                 has_job_ = false;
                 job_done_ = false;
             } // unlock mutex while executing the job
-
             // Execute job outside the lock
             if (local_cmd == Command::LOAD) {
                 try {
@@ -360,14 +291,12 @@ void RankWorker::thread_loop() {
                     spdlog::error("[{}] exception during load_parameter_: {}\n", info(), e.what());
                     break;
                 }
-
                 // signal completion
                 {
                     std::lock_guard<std::mutex> lk(mutex_);
                     job_done_ = true;
                 }
                 cv_.notify_all();
-
             } else if (local_cmd == Command::PREPROCESS) {
                 // Handle preprocess command
                 try {
@@ -382,7 +311,6 @@ void RankWorker::thread_loop() {
                     spdlog::error("[{}] exception during process_weights_after_loading_: {}\n", info(), e.what());
                     break;
                 }
-
                 // signal completion
                 {
                     std::lock_guard<std::mutex> lk(mutex_);
@@ -393,59 +321,68 @@ void RankWorker::thread_loop() {
                 try {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
-
                         infinicore::Tensor logits;
                         // Try to get compiled graph
                         if (compiler_ != nullptr) {
-                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
+                            auto [graph, output] =
+                                compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
                             }
                         }
-                        // Fall back to eager mode
+                        // Fall back to eager mode.
+                        // Bracket model_->forward with cross-rank barriers so all
+                        // ranks enter and exit the forward call in lock-step.
+                        // On Hygon DCU, divergent first-call JIT-load across ranks
+                        // wedges the DTK HSA loader's BLIT-DMA freeze (one rank's
+                        // freeze stalls; others queue forever); the lock-step
+                        // entry mirrors what PagedCompiler's barrier-bracketed
+                        // capture loop does (paged_compiler.cpp:76,80) and lets
+                        // the eager path reach the same kernel-cache state.
                         if (!logits) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
+                            barrier_->wait();
                             logits = model_->forward(model_args).logits;
+                            infinicore::context::syncStream();
+                            barrier_->wait();
                         }
-
                         // Random sampling (rank 0 only)
                         if (rank_info_.tp_rank == 0) {
                             auto temperature{local_args.temperature};
                             auto top_p{local_args.top_p};
                             auto top_k{local_args.top_k};
-
                             const auto &logits_shape{logits->shape()};
                             const auto &vocab_size{logits_shape[2]};
                             const auto &total_len{logits_shape[1]};
                             const auto &batch_size{logits_shape[0]};
-
-                            auto n_req = local_args.input_offsets.value()->size(0) - 1;
-                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
-
-                            auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
-
-                            for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
+                            infinicore::Tensor output_ids;
+                            if (backends::ops::should_use(rank_info_.device)) {
+                                output_ids = backends::ops::sample_from_logits(logits, local_args.input_offsets.value(),
+                                                                               temperature, top_k, top_p);
+                            } else {
+                                auto n_req = local_args.input_offsets.value()->size(0) - 1;
+                                int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+                                output_ids =
+                                    infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device);
+                                for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
+                                    auto score{logits->view({batch_size * total_len, vocab_size})
+                                                   ->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})
+                                                   ->view({vocab_size})};
+                                    auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                    float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                    infinilm::backends::ops::random_sample_(out, score, random_val, top_p, top_k,
+                                                                            temperature);
+                                }
+                                output_ids = output_ids->to(infinicore::Device::cpu());
+                                infinicore::context::syncStream();
                             }
-
-                            output_ids = output_ids->to(infinicore::Device::cpu());
-
-                            infinicore::context::syncStream();
-
                             auto out{Output{output_ids}};
-
                             output_ = std::move(out);
                         }
-
                         job_done_ = true;
                     }
                     cv_.notify_all();
-
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -464,7 +401,6 @@ void RankWorker::thread_loop() {
                         job_done_ = true;
                     }
                     cv_.notify_all();
-
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -485,7 +421,6 @@ void RankWorker::thread_loop() {
                         job_done_ = true;
                     }
                     cv_.notify_all();
-
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -496,7 +431,6 @@ void RankWorker::thread_loop() {
                     spdlog::error("[{}] exception during compile: {}\n", info(), e.what());
                     break;
                 }
-
             } else {
                 // Shouldn't reach here (no-op)
             }
@@ -514,5 +448,4 @@ void RankWorker::thread_loop() {
         spdlog::error("[{}] fatal exception in thread_loop: {} \n", info(), e.what());
     }
 }
-
 } // namespace infinilm::engine

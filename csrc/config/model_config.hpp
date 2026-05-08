@@ -1,8 +1,6 @@
 #pragma once
-
 #include "../utils.hpp"
 #include "infinicore/nn/rope.hpp"
-#include "infinicore/ops.hpp"
 #include "quant_config.hpp"
 #include <fstream>
 #include <iostream>
@@ -18,14 +16,9 @@ public:
     ModelConfig() = default;
     ModelConfig(const nlohmann::json &json);
     ModelConfig(const std::string &path);
-
-    nlohmann::json &get_config_json() {
-        return config_json;
-    }
-
+    nlohmann::json &get_config_json() { return config_json; }
     // Template Function to get a value by key with type safety
-    template <typename T>
-    T get(const std::string &key) const {
+    template <typename T> T get(const std::string &key) const {
         if (!config_json.contains(key)) {
             throw std::out_of_range("Key '" + key + "' not found in config.");
         }
@@ -35,9 +28,7 @@ public:
             throw std::runtime_error("Type conversion failed for key '" + key + "': " + std::string(e.what()));
         }
     }
-
-    template <typename T>
-    T get_or(const std::string &key, const T &default_value) const {
+    template <typename T> T get_or(const std::string &key, const T &default_value) const {
         if (!config_json.contains(key) || config_json.at(key).is_null()) {
             return default_value;
         }
@@ -57,24 +48,17 @@ public:
         }
         return get<size_t>("hidden_size") / get<size_t>("num_attention_heads");
     }
-
-    QuantConfig get_quant_config() const {
-        return quant_config;
-    }
-
+    QuantConfig get_quant_config() const { return quant_config; }
     std::shared_ptr<infinicore::quantization::BaseQuantization> get_quantization_method() const {
         return quant_config.get_quantization_method();
     }
-
     infinicore::DataType get_dtype() const;
     infinicore::quantization::QuantScheme get_quant_scheme() const;
     std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> get_rope_scaling() const;
     void set_kv_quant_scheme(infinicore::DataType kv_cache_dtype) {
         this->quant_config.set_kv_quant_scheme(kv_cache_dtype);
     }
-    infinicore::quantization::KVQuantAlgo get_kv_quant_scheme() const {
-        return quant_config.get_kv_quant_scheme();
-    }
+    infinicore::quantization::KVQuantAlgo get_kv_quant_scheme() const { return quant_config.get_kv_quant_scheme(); }
     infinicore::DataType get_kv_cache_dtype() const {
         if (this->quant_config.get_kv_cache_dtype().has_value()) {
             return this->quant_config.get_kv_cache_dtype().value();
@@ -82,7 +66,6 @@ public:
             return this->get_dtype();
         }
     }
-
     // Get reference to JSON value (non-const)
     nlohmann::json &get_ref(const std::string &key) {
         if (!config_json.contains(key)) {
@@ -90,7 +73,6 @@ public:
         }
         return config_json.at(key);
     }
-
     // Get const reference to JSON value
     const nlohmann::json &get_ref(const std::string &key) const {
         if (!config_json.contains(key)) {
@@ -98,7 +80,6 @@ public:
         }
         return config_json.at(key);
     }
-
     // Stream output operator
     friend std::ostream &operator<<(std::ostream &os, const ModelConfig &config);
 

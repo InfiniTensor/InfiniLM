@@ -1,5 +1,7 @@
 #include "fused_linear.hpp"
+#include "../../backends/operators/operators.hpp"
 
+#include <optional>
 #include <spdlog/spdlog.h>
 
 namespace infinilm::layers::linear {
@@ -40,13 +42,13 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      const infinicore::Device &device,
                                      engine::distributed::RankInfo rank_info)
     : infinicore::nn::ColumnParallelLinear(
-          hidden_size,
-          num_q_head * q_dim + num_k_head * k_dim + num_v_head * v_dim,
-          (q_bias || k_bias || v_bias),
-          dtype,
-          device,
-          rank_info.tp_rank,
-          rank_info.tp_size),
+        hidden_size,
+        num_q_head * q_dim + num_k_head * k_dim + num_v_head * v_dim,
+        (q_bias || k_bias || v_bias),
+        dtype,
+        device,
+        rank_info.tp_rank,
+        rank_info.tp_size),
       q_dim_(q_dim),
       k_dim_(k_dim),
       v_dim_(v_dim),
@@ -94,14 +96,14 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      const infinicore::Device &device,
                                      engine::distributed::RankInfo rank_info)
     : infinicore::nn::ColumnParallelLinear(
-          hidden_size,
-          calculate_out_feature_size(num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, rank_info),
-          quantization,
-          (q_bias || k_bias || v_bias),
-          dtype,
-          device,
-          rank_info.tp_rank,
-          rank_info.tp_size),
+        hidden_size,
+        calculate_out_feature_size(num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, rank_info),
+        quantization,
+        (q_bias || k_bias || v_bias),
+        dtype,
+        device,
+        rank_info.tp_rank,
+        rank_info.tp_size),
       q_dim_(q_dim),
       k_dim_(k_dim),
       v_dim_(v_dim),
@@ -124,7 +126,38 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
 
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 QKVParallelLinear::forward_split(infinicore::Tensor &input) {
-    auto output = this->forward(input);
+#ifdef INFINILM_ENABLE_INFINIOPS
+    if (infinilm::backends::ops::should_use(input->device())
+        && this->get_quantization()->get_quant_scheme() == infinicore::quantization::QuantScheme::NONE) {
+        std::optional<infinicore::Tensor> q_bias_opt;
+        std::optional<infinicore::Tensor> k_bias_opt;
+        std::optional<infinicore::Tensor> v_bias_opt;
+        if (this->has_bias()) {
+            q_bias_opt = this->bias()->narrow({{0, 0, q_out_size_}});
+            k_bias_opt = this->bias()->narrow({{0, q_out_size_, k_out_size_}});
+            v_bias_opt = this->bias()->narrow({{0, q_out_size_ + k_out_size_, v_out_size_}});
+        }
+
+        auto q_out = infinilm::backends::ops::linear(
+            input, this->weight()->narrow({{0, 0, q_out_size_}}), q_bias_opt);
+        auto k_out = infinilm::backends::ops::linear(
+            input, this->weight()->narrow({{0, q_out_size_, k_out_size_}}), k_bias_opt);
+        auto v_out = infinilm::backends::ops::linear(
+            input, this->weight()->narrow({{0, q_out_size_ + k_out_size_, v_out_size_}}), v_bias_opt);
+        return std::make_tuple(q_out, k_out, v_out);
+    }
+#endif
+
+    auto output =
+#ifdef INFINILM_ENABLE_INFINIOPS
+        infinilm::backends::ops::should_use(input->device())
+                && this->get_quantization()->get_quant_scheme() == infinicore::quantization::QuantScheme::NONE
+            ? infinilm::backends::ops::linear(
+                input, this->weight(),
+                this->has_bias() ? std::make_optional(this->bias()) : std::nullopt)
+            :
+#endif
+            this->forward(input);
 
     auto q_out = output->narrow({{2, 0, q_out_size_}});
     auto k_out = output->narrow({{2, q_out_size_, k_out_size_}});
@@ -327,7 +360,16 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> GateUpParallelLinear::forward_split(infinicore::Tensor &input) {
-    auto output = this->forward(input);
+    auto output =
+#ifdef INFINILM_ENABLE_INFINIOPS
+        infinilm::backends::ops::should_use(input->device())
+                && this->get_quantization()->get_quant_scheme() == infinicore::quantization::QuantScheme::NONE
+            ? infinilm::backends::ops::linear(
+                input, this->weight(),
+                this->has_bias() ? std::make_optional(this->bias()) : std::nullopt)
+            :
+#endif
+            this->forward(input);
     auto cols = output->shape()[2];
     auto gate_output = output->narrow({{2, 0, cols / 2}});
     auto up_output = output->narrow({{2, cols / 2, cols / 2}});

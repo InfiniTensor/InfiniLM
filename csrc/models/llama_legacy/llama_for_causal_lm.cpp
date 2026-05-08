@@ -1,8 +1,21 @@
 #include "llama_for_causal_lm.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/nn/linear.hpp"
-#include "infinicore/ops.hpp"
+
+#include <stdexcept>
+
 namespace infinilm::models::llama_legacy {
+namespace {
+
+void reject_ascend(const infinicore::Device &device) {
+    if (device.getType() == infinicore::Device::Type::ASCEND) {
+        throw std::runtime_error(
+            "infinilm::models::llama_legacy::LlamaForCausalLM: Ascend does not support the legacy/classic model path. Use a registered ModelConfig-based model.");
+    }
+}
+
+} // namespace
+
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
  *
@@ -19,6 +32,7 @@ LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
                                    const infinicore::Device &device,
                                    engine::distributed::RankInfo rank_info,
                                    backends::AttentionBackend attention_backend) {
+    reject_ascend(device);
     spdlog::warn("infinilm::models::llama_legacy: LlamaForCausalLM is no longer supported, please use the new model instead.");
 
     // Initialize module's device_ member
@@ -38,6 +52,7 @@ LlamaForCausalLM::LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig
                                    const infinicore::Device &device,
                                    engine::distributed::RankInfo rank_info,
                                    backends::AttentionBackend attention_backend) {
+    reject_ascend(device);
     spdlog::warn("infinilm::models::llama_legacy: LlamaForCausalLM is no longer supported, please use the new model instead.");
 
     // Initialize module's device_ member

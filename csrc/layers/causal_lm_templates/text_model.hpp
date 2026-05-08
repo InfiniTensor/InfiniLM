@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../backends/operators/operators.hpp"
 #include "../../config/model_config.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "infinicore/nn/embedding.hpp"
@@ -9,6 +10,14 @@
 #include <vector>
 
 namespace infinilm::layers::causal_lm_templates {
+
+#ifdef INFINILM_ENABLE_INFINIOPS
+using TextEmbedding = infinilm::backends::ops::Embedding;
+using TextRMSNorm = infinilm::backends::ops::RMSNorm;
+#else
+using TextEmbedding = infinicore::nn::Embedding;
+using TextRMSNorm = infinicore::nn::RMSNorm;
+#endif
 
 /**
  * @brief Text model architecture (without language modeling head).
@@ -33,14 +42,14 @@ public:
         double rope_theta = model_config->get<double>("rope_theta");
         double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-        embed_tokens_ = this->register_module<infinicore::nn::Embedding>("embed_tokens", vocab_size, hidden_size, std::nullopt, dtype, device);
+        embed_tokens_ = this->register_module<TextEmbedding>("embed_tokens", vocab_size, hidden_size, std::nullopt, dtype, device);
 
         layers_.reserve(num_hidden_layers);
         for (size_t i = 0; i < num_hidden_layers; ++i) {
             layers_.push_back(this->register_module<DecoderLayer>("layers." + std::to_string(i), model_config, i, device));
         }
 
-        norm_ = this->register_module<infinicore::nn::RMSNorm>("norm", hidden_size, rms_norm_eps, dtype, device);
+        norm_ = this->register_module<TextRMSNorm>("norm", hidden_size, rms_norm_eps, dtype, device);
     }
 
     infinicore::Tensor forward(const infinilm::InfinilmModel::Input &input) const {
@@ -99,9 +108,9 @@ public:
     }
 
 protected:
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
+    INFINICORE_NN_MODULE(TextEmbedding, embed_tokens);
     INFINICORE_NN_MODULE_VEC(DecoderLayer, layers);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
+    INFINICORE_NN_MODULE(TextRMSNorm, norm);
 };
 
 } // namespace infinilm::layers::causal_lm_templates

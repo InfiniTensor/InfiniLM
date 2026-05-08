@@ -2,7 +2,20 @@
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
 
+#include <stdexcept>
+
 namespace infinilm::engine {
+namespace {
+
+infinicore::Device::Type reject_legacy_ascend_device(infinicore::Device::Type device_type) {
+    if (device_type == infinicore::Device::Type::ASCEND) {
+        throw std::runtime_error(
+            "InferEngine: Ascend does not support the legacy LlamaConfig constructor. Use the config-string ModelConfig constructor.");
+    }
+    return device_type;
+}
+
+} // namespace
 
 //------------------------------------------------------
 // Constructor
@@ -26,7 +39,7 @@ InferEngine::InferEngine(
     const cache::CacheConfig *cache_config,
     bool enable_graph_compiling,
     backends::AttentionBackend attention_backend) // Changed parameter
-    : communication_group_(distributed_config, device_type),
+    : communication_group_(distributed_config, reject_legacy_ascend_device(device_type)),
       legacy_model_config_(config),
       attention_backend_(attention_backend) {
     if (cache_config != nullptr) {
@@ -154,6 +167,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         input.cu_seqlens,
         input.block_tables,
         input.slot_mapping,
+        total_sequence_lengths,
+        block_tables,
     };
     return input;
 }

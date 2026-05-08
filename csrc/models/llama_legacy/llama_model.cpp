@@ -2,7 +2,6 @@
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
-#include "infinicore/ops.hpp"
 #include <iostream>
 
 namespace infinilm::models::llama_legacy {

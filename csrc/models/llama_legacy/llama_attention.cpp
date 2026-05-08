@@ -1,14 +1,9 @@
 #include "llama_attention.hpp"
+#include "backends/operators/operators.hpp"
 
 #include "../../utils.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
-#include "infinicore/ops.hpp"
-#include "infinicore/ops/mha_kvcache.hpp"
-#include "infinicore/ops/mha_varlen.hpp"
-#include "infinicore/ops/mul.hpp"
-#include "infinicore/ops/per_tensor_dequant_i8.hpp"
-#include "infinicore/ops/per_tensor_quant_i8.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -235,7 +230,7 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     infinicore::Tensor attn_output;
     if (false) {
         // experimental nineoothed flash attention
-        attn_output = infinicore::op::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scaling_, true);
+        attn_output = infinilm::backends::ops::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scaling_, true);
         attn_output = attn_output->permute({0, 2, 1, 3})
                           ->contiguous()
                           ->view({batch_size, seq_len, num_attention_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
@@ -260,12 +255,12 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
 
         auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
 
-        auto attn_weight = infinicore::op::matmul(Q, K_transposed, scaling_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
+        auto attn_weight = infinilm::backends::ops::matmul(Q, K_transposed, scaling_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
 
         auto attn_weight_softmax = attn_weight->view({batch_size * num_attention_heads_, seq_len, total_seq_len});
-        infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
+        infinilm::backends::ops::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
 
-        auto out = infinicore::op::matmul(attn_weight, V); // [bs * n_kv_head, ng * seq_len, head_dim]
+        auto out = infinilm::backends::ops::matmul(attn_weight, V); // [bs * n_kv_head, ng * seq_len, head_dim]
 
         attn_output = out->view({batch_size, num_attention_heads_, seq_len, head_dim_})
                           ->permute({0, 2, 1, 3})
@@ -345,7 +340,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
 
     if (is_prefill) {
         if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
-            infinicore::op::mha_varlen_(
+            infinilm::backends::ops::mha_varlen_(
                 attn_output,
                 q_reshaped,
                 k_total->permute({0, 2, 1, 3}),
@@ -358,7 +353,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                 std::nullopt,
                 scaling_);
         } else {
-            infinicore::op::paged_attention_prefill_(
+            infinilm::backends::ops::paged_attention_prefill_(
                 attn_output,
                 q_reshaped,
                 k_total,
@@ -377,7 +372,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             // k/v cache:  [num_blocks, num_kv_heads, block_size, head_dim]
             //           → permute {0,2,1,3} → [num_blocks, block_size, num_kv_heads, head_dim]
             auto q_for_fa = q_reshaped->view({seq_len, 1, num_attention_heads_, head_dim_});
-            auto attn_out_4d = infinicore::op::mha_kvcache(
+            auto attn_out_4d = infinilm::backends::ops::mha_kvcache(
                 q_for_fa,
                 k_total->permute({0, 2, 1, 3}), // [num_blocks, block_size, num_kv_heads, head_dim]
                 v_total->permute({0, 2, 1, 3}),
@@ -387,7 +382,7 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                 scaling_);
             attn_output = attn_out_4d->view({seq_len, num_attention_heads_, head_dim_});
         } else {
-            infinicore::op::paged_attention_(
+            infinilm::backends::ops::paged_attention_(
                 attn_output,
                 q_reshaped,
                 k_total,

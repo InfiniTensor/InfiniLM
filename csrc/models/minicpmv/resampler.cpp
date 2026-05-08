@@ -1,7 +1,7 @@
 #include "resampler.hpp"
+#include "backends/operators/operators.hpp"
 
 #include "../../utils.hpp"
-#include "infinicore/ops.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -86,11 +86,11 @@ infinicore::Tensor ResamplerAttention::forward(const infinicore::Tensor &query,
     auto k2d = key->view({batch_size * k_len, embed_dim_});
     auto v2d = value->view({batch_size * k_len, embed_dim_});
 
-    auto q_proj = infinicore::op::linear(q2d, Wq, std::make_optional<infinicore::Tensor>(bq))
+    auto q_proj = infinilm::backends::ops::linear(q2d, Wq, std::make_optional<infinicore::Tensor>(bq))
                       ->view({batch_size, q_len, embed_dim_});
-    auto k_proj = infinicore::op::linear(k2d, Wk, std::make_optional<infinicore::Tensor>(bk))
+    auto k_proj = infinilm::backends::ops::linear(k2d, Wk, std::make_optional<infinicore::Tensor>(bk))
                       ->view({batch_size, k_len, embed_dim_});
-    auto v_proj = infinicore::op::linear(v2d, Wv, std::make_optional<infinicore::Tensor>(bv))
+    auto v_proj = infinilm::backends::ops::linear(v2d, Wv, std::make_optional<infinicore::Tensor>(bv))
                       ->view({batch_size, k_len, embed_dim_});
 
     auto q_reshaped = q_proj->view({batch_size, q_len, num_heads_, head_dim_})->permute({0, 2, 1, 3})->contiguous();
@@ -102,11 +102,11 @@ infinicore::Tensor ResamplerAttention::forward(const infinicore::Tensor &query,
     auto v_flat = v_reshaped->view({batch_size * num_heads_, k_len, head_dim_});
 
     auto k_t = k_flat->permute({0, 2, 1});
-    auto attn_weights = infinicore::op::matmul(q_flat, k_t, scale_);
+    auto attn_weights = infinilm::backends::ops::matmul(q_flat, k_t, scale_);
     auto attn_view = attn_weights->view({batch_size * num_heads_, q_len, k_len});
-    infinicore::op::softmax_(attn_view, attn_view, -1);
+    infinilm::backends::ops::softmax_(attn_view, attn_view, -1);
 
-    auto attn_output = infinicore::op::matmul(attn_weights, v_flat);
+    auto attn_output = infinilm::backends::ops::matmul(attn_weights, v_flat);
     auto out = attn_output->view({batch_size, num_heads_, q_len, head_dim_})
                    ->permute({0, 2, 1, 3})
                    ->contiguous()
@@ -178,7 +178,7 @@ infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
     }
 
     auto pos = pos_cpu->to(kv->device());
-    auto kv_with_pos = infinicore::op::add(kv, pos);
+    auto kv_with_pos = infinilm::backends::ops::add(kv, pos);
 
     auto q = ln_q_->forward(query_);
     if (q->shape().size() == 2) {
@@ -193,7 +193,7 @@ infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
     out = ln_post_->forward(out);
 
     auto out2d = out->view({batch_size * num_queries_, embed_dim_});
-    auto proj_out = infinicore::op::matmul(out2d, proj_)->view({batch_size, num_queries_, embed_dim_});
+    auto proj_out = infinilm::backends::ops::matmul(out2d, proj_)->view({batch_size, num_queries_, embed_dim_});
     return proj_out;
 }
 

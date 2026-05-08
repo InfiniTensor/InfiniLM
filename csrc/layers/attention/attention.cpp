@@ -2,6 +2,8 @@
 #include "../../utils.hpp"
 #include "../rotary_embedding/rotary_embedding.hpp"
 
+#include <stdexcept>
+
 namespace infinilm::layers::attention {
 
 Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -19,6 +21,10 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
     attention_backend_ = infinilm::global_state::get_infinilm_config().attention_backend;
+    if (device.getType() == infinicore::Device::Type::ASCEND
+        && attention_backend_ != infinilm::backends::AttentionBackend::FLASH_ATTN) {
+        throw std::runtime_error("infinilm::layers::attention::Attention: Ascend requires the flash-attn backend.");
+    }
     const engine::distributed::RankInfo &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
     int tp_size = infinilm::global_state::get_tensor_model_parallel_world_size();
@@ -57,23 +63,13 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     }
-    case infinicore::quantization::QuantScheme::GPTQ_W4A16: {
-
-        INFINILM_QKV_LINEAR_W4A16GPTQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, total_num_heads, total_num_kv_heads, quantization_method, use_bias,
-                                           dtype, device, rank_info);
-
-        INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method, use_output_bias,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-
-        break;
-    }
     default: {
         throw std::runtime_error("infinilm::layers::attention::Attention: unsupported quantization scheme");
         break;
     }
     }
 
-    rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
+    rotary_emb_ = infinilm::layers::rotary_embedding::get_rotary_embedding(model_config, device);
 
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
     attn_ = std::make_shared<AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
@@ -133,9 +129,9 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     }
 
     // 4. Apply RoPE to QK
-    auto q_rope = infinicore::Tensor::empty({batch_size, num_attention_heads_, seq_len, head_dim_}, q_reshaped->dtype(), q_reshaped->device())->permute({0, 2, 1, 3});
-    rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope);
-    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+    auto q_rope = infinicore::Tensor::empty({batch_size, num_attention_heads_, seq_len, head_dim_}, q_reshaped->dtype(), q_reshaped->device())
+                      ->permute({0, 2, 1, 3});
+    rotary_emb_->forward_pair(q_rope, q_reshaped, k_reshaped, k_reshaped, pos_ids_for_rope);
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_rope, k_reshaped, v_reshaped);
@@ -177,8 +173,7 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     }
 
     // 4. Apply RoPE to QK
-    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
-    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+    rotary_emb_->forward_pair_inplace(q_reshaped, k_reshaped, pos_ids_for_rope);
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
