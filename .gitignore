@@ -3,6 +3,9 @@
 build/
 python/infinilm/lib/*.so
 
+# Bundled flash-attention checkout (cloned by setup.py / acceptance script)
+third_party/flash-attention/
+
 # MacOS Cache
 .DS_Store
 
@@ -34,3 +37,8 @@ __pycache__/
 *.http
 
 *.nsys-rep
+
+# Allow build / project files that the broad globs above accidentally hide.
+!**/CMakeLists.txt
+!CMakeLists.txt
+!**/*.cmake
