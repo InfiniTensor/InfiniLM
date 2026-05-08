@@ -1220,17 +1220,42 @@ void allreduce_(const infinicore::Tensor &out,
     if (communicator == nullptr) {
         throw std::runtime_error("InfiniLM ops wrapper: allreduce communicator is null");
     }
-    auto status = infinicclAllReduce(
-        const_cast<std::byte *>(input->data()),
-        const_cast<std::byte *>(out->data()),
-        out->numel(),
-        static_cast<infiniDtype_t>(out->dtype()),
-        op,
-        communicator,
-        infinicore::context::getStream());
-    if (status != INFINI_STATUS_SUCCESS) {
-        throw std::runtime_error("InfiniLM ops wrapper: infinicclAllReduce failed");
+    require_same_dtype_device(input, out, "allreduce");
+    if (!input->is_contiguous() || !out->is_contiguous()
+        || input->numel() != out->numel()) {
+        throw std::runtime_error("InfiniLM ops wrapper: invalid allreduce tensor layout");
     }
+
+    if (!infinicore::context::isGraphRecording()) {
+        auto status = infinicclAllReduce(
+            const_cast<std::byte *>(input->data()),
+            const_cast<std::byte *>(out->data()),
+            input->numel(),
+            static_cast<infiniDtype_t>(input->dtype()),
+            op,
+            communicator,
+            infinicore::context::getStream());
+        if (status != INFINI_STATUS_SUCCESS) {
+            throw std::runtime_error("InfiniLM ops wrapper: infinicclAllReduce failed");
+        }
+        return;
+    }
+
+    auto input_g = infinicore::graph::GraphTensor(input);
+    auto out_g = infinicore::graph::GraphTensor(out);
+    record_or_run([input_g, out_g, op, communicator]() {
+        auto status = infinicclAllReduce(
+            const_cast<std::byte *>(input_g->data()),
+            const_cast<std::byte *>(out_g->data()),
+            input_g->numel(),
+            static_cast<infiniDtype_t>(input_g->dtype()),
+            op,
+            communicator,
+            infinicore::context::getStream());
+        if (status != INFINI_STATUS_SUCCESS) {
+            throw std::runtime_error("InfiniLM ops wrapper: infinicclAllReduce failed");
+        }
+    });
 }
 
 infinicore::Tensor Embedding::forward(const infinicore::Tensor &indices) const {
