@@ -49,7 +49,7 @@
     ```
     - 例如：
     ```bash
-    python examples/jigue.py --device=nvidia --model=/models/TinyLlama-1.1B-Chat-v1.0
+    python examples/test_infer.py --device=nvidia --model=/models/TinyLlama-1.1B-Chat-v1.0
     ```
   - 分布式推理测试
       - 9g示例
