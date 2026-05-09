@@ -105,6 +105,7 @@ class InferenceRequest:
         request_id: str,
         prompt: Optional[str] = None,
         prompt_token_ids: Optional[List[int]] = None,
+        processed_inputs: Optional[dict] = None,
         sampling_params: Optional[SamplingParams] = None,
         eos_token_ids: Optional[List[int]] = None,
         arrival_time: Optional[float] = None,
@@ -112,13 +113,15 @@ class InferenceRequest:
         request_data: Optional[dict] = None,
         http_request: Optional[Any] = None,
     ):
+        self.arrival_time: float = arrival_time or time.time()
+        self.finished_time: Optional[float] = None
+
         # Request metadata
         self.request_id: str = request_id
         self.prompt: Optional[str] = prompt
         self.prompt_token_ids: List[int] = prompt_token_ids or []
         self.prompt_length: int = len(self.prompt_token_ids)
-        self.arrival_time: float = arrival_time or time.time()
-        self.finished_time: Optional[float] = None
+        self.processed_inputs: Optional[dict] = processed_inputs
 
         # Sampling parameters
         self.sampling_params: SamplingParams = sampling_params or SamplingParams()

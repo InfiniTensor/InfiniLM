@@ -9,6 +9,7 @@ import numpy as np
 from datasets import load_dataset, Dataset
 from abc import ABC, abstractmethod
 from infinilm.base_config import BaseConfig
+from infinilm.processors import AutoInfinilmProcessor
 
 TOTAL_TOKENS = 0
 TOTAL_TIME = 0.0
@@ -90,29 +91,8 @@ class InfiniLMBenchmark(BaseBenchmark):
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             self.config_dict = json.load(f)
 
-        # Align tokenizer initialization with jiuge backend (010)
-        # Match the exact same initialization logic based on model type
-        model_type = self.config_dict.get("model_type", "")
-        if model_type == "llama":
-            # For llama models: no trust_remote_code (matches jiuge line 465)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-        elif model_type in ["fm9g", "minicpm", "fm9g7b"]:
-            # For fm9g/minicpm/fm9g7b models: use trust_remote_code=True (matches jiuge lines 493-495, 518-520)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-        elif model_type in ["qwen2", "qwen3"]:
-            # For qwen2/qwen3 models: no trust_remote_code (matches jiuge line 534-536)
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-        else:
-            # Default: use trust_remote_code=True for other models
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
+        self.processor = AutoInfinilmProcessor.from_pretrained(model_dir_path)
+        self.tokenizer = self.processor.get_tokenizer()
 
         eos_token_id = self.config_dict.get("eos_token_id")
         self.eos_token_id = (
@@ -159,9 +139,9 @@ class InfiniLMBenchmark(BaseBenchmark):
     def render_input_content(self, *args, **kwargs):
         """Render input content based on benchmark type"""
         if self.benchmark == "ceval":
-            return render_ceval(self.tokenizer, *args, **kwargs)
+            return render_ceval(self.processor, *args, **kwargs)
         elif self.benchmark == "mmlu":
-            return render_mmlu(self.tokenizer, *args, **kwargs)
+            return render_mmlu(self.processor, *args, **kwargs)
         else:
             raise ValueError(f"Unknown benchmark: {self.benchmark}")
 

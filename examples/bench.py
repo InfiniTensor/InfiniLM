@@ -1,11 +1,10 @@
 import infinicore
-from transformers import AutoTokenizer
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
 from infinilm.base_config import BaseConfig
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
-import argparse
+from infinilm.processors import AutoInfinilmProcessor
 import sys
 import time
 import os
@@ -104,7 +103,6 @@ def repeat_prompt(input_ids: list[int], target_length: int):
 
 class TestModel:
     model: infinicore.nn.Module
-    tokenizer: AutoTokenizer
     input_ids_list: list[int]
 
     def __init__(
@@ -140,39 +138,25 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        创建 tokenizer
         # ---------------------------------------------------------------------------- #
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-
-        if tokenizer.pad_token is None:
-            if tokenizer.eos_token is not None:
-                tokenizer.pad_token = tokenizer.eos_token
-                tokenizer.pad_token_id = tokenizer.eos_token_id
-            else:
-                tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
+        self.tokenizer = self.processor.get_tokenizer()
 
         # ---------------------------------------------------------------------------- #
         #                        token编码
         # ---------------------------------------------------------------------------- #
-        input_content = [
-            tokenizer.apply_chat_template(
-                conversation=[{"role": "user", "content": prompt}],
-                add_generation_prompt=True,
-                tokenize=False,
+        input_content = self.processor.apply_chat_template(
+            conversation=[{"role": "user", "content": prompt}],
+            add_generation_prompt=True,
+            tokenize=False,
+        )
+
+        input_ids_list = [
+            self.tokenizer.encode(
+                input_content,
             )
         ]
 
-        # print(input_content, end="", flush=True)
-        # Support Transformers >= 5.0 for batch_encode_plus deprecation
-        encoding = tokenizer(
-            input_content,
-            padding=True,
-            truncation=True,
-            max_length=8192,
-        )
-
-        input_ids_list = encoding["input_ids"]
-
         self.model = model
-        self.tokenizer = tokenizer
         self.input_ids_list = input_ids_list
 
     def run(
