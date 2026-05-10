@@ -185,6 +185,17 @@ void RankWorker::close() {
         thread_.join();
     }
 }
+void RankWorker::release_thread_resources() {
+    infinicore::context::setDevice(rank_info_.device);
+    output_ = Output{};
+    pending_args_ = Input{};
+    pending_param_ = infinicore::Tensor{};
+    pending_param_name_.clear();
+    pending_cache_config_.reset();
+    compiler_.reset();
+    cache_.reset();
+    model_.reset();
+}
 //------------------------------------------------------
 // get_output (thread safe)
 //------------------------------------------------------
@@ -436,8 +447,13 @@ void RankWorker::thread_loop() {
             }
         } // while
         // Some clean up should be done before exiting the thread
-        compiler_.reset();
+        release_thread_resources();
     } catch (const std::exception &e) {
+        try {
+            release_thread_resources();
+        } catch (const std::exception &cleanup_error) {
+            spdlog::error("[{}] exception during cleanup: {}\n", info(), cleanup_error.what());
+        }
         // Top-level exception: ensure any waiters are woken and the thread exits cleanly.
         {
             std::lock_guard<std::mutex> lk(mutex_);

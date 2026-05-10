@@ -115,6 +115,7 @@ public:
 
 private:
     void thread_loop();
+    void release_thread_resources();
 
 private:
     // Worker properties

@@ -94,6 +94,7 @@ std::byte *PinnableBlockAllocator::allocate(size_t size) {
                     if (!candidate->in_use && (!candidate->frozen || pinned_mode_)) {
                         block = candidate;
                         cls.free_blocks.erase(cls.free_blocks.begin() + scan);
+                        block->in_free_list = false;
                         break;
                     }
                 }
@@ -171,24 +172,40 @@ void PinnableBlockAllocator::deallocate(std::byte *ptr) {
 
     block->in_use = false;
 
-    if (!block->in_use) {
-        for (auto &cls : size_classes_) {
-            if (block->size == cls.block_size) {
+    for (auto &cls : size_classes_) {
+        if (block->size == cls.block_size) {
+            if (!block->in_free_list) {
                 cls.free_blocks.push_back(block);
-                break;
+                block->in_free_list = true;
             }
+            break;
         }
     }
 }
 
 size_t PinnableBlockAllocator::mark_in_use_(void *ptr, bool in_use) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     auto it = all_blocks_.find(reinterpret_cast<void *>(ptr));
     if (it == all_blocks_.end()) {
         throw std::runtime_error("Pointer not allocated by this allocator");
     }
-    std::lock_guard<std::mutex> lock(mutex_);
-    it->second->in_use = in_use;
-    return it->second->size;
+    auto block = it->second;
+    if (in_use && !block->in_use && block->in_free_list) {
+        for (auto &cls : size_classes_) {
+            if (block->size != cls.block_size) {
+                continue;
+            }
+            auto free_it = std::find(cls.free_blocks.begin(), cls.free_blocks.end(), block);
+            if (free_it != cls.free_blocks.end()) {
+                cls.free_blocks.erase(free_it);
+            }
+            block->in_free_list = false;
+            break;
+        }
+    }
+    block->in_use = in_use;
+    return block->size;
 }
 
 // ------------------- trim -------------------

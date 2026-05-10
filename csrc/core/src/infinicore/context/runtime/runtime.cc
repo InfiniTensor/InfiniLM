@@ -162,9 +162,16 @@ void Runtime::addGraphOperator(std::shared_ptr<graph::GraphOperator> op) {
 }
 
 std::shared_ptr<graph::Graph> Runtime::stopGraphRecording(const graph::GraphInstantiateFence &fence) {
-    auto graph = graph_manager_->stop_recording(fence);
-    device_memory_allocator_->set_pin_mode(false);
-    return graph;
+    struct PinModeReset {
+        PinnableBlockAllocator *allocator;
+        ~PinModeReset() { allocator->set_pin_mode(false); }
+    } pin_mode_reset{device_memory_allocator_.get()};
+
+    return graph_manager_->stop_recording(
+        fence,
+        [allocator = device_memory_allocator_.get()](bool pinned) {
+            allocator->set_pin_mode(pinned);
+        });
 }
 
 std::string Runtime::toString() const {

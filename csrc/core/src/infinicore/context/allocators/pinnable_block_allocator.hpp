@@ -14,6 +14,7 @@ class PinnableBlockAllocator : public MemoryAllocator {
         size_t size = 0;     // Block size in bytes
         bool frozen = false; // True if used in pinned/graph mode
         bool in_use = false; // Wether the block is currently in use
+        bool in_free_list = false;
     };
 
     // A simple size-class allocator for small/medium blocks

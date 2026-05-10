@@ -15,7 +15,8 @@ public:
     bool is_recording() const;
     void start_recording();
     void add_operator(std::shared_ptr<GraphOperator> op);
-    std::shared_ptr<Graph> stop_recording(const GraphInstantiateFence &fence = nullptr);
+    std::shared_ptr<Graph> stop_recording(const GraphInstantiateFence &fence = nullptr,
+                                          const GraphPinModeSetter &set_pin_mode = nullptr);
 
 private:
     std::shared_ptr<Graph> graph_;

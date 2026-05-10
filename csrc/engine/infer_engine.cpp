@@ -204,6 +204,7 @@ InferEngine::~InferEngine() {
     for (auto &worker : workers_) {
         worker->close();
     }
+    workers_.clear();
 }
 
 const distributed::DistConfig &InferEngine::get_dist_config() const {

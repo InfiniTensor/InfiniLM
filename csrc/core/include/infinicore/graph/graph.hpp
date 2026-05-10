@@ -14,6 +14,7 @@ namespace infinicore::graph {
 // concurrent freezes — same-kernel concurrent freezes are fine, so syncing
 // every op makes JIT loads safe). Default nullptr keeps single-rank behavior.
 using GraphInstantiateFence = std::function<void()>;
+using GraphPinModeSetter = std::function<void(bool)>;
 
 // Forward declarations
 class GraphManager;
@@ -51,7 +52,8 @@ public:
 
 protected:
     void add_operator(std::shared_ptr<GraphOperator> op);
-    void instantiate(const GraphInstantiateFence &fence = nullptr);
+    void instantiate(const GraphInstantiateFence &fence = nullptr,
+                     const GraphPinModeSetter &set_pin_mode = nullptr);
     std::vector<std::shared_ptr<GraphOperator>> op_list_;
 
     friend class GraphManager;
