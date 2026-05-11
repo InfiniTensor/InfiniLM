@@ -89,6 +89,11 @@
       python scripts/test_perf.py --verbose
       ```
 
+    - 单请求推理服务测试
+      ```bash
+      python test/service/request.py --content="text:Image 1:" --content="image_url:xxx.jpg" --content="text:Image 2:" --content="image_url:xxxx.jpg" --content="text:Compare the 2 images."
+      ```
+
   - 运行推理基准测试（C-Eval/MMLU）
 
     ```bash

@@ -688,7 +688,7 @@ class AsyncLLMEngine:
         if request_id is None:
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
-        images, videos, audios = None, None, None
+        mm_index_mappings = None
         processed_inputs = None
 
         if prompt_token_ids is not None:
@@ -708,12 +708,23 @@ class AsyncLLMEngine:
                 messages, add_generation_prompt=add_generation_prompt
             )
 
-            images, videos, audios = resolve_multimodal_inputs(messages)
+            mm_inputs = resolve_multimodal_inputs(messages)
+
             processed_inputs = self.engine.process(
-                prompt, images, videos, audios, return_tensors="pt"
+                prompt,
+                mm_inputs["images"],
+                mm_inputs["videos"],
+                mm_inputs["audios"],
+                return_tensors="pt",
             )
 
             prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
+            mm_index_mappings = self.engine.processor.get_mm_token_index_list(
+                prompt_token_ids,
+                image_ids=mm_inputs["image_urls"],
+                video_ids=mm_inputs["video_urls"],
+                audio_ids=mm_inputs["audio_urls"],
+            )
 
         if sampling_params is None:
             sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
@@ -726,6 +737,7 @@ class AsyncLLMEngine:
             prompt=prompt,
             prompt_token_ids=prompt_token_ids,
             processed_inputs=processed_inputs,
+            mm_token_index_mappings=mm_index_mappings,
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,
