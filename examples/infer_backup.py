@@ -11,7 +11,7 @@
 # Last Modified: Backup created prior to refactor initiation
 # =============================================================================
 
-import infinicore
+import infinilm.core as infinicore
 import transformers
 from transformers import AutoTokenizer
 from tokenizers import decoders as _dec

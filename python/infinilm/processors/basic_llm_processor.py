@@ -14,7 +14,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         if return_tensors is None:
             return self.tokenizer(prompt)
         elif return_tensors == "infini":
-            import infinicore
+            import infinilm.core as infinicore
 
             result = {}
             for key, tensor in self.tokenizer(prompt, return_tensors="pt").items():
@@ -89,7 +89,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             - past_kv_lengths: [num_cached_tokens]
             - total_kv_lengths: [total_tokens]
         """
-        import infinicore
+        import infinilm.core as infinicore
 
         """Build model input from static scheduler output."""
         req = scheduler_output.scheduled_requests[0]
@@ -159,7 +159,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             - block_tables: Padded block_table for each request
             - slot_mapping: Single slot per request
         """
-        import infinicore
+        import infinilm.core as infinicore
 
         if not scheduler_output.scheduled_requests:
             raise RuntimeError(

@@ -57,7 +57,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         attn_backend="default",
     ):
         import transformers
-        import infinicore
+        import infinilm.core as infinicore
         from infinilm.modeling_utils import load_model_state_dict_by_file
         from infinilm.distributed import DistConfig
         from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
@@ -171,7 +171,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         which properly handles KV cache through GenerationMixin.
         """
         # Convert tokens to infinicore format
-        import infinicore
+        import infinilm.core as infinicore
         from infinilm.infer_engine import GenerationConfig
 
         input_ids_list = [tokens]
