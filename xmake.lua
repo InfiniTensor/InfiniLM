@@ -28,6 +28,12 @@ if has_config("use-classic-llama") then
     add_defines("USE_CLASSIC_LLAMA")
 end
 
+option("aten")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Link libtorch + ENABLE_ATEN for vLLM fused MoE dispatcher path (use same Python/torch as InfiniCore --aten=y)")
+option_end()
+
 target("infinicore_infer")
     set_kind("shared")
 
@@ -60,6 +66,11 @@ target("_infinilm")
     set_languages("cxx17")
     set_kind("shared")
 
+    if has_config("aten") then
+        add_defines("ENABLE_ATEN")
+        add_defines("ENABLE_NVIDIA_API")
+    end
+
     local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 
     -- add_includedirs("csrc", { public = false })
@@ -70,6 +81,18 @@ target("_infinilm")
 
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl")
+
+    before_build(function (target)
+        if has_config("aten") then
+            local py = os.getenv("INFINILM_TORCH_PYTHON") or "python3"
+            local TORCH_DIR = os.iorunv(py, {"-c", "import torch, os; print(os.path.dirname(torch.__file__))"}):trim()
+            target:add("includedirs", path.join(TORCH_DIR, "include"), path.join(TORCH_DIR, "include/torch/csrc/api/include"))
+            target:add("linkdirs", path.join(TORCH_DIR, "lib"))
+            target:add("links", "torch", "c10", "torch_cuda", "c10_cuda")
+            local CUDA_DIR = os.getenv("CUDA_HOME") or "/usr/local/cuda"
+            target:add("includedirs", path.join(CUDA_DIR, "include"))
+        end
+    end)
 
     -- Add src files
     add_files("csrc/**.cpp")
