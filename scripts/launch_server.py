@@ -65,6 +65,13 @@ def parse_args():
         help="Max token sequence length that model will handle (follows model config if not provided)",
     )
     parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=512,
+        help="Maximum number of tokens per prefill chunk (default: 512). "
+             "Set to 0 to disable chunked prefill.",
+    )
+    parser.add_argument(
         "--awq",
         action="store_true",
         help="Whether to use AWQ quantized model (default: False)",
@@ -86,8 +93,10 @@ max_tokens = args.max_tokens
 USE_AWQ = args.awq
 USE_GPTQ = args.gptq
 MAX_BATCH = args.max_batch
+CHUNK_SIZE = args.chunk_size
 print(
-    f"Using MAX_BATCH={MAX_BATCH}. Try reduce this value if out of memory error occurs."
+    f"Using MAX_BATCH={MAX_BATCH}, CHUNK_SIZE={CHUNK_SIZE}. "
+    f"Try reduce these values if out of memory error occurs."
 )
 
 
@@ -163,32 +172,66 @@ App = FastAPI(lifespan=lifespan)
 
 
 # App loop: take requests from the queue, do inference, and put unfinished requests back into the queue.
+# Uses priority scheduling: decode/short tasks first, then prefill chunks.
 def worker_loop(app):
+    pending_prefill = []  # Low priority: chunked prefill tasks
+
     while True:
+        # Drain all available tasks from the queue
+        incoming = []
         try:
             task = app.state.request_queue.sync_q.get(timeout=0.01)
+            if task is None:
+                return
+            incoming.append(task)
         except queue.Empty:
-            continue
+            pass
 
-        if task is None:
-            return
-
-        batch = [task]
-        while len(batch) < MAX_BATCH:
+        while True:
             try:
-                req = app.state.request_queue.sync_q.get_nowait()
-                if req is not None:
-                    batch.append(req)
+                task = app.state.request_queue.sync_q.get_nowait()
+                if task is None:
+                    return
+                incoming.append(task)
             except queue.Empty:
                 break
+
+        # Separate into high priority (decode/new short) and low priority (prefill chunks)
+        high_priority = []
+        for t in incoming:
+            if t._discard_output:
+                pending_prefill.append(t)
+            else:
+                high_priority.append(t)
+
+        # Build batch: high priority first, then fill with prefill chunks
+        batch = []
+        while high_priority and len(batch) < MAX_BATCH:
+            batch.append(high_priority.pop(0))
+        while pending_prefill and len(batch) < MAX_BATCH:
+            batch.append(pending_prefill.pop(0))
+
+        if not batch:
+            continue
+
         output_tokens = app.state.model.batch_infer_one_round(batch)
         for task, token in zip(batch, output_tokens):
-            task.output(token)
-            if task.finish_reason is None:
-                app.state.request_queue.sync_q.put(task)
+            if task._discard_output:
+                task.advance_prefill_chunk(CHUNK_SIZE)
+                if task.finish_reason is None:
+                    if task._discard_output:
+                        pending_prefill.append(task)
+                    else:
+                        app.state.request_queue.sync_q.put(task)
+                else:
+                    app.state.kv_cache_pool.release_sync(task)
             else:
-                print(f"[INFO] Task {task.id} finished infer.")
-                app.state.kv_cache_pool.release_sync(task)
+                task.output(token)
+                if task.finish_reason is None:
+                    app.state.request_queue.sync_q.put(task)
+                else:
+                    print(f"[INFO] Task {task.id} finished infer.")
+                    app.state.kv_cache_pool.release_sync(task)
 
 
 def build_task(id_, request_data, request: Request):
@@ -214,6 +257,7 @@ async def chat_stream(id_, request_data, request: Request):
     try:
         infer_task = build_task(id_, request_data, request)
         await request.app.state.kv_cache_pool.acquire(infer_task)
+        infer_task.setup_chunked_prefill(CHUNK_SIZE)
 
         # Initial empty content
         chunk = json.dumps(
@@ -255,6 +299,7 @@ async def chat(id_, request_data, request: Request):
     try:
         infer_task = build_task(id_, request_data, request)
         await request.app.state.kv_cache_pool.acquire(infer_task)
+        infer_task.setup_chunked_prefill(CHUNK_SIZE)
         request.app.state.request_queue.sync_q.put(infer_task)
         output = []
         while True:

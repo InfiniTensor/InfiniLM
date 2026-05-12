@@ -185,19 +185,39 @@ class BasicLLMProcessor(InfinilmProcessor):
             if scheduler_output.is_prefill:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
-                tokens.extend(tokens_to_compute)
 
-                compute_len = len(tokens_to_compute)
-                seq_len = len(req_tokens)
-                seq_lens.append(seq_len)
+                # Chunked-prefill: only feed [chunk_prefill_offset : +chunk_size).
+                # past_kv_lengths = chunk_prefill_offset (attention sees the prefix
+                # already committed); total_kv_lengths = chunk_prefill_offset +
+                # len(tokens_to_compute). This keeps batch_size=1 and total_tokens
+                # == chunk_size so the C++ ChunkPrefillCompiler graph hits.
+                if req.is_chunking():
+                    start = req.chunk_prefill_offset
+                    end = min(start + req.chunk_size, len(req_tokens))
+                    tokens_to_compute = req_tokens[start:end]
+                    compute_len = len(tokens_to_compute)
+                    tokens.extend(tokens_to_compute)
+                    seq_len = end  # attention prefix length after this chunk
+                    seq_lens.append(seq_len)
+                    current_offset += compute_len
+                    seq_offsets.append(current_offset)
+                    slot_mapping.extend(req.slot_mapping[start:end])
+                    cached_lens.append(start)
+                    position_ids.extend(range(start, end))
+                else:
+                    tokens_to_compute = req_tokens[num_cached:]
+                    tokens.extend(tokens_to_compute)
 
-                current_offset += compute_len
-                seq_offsets.append(current_offset)
+                    compute_len = len(tokens_to_compute)
+                    seq_len = len(req_tokens)
+                    seq_lens.append(seq_len)
 
-                slot_mapping.extend(req.slot_mapping)
-                cached_lens.append(num_cached)
-                position_ids.extend(range(num_cached, num_cached + compute_len))
+                    current_offset += compute_len
+                    seq_offsets.append(current_offset)
+
+                    slot_mapping.extend(req.slot_mapping)
+                    cached_lens.append(num_cached)
+                    position_ids.extend(range(num_cached, num_cached + compute_len))
 
             else:
                 # Decode phase
