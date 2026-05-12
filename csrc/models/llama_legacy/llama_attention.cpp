@@ -20,6 +20,10 @@
 
 namespace infinilm::models::llama_legacy {
 
+using layers::linear::to_legacy_quant;
+using layers::linear::to_legacy_quant_scheme;
+using layers::linear::to_legacy_kv_quant_algo;
+
 /**
  * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
  *
@@ -66,7 +70,7 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
     // Initialize projection layers
-    INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
+    INFINILM_LEGACY_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
                              dtype, device, rank_info);
     // Output projection uses attention_output_bias (can be different from qkv)
     INFINICORE_NN_MODULE_INIT(o_proj, num_attention_heads * head_dim_, hidden_size_, use_output_bias_,
@@ -112,36 +116,36 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
     }
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
-    auto quant_scheme = this->model_config_->get_quant_scheme();
+    auto quant_scheme = to_legacy_quant_scheme(this->model_config_->get_quant_scheme());
     switch (quant_scheme) {
     case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
-        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+        INFINILM_LEGACY_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
                                       dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
 
     case infinicore::quantization::QuantScheme::AWQ_W4A16: {
-        INFINILM_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+        INFINILM_LEGACY_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
                                           dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     }
     case infinicore::quantization::QuantScheme::GPTQ_W4A16_QY: {
 
-        INFINILM_QKV_LINEAR_W4A16GPTQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+        INFINILM_LEGACY_QKV_LINEAR_W4A16GPTQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
                                            dtype, device, rank_info);
 
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
 
         break;
     }
     default:
-        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+        INFINILM_LEGACY_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
                                  dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
         break;
     }
@@ -150,7 +154,7 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
         INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
     }
 
-    switch (this->model_config_->get_kv_quant_scheme()) {
+    switch (to_legacy_kv_quant_algo(this->model_config_->get_kv_quant_scheme())) {
     case (infinicore::quantization::KVQuantAlgo::INT8): {
         INFINICORE_NN_PARAMETER_INIT(kv_cache_k_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
         INFINICORE_NN_PARAMETER_INIT(kv_cache_v_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));

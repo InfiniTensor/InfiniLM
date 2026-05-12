@@ -1,0 +1,328 @@
+#pragma once
+
+/**
+ * @deprecated Legacy fused linear classes based on InfiniCore.
+ *
+ * These classes inherit from infinicore::nn::ColumnParallelLinear and use the
+ * infinicore::quantization namespace. They exist solely for backward
+ * compatibility with the deprecated LlamaConfig-based constructors.
+ *
+ * Removal target: v0.2.0 (Q2 2026)
+ */
+
+#include "../../config/model_config.hpp"
+#include "../../engine/distributed/communication_group.hpp"
+#include "infinicore/nn/linear.hpp"
+#include "infinicore/quantization.hpp"
+#include <iostream>
+
+namespace infinilm::layers::linear {
+
+// DEPRECATED BEGIN
+
+/**
+ * Convert infinilm::quantization::BaseQuantization to infinicore::quantization::BaseQuantization.
+ * Needed because model_config now returns infinilm types but legacy classes use infinicore types.
+ */
+inline std::shared_ptr<infinicore::quantization::BaseQuantization>
+to_legacy_quant(const std::shared_ptr<infinilm::quantization::BaseQuantization> &quant) {
+    if (!quant) {
+        return std::make_shared<infinicore::quantization::NoneQuantization>(nlohmann::json{});
+    }
+    switch (quant->get_quant_scheme()) {
+    case infinilm::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
+        return std::make_shared<infinicore::quantization::CompressedTensors>(quant->get_config());
+    case infinilm::quantization::QuantScheme::AWQ_W4A16:
+        return std::make_shared<infinicore::quantization::AWQ>(quant->get_config());
+    case infinilm::quantization::QuantScheme::GPTQ_W4A16_QY:
+        return std::make_shared<infinicore::quantization::GPTQ_QY>(quant->get_config());
+    case infinilm::quantization::QuantScheme::GPTQ_W4A16:
+        return std::make_shared<infinicore::quantization::GPTQ>(quant->get_config());
+    default:
+        return std::make_shared<infinicore::quantization::NoneQuantization>(quant->get_config());
+    }
+}
+
+inline infinicore::quantization::QuantScheme
+to_legacy_quant_scheme(infinilm::quantization::QuantScheme scheme) {
+    return static_cast<infinicore::quantization::QuantScheme>(static_cast<int>(scheme));
+}
+
+inline infinicore::quantization::KVQuantAlgo
+to_legacy_kv_quant_algo(infinilm::quantization::KVQuantAlgo algo) {
+    return static_cast<infinicore::quantization::KVQuantAlgo>(static_cast<int>(algo));
+}
+
+class LegacyQKVParallelLinear : public infinicore::nn::ColumnParallelLinear {
+public:
+    explicit LegacyQKVParallelLinear(size_t hidden_size,
+                                     size_t q_dim, size_t k_dim, size_t v_dim,
+                                     size_t num_q_head, size_t num_k_head, size_t num_v_head,
+                                     bool q_bias, bool k_bias, bool v_bias,
+                                     const infinicore::DataType &dtype = infinicore::DataType::F32,
+                                     const infinicore::Device &device = infinicore::Device(),
+                                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    explicit LegacyQKVParallelLinear(size_t hidden_size,
+                                     size_t head_dim,
+                                     size_t num_q_head, size_t num_kv_head,
+                                     bool bias = false,
+                                     const infinicore::DataType &dtype = infinicore::DataType::F32,
+                                     const infinicore::Device &device = infinicore::Device(),
+                                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    explicit LegacyQKVParallelLinear(size_t hidden_size,
+                                     size_t q_dim, size_t k_dim, size_t v_dim,
+                                     size_t num_q_head, size_t num_k_head, size_t num_v_head,
+                                     bool q_bias, bool k_bias, bool v_bias,
+                                     std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
+                                     const infinicore::DataType &dtype = infinicore::DataType::F32,
+                                     const infinicore::Device &device = infinicore::Device(),
+                                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    explicit LegacyQKVParallelLinear(size_t hidden_size,
+                                     size_t head_dim,
+                                     size_t num_q_head, size_t num_kv_head,
+                                     std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
+                                     bool bias = false,
+                                     const infinicore::DataType &dtype = infinicore::DataType::F32,
+                                     const infinicore::Device &device = infinicore::Device(),
+                                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+    forward_split(infinicore::Tensor &input);
+
+    infinicore::nn::Parameter get_q_weight() const;
+    infinicore::nn::Parameter get_k_weight() const;
+    infinicore::nn::Parameter get_v_weight() const;
+    infinicore::nn::Parameter get_q_weight_scale() const;
+    infinicore::nn::Parameter get_k_weight_scale() const;
+    infinicore::nn::Parameter get_v_weight_scale() const;
+    infinicore::nn::Parameter get_q_weight_zeros() const;
+    infinicore::nn::Parameter get_k_weight_zeros() const;
+    infinicore::nn::Parameter get_v_weight_zeros() const;
+
+    infinicore::nn::Parameter get_q_weight_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_k_weight_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_v_weight_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_q_weight_scale_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_k_weight_scale_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_v_weight_scale_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_q_weight_zeros_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_k_weight_zeros_awq(int scaling_factor) const;
+    infinicore::nn::Parameter get_v_weight_zeros_awq(int scaling_factor) const;
+
+    infinicore::nn::Parameter get_q_bias() const;
+    infinicore::nn::Parameter get_k_bias() const;
+    infinicore::nn::Parameter get_v_bias() const;
+
+    infinicore::nn::Parameter get_q_g_idx_gptq() const;
+    infinicore::nn::Parameter get_k_g_idx_gptq() const;
+    infinicore::nn::Parameter get_v_g_idx_gptq() const;
+
+    bool has_q_bias() const;
+    bool has_k_bias() const;
+    bool has_v_bias() const;
+
+private:
+    static size_t calculate_kv_replicas(size_t num_k_head, size_t tp_size) {
+        if (num_k_head % tp_size == 0) {
+            return 1;
+        }
+        if (tp_size % num_k_head == 0) {
+            return (tp_size + num_k_head - 1) / num_k_head;
+        }
+        throw std::runtime_error("Invalid KV head configuration");
+    }
+
+    static size_t
+    calculate_out_feature_size(size_t num_q_head, size_t q_dim, size_t num_k_head, size_t k_dim, size_t num_v_head, size_t v_dim, engine::distributed::RankInfo rank_info) {
+        return num_q_head * q_dim + num_k_head * k_dim * calculate_kv_replicas(num_k_head, rank_info.tp_size) + num_v_head * v_dim * calculate_kv_replicas(num_v_head, rank_info.tp_size);
+    }
+
+private:
+    size_t q_dim_;
+    size_t k_dim_;
+    size_t v_dim_;
+    size_t num_q_head_;
+    size_t num_k_head_;
+    size_t num_v_head_;
+    bool q_bias_;
+    bool k_bias_;
+    bool v_bias_;
+    size_t q_out_size_;
+    size_t k_out_size_;
+    size_t v_out_size_;
+    size_t num_kv_head_replicas_ = 1;
+};
+
+class LegacyGateUpParallelLinear : public infinicore::nn::ColumnParallelLinear {
+public:
+    LegacyGateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool bias = false,
+                               const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
+                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    LegacyGateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
+                               const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
+                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    LegacyGateUpParallelLinear(size_t hidden_size, size_t intermediate_size, std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
+                               bool bias = false,
+                               const infinicore::DataType &dtype = infinicore::DataType::F32,
+                               const infinicore::Device &device = infinicore::Device(),
+                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    LegacyGateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
+                               std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
+                               const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
+                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    std::tuple<infinicore::Tensor, infinicore::Tensor> forward_split(infinicore::Tensor &input);
+
+    infinicore::nn::Parameter get_gate_weight() const;
+    infinicore::nn::Parameter get_gate_bias() const;
+    infinicore::nn::Parameter get_up_weight() const;
+    infinicore::nn::Parameter get_up_bias() const;
+    infinicore::nn::Parameter get_gate_weight_scale() const;
+    infinicore::nn::Parameter get_up_weight_scale() const;
+    infinicore::nn::Parameter get_gate_weight_zeros() const;
+    infinicore::nn::Parameter get_up_weight_zeros() const;
+    infinicore::nn::Parameter get_gate_weight_awq() const;
+    infinicore::nn::Parameter get_up_weight_awq() const;
+    infinicore::nn::Parameter get_gate_weight_scale_awq() const;
+    infinicore::nn::Parameter get_up_weight_scale_awq() const;
+    infinicore::nn::Parameter get_gate_weight_zeros_awq() const;
+    infinicore::nn::Parameter get_up_weight_zeros_awq() const;
+    infinicore::nn::Parameter get_gate_g_idx_gptq() const;
+    infinicore::nn::Parameter get_up_g_idx_gptq() const;
+
+    bool has_gate_bias() const;
+    bool has_up_bias() const;
+
+private:
+    bool gate_bias_;
+    bool up_bias_;
+};
+// DEPRECATED END
+
+// DEPRECATED BEGIN — Legacy macros
+#define INFINILM_LEGACY_QKV_LINEAR_INIT(name, q_name, k_name, v_name, ...)                     \
+    name##_ = std::make_shared<layers::linear::LegacyQKVParallelLinear>(__VA_ARGS__);          \
+    this->register_parameter(std::string(q_name) + ".weight", name##_->get_q_weight());        \
+    this->register_parameter(std::string(k_name) + ".weight", name##_->get_k_weight());        \
+    this->register_parameter(std::string(v_name) + ".weight", name##_->get_v_weight());        \
+    if (name##_->has_q_bias())                                                                  \
+        this->register_parameter(std::string(q_name) + ".bias", name##_->get_q_bias());        \
+    if (name##_->has_k_bias())                                                                  \
+        this->register_parameter(std::string(k_name) + ".bias", name##_->get_k_bias());        \
+    if (name##_->has_v_bias())                                                                  \
+        this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
+
+#define INFINILM_LEGACY_QKV_LINEAR_W8A8_INIT(name, q_name, k_name, v_name, ...)                            \
+    name##_ = std::make_shared<layers::linear::LegacyQKVParallelLinear>(__VA_ARGS__);                      \
+    this->register_parameter(std::string(q_name) + ".weight", name##_->get_q_weight());                    \
+    this->register_parameter(std::string(q_name) + ".weight_scale", name##_->get_q_weight_scale());        \
+    this->register_parameter(std::string(k_name) + ".weight", name##_->get_k_weight());                    \
+    this->register_parameter(std::string(k_name) + ".weight_scale", name##_->get_k_weight_scale());        \
+    this->register_parameter(std::string(v_name) + ".weight", name##_->get_v_weight());                    \
+    this->register_parameter(std::string(v_name) + ".weight_scale", name##_->get_v_weight_scale());        \
+    if (name##_->has_q_bias())                                                                             \
+        this->register_parameter(std::string(q_name) + ".bias", name##_->get_q_bias());                    \
+    if (name##_->has_k_bias())                                                                             \
+        this->register_parameter(std::string(k_name) + ".bias", name##_->get_k_bias());                    \
+    if (name##_->has_v_bias())                                                                             \
+        this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
+
+#define INFINILM_LEGACY_QKV_LINEAR_W4A16AWQ_INIT(name, q_name, k_name, v_name, ...)                                \
+    name##_ = std::make_shared<layers::linear::LegacyQKVParallelLinear>(__VA_ARGS__);                               \
+    auto awq_ptr = std::static_pointer_cast<infinicore::quantization::AWQ>(name##_->get_quantization());            \
+    int packing_num = awq_ptr->get_packing_num();                                                                   \
+    this->register_parameter(std::string(q_name) + ".qweight", name##_->get_q_weight_awq(packing_num));             \
+    this->register_parameter(std::string(q_name) + ".qzeros", name##_->get_q_weight_zeros_awq(packing_num));        \
+    this->register_parameter(std::string(q_name) + ".scales", name##_->get_q_weight_scale_awq(1));                  \
+    this->register_parameter(std::string(k_name) + ".qweight", name##_->get_k_weight_awq(packing_num));             \
+    this->register_parameter(std::string(k_name) + ".qzeros", name##_->get_k_weight_zeros_awq(packing_num));        \
+    this->register_parameter(std::string(k_name) + ".scales", name##_->get_k_weight_scale_awq(1));                  \
+    this->register_parameter(std::string(v_name) + ".qweight", name##_->get_v_weight_awq(packing_num));             \
+    this->register_parameter(std::string(v_name) + ".qzeros", name##_->get_v_weight_zeros_awq(packing_num));        \
+    this->register_parameter(std::string(v_name) + ".scales", name##_->get_v_weight_scale_awq(1));                  \
+    if (name##_->has_q_bias())                                                                                      \
+        this->register_parameter(std::string(q_name) + ".bias", name##_->get_q_bias());                             \
+    if (name##_->has_k_bias())                                                                                      \
+        this->register_parameter(std::string(k_name) + ".bias", name##_->get_k_bias());                             \
+    if (name##_->has_v_bias())                                                                                      \
+        this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
+
+#define INFINILM_LEGACY_QKV_LINEAR_W4A16GPTQ_INIT(name, q_name, k_name, v_name, ...)                                \
+    name##_ = std::make_shared<layers::linear::LegacyQKVParallelLinear>(__VA_ARGS__);                                \
+    auto gptq_ptr = std::static_pointer_cast<infinicore::quantization::GPTQ_QY>(name##_->get_quantization());        \
+    int packing_num = gptq_ptr->get_packing_num();                                                                   \
+    this->register_parameter(std::string(q_name) + ".qweight", name##_->get_q_weight_awq(1));                        \
+    this->register_parameter(std::string(q_name) + ".qzeros", name##_->get_q_weight_zeros_awq(8));                   \
+    this->register_parameter(std::string(q_name) + ".scales", name##_->get_q_weight_scale_awq(1));                   \
+    this->register_parameter(std::string(q_name) + ".g_idx", name##_->get_q_g_idx_gptq());                           \
+    this->register_parameter(std::string(k_name) + ".qweight", name##_->get_k_weight_awq(1));                        \
+    this->register_parameter(std::string(k_name) + ".qzeros", name##_->get_k_weight_zeros_awq(8));                   \
+    this->register_parameter(std::string(k_name) + ".scales", name##_->get_k_weight_scale_awq(1));                   \
+    this->register_parameter(std::string(k_name) + ".g_idx", name##_->get_k_g_idx_gptq());                           \
+    this->register_parameter(std::string(v_name) + ".qweight", name##_->get_v_weight_awq(1));                        \
+    this->register_parameter(std::string(v_name) + ".qzeros", name##_->get_v_weight_zeros_awq(8));                   \
+    this->register_parameter(std::string(v_name) + ".scales", name##_->get_v_weight_scale_awq(1));                   \
+    this->register_parameter(std::string(v_name) + ".g_idx", name##_->get_v_g_idx_gptq());                           \
+    if (name##_->has_q_bias())                                                                                       \
+        this->register_parameter(std::string(q_name) + ".bias", name##_->get_q_bias());                              \
+    if (name##_->has_k_bias())                                                                                       \
+        this->register_parameter(std::string(k_name) + ".bias", name##_->get_k_bias());                              \
+    if (name##_->has_v_bias())                                                                                       \
+        this->register_parameter(std::string(v_name) + ".bias", name##_->get_v_bias());
+
+#define INFINILM_LEGACY_GATE_UP_LINEAR_INIT(name, gate_name, up_name, ...)                          \
+    name##_ = std::make_shared<layers::linear::LegacyGateUpParallelLinear>(__VA_ARGS__);            \
+    this->register_parameter(std::string(gate_name) + ".weight", name##_->get_gate_weight());      \
+    this->register_parameter(std::string(up_name) + ".weight", name##_->get_up_weight());          \
+    if (name##_->has_gate_bias())                                                                   \
+        this->register_parameter(std::string(gate_name) + ".bias", name##_->get_gate_bias());      \
+    if (name##_->has_up_bias())                                                                     \
+        this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
+
+#define INFINILM_LEGACY_GATE_UP_LINEAR_W8A8_INIT(name, gate_name, up_name, ...)                                  \
+    name##_ = std::make_shared<layers::linear::LegacyGateUpParallelLinear>(__VA_ARGS__);                          \
+    this->register_parameter(std::string(gate_name) + ".weight", name##_->get_gate_weight());                    \
+    this->register_parameter(std::string(gate_name) + ".weight_scale", name##_->get_gate_weight_scale());        \
+    this->register_parameter(std::string(up_name) + ".weight", name##_->get_up_weight());                        \
+    this->register_parameter(std::string(up_name) + ".weight_scale", name##_->get_up_weight_scale());            \
+    if (name##_->has_gate_bias())                                                                                 \
+        this->register_parameter(std::string(gate_name) + ".bias", name##_->get_gate_bias());                    \
+    if (name##_->has_up_bias())                                                                                   \
+        this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
+
+#define INFINILM_LEGACY_GATE_UP_LINEAR_W4A16AWQ_INIT(name, gate_name, up_name, ...)                            \
+    name##_ = std::make_shared<layers::linear::LegacyGateUpParallelLinear>(__VA_ARGS__);                        \
+    this->register_parameter(std::string(gate_name) + ".qweight", name##_->get_gate_weight_awq());              \
+    this->register_parameter(std::string(gate_name) + ".qzeros", name##_->get_gate_weight_zeros_awq());        \
+    this->register_parameter(std::string(gate_name) + ".scales", name##_->get_gate_weight_scale_awq());        \
+    this->register_parameter(std::string(up_name) + ".qweight", name##_->get_up_weight_awq());                  \
+    this->register_parameter(std::string(up_name) + ".qzeros", name##_->get_up_weight_zeros_awq());            \
+    this->register_parameter(std::string(up_name) + ".scales", name##_->get_up_weight_scale_awq());            \
+    if (name##_->has_gate_bias())                                                                               \
+        this->register_parameter(std::string(gate_name) + ".bias", name##_->get_gate_bias());                   \
+    if (name##_->has_up_bias())                                                                                 \
+        this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
+
+#define INFINILM_LEGACY_GATE_UP_LINEAR_W4A16GPTQ_INIT(name, gate_name, up_name, ...)                           \
+    name##_ = std::make_shared<layers::linear::LegacyGateUpParallelLinear>(__VA_ARGS__);                        \
+    this->register_parameter(std::string(gate_name) + ".qweight", name##_->get_gate_weight_awq());              \
+    this->register_parameter(std::string(gate_name) + ".qzeros", name##_->get_gate_weight_zeros_awq());        \
+    this->register_parameter(std::string(gate_name) + ".scales", name##_->get_gate_weight_scale_awq());        \
+    this->register_parameter(std::string(gate_name) + ".g_idx", name##_->get_gate_g_idx_gptq());               \
+    this->register_parameter(std::string(up_name) + ".qweight", name##_->get_up_weight_awq());                  \
+    this->register_parameter(std::string(up_name) + ".qzeros", name##_->get_up_weight_zeros_awq());            \
+    this->register_parameter(std::string(up_name) + ".scales", name##_->get_up_weight_scale_awq());            \
+    this->register_parameter(std::string(up_name) + ".g_idx", name##_->get_up_g_idx_gptq());                   \
+    if (name##_->has_gate_bias())                                                                               \
+        this->register_parameter(std::string(gate_name) + ".bias", name##_->get_gate_bias());                   \
+    if (name##_->has_up_bias())                                                                                 \
+        this->register_parameter(std::string(up_name) + ".bias", name##_->get_up_bias());
+// DEPRECATED END
+
+} // namespace infinilm::layers::linear
