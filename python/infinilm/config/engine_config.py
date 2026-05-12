@@ -40,6 +40,8 @@ class EngineConfig:
     top_p: float = 0.8
     top_k: int = 1
     enable_graph: bool = False
+    enable_chunk_prefill_graph: bool = False
+    chunk_size: int = 0
     attn_backend: str = "default"
     skip_load: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None

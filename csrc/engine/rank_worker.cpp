@@ -16,12 +16,14 @@ RankWorker::RankWorker(
     const cache::CacheConfig *cache_config,
     RankBarrier *barrier,
     bool enable_graph_compiling,
+    bool enable_chunk_prefill_graph,
     backends::AttentionBackend attention_backend)
     : infinilm_config_(infinilm_config),
       model_config_(infinilm_config->model_config),
       rank_info_(rank_info),
       attention_backend_(attention_backend),
       enable_graph_compiling_(enable_graph_compiling),
+      enable_chunk_prefill_graph_(enable_chunk_prefill_graph),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
@@ -270,7 +272,7 @@ void RankWorker::thread_loop() {
                 throw std::runtime_error("Failed to create model");
             }
             if (enable_graph_compiling_) {
-                compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
+                compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_, enable_chunk_prefill_graph_);
             }
 
             init_done_ = true;

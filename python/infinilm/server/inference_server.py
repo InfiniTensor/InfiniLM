@@ -110,6 +110,8 @@ class InferenceServer:
         host: str = "0.0.0.0",
         port: int = 8000,
         enable_graph: bool = False,
+        enable_chunk_prefill_graph: bool = False,
+        chunk_size: int = 0,
         attn_backend: str = "default",
         ignore_eos: bool = False,
         # PD disaggregation
@@ -134,6 +136,10 @@ class InferenceServer:
             host: Server host address.
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
+            enable_chunk_prefill_graph: Whether to enable chunk-prefill graph compiling.
+            chunk_size: Tokens per chunked-prefill slice (0 = disabled). When > 0 and paged
+                cache is used, long prompts are sliced and each slice goes through forward
+                separately so the C++ ChunkPrefillCompiler precompiled graph can be reused.
             attn_backend: Attention backend to use ('default', 'flash-attn').
         """
         self.model_path = model_path
@@ -154,6 +160,8 @@ class InferenceServer:
         self.host = host
         self.port = port
         self.enable_graph = enable_graph
+        self.enable_chunk_prefill_graph = enable_chunk_prefill_graph
+        self.chunk_size = chunk_size
         self.attn_backend = attn_backend
         self.ignore_eos = ignore_eos
         self.kv_transfer_config = kv_transfer_config
@@ -187,12 +195,16 @@ class InferenceServer:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
+                enable_chunk_prefill_graph=self.enable_chunk_prefill_graph,
+                chunk_size=self.chunk_size,
                 attn_backend=self.attn_backend,
                 kv_transfer_config=self.kv_transfer_config,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
             logger.info(f"  enable_graph: {self.enable_graph}")
+            logger.info(f"  enable_chunk_prefill_graph: {self.enable_chunk_prefill_graph}")
+            logger.info(f"  chunk_size: {self.chunk_size}")
             yield
             self.engine.stop()
 
@@ -589,6 +601,8 @@ def main():
         host=cfg.host,
         port=cfg.port,
         enable_graph=cfg.enable_graph,
+        enable_chunk_prefill_graph=cfg.enable_chunk_prefill_graph,
+        chunk_size=cfg.chunk_size,
         attn_backend=cfg.attn,
         ignore_eos=cfg.ignore_eos,
         kv_transfer_config=kv_transfer_config,
