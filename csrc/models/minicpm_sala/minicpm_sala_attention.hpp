@@ -24,10 +24,10 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, q_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, k_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, v_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> q_proj_;
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> k_proj_;
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> v_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;
@@ -42,8 +42,8 @@ protected:
     bool use_output_bias_;
 
     // For off-line kv cache quantization
-    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
-    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+    infinicore::nn::Parameter kv_cache_k_scale_;
+    infinicore::nn::Parameter kv_cache_v_scale_;
 };
 
 /**
@@ -60,7 +60,7 @@ public:
 
 protected:
     bool use_output_gate_;
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, o_gate);
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> o_gate_;
 };
 
 /**
@@ -79,10 +79,10 @@ protected:
     bool qk_norm_;
     bool use_output_norm_;
     bool use_output_gate_;
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, o_norm);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, z_proj);
+    std::shared_ptr<infinicore::nn::RMSNorm> q_norm_;
+    std::shared_ptr<infinicore::nn::RMSNorm> k_norm_;
+    std::shared_ptr<infinicore::nn::RMSNorm> o_norm_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> z_proj_;
 };
 
 } // namespace infinilm::models::minicpm_sala

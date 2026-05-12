@@ -20,7 +20,7 @@ public:
 
 private:
     size_t layer_idx_;
-    INFINICORE_NN_PARAMETER(weight);
+    infinicore::nn::Parameter weight_;
 };
 
 class Qwen3NextGatedDeltaNet : public infinicore::nn::Module {
@@ -33,13 +33,13 @@ public:
                                const infinicore::Tensor &hidden_states) const;
 
 private:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, in_proj_qkvz);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, in_proj_ba);
-    INFINICORE_NN_MODULE(FakeConv1d, conv1d);
-    INFINICORE_NN_PARAMETER(dt_bias);
-    INFINICORE_NN_PARAMETER(A_log);
-    INFINICORE_NN_MODULE(Qwen3Next_Fake_RMSNormGated, norm);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, out_proj);
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> in_proj_qkvz_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> in_proj_ba_;
+    std::shared_ptr<FakeConv1d> conv1d_;
+    infinicore::nn::Parameter dt_bias_;
+    infinicore::nn::Parameter A_log_;
+    std::shared_ptr<Qwen3Next_Fake_RMSNormGated> norm_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> out_proj_;
 
     size_t layer_idx_;
 };

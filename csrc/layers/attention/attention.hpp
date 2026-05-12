@@ -20,6 +20,10 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
 
+    void process_fused_weights_after_loading() {
+        qkv_proj_->process_weights_after_loading();
+    }
+
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }
     size_t num_kv_heads() const { return num_key_value_heads_; }
@@ -34,8 +38,8 @@ private:
                                       const infinicore::Tensor &hidden_states) const;
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
+    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 
     std::shared_ptr<AttentionLayer> attn_;
@@ -47,7 +51,11 @@ protected:
     size_t head_dim_;
 
     // For off-line kv cache quantization
-    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
-    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+    infinicore::nn::Parameter kv_cache_k_scale_;
+    infinicore::nn::Parameter kv_cache_v_scale_;
 };
+void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
+                              const infinicore::Device &device,
+                              infinicore::nn::Parameter &kv_cache_k_scale,
+                              infinicore::nn::Parameter &kv_cache_v_scale);
 } // namespace infinilm::layers::attention

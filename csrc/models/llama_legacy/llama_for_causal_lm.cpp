@@ -3,36 +3,6 @@
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
 namespace infinilm::models::llama_legacy {
-/**
- * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
- *
- * ⚠️ DEVELOPMENT POLICY:
- *   - NO new development or feature additions permitted on this interface
- *   - Only critical bug fixes (security/stability) allowed until removal
- *   - All new code MUST migrate to the polymorphic overload below
- *
- * Replacement: Use the polymorphic overload of this same function name with updated signature
- * Reason: Legacy signature lacks support for dynamic quantization modes.
- * Removal target: v0.2.0 (Q2 2026)
- */
-LlamaForCausalLM::LlamaForCausalLM(const LlamaConfig &config,
-                                   const infinicore::Device &device,
-                                   engine::distributed::RankInfo rank_info,
-                                   backends::AttentionBackend attention_backend) {
-    spdlog::warn("infinilm::models::llama_legacy: LlamaForCausalLM is no longer supported, please use the new model instead.");
-
-    // Initialize module's device_ member
-    device_ = device;
-    const auto &dtype{config.dtype};
-    // Initialize base model
-    INFINICORE_NN_MODULE_INIT(model, config, device, rank_info, attention_backend);
-
-    // Initialize language modeling head
-    // Note: If tie_word_embeddings is true, we would share weights with embed_tokens
-    // For now, we create a separate linear layer
-    INFINICORE_NN_MODULE_INIT(lm_head, config.hidden_size, config.vocab_size, false,
-                              dtype, device);
-}
 
 LlamaForCausalLM::LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                    const infinicore::Device &device,
@@ -40,17 +10,11 @@ LlamaForCausalLM::LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig
                                    backends::AttentionBackend attention_backend) {
     spdlog::warn("infinilm::models::llama_legacy: LlamaForCausalLM is no longer supported, please use the new model instead.");
 
-    // Initialize module's device_ member
     device_ = device;
     const auto &dtype{model_config->get_dtype()};
 
-    // Initialize base model
-    INFINICORE_NN_MODULE_INIT(model, model_config, device, rank_info, attention_backend);
-    // Initialize language modeling head
-    // Note: If tie_word_embeddings is true, we would share weights with embed_tokens
-    // For now, we create a separate linear layer
-
-    INFINICORE_NN_MODULE_INIT(lm_head, model_config->get<size_t>("hidden_size"), model_config->get<size_t>("vocab_size"), false,
+    model_ = this->register_module<LlamaModel>("model", model_config, device, rank_info, attention_backend);
+    lm_head_ = this->register_module<infinicore::nn::Linear>("lm_head", model_config->get<size_t>("hidden_size"), model_config->get<size_t>("vocab_size"), false,
                               dtype, device);
 }
 
@@ -64,11 +28,9 @@ LlamaForCausalLM::Output LlamaForCausalLM::forward(const Input &input) const {
     auto block_tables = input.block_tables;
     auto slot_mapping = input.slot_mapping;
 
-    // 1. Forward through base model to get hidden states
     auto hidden_states = model_->forward(
         input_ids, position_ids, past_sequence_lengths, total_sequence_length, input_offsets, cu_seqlens, block_tables, slot_mapping);
 
-    // 2. Apply language modeling head to get logits
     auto logits = lm_head_->forward(hidden_states);
     return {logits};
 }

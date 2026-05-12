@@ -15,9 +15,9 @@ MiniCPMSALADecoderLayer::MiniCPMSALADecoderLayer(std::shared_ptr<infinilm::confi
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-    INFINICORE_NN_MODULE_INIT(input_layernorm, hidden_size, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(post_attention_layernorm, hidden_size, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(mlp, model_config, device);
+    input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("input_layernorm", hidden_size, rms_norm_eps, dtype, device);
+    post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
+    mlp_ = this->register_module<MiniCPMMLP>("mlp", model_config, device);
 
     std::vector<std::string> mixer_types = model_config->get<std::vector<std::string>>("mixer_types");
     std::string mixer_type = mixer_types[layer_idx];

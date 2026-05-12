@@ -25,11 +25,11 @@ public:
     size_t layer_idx() const { return layer_idx_; }
 
 protected:
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
-    INFINICORE_NN_MODULE(Qwen3NextAttention, self_attn);
-    INFINICORE_NN_MODULE(Qwen3NextGatedDeltaNet, linear_attn);
-    INFINICORE_NN_MODULE(Qwen3NextSparseMoeBlock, mlp);
+    std::shared_ptr<infinicore::nn::RMSNorm> input_layernorm_;
+    std::shared_ptr<infinicore::nn::RMSNorm> post_attention_layernorm_;
+    std::shared_ptr<Qwen3NextAttention> self_attn_;
+    std::shared_ptr<Qwen3NextGatedDeltaNet> linear_attn_;
+    std::shared_ptr<Qwen3NextSparseMoeBlock> mlp_;
 
 private:
     size_t layer_idx_;

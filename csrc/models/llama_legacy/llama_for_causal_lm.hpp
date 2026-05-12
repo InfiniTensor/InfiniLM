@@ -28,23 +28,6 @@ public:
      * @param config Model configuration
      * @param device Device to create tensors on
      */
-    /**
-     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
-     *
-     * ⚠️ DEVELOPMENT POLICY:
-     *   - NO new development or feature additions permitted on this interface
-     *   - Only critical bug fixes (security/stability) allowed until removal
-     *   - All new code MUST migrate to the polymorphic overload below
-     *
-     * Replacement: Use the polymorphic overload of this same function name with updated signature
-     * Reason: Legacy signature lacks support for dynamic quantization modes.
-     * Removal target: v0.2.0 (Q2 2026)
-     */
-    LlamaForCausalLM(const LlamaConfig &config,
-                     const infinicore::Device &device,
-                     engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-                     backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
-
     LlamaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      const infinicore::Device &device,
                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
@@ -70,10 +53,10 @@ public:
 
 protected:
     // Base model
-    INFINICORE_NN_MODULE(LlamaModel, model);
+    std::shared_ptr<LlamaModel> model_;
 
     // Language modeling head
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, lm_head);
+    std::shared_ptr<infinicore::nn::Linear> lm_head_;
 
     std::unique_ptr<cache::CacheConfig> cache_config_;
 };

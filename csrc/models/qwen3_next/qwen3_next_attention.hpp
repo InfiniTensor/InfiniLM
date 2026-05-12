@@ -20,10 +20,10 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
+    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
+    std::shared_ptr<infinicore::nn::RMSNorm> q_norm_;
+    std::shared_ptr<infinicore::nn::RMSNorm> k_norm_;
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
@@ -35,8 +35,8 @@ protected:
     size_t head_dim_;
 
     // For off-line kv cache quantization
-    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
-    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+    infinicore::nn::Parameter kv_cache_k_scale_;
+    infinicore::nn::Parameter kv_cache_v_scale_;
 };
 
 } // namespace infinilm::models::qwen3_next
