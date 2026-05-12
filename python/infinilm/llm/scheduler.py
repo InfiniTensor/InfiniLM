@@ -28,10 +28,17 @@ class SchedulerOutput:
 class Scheduler:
     """Request scheduler with integrated BlockManager for KV cache management.
 
-    Scheduling logic:
-    1. Running queue: Check for new blocks needed, update slot_mapping
-    2. Waiting queue: Try block reuse (prefix caching), allocate new blocks
-    3. Reference counting: Free blocks when requests complete
+    Scheduling priority (option A + B):
+      1. Decode (running_queue) — latency-sensitive, never starves anyone.
+      2. New prefill (waiting_queue) — preempts in-flight chunking so newly
+         arrived short requests don't wait for an entire long prefill.
+      3. Continue chunked-prefill (chunking_queue) — single-request batch.
+
+    Anti-starvation (option B):
+      After `max_waiting_yields` consecutive steps where waiting_queue won
+      over a non-empty chunking_queue, the next step is forced onto the
+      chunking_queue. This bounds the worst-case delay a long-prompt request
+      can suffer when there is a steady inflow of new short requests.
     """
 
     def __init__(
@@ -39,43 +46,131 @@ class Scheduler:
         max_batch_size: int = 16,
         num_blocks: int = 512,
         block_size: int = 256,
+        max_waiting_yields: int = 4,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
+        # Requests in the middle of chunked-prefill — single-request batch only
+        # (matches the C++ ChunkPrefillCompiler graph signature).
+        self.chunking_queue = janus.Queue()
         self.max_batch_size = max_batch_size
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
         self.block_size = block_size
+
+        # ---- Anti-starvation state ----
+        # How many times waiting_queue has won over a non-empty chunking_queue
+        # since the last time chunking actually ran. Reset to 0 every time we
+        # run a chunking step.
+        self._waiting_yields_in_a_row: int = 0
+        # Upper bound on _waiting_yields_in_a_row before chunking is forced.
+        self.max_waiting_yields: int = max_waiting_yields
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
             request.status = RequestStatus.WAITING
             self.waiting_queue.sync_q.put(request)
 
+    # ------------------------------------------------------------------ #
+    #  Main scheduling entrypoint                                        #
+    # ------------------------------------------------------------------ #
     def schedule(self) -> Optional[SchedulerOutput]:
-        """Schedule and return batch of requests to execute."""
-        scheduled_requests = []
-        is_prefill = False
+        """Schedule and return batch of requests to execute.
 
-        # Process Waiting queue (prefill phase)
+        Priority (prefill first):
+        1. New prefill (waiting_queue) — minimize TTFT for new requests.
+        2. Decode (running_queue).
+        3. Continue chunked-prefill (chunking_queue).
+
+        Anti-starvation (only guards chunking against waiting):
+        After `max_waiting_yields` consecutive steps where waiting_queue won
+        over a non-empty chunking_queue, the next step is forced onto the
+        chunking_queue.
+        """
+        # 0) Forced chunking after too many consecutive waiting yields.
+        if self._waiting_yields_in_a_row >= self.max_waiting_yields:
+            chunking_out = self._try_schedule_chunking()
+            if chunking_out is not None:
+                self._waiting_yields_in_a_row = 0
+                return chunking_out
+            # chunking_queue was actually empty — fall through to normal path.
+
+        # 1) New prefill 
+        chunking_was_nonempty = self.chunking_queue.sync_q.qsize() > 0
+        waiting_out = self._try_schedule_waiting()
+        if waiting_out is not None:
+            if chunking_was_nonempty:
+                self._waiting_yields_in_a_row += 1
+            else:
+                self._waiting_yields_in_a_row = 0
+            return waiting_out
+
+        # 2) Decode.
+        chunking_was_nonempty = self.chunking_queue.sync_q.qsize() > 0
+        decode_out = self._try_schedule_decode()
+        if decode_out is not None:
+            if chunking_was_nonempty:
+                self._waiting_yields_in_a_row += 1
+            else:
+                self._waiting_yields_in_a_row = 0
+            return decode_out
+
+        # 3) Continue an in-flight chunked-prefill request.
+        chunking_out = self._try_schedule_chunking()
+        if chunking_out is not None:
+            self._waiting_yields_in_a_row = 0
+            return chunking_out
+
+        return None
+
+    # ------------------------------------------------------------------ #
+    #  Per-queue schedulers                                              #
+    # ------------------------------------------------------------------ #
+    def _try_schedule_chunking(self) -> Optional[SchedulerOutput]:
+        """Pull one in-flight chunked-prefill request and emit a single-request batch.
+
+        The C++ ChunkPrefillCompiler graph is keyed on (batch_size, chunk_size).
+        Python currently sends batch=1 — see chunk_prefill_compiler.cpp.
+        """
+        while True:
+            try:
+                req = self.chunking_queue.sync_q.get_nowait()
+            except queue.Empty:
+                return None
+            if req.is_finished():
+                # Drain finished entries silently and keep looking.
+                self.complete_requests([req])
+                continue
+            return SchedulerOutput(
+                scheduled_requests=[req],
+                is_prefill=True,
+            )
+
+    def _try_schedule_waiting(self) -> Optional[SchedulerOutput]:
+        """Pull new prefill requests from waiting_queue and form a prefill batch.
+
+        If any request triggers chunked-prefill (prompt_length > chunk_size > 0),
+        it's emitted alone as a single-request batch (the chunking graph requires
+        a uniform chunk_size across the batch, and we don't mix chunking with
+        regular prefill in the same batch).
+        """
+        scheduled_requests: List[InferenceRequest] = []
+
         while len(scheduled_requests) < self.max_batch_size:
             try:
                 req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
-            # Skip requests that were already finished (e.g., timed out/canceled while waiting)
+
+            # Skip requests that were already finished (timed out / canceled while waiting).
             if req.is_finished():
                 self.complete_requests([req])
                 continue
 
             if not self.can_accept_request(req):
+                # Put it back; we'll retry next tick when cache pressure eases.
                 self.waiting_queue.sync_q.put(req)
                 break
-
-            # Skip requests that were already finished (e.g., timed out/canceled while waiting)
-            if req.is_finished():
-                self.complete_requests([req])
-                continue
 
             req_tokens = req.get_input_tokens()
             num_required_blocks = req.get_num_blocks_required(self.block_size)
@@ -84,35 +179,53 @@ class Scheduler:
                 if not self.cache_manager.try_free_blocks(num_required_blocks):
                     raise RuntimeError("No available cache blocks for new request")
 
-            # Allocate blocks with automatic prefix caching support
-            req.block_table, req.slot_mapping, req.num_cached_tokens = (
-                self.cache_manager.allocate_blocks(req_tokens, req.block_table)
-            )
-
+            # Allocate blocks (prefix caching applied automatically).
+            if not req.block_table:
+                req.block_table, req.slot_mapping, req.num_cached_tokens = (
+                    self.cache_manager.allocate_blocks(req_tokens, req.block_table)
+                )
+                
             req.num_blocks = len(req.block_table)
             req.status = RequestStatus.RUNNING
+
+            # Start chunked-prefill: emit a single-request batch immediately
+            # to keep the C++ graph signature stable. The request will be
+            # requeued into chunking_queue by llm._update_requests after each
+            # chunk runs.
+            remaining = req.prompt_length - req.num_cached_tokens
+            if req.chunk_size > 0 and remaining > req.chunk_size:
+                req.chunk_prefill_offset = req.num_cached_tokens
+                if scheduled_requests:
+                    for already in scheduled_requests:
+                        already.status = RequestStatus.WAITING
+                        self.waiting_queue.sync_q.put(already)
+                return SchedulerOutput([req], is_prefill=True)
+
             scheduled_requests.append(req)
 
-        # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
-            is_prefill = True
             return SchedulerOutput(
                 scheduled_requests=scheduled_requests,
-                is_prefill=is_prefill,
+                is_prefill=True,
             )
+        return None
 
-        # Process Running queue (decode phase)
+    def _try_schedule_decode(self) -> Optional[SchedulerOutput]:
+        """Pull running_queue requests into a decode batch."""
+        scheduled_requests: List[InferenceRequest] = []
+
         while len(scheduled_requests) < self.max_batch_size:
             try:
                 req = self.running_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
-            # Skip requests that were already finished (e.g., timed out/canceled while running)
+
+            # Skip requests that were already finished (timed out / canceled while running).
             if req.is_finished():
                 self.complete_requests([req])
                 continue
 
-            # Decode phase: allocate slot for newly generated token
+            # Decode phase: allocate slot for newly generated token.
             try:
                 req.block_table, new_slot = self.cache_manager.append_slot(
                     req.block_table, req.get_total_length(), req.get_all_token_ids()
@@ -121,22 +234,30 @@ class Scheduler:
                 req.num_blocks = len(req.block_table)
                 req.num_cached_tokens = req.get_total_length() - 1
                 scheduled_requests.append(req)
-
             except RuntimeError as e:
                 raise RuntimeError("No available cache blocks for new token") from e
 
-        # Return decode batch if any running requests were scheduled
         if scheduled_requests:
-            is_prefill = False
             return SchedulerOutput(
                 scheduled_requests=scheduled_requests,
-                is_prefill=is_prefill,
+                is_prefill=False,
             )
-
         return None
 
+    # ------------------------------------------------------------------ #
+    #  External hooks (unchanged behavior)                               #
+    # ------------------------------------------------------------------ #
+    def requeue_chunking(self, req: InferenceRequest):
+        """Put a request back into the chunking queue after a chunk has run."""
+        self.chunking_queue.sync_q.put(req)
+
     def complete_requests(self, requests: List[InferenceRequest]):
-        """Handle completed requests and free their blocks."""
+        """Handle completed requests and free their blocks.
+
+        Active (non-finished) requests passed here are re-enqueued into the
+        running_queue — this is how prefill-finished requests migrate into
+        the decode pipeline.
+        """
         for req in requests:
             if req.status in [
                 RequestStatus.FINISHED,

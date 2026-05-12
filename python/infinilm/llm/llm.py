@@ -72,6 +72,8 @@ class EngineConfig:
     top_p: float = 0.8
     top_k: int = 1
     enable_graph: bool = False
+    enable_chunk_prefill_graph: bool = False
+    chunk_size: int = 0
     attn_backend: str = "default"
     skip_load: bool = False
 
@@ -91,6 +93,7 @@ class LLMEngine:
             device=self.device,
             distributed_config=DistConfig(config.tensor_parallel_size),
             enable_graph_compiling=config.enable_graph,
+            enable_chunk_prefill_graph=config.enable_chunk_prefill_graph,
             attention_backend=config.attn_backend,
         )
 
@@ -167,6 +170,8 @@ class LLMEngine:
 
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
+        if self.cache_type == "paged" and self.config.chunk_size > 0:
+            request.chunk_size = self.config.chunk_size
         self.scheduler.add_request(request)
 
     def step(self) -> tuple[list[InferenceRequest], list[tuple]]:
@@ -210,7 +215,18 @@ class LLMEngine:
         sampled_tokens: List[int],
     ) -> List[tuple]:
         """Update request status after inference step."""
-        if is_prefill:
+        # Detect a chunked-prefill mid-step: single request, prefill phase,
+        # and this chunk does not yet cover the whole prompt. In that case
+        # we must NOT consume a sampled token, NOT commit prefill blocks,
+        # and re-enqueue the request to keep chunking.
+        chunk_mid_step = (
+            is_prefill
+            and len(requests) == 1
+            and requests[0].is_chunking()
+            and not requests[0].chunk_is_last()
+        )
+
+        if is_prefill and not chunk_mid_step:
             match self.cache_type:
                 case "paged":
                     self.scheduler.cache_manager.reset_req_blocks()
@@ -218,6 +234,20 @@ class LLMEngine:
                     self.scheduler.update_cache()
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
+
+        if chunk_mid_step:
+            req = requests[0]
+            req.chunk_prefill_offset += req.chunk_size
+            # If this request was aborted while chunking, drop it.
+            if req.is_aborted():
+                logger.info(
+                    f"Request {req.request_id} aborted by client during chunked-prefill"
+                )
+                return []
+            # Re-enqueue to keep producing chunks; no token sampled yet.
+            self.scheduler.requeue_chunking(req)
+            return []
+
         pending = []
         for req, token_id in zip(requests, sampled_tokens):
             if req.is_aborted():
@@ -227,6 +257,10 @@ class LLMEngine:
                 continue
 
             if req.is_prefill:
+                # Clean up chunked-prefill state on the final chunk so the
+                # next forward pass on this request takes the decode path.
+                req.chunk_prefill_offset = 0
+                req.chunk_size = 0
                 req.is_prefill = False
 
             req.generated_token_ids.append(token_id)
@@ -361,6 +395,8 @@ class LLM:
         top_p: float = 0.8,
         top_k: int = 1,
         enable_graph: bool = False,
+        enable_chunk_prefill_graph: bool = False,
+        chunk_size: int = 0,
         attn_backend: str = "default",
         skip_load: bool = False,
     ):
@@ -398,6 +434,8 @@ class LLM:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            enable_chunk_prefill_graph=enable_chunk_prefill_graph,
+            chunk_size=chunk_size,
             attn_backend=attn_backend,
             skip_load=skip_load,
         )
@@ -539,6 +577,8 @@ class AsyncLLMEngine:
         top_p: float = 0.8,
         top_k: int = 1,
         enable_graph: bool = False,
+        enable_chunk_prefill_graph: bool = False,
+        chunk_size: int = 0,
         attn_backend: str = "default",
     ):
         """Initialize AsyncLLMEngine.
@@ -575,6 +615,8 @@ class AsyncLLMEngine:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            enable_chunk_prefill_graph=enable_chunk_prefill_graph,
+            chunk_size=chunk_size,
             attn_backend=attn_backend,
         )
         self.engine = LLMEngine(config)
@@ -620,8 +662,13 @@ class AsyncLLMEngine:
                 requests, pending = self.engine.step()
                 if not requests:
                     time.sleep(0.01)
-                elif pending:
-                    self._loop.call_soon_threadsafe(self._batch_put, pending)
+                else:
+                    if pending:
+                        self._loop.call_soon_threadsafe(self._batch_put, pending)
+                    # Yield GIL so the asyncio main thread can deliver tokens
+                    # to clients between inference steps. Without this, the step
+                    # thread monopolizes the GIL and token streaming stalls.
+                    time.sleep(0.0005)
             except Exception as e:
                 logger.error(f"Error in step loop: {e}", exc_info=True)
                 self._healthy = False

@@ -75,6 +75,7 @@ public:
                const cache::CacheConfig *cache_config,
                RankBarrier *barrier,
                bool enable_graph_compiling,
+               bool enable_chunk_prefill_graph,
                backends::AttentionBackend attention_backend);
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -82,6 +83,7 @@ public:
                const cache::CacheConfig *cache_config,
                RankBarrier *barrier,
                bool enable_graph_compiling,
+               bool enable_chunk_prefill_graph,
                backends::AttentionBackend attention_backend);
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
@@ -131,6 +133,7 @@ private:
 
     // Graph Compiling
     bool enable_graph_compiling_;
+    bool enable_chunk_prefill_graph_;
     std::unique_ptr<GraphCompiler> compiler_;
 
     // Command for the pending job (protected by mutex_)
