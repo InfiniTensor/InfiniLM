@@ -146,6 +146,11 @@ class InferenceRequest:
         self.num_cached_tokens: int = 0
         self.num_blocks: int = 0
 
+        # Chunked-prefill state (0 = disabled, otherwise tokens per chunk)
+        self.chunk_size: int = 0
+        # Number of prompt tokens already fed through forward as chunked-prefill
+        self.chunk_prefill_offset: int = 0
+
         # For server use
         self.request_data: Optional[dict] = request_data
         self.http_request: Optional[Any] = http_request
@@ -190,6 +195,18 @@ class InferenceRequest:
 
     def get_mm_token_index_mappings(self) -> Optional[List[dict]]:
         return self.mm_token_index_mappings
+
+    def is_chunking(self) -> bool:
+        """Return True if this request is in the middle of chunked-prefill."""
+        return (
+            self.chunk_size > 0
+            and self.is_prefill
+            and (self.prompt_length - self.num_cached_tokens) > self.chunk_size
+        )
+
+    def chunk_is_last(self) -> bool:
+        """Return True if the next chunk would finish the prompt."""
+        return self.chunk_prefill_offset + self.chunk_size >= self.prompt_length
 
     def is_finished(self) -> bool:
         return self.status in [

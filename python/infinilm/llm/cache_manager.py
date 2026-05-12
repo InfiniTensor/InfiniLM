@@ -143,7 +143,29 @@ class BlockManager:
 
         # Static args
         num_tokens = len(token_ids)
+        if num_tokens == 0:
+            return [], [], 0
+
         num_blocks = (num_tokens + self.block_size - 1) // self.block_size
+
+        # -------------------------------------------------------------- #
+        # Idempotent re-entry path (chunked-prefill may re-call this)     #
+        # -------------------------------------------------------------- #
+        # If block_table already covers the prompt AND all those blocks
+        # are still alive (ref_count > 0), reconstruct slot_mapping from
+        # block_table and return num_cached_tokens=0 (the forward will
+        # recompute everything into the same slots -- wasteful but always
+        # correct, and keeps the slot_mapping length convention).
+        if block_table and len(block_table) >= num_blocks:
+            bt = list(block_table[:num_blocks])
+            if all(self.blocks[bid].ref_count > 0 for bid in bt):
+                slot_mapping = [
+                    bt[i // self.block_size] * self.block_size + (i % self.block_size)
+                    for i in range(num_tokens)
+                ]
+                return bt, slot_mapping, 0
+            # Otherwise the block_table is stale -- drop it and re-allocate.
+            block_table = []
         num_full_blocks = num_tokens // self.block_size
         remain_tokens = num_tokens % self.block_size
         num_mm_inputs = (
