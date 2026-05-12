@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, Union
+from typing import Dict, Union, Optional, List
 import time
 import torch
 from safetensors import safe_open
@@ -170,6 +170,8 @@ def load_model_state_dict_by_file(
     print(" load weights ......")
     t1 = time.time()
 
+    model_type = model.hf_config.get("model_type", "")
+
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
@@ -189,6 +191,12 @@ def load_model_state_dict_by_file(
             model_param = load_state_dict(
                 file_path, device=torch_device, dtype=torch_dtype
             )
+
+            # Apply model-specific weight remapping
+            remapper = _WEIGHT_REMAPPER.get(model_type)
+            if remapper is not None:
+                model_param = remapper(model_param)
+
             already_loaded_keys.extend(model_param.keys())
 
             # --------------------------------------------------------- #
@@ -213,6 +221,11 @@ def load_model_state_dict_by_file(
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+
+        # Apply model-specific weight remapping
+        remapper = _WEIGHT_REMAPPER.get(model_type)
+        if remapper is not None:
+            model_params = remapper(model_params)
 
         # Scale embed_tokens on torch side before converting
         if "model.embed_tokens.weight" in model_params:
@@ -312,3 +325,92 @@ def load_model_state_dict_by_tensor(
 
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
+
+# ============================================================================
+# Common weight transformation utilities
+# ============================================================================
+
+def split_fused_weight(
+    state_dict: Dict[str, torch.Tensor],
+    fused_key: str,
+    output_names: List[str],
+    split_dim: int = 0,
+    split_ratios: Optional[List[float]] = None,
+) -> Dict[str, torch.Tensor]:
+    """Split fused weight tensors into separate weights.
+
+    Args:
+        state_dict: Original state dict from HuggingFace safetensors.
+        fused_key: Substring to match in key names (e.g. "gate_up_proj").
+        output_names: Names of the split outputs (e.g. ["gate_proj", "up_proj"]).
+        split_dim: Dimension along which to split. Default 0.
+        split_ratios: Optional ratios. If None, split equally.
+
+    Returns:
+        New state dict with fused keys replaced by split keys.
+    """
+    result = {}
+    for key, tensor in state_dict.items():
+        if fused_key not in key:
+            result[key] = tensor
+            continue
+
+        base_key = key.replace(f".{fused_key}.weight", "")
+        dim_size = tensor.shape[split_dim]
+        num_splits = len(output_names)
+
+        if split_ratios is not None:
+            total_ratio = sum(split_ratios)
+            sizes = [int(dim_size * r / total_ratio) for r in split_ratios[:-1]]
+            sizes.append(dim_size - sum(sizes))
+        else:
+            chunk = dim_size // num_splits
+            sizes = [chunk] * (num_splits - 1)
+            sizes.append(dim_size - chunk * (num_splits - 1))
+
+        splits = torch.split(tensor, sizes, dim=split_dim)
+        for name, split_tensor in zip(output_names, splits):
+            result[f"{base_key}.{name}.weight"] = split_tensor
+
+    return result
+
+
+def rename_keys(
+    state_dict: Dict[str, torch.Tensor],
+    mapping: Dict[str, str],
+) -> Dict[str, torch.Tensor]:
+    """Rename weight keys according to a substring mapping."""
+    result = {}
+    for key, tensor in state_dict.items():
+        new_key = key
+        for old_str, new_str in mapping.items():
+            new_key = new_key.replace(old_str, new_str)
+        result[new_key] = tensor
+    return result
+
+
+# ============================================================================
+# Model-specific remap functions
+# ============================================================================
+
+def _remap_glm4(state_dict):
+    """Split GLM-4 fused gate_up_proj into gate_proj + up_proj."""
+    return split_fused_weight(
+        state_dict,
+        fused_key="gate_up_proj",
+        output_names=["gate_proj", "up_proj"],
+    )
+
+
+# Add more model remap functions here as needed:
+#
+# def _remap_qwen3(state_dict):
+#     state_dict = split_fused_weight(state_dict, "gate_up_proj", ["gate_proj", "up_proj"])
+#     state_dict = rename_keys(state_dict, {"model.layers": "decoder.layers"})
+#     return state_dict
+
+# Model type → remap function mapping
+_WEIGHT_REMAPPER = {
+    "glm4": _remap_glm4,
+    # "qwen3": _remap_qwen3,
+}
