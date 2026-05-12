@@ -67,6 +67,7 @@ StaticKVCache::StaticKVCache(
          k_dim_},
         dtype_,
         rank_info.device);
+    set_zeros(k_caches_);
 
     // Allocate V cache
     v_caches_ = infinicore::Tensor::empty(
@@ -77,6 +78,9 @@ StaticKVCache::StaticKVCache(
          v_dim_},
         dtype_,
         rank_info.device);
+    set_zeros(v_caches_);
+
+    infinicore::context::syncStream();
 }
 
 infinicore::Tensor StaticKVCache::create_layer_kv_cache(
@@ -110,6 +114,9 @@ infinicore::Tensor StaticKVCache::create_layer_kv_cache(
          kv_dim},
         dtype,
         rank_info.device);
+    set_zeros(kv_cache);
+
+    infinicore::context::syncStream();
 
     return kv_cache;
 }
@@ -211,6 +218,7 @@ PagedKVCache::PagedKVCache(
          k_dim_},
         dtype_,
         rank_info.device);
+    set_zeros(k_caches_);
 
     // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
     v_caches_ = infinicore::Tensor::empty(
@@ -221,6 +229,9 @@ PagedKVCache::PagedKVCache(
          v_dim_},
         dtype_,
         rank_info.device);
+    set_zeros(v_caches_);
+
+    infinicore::context::syncStream();
 }
 
 infinicore::Tensor PagedKVCache::create_layer_kv_cache(
@@ -256,6 +267,9 @@ infinicore::Tensor PagedKVCache::create_layer_kv_cache(
         kv_shape,
         dtype,
         rank_info.device);
+    set_zeros(kv_cache);
+
+    infinicore::context::syncStream();
 
     return kv_cache;
 }
