@@ -15,16 +15,16 @@ Qwen3NextDecoderLayer::Qwen3NextDecoderLayer(std::shared_ptr<infinilm::config::M
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-    INFINICORE_NN_MODULE_INIT(input_layernorm, hidden_size, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(post_attention_layernorm, hidden_size, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(mlp, model_config, device);
+    input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("input_layernorm", hidden_size, rms_norm_eps, dtype, device);
+    post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
+    mlp_ = this->register_module<Qwen3NextSparseMoeBlock>("mlp", model_config, device);
 
     const std::vector<std::string> layer_types = model_config->get<std::vector<std::string>>("layer_types");
     layer_type_ = layer_types[layer_idx];
     if ("linear_attention" == layer_type_) {
-        INFINICORE_NN_MODULE_INIT(linear_attn, model_config, layer_idx, device);
+        linear_attn_ = this->register_module<Qwen3NextGatedDeltaNet>("linear_attn", model_config, layer_idx, device);
     } else if ("full_attention" == layer_type_) {
-        INFINICORE_NN_MODULE_INIT(self_attn, model_config, layer_idx, device);
+        self_attn_ = this->register_module<Qwen3NextAttention>("self_attn", model_config, layer_idx, device);
     } else {
         throw std::runtime_error("infinilm::models::qwen3_next::Qwen3NextDecoderLayer: unsupported layer_type '" + layer_type_ + "' for layer " + std::to_string(layer_idx));
     }

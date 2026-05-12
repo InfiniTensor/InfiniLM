@@ -14,7 +14,7 @@ public:
     infinicore::Tensor forward(const infinilm::InfinilmModel::Input &input) const;
 
 protected:
-    INFINICORE_NN_MODULE(Qwen3VLTextModel, language_model);
+    std::shared_ptr<Qwen3VLTextModel> language_model_;
 };
 
 class Qwen3VLForConditionalGeneration : public InfinilmModel {
@@ -27,8 +27,8 @@ public:
     void reset_cache(const cache::CacheConfig *cache_config) override;
 
 protected:
-    INFINICORE_NN_MODULE(Qwen3VLModel, model);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
+    std::shared_ptr<Qwen3VLModel> model_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
 };
 
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_vl_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config);

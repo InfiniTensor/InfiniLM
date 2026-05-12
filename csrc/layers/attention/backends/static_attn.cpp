@@ -30,7 +30,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
 
     auto k_scale = layer.get_k_scale();
     auto v_scale = layer.get_v_scale();
-    if (infinicore::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
+    if (infinilm::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
         infinilm::KVQuantUtils::quantize(
             k_reshaped, v_reshaped,
             this->kv_quant_scheme_,
@@ -65,7 +65,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     } else {
         size_t total_seq_len = reinterpret_cast<int32_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
 
-        if (infinicore::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
+        if (infinilm::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
             infinilm::KVQuantUtils::dequantize(
                 k_total, v_total,
                 this->kv_quant_scheme_,

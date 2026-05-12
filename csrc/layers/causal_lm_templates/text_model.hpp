@@ -99,9 +99,9 @@ public:
     }
 
 protected:
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
-    INFINICORE_NN_MODULE_VEC(DecoderLayer, layers);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
+    std::shared_ptr<infinicore::nn::Embedding> embed_tokens_;
+    std::vector<std::shared_ptr<DecoderLayer>> layers_;
+    std::shared_ptr<infinicore::nn::RMSNorm> norm_;
 };
 
 } // namespace infinilm::layers::causal_lm_templates

@@ -211,6 +211,7 @@ PagedKVCache::PagedKVCache(
          k_dim_},
         dtype_,
         rank_info.device);
+    set_zeros(k_caches_);
 
     // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
     v_caches_ = infinicore::Tensor::empty(
@@ -221,6 +222,9 @@ PagedKVCache::PagedKVCache(
          v_dim_},
         dtype_,
         rank_info.device);
+    set_zeros(v_caches_);
+
+    infinicore::context::syncStream();
 }
 
 infinicore::Tensor PagedKVCache::create_layer_kv_cache(

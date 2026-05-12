@@ -1,5 +1,6 @@
 #include "qwen3_attention.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
 
 namespace infinilm::models::qwen3 {
@@ -29,35 +30,15 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
     num_attention_heads_ = total_num_heads / tp_size;
     num_key_value_heads_ = total_num_kv_heads / tp_size;
 
-    auto quant_scheme = model_config->get_quant_scheme();
     auto quantization_method = model_config->get_quantization_method();
-    switch (quant_scheme) {
-    case infinicore::quantization::QuantScheme::NONE: {
-        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
-                                 quantization_method, use_bias, dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method,
-                                  use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    }
-    case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8: {
-        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
-                                      quantization_method, use_bias, dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method,
-                                  use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    }
-    case infinicore::quantization::QuantScheme::AWQ_W4A16: {
-        INFINILM_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
-                                          quantization_method, use_bias, dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method,
-                                  use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    }
-    default: {
-        throw std::runtime_error("infinilm::models::qwen3::Qwen3Attention: unsupported quantization scheme");
-        break;
-    }
-    }
+    auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
+    qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(
+        hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
+        "q_proj", "k_proj", "v_proj", register_fn,
+        quantization_method, use_bias, dtype, device, rank_info);
+    o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
+        "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
+        use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
 
     rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
 
@@ -65,24 +46,10 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
                                                                           kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
 
-    INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
+    q_norm_ = this->register_module<infinicore::nn::RMSNorm>("q_norm", head_dim_, rms_norm_eps, dtype, device);
+    k_norm_ = this->register_module<infinicore::nn::RMSNorm>("k_norm", head_dim_, rms_norm_eps, dtype, device);
 
-    auto kv_quant_scheme = infinilm::global_state::get_infinilm_config().model_config->get_kv_quant_scheme();
-    switch (kv_quant_scheme) {
-    case (infinicore::quantization::KVQuantAlgo::NONE): {
-        break;
-    }
-    case (infinicore::quantization::KVQuantAlgo::INT8): {
-        INFINICORE_NN_PARAMETER_INIT(kv_cache_k_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
-        INFINICORE_NN_PARAMETER_INIT(kv_cache_v_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
-        break;
-    }
-    default: {
-        throw std::runtime_error("infinilm::layers::attention: unsupported kv_quant_scheme");
-        break;
-    }
-    }
+    infinilm::layers::attention::init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
 }
 
 infinicore::Tensor Qwen3Attention::forward(const infinicore::Tensor &positions,

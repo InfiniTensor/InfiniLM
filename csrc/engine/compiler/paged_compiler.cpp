@@ -1,20 +1,7 @@
 #include "paged_compiler.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../utils.hpp"
 
-namespace {
-// Todo: replace with Tensor::zeros when it is available
-inline void set_zeros(infinicore::Tensor &tensor) {
-    std::vector<uint8_t> zeros(tensor->nbytes(), 0);
-    infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
-}
-
-inline void set_minus_one(infinicore::Tensor &tensor) {
-    // For int32 tensors, 0xFF bytes correspond to -1 in two's complement.
-    std::vector<uint8_t> minus_one(tensor->nbytes(), 0xFF);
-    infinicore::context::memcpyH2D(tensor->data(), minus_one.data(), tensor->nbytes(), false);
-}
-
-} // namespace
 namespace infinilm::engine {
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {
@@ -61,7 +48,6 @@ void PagedCompiler::compile() {
             const size_t block_per_req = nblocks;
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
-            set_zeros(input.slot_mapping.value());
 
             // Attention reads attn_metadata from thread-local forward context.
             infinilm::global_state::get_forward_context().attn_metadata = {

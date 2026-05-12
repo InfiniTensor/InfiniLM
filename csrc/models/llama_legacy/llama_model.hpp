@@ -37,23 +37,6 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
-    /**
-     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
-     *
-     * ⚠️ DEVELOPMENT POLICY:
-     *   - NO new development or feature additions permitted on this interface
-     *   - Only critical bug fixes (security/stability) allowed until removal
-     *   - All new code MUST migrate to the polymorphic overload below
-     *
-     * Replacement: Use the polymorphic overload of this same function name with updated signature
-     * Reason: Legacy signature lacks support for dynamic quantization modes.
-     * Removal target: v0.2.0 (Q2 2026)
-     */
-    LlamaModel(const LlamaConfig &config,
-               const infinicore::Device &device,
-               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
-               backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
-
     LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const infinicore::Device &device,
                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
@@ -96,25 +79,19 @@ public:
     size_t num_layers() const { return model_config_->get<size_t>("num_hidden_layers"); }
 
 protected:
-    // Token embeddings
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
+    std::shared_ptr<infinicore::nn::Embedding> embed_tokens_;
 
-    // Decoder layers
-    INFINICORE_NN_MODULE_VEC(LlamaDecoderLayer, layers);
+    std::vector<std::shared_ptr<LlamaDecoderLayer>> layers_;
 
-    // Final normalization
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
+    std::shared_ptr<infinicore::nn::RMSNorm> norm_;
 
-    // Rotary Position Embeddings (shared across all layers)
-    INFINICORE_NN_MODULE(infinicore::nn::RoPE, rotary_emb);
+    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 
     engine::distributed::RankInfo rank_info_;
 
     std::shared_ptr<cache::Cache> kv_cache_;
 
 private:
-    LlamaConfig config_;
-
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
