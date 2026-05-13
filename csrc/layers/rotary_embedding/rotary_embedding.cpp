@@ -1,8 +1,8 @@
 #include "rotary_embedding.hpp"
+#include <algorithm> // std::clamp
+#include <cmath>     // std::llround
 #include <string>
 #include <unordered_map>
-#include <cmath>       // std::llround
-#include <algorithm>   // std::clamp
 
 namespace infinilm::layers::rotary_embedding {
 namespace {
@@ -27,7 +27,7 @@ size_t get_rotary_dim(size_t head_dim, double partial_rotary_factor) {
 
 std::shared_ptr<infinicore::nn::RoPE> get_rope(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
                                                const infinicore::Device &device,
-					       infinicore::nn::RoPE::Algo algo) {
+                                               infinicore::nn::RoPE::Algo algo) {
     // 1. Get head dimension
     size_t head_dim = model_config->get_head_dim();
 
@@ -36,7 +36,6 @@ std::shared_ptr<infinicore::nn::RoPE> get_rope(const std::shared_ptr<infinilm::c
 
     // 3. Compute the actual rotary dimension
     size_t rotary_dim = get_rotary_dim(head_dim, partial_rotary_factor);
-
 
     // 4. Cache key must include rotary_dim to avoid reusing the same RoPE instance
     //    across models with different partial_rotary_factor values

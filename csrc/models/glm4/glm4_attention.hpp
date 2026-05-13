@@ -41,10 +41,10 @@ protected:
     // KV Cache quantization
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+
 private:
     infinicore::Tensor forward_static_(const infinicore::Tensor &positions, infinicore::Tensor &hidden_states);
     infinicore::Tensor forward_paged_(const infinicore::Tensor &positions, infinicore::Tensor &hidden_states);
 };
 
 } // namespace infinilm::models::glm4
-

@@ -30,4 +30,3 @@ INFINILM_REGISTER_CAUSAL_LM_MODEL(
     infinilm::models::glm4::Glm4ForCausalLM,
     infinilm::models::glm4::create_glm4_model_config);
 } // namespace
-

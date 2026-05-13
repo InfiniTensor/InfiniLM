@@ -1,12 +1,12 @@
 #pragma once
 
-#include "../../config/model_config.hpp"
 #include "../../backends/attention_backends.hpp"
+#include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
+#include "../../layers/mlp/mlp.hpp"
 #include "glm4_attention.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
-#include "../../layers/mlp/mlp.hpp"
 
 namespace infinilm::models::glm4 {
 
@@ -35,4 +35,3 @@ private:
 };
 
 } // namespace infinilm::models::glm4
-
