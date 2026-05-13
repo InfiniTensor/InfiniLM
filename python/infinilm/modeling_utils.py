@@ -140,7 +140,9 @@ def get_model_state_dict(
     if "model.embed_tokens.weight" in model_param:
         embed_tokens_unscaled = model_param["model.embed_tokens.weight"]
         if scale_emb != 1.0:
-            model_param["model.embed_tokens.weight"] = embed_tokens_unscaled * float(scale_emb)
+            model_param["model.embed_tokens.weight"] = embed_tokens_unscaled * float(
+                scale_emb
+            )
 
     if model_param.get("lm_head.weight", None) is None:
         # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
@@ -205,8 +207,9 @@ def load_model_state_dict_by_file(
             if "model.embed_tokens.weight" in model_param:
                 embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
                 if scale_emb != 1.0:
-                    model_param["model.embed_tokens.weight"] = \
+                    model_param["model.embed_tokens.weight"] = (
                         embed_tokens_torch_unscaled * float(scale_emb)
+                    )
 
             # --------------------------------------------------------- #
             #         model_param_infini references torch.Tensor
@@ -229,10 +232,13 @@ def load_model_state_dict_by_file(
 
         # Scale embed_tokens on torch side before converting
         if "model.embed_tokens.weight" in model_params:
-            embed_tokens_torch_unscaled = model_params["model.embed_tokens.weight"].to(dtype=torch_dtype)
+            embed_tokens_torch_unscaled = model_params["model.embed_tokens.weight"].to(
+                dtype=torch_dtype
+            )
             if scale_emb != 1.0:
-                model_params["model.embed_tokens.weight"] = \
+                model_params["model.embed_tokens.weight"] = (
                     embed_tokens_torch_unscaled * float(scale_emb)
+                )
 
         model_param_infini = {}
         for key in model_params.keys():
@@ -326,9 +332,11 @@ def load_model_state_dict_by_tensor(
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 
+
 # ============================================================================
 # Common weight transformation utilities
 # ============================================================================
+
 
 def split_fused_weight(
     state_dict: Dict[str, torch.Tensor],
@@ -392,6 +400,7 @@ def rename_keys(
 # ============================================================================
 # Model-specific remap functions
 # ============================================================================
+
 
 def _remap_glm4(state_dict):
     """Split GLM-4 fused gate_up_proj into gate_proj + up_proj."""

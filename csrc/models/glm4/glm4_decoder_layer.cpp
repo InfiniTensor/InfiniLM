@@ -14,11 +14,11 @@ Glm4DecoderLayer::Glm4DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig
         "self_attn", model_config, layer_idx, device);
 
     mlp_ = this->register_module<infinilm::layers::mlp::MLP>(
-        "mlp", model_config, device); 
+        "mlp", model_config, device);
 
     input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>(
         "input_layernorm", hidden_size, rms_norm_eps, dtype, device);
-    
+
     post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>(
         "post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
 
@@ -37,7 +37,7 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> Glm4DecoderLayer::forward(
     // 1. Attention Block
     residual = hidden_states;
     hidden_states = input_layernorm_->forward(hidden_states);
-    hidden_states = self_attn_->forward(positions, hidden_states); 
+    hidden_states = self_attn_->forward(positions, hidden_states);
     hidden_states = post_self_attn_layernorm_->forward(hidden_states);
     hidden_states = infinicore::op::add(residual, hidden_states);
 
@@ -54,11 +54,11 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> Glm4DecoderLayer::forward(
 infinicore::Tensor Glm4DecoderLayer::forward(
     const infinicore::Tensor &positions,
     infinicore::Tensor &hidden_states) {
-    
+
     auto residual = hidden_states;
     hidden_states = input_layernorm_->forward(hidden_states);
     hidden_states = self_attn_->forward(positions, hidden_states);
-    //hidden_states = post_attention_layernorm_->forward(hidden_states);
+    // hidden_states = post_attention_layernorm_->forward(hidden_states);
     hidden_states = post_self_attn_layernorm_->forward(hidden_states);
     hidden_states = infinicore::op::add(residual, hidden_states);
 
@@ -72,4 +72,3 @@ infinicore::Tensor Glm4DecoderLayer::forward(
 }
 
 } // namespace infinilm::models::glm4
-

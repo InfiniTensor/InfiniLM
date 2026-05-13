@@ -1,5 +1,5 @@
 #include "glm4_attention.hpp"
-#include "../../global_state/global_state.hpp" 
+#include "../../global_state/global_state.hpp"
 #include "../../layers/rotary_embedding/rotary_embedding.hpp"
 #include "../../utils.hpp"
 #include "infinicore/nn/linear.hpp"
@@ -24,7 +24,7 @@ Glm4Attention::Glm4Attention(std::shared_ptr<infinilm::config::ModelConfig> mode
       rotary_dim_(infinilm::layers::rotary_embedding::get_rotary_dim(model_config->get_head_dim(), model_config->get_or<double>("partial_rotary_factor", 1.0))),
       use_bias_(model_config->get_or<bool>("attention_bias", true)),
       use_output_bias_(model_config->get_or<bool>("attention_output_bias", false)) {
-      
+
     const auto &dtype{model_config_->get_dtype()};
 
     const engine::distributed::RankInfo &g_rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
@@ -65,7 +65,7 @@ Glm4Attention::Glm4Attention(std::shared_ptr<infinilm::config::ModelConfig> mode
     // RoPE initialization
     attention_backend_ = infinilm::global_state::get_infinilm_config().attention_backend;
     rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device, infinicore::nn::RoPE::Algo::GPT_J);
-    
+
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
         num_attention_heads_, head_dim_, scaling_,
         num_key_value_heads_, layer_idx_,
@@ -197,4 +197,3 @@ infinicore::Tensor Glm4Attention::forward_static_(const infinicore::Tensor &posi
 }
 
 } // namespace infinilm::models::glm4
-

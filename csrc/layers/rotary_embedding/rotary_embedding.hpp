@@ -1,8 +1,8 @@
 #pragma once
 
-#include <memory>
-#include "infinicore/nn/rope.hpp"
 #include "../../config/model_config.hpp"
+#include "infinicore/nn/rope.hpp"
+#include <memory>
 
 namespace infinilm::layers::rotary_embedding {
 
