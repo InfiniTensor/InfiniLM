@@ -6,9 +6,10 @@
 #include "../../engine/distributed/distributed.hpp"
 #include "../../layers/linear/fused_linear.hpp"
 #include "../../layers/quantization/kv_quant.hpp"
+#include "legacy_fused_linear.hpp"
 #include "llama_config.hpp"
 
-#include "../../layers/linear/linear.hpp"
+#include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
@@ -20,15 +21,6 @@
 
 namespace infinilm::models::llama_legacy {
 
-/**
- * @brief Multi-head self-attention module for Llama
- *
- * Implements the attention mechanism with:
- * - Query, Key, Value projections
- * - Output projection
- * - Rotary Position Embeddings (RoPE) applied to Q and K
- * - Support for Grouped Query Attention (GQA)
- */
 class LlamaAttention : public infinicore::nn::Module {
 public:
     /**
@@ -39,6 +31,24 @@ public:
      * @param layer_idx Layer index for cache access
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
+    /**
+     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+     *
+     * ⚠️ DEVELOPMENT POLICY:
+     *   - NO new development or feature additions permitted on this interface
+     *   - Only critical bug fixes (security/stability) allowed until removal
+     *   - All new code MUST migrate to the polymorphic overload below
+     *
+     * Replacement: Use the polymorphic overload of this same function name with updated signature
+     * Reason: Legacy signature lacks support for dynamic quantization modes.
+     * Removal target: v0.2.0 (Q2 2026)
+     */
+    LlamaAttention(const LlamaConfig &config,
+                   const infinicore::Device &device,
+                   size_t layer_idx,
+                   engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                   backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
+
     LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
                    size_t layer_idx,
@@ -97,18 +107,19 @@ private:
 
 protected:
     // Projection layers
-    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
-    std::shared_ptr<infinilm::nn::RowParallelLinear> o_proj_;
-    std::shared_ptr<infinicore::nn::RMSNorm> q_norm_;
-    std::shared_ptr<infinicore::nn::RMSNorm> k_norm_;
+    INFINICORE_NN_MODULE(layers::linear::LegacyQKVParallelLinear, qkv_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
+
     engine::distributed::RankInfo rank_info_;
 
     // Shared Rotary Position Embeddings (RoPE)
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 
     // For off-line kv cache quantization
-    infinicore::nn::Parameter kv_cache_k_scale_;
-    infinicore::nn::Parameter kv_cache_v_scale_;
+    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
+    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 
 private:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_ = std::make_shared<infinilm::config::ModelConfig>();
