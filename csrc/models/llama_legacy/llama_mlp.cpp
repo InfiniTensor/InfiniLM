@@ -1,29 +1,81 @@
 #include "llama_mlp.hpp"
-#include "../../layers/linear/linear.hpp"
+#include "infinicore/nn/linear.hpp"
 #include "infinicore/ops.hpp"
 
 namespace infinilm::models::llama_legacy {
 
+using layers::linear::to_legacy_quant;
+using layers::linear::to_legacy_quant_scheme;
+/**
+ * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+ *
+ * ⚠️ DEVELOPMENT POLICY:
+ *   - NO new development or feature additions permitted on this interface
+ *   - Only critical bug fixes (security/stability) allowed until removal
+ *   - All new code MUST migrate to the polymorphic overload below
+ *
+ * Replacement: Use the polymorphic overload of this same function name with updated signature
+ * Reason: Legacy signature lacks support for dynamic quantization modes.
+ * Removal target: v0.2.0 (Q2 2026)
+ */
+LlamaMLP::LlamaMLP(const LlamaConfig &config,
+                   const infinicore::Device &device,
+                   engine::distributed::RankInfo rank_info)
+    : hidden_size_(config.hidden_size),
+      intermediate_size_(config.intermediate_size),
+      use_bias_(config.mlp_bias), rank_info_(rank_info) {
+    const auto &dtype{config.dtype};
+
+    int tp_rank = rank_info.tp_rank;
+    int tp_size = rank_info.tp_size;
+
+    // Initialize projection layers
+    INFINILM_LEGACY_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
+                                 dtype, device, rank_info_);
+    INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
+                              dtype, device, tp_rank, tp_size, rank_info.comm);
+}
+
 LlamaMLP::LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
                    engine::distributed::RankInfo rank_info)
-    : model_config_(model_config), hidden_size_(model_config_->get<size_t>("hidden_size")),
-      intermediate_size_(model_config_->get<size_t>("intermediate_size")),
-      use_bias_(model_config_->get_or<bool>("mlp_bias", false)), rank_info_(rank_info) {
+    : model_config_(model_config), hidden_size_(model_config->get<size_t>("hidden_size")),
+      intermediate_size_(model_config->get<size_t>("intermediate_size")),
+      use_bias_(model_config->get_or<bool>("mlp_bias", false)), rank_info_(rank_info) {
 
     const auto &dtype{model_config_->get_dtype()};
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
 
-    auto quantization_method = this->model_config_->get_quantization_method();
-    auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
-    gate_up_proj_ = std::make_shared<layers::linear::GateUpParallelLinear>(
-        hidden_size_, intermediate_size_, "gate_proj", "up_proj", register_fn,
-        quantization_method, use_bias_, dtype, device, rank_info_);
-    down_proj_ = this->register_module<infinilm::nn::RowParallelLinear>(
-        "down_proj", intermediate_size_, hidden_size_, quantization_method, use_bias_,
-        dtype, device, tp_rank, tp_size, rank_info.comm);
+    // Initialize projection layers
+    auto quant_scheme = to_legacy_quant_scheme(this->model_config_->get_quant_scheme());
+    switch (quant_scheme) {
+    case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
+        INFINILM_LEGACY_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
+                                          dtype, device, rank_info_);
+        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+    case infinicore::quantization::QuantScheme::AWQ_W4A16:
+        INFINILM_LEGACY_GATE_UP_LINEAR_W4A16AWQ_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
+                                              dtype, device, rank_info_);
+        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+    case infinicore::quantization::QuantScheme::GPTQ_W4A16_QY:
+        INFINILM_LEGACY_GATE_UP_LINEAR_W4A16GPTQ_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
+                                               dtype, device, rank_info_);
+        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+    default:
+        INFINILM_LEGACY_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
+                                     dtype, device, rank_info_);
+        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, to_legacy_quant(this->model_config_->get_quantization_method()), use_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+    }
 }
 
 infinicore::Tensor LlamaMLP::forward(const infinicore::Tensor &hidden_states) const {

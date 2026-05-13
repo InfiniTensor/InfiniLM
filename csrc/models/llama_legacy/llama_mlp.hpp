@@ -1,11 +1,11 @@
 #pragma once
 
-#include "../../layers/linear/fused_linear.hpp"
+#include "./legacy_fused_linear.hpp"
 #include "llama_config.hpp"
 
 #include "../../config/model_config.hpp"
 #include "infinicore/device.hpp"
-#include "../../layers/linear/linear.hpp"
+#include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 #include "llama_config.hpp"
@@ -34,6 +34,22 @@ public:
      * @param device Device to create tensors on
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
+    /**
+     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+     *
+     * ⚠️ DEVELOPMENT POLICY:
+     *   - NO new development or feature additions permitted on this interface
+     *   - Only critical bug fixes (security/stability) allowed until removal
+     *   - All new code MUST migrate to the polymorphic overload below
+     *
+     * Replacement: Use the polymorphic overload of this same function name with updated signature
+     * Reason: Legacy signature lacks support for dynamic quantization modes.
+     * Removal target: v0.2.0 (Q2 2026)
+     */
+    LlamaMLP(const LlamaConfig &config,
+             const infinicore::Device &device,
+             engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
     LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
              const infinicore::Device &device,
              engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
@@ -51,8 +67,8 @@ public:
     size_t intermediate_size() const { return intermediate_size_; }
 
 protected:
-    std::shared_ptr<layers::linear::GateUpParallelLinear> gate_up_proj_;
-    std::shared_ptr<infinilm::nn::RowParallelLinear> down_proj_;
+    INFINICORE_NN_MODULE(layers::linear::LegacyGateUpParallelLinear, gate_up_proj);
+    INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
 
     engine::distributed::RankInfo rank_info_;
     size_t hidden_size_;
