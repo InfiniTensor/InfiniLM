@@ -51,17 +51,22 @@ PY
 
 start_server() {
   local moe_mode="$1"
+  local router_mode="${2:-}"
   cleanup
   free_port
   sleep 1
 
+  unset INFINILM_MOE_ROUTER
   case "$moe_mode" in
     baseline) export INFINILM_FORCE_MOE_BACKEND=baseline ;;
     vllm_fused) export INFINILM_FORCE_MOE_BACKEND=vllm_fused ;;
     *) echo "unknown moe_mode=$moe_mode" >&2; exit 2 ;;
   esac
+  if [[ "$router_mode" == "cpu" ]]; then
+    export INFINILM_MOE_ROUTER=cpu
+  fi
 
-  echo "[e2e] starting server port=$PORT INFINILM_FORCE_MOE_BACKEND=${INFINILM_FORCE_MOE_BACKEND:-}" >&2
+  echo "[e2e] starting server port=$PORT INFINILM_FORCE_MOE_BACKEND=${INFINILM_FORCE_MOE_BACKEND:-} INFINILM_MOE_ROUTER=${INFINILM_MOE_ROUTER:-<unset>}" >&2
   cd "$REPO/InfiniLM/python"
   python3 -m infinilm.server.inference_server --nvidia \
     --model_path "$MODEL" \
@@ -96,7 +101,15 @@ start_server() {
 tag_json() {
   local path="$1"
   local backend="$2"
-  python3 -c "import json,sys; p=sys.argv[1]; b=sys.argv[2]; d=json.load(open(p,encoding='utf-8')); d['infinilm_moe_backend']=b; json.dump(d,open(p,'w',encoding='utf-8'),indent=2,ensure_ascii=False)" "$path" "$backend"
+  python3 -c "
+import json, os, sys
+p, b = sys.argv[1], sys.argv[2]
+d = json.load(open(p, encoding='utf-8'))
+d['infinilm_moe_backend'] = b
+r = os.environ.get('INFINILM_MOE_ROUTER')
+d['infinilm_moe_router'] = r if r else 'default'
+json.dump(d, open(p, 'w', encoding='utf-8'), indent=2, ensure_ascii=False)
+" "$path" "$backend"
 }
 
 run_perf() {
@@ -149,6 +162,28 @@ run_perf "$ART/e2e_infini_server_vllm_fused_c8.json" \
   --max-tokens 64 \
   --warmup-requests 1
 
+cleanup
+sleep 3
+
+# --- vllm_fused + CPU router (same probes as fused default; MoE router path A/B) ---
+start_server vllm_fused cpu
+run_perf "$ART/e2e_infini_server_vllm_fused_router_cpu_c1_hi.json" \
+  --base-url "http://127.0.0.1:${PORT}/v1" \
+  --model "$MODEL_ID" \
+  --num-requests 8 \
+  --concurrency 1 \
+  --max-tokens 4 \
+  --prompt "Hi" \
+  --warmup-requests 2
+
+run_perf "$ART/e2e_infini_server_vllm_fused_router_cpu_c8.json" \
+  --base-url "http://127.0.0.1:${PORT}/v1" \
+  --model "$MODEL_ID" \
+  --num-requests 8 \
+  --concurrency 8 \
+  --max-tokens 64 \
+  --warmup-requests 1
+
 echo "=== E2E MoE benefit summary (see JSON under $ART) ===" >&2
 python3 -c "
 import json, os
@@ -158,11 +193,14 @@ rows = [
   'e2e_infini_server_baseline_c8.json',
   'e2e_infini_server_vllm_fused_c1_hi.json',
   'e2e_infini_server_vllm_fused_c8.json',
+  'e2e_infini_server_vllm_fused_router_cpu_c1_hi.json',
+  'e2e_infini_server_vllm_fused_router_cpu_c8.json',
 ]
 for name in rows:
   p = os.path.join(art, name)
   d = json.load(open(p, encoding='utf-8'))
-  print(name, 'backend=', d.get('infinilm_moe_backend'), 'rps=', round(d.get('requests_per_second', 0), 3),
+  print(name, 'backend=', d.get('infinilm_moe_backend'), 'router=', d.get('infinilm_moe_router'),
+        'rps=', round(d.get('requests_per_second', 0), 3),
         'avg_ttft_s=', round(d.get('avg_ttft_s', 0), 4),
         'avg_decode_ms_per_chunk=', round(d.get('avg_decode_ms_per_chunk', 0) or 0, 2),
         'avg_latency_s=', round(d.get('avg_latency_s', 0), 3))
