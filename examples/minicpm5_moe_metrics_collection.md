@@ -122,7 +122,7 @@ docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=1 REPO=/home/zeng
 
 ### 1.2 vLLM (`vllm_bench_match_jiuge.py`)
 
-**Interpreter:** `source "$REPO/.venv-vllm/bin/activate"`  
+**Interpreter:** `source "$REPO/.venv-vllm/bin/activate"`
 **Env:** `PYTHONPATH="$REPO/InfiniLM/examples/vllm_patches${PYTHONPATH:+:$PYTHONPATH}"`, `export MODEL=...`, `TORCHDYNAMO_DISABLE=1`.
 
 ```bash
@@ -271,38 +271,40 @@ Without `--prompt`, each request picks a **random** line from `test_perf.py`’s
 **One-shot:** set GPU **inside** `docker exec`:
 
 ```bash
-docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=1; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_e2e_server_moe_benefit.sh'
+docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=2; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_e2e_server_moe_benefit.sh'
 ```
 
-**Session snapshot (2026-05-14, inner `export CUDA_VISIBLE_DEVICES=1`, A100, port `8016`, `num_requests=8`):** lighter load than the default §2.1 table (8 vs 32 requests); use for **relative** baseline vs fused only.
+**Session snapshot (reproduced 2026-05-14 in `minicpm5-moe`, inner `export CUDA_VISIBLE_DEVICES=2`, A100, port `8016`, `num_requests=8`, `INFINILM_MOE_FUSED_STACK=vendor` on `vllm_fused` rows):** lighter load than the default §2.1 table (8 vs 32 requests); use for **relative** baseline vs fused only.
 
 | Probe | `infinilm_moe_backend` | `requests_per_second` | `avg_ttft_s` | `avg_decode_ms_per_chunk` | `avg_latency_s` |
 |--------|------------------------|------------------------:|-------------:|---------------------------:|----------------:|
-| c=1, `--prompt "Hi"`, `max_tokens=4` | `baseline` | 1.77 | 0.41 | 51.36 | 0.56 |
-| same | `vllm_fused` | 2.28 | 0.36 | 24.68 | 0.44 |
-| c=8, random `PROMPTS`, `max_tokens=64` | `baseline` | 0.29 | 5.37 | 346.94 | 27.23 |
-| same | `vllm_fused` | 0.35 | 0.58 | 352.60 | 22.80 |
+| c=1, `--prompt "Hi"`, `max_tokens=4` | `baseline` | 1.78 | 0.41 | 51.04 | 0.56 |
+| same | `vllm_fused` | 2.08 | 0.37 | 36.15 | 0.48 |
+| c=8, random `PROMPTS`, `max_tokens=64` | `baseline` | 0.30 | 5.94 | 322.56 | 26.26 |
+| same | `vllm_fused` | 0.31 | 1.83 | 380.89 | 25.83 |
 
 **Concurrency:** `avg_decode_ms_per_chunk` stays large under **c=8** for both backends (streaming wall / chunk definition in `test_perf.py`); end-to-end **`avg_latency_s`** and **`avg_ttft_s`** still improved with `vllm_fused` in this snapshot. Remaining server-side batching / router CPU work is expected; see NVTX ranges in `minicpm5_moe_inference_profiling.md` and `MiniCPM5MoeVllmFusedSparseMoeBlock` for where time goes.
 
-**Artifacts:** `e2e_infini_server_baseline_c1_hi.json`, `e2e_infini_server_baseline_c8.json`, `e2e_infini_server_vllm_fused_c1_hi.json`, `e2e_infini_server_vllm_fused_c8.json` in `InfiniLM/examples/bench_artifacts/`.
+**Artifacts:** `e2e_infini_server_baseline_c1_hi.json`, `e2e_infini_server_baseline_c8.json`, `e2e_infini_server_vllm_fused_c1_hi.json`, `e2e_infini_server_vllm_fused_c8.json` in `InfiniLM/examples/bench_artifacts/`. The `vllm_fused` JSONs are the **vendor fused stack** leg for §2.1.3 (`INFINILM_MOE_FUSED_STACK=vendor`, set by current `run_e2e_server_moe_benefit.sh`).
 
-### 2.1.2 MoE **router** A/B (`vllm_fused`, GPU grouped topk vs `INFINILM_MOE_ROUTER=cpu`)
+### 2.1.2 MoE **router** A/B (`vllm_fused`, **vendor stack only**: GPU grouped topk vs `INFINILM_MOE_FUSED_STACK=vendor_router_cpu`)
 
-`INFINILM_MOE_ROUTER` is evaluated per forward (CPU path forces `run_router_topk_cpu` + pack); **`INFINILM_FORCE_MOE_BACKEND`** stays `vllm_fused`. Use **separate subprocesses** (smoke) or **server restarts** (e2e), same as backend switching.
+This is **not** the vendor↔PyPI-vLLM **fused stack** gap (that is **§2.1.3**). Here **`INFINILM_MOE_FUSED_STACK`** is **`vendor`** (GPU router when the bridge succeeds) vs **`vendor_router_cpu`** (forced CPU router + pack). [`run_e2e_server_moe_benefit.sh`](InfiniLM/examples/run_e2e_server_moe_benefit.sh) exports **`INFINILM_MOE_FUSED_STACK=vendor`** on the first `vllm_fused` boot and **`vendor_router_cpu`** on the third pass.
 
-**Smoke correctness** — [`run_correctness_bench_smoke.sh`](InfiniLM/examples/run_correctness_bench_smoke.sh): step 2 is **`vllm_fused`** with router default (GPU `minicpm5_grouped_sigmoid_topk` when registered); step 4 is **`vllm_fused` + `INFINILM_MOE_ROUTER=cpu`**. The script prints `generated_text_match` / `generated_token_ids_match` for the greedy `Hi` / 4 new tokens case.
+The fused block evaluates the stack per forward; **`INFINILM_FORCE_MOE_BACKEND`** stays `vllm_fused`. Use **separate subprocesses** (smoke) or **server restarts** (e2e), same as backend switching.
 
-**E2e benefit** — [`run_e2e_server_moe_benefit.sh`](InfiniLM/examples/run_e2e_server_moe_benefit.sh): after baseline and the first **`vllm_fused`** server (router default), a third server boot runs **`vllm_fused` + `INFINILM_MOE_ROUTER=cpu`** with the same `test_perf.py` probes. JSON files include `infinilm_moe_router` (`default` = unset, `cpu` = forced CPU router).
+**Smoke correctness** — [`run_correctness_bench_smoke.sh`](InfiniLM/examples/run_correctness_bench_smoke.sh): step 2 is **`vllm_fused`** with default stack (**`vendor`**); step 4 is **`vllm_fused` + `INFINILM_MOE_FUSED_STACK=vendor_router_cpu`**. The script prints `generated_text_match` / `generated_token_ids_match` for the greedy `Hi` / 4 new tokens case.
+
+**E2e benefit** — [`run_e2e_server_moe_benefit.sh`](InfiniLM/examples/run_e2e_server_moe_benefit.sh): after baseline and the first **`vllm_fused`** server (**`vendor`**), a third server boot runs **`vllm_fused` + `vendor_router_cpu`** with the same `test_perf.py` probes. JSON files record **`infinilm_moe_fused_stack`** (`vendor` vs `vendor_router_cpu` on fused rows).
 
 **One-shot (GPU inside `docker exec`):**
 
 ```bash
-docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=1; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_correctness_bench_smoke.sh'
-docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=1; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_e2e_server_moe_benefit.sh'
+docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=2; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_correctness_bench_smoke.sh'
+docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=2; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_e2e_server_moe_benefit.sh'
 ```
 
-**Session snapshot (2026-05-14, inner `export CUDA_VISIBLE_DEVICES=1`, A100 80GB, port `8016`, `num_requests=8`):**
+**Session snapshot (same repro as §2.1.1: 2026-05-14, `CUDA_VISIBLE_DEVICES=2`, A100 80GB, port `8016`, `num_requests=8`):**
 
 | Stage | Pass / note |
 |-------|----------------|
@@ -311,41 +313,61 @@ docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=1; bash /home/zen
 
 **E2E router-only (`vllm_fused`, same `test_perf` flags as §2.1.1):**
 
-| Probe | `infinilm_moe_router` | `requests_per_second` | `avg_ttft_s` | `avg_decode_ms_per_chunk` | `avg_latency_s` |
-|--------|------------------------|------------------------:|-------------:|---------------------------:|----------------:|
-| c=1, `--prompt "Hi"`, `max_tokens=4` | `default` (GPU router) | 2.08 | 0.37 | 35.75 | 0.48 |
-| same | `cpu` | 2.28 | 0.37 | 23.90 | 0.44 |
-| c=8, random `PROMPTS`, `max_tokens=64` | `default` | 0.34 | 1.13 | 357.49 | 23.66 |
-| same | `cpu` | 0.35 | 0.64 | 352.47 | 22.84 |
+| Probe | `infinilm_moe_fused_stack` | `requests_per_second` | `avg_ttft_s` | `avg_decode_ms_per_chunk` | `avg_latency_s` |
+|--------|---------------------------|------------------------:|-------------:|---------------------------:|----------------:|
+| c=1, `--prompt "Hi"`, `max_tokens=4` | `vendor` (GPU router) | 2.08 | 0.37 | 36.15 | 0.48 |
+| same | `vendor_router_cpu` | 2.30 | 0.36 | 24.03 | 0.44 |
+| c=8, random `PROMPTS`, `max_tokens=64` | `vendor` | 0.31 | 1.83 | 380.89 | 25.83 |
+| same | `vendor_router_cpu` | 0.36 | 0.88 | 339.98 | 22.29 |
 
-**Artifacts (router):** `single_prompt_infini_smoke_vllm_fused_router_cpu.json`; `e2e_infini_server_vllm_fused_router_cpu_c1_hi.json`, `e2e_infini_server_vllm_fused_router_cpu_c8.json` (R-gpu e2e reuses `e2e_infini_server_vllm_fused_c{1,8}.json` from §2.1.1).
+**Artifacts (router):** `single_prompt_infini_smoke_vllm_fused_router_cpu.json`; `e2e_infini_server_vllm_fused_router_cpu_c1_hi.json`, `e2e_infini_server_vllm_fused_router_cpu_c8.json` (R-gpu e2e reuses `e2e_infini_server_vllm_fused_c{1,8}.json` from §2.1.1; re-run `run_e2e_server_moe_benefit.sh` to refresh JSON with `infinilm_moe_fused_stack` set to **`vendor`** vs **`vendor_router_cpu`** on the router A/B rows).
 
-### 2.1.3 E2E with **vLLM-imported** router (`INFINILM_MOE_ROUTER_ENGINE=vllm_poc`)
+### 2.1.3 E2E **vendor vs upstream** fused stack (server concurrency overhead gap)
 
-This path calls `vllm.model_executor.layers.fused_moe.router.grouped_topk_router.grouped_topk` from Python (see [`minicpm5_grouped_sigmoid_topk.py`](InfiniCore/python/infinicore/vendor/vllm_fused_moe/minicpm5_grouped_sigmoid_topk.py)). **Image `python3` has no `vllm`**, so the server must run under **`$REPO/.venv-vllm/bin/python`**. That venv’s Transformers stack failed **paged** KV startup (`invalid static kv cache config type`); the scripted run therefore uses **`--cache_type static`** and **`--attn default`** (venv usually has no `flash_attn`). **Do not compare these numbers directly to §2.1.1 / §2.1.2** (flash-attn + paged + system interpreter).
+**Goal:** reproduce the **OpenAI-server** overhead gap between **vendor** MoE (vendored router + Triton experts, system `python3`) and **upstream** MoE (PyPI vLLM `grouped_topk` + `fused_experts`, `.venv-vllm`), using the **same** `test_perf.py` probes as §2.1.1 (`num_requests=8`, c=1 and c=8).
 
-**Script:** [`run_e2e_server_moe_vllm_poc_router.sh`](InfiniLM/examples/run_e2e_server_moe_vllm_poc_router.sh) (default port **8017**). Ensure minimal server deps in the venv if imports fail, for example:
+**Primary knob:** set **`INFINILM_MOE_FUSED_STACK`** to **`vendor`** vs **`upstream`** (plus **`INFINILM_FORCE_MOE_BACKEND=vllm_fused`**). Router-only A/B on the vendor stack uses **`vendor_router_cpu`** (§2.1.2).
+
+| Leg | `INFINILM_FORCE_MOE_BACKEND` | `INFINILM_MOE_FUSED_STACK` | How to run |
+|-----|-------------------------------|----------------------------|-------------|
+| **Vendor** | `vllm_fused` | **`vendor`** | First `vllm_fused` server in [`run_e2e_server_moe_benefit.sh`](InfiniLM/examples/run_e2e_server_moe_benefit.sh) — system `python3`, `--attn flash-attn`, `--cache_type paged` (port **8016** in the captured session) |
+| **Upstream** | `vllm_fused` | **`upstream`** | [`run_e2e_server_moe_vllm_poc_router.sh`](InfiniLM/examples/run_e2e_server_moe_vllm_poc_router.sh) — `$REPO/.venv-vllm/bin/python`, `--attn default`, `--cache_type static` (port **8017**; venv path cannot use the same paged-KV settings as vendor on this checkpoint) |
+
+Implementation detail: upstream routing and experts import from `vllm.model_executor.layers.fused_moe...` (see [`minicpm5_grouped_sigmoid_topk.py`](InfiniCore/python/infinicore/vendor/vllm_fused_moe/minicpm5_grouped_sigmoid_topk.py), [`vllm_fused_moe_bridge.py`](InfiniCore/python/infinicore/vllm_fused_moe_bridge.py)). **Image `python3` has no `vllm`**, so the upstream leg must use **`.venv-vllm`**.
+
+**One-shot (vendor then upstream; use the **same** `CUDA_VISIBLE_DEVICES` index for both scripts so JSONs are comparable — below matches the reproduced session on an idle A100):**
+
+```bash
+docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=2; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_e2e_server_moe_benefit.sh'
+docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=2; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_e2e_server_moe_vllm_poc_router.sh'
+```
+
+**Orchestrated two-leg e2e + delta summary:** [`run_e2e_moe_fused_stack_compare.sh`](InfiniLM/examples/run_e2e_moe_fused_stack_compare.sh) runs the vendor `vllm_fused` server (same JSON names as the first `vllm_fused` pass in `run_e2e_server_moe_benefit.sh`) then [`run_e2e_server_moe_vllm_poc_router.sh`](InfiniLM/examples/run_e2e_server_moe_vllm_poc_router.sh), and writes `bench_artifacts/e2e_moe_fused_stack_compare_summary.json`. For microbench gap + extended smoke + this e2e compare in one command, use [`run_moe_fused_stack_compare_ladder.sh`](InfiniLM/examples/run_moe_fused_stack_compare_ladder.sh).
+
+```bash
+docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=2; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_e2e_moe_fused_stack_compare.sh'
+```
+
+Minimal venv deps if imports fail:
 
 ```bash
 docker exec minicpm5-moe bash -lc 'REPO=/home/zenghua/workspace/minicpm5-moe-support; "$REPO/.venv-vllm/bin/pip" install -q janus xxhash fastapi uvicorn openai pydantic'
 ```
 
-**One-shot:**
+**Session snapshot (reproduced 2026-05-14 in `minicpm5-moe`, inner `export CUDA_VISIBLE_DEVICES=2`, A100, `num_requests=8`):** vendor rows from `e2e_infini_server_vllm_fused_{c1_hi,c8}.json` (`INFINILM_MOE_FUSED_STACK=vendor`, flash-attn + paged, system `python3`, port **8016**); upstream rows from `e2e_infini_server_vllm_fused_upstream_{c1_hi,c8}.json` (`INFINILM_MOE_FUSED_STACK=upstream`, default attn + static KV, `.venv-vllm`, port **8017**). All Δ columns are **upstream − vendor**.
 
-```bash
-docker exec minicpm5-moe bash -lc 'export CUDA_VISIBLE_DEVICES=1; bash /home/zenghua/workspace/minicpm5-moe-support/InfiniLM/examples/run_e2e_server_moe_vllm_poc_router.sh'
-```
+| Probe | `infinilm_moe_fused_stack` | `requests_per_second` | `avg_ttft_s` | `avg_decode_ms_per_chunk` | `avg_latency_s` | Δ `rps` | Δ `avg_ttft_s` | Δ `avg_decode_ms` | Δ `avg_latency_s` |
+|--------|---------------------------|------------------------:|-------------:|---------------------------:|----------------:|--------:|---------------:|------------------:|--------------------:|
+| c=1, `--prompt "Hi"`, `max_tokens=4` | `vendor` | 2.08 | 0.37 | 36.15 | 0.48 | — | — | — | — |
+| same | `upstream` | 2.05 | 0.38 | 37.01 | 0.49 | −0.04 | +0.01 | +0.86 | +0.01 |
+| c=8, random `PROMPTS`, `max_tokens=64` | `vendor` | 0.31 | 1.83 | 380.89 | 25.83 | — | — | — | — |
+| same | `upstream` | 0.37 | 9.97 | 37.70 | 12.35 | +0.06 | +8.14 | −343.19 | −13.48 |
 
-**Session snapshot (2026-05-14, inner `CUDA_VISIBLE_DEVICES=1`, A100, port `8017`, `INFINILM_FORCE_MOE_BACKEND=vllm_fused`, `INFINILM_MOE_ROUTER_ENGINE=vllm_poc`, `attn=default`, `cache_type=static`, `num_requests=8`):**
+**Fairness note:** vendor vs upstream still differ by **interpreter + attn + KV cache**; Δ is the measured **config** gap from this repro, not an isolated MoE-kernel comparison. At **c=8**, upstream reports much lower `avg_decode_ms_per_chunk` than vendor while **TTFT is higher**—treat `avg_decode_ms_per_chunk` as a `test_perf.py` streaming chunk statistic that is not directly comparable across the two server configs without further alignment.
 
-| Probe | `requests_per_second` | `avg_ttft_s` | `avg_decode_ms_per_chunk` | `avg_latency_s` |
-|--------|------------------------:|-------------:|---------------------------:|----------------:|
-| c=1, `--prompt "Hi"`, `max_tokens=4` | 1.88 | 0.42 | 38.68 | 0.53 |
-| c=8, random `PROMPTS`, `max_tokens=64` | 0.36 | 10.20 | 37.73 | 12.58 |
+**Artifacts:** vendor: `e2e_infini_server_vllm_fused_c1_hi.json`, `e2e_infini_server_vllm_fused_c8.json`. Upstream: `e2e_infini_server_vllm_fused_upstream_c1_hi.json`, `e2e_infini_server_vllm_fused_upstream_c8.json` (JSON includes `infinilm_moe_fused_stack`, `infinilm_e2e_python`, `infinilm_e2e_attn`, `infinilm_e2e_cache_type`).
 
-**Artifacts:** `e2e_infini_server_vllm_fused_router_engine_vllm_poc_c1_hi.json`, `e2e_infini_server_vllm_fused_router_engine_vllm_poc_c8.json` (JSON includes `infinilm_moe_router_engine`, `infinilm_e2e_python`, `infinilm_e2e_attn`, `infinilm_e2e_cache_type`).
-
-**Nsight / NVTX (optional):** No capture this session. For kernel-level envelopes under R-gpu vs R-cpu, use ranges in [`minicpm5_moe_inference_profiling.md`](InfiniLM/examples/minicpm5_moe_inference_profiling.md) (`moe_vllm_fused::router_grouped_topk_gpu`, `moe_vllm_fused::router_d2h_cpu_topk_pack_h2d`, `moe_vllm_fused::fused_experts_dispatch`).
+**Nsight / NVTX (optional):** No capture this session. For router vs fused envelopes, see [`minicpm5_moe_inference_profiling.md`](InfiniLM/examples/minicpm5_moe_inference_profiling.md) (NVTX names and the **Nsight Systems — vendor vs upstream MoE fused stack** subsection when an e2e gap warrants timeline capture).
 
 ---
 

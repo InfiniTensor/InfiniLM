@@ -112,12 +112,14 @@ infinicore::Tensor MiniCPM5MoeVllmFusedSparseMoeBlock::forward(const infinicore:
         infinicore::Tensor topk_w_dev;
         infinicore::Tensor topk_ids_dev;
         {
-            const char *router_m = std::getenv("INFINILM_MOE_ROUTER");
-            const bool force_cpu_router = router_m != nullptr && std::string(router_m) == "cpu";
+            const bool force_cpu_router = infinilm::vllm_fused_moe_dispatch::moe_fused_stack_vendor_router_cpu_env();
 
             bool used_gpu_router = false;
             if (!force_cpu_router) {
-                infinilm::utils::NvtxRange nvtx_gpu_router("moe_vllm_fused::router_grouped_topk_gpu");
+                const bool upstream_stack = infinilm::vllm_fused_moe_dispatch::moe_fused_stack_upstream_env();
+                infinilm::utils::NvtxRange nvtx_gpu_router(
+                    upstream_stack ? "moe_vllm_fused::router_vllm_upstream"
+                                     : "moe_vllm_fused::router_grouped_topk_gpu");
                 if (auto g = infinilm::vllm_fused_moe_dispatch::try_grouped_sigmoid_topk_ic(
                         router_logits,
                         e_score_correction_bias_,
@@ -178,7 +180,10 @@ infinicore::Tensor MiniCPM5MoeVllmFusedSparseMoeBlock::forward(const infinicore:
 
         std::optional<infinicore::Tensor> routed_opt;
         {
-            infinilm::utils::NvtxRange nvtx_fused("moe_vllm_fused::fused_experts_dispatch");
+            const bool upstream_stack = infinilm::vllm_fused_moe_dispatch::moe_fused_stack_upstream_env();
+            infinilm::utils::NvtxRange nvtx_fused(
+                upstream_stack ? "moe_vllm_fused::fused_experts_vllm_upstream"
+                               : "moe_vllm_fused::fused_experts_dispatch");
             routed_opt = infinilm::vllm_fused_moe_dispatch::try_fused_experts_ic(
                 hs2d->contiguous(),
                 w1_stacked_.value(),

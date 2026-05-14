@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# E2E OpenAI server: vllm_fused + INFINILM_MOE_ROUTER_ENGINE=vllm_poc (imports vLLM grouped_topk).
+# E2E OpenAI server: vllm_fused + INFINILM_MOE_FUSED_STACK=upstream (vLLM grouped_topk + vLLM fused_experts in .venv-vllm).
 # Uses $REPO/.venv-vllm/bin/python because system python3 in minicpm5-moe has no vllm.
 # Attention is --attn default (venv typically lacks flash_attn). KV is --cache_type static
 # (venv transformers + paged hit startup error: invalid static kv cache config type).
@@ -17,8 +17,7 @@ VPY="${VPY:-$REPO/.venv-vllm/bin/python}"
 
 export PYTHONPATH="$REPO/InfiniLM/python:$REPO/InfiniCore/python:${PYTHONPATH:-}"
 export INFINILM_FORCE_MOE_BACKEND=vllm_fused
-export INFINILM_MOE_ROUTER_ENGINE=vllm_poc
-unset INFINILM_MOE_ROUTER
+export INFINILM_MOE_FUSED_STACK=upstream
 
 TORCH_LIB="$("$VPY" -c "import torch, os; print(os.path.join(os.path.dirname(torch.__file__), \"lib\"))")"
 unset LD_LIBRARY_PATH
@@ -58,7 +57,7 @@ cleanup
 free_port
 sleep 1
 
-echo "[e2e-vllm-poc] starting server port=$PORT VPY=$VPY INFINILM_MOE_ROUTER_ENGINE=vllm_poc attn=default" >&2
+echo "[e2e-vllm-poc] starting server port=$PORT VPY=$VPY INFINILM_MOE_FUSED_STACK=upstream attn=default" >&2
 cd "$REPO/InfiniLM/python"
 # static KV: venv ships transformers>=5 with vLLM; paged cache hit "invalid static kv cache config type" on startup.
 "$VPY" -m infinilm.server.inference_server --nvidia \
@@ -97,8 +96,7 @@ import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p, encoding='utf-8'))
 d['infinilm_moe_backend'] = os.environ.get('INFINILM_FORCE_MOE_BACKEND', '')
-d['infinilm_moe_router'] = os.environ.get('INFINILM_MOE_ROUTER') or 'default'
-d['infinilm_moe_router_engine'] = os.environ.get('INFINILM_MOE_ROUTER_ENGINE', '')
+d['infinilm_moe_fused_stack'] = os.environ.get('INFINILM_MOE_FUSED_STACK', '')
 d['infinilm_e2e_python'] = '$VPY'
 d['infinilm_e2e_attn'] = 'default'
 d['infinilm_e2e_cache_type'] = 'static'
@@ -106,7 +104,7 @@ json.dump(d, open(p, 'w', encoding='utf-8'), indent=2, ensure_ascii=False)
 " "$out_json"
 }
 
-run_perf "$ART/e2e_infini_server_vllm_fused_router_engine_vllm_poc_c1_hi.json" \
+run_perf "$ART/e2e_infini_server_vllm_fused_upstream_c1_hi.json" \
   --base-url "http://127.0.0.1:${PORT}/v1" \
   --model "$MODEL_ID" \
   --num-requests 8 \
@@ -115,7 +113,7 @@ run_perf "$ART/e2e_infini_server_vllm_fused_router_engine_vllm_poc_c1_hi.json" \
   --prompt "Hi" \
   --warmup-requests 2
 
-run_perf "$ART/e2e_infini_server_vllm_fused_router_engine_vllm_poc_c8.json" \
+run_perf "$ART/e2e_infini_server_vllm_fused_upstream_c8.json" \
   --base-url "http://127.0.0.1:${PORT}/v1" \
   --model "$MODEL_ID" \
   --num-requests 8 \
@@ -123,13 +121,13 @@ run_perf "$ART/e2e_infini_server_vllm_fused_router_engine_vllm_poc_c8.json" \
   --max-tokens 64 \
   --warmup-requests 1
 
-echo "=== vllm_poc router e2e summary ===" >&2
+echo "=== upstream fused stack e2e summary ===" >&2
 "$VPY" -c "
 import json, os
 art = '$ART'
 for name in (
-  'e2e_infini_server_vllm_fused_router_engine_vllm_poc_c1_hi.json',
-  'e2e_infini_server_vllm_fused_router_engine_vllm_poc_c8.json',
+  'e2e_infini_server_vllm_fused_upstream_c1_hi.json',
+  'e2e_infini_server_vllm_fused_upstream_c8.json',
 ):
   p = os.path.join(art, name)
   d = json.load(open(p, encoding='utf-8'))

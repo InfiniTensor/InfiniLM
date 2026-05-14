@@ -15,6 +15,9 @@ vLLM side (``.venv-vllm`` — different torch ABI; **do not** load ``_infinicore
 
   source $REPO/.venv-vllm/bin/activate
   python $REPO/InfiniLM/examples/microbench_fused_moe_kernel.py --impl vllm --nvidia ...
+
+**Vendor vs upstream stack gap (same seed, container):** run
+``InfiniLM/examples/run_moe_fused_stack_microbench_gap.sh`` (writes ``bench_artifacts/microbench_moe_fused_stack_gap.json``; see ``minicpm5_moe_inference_profiling.md``) instead of hand-rolling two invocations. Full ladder (microbench + smoke + e2e compare): ``run_moe_fused_stack_compare_ladder.sh``.
 """
 
 from __future__ import annotations
@@ -353,6 +356,7 @@ def main() -> None:
 
         row = {
             "impl": args.impl,
+            "moe_fused_stack_analog": "vendor" if args.impl == "infinilm" else "upstream",
             "torch": torch.__version__,
             "cuda_device": torch.cuda.get_device_name(device),
             "num_tokens": num_tokens,

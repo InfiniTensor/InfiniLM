@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <atomic>
+#include <cstring>
 #include <optional>
 #include <string>
 
@@ -25,6 +26,19 @@
 namespace py = pybind11;
 
 namespace infinilm::vllm_fused_moe_dispatch {
+
+bool moe_fused_stack_upstream_env() {
+    const char *stack = std::getenv("INFINILM_MOE_FUSED_STACK");
+    if (stack != nullptr && stack[0] != '\0') {
+        return strcasecmp(stack, "upstream") == 0;
+    }
+    return false;
+}
+
+bool moe_fused_stack_vendor_router_cpu_env() {
+    const char *stack = std::getenv("INFINILM_MOE_FUSED_STACK");
+    return stack != nullptr && stack[0] != '\0' && strcasecmp(stack, "vendor_router_cpu") == 0;
+}
 
 namespace {
 
@@ -295,7 +309,7 @@ std::optional<infinicore::Tensor> try_fused_experts_ic(
     }
     py::gil_scoped_acquire gil;
 #ifdef ENABLE_ATEN
-    if (!env_legacy_dispatch()) {
+    if (!env_legacy_dispatch() && !moe_fused_stack_upstream_env()) {
         if (auto r = try_fused_experts_dispatcher(
                 hidden_states, w1_stacked, w2_stacked, topk_weights, topk_ids)) {
             return r;

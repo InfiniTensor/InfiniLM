@@ -57,16 +57,23 @@ start_server() {
   sleep 1
 
   unset INFINILM_MOE_ROUTER
+  unset INFINILM_MOE_ROUTER_ENGINE
   case "$moe_mode" in
-    baseline) export INFINILM_FORCE_MOE_BACKEND=baseline ;;
-    vllm_fused) export INFINILM_FORCE_MOE_BACKEND=vllm_fused ;;
+    baseline)
+      export INFINILM_FORCE_MOE_BACKEND=baseline
+      unset INFINILM_MOE_FUSED_STACK
+      ;;
+    vllm_fused)
+      export INFINILM_FORCE_MOE_BACKEND=vllm_fused
+      export INFINILM_MOE_FUSED_STACK=vendor
+      ;;
     *) echo "unknown moe_mode=$moe_mode" >&2; exit 2 ;;
   esac
   if [[ "$router_mode" == "cpu" ]]; then
-    export INFINILM_MOE_ROUTER=cpu
+    export INFINILM_MOE_FUSED_STACK=vendor_router_cpu
   fi
 
-  echo "[e2e] starting server port=$PORT INFINILM_FORCE_MOE_BACKEND=${INFINILM_FORCE_MOE_BACKEND:-} INFINILM_MOE_ROUTER=${INFINILM_MOE_ROUTER:-<unset>}" >&2
+  echo "[e2e] starting server port=$PORT INFINILM_FORCE_MOE_BACKEND=${INFINILM_FORCE_MOE_BACKEND:-} INFINILM_MOE_FUSED_STACK=${INFINILM_MOE_FUSED_STACK:-<unset>}" >&2
   cd "$REPO/InfiniLM/python"
   python3 -m infinilm.server.inference_server --nvidia \
     --model_path "$MODEL" \
@@ -106,8 +113,13 @@ import json, os, sys
 p, b = sys.argv[1], sys.argv[2]
 d = json.load(open(p, encoding='utf-8'))
 d['infinilm_moe_backend'] = b
-r = os.environ.get('INFINILM_MOE_ROUTER')
-d['infinilm_moe_router'] = r if r else 'default'
+fs = os.environ.get('INFINILM_MOE_FUSED_STACK')
+if fs:
+    d['infinilm_moe_fused_stack'] = fs
+elif b == 'vllm_fused':
+    d['infinilm_moe_fused_stack'] = 'vendor'
+else:
+    d['infinilm_moe_fused_stack'] = ''
 json.dump(d, open(p, 'w', encoding='utf-8'), indent=2, ensure_ascii=False)
 " "$path" "$backend"
 }
@@ -199,7 +211,7 @@ rows = [
 for name in rows:
   p = os.path.join(art, name)
   d = json.load(open(p, encoding='utf-8'))
-  print(name, 'backend=', d.get('infinilm_moe_backend'), 'router=', d.get('infinilm_moe_router'),
+  print(name, 'backend=', d.get('infinilm_moe_backend'), 'moe_fused_stack=', d.get('infinilm_moe_fused_stack'),
         'rps=', round(d.get('requests_per_second', 0), 3),
         'avg_ttft_s=', round(d.get('avg_ttft_s', 0), 4),
         'avg_decode_ms_per_chunk=', round(d.get('avg_decode_ms_per_chunk', 0) or 0, 2),
