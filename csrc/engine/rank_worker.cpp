@@ -238,7 +238,16 @@ void RankWorker::thread_loop() {
                     rank_info_.device,
                     pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
             } else {
-                throw std::runtime_error("RankWorker::thread_loop(): Unsupported model config type: " + model_type);
+                std::vector<std::string> classic_models = {"llama", "qwen2", "minicpm", "fm9g", "fm9g7b"};
+                if ((std::find(classic_models.begin(), classic_models.end(), model_type) != classic_models.end())) {
+                    model_ = InfinilmModelFactory::createModel(
+                        model_config_,
+                        rank_info_,
+                        pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
+                        attention_backend_);
+                } else {
+                    throw std::runtime_error("RankWorker::thread_loop(): Unsupported model config type: " + model_type);
+                }
             }
 
             if (!model_) {
