@@ -10,6 +10,22 @@ namespace infinilm::vllm_fused_moe_dispatch {
 /// Cached: once unavailable (e.g. import/Triton failure), stays disabled for the process.
 bool fused_experts_ic_available();
 
+struct GroupedSigmoidTopkIcResult {
+    infinicore::Tensor topk_weights;
+    infinicore::Tensor topk_ids;
+};
+
+/// Device grouped sigmoid router (``torch.ops.infinilm.minicpm5_grouped_sigmoid_topk`` via Python bridge).
+/// Returns nullopt on failure (e.g. import error). Caller should fall back to CPU routing if needed.
+std::optional<GroupedSigmoidTopkIcResult> try_grouped_sigmoid_topk_ic(
+    const infinicore::Tensor &router_logits_f32,
+    const infinicore::Tensor &e_score_correction_bias,
+    size_t top_k,
+    bool norm_topk_prob,
+    float routed_scaling_factor,
+    size_t n_group,
+    size_t topk_group);
+
 /// Preferred path (InfiniLM built with ``xmake f --aten=y``): ``to_aten`` views +
 /// ``c10::Dispatcher`` call to ``infinilm::outplace_fused_experts`` (SILU, defaults matching
 /// ``fused_experts_ic``). Set ``INFINILM_VLLM_FUSED_DISPATCH=legacy`` to force the Python

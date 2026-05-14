@@ -112,47 +112,68 @@ infinicore::Tensor MiniCPM5MoeVllmFusedSparseMoeBlock::forward(const infinicore:
         infinicore::Tensor topk_w_dev;
         infinicore::Tensor topk_ids_dev;
         {
-            infinilm::utils::NvtxRange nvtx_cpu_envelope("moe_vllm_fused::router_d2h_cpu_topk_pack_h2d");
-            auto logits_cpu = router_logits->to(infinicore::Device::cpu());
-            logits_cpu = logits_cpu->contiguous();
+            const char *router_m = std::getenv("INFINILM_MOE_ROUTER");
+            const bool force_cpu_router = router_m != nullptr && std::string(router_m) == "cpu";
 
-            auto bias_cpu = e_score_correction_bias_->to(infinicore::Device::cpu());
-            bias_cpu = bias_cpu->contiguous();
-
-            router_cpu_detail::RouterTopkCpuResult router_out;
-            router_cpu_detail::run_router_topk_cpu(
-                logits_cpu,
-                bias_cpu,
-                n_tokens,
-                n_routed_experts,
-                top_k,
-                norm_topk_prob,
-                routed_scaling_factor,
-                n_group,
-                topk_group,
-                router_out);
-            const auto &topk_indices_cpu = router_out.topk_indices;
-            const auto &topk_weights_cpu = router_out.topk_weights;
-
-            auto topk_w_cpu = infinicore::Tensor::empty({n_tokens, top_k}, act_dt, infinicore::Device::cpu());
-            for (size_t t = 0; t < n_tokens; ++t) {
-                for (size_t j = 0; j < top_k; ++j) {
-                    router_cpu_detail::write_f32_as_element(topk_w_cpu, t * top_k + j, topk_weights_cpu[t][j]);
+            bool used_gpu_router = false;
+            if (!force_cpu_router) {
+                infinilm::utils::NvtxRange nvtx_gpu_router("moe_vllm_fused::router_grouped_topk_gpu");
+                if (auto g = infinilm::vllm_fused_moe_dispatch::try_grouped_sigmoid_topk_ic(
+                        router_logits,
+                        e_score_correction_bias_,
+                        top_k,
+                        norm_topk_prob,
+                        routed_scaling_factor,
+                        n_group,
+                        topk_group)) {
+                    topk_w_dev = g->topk_weights;
+                    topk_ids_dev = g->topk_ids;
+                    used_gpu_router = true;
                 }
             }
-            topk_w_dev = topk_w_cpu->to(dev)->contiguous();
+            if (!used_gpu_router) {
+                infinilm::utils::NvtxRange nvtx_cpu_envelope("moe_vllm_fused::router_d2h_cpu_topk_pack_h2d");
+                auto logits_cpu = router_logits->to(infinicore::Device::cpu());
+                logits_cpu = logits_cpu->contiguous();
 
-            auto topk_ids_cpu =
-                infinicore::Tensor::empty({n_tokens, top_k}, infinicore::DataType::I32, infinicore::Device::cpu());
-            {
-                int32_t *idp = reinterpret_cast<int32_t *>(topk_ids_cpu->data());
+                auto bias_cpu = e_score_correction_bias_->to(infinicore::Device::cpu());
+                bias_cpu = bias_cpu->contiguous();
+
+                router_cpu_detail::RouterTopkCpuResult router_out;
+                router_cpu_detail::run_router_topk_cpu(
+                    logits_cpu,
+                    bias_cpu,
+                    n_tokens,
+                    n_routed_experts,
+                    top_k,
+                    norm_topk_prob,
+                    routed_scaling_factor,
+                    n_group,
+                    topk_group,
+                    router_out);
+                const auto &topk_indices_cpu = router_out.topk_indices;
+                const auto &topk_weights_cpu = router_out.topk_weights;
+
+                auto topk_w_cpu = infinicore::Tensor::empty({n_tokens, top_k}, act_dt, infinicore::Device::cpu());
                 for (size_t t = 0; t < n_tokens; ++t) {
                     for (size_t j = 0; j < top_k; ++j) {
-                        idp[t * top_k + j] = topk_indices_cpu[t][j];
+                        router_cpu_detail::write_f32_as_element(topk_w_cpu, t * top_k + j, topk_weights_cpu[t][j]);
                     }
                 }
+                topk_w_dev = topk_w_cpu->to(dev)->contiguous();
+
+                auto topk_ids_cpu =
+                    infinicore::Tensor::empty({n_tokens, top_k}, infinicore::DataType::I32, infinicore::Device::cpu());
+                {
+                    int32_t *idp = reinterpret_cast<int32_t *>(topk_ids_cpu->data());
+                    for (size_t t = 0; t < n_tokens; ++t) {
+                        for (size_t j = 0; j < top_k; ++j) {
+                            idp[t * top_k + j] = topk_indices_cpu[t][j];
+                        }
+                    }
+                }
+                topk_ids_dev = topk_ids_cpu->to(dev)->contiguous();
             }
-            topk_ids_dev = topk_ids_cpu->to(dev)->contiguous();
         }
 
         std::optional<infinicore::Tensor> routed_opt;

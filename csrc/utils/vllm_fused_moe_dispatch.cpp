@@ -307,4 +307,86 @@ std::optional<infinicore::Tensor> try_fused_experts_ic(
         hidden_states, w1_stacked, w2_stacked, topk_weights, topk_ids);
 }
 
+std::optional<GroupedSigmoidTopkIcResult> try_grouped_sigmoid_topk_ic(
+    const infinicore::Tensor &router_logits_f32,
+    const infinicore::Tensor &e_score_correction_bias,
+    size_t top_k,
+    bool norm_topk_prob,
+    float routed_scaling_factor,
+    size_t n_group,
+    size_t topk_group) {
+    if (!fused_experts_ic_available()) {
+        return std::nullopt;
+    }
+#ifdef ENABLE_ATEN
+    const bool cuda_ic = router_logits_f32->device().getType() == infinicore::Device::Type::NVIDIA;
+    if (cuda_ic) {
+        bridge_ic_stream_to_torch_stream();
+    }
+#endif
+    py::gil_scoped_acquire gil;
+    try {
+        py::object tensor_mod = py::module_::import("infinicore.tensor");
+        py::object TensorCls = tensor_mod.attr("Tensor");
+        py::object bridge = py::module_::import("infinicore.vllm_fused_moe_bridge");
+        py::object fn = bridge.attr("grouped_sigmoid_topk_ic_cpp");
+        py::object rl_py = TensorCls(py::cast(router_logits_f32));
+        py::object bias_py = TensorCls(py::cast(e_score_correction_bias));
+        py::object res = fn(
+            rl_py,
+            bias_py,
+            static_cast<int>(top_k),
+            norm_topk_prob,
+            static_cast<double>(routed_scaling_factor),
+            static_cast<int>(n_group),
+            static_cast<int>(topk_group));
+        py::tuple tup = res.cast<py::tuple>();
+        if (tup.size() != 2) {
+#ifdef ENABLE_ATEN
+            if (cuda_ic) {
+                bridge_torch_stream_to_ic_stream();
+            }
+#endif
+            return std::nullopt;
+        }
+        infinicore::Tensor tw = tup[0].attr("_underlying").cast<infinicore::Tensor>();
+        infinicore::Tensor tid = tup[1].attr("_underlying").cast<infinicore::Tensor>();
+#ifdef ENABLE_ATEN
+        if (cuda_ic) {
+            bridge_torch_stream_to_ic_stream();
+        }
+#endif
+        const auto &rdev = router_logits_f32->device();
+        auto tw_owned = infinicore::Tensor::empty(tw->shape(), tw->dtype(), rdev);
+        tw_owned->copy_from(tw);
+        auto tid_owned = infinicore::Tensor::empty(tid->shape(), tid->dtype(), rdev);
+        tid_owned->copy_from(tid);
+        return GroupedSigmoidTopkIcResult{std::move(tw_owned), std::move(tid_owned)};
+    } catch (const py::error_already_set &e) {
+        if (const char *dbg = std::getenv("INFINILM_DEBUG_VLLM_FUSED_MOE")) {
+            if (std::string(dbg) == "1") {
+                std::fprintf(stderr, "[INFINILM_DEBUG_VLLM_FUSED_MOE] grouped_sigmoid_topk_ic failed: %s\n", e.what());
+            }
+        }
+#ifdef ENABLE_ATEN
+        if (cuda_ic) {
+            bridge_torch_stream_to_ic_stream();
+        }
+#endif
+        return std::nullopt;
+    } catch (...) {
+        if (const char *dbg = std::getenv("INFINILM_DEBUG_VLLM_FUSED_MOE")) {
+            if (std::string(dbg) == "1") {
+                std::fprintf(stderr, "[INFINILM_DEBUG_VLLM_FUSED_MOE] grouped_sigmoid_topk_ic failed: unknown\n");
+            }
+        }
+#ifdef ENABLE_ATEN
+        if (cuda_ic) {
+            bridge_torch_stream_to_ic_stream();
+        }
+#endif
+        return std::nullopt;
+    }
+}
+
 } // namespace infinilm::vllm_fused_moe_dispatch

@@ -4,6 +4,20 @@ Use this document as a **continuous profiling** log: fill the environment block 
 
 **Structured metrics log:** for single-prompt smokes (**InfiniLM `bench_balanced.py` + vLLM**; HF optional elsewhere) and e2e OpenAI server runs, use **`minicpm5_moe_metrics_collection.md`** (tables + suggested JSON paths under `bench_artifacts/`).
 
+### MoE grouped router — CPU vs GPU parity notes
+
+InfiniLM’s reference router `run_router_topk_cpu` in `InfiniLM/csrc/models/minicpm5_moe/minicpm5_moe_router_cpu_detail.hpp` uses per-row `nth_element`-style partial top-k on CPU, while the vLLM-aligned GPU path uses `torch.topk` (optionally with `sorted=True` when batch invariance is required upstream). **Tie-breaking and expert ordering can differ** when logits tie; end-to-end text can still match if downstream is insensitive.
+
+- **`INFINILM_MOE_ROUTER=cpu`**: force the legacy D2H → CPU `run_router_topk_cpu` → pack → H2D path in `MiniCPM5MoeVllmFusedSparseMoeBlock` (slow, stable).
+- **`INFINILM_MOE_ROUTER=gpu`** (default when the GPU router bridge succeeds): device `torch.ops.infinilm.minicpm5_grouped_sigmoid_topk` then fused experts.
+- **`INFINILM_MOE_ROUTER_SORTED_TOPK=1`**: use `sorted=True` on internal `torch.topk` calls in the **vendored** grouped-sigmoid reference (closer to vLLM when `VLLM_BATCH_INVARIANT` is on). Default `0` matches the historical unsorted `torch.topk` behavior.
+- **`INFINILM_MOE_ROUTER_ENGINE=vllm_poc`**: optional POC only — delegate routing math to `vllm.model_executor.layers.fused_moe.router.grouped_topk_router.grouped_topk` when `vllm` is installed (for cross-checking the vendored op). Default **`vendor`** (no vLLM import in the hot path).
+- **`INFINILM_USE_VLLM_GROUPED_TOPK_KERNEL=1`**: optional CUDA fused kernel via `vllm._custom_ops.grouped_topk` when shapes satisfy vLLM constraints (`num_expert_group <= 32`, `topk <= 32`); falls back to the pure-Torch path on failure.
+
+**Tolerance for numeric tests:** compare `topk_weights` with `rtol=1e-4`, `atol=1e-5` (float32 matmul pipeline); compare `topk_ids` exactly after sorting columns when checking sets, or exact match when the reference uses the same `sorted=` flag.
+
+**NVTX (Nsight):** `moe_vllm_fused::router_grouped_topk_gpu` covers the device router op; `moe_vllm_fused::router_d2h_cpu_topk_pack_h2d` remains when `INFINILM_MOE_ROUTER=cpu` or GPU bridge returns nullopt. `moe_vllm_fused::fused_experts_dispatch` is unchanged.
+
 ---
 
 ## vLLM (profiling container)
