@@ -249,26 +249,26 @@ TUNED=/path/to/copied_fused_moe_configs   # optional
 
 export PYTHONPATH=$REPO/InfiniLM/python:$REPO/InfiniCore/python:${PYTHONPATH:-}
 python3 $REPO/InfiniLM/examples/microbench_fused_moe_kernel.py --impl infinilm --nvidia \
-  --model-path "$MODEL" --num-tokens-sweep "$SWEEP" --seed 0 --print-json \
+  --model-path "$MODEL" --num-tokens-sweep "$SWEEP" --seed 0 --print-json -v \
   ${TUNED:+--tuned-config-dir "$TUNED"}
 
 source "$REPO/.venv-vllm/bin/activate"
 python $REPO/InfiniLM/examples/microbench_fused_moe_kernel.py --impl vllm --nvidia \
-  --model-path "$MODEL" --num-tokens-sweep "$SWEEP" --seed 0 --print-json \
+  --model-path "$MODEL" --num-tokens-sweep "$SWEEP" --seed 0 --print-json -v \
   ${TUNED:+--tuned-config-dir "$TUNED"}
 ```
 
 Or: ``bash InfiniLM/examples/run_microbench_fused_moe_two_process.sh`` with ``REPO``, ``MODEL``, and optional ``TUNED`` / ``SWEEP`` / ``OUT`` / ``SEED``.
 
-**Full-model prefill vs token count (baseline vs fused block):** each backend needs its **own subprocess** because ``INFINILM_FORCE_MOE_BACKEND`` is read when MoE layers are constructed. ``sweep_moe_e2e_backend_tokens.py`` wraps ``bench_balanced.py`` and records TTFT plus step breakdown (``ttft_gpu_forward_ms`` is whole forward on GPU, not MoE-only). For **router D2H + CPU top-k pack + H2D** vs **fused expert matmul**, use **Nsight Systems** on a fused run and look for NVTX: ``moe_vllm_fused::router_d2h_cpu_topk_pack_h2d`` vs ``moe_vllm_fused::fused_experts_dispatch`` inside ``MiniCPM5MoeVllmFusedSparseMoeBlock::forward`` (`InfiniLM/csrc/models/minicpm5_moe/minicpm5_moe_vllm_fused_sparse_moe_block.cpp`).
+**Full-model prefill vs token count (baseline vs fused block):** each backend needs its **own subprocess** because ``INFINILM_FORCE_MOE_BACKEND`` is read when MoE layers are constructed. ``sweep_moe_e2e_backend_tokens.py`` wraps ``bench_balanced.py`` and records TTFT plus step breakdown (``ttft_gpu_forward_ms`` is whole forward on GPU, not MoE-only). Pass ``-v`` / ``--verbose`` to log each subprocess start/end and stream ``bench_balanced`` timing prints (stderr). For **router D2H + CPU top-k pack + H2D** vs **fused expert matmul**, use **Nsight Systems** on a fused run and look for NVTX: ``moe_vllm_fused::router_d2h_cpu_topk_pack_h2d`` vs ``moe_vllm_fused::fused_experts_dispatch`` inside ``MiniCPM5MoeVllmFusedSparseMoeBlock::forward`` (`InfiniLM/csrc/models/minicpm5_moe/minicpm5_moe_vllm_fused_sparse_moe_block.cpp`).
 
 ```bash
 python3 $REPO/InfiniLM/examples/sweep_moe_e2e_backend_tokens.py --nvidia --model-path "$MODEL" \
-  --prompt-tokens-sweep 64,256,1024 --max-new-tokens 1 --json-out /tmp/moe_sweep.json --print-summary
+  --prompt-tokens-sweep 64,256,1024 --max-new-tokens 1 --json-out /tmp/moe_sweep.json --print-summary -v
 
 nsys profile -o moe_ns --trace-fork-before-exec=true \
   python3 $REPO/InfiniLM/examples/sweep_moe_e2e_backend_tokens.py --nvidia --model-path "$MODEL" \
-  --backends vllm_fused --prompt-tokens-sweep 512 --json-out /tmp/moe_ns_dummy.json
+  --backends vllm_fused --prompt-tokens-sweep 512 --json-out /tmp/moe_ns_dummy.json -v
 ```
 
 **OpenAI-style concurrency:** larger effective batches raise per-step ``n_tokens``; compare ``InfiniLM/scripts/test_perf.py --concurrency`` (see ``minicpm5_moe_metrics_collection.md``) with the same MoE backend env; combine with Nsight if the server process is profiled from startup.

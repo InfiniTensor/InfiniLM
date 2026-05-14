@@ -331,9 +331,18 @@ def main() -> None:
         total_ms=float(np.mean(total_ms_list)),
     )
 
+    payload: dict = asdict(row)
+    if last_output_ids is not None:
+        gen_ids: list[int] = []
+        for t in last_output_ids:
+            arr = t.to_numpy()
+            gen_ids.append(int(arr.reshape(-1)[0]))
+        payload["generated_token_ids"] = gen_ids
+        payload["generated_text"] = tokenizer.decode(gen_ids, skip_special_tokens=True)
+
     os.makedirs(os.path.dirname(os.path.abspath(args.json_out)), exist_ok=True)
     with open(args.json_out, "w") as f:
-        json.dump(asdict(row), f, indent=2)
+        json.dump(payload, f, indent=2)
 
     if args.print_generated and last_output_ids is not None:
         gen_ids: list[int] = []
@@ -346,7 +355,7 @@ def main() -> None:
         print("--- token ids:", gen_ids, "---\n", flush=True)
 
     if args.print_json:
-        print(json.dumps(asdict(row), indent=2))
+        print(json.dumps(payload, indent=2))
 
 
 if __name__ == "__main__":
