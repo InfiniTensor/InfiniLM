@@ -48,6 +48,7 @@ void PagedCompiler::compile() {
             const size_t block_per_req = nblocks;
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+            set_zeros(input.slot_mapping.value());
 
             // Attention reads attn_metadata from thread-local forward context.
             infinilm::global_state::get_forward_context().attn_metadata = {
