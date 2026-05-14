@@ -1,11 +1,21 @@
 #pragma once
 
-#include "base_linear.hpp"
-#include "infinicore/ops.hpp"
 #include "../quantization/quantization.hpp"
+#include "base_linear.hpp"
+#include "fused_linear.hpp"
 #include "infinicore/nn/module.hpp"
+#include "infinicore/ops.hpp"
 #include <infiniccl.h>
 #include <optional>
+
+namespace infinilm::layers::linear {
+
+using ReplicatedLinear = infinilm::nn::Linear;
+using ColumnParallelLinear = infinilm::nn::ColumnParallelLinear;
+using RowParallelLinear = infinilm::nn::RowParallelLinear;
+using BaseLinear = infinilm::nn::BaseLinear;
+
+} // namespace infinilm::layers::linear
 
 namespace infinilm::nn {
 
@@ -79,14 +89,3 @@ protected:
 };
 
 } // namespace infinilm::nn
-
-#include "fused_linear.hpp"
-
-namespace infinilm::layers::linear {
-
-using ReplicatedLinear = infinilm::nn::Linear;
-using ColumnParallelLinear = infinilm::nn::ColumnParallelLinear;
-using RowParallelLinear = infinilm::nn::RowParallelLinear;
-using BaseLinear = infinilm::nn::BaseLinear;
-
-} // namespace infinilm::layers::linear
