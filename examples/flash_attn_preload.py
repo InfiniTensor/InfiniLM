@@ -38,6 +38,37 @@ import sys
 _warned_site_mismatch = False
 
 
+def strip_flash_attn_cuda_from_ld_preload() -> None:
+    """Remove ``flash_attn_2_cuda*.so`` entries from ``LD_PRELOAD``.
+
+    Shell-based subprocesses (Triton/torch helpers) inherit ``LD_PRELOAD``. Preloading the
+    FlashAttention CUDA extension there forces the dynamic linker to resolve ``libtorch_python``
+    in processes that are not the embedding Python interpreter, which triggers::
+
+        undefined symbol: PyInstanceMethod_Type
+
+    This repo resolves FlashAttention in-process via ``ctypes.CDLL(..., RTLD_GLOBAL)`` in
+    :func:`maybe_load_flash_attn_global`; dropping the flash ``.so`` from ``LD_PRELOAD`` keeps
+    child processes healthy while the parent still loads the extension explicitly.
+    """
+    raw = os.environ.get("LD_PRELOAD")
+    if not raw:
+        return
+    chunks = [c.strip() for c in raw.split(":") if c.strip()]
+    kept: list[str] = []
+    for c in chunks:
+        base = os.path.basename(c)
+        if base.startswith("flash_attn_2_cuda") and ".so" in base:
+            continue
+        kept.append(c)
+    if len(kept) == len(chunks):
+        return
+    if kept:
+        os.environ["LD_PRELOAD"] = ":".join(kept)
+    else:
+        os.environ.pop("LD_PRELOAD", None)
+
+
 def _torch_site_packages() -> str | None:
     try:
         import torch
@@ -146,6 +177,7 @@ def resolve_flash_attn_cuda_so() -> str | None:
 
 
 def maybe_load_flash_attn_global() -> None:
+    strip_flash_attn_cuda_from_ld_preload()
     if os.environ.get("INFINILM_DISABLE_FLASH_ATTN_RTLD_GLOBAL") == "1":
         return
     fa = resolve_flash_attn_cuda_so()

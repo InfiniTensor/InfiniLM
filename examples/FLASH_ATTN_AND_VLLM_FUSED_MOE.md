@@ -1,17 +1,17 @@
-# Flash-attn + vLLM fused MoE (clean guide)
+# Flash-attn + fused MoE (clean guide)
 
 This guide is for running **MiniCPM5 MoE** with:
 
 - **FlashAttention-2** (`--attn flash-attn` + paged KV)
-- **vLLM fused MoE** (preflight + fused experts path)
+- **Fused MoE** (vendored vLLM-derived Triton kernels under `infinicore.vendor.vllm_fused_moe`, `torch.ops.infinilm.*`; **no `pip install vllm`** for this path)
 
-Keep **one Python / one torch** end-to-end: the same interpreter must run `jiuge.py`, import `vllm`, and build InfiniCore with `--aten=y`.
+Keep **one Python / one torch** end-to-end: the same interpreter must run `jiuge.py`, satisfy **Triton** + fused vendor imports, and build InfiniCore with `--aten=y`.
 
 ## Requirements (TL;DR)
 
-- **Python venv**: `$REPO/.venv-vllm`
-- **vLLM**: `vllm==0.19.0`
-- **setuptools**: `setuptools>=77.0.3,<81.0.0` (vLLM 0.19 + Python 3.12)
+- **Python venv**: `$REPO/.venv-vllm` (name kept for flash-attn workflows)
+- **Triton**: via `InfiniLM/examples/requirements-vllm-fused-moe.txt` (and typically your CUDA torch wheel)
+- **setuptools**: `setuptools>=77.0.3,<81.0.0` (recommended bound on Python 3.12 images)
 - **flash-attn wheel** must match **torch major.minor**
   - For **torch 2.10 + py312 + cxx11abiTRUE**: use **flash-attn 2.8.1** `cu12torch2.10` wheel (below)
 - **Run flags**: `--attn flash-attn --enable-paged-attn` (flash decode expects paged KV)

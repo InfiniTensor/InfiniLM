@@ -91,17 +91,16 @@ infinicore::Tensor ic_tensor_view_from_at(const at::Tensor &t) {
     return infinicore::Tensor::strided_from_blob(ptr, shape, strides, dtype, dev);
 }
 
-// Boxed dispatcher call: vLLM's schema uses types that are not representable as a single
-// typed() FuncType in libtorch (e.g. optional SymInt list); order matches
-// ``torch.ops.vllm.outplace_fused_experts.default`` (vLLM 0.19).
-at::Tensor call_vllm_outplace_fused_experts(
+// Boxed dispatcher call: schema follows vLLM 0.19 ``outplace_fused_experts`` but is
+// registered under the InfiniLM fragment library (``torch.ops.infinilm.*``).
+at::Tensor call_infinilm_outplace_fused_experts(
     const at::Tensor &hidden_states,
     const at::Tensor &w1,
     const at::Tensor &w2,
     const at::Tensor &topk_weights,
     const at::Tensor &topk_ids) {
     static const c10::OperatorHandle op =
-        c10::Dispatcher::singleton().findSchemaOrThrow("vllm::outplace_fused_experts", "");
+        c10::Dispatcher::singleton().findSchemaOrThrow("infinilm::outplace_fused_experts", "");
     torch::jit::Stack stack;
     stack.reserve(24);
     stack.emplace_back(hidden_states);
@@ -165,7 +164,7 @@ std::optional<infinicore::Tensor> try_fused_experts_dispatcher(
             cudaStreamSynchronize(at::cuda::getCurrentCUDAStream().stream());
         }
 
-        at::Tensor out = call_vllm_outplace_fused_experts(h, w1, w2, tw, ids);
+        at::Tensor out = call_infinilm_outplace_fused_experts(h, w1, w2, tw, ids);
 
         if (out.is_cuda()) {
             bridge_torch_stream_to_ic_stream();
@@ -219,7 +218,7 @@ std::optional<infinicore::Tensor> try_fused_experts_python_bridge(
                 std::fprintf(stderr, "[INFINILM_DEBUG_VLLM_FUSED_MOE] fused_experts_ic failed: %s\n", e.what());
             }
         }
-        if (std::string(e.what()).find("requires vLLM to be installed") != std::string::npos) {
+        if (std::string(e.what()).find("requires InfiniLM vendored fused MoE") != std::string::npos) {
             g_fused_available.store(-1, std::memory_order_relaxed);
         }
         PyErr_Clear();
@@ -253,7 +252,7 @@ bool fused_experts_ic_available() {
     }
     py::gil_scoped_acquire gil;
     try {
-        (void)py::module_::import("vllm.model_executor.layers.fused_moe");
+        (void)py::module_::import("infinicore.vendor.vllm_fused_moe");
         (void)py::module_::import("infinicore.vllm_fused_moe_bridge");
         g_fused_available.store(1, std::memory_order_relaxed);
         if (const char *dbg = std::getenv("INFINILM_DEBUG_VLLM_FUSED_MOE")) {

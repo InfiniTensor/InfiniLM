@@ -1,8 +1,19 @@
-import asyncio
-import time
-from openai import AsyncOpenAI
 import argparse
+import asyncio
+import json
 import random
+import time
+from typing import Optional
+
+from openai import AsyncOpenAI
+
+# How to read timing fields (also in argparse epilog for `test_perf.py --help`):
+# - Per request, the client counts one "token" per non-empty SSE `delta.content` chunk (not HF BPE count).
+# - avg_ms_per_token == avg_ms_per_stream_chunk: mean over requests of (full stream wall / chunk count);
+#   wall starts before `chat.completions.create` and includes prefill + queueing; at concurrency>1, gaps
+#   between chunks often reflect other requests in the same server batch.
+# - avg_decode_ms_per_chunk: mean over requests of (elapsed - TTFT) / chunks — closer to decode-shaped
+#   comparison vs in-proc `avg_decode_itl_ms` from bench_balanced / jiuge timing.
 
 PROMPTS = [
     "如果猫能写诗，它们会写些什么？",
@@ -27,13 +38,41 @@ PROMPTS = [
     "想象一下，如果每个人都能读懂他人的思想。",
 ]
 
-NUM_REQUESTS = 64
-CONCURRENCY = 20
-API_URL = "http://127.0.0.1:8000"
-MODEL = "FM9G-7B"
+DEFAULT_NUM_REQUESTS = 64
+DEFAULT_CONCURRENCY = 20
+DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1"
+DEFAULT_MODEL = "FM9G-7B"
 
 
-async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
+async def _drain_warmup_stream(
+    client: AsyncOpenAI,
+    *,
+    model: str,
+    user_content: str,
+    max_tokens: int,
+) -> None:
+    stream = await client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": user_content}],
+        stream=True,
+        max_tokens=max_tokens,
+    )
+    async for chunk in stream:
+        if chunk.choices[0].finish_reason is not None:
+            break
+
+
+async def benchmark_user(
+    client,
+    semaphore,
+    queue,
+    results,
+    user_id,
+    verbose,
+    model,
+    max_tokens,
+    fixed_prompt: Optional[str],
+):
     while True:
         async with semaphore:
             task_id = await queue.get()
@@ -41,15 +80,16 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
                 queue.task_done()
                 break
 
-            question = random.choice(PROMPTS)
+            question = fixed_prompt if fixed_prompt is not None else random.choice(PROMPTS)
             try:
                 print(f"🚀 User#{user_id} Sending request #{task_id}")
 
                 start_time = time.time()
                 stream = await client.chat.completions.create(
-                    model=MODEL,
+                    model=model,
                     messages=[{"role": "user", "content": question}],
                     stream=True,
+                    max_tokens=max_tokens,
                 )
 
                 first_token_time = None
@@ -94,9 +134,9 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
 
                     print(f"  🔤 解码 token 总数: {total_tokens}")
                     if ms_per_token is not None:
-                        print(f"  📏 平均 token 解码时间: {ms_per_token:.2f} ms/token")
+                        print(f"  📏 平均 wall / SSE 文本块: {ms_per_token:.2f} ms/chunk")
                     else:
-                        print(f"  📏 平均 token 解码时间: N/A (no token generated)")
+                        print(f"  📏 平均 wall / SSE 文本块: N/A (no chunk generated)")
                     print(f"  ❓ 提问: {question}")
                     print(f"  💬 回答: {answer}\n")
 
@@ -108,21 +148,60 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
                 queue.task_done()
 
 
-async def run_benchmark(verbose=False):
-    client = AsyncOpenAI(base_url=API_URL, api_key="default")
-    semaphore = asyncio.Semaphore(CONCURRENCY)
+async def run_benchmark(
+    *,
+    base_url,
+    model,
+    num_requests,
+    concurrency,
+    max_tokens,
+    fixed_prompt: Optional[str] = None,
+    warmup_requests: int = 0,
+    warmup_max_tokens: Optional[int] = None,
+    verbose=False,
+):
+    client = AsyncOpenAI(base_url=base_url, api_key="default")
+
+    warmup_wall_s = 0.0
+    if warmup_requests > 0:
+        wm = warmup_max_tokens if warmup_max_tokens is not None else max_tokens
+        t0 = time.perf_counter()
+        for i in range(int(warmup_requests)):
+            user_content = (
+                fixed_prompt if fixed_prompt is not None else random.choice(PROMPTS)
+            )
+            if verbose:
+                print(f"🔥 Warmup {i + 1}/{warmup_requests} (max_tokens={wm}) ...", flush=True)
+            await _drain_warmup_stream(
+                client, model=model, user_content=user_content, max_tokens=int(wm)
+            )
+        warmup_wall_s = time.perf_counter() - t0
+        if verbose:
+            print(f"🔥 Warmup done in {warmup_wall_s:.2f}s\n", flush=True)
+
+    semaphore = asyncio.Semaphore(concurrency)
     queue = asyncio.Queue()
     results = []
-    for i in range(NUM_REQUESTS):
+    for i in range(num_requests):
         await queue.put(i)
-    for _ in range(CONCURRENCY):
+    for _ in range(concurrency):
         await queue.put(None)
 
     users = [
         asyncio.create_task(
-            benchmark_user(client, semaphore, queue, results, user_id, verbose)
+            benchmark_user(
+                client,
+                semaphore,
+                queue,
+                results,
+                user_id,
+                verbose,
+                model,
+                max_tokens,
+                fixed_prompt,
+            )
         )
-        for user_id in range(CONCURRENCY)
+        for user_id in range(concurrency)
     ]
 
     start_time = time.time()
@@ -152,13 +231,45 @@ async def run_benchmark(verbose=False):
         sum(ms_per_token_list) / len(ms_per_token_list) if ms_per_token_list else None
     )
 
+    # Decode-phase proxy: mean over requests of (wall after first chunk) / (# non-empty chunks).
+    # Use with --prompt short + --concurrency 1 to compare against in-proc bench decode ITL.
+    decode_ms_per_chunk_list: list[float] = []
+    for r in results:
+        if not r or len(r) < 5:
+            continue
+        total_tokens, elapsed, _tps, ttft, _mpt = r
+        if ttft is None or total_tokens is None or total_tokens <= 0 or elapsed is None:
+            continue
+        decode_s = max(0.0, float(elapsed) - float(ttft))
+        decode_ms_per_chunk_list.append(1000.0 * decode_s / float(total_tokens))
+
+    decode_wall_s_list = [
+        float(r[1]) - float(r[3])
+        for r in results
+        if r and len(r) >= 4 and r[1] is not None and r[3] is not None
+    ]
+    avg_decode_wall_s = (
+        sum(decode_wall_s_list) / len(decode_wall_s_list) if decode_wall_s_list else 0.0
+    )
+    avg_decode_ms_per_chunk = (
+        sum(decode_ms_per_chunk_list) / len(decode_ms_per_chunk_list)
+        if decode_ms_per_chunk_list
+        else None
+    )
+
     width_label = 24
     sep = "-" * 60
 
-    print(f"\n=== 📊 性能指标汇总 ({MODEL}) ===")
+    print(f"\n=== 📊 性能指标汇总 ({model}) ===")
     print(sep)
-    print(f"{'并发数':<{width_label}}: {CONCURRENCY}")
-    print(f"{'请求总数':<{width_label}}: {NUM_REQUESTS}")
+    if fixed_prompt is not None:
+        print(f"{'Fixed prompt':<{width_label}}: {fixed_prompt[:80]}{'…' if len(fixed_prompt) > 80 else ''}")
+    else:
+        print(f"{'User prompt':<{width_label}}: random from PROMPTS pool")
+    if warmup_requests > 0:
+        print(f"{'Warmup (discarded)':<{width_label}}: {warmup_requests} req, {warmup_wall_s:.2f} s")
+    print(f"{'并发数':<{width_label}}: {concurrency}")
+    print(f"{'请求总数':<{width_label}}: {num_requests}")
     print(f"{'成功请求数':<{width_label}}: {successful_requests}")
     print(f"{'总耗时':<{width_label}}: {total_elapsed_time:.2f} s")
     print(f"{'总输出token数':<{width_label}}: {sum(tokens_list)}")
@@ -166,15 +277,130 @@ async def run_benchmark(verbose=False):
     print(sep)
     print(f"{'Average latency':<{width_label}}: {avg_latency:.2f} s")
     print(f"{'Average TTFT':<{width_label}}: {avg_ttft:.2f} s")
-    print(f"{'Avg time per token':<{width_label}}: {avg_ms_per_token:.2f} ms/token")
+    _mpt = (
+        f"{avg_ms_per_token:.2f} ms/chunk"
+        if avg_ms_per_token is not None
+        else "N/A"
+    )
+    print(
+        f"{'Avg wall ms / stream chunk':<{width_label}}: {_mpt}  "
+        f"(JSON avg_ms_per_stream_chunk; legacy avg_ms_per_token)"
+    )
     print(
         f"{'Avg Token generation speed':<{width_label}}: {avg_tokens_per_second:.2f} tokens/s"
     )
+    if avg_decode_ms_per_chunk is not None:
+        print(
+            f"{'Avg decode wall ms/chunk':<{width_label}}: {avg_decode_ms_per_chunk:.2f} ms/chunk"
+        )
+        print(f"{'Avg decode wall (post-TTFT)':<{width_label}}: {avg_decode_wall_s:.2f} s")
+
+    return {
+        "base_url": base_url,
+        "model": model,
+        "num_requests": num_requests,
+        "concurrency": concurrency,
+        "max_tokens": max_tokens,
+        "fixed_prompt": fixed_prompt,
+        "warmup_requests": int(warmup_requests),
+        "warmup_wall_s": float(warmup_wall_s),
+        "successful_requests": successful_requests,
+        "total_elapsed_time_s": total_elapsed_time,
+        "total_output_tokens": sum(tokens_list),
+        "requests_per_second": requests_per_second,
+        "avg_latency_s": avg_latency,
+        "avg_ttft_s": avg_ttft,
+        "avg_ms_per_token": avg_ms_per_token,
+        "avg_ms_per_stream_chunk": avg_ms_per_token,
+        "avg_decode_wall_s": avg_decode_wall_s,
+        "avg_decode_ms_per_chunk": avg_decode_ms_per_chunk,
+        "avg_tokens_per_second": avg_tokens_per_second,
+    }
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--verbose", action="store_true")
-    args = parser.parse_args()
+    _METRICS_EPILOG = """
+Streaming timing fields (JSON from --json-out):
+  avg_ms_per_stream_chunk: mean over requests of (wall seconds for the full OpenAI streaming
+    completion / number of non-empty SSE text deltas). Same numeric value as avg_ms_per_token
+    (legacy name). This is NOT HuggingFace tokenizer ITL; the numerator includes time before
+    chat.completions.create returns, prefill, and—when --concurrency>1—other requests' GPU work
+    between chunks on this stream.
+  avg_decode_ms_per_chunk: mean over requests of ((elapsed - TTFT) / chunks); use with
+    --concurrency 1 and a short --prompt to compare against in-proc avg_decode_itl_ms from
+    bench_balanced.py / jiuge timing.
+"""
 
-    asyncio.run(run_benchmark(args.verbose))
+    parser = argparse.ArgumentParser(
+        description="Async OpenAI-compatible chat streaming load probe.",
+        epilog=_METRICS_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--base-url",
+        type=str,
+        default=DEFAULT_BASE_URL,
+        help="OpenAI client base_url (include /v1), e.g. http://127.0.0.1:8001/v1",
+    )
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL)
+    parser.add_argument(
+        "--num-requests",
+        type=int,
+        default=DEFAULT_NUM_REQUESTS,
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=DEFAULT_CONCURRENCY,
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=256,
+        help="Max completion tokens per request (passed to chat.completions.create).",
+    )
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default=None,
+        help=(
+            "If set, use this user message for every request (including warmup); "
+            "else each request samples randomly from built-in Chinese PROMPTS."
+        ),
+    )
+    parser.add_argument(
+        "--warmup-requests",
+        type=int,
+        default=0,
+        help="Number of streaming completions to run before the timed benchmark (discarded).",
+    )
+    parser.add_argument(
+        "--warmup-max-tokens",
+        type=int,
+        default=None,
+        help="max_tokens for warmup only (default: same as --max-tokens).",
+    )
+    parser.add_argument(
+        "--json-out",
+        type=str,
+        default=None,
+        help="If set, write summary metrics JSON (see epilog for avg_ms_per_stream_chunk vs decode).",
+    )
+    args = parser.parse_args()
+    summary = asyncio.run(
+        run_benchmark(
+            base_url=args.base_url,
+            model=args.model,
+            num_requests=args.num_requests,
+            concurrency=args.concurrency,
+            max_tokens=args.max_tokens,
+            fixed_prompt=args.prompt,
+            warmup_requests=args.warmup_requests,
+            warmup_max_tokens=args.warmup_max_tokens,
+            verbose=args.verbose,
+        )
+    )
+    if args.json_out:
+        with open(args.json_out, "w") as f:
+            json.dump(summary, f, indent=2)

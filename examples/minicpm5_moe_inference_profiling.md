@@ -2,41 +2,48 @@
 
 Use this document as a **continuous profiling** log: fill the environment block each session, then append or update the run table with fresh numbers. Workload settings should stay fixed when comparing engines.
 
+**Structured metrics log:** for single-prompt smokes (**InfiniLM `bench_balanced.py` + vLLM**; HF optional elsewhere) and e2e OpenAI server runs, use **`minicpm5_moe_metrics_collection.md`** (tables + suggested JSON paths under `bench_artifacts/`).
+
 ---
 
 ## vLLM (profiling container)
 
-**Use a dedicated Python environment for vLLM.** Keep vLLM inside **`$REPO/.venv-vllm`** and run InfiniLM/HF (`jiuge.py`, `hf_bench_match_jiuge.py`) with **system** `python3` (venv deactivated).
+**Use two dedicated Python environments:**
 
-### venv layout (recommended)
+| Path | Role |
+|------|------|
+| **`$REPO/.venv-no-vllm`** | HF parity / `hf_bench_match_jiuge.py` — **`transformers==4.57.1`** (checkpoint default). Created with **`--system-site-packages`** so it reuses the container CUDA **torch** (no second torch install). Setup: `bash InfiniLM/examples/setup_hf_parity_venv.sh` |
+| **`$REPO/.venv-vllm`** | vLLM + **`transformers>=5`** for `TransformersMoEForCausalLM` / `vllm_bench_match_jiuge.py`. **Standard** venv (no system-site-packages). Setup: `bash InfiniLM/examples/setup_vllm_venv.sh --moe` |
 
-| Interpreter | Role |
-|-------------|------|
-| Container default `python3` | InfiniLM, HF bench, logit sanity (`transformers==4.57.1`) |
-| **`$REPO/.venv-vllm`** | vLLM + its dependencies only (MoE probes may additionally need **`transformers>=5`**; see below) |
+**Optional:** container **system `python3`** if the image already pins `transformers==4.57.1` — equivalent to the HF parity role, but a venv avoids accidental `pip install` upgrades on the image.
 
-**One-command setup** (from repo checkout; creates `$REPO/.venv-vllm` only):
+**One-command setup**
 
 ```bash
-# Dense models only (Transformers 4.x as pulled in by vLLM):
-bash InfiniLM/examples/setup_vllm_venv.sh
+# HF parity (transformers 4.57.1, separate from vLLM):
+bash InfiniLM/examples/setup_hf_parity_venv.sh
+# or with Tsinghua mirror:
+bash InfiniLM/examples/setup_hf_parity_venv.sh --tsinghua
 
-# Same, plus Transformers 5.x for TransformersMoEForCausalLM / MiniCPM5 MoE attempts:
+# vLLM (isolated; MoE needs transformers>=5 in this venv only):
 bash InfiniLM/examples/setup_vllm_venv.sh --moe
-
-# Use Tsinghua (tuna) PyPI mirror — often faster in China; combines with --moe:
+# or:
 bash InfiniLM/examples/setup_vllm_venv.sh --moe --tsinghua
 ```
 
-Or set a custom index (overrides `--tsinghua` if both are set):
+Or set a custom index for either script (examples):
 
 ```bash
-export VLLM_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-export VLLM_PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
-bash InfiniLM/examples/setup_vllm_venv.sh --moe
+export HF_PARITY_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+export HF_PARITY_PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+bash InfiniLM/examples/setup_hf_parity_venv.sh
 ```
 
-Or manually inside `minicpm5-moe` (or host, if paths/GPU match):
+**Do not** install vLLM into `.venv-no-vllm` or raise Transformers to 5.x there — that defeats HF parity.
+
+---
+
+### Manual vLLM venv (if not using ``setup_vllm_venv.sh``)
 
 ```bash
 REPO=/home/zenghua/workspace/minicpm5-moe-support
@@ -46,7 +53,7 @@ python -m pip install -U pip
 python -m pip install 'vllm==0.19.0'
 ```
 
-**Pinned version:** `vllm==0.19.0` (session: 2026-04-14). Inside the venv this installs PyPI **`torch==2.10.0`** / **`torchvision==0.25.0`** / **`torchaudio==2.10.0`** (`+cu128` wheels) **only in `.venv-vllm`**, leaving system `python3` unchanged.
+**Pinned version:** `vllm==0.19.0` (session: 2026-04-14). Inside the venv this installs PyPI **`torch==2.10.0`** / **`torchvision==0.25.0`** / **`torchaudio==2.10.0`** (`+cu128` wheels) **only in `.venv-vllm`**, leaving **`.venv-no-vllm`** / system `python3` torch stacks separate.
 
 **Runtime check (with venv active):**
 
@@ -59,14 +66,14 @@ On success you should see `cuda True` and a device name from `torch.cuda.get_dev
 
 **Every vLLM command** in this doc assumes `source "$REPO/.venv-vllm/bin/activate"` first (or an equivalent `python` from that venv).
 
-### Isolated venv — avoid trashing the HF / InfiniLM interpreter
+### Isolated venv — avoid trashing the HF parity interpreter
 
-Use a **standard** virtualenv (**do not** pass `--system-site-packages` unless you have a deliberate reason). Then:
+Use a **standard** virtualenv for **`.venv-vllm`** (**do not** pass `--system-site-packages` there). Then:
 
 - **`pip install` only mutates `$REPO/.venv-vllm`**.
-- **`python3` with the venv deactivated** stays on the image defaults (**`transformers==4.57.1`**, NVIDIA Torch, etc.) for `jiuge.py`, `hf_bench_match_jiuge.py`, and logit sanity.
+- **`$REPO/.venv-no-vllm`** holds pinned **Transformers 4.57.1** for `hf_bench_match_jiuge.py` and HF parity; it uses `--system-site-packages` **only** to reuse CUDA **torch** from the image, not to mix in vLLM.
 
-Never install vLLM into the same environment as HF parity work.
+Never install vLLM into `.venv-no-vllm`.
 
 ### Trying MiniCPM5 MoE via **`TransformersMoEForCausalLM`** (Transformers fallback)
 
@@ -113,11 +120,11 @@ vLLM has **no native** MiniCPM5-MoE kernel path. For this checkpoint it **falls 
 |------|--------|
 | Checkpoint | `config.json` lists `architectures: ["MiniCPM5MoEForCausalLM"]`, `model_type: minicpm5_moe` |
 | vLLM 0.19 behavior | Resolves to **`TransformersMoEForCausalLM`** (log: *no vLLM implementation, falling back to Transformers*). MoE path requires the Transformers modeling backend. |
-| **Transformers pin tension** | vLLM **0.19.0** declares **`transformers>=4.56,<5`**, while **`TransformersMoEForCausalLM`** **requires `transformers>=5.0.0`**. **Preferred:** install **`transformers>=5` only inside isolated `.venv-vllm`** (see steps above). Alternative for disk-saving hacks: a throwaway venv with **`--system-site-packages`** plus an overlaid Transformers (resolver warnings); do **not** use that for the HF interpreter. |
+| **Transformers pin tension** | vLLM **0.19.0** declares **`transformers>=4.56,<5`**, while **`TransformersMoEForCausalLM`** **requires `transformers>=5.0.0`**. **Preferred:** two venvs — **`.venv-no-vllm`** (HF / TF 4.57.1) vs **`.venv-vllm`** (vLLM MoE + TF≥5). |
 | **Gate: Transformers 4.x** | With **4.57.1**, engine fails at model init: `ImportError: … requires transformers>=5.0.0 for MoE models support`. |
 | **Gate: MiniCPM5 + Transformers 5 + vLLM 0.19** | Without patching, the checkpoint’s remote `modeling_minicpm.py` hits **`TypeError: object of type 'TransformersFusedMoE' has no len()`** inside MoE (`one_hot(..., num_classes=len(self.experts))`). |
 | **Workaround (A1 patch, 2026-04-14)** | With the `sitecustomize` patch enabled (see `vllm_minicpm5_moe_patch.md`) and **`--enforce-eager`**, MiniCPM5 MoE **loads** and `vllm_bench_match_jiuge.py` can report **single-prompt TTFT / decode ITL**. |
-| HF baseline note | Keep **`transformers==4.57.1`** on **system** `python3` for HF parity. All vLLM + Transformers‑5 experiments stay in **`.venv-vllm`** (isolated). |
+| HF baseline note | Use **`$REPO/.venv-no-vllm`** (``setup_hf_parity_venv.sh``) for **`transformers==4.57.1`** / `hf_bench_match_jiuge.py`. vLLM + **Transformers 5** stays in **`.venv-vllm`** only. |
 
 Reproduce the gate (must use a **real `.py` file**; vLLM workers use `spawn` and cannot start from `python -` / stdin):
 
@@ -229,6 +236,42 @@ This compares **two MoE execution paths inside InfiniLM** for the **same** MiniC
 |------|------------------:|---------------:|----------:|--------------:|---------------------:|-------------:|
 | **Fused** (`INFINILM_FORCE_MOE_BACKEND=vllm_fused`) | 108722.62 | 4237.83 | 466.51 | 139.33 | 29.7 | 33.68 |
 | **Reference** (`INFINILM_FORCE_MOE_BACKEND=baseline`) | 106274.83 | 9388.55 | 2835.14 | 22.93 | 51.6 | 19.38 |
+
+### MoE: CPU router / pack vs fused kernel (microbench + e2e sweep)
+
+**Vendor kernel vs PyPI vLLM (kernel-only, two processes):** same random tensors and sweep of ``num_tokens``; InfiniLM interpreter loads vendored ``torch.ops.infinilm`` path; **``.venv-vllm``** runs ``vllm.model_executor.layers.fused_moe.fused_experts`` (different torch ABI — never load ``_infinicore`` in the vLLM process). Align tuned JSON by pointing **both** runs at the same directory: ``--tuned-config-dir`` sets ``INFINILM_TUNED_CONFIG_FOLDER`` and ``VLLM_TUNED_CONFIG_FOLDER`` (copy ``E=...,N=...,device_name=....json`` from upstream ``vllm/model_executor/layers/fused_moe/configs/``; see ``InfiniCore/python/infinicore/vendor/vllm_fused_moe/NOTICE``).
+
+```bash
+REPO=/home/zenghua/workspace/minicpm5-moe-support
+MODEL=/path/to/minicpm5   # optional; else pass explicit --num-experts --hidden --intermediate --top-k
+SWEEP=1,8,32,128,512
+TUNED=/path/to/copied_fused_moe_configs   # optional
+
+export PYTHONPATH=$REPO/InfiniLM/python:$REPO/InfiniCore/python:${PYTHONPATH:-}
+python3 $REPO/InfiniLM/examples/microbench_fused_moe_kernel.py --impl infinilm --nvidia \
+  --model-path "$MODEL" --num-tokens-sweep "$SWEEP" --seed 0 --print-json \
+  ${TUNED:+--tuned-config-dir "$TUNED"}
+
+source "$REPO/.venv-vllm/bin/activate"
+python $REPO/InfiniLM/examples/microbench_fused_moe_kernel.py --impl vllm --nvidia \
+  --model-path "$MODEL" --num-tokens-sweep "$SWEEP" --seed 0 --print-json \
+  ${TUNED:+--tuned-config-dir "$TUNED"}
+```
+
+Or: ``bash InfiniLM/examples/run_microbench_fused_moe_two_process.sh`` with ``REPO``, ``MODEL``, and optional ``TUNED`` / ``SWEEP`` / ``OUT`` / ``SEED``.
+
+**Full-model prefill vs token count (baseline vs fused block):** each backend needs its **own subprocess** because ``INFINILM_FORCE_MOE_BACKEND`` is read when MoE layers are constructed. ``sweep_moe_e2e_backend_tokens.py`` wraps ``bench_balanced.py`` and records TTFT plus step breakdown (``ttft_gpu_forward_ms`` is whole forward on GPU, not MoE-only). For **router D2H + CPU top-k pack + H2D** vs **fused expert matmul**, use **Nsight Systems** on a fused run and look for NVTX: ``moe_vllm_fused::router_d2h_cpu_topk_pack_h2d`` vs ``moe_vllm_fused::fused_experts_dispatch`` inside ``MiniCPM5MoeVllmFusedSparseMoeBlock::forward`` (`InfiniLM/csrc/models/minicpm5_moe/minicpm5_moe_vllm_fused_sparse_moe_block.cpp`).
+
+```bash
+python3 $REPO/InfiniLM/examples/sweep_moe_e2e_backend_tokens.py --nvidia --model-path "$MODEL" \
+  --prompt-tokens-sweep 64,256,1024 --max-new-tokens 1 --json-out /tmp/moe_sweep.json --print-summary
+
+nsys profile -o moe_ns --trace-fork-before-exec=true \
+  python3 $REPO/InfiniLM/examples/sweep_moe_e2e_backend_tokens.py --nvidia --model-path "$MODEL" \
+  --backends vllm_fused --prompt-tokens-sweep 512 --json-out /tmp/moe_ns_dummy.json
+```
+
+**OpenAI-style concurrency:** larger effective batches raise per-step ``n_tokens``; compare ``InfiniLM/scripts/test_perf.py --concurrency`` (see ``minicpm5_moe_metrics_collection.md``) with the same MoE backend env; combine with Nsight if the server process is profiled from startup.
 
 ### vLLM (`vllm_bench_match_jiuge.py`) — aligned definitions
 

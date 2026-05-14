@@ -13,6 +13,20 @@ import logging
 import os
 import asyncio
 
+# Preload FlashAttention with RTLD_GLOBAL before importing InfiniLM (pulls torch). Keeps
+# `LD_PRELOAD` of flash .so out of child processes via flash_attn_preload.
+_ex_dir = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "examples")
+)
+if _ex_dir not in sys.path:
+    sys.path.insert(0, _ex_dir)
+try:
+    from flash_attn_preload import maybe_load_flash_attn_global
+
+    maybe_load_flash_attn_global()
+except Exception:
+    pass
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 

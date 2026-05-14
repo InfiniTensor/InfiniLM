@@ -21,6 +21,7 @@ while [[ $# -gt 0 ]]; do
       echo "  REPO  Workspace root (default: parent of InfiniLM/)."
       echo "  --moe Also pip install 'transformers>=5.0.0,<6' for vLLM MoE fallback."
       echo "  --tsinghua Use https://pypi.tuna.tsinghua.edu.cn/simple (Tsinghua mirror)."
+      echo "HF parity (transformers 4.57.1) uses a separate venv: bash InfiniLM/examples/setup_hf_parity_venv.sh"
       echo "Env: VLLM_PIN=pinned version (default: 0.19.0)."
       echo "     VLLM_PIP_INDEX_URL / VLLM_PIP_TRUSTED_HOST  custom index (if set, used instead of --tsinghua)."
       exit 0

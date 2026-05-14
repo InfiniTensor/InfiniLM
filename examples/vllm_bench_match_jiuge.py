@@ -5,19 +5,44 @@ Uses `TokensPrompt(prompt_token_ids=...)` so prompt IDs match jiuge/HF bench.
 Reports load time, TTFT (`RequestStateStats.first_token_latency`), mean inter-token
 latency over decode steps (excluding the first generated token, same convention as jiuge), and throughput derived from those intervals.
 
-Use an isolated `$REPO/.venv-vllm` only (do not install vLLM into the HF interpreter).
-MiniCPM5 MoE goes through `TransformersMoEForCausalLM`; upgrade Transformers to >=5
-inside that venv per `minicpm5_moe_inference_profiling.md`.
+Use an isolated ``$REPO/.venv-vllm`` only (do not install vLLM into the HF interpreter).
+MiniCPM5 MoE goes through ``TransformersMoEForCausalLM``; keep **transformers>=5** inside this
+venv per ``minicpm5_moe_inference_profiling.md``.
+
+For HF-only bench / checkpoint-declared Transformers **4.57.1**, use ``$REPO/.venv-no-vllm``
+(``setup_hf_parity_venv.sh``) and ``hf_bench_match_jiuge.py`` — not this venv.
 """
 
 from __future__ import annotations
 
-import argparse
-import json
 import os
+
+# TorchDynamo mis-traces HF MiniCPM5 MoE when vLLM wraps experts; EngineCore workers inherit env.
+os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
+
+import argparse
+import importlib.util
+import json
 import sys
 import time
 import traceback
+
+_ex_dir = os.path.dirname(os.path.abspath(__file__))
+_vllm_patch_dir = os.path.join(_ex_dir, "vllm_patches")
+_vllm_patch_sc = os.path.join(_vllm_patch_dir, "sitecustomize.py")
+# vLLM EngineCore workers are fresh interpreters (often spawn): they must see this path
+# first so `import sitecustomize` during `site` startup applies the MiniCPM5 MoE hooks.
+_pp = os.environ.get("PYTHONPATH", "")
+_parts = [p for p in _pp.split(os.pathsep) if p]
+if _vllm_patch_dir not in _parts:
+    os.environ["PYTHONPATH"] = (
+        _vllm_patch_dir + (os.pathsep + _pp if _pp else "")
+    )
+if os.path.isfile(_vllm_patch_sc):
+    _spec = importlib.util.spec_from_file_location("_minicpm5_vllm_sitecustomize", _vllm_patch_sc)
+    if _spec and _spec.loader:
+        _patch_mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_patch_mod)
 
 from packaging import version
 from tokenizers import decoders as _dec
@@ -124,8 +149,10 @@ def main() -> int:
     ap.add_argument("--tensor-parallel-size", type=int, default=1)
     ap.add_argument(
         "--enforce-eager",
-        action="store_true",
-        help="Disable torch.compile / cudagraphs (helps some remote-code / MoE models).",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Disable torch.compile / cudagraphs (default: true; helps remote-code / MoE). "
+        "Pass --no-enforce-eager to allow compilation.",
     )
     ap.add_argument("--json", action="store_true", help="Print one JSON object with metrics.")
     ap.add_argument(

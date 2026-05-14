@@ -414,33 +414,34 @@ class InferEngine(_infinilm.InferEngine):
                 time_measurements.append((end_time - start_time))
 
         if _measure_and_log_time:
-            print(
-                f"\n\n\n Generation completed in {round(sum(time_measurements) * 1000, 2)} ms"
-            )
-            print(
-                f" Batchsize={initial_batch_size}  Per_Batch_Input_Len={initial_seqlen}  Per_Batch_New_Tokens={len(time_measurements)}\n"
-            )
-            print(
-                f" Prefill TTFT: {round(time_measurements[0] * 1000, 2)} ms  Throughput: {round((initial_batch_size * initial_seqlen) / time_measurements[0], 2)} tok/s\n",
-            )
-            if len(time_measurements) > 1:
+            import os
+
+            if os.getenv("INFINILM_SUPPRESS_BENCH_PRINTS") != "1":
                 print(
-                    f" Decode  Avg ITL: {round(sum(time_measurements[1:]) * 1000 / (len(time_measurements) - 1), 2)} ms   Throughput: {round((initial_batch_size * (len(time_measurements) - 1)) / sum(time_measurements[1:]), 2)} tok/s\n",
+                    f"\n\n\n Generation completed in {round(sum(time_measurements) * 1000, 2)} ms"
                 )
+                print(
+                    f" Batchsize={initial_batch_size}  Per_Batch_Input_Len={initial_seqlen}  Per_Batch_New_Tokens={len(time_measurements)}\n"
+                )
+                print(
+                    f" Prefill TTFT: {round(time_measurements[0] * 1000, 2)} ms  Throughput: {round((initial_batch_size * initial_seqlen) / time_measurements[0], 2)} tok/s\n",
+                )
+                if len(time_measurements) > 1:
+                    print(
+                        f" Decode  Avg ITL: {round(sum(time_measurements[1:]) * 1000 / (len(time_measurements) - 1), 2)} ms   Throughput: {round((initial_batch_size * (len(time_measurements) - 1)) / sum(time_measurements[1:]), 2)} tok/s\n",
+                    )
 
-            # Optional breakdown printout (enabled via env var, requires C++ worker timing).
-            if cpu_prep_s:
-                import os
-
-                if os.getenv("INFINILM_PROFILE_STEP_BREAKDOWN") is not None:
-                    n = len(time_measurements)
-                    cpu_ms = [v * 1000.0 for v in cpu_prep_s]
-                    print(" Per-step breakdown (ms):")
-                    for i in range(n):
-                        print(
-                            f"  step={i:4d} cpu_prep={cpu_ms[i]:7.3f} "
-                            f"gpu_fwd={gpu_forward_ms[i]:7.3f} gpu_samp={gpu_sampling_ms[i]:7.3f} gpu_d2h={gpu_d2h_ms[i]:7.3f}"
-                        )
+                # Optional breakdown printout (enabled via env var, requires C++ worker timing).
+                if cpu_prep_s:
+                    if os.getenv("INFINILM_PROFILE_STEP_BREAKDOWN") is not None:
+                        n = len(time_measurements)
+                        cpu_ms = [v * 1000.0 for v in cpu_prep_s]
+                        print(" Per-step breakdown (ms):")
+                        for i in range(n):
+                            print(
+                                f"  step={i:4d} cpu_prep={cpu_ms[i]:7.3f} "
+                                f"gpu_fwd={gpu_forward_ms[i]:7.3f} gpu_samp={gpu_sampling_ms[i]:7.3f} gpu_d2h={gpu_d2h_ms[i]:7.3f}"
+                            )
 
         if _return_time_measurements:
             if not _measure_and_log_time:

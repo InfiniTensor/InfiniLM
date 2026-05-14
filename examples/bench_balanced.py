@@ -125,14 +125,33 @@ def get_args():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--warmup-steps", type=int, default=5)
     ap.add_argument("--runs", type=int, default=1)
+    ap.add_argument(
+        "--timing-discard-runs",
+        type=int,
+        default=1,
+        help="Full generate() passes with timing enabled, discarded before recorded runs "
+        "(reduces first-pass inflation vs cold CUDA / autotune). Use 0 to disable.",
+    )
+    ap.add_argument(
+        "--bench-print",
+        action="store_true",
+        help="Print InfiniLM per-generate timing to stdout (default: suppressed).",
+    )
 
     ap.add_argument("--json-out", type=str, required=True)
     ap.add_argument("--print-json", action="store_true", help="Also print the JSON row to stdout.")
+    ap.add_argument(
+        "--print-generated",
+        action="store_true",
+        help="Decode and print model output tokens from the last measured run (validation).",
+    )
     return ap.parse_args()
 
 
 def main() -> None:
     args = get_args()
+    if not args.bench_print:
+        os.environ["INFINILM_SUPPRESS_BENCH_PRINTS"] = "1"
     # Enable C++ worker step timing so TTFT breakdown fields are meaningful.
     os.environ.setdefault("INFINILM_PROFILE_STEP_TIMING", "1")
 
@@ -198,7 +217,7 @@ def main() -> None:
             engine.generate(
                 infinicore.from_list(warm_ids),
                 GenerationConfig(
-                    max_new_tokens=min(8, int(args.max_new_tokens)),
+                    max_new_tokens=max(1, int(args.max_new_tokens)),
                     eos_token_id=[],
                     top_k=args.top_k,
                     top_p=args.top_p,
@@ -207,6 +226,25 @@ def main() -> None:
                 ),
                 _measure_and_log_time=False,
             )
+
+    # Same path as recorded runs (timing + breakdown); discarded to avoid cold-start inflation.
+    for _ in range(max(0, int(args.timing_discard_runs))):
+        if cache_config is not None:
+            engine.reset_cache(cache_config)
+        engine.generate(
+            infinicore.from_list([prompt_ids]),
+            GenerationConfig(
+                max_new_tokens=int(args.max_new_tokens),
+                eos_token_id=[],
+                top_k=args.top_k,
+                top_p=args.top_p,
+                temperature=args.temperature,
+                stop_on_eos=False,
+            ),
+            _measure_and_log_time=True,
+            _return_time_measurements=True,
+            _return_step_breakdown=True,
+        )
 
     # Measured runs
     ttft_ms_list: list[float] = []
@@ -219,12 +257,13 @@ def main() -> None:
     ttft_gpu_d2h_ms_list: list[float] = []
     ttft_unaccounted_ms_list: list[float] = []
 
+    last_output_ids: list | None = None
     for _ in range(int(args.runs)):
         if cache_config is not None:
             engine.reset_cache(cache_config)
         input_ids_infini = infinicore.from_list([prompt_ids])
         t_run0 = time.perf_counter()
-        _, time_measurements, breakdown = engine.generate(
+        gen_out, time_measurements, breakdown = engine.generate(
             input_ids_infini,
             GenerationConfig(
                 max_new_tokens=int(args.max_new_tokens),
@@ -238,6 +277,7 @@ def main() -> None:
             _return_time_measurements=True,
             _return_step_breakdown=True,
         )
+        last_output_ids = gen_out
         run_wall_s = time.perf_counter() - t_run0
 
         if not time_measurements:
@@ -294,6 +334,16 @@ def main() -> None:
     os.makedirs(os.path.dirname(os.path.abspath(args.json_out)), exist_ok=True)
     with open(args.json_out, "w") as f:
         json.dump(asdict(row), f, indent=2)
+
+    if args.print_generated and last_output_ids is not None:
+        gen_ids: list[int] = []
+        for t in last_output_ids:
+            arr = t.to_numpy()
+            gen_ids.append(int(arr.reshape(-1)[0]))
+        gen_text = tokenizer.decode(gen_ids, skip_special_tokens=True)
+        print("\n--- generated (new tokens only) ---", flush=True)
+        print(gen_text, flush=True)
+        print("--- token ids:", gen_ids, "---\n", flush=True)
 
     if args.print_json:
         print(json.dumps(asdict(row), indent=2))

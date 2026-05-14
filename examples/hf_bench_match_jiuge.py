@@ -1,6 +1,11 @@
 """
 HF timing with the same prompt tokenization and sampling knobs as jiuge.py (batch 1).
 
+**Interpreter:** use ``$REPO/.venv-no-vllm/bin/python`` (HF parity: ``transformers==4.57.1``; see
+``InfiniLM/examples/setup_hf_parity_venv.sh``). Do **not** reuse ``.venv-vllm`` here — that venv
+pulls **transformers>=5** for vLLM / ``TransformersMoEForCausalLM`` and can hit LongRoPE / ``meta``
+init issues with this checkpoint under plain HF ``from_pretrained``.
+
 Measures:
   - model load (from_pretrained + .to(cuda) + eval)
   - prefill: one forward over the full prompt (use_cache=True)
@@ -11,7 +16,9 @@ Measures:
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import sys
 import time
 
 import torch
@@ -66,10 +73,25 @@ def main() -> None:
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--dtype", type=str, default="bfloat16", choices=["bfloat16", "float16", "float32"])
     ap.add_argument("--cuda-device", type=int, default=0)
+    ap.add_argument("--json", action="store_true", help="Print one JSON object with metrics.")
+    ap.add_argument(
+        "--json-out",
+        type=str,
+        default=None,
+        help="If set, save metrics JSON to this path.",
+    )
     args = ap.parse_args()
 
     if args.batch_size != 1:
         raise SystemExit("Only batch_size=1 is implemented (matches jiuge single-prompt path).")
+
+    if version.parse(transformers.__version__) >= version.parse("5.0.0"):
+        print(
+            "hf_bench_match_jiuge: transformers>=5 is for the vLLM venv only; "
+            "use: bash InfiniLM/examples/setup_hf_parity_venv.sh && "
+            'source "$REPO/.venv-no-vllm/bin/activate"',
+            file=sys.stderr,
+        )
 
     model_path = os.path.expanduser(args.model_path)
     dtype = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}[args.dtype]
@@ -80,8 +102,8 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype=dtype,
-        low_cpu_mem_usage=True,
         trust_remote_code=True,
+        low_cpu_mem_usage=True,
     )
     model = model.to(dev).eval()
     if torch.cuda.is_available():
@@ -149,6 +171,40 @@ def main() -> None:
         _ = model.generate(input_ids=input_ids, **gen_kwargs)
         torch.cuda.synchronize(dev)
         generate_api_s = time.perf_counter() - tg0
+
+    n_prompt = int(input_ids.shape[1])
+    row = {
+        "engine": "hf_transformers",
+        "model_path": model_path,
+        "torch_version": torch.__version__,
+        "transformers_version": transformers.__version__,
+        "prompt": args.prompt,
+        "prompt_tokens": n_prompt,
+        "max_new_tokens": args.max_new_tokens,
+        "dtype": args.dtype,
+        "cuda_device": args.cuda_device,
+        "load_weights_s": load_s,
+        "prefill_s": prefill_s,
+        "prefill_ms": prefill_s * 1000.0,
+        "decode_total_s": decode_total_s,
+        "decode_avg_step_ms": decode_avg_ms,
+        "prefill_decode_total_s": prefill_s + decode_total_s,
+        "generate_api_s": generate_api_s,
+        "prefill_tok_per_s": (n_prompt / prefill_s) if prefill_s > 0 else 0.0,
+        "decode_tok_per_s": ((args.max_new_tokens - 1) / decode_total_s)
+        if args.max_new_tokens > 1 and decode_total_s > 0
+        else 0.0,
+    }
+
+    if args.json_out:
+        out_path = os.path.abspath(os.path.expanduser(args.json_out))
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
+            json.dump(row, f, indent=2)
+
+    if args.json:
+        print(json.dumps(row, indent=2))
+        return
 
     print("== HF bench (match jiuge tokenization / batch 1) ==")
     print(f"model_path: {model_path}")
