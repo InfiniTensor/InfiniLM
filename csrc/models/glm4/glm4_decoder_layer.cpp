@@ -1,5 +1,4 @@
 #include "glm4_decoder_layer.hpp"
-#include "infinicore/ops.hpp" // 包含 add 等算子
 
 namespace infinilm::models::glm4 {
 
@@ -10,23 +9,12 @@ Glm4DecoderLayer::Glm4DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-    self_attn_ = this->register_module<Glm4Attention>(
-        "self_attn", model_config, layer_idx, device);
-
-    mlp_ = this->register_module<infinilm::layers::mlp::MLP>(
-        "mlp", model_config, device);
-
-    input_layernorm_ = this->register_module<infinicore::nn::RMSNorm>(
-        "input_layernorm", hidden_size, rms_norm_eps, dtype, device);
-
-    post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>(
-        "post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
-
-    post_self_attn_layernorm_ = this->register_module<infinicore::nn::RMSNorm>(
-        "post_self_attn_layernorm", hidden_size, rms_norm_eps, dtype, device);
-
-    post_mlp_layernorm_ = this->register_module<infinicore::nn::RMSNorm>(
-        "post_mlp_layernorm", hidden_size, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(self_attn, model_config, layer_idx, device);
+    INFINICORE_NN_MODULE_INIT(mlp, model_config, device);
+    INFINICORE_NN_MODULE_INIT(input_layernorm, hidden_size, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(post_attention_layernorm, hidden_size, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(post_self_attn_layernorm, hidden_size, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(post_mlp_layernorm, hidden_size, rms_norm_eps, dtype, device);
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> Glm4DecoderLayer::forward(
