@@ -2,6 +2,7 @@ from .processor import InfinilmProcessor
 from transformers import AutoTokenizer
 from ..llm.static_scheduler import StaticSchedulerOutput
 from ..llm.scheduler import SchedulerOutput
+from typing import override
 
 
 class BasicLLMProcessor(InfinilmProcessor):
@@ -10,6 +11,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             model_dir_path, trust_remote_code=True
         )
 
+    @override
     def __call__(self, prompt: str, return_tensors: str = None, **kwargs) -> dict:
         if return_tensors is None:
             return self.tokenizer(prompt)
@@ -24,6 +26,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         # "pt" or "np" or "tf".
         return self.tokenizer(prompt, return_tensors="pt")
 
+    @override
     def apply_chat_template(
         self,
         conversation,
@@ -49,6 +52,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             **kwargs,
         )
 
+    @override
     def build_model_inputs(
         self,
         scheduler_output: SchedulerOutput | StaticSchedulerOutput,
@@ -236,5 +240,12 @@ class BasicLLMProcessor(InfinilmProcessor):
             "top_p": top_p,
         }
 
+    @override
     def get_tokenizer(self):
         return self.tokenizer
+
+    @override
+    def get_mm_token_index_list(
+        self, prompt_token_ids, image_ids=None, video_ids=None, audio_ids=None, **kwargs
+    ):
+        return []
