@@ -1,4 +1,5 @@
 #include "chunk_prefill_compiler.hpp"
+#include "../../global_state/global_state.hpp"
 #include "infinicore/context/context.hpp"
 
 
@@ -120,6 +121,16 @@ void ChunkPrefillCompiler::compile() {
                 input.slot_mapping = infinicore::Tensor::empty(
                     {total_tokens}, infinicore::DataType::I64, infinicore::context::getDevice());
                 set_zeros(input.slot_mapping.value());
+
+                // Attention reads attn_metadata from thread-local forward context.
+                infinilm::global_state::get_forward_context().attn_metadata = {
+                    input.past_sequence_lengths,
+                    input.total_sequence_lengths,
+                    input.input_offsets,
+                    input.cu_seqlens,
+                    input.block_tables,
+                    input.slot_mapping,
+                };
 
                 barrier_->wait();
                 infinicore::context::startGraphRecording();
