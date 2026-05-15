@@ -24,6 +24,9 @@ class KVConnectorOutput:
     finished_sending: set[str] | None = None
     finished_recving: set[str] | None = None
 
+    # consumer failed to recv
+    failed_recving: set[str] | None = None
+
     # IDs of externally computed KV blocks that failed to load.
     # Requests referencing these blocks should be rescheduled to recompute them
     invalid_block_ids: set[int] = field(default_factory=set)  # not used
@@ -200,7 +203,7 @@ class ModelRunner:
         try:
             yield output
         finally:
-            output.finished_sending, output.finished_recving = (
+            output.finished_sending, output.failed_recving, output.finished_recving = (
                 self.kv_connector.get_finished("finished_req_ids")
             )
             output.invalid_block_ids = (

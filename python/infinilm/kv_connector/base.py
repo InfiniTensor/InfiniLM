@@ -254,8 +254,8 @@ class KVConnectorBase(ABC):
 
     def get_finished(
         self, finished_req_ids: set[str]
-    ) -> tuple[set[str] | None, set[str] | None]:
-        return None, None
+    ) -> tuple[set[str] | None, set[str] | None, set[str] | None]:
+        return None, None, None
 
     def shutdown(self):
         """

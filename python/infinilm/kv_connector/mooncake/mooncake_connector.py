@@ -29,7 +29,7 @@ class PullReqMeta:
     local_block_ids: list[int]
     remote_engine_id: str
     remote_bootstrap_addr: str
-    expire_time: float = float("inf")
+    expire_time: float = float("inf")  # not used
     pull_tasks_count: int = 0
 
 

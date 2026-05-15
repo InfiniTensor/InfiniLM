@@ -30,7 +30,7 @@ class KVTransferConfig:
 
     def __post_init__(self) -> None:
         if self.kv_connector_extra_config is None:
-            self.kv_connector_extra_config = {"mooncake_protocol": "tcp"}
+            self.kv_connector_extra_config = {"mooncake_protocol": "rdma"}
 
         if self.kv_role is not None and self.kv_role not in KV_ROLE_CHOICES:
             raise ValueError(
