@@ -690,6 +690,27 @@ class MooncakeConnectorWorker:
             "registered num_blocks=%d block_len=%d", self.num_blocks, self.block_len
         )
 
+        if False:
+            import torch
+
+            self.kflag = torch.zeros(self.num_blocks, dtype=torch.uint8)
+            self.vflag = torch.zeros(self.num_blocks, dtype=torch.uint8)
+
+            flag_data_ptrs = [self.kflag.data_ptr(), self.vflag.data_ptr()]
+            flag_data_lens = [self.kflag.nbytes, self.vflag.nbytes]
+            ret_value_flags = self.engine.batch_register_memory(
+                flag_data_ptrs, flag_data_lens
+            )
+            if ret_value_flags != 0:
+                raise RuntimeError(
+                    "Mooncake batch memory registration failed for k/v block flags."
+                )
+
+            self.k_flag_ptrs = [self.kflag.data_ptr()]
+            self.k_flag_lens = [self.kflag.nbytes]
+            self.v_flag_ptrs = [self.vflag.data_ptr()]
+            self.v_flag_lens = [self.vflag.nbytes]
+
         # No need to launch server for D node.
         if self.is_kv_consumer:
             return
