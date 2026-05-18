@@ -42,8 +42,8 @@ protected:
     bool use_output_bias_;
 
     // For off-line kv cache quantization
-    infinicore::nn::Parameter kv_cache_k_scale_;
-    infinicore::nn::Parameter kv_cache_v_scale_;
+    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
+    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 };
 
 /**

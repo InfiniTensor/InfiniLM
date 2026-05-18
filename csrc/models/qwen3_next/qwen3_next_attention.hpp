@@ -35,8 +35,8 @@ protected:
     size_t head_dim_;
 
     // For off-line kv cache quantization
-    infinicore::nn::Parameter kv_cache_k_scale_;
-    infinicore::nn::Parameter kv_cache_v_scale_;
+    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
+    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 };
 
 } // namespace infinilm::models::qwen3_next

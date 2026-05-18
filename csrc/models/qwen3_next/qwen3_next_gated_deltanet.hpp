@@ -20,7 +20,7 @@ public:
 
 private:
     size_t layer_idx_;
-    infinicore::nn::Parameter weight_;
+    INFINICORE_NN_PARAMETER(weight);
 };
 
 class Qwen3NextGatedDeltaNet : public infinicore::nn::Module {

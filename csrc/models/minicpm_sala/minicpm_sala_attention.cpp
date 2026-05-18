@@ -33,23 +33,16 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
     num_attention_heads_ = total_num_heads / static_cast<size_t>(tp_size);
     num_key_value_heads_ = total_num_kv_heads / static_cast<size_t>(tp_size);
 
-    auto quant_scheme = model_config->get_quant_scheme();
     auto quantization_method = model_config->get_quantization_method();
-    switch (quant_scheme) {
-    case infinilm::quantization::QuantScheme::NONE:
-        q_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("q_proj", hidden_size_, total_num_heads * head_dim_, quantization_method,
+
+    q_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("q_proj", hidden_size_, total_num_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-        k_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("k_proj", hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
+    k_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("k_proj", hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-        v_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("v_proj", hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
+    v_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("v_proj", hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-        o_proj_ = this->register_module<infinilm::layers::linear::RowParallelLinear>("o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
+    o_proj_ = this->register_module<infinilm::layers::linear::RowParallelLinear>("o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
                                   use_output_bias_, dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    default:
-        throw std::runtime_error("infinilm::models::minicpm_sala::AttentionBase: unsupported quantization scheme");
-        break;
-    }
 
     rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
 

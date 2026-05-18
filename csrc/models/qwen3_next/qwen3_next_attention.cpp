@@ -44,14 +44,15 @@ Qwen3NextAttention::Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelCo
     o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
         use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
-    INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
 
     rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
 
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
                                                                           kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
+
+    INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
 }
 
 infinicore::Tensor Qwen3NextAttention::forward(const infinicore::Tensor &positions,
