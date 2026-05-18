@@ -172,10 +172,15 @@ std::optional<infinicore::Tensor> try_fused_experts_dispatcher(
             w2 = w2.contiguous();
         }
 
-        // Match vllm_fused_moe_bridge.fused_experts_ic: only the current CUDA stream,
-        // not a full device sync (device sync can dominate MoE step time vs Python path).
+        // After bridge_ic_stream_to_torch_stream(), cross-stream ordering is already
+        // established via cudaEventRecord/StreamWaitEvent. Optional extra stream sync
+        // matches legacy Python bridge behavior; disable with INFINILM_VLLM_FUSED_FAST_STREAM_HANDOFF=1
+        // for experiments (see MOE_VENDOR_UPSTREAM_CONCURRENCY_MEMO.md).
         if (h.is_cuda()) {
-            cudaStreamSynchronize(at::cuda::getCurrentCUDAStream().stream());
+            const char *fast = std::getenv("INFINILM_VLLM_FUSED_FAST_STREAM_HANDOFF");
+            if (!(fast != nullptr && std::string(fast) == "1")) {
+                cudaStreamSynchronize(at::cuda::getCurrentCUDAStream().stream());
+            }
         }
 
         at::Tensor out = call_infinilm_outplace_fused_experts(h, w1, w2, tw, ids);

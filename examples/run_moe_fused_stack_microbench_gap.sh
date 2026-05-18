@@ -31,7 +31,10 @@ _export_ld_for_torch() {
 
 # Full checkpoint MoE allocates large w1/w2; use synthetic dims by default so the gap repro
 # fits a busy GPU. Set MICROBENCH_GAP_USE_MODEL=1 (and a free GPU) to bench real E/N/H from config.json.
+# Optional: MICROBENCH_TUNED_CONFIG_DIR=/path/to/json_dir → --tuned-config-dir for both vendor and upstream legs.
 MICROBENCH_GAP_USE_MODEL="${MICROBENCH_GAP_USE_MODEL:-0}"
+# Optional: directory of vLLM-style ``E=...,N=...,device_name=....json`` (passed as ``--tuned-config-dir`` to both legs).
+MICROBENCH_TUNED_CONFIG_DIR="${MICROBENCH_TUNED_CONFIG_DIR:-}"
 
 WARMUP="${WARMUP:-10}"
 ITERS="${ITERS:-40}"
@@ -41,7 +44,7 @@ SEED="${SEED:-0}"
 export PYTHONPATH="$REPO/InfiniLM/python:$REPO/InfiniCore/python:${PYTHONPATH:-}"
 
 echo "=== MoE fused stack microbench gap (vendor vs upstream experts) ===" >&2
-echo "REPO=$REPO CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-} MICROBENCH_GAP_USE_MODEL=$MICROBENCH_GAP_USE_MODEL" >&2
+echo "REPO=$REPO CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-} MICROBENCH_GAP_USE_MODEL=$MICROBENCH_GAP_USE_MODEL MICROBENCH_TUNED_CONFIG_DIR=${MICROBENCH_TUNED_CONFIG_DIR:-}" >&2
 if [[ "$MICROBENCH_GAP_USE_MODEL" == "1" ]]; then
   echo "MODEL=$MODEL (shapes from config.json)" >&2
 else
@@ -64,6 +67,11 @@ else
   shape_args=(--num-experts 32 --hidden 768 --intermediate 384 --top-k 4)
 fi
 
+tuned_args=()
+if [[ -n "${MICROBENCH_TUNED_CONFIG_DIR}" ]]; then
+  tuned_args=(--tuned-config-dir "$MICROBENCH_TUNED_CONFIG_DIR")
+fi
+
 common_args=(
   --nvidia
   "${shape_args[@]}"
@@ -71,6 +79,7 @@ common_args=(
   --seed "$SEED"
   --warmup "$WARMUP"
   --iters "$ITERS"
+  "${tuned_args[@]}"
   --print-json
 )
 

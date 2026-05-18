@@ -7,6 +7,7 @@
 # Env:
 #   NUM_TOKENS_LIST="8 32 128 512"
 #   MICROBENCH_GAP_USE_MODEL=1  — forwarded (real shapes from MODEL/config.json)
+#   MICROBENCH_TUNED_CONFIG_DIR — forwarded to run_moe_fused_stack_microbench_gap.sh / microbench
 #
 set -euo pipefail
 

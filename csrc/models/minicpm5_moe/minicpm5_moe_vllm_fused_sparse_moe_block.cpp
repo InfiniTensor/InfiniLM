@@ -79,6 +79,18 @@ infinicore::Tensor MiniCPM5MoeVllmFusedSparseMoeBlock::forward(const infinicore:
         const size_t hidden_size = shape[2];
         const size_t n_tokens = batch_size * seq_len;
 
+        if (const char *dbg_nt = std::getenv("INFINILM_MOE_DEBUG_NUM_TOKENS")) {
+            if (std::string(dbg_nt) == "1") {
+                std::fprintf(stderr,
+                               "[minicpm5_moe_fused] n_tokens=%zu batch_size=%zu seq_len=%zu hidden_size=%zu\n",
+                               n_tokens,
+                               batch_size,
+                               seq_len,
+                               hidden_size);
+                std::fflush(stderr);
+            }
+        }
+
         const size_t top_k =
             infinilm::global_state::get_infinilm_config().model_config->get<size_t>("num_experts_per_tok");
         const bool norm_topk_prob =
