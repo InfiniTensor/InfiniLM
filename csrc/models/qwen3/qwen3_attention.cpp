@@ -46,8 +46,8 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
                                                                           kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
 
-    q_norm_ = this->register_module<infinicore::nn::RMSNorm>("q_norm", head_dim_, rms_norm_eps, dtype, device);
-    k_norm_ = this->register_module<infinicore::nn::RMSNorm>("k_norm", head_dim_, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
 
     infinilm::layers::attention::init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
 }

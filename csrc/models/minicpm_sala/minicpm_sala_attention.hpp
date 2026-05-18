@@ -79,9 +79,9 @@ protected:
     bool qk_norm_;
     bool use_output_norm_;
     bool use_output_gate_;
-    std::shared_ptr<infinicore::nn::RMSNorm> q_norm_;
-    std::shared_ptr<infinicore::nn::RMSNorm> k_norm_;
-    std::shared_ptr<infinicore::nn::RMSNorm> o_norm_;
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, o_norm);
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> z_proj_;
 };
 

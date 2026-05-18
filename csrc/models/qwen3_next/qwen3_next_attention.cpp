@@ -44,8 +44,8 @@ Qwen3NextAttention::Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelCo
     o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
         use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
-    q_norm_ = this->register_module<infinicore::nn::RMSNorm>("q_norm", head_dim_, rms_norm_eps, dtype, device);
-    k_norm_ = this->register_module<infinicore::nn::RMSNorm>("k_norm", head_dim_, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
 
     rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
 

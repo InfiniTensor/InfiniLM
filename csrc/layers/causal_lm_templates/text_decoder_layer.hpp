@@ -62,10 +62,10 @@ public:
     size_t layer_idx() const { return layer_idx_; }
 
 protected:
-    std::shared_ptr<infinicore::nn::RMSNorm> input_layernorm_;
-    std::shared_ptr<infinicore::nn::RMSNorm> post_attention_layernorm_;
-    std::shared_ptr<Attention> self_attn_;
-    std::shared_ptr<MLP> mlp_;
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
+    INFINICORE_NN_MODULE(Attention, self_attn);
+    INFINICORE_NN_MODULE(MLP, mlp);
 
     size_t layer_idx_;
 };

@@ -14,8 +14,8 @@ Qwen3NextForCausalLM::Qwen3NextForCausalLM(std::shared_ptr<infinilm::config::Mod
     size_t vocab_size = model_config->get<size_t>("vocab_size");
     const auto &dtype{model_config->get_dtype()};
 
-    model_ = this->register_module<Qwen3NextModel>("model", model_config, device);
-    lm_head_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("lm_head", hidden_size, vocab_size, false, dtype, device);
+    INFINICORE_NN_MODULE_INIT(model, model_config, device);
+    INFINICORE_NN_MODULE_INIT(lm_head, hidden_size, vocab_size, false, dtype, device);
 }
 
 infinilm::InfinilmModel::Output Qwen3NextForCausalLM::forward(const infinilm::InfinilmModel::Input &input) const {

@@ -22,8 +22,8 @@ public:
 protected:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
-    std::shared_ptr<infinicore::nn::RMSNorm> q_norm_;
-    std::shared_ptr<infinicore::nn::RMSNorm> k_norm_;
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;

@@ -100,11 +100,11 @@ LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelCo
     size_t num_attention_heads = model_config->get<size_t>("num_attention_heads");
 
     if (qk_norm_) {
-        q_norm_ = this->register_module<infinicore::nn::RMSNorm>("q_norm", head_dim_, rms_norm_eps, dtype, device);
-        k_norm_ = this->register_module<infinicore::nn::RMSNorm>("k_norm", head_dim_, rms_norm_eps, dtype, device);
+        INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
+        INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
     }
     if (use_output_norm_) {
-        o_norm_ = this->register_module<infinicore::nn::RMSNorm>("o_norm", num_attention_heads * head_dim_, rms_norm_eps, dtype, device);
+        INFINICORE_NN_MODULE_INIT(o_norm, num_attention_heads * head_dim_, rms_norm_eps, dtype, device);
     }
     if (use_output_gate_) {
         z_proj_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("z_proj", hidden_size_, num_attention_heads * head_dim_,

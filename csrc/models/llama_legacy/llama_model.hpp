@@ -79,13 +79,13 @@ public:
     size_t num_layers() const { return model_config_->get<size_t>("num_hidden_layers"); }
 
 protected:
-    std::shared_ptr<infinicore::nn::Embedding> embed_tokens_;
+    INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
 
-    std::vector<std::shared_ptr<LlamaDecoderLayer>> layers_;
+    INFINICORE_NN_MODULE_VEC(LlamaDecoderLayer, layers);
 
-    std::shared_ptr<infinicore::nn::RMSNorm> norm_;
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
 
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+    INFINICORE_NN_MODULE(infinicore::nn::RoPE, rotary_emb);
 
     engine::distributed::RankInfo rank_info_;
 
