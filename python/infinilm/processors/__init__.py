@@ -1,6 +1,7 @@
 from .processor import InfinilmProcessor
 from .basic_llm_processor import BasicLLMProcessor
 from .llama_processor import LlamaProcessor
+from .chatglm_processor import ChatGLMProcessor
 
 from transformers import AutoConfig
 
@@ -14,5 +15,7 @@ class AutoInfinilmProcessor:
 
         if model_type in ["llama"]:
             return LlamaProcessor(model_dir_path)
+        elif model_type in ["chatglm"]:
+            return ChatGLMProcessor(model_dir_path)
         else:
             return BasicLLMProcessor(model_dir_path)

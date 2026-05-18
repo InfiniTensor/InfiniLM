@@ -24,6 +24,24 @@ DATA_TYPE_BYTES = {
 
 _PAGED_KV_BLOCK_SIZE = 256
 
+_CONFIG_KEY_MAP = {
+    "chatglm": {
+        "num_key_value_heads": "multi_query_group_num",
+        "num_hidden_layers": "num_layers",
+        "head_dim": "kv_channels",
+    },
+}
+
+def _normalize_config(config, model_type):
+    key_map = _CONFIG_KEY_MAP.get(model_type)
+    if not key_map:
+        return config
+    normalized = dict(config)
+    for std_key, model_key in key_map.items():
+        if model_key in normalized:
+            normalized.setdefault(std_key, normalized[model_key])
+    return normalized
+
 # BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128]
 # INPUT_LENS = [32, 256, 1024, 4096]
 # OUTPUT_LENS = [256, 1024, 4096]
@@ -46,6 +64,8 @@ def get_test_cases(
     """Generate cases ordered by ascending KV cache memory usage."""
     # Load model config to derive attention dimensions
     config = read_json_file(os.path.join(model_path, "config.json"))
+    model_type = config.get("model_type", "")
+    config = _normalize_config(config, model_type)
     head_dim = config.get(
         "head_dim", config.get("hidden_size") // config.get("num_attention_heads")
     )

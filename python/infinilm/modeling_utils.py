@@ -197,7 +197,7 @@ def load_model_state_dict_by_file(
             # Apply model-specific weight remapping
             remapper = _WEIGHT_REMAPPER.get(model_type)
             if remapper is not None:
-                model_param = remapper(model_param)
+                model_param = remapper(model_param, config=model.hf_config)
 
             already_loaded_keys.extend(model_param.keys())
 
@@ -228,7 +228,7 @@ def load_model_state_dict_by_file(
         # Apply model-specific weight remapping
         remapper = _WEIGHT_REMAPPER.get(model_type)
         if remapper is not None:
-            model_params = remapper(model_params)
+            model_params = remapper(model_params, config=model.hf_config)
 
         # Scale embed_tokens on torch side before converting
         if "model.embed_tokens.weight" in model_params:
@@ -332,55 +332,19 @@ def load_model_state_dict_by_tensor(
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 
-
 # ============================================================================
 # Common weight transformation utilities
 # ============================================================================
 
-
-def split_fused_weight(
+def drop_keys(
     state_dict: Dict[str, torch.Tensor],
-    fused_key: str,
-    output_names: List[str],
-    split_dim: int = 0,
-    split_ratios: Optional[List[float]] = None,
+    substrings: List[str],
 ) -> Dict[str, torch.Tensor]:
-    """Split fused weight tensors into separate weights.
-
-    Args:
-        state_dict: Original state dict from HuggingFace safetensors.
-        fused_key: Substring to match in key names (e.g. "gate_up_proj").
-        output_names: Names of the split outputs (e.g. ["gate_proj", "up_proj"]).
-        split_dim: Dimension along which to split. Default 0.
-        split_ratios: Optional ratios. If None, split equally.
-
-    Returns:
-        New state dict with fused keys replaced by split keys.
-    """
-    result = {}
-    for key, tensor in state_dict.items():
-        if fused_key not in key:
-            result[key] = tensor
-            continue
-
-        base_key = key.replace(f".{fused_key}.weight", "")
-        dim_size = tensor.shape[split_dim]
-        num_splits = len(output_names)
-
-        if split_ratios is not None:
-            total_ratio = sum(split_ratios)
-            sizes = [int(dim_size * r / total_ratio) for r in split_ratios[:-1]]
-            sizes.append(dim_size - sum(sizes))
-        else:
-            chunk = dim_size // num_splits
-            sizes = [chunk] * (num_splits - 1)
-            sizes.append(dim_size - chunk * (num_splits - 1))
-
-        splits = torch.split(tensor, sizes, dim=split_dim)
-        for name, split_tensor in zip(output_names, splits):
-            result[f"{base_key}.{name}.weight"] = split_tensor
-
-    return result
+    """Drop keys containing any of the given substrings."""
+    return {
+        k: v for k, v in state_dict.items()
+        if not any(sub in k for sub in substrings)
+    }
 
 
 def rename_keys(
@@ -397,12 +361,114 @@ def rename_keys(
     return result
 
 
+def split_fused_weight(
+    state_dict: Dict[str, torch.Tensor],
+    fused_key: str,
+    output_names: List[str],
+    split_dim: int = 0,
+    split_sizes: Optional[List[int]] = None,
+) -> Dict[str, torch.Tensor]:
+    """Split fused weight tensors into separate weights.
+
+    Args:
+        state_dict: Original state dict.
+        fused_key: Substring to match in key names (e.g. "query_key_value").
+        output_names: Names of the split outputs (e.g. ["q_proj", "k_proj", "v_proj"]).
+        split_dim: Dimension along which to split. Default 0.
+        split_sizes: Optional explicit sizes for each split. Supports -1 to mean
+            "the remaining size". If None, split equally.
+
+    Returns:
+        New state dict with fused keys replaced by split keys.
+
+    Examples:
+        # Equal 2-way split (e.g. gate_up_proj.weight)
+        split_fused_weight(sd, "gate_up_proj", ["gate_proj", "up_proj"])
+
+        # Dynamic 3-way split with bias (e.g. query_key_value.weight + bias)
+        split_fused_weight(sd, "query_key_value", ["q_proj", "k_proj", "v_proj"],
+                           split_sizes=[q_dim, k_dim, -1])
+    """
+    result = {}
+    marker = f".{fused_key}."
+
+    for key, tensor in state_dict.items():
+        if marker not in key:
+            result[key] = tensor
+            continue
+
+        # Extract base_key and suffix (handles both .weight and .bias)
+        base_key, suffix = key.split(marker, 1)
+        dim_size = tensor.shape[split_dim]
+
+        # Calculate split sizes
+        if split_sizes is not None:
+            sizes = []
+            remainder = dim_size
+            for s in split_sizes:
+                if s == -1:
+                    sizes.append(0)  # placeholder
+                else:
+                    sizes.append(s)
+                    remainder -= s
+            # Fill -1 placeholders with remainder
+            sizes = [remainder if s == 0 else s for s in sizes]
+        else:
+            num_splits = len(output_names)
+            chunk = dim_size // num_splits
+            sizes = [chunk] * (num_splits - 1)
+            sizes.append(dim_size - chunk * (num_splits - 1))
+
+        splits = torch.split(tensor, sizes, dim=split_dim)
+        for name, split_tensor in zip(output_names, splits):
+            result[f"{base_key}.{name}.{suffix}"] = split_tensor
+
+    return result
+
+def split_fused_weight_with_sizes(
+    state_dict: Dict[str, torch.Tensor],
+    fused_key: str,
+    output_names: List[str],
+    split_sizes: List[int],
+    split_dim: int = 0,
+) -> Dict[str, torch.Tensor]:
+    """Split fused weight tensors into separate weights with explicit sizes.
+    Supports -1 in split_sizes to mean "the remaining size".
+    Handles both .weight and .bias suffixes (unlike split_fused_weight
+    which only handles .weight).
+    """
+    result = {}
+    marker = f".{fused_key}."
+
+    for key, tensor in state_dict.items():
+        if marker not in key:
+            result[key] = tensor
+            continue
+
+        base_key, suffix = key.split(marker, 1)
+        dim_size = tensor.shape[split_dim]
+
+        # Resolve -1 (remainder)
+        sizes = []
+        remainder = dim_size
+        for s in split_sizes:
+            if s == -1:
+                sizes.append(0)  # placeholder
+            else:
+                sizes.append(s)
+                remainder -= s
+        sizes = [remainder if s == 0 else s for s in sizes]
+
+        splits = torch.split(tensor, sizes, dim=split_dim)
+        for name, split_tensor in zip(output_names, splits):
+            result[f"{base_key}.{name}.{suffix}"] = split_tensor
+
+    return result
+
 # ============================================================================
 # Model-specific remap functions
 # ============================================================================
-
-
-def _remap_glm4(state_dict):
+def _remap_glm4(state_dict, config=None):
     """Split GLM-4 fused gate_up_proj into gate_proj + up_proj."""
     return split_fused_weight(
         state_dict,
@@ -411,15 +477,55 @@ def _remap_glm4(state_dict):
     )
 
 
-# Add more model remap functions here as needed:
-#
-# def _remap_qwen3(state_dict):
-#     state_dict = split_fused_weight(state_dict, "gate_up_proj", ["gate_proj", "up_proj"])
-#     state_dict = rename_keys(state_dict, {"model.layers": "decoder.layers"})
-#     return state_dict
+def _remap_chatglm(state_dict, config=None):
+    """Remap ChatGLM weights to InfiniLM format.
+
+    Faithfully ported from the original working _remap_chatglm_weights.
+    """
+    hf_config = config or {}
+    num_heads = hf_config.get("num_attention_heads", 32)
+    num_kv = hf_config.get("multi_query_group_num", 2)
+    head_dim = hf_config.get("kv_channels", 128)
+    ffn_hidden = hf_config.get("ffn_hidden_size", 13696)
+
+    q_dim = num_heads * head_dim
+    k_dim = num_kv * head_dim
+
+    # 1. Drop unused keys
+    state_dict = drop_keys(state_dict, ["rotary_pos_emb"])
+
+    # 2. Split QKV
+    state_dict = split_fused_weight_with_sizes(
+        state_dict,
+        fused_key="query_key_value",
+        output_names=["q_proj", "k_proj", "v_proj"],
+        split_sizes=[q_dim, k_dim, -1],
+    )
+
+    # 3. Split gate_up
+    state_dict = split_fused_weight_with_sizes(
+        state_dict,
+        fused_key="dense_h_to_4h",
+        output_names=["gate_proj", "up_proj"],
+        split_sizes=[ffn_hidden, -1],
+    )
+
+    # 4. Rename keys
+    state_dict = rename_keys(state_dict, {
+        "transformer.encoder.layers.": "model.layers.",
+        "transformer.embedding.word_embeddings": "model.embed_tokens",
+        "transformer.encoder.final_layernorm": "model.norm",
+        "transformer.output_layer": "lm_head",
+        "self_attention.": "self_attn.",
+        "self_attn.dense": "self_attn.o_proj",
+        "mlp.dense_4h_to_h": "mlp.down_proj",
+    })
+
+    return state_dict
+
 
 # Model type → remap function mapping
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
-    # "qwen3": _remap_qwen3,
+    "chatglm": _remap_chatglm,
 }

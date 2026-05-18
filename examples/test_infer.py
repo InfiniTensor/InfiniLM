@@ -42,7 +42,7 @@ def test(
     )
 
     conversations = [
-        {"role": "user", "content": [{"type": "text", "text": prompt}]}
+        [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
         for prompt in prompts
     ]
     if image_path is not None:
