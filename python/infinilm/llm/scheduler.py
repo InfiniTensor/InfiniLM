@@ -42,6 +42,9 @@ class Scheduler:
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
+        # Requests in the middle of chunked-prefill — scheduled at high priority,
+        # single-request batches only (to match the C++ ChunkPrefillCompiler graph signature).
+        self.chunking_queue = janus.Queue()
         self.max_batch_size = max_batch_size
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
@@ -53,7 +56,27 @@ class Scheduler:
             self.waiting_queue.sync_q.put(request)
 
     def schedule(self) -> Optional[SchedulerOutput]:
-        """Schedule and return batch of requests to execute."""
+        """Schedule and return batch of requests to execute.
+
+        Priority (mirrors launch_server.py chunked-prefill scheduling):
+          1. Running queue (decode) — short / latency-sensitive
+          2. Chunking queue (in-flight chunked-prefill) — single-request slice
+          3. Waiting queue (new prefill) — may start chunking if prompt is long
+        """
+        # 2) Continue an in-flight chunked-prefill request (single-request batch).
+        try:
+            req = self.chunking_queue.sync_q.get_nowait()
+        except queue.Empty:
+            req = None
+        if req is not None:
+            if req.is_finished():
+                self.complete_requests([req])
+            else:
+                return SchedulerOutput(
+                    scheduled_requests=[req],
+                    is_prefill=True,
+                )
+
         scheduled_requests = []
         is_prefill = False
 
@@ -91,6 +114,18 @@ class Scheduler:
 
             req.num_blocks = len(req.block_table)
             req.status = RequestStatus.RUNNING
+
+            # Start chunked-prefill: enqueue into chunking_queue and emit a
+            # single-request batch immediately. We don't mix chunked-prefill
+            # with other requests in the same batch — the C++ ChunkPrefillCompiler
+            # graph is keyed on (batch_size, chunk_size).
+            if req.chunk_size > 0 and req.prompt_length > req.chunk_size:
+                req.chunk_prefill_offset = 0
+                return SchedulerOutput(
+                    scheduled_requests=[req],
+                    is_prefill=True,
+                )
+
             scheduled_requests.append(req)
 
         # Return prefill batch if any waiting requests were scheduled
@@ -134,6 +169,10 @@ class Scheduler:
             )
 
         return None
+
+    def requeue_chunking(self, req: InferenceRequest):
+        """Put a request back into the chunking queue after a chunk has run."""
+        self.chunking_queue.sync_q.put(req)
 
     def complete_requests(self, requests: List[InferenceRequest]):
         """Handle completed requests and free their blocks."""
