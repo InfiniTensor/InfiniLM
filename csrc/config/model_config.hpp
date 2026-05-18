@@ -62,17 +62,17 @@ public:
         return quant_config;
     }
 
-    std::shared_ptr<infinicore::quantization::BaseQuantization> get_quantization_method() const {
+    std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const {
         return quant_config.get_quantization_method();
     }
 
     infinicore::DataType get_dtype() const;
-    infinicore::quantization::QuantScheme get_quant_scheme() const;
+    infinilm::quantization::QuantScheme get_quant_scheme() const;
     std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> get_rope_scaling() const;
     void set_kv_quant_scheme(infinicore::DataType kv_cache_dtype) {
         this->quant_config.set_kv_quant_scheme(kv_cache_dtype);
     }
-    infinicore::quantization::KVQuantAlgo get_kv_quant_scheme() const {
+    infinilm::quantization::KVQuantAlgo get_kv_quant_scheme() const {
         return quant_config.get_kv_quant_scheme();
     }
     infinicore::DataType get_kv_cache_dtype() const {

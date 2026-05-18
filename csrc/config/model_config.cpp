@@ -16,12 +16,12 @@ ModelConfig::ModelConfig(const std::string &path) {
     this->quant_config = QuantConfig(config_json["quantization_config"]);
 }
 
-infinicore::quantization::QuantScheme
+infinilm::quantization::QuantScheme
 ModelConfig::get_quant_scheme() const {
-    if (quant_config.get_quant_scheme() != infinicore::quantization::QuantScheme::NONE) {
+    if (quant_config.get_quant_scheme() != infinilm::quantization::QuantScheme::NONE) {
         return quant_config.get_quant_scheme();
     } else {
-        return infinicore::quantization::QuantScheme::NONE;
+        return infinilm::quantization::QuantScheme::NONE;
     }
 }
 
