@@ -41,6 +41,6 @@ private:
     size_t layer_idx_;
     size_t head_dim_; // Note: head_dim equals to head_size
 
-    infinicore::quantization::KVQuantAlgo kv_quant_scheme_;
+    infinilm::quantization::KVQuantAlgo kv_quant_scheme_;
 };
 } // namespace infinilm::layers::attention::backends
