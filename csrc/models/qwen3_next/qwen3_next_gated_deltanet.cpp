@@ -14,8 +14,7 @@ FakeConv1d::FakeConv1d(size_t in_channels,
                        const infinicore::DataType dtype,
                        const infinicore::Device device) {
 
-    weight_ = infinicore::nn::Parameter({out_channels, 1, kernel_size}, dtype, device);
-    this->register_parameter("weight", weight_);
+    INFINICORE_NN_PARAMETER_INIT(weight, ({out_channels, 1, kernel_size}, dtype, device));
 }
 
 Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config::ModelConfig> model_config,

@@ -57,6 +57,7 @@ void Qwen3VLForConditionalGeneration::reset_cache(const cache::CacheConfig *cach
     const backends::AttentionBackend attention_backend = infinilm::global_state::get_infinilm_config().attention_backend;
     kv_cache_vec = std::move(default_allocate_kv_cache_tensors(cache_config, text_model_config, attention_backend));
 }
+
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_vl_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string &model_type = model_config->get<std::string>("model_type");
     if ("qwen3_vl" != model_type) {
