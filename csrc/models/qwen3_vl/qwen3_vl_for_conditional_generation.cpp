@@ -12,7 +12,7 @@ Qwen3VLModel::Qwen3VLModel(std::shared_ptr<infinilm::config::ModelConfig> model_
     nlohmann::json &text_config_json = config_json["text_config"];
     std::shared_ptr<infinilm::config::ModelConfig> text_config = std::make_shared<infinilm::config::ModelConfig>(text_config_json);
 
-    language_model_ = this->register_module<Qwen3VLTextModel>("language_model", text_config, device);
+    INFINICORE_NN_MODULE_INIT(language_model, text_config, device);
 }
 
 infinicore::Tensor Qwen3VLModel::forward(const infinilm::InfinilmModel::Input &input) const {
@@ -31,8 +31,8 @@ Qwen3VLForConditionalGeneration::Qwen3VLForConditionalGeneration(std::shared_ptr
     size_t vocab_size = text_config->get<size_t>("vocab_size");
     const auto &dtype{model_config->get_dtype()};
 
-    model_ = this->register_module<Qwen3VLModel>("model", model_config, device);
-    lm_head_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("lm_head", hidden_size, vocab_size, false, dtype, device);
+    INFINICORE_NN_MODULE_INIT(model, model_config, device);
+    INFINICORE_NN_MODULE_INIT(lm_head, hidden_size, vocab_size, false, dtype, device);
 }
 
 infinilm::InfinilmModel::Output Qwen3VLForConditionalGeneration::forward(const infinilm::InfinilmModel::Input &input) const {

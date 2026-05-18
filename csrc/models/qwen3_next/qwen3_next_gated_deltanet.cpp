@@ -37,7 +37,7 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
     size_t conv_dim = key_dim * 2 + value_dim;
-    conv1d_ = this->register_module<FakeConv1d>("conv1d", conv_dim, conv_dim, linear_conv_kernel_dim, 1, linear_conv_kernel_dim - 1, 1, 1, false, dtype, device);
+    INFINICORE_NN_MODULE_INIT(conv1d, conv_dim, conv_dim, linear_conv_kernel_dim, 1, linear_conv_kernel_dim - 1, 1, 1, false, dtype, device);
 
     size_t projection_size_qkvz = key_dim * 2 + value_dim * 2;
     size_t projection_size_ba = linear_num_value_heads * 2;
@@ -45,12 +45,10 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
     in_proj_qkvz_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("in_proj_qkvz", hidden_size, projection_size_qkvz, false, dtype, device);
     in_proj_ba_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("in_proj_ba", hidden_size, projection_size_ba, false, dtype, device);
 
-    dt_bias_ = infinicore::nn::Parameter({linear_num_value_heads}, dtype, device);
-    this->register_parameter("dt_bias", dt_bias_);
-    A_log_ = infinicore::nn::Parameter({linear_num_value_heads}, dtype, device);
-    this->register_parameter("A_log", A_log_);
+    INFINICORE_NN_PARAMETER_INIT(dt_bias, ({linear_num_value_heads}, dtype, device));
+    INFINICORE_NN_PARAMETER_INIT(A_log, ({linear_num_value_heads}, dtype, device));
 
-    norm_ = this->register_module<Qwen3Next_Fake_RMSNormGated>("norm", linear_value_head_dim, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(norm, linear_value_head_dim, rms_norm_eps, dtype, device);
     out_proj_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("out_proj", value_dim, hidden_size, false, dtype, device);
 }
 

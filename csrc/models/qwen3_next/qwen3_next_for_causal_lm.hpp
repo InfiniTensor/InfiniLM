@@ -18,8 +18,8 @@ public:
     void reset_cache(const cache::CacheConfig *cache_config) override;
 
 protected:
-    std::shared_ptr<Qwen3NextModel> model_;
-    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
+    INFINICORE_NN_MODULE(Qwen3NextModel, model);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
 };
 
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config);

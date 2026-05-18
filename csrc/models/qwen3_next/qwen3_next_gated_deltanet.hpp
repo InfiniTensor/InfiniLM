@@ -35,10 +35,10 @@ public:
 private:
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> in_proj_qkvz_;
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> in_proj_ba_;
-    std::shared_ptr<FakeConv1d> conv1d_;
-    infinicore::nn::Parameter dt_bias_;
-    infinicore::nn::Parameter A_log_;
-    std::shared_ptr<Qwen3Next_Fake_RMSNormGated> norm_;
+    INFINICORE_NN_MODULE(FakeConv1d, conv1d);
+    INFINICORE_NN_PARAMETER(dt_bias);
+    INFINICORE_NN_PARAMETER(A_log);
+    INFINICORE_NN_MODULE(Qwen3Next_Fake_RMSNormGated, norm);
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> out_proj_;
 
     size_t layer_idx_;

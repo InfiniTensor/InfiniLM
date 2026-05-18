@@ -55,8 +55,8 @@ public:
     Model &model() { return *model_; }
 
 protected:
-    std::shared_ptr<Model> model_;
-    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
+    INFINICORE_NN_MODULE(Model, model);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
 };
 
 } // namespace infinilm::layers::causal_lm_templates

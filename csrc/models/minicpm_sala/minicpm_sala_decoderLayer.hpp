@@ -23,10 +23,10 @@ public:
                                infinicore::Tensor &hidden_states);
 
 protected:
-    std::shared_ptr<infinicore::nn::RMSNorm> input_layernorm_;
-    std::shared_ptr<infinicore::nn::RMSNorm> post_attention_layernorm_;
-    std::shared_ptr<MiniCPMSALAAttention> self_attn_;
-    std::shared_ptr<MiniCPMMLP> mlp_;
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
+    INFINICORE_NN_MODULE(MiniCPMSALAAttention, self_attn);
+    INFINICORE_NN_MODULE(MiniCPMMLP, mlp);
 
     size_t layer_idx_;
 };

@@ -13,16 +13,16 @@ LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_conf
                        backends::AttentionBackend attention_backend)
     : model_config_(model_config), rank_info_(rank_info) {
     const auto &dtype{model_config_->get_dtype()};
-    embed_tokens_ = this->register_module<infinicore::nn::Embedding>("embed_tokens", model_config_->get<size_t>("vocab_size"), model_config_->get<size_t>("hidden_size"),
+    INFINICORE_NN_MODULE_INIT(embed_tokens, model_config_->get<size_t>("vocab_size"), model_config_->get<size_t>("hidden_size"),
                               std::nullopt, dtype, device);
     layers_.reserve(model_config_->get<size_t>("num_hidden_layers"));
     for (size_t i = 0; i < model_config_->get<size_t>("num_hidden_layers"); ++i) {
         layers_.push_back(this->register_module<LlamaDecoderLayer>(
             "layers." + std::to_string(i), model_config_, device, i, rank_info, attention_backend));
     }
-    norm_ = this->register_module<infinicore::nn::RMSNorm>("norm", model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
+    INFINICORE_NN_MODULE_INIT(norm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
                               dtype, device);
-    rotary_emb_ = this->register_module<infinicore::nn::RoPE>("rotary_emb", model_config_->get_head_dim(), model_config_->get<size_t>("max_position_embeddings"),
+    INFINICORE_NN_MODULE_INIT(rotary_emb, model_config_->get_head_dim(), model_config_->get<size_t>("max_position_embeddings"),
                               model_config_->get<double>("rope_theta"), infinicore::nn::RoPE::Algo::GPT_NEOX,
                               dtype, device, model_config_->get_rope_scaling());
 

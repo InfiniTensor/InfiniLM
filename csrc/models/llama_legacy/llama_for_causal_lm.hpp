@@ -52,11 +52,10 @@ public:
     const LlamaModel &model() const { return *model_; }
 
 protected:
-    // Base model
-    std::shared_ptr<LlamaModel> model_;
+    INFINICORE_NN_MODULE(LlamaModel, model);
 
     // Language modeling head
-    std::shared_ptr<infinicore::nn::Linear> lm_head_;
+    INFINICORE_NN_MODULE(infinicore::nn::Linear, lm_head);
 
     std::unique_ptr<cache::CacheConfig> cache_config_;
 };
