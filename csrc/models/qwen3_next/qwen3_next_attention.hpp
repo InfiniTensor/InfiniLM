@@ -20,8 +20,8 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
+    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;

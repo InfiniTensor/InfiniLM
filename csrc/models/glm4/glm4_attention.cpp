@@ -40,27 +40,15 @@ Glm4Attention::Glm4Attention(std::shared_ptr<infinilm::config::ModelConfig> mode
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
     // Linear layer initialization
-    auto quant_scheme = this->model_config_->get_quant_scheme();
-    switch (quant_scheme) {
-    case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
-        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_, dtype, device, g_rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_, dtype, device, tp_rank, tp_size, g_rank_info.comm);
-        break;
-    case infinicore::quantization::QuantScheme::AWQ_W4A16: {
-        INFINILM_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_, dtype, device, g_rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_, dtype, device, tp_rank, tp_size, g_rank_info.comm);
-        break;
-    }
-    case infinicore::quantization::QuantScheme::GPTQ_W4A16_QY: {
-        INFINILM_QKV_LINEAR_W4A16GPTQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_, dtype, device, g_rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_, dtype, device, tp_rank, tp_size, g_rank_info.comm);
-        break;
-    }
-    default:
-        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_, dtype, device, g_rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_, dtype, device, tp_rank, tp_size, g_rank_info.comm);
-        break;
-    }
+    auto quantization_method = model_config->get_quantization_method();
+    auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
+    qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(
+        hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"),
+        "q_proj", "k_proj", "v_proj", register_fn,
+        quantization_method, use_bias_, dtype, device, g_rank_info);
+    o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
+        "o_proj", model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, quantization_method,
+        use_output_bias_, dtype, device, tp_rank, tp_size, g_rank_info.comm);
 
     // RoPE initialization
     attention_backend_ = infinilm::global_state::get_infinilm_config().attention_backend;
@@ -72,11 +60,7 @@ Glm4Attention::Glm4Attention(std::shared_ptr<infinilm::config::ModelConfig> mode
         kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
 
     // KV Cache quantization scale initialization
-    auto kv_quant_scheme = infinilm::global_state::get_infinilm_config().model_config->get_kv_quant_scheme();
-    if (kv_quant_scheme == infinicore::quantization::KVQuantAlgo::INT8) {
-        INFINICORE_NN_PARAMETER_INIT(kv_cache_k_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
-        INFINICORE_NN_PARAMETER_INIT(kv_cache_v_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
-    }
+    infinilm::layers::attention::init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
 }
 
 infinicore::Tensor Glm4Attention::forward(const infinicore::Tensor &positions,

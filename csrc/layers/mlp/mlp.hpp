@@ -36,13 +36,17 @@ public:
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
+    void process_fused_weights_after_loading() {
+        gate_up_proj_->process_weights_after_loading();
+    }
+
     // Module information
     size_t hidden_size() const { return hidden_size_; }
     size_t intermediate_size() const { return intermediate_size_; }
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::GateUpParallelLinear, gate_up_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, down_proj);
+    std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> down_proj_;
 
     size_t hidden_size_;
     size_t intermediate_size_;
