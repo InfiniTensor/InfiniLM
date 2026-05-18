@@ -24,10 +24,10 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 protected:
-    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> q_proj_;
-    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> k_proj_;
-    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> v_proj_;
-    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, q_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, k_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, v_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;
@@ -60,7 +60,7 @@ public:
 
 protected:
     bool use_output_gate_;
-    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> o_gate_;
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, o_gate);
 };
 
 /**
@@ -82,7 +82,7 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, o_norm);
-    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> z_proj_;
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, z_proj);
 };
 
 } // namespace infinilm::models::minicpm_sala

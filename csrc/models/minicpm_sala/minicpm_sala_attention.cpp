@@ -1,6 +1,5 @@
 #include "minicpm_sala_attention.hpp"
 #include "../../global_state/global_state.hpp"
-#include "../../layers/attention/attention.hpp"
 #include <stdexcept>
 
 namespace infinilm::models::minicpm_sala {
@@ -33,16 +32,23 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
     num_attention_heads_ = total_num_heads / static_cast<size_t>(tp_size);
     num_key_value_heads_ = total_num_kv_heads / static_cast<size_t>(tp_size);
 
+    auto quant_scheme = model_config->get_quant_scheme();
     auto quantization_method = model_config->get_quantization_method();
-
-    q_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("q_proj", hidden_size_, total_num_heads * head_dim_, quantization_method,
+    switch (quant_scheme) {
+    case infinicore::quantization::QuantScheme::NONE:
+        INFINICORE_NN_MODULE_INIT(q_proj, hidden_size_, total_num_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-    k_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("k_proj", hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
+        INFINICORE_NN_MODULE_INIT(k_proj, hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-    v_proj_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("v_proj", hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
+        INFINICORE_NN_MODULE_INIT(v_proj, hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
-    o_proj_ = this->register_module<infinilm::layers::linear::RowParallelLinear>("o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
+        INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method,
                                   use_output_bias_, dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+    default:
+        throw std::runtime_error("infinilm::models::minicpm_sala::AttentionBase: unsupported quantization scheme");
+        break;
+    }
 
     rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
 
@@ -51,8 +57,21 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
                                                                           num_key_value_heads_, layer_idx_,
                                                                           kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
 
-    infinilm::layers::attention::init_kv_cache_quant_params([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
-                              device, kv_cache_k_scale_, kv_cache_v_scale_);
+    auto kv_quant_scheme = infinilm::global_state::get_infinilm_config().model_config->get_kv_quant_scheme();
+    switch (kv_quant_scheme) {
+    case (infinicore::quantization::KVQuantAlgo::NONE): {
+        break;
+    }
+    case (infinicore::quantization::KVQuantAlgo::INT8): {
+        INFINICORE_NN_PARAMETER_INIT(kv_cache_k_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
+        INFINICORE_NN_PARAMETER_INIT(kv_cache_v_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
+        break;
+    }
+    default: {
+        throw std::runtime_error("infinilm::layers::attention: unsupported kv_quant_scheme");
+        break;
+    }
+    }
 }
 
 InfLLMv2Attention::InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -66,7 +85,7 @@ InfLLMv2Attention::InfLLMv2Attention(std::shared_ptr<infinilm::config::ModelConf
     const auto &dtype{model_config->get_dtype()};
     size_t num_attention_heads = model_config->get<size_t>("num_attention_heads");
     if (use_output_gate_) {
-        o_gate_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("o_gate", hidden_size_, num_attention_heads * head_dim_,
+        INFINICORE_NN_MODULE_INIT(o_gate, hidden_size_, num_attention_heads * head_dim_,
                                   model_config->get_quantization_method(), use_bias_, dtype, device);
     }
 }
@@ -100,7 +119,7 @@ LightningAttention::LightningAttention(std::shared_ptr<infinilm::config::ModelCo
         INFINICORE_NN_MODULE_INIT(o_norm, num_attention_heads * head_dim_, rms_norm_eps, dtype, device);
     }
     if (use_output_gate_) {
-        z_proj_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("z_proj", hidden_size_, num_attention_heads * head_dim_,
+        INFINICORE_NN_MODULE_INIT(z_proj, hidden_size_, num_attention_heads * head_dim_,
                                   model_config->get_quantization_method(), use_bias_, dtype, device);
     }
 }

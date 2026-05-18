@@ -1,6 +1,5 @@
 #pragma once
 #include <infinicore/dtype.hpp>
-#include <infinicore/context/context.hpp>
 #include <infinirt.h>
 
 #include <cstring>
@@ -8,7 +7,6 @@
 #include <spdlog/spdlog.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <vector>
 
 inline void assertTrue(int expr, const char *msg, const char *function, const char *file, int line) {
     if (!expr) {
@@ -120,16 +118,6 @@ inline uint16_t f32_to_bf16(float val) {
     uint16_t bf16_bits = static_cast<uint16_t>((bits32 + rounding_bias) >> 16);
 
     return bf16_bits;
-}
-
-inline void set_zeros(infinicore::Tensor &tensor) {
-    std::vector<uint8_t> zeros(tensor->nbytes(), 0);
-    infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
-}
-
-inline void set_minus_one(infinicore::Tensor &tensor) {
-    std::vector<uint8_t> minus_one(tensor->nbytes(), 0xFF);
-    infinicore::context::memcpyH2D(tensor->data(), minus_one.data(), tensor->nbytes(), false);
 }
 
 // Hash combine utility (similar to boost::hash_combine)
