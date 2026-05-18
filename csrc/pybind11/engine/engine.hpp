@@ -67,8 +67,10 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
-        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def(
+            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
+        .def(
+            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
@@ -114,8 +116,10 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
-        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def(
+            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
+        .def(
+            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_cache_config", [](const InferEngine &self) {
             auto cfg = self.get_cache_config();
             return std::shared_ptr<cache::CacheConfig>(std::move(cfg->unique_copy())); })
@@ -125,7 +129,6 @@ inline void bind_infer_engine(py::module &m) {
         .def(
             py::init([](
                          std::optional<infinicore::Tensor> input_ids,
-                         std::optional<infinicore::Tensor> pixel_values,
                          std::optional<infinicore::Tensor> position_ids,
                          std::optional<infinicore::Tensor> past_sequence_lengths,
                          std::optional<infinicore::Tensor> total_sequence_lengths,
@@ -133,12 +136,13 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<infinicore::Tensor> cu_seqlens,
                          std::optional<infinicore::Tensor> block_tables,
                          std::optional<infinicore::Tensor> slot_mapping,
-                         std::optional<infinicore::Tensor> image_bound,
-                         std::optional<infinicore::Tensor> tgt_sizes,
+                         std::optional<std::vector<infinicore::Tensor>> pixel_values,
+                         std::optional<std::vector<infinicore::Tensor>> image_bound,
+                         std::optional<std::vector<infinicore::Tensor>> tgt_sizes,
+                         std::optional<std::vector<size_t>> image_req_ids,
                          py::kwargs kwargs) {
                 InferEngine::Input input{
                     std::move(input_ids),
-                    std::move(pixel_values),
                     std::move(position_ids),
                     std::move(past_sequence_lengths),
                     std::move(total_sequence_lengths),
@@ -146,8 +150,10 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(cu_seqlens),
                     std::move(block_tables),
                     std::move(slot_mapping),
+                    std::move(pixel_values),
                     std::move(image_bound),
                     std::move(tgt_sizes),
+                    std::move(image_req_ids),
                 };
 
                 // Explicit defaults
@@ -182,7 +188,6 @@ inline void bind_infer_engine(py::module &m) {
                 return input;
             }),
             py::arg("input_ids") = std::nullopt,
-            py::arg("pixel_values") = std::nullopt,
             py::arg("position_ids") = std::nullopt,
             py::arg("past_sequence_lengths") = std::nullopt,
             py::arg("total_sequence_lengths") = std::nullopt,
@@ -190,10 +195,11 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("cu_seqlens") = std::nullopt,
             py::arg("block_tables") = std::nullopt,
             py::arg("slot_mapping") = std::nullopt,
+            py::arg("pixel_values") = std::nullopt,
             py::arg("image_bound") = std::nullopt,
-            py::arg("tgt_sizes") = std::nullopt)
+            py::arg("tgt_sizes") = std::nullopt,
+            py::arg("image_req_ids") = std::nullopt)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
-        .def_readwrite("pixel_values", &InferEngine::Input::pixel_values)
         .def_readwrite("position_ids", &InferEngine::Input::position_ids)
         .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
         .def_readwrite("total_sequence_lengths", &InferEngine::Input::total_sequence_lengths)
@@ -201,8 +207,10 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("cu_seqlens", &InferEngine::Input::cu_seqlens)
         .def_readwrite("block_tables", &InferEngine::Input::block_tables)
         .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping)
+        .def_readwrite("pixel_values", &InferEngine::Input::pixel_values)
         .def_readwrite("image_bound", &InferEngine::Input::image_bound)
         .def_readwrite("tgt_sizes", &InferEngine::Input::tgt_sizes)
+        .def_readwrite("image_req_ids", &InferEngine::Input::image_req_ids)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p);

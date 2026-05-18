@@ -1,8 +1,11 @@
 import asyncio
+from pathlib import Path
 import time
 from openai import AsyncOpenAI
 import argparse
 import random
+import subprocess
+
 
 PROMPTS = [
     "如果猫能写诗，它们会写些什么？",
@@ -27,13 +30,95 @@ PROMPTS = [
     "想象一下，如果每个人都能读懂他人的思想。",
 ]
 
+IMAGE_PROMPTS = [
+    "请描述一下图片里的内容。",
+    "图片里有人吗？",
+    "请结合图片，讲一个小故事。",
+]
+
 NUM_REQUESTS = 64
 CONCURRENCY = 20
 API_URL = "http://127.0.0.1:8000"
-MODEL = "FM9G-7B"
+MODEL = ""
 
 
-async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
+class ImageCollector:
+    def __init__(self, dir_path: str, port=None):
+        self.dir_path = Path(dir_path).resolve()
+
+        if not self.dir_path.is_dir():
+            raise ValueError(f"Not a valid directory: {self.dir_path}")
+
+        self.image_files = [
+            file.resolve()
+            for file in self.dir_path.rglob("*")
+            if file.is_file() and file.suffix.lower() in [".jpg", ".jpeg"]
+        ]
+
+        assert len(self.image_files) > 0, "No image file found in provided directory!"
+
+        self.host = "127.0.0.1"
+        self.port = port
+        self.server_process = None
+
+        # Only start HTTP server if BOTH host and port are provided
+        self.use_http = self.host is not None and self.port is not None
+
+        if self.use_http:
+            self._start_server()
+
+    def _start_server(self):
+        print(
+            f"[ImageCollector] Starting image HTTP server...\n"
+            f"  Directory: {self.dir_path}\n"
+            f"  URL: http://{self.host}:{self.port}\n"
+        )
+        self.server_process = subprocess.Popen(
+            [
+                "python",
+                "-m",
+                "http.server",
+                str(self.port),
+                "--bind",
+                self.host,
+            ],
+            cwd=str(self.dir_path),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        time.sleep(0.5)
+
+    def stop_server(self):
+        if self.server_process is not None:
+            self.server_process.terminate()
+
+            try:
+                self.server_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.server_process.kill()
+
+            self.server_process = None
+
+    def __del__(self):
+        self.stop_server()
+
+    def random_image_url(self):
+        image_path = random.choice(self.image_files)
+
+        # Return local absolute path
+        if not self.use_http:
+            return str(image_path)
+
+        # Return HTTP URL
+        relative_path = image_path.relative_to(self.dir_path)
+
+        return f"http://{self.host}:{self.port}/{relative_path.as_posix()}"
+
+
+async def benchmark_user(
+    client, semaphore, queue, results, user_id, verbose, image_collector=None
+):
     while True:
         async with semaphore:
             task_id = await queue.get()
@@ -41,14 +126,33 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
                 queue.task_done()
                 break
 
-            question = random.choice(PROMPTS)
             try:
                 print(f"🚀 User#{user_id} Sending request #{task_id}")
+                messages = None
+                if image_collector is None:
+                    messages = [{"role": "user", "content": random.choice(PROMPTS)}]
+                else:
+                    messages = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": image_collector.random_image_url()
+                                    },
+                                },
+                                {"type": "text", "text": random.choice(IMAGE_PROMPTS)},
+                            ],
+                        }
+                    ]
+
+                print(messages)
 
                 start_time = time.time()
                 stream = await client.chat.completions.create(
                     model=MODEL,
-                    messages=[{"role": "user", "content": question}],
+                    messages=messages,
                     stream=True,
                 )
 
@@ -97,7 +201,7 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
                         print(f"  📏 平均 token 解码时间: {ms_per_token:.2f} ms/token")
                     else:
                         print(f"  📏 平均 token 解码时间: N/A (no token generated)")
-                    print(f"  ❓ 提问: {question}")
+                    print(f"  ❓ 提问: {messages}")
                     print(f"  💬 回答: {answer}\n")
 
                 queue.task_done()
@@ -108,7 +212,7 @@ async def benchmark_user(client, semaphore, queue, results, user_id, verbose):
                 queue.task_done()
 
 
-async def run_benchmark(verbose=False):
+async def run_benchmark(verbose=False, image_collector=None):
     client = AsyncOpenAI(base_url=API_URL, api_key="default")
     semaphore = asyncio.Semaphore(CONCURRENCY)
     queue = asyncio.Queue()
@@ -120,7 +224,9 @@ async def run_benchmark(verbose=False):
 
     users = [
         asyncio.create_task(
-            benchmark_user(client, semaphore, queue, results, user_id, verbose)
+            benchmark_user(
+                client, semaphore, queue, results, user_id, verbose, image_collector
+            )
         )
         for user_id in range(CONCURRENCY)
     ]
@@ -175,6 +281,17 @@ async def run_benchmark(verbose=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--image-dir", type=str, default=None)
+    parser.add_argument("--mm-port", type=str, default=None)
+    parser.add_argument("--api-url", type=str, default="127.0.0.1:8000")
+    parser.add_argument("--model", type=str, default="")
     args = parser.parse_args()
 
-    asyncio.run(run_benchmark(args.verbose))
+    API_URL = "http://" + args.api_url
+    MODEL = args.model
+
+    image_collector = None
+    if args.image_dir is not None:
+        image_collector = ImageCollector(args.image_dir, port=args.mm_port)
+
+    asyncio.run(run_benchmark(args.verbose, image_collector))
