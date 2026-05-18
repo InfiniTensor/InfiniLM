@@ -124,7 +124,7 @@ class MiniCPMVProcessor(InfinilmProcessor):
         )
         current_offset = 0
 
-        for req in scheduler_output.scheduled_requests:
+        for req_id, req in enumerate(scheduler_output.scheduled_requests):
             num_cached = req.num_cached_tokens
             if scheduler_output.is_prefill:
                 # Prefill phase
@@ -160,10 +160,7 @@ class MiniCPMVProcessor(InfinilmProcessor):
                     )
 
                     # if all patches are already cached, skip processing multimodal inputs and return text-only inputs for this request
-                    if (
-                        num_cached_patch
-                        < req.processed_inputs["image_bound"][0].shape[0]
-                    ):
+                    if num_cached_patch < len(req.processed_inputs["pixel_values"]):
                         # 1. pixel_values
                         all_pixel_values = []
                         pixel_values = req.processed_inputs["pixel_values"]
@@ -217,9 +214,17 @@ class MiniCPMVProcessor(InfinilmProcessor):
                                 bound[i, : len(bnd), :] = bnd
 
                         image_bound_infini = infinicore.from_torch(bound)
-                        mm_data["pixel_values"] = pixel_values_infini
-                        mm_data["tgt_sizes"] = tgt_sizes_infini
-                        mm_data["image_bound"] = image_bound_infini
+
+                        def append_mm_data(mm_data__: dict, key__: str, value__):
+                            if mm_data__.get(key__) is None:
+                                mm_data[key__] = [value__]
+                            else:
+                                mm_data[key__].append(value__)
+
+                        append_mm_data(mm_data, "pixel_values", pixel_values_infini)
+                        append_mm_data(mm_data, "tgt_sizes", tgt_sizes_infini)
+                        append_mm_data(mm_data, "image_bound", image_bound_infini)
+                        append_mm_data(mm_data, "image_req_ids", req_id)
 
             else:
                 # Decode phase

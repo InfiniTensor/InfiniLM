@@ -43,7 +43,7 @@ public:
               const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &x,
-                               const std::optional<infinicore::Tensor> &tgt_sizes) const;
+                               const infinicore::Tensor &tgt_sizes) const;
 
 private:
     size_t num_queries_;

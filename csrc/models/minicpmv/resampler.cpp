@@ -141,7 +141,7 @@ Resampler::Resampler(size_t num_queries,
 }
 
 infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
-                                      const std::optional<infinicore::Tensor> &tgt_sizes) const {
+                                      const infinicore::Tensor &tgt_sizes) const {
     auto batch_size = x->size(0);
     auto seq_len = x->size(1);
 
@@ -153,12 +153,11 @@ infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
 
     // Build positional embeddings on CPU
     std::vector<int64_t> tgt_sizes_host;
-    if (tgt_sizes.has_value()) {
-        auto tgt_cpu = tgt_sizes.value()->to(infinicore::Device::cpu());
-        auto n = tgt_cpu->numel();
-        tgt_sizes_host.resize(n);
-        std::memcpy(tgt_sizes_host.data(), tgt_cpu->data(), n * sizeof(int64_t));
-    }
+
+    auto tgt_cpu = tgt_sizes->to(infinicore::Device::cpu());
+    auto n = tgt_cpu->numel();
+    tgt_sizes_host.resize(n);
+    std::memcpy(tgt_sizes_host.data(), tgt_cpu->data(), n * sizeof(int64_t));
 
     auto pos_cpu = infinicore::Tensor::zeros({batch_size, seq_len, embed_dim_}, kv->dtype(), infinicore::Device::cpu());
     auto *pos_ptr = reinterpret_cast<std::byte *>(pos_cpu->data());
