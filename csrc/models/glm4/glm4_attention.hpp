@@ -20,8 +20,8 @@ public:
 
 protected:
     // Operator layers
-    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
+    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
