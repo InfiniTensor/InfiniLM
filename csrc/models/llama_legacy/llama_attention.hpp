@@ -6,7 +6,6 @@
 #include "../../engine/distributed/distributed.hpp"
 #include "../../layers/linear/fused_linear.hpp"
 #include "../../layers/quantization/kv_quant.hpp"
-#include "legacy_fused_linear.hpp"
 #include "llama_config.hpp"
 
 #include "infinicore/nn/linear.hpp"
@@ -21,6 +20,15 @@
 
 namespace infinilm::models::llama_legacy {
 
+/**
+ * @brief Multi-head self-attention module for Llama
+ *
+ * Implements the attention mechanism with:
+ * - Query, Key, Value projections
+ * - Output projection
+ * - Rotary Position Embeddings (RoPE) applied to Q and K
+ * - Support for Grouped Query Attention (GQA)
+ */
 class LlamaAttention : public infinicore::nn::Module {
 public:
     /**
@@ -107,11 +115,10 @@ private:
 
 protected:
     // Projection layers
-    INFINICORE_NN_MODULE(layers::linear::LegacyQKVParallelLinear, qkv_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
-
     engine::distributed::RankInfo rank_info_;
 
     // Shared Rotary Position Embeddings (RoPE)

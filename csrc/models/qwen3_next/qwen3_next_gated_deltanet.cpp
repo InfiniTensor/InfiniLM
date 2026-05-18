@@ -41,14 +41,14 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
     size_t projection_size_qkvz = key_dim * 2 + value_dim * 2;
     size_t projection_size_ba = linear_num_value_heads * 2;
 
-    in_proj_qkvz_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("in_proj_qkvz", hidden_size, projection_size_qkvz, false, dtype, device);
-    in_proj_ba_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("in_proj_ba", hidden_size, projection_size_ba, false, dtype, device);
+    INFINICORE_NN_MODULE_INIT(in_proj_qkvz, hidden_size, projection_size_qkvz, false, dtype, device);
+    INFINICORE_NN_MODULE_INIT(in_proj_ba, hidden_size, projection_size_ba, false, dtype, device);
 
     INFINICORE_NN_PARAMETER_INIT(dt_bias, ({linear_num_value_heads}, dtype, device));
     INFINICORE_NN_PARAMETER_INIT(A_log, ({linear_num_value_heads}, dtype, device));
 
     INFINICORE_NN_MODULE_INIT(norm, linear_value_head_dim, rms_norm_eps, dtype, device);
-    out_proj_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("out_proj", value_dim, hidden_size, false, dtype, device);
+    INFINICORE_NN_MODULE_INIT(out_proj, value_dim, hidden_size, false, dtype, device);
 }
 
 infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &positions,

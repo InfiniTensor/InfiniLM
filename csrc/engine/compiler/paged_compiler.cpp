@@ -1,7 +1,20 @@
 #include "paged_compiler.hpp"
 #include "../../global_state/global_state.hpp"
-#include "../../utils.hpp"
 
+namespace {
+// Todo: replace with Tensor::zeros when it is available
+inline void set_zeros(infinicore::Tensor &tensor) {
+    std::vector<uint8_t> zeros(tensor->nbytes(), 0);
+    infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
+}
+
+inline void set_minus_one(infinicore::Tensor &tensor) {
+    // For int32 tensors, 0xFF bytes correspond to -1 in two's complement.
+    std::vector<uint8_t> minus_one(tensor->nbytes(), 0xFF);
+    infinicore::context::memcpyH2D(tensor->data(), minus_one.data(), tensor->nbytes(), false);
+}
+
+} // namespace
 namespace infinilm::engine {
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {

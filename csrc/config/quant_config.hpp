@@ -1,6 +1,6 @@
 #pragma once
 #include "../utils.hpp"
-#include "../layers/quantization/quantization.hpp"
+#include "infinicore/quantization.hpp"
 #include "nlohmann/json.hpp"
 #include <optional>
 #include <spdlog/spdlog.h>
@@ -14,13 +14,13 @@ public:
     QuantConfig() = default;
     QuantConfig(const nlohmann::json &json);
 
-    std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const;
+    std::shared_ptr<infinicore::quantization::BaseQuantization> get_quantization_method() const;
 
-    infinilm::quantization::QuantScheme get_quant_scheme() const {
+    infinicore::quantization::QuantScheme get_quant_scheme() const {
         if (quantization_method != nullptr) {
             return quantization_method->get_quant_scheme();
         } else {
-            return infinilm::quantization::QuantScheme::NONE;
+            return infinicore::quantization::QuantScheme::NONE;
         }
     }
 
@@ -29,22 +29,22 @@ public:
             this->kv_cache_dtype_ = std::make_optional(kv_cache_dtype);
             switch (kv_cache_dtype) {
             case infinicore::DataType::I8: {
-                this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::INT8;
+                this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::INT8;
                 break;
             }
             default: {
                 spdlog::warn("Unsupported kv_cache_dtype: '{}', fallback to NONE", infinicore::toString(kv_cache_dtype));
-                this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::NONE;
+                this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::NONE;
                 break;
             }
             }
         } catch (const std::exception &e) {
             spdlog::error("Failed to parse kv_cache_dtype '{}': {}", infinicore::toString(kv_cache_dtype), e.what());
-            this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::NONE;
+            this->kv_quant_scheme = infinicore::quantization::KVQuantAlgo::NONE;
         }
     }
 
-    infinilm::quantization::KVQuantAlgo get_kv_quant_scheme() const {
+    infinicore::quantization::KVQuantAlgo get_kv_quant_scheme() const {
         return kv_quant_scheme;
     }
 
@@ -57,9 +57,9 @@ public:
 
 private:
     nlohmann::json quantization_config;
-    std::shared_ptr<infinilm::quantization::BaseQuantization> quantization_method;
+    std::shared_ptr<infinicore::quantization::BaseQuantization> quantization_method;
 
-    infinilm::quantization::KVQuantAlgo kv_quant_scheme = infinilm::quantization::KVQuantAlgo::NONE;
+    infinicore::quantization::KVQuantAlgo kv_quant_scheme = infinicore::quantization::KVQuantAlgo::NONE;
     std::optional<infinicore::DataType> kv_cache_dtype_ = std::nullopt;
 };
 

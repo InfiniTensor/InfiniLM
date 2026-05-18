@@ -33,13 +33,13 @@ public:
                                const infinicore::Tensor &hidden_states) const;
 
 private:
-    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> in_proj_qkvz_;
-    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> in_proj_ba_;
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, in_proj_qkvz);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, in_proj_ba);
     INFINICORE_NN_MODULE(FakeConv1d, conv1d);
     INFINICORE_NN_PARAMETER(dt_bias);
     INFINICORE_NN_PARAMETER(A_log);
     INFINICORE_NN_MODULE(Qwen3Next_Fake_RMSNormGated, norm);
-    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> out_proj_;
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, out_proj);
 
     size_t layer_idx_;
 };

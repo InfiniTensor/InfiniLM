@@ -26,8 +26,8 @@ private:
                                       const infinicore::Tensor &hidden_states) const;
 
 protected:
-    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
-    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
+    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;

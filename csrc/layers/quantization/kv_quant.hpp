@@ -1,6 +1,6 @@
 #pragma once
 
-#include "quantization_scheme.hpp"
+#include "infinicore/quantization.hpp"
 #include "infinicore/tensor.hpp"
 #include <utility>
 
@@ -19,7 +19,7 @@ public:
     static void quantize(
         infinicore::Tensor &k,
         infinicore::Tensor &v,
-        infinilm::quantization::KVQuantAlgo algo,
+        infinicore::quantization::KVQuantAlgo algo,
         const infinicore::Tensor &k_scale,
         const infinicore::Tensor &v_scale);
 
@@ -35,7 +35,7 @@ public:
     static void dequantize(
         infinicore::Tensor &k,
         infinicore::Tensor &v,
-        infinilm::quantization::KVQuantAlgo algo,
+        infinicore::quantization::KVQuantAlgo algo,
         const infinicore::Tensor &k_scale,
         const infinicore::Tensor &v_scale,
         const infinicore::Tensor &reference);

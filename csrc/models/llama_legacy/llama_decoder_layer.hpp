@@ -33,6 +33,24 @@ public:
      * @param layer_idx Layer index for cache management and debugging
      * @param dtype Optional data type for model parameters (defaults to F32)
      */
+    /**
+     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
+     *
+     * ⚠️ DEVELOPMENT POLICY:
+     *   - NO new development or feature additions permitted on this interface
+     *   - Only critical bug fixes (security/stability) allowed until removal
+     *   - All new code MUST migrate to the polymorphic overload below
+     *
+     * Replacement: Use the polymorphic overload of this same function name with updated signature
+     * Reason: Legacy signature lacks support for dynamic quantization modes.
+     * Removal target: v0.2.0 (Q2 2026)
+     */
+    LlamaDecoderLayer(const LlamaConfig &config,
+                      const infinicore::Device &device,
+                      size_t layer_idx,
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                      backends::AttentionBackend attention_backend = backends::AttentionBackend::Default);
+
     LlamaDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                       const infinicore::Device &device,
                       size_t layer_idx,
@@ -74,11 +92,12 @@ public:
 
 protected:
     // Layer normalization
-    std::shared_ptr<infinicore::nn::RMSNorm> input_layernorm_;
-    std::shared_ptr<infinicore::nn::RMSNorm> post_attention_layernorm_;
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
+    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
 
-    std::shared_ptr<LlamaAttention> self_attn_;
-    std::shared_ptr<LlamaMLP> mlp_;
+    // Attention and MLP
+    INFINICORE_NN_MODULE(LlamaAttention, self_attn);
+    INFINICORE_NN_MODULE(LlamaMLP, mlp);
     engine::distributed::RankInfo rank_info_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 
