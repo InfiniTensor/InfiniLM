@@ -3,8 +3,10 @@
 import json
 import os
 from .basic_llm_processor import BasicLLMProcessor
+from .processor import register_processor
 
 
+@register_processor("baichuan")
 class BaichuanProcessor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):
         self.model_dir_path = model_dir_path

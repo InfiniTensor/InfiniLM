@@ -1,9 +1,10 @@
-from .processor import InfinilmProcessor
+from .processor import InfinilmProcessor, register_processor
 from transformers import AutoTokenizer
 from ..llm.static_scheduler import StaticSchedulerOutput
 from ..llm.scheduler import SchedulerOutput
 
 
+@register_processor("default")
 class BasicLLMProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(
