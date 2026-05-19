@@ -523,9 +523,53 @@ def _remap_chatglm(state_dict, config=None):
 
     return state_dict
 
+def _is_baichuan2(config):
+    """
+    Baichuan1 and Baichuan2 share the same model_type "baichuan" in official HuggingFace configs,
+    making them indistinguishable by model_type alone. However, their inference logic differs
+    critically: Baichuan2 requires normalized lm_head while Baichuan1 does not.
+
+    The most reliable automatic way to distinguish them is by vocab_size:
+      - Baichuan1: vocab_size = 64000
+      - Baichuan2: vocab_size = 125696
+    """
+    return config.get("vocab_size") == 125696
+
+def _remap_baichuan(state_dict, config=None):
+    """Split Baichuan fused W_pack into q_proj, k_proj, v_proj
+    and apply Baichuan2-specific fixes."""
+    import torch.nn.functional as F
+
+    hf_config = config or {}
+    hidden_size = hf_config.get("hidden_size", 4096)
+    num_heads = hf_config.get("num_attention_heads", 32)
+    vocab_size = hf_config.get("vocab_size", 125696)
+    per_head_dim = num_heads * (hidden_size // num_heads)
+
+    # 1. Split W_pack → q_proj, k_proj, v_proj
+    state_dict = split_fused_weight(
+        state_dict,
+        fused_key="W_pack",
+        output_names=["q_proj", "k_proj", "v_proj"],
+        split_sizes=[per_head_dim, per_head_dim, -1],
+    )
+
+    # 2. Baichuan2: normalize lm_head.weight
+    #    Baichuan2 trains with normalized lm_head. Inference must match this,
+    #    otherwise the logits distribution will be distorted, causing severe
+    #    repetitive output especially under greedy decoding.
+    #    (See _is_baichuan2 for how we distinguish Baichuan1 vs Baichuan2)
+    if _is_baichuan2(hf_config) and "lm_head.weight" in state_dict:
+        state_dict["lm_head.weight"] = F.normalize(
+            state_dict["lm_head.weight"], p=2, dim=-1
+        )
+
+    return state_dict
+
 
 # Model type → remap function mapping
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
+    "baichuan": _remap_baichuan,
 }
