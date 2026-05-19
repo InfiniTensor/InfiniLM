@@ -105,6 +105,9 @@ class BaseConfig:
         # Multimodal parameters
         self.image = self.args.image
 
+        if self.attn == "hybrid-attn":
+            self.enable_paged_attn = True
+
         if self.enable_paged_attn and self.attn == "default":
             self.attn = "paged-attn"
 
@@ -119,7 +122,7 @@ class BaseConfig:
             "--attn",
             type=str,
             default="default",
-            choices=["default", "paged-attn", "flash-attn"],
+            choices=["default", "paged-attn", "flash-attn", "hybrid-attn"],
         )
         self.parser.add_argument("--enable-graph", action="store_true")
         self.parser.add_argument(

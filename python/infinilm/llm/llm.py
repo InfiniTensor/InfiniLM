@@ -76,10 +76,17 @@ class EngineConfig:
     skip_load: bool = False
 
 
+def _normalize_cache_type(attn_backend: str, cache_type: str) -> str:
+    if attn_backend == "hybrid-attn":
+        return "paged"
+    return cache_type
+
+
 class LLMEngine:
     """Low-level LLM engine that handles inference execution."""
 
     def __init__(self, config: EngineConfig):
+        config.cache_type = _normalize_cache_type(config.attn_backend, config.cache_type)
         self.config = config
 
         # Initialize device and dtype

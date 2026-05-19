@@ -13,6 +13,7 @@ enum class AttentionBackend {
     STATIC_ATTN,
     PAGED_ATTN,
     FLASH_ATTN,
+    HYBRID_ATTN,
     FLASHINFER,
     Default = STATIC_ATTN
 };
@@ -25,6 +26,8 @@ inline std::ostream &operator<<(std::ostream &os, AttentionBackend backend) {
         return os << "AttentionBackend::PAGED_ATTN";
     case AttentionBackend::FLASH_ATTN:
         return os << "AttentionBackend::FLASH_ATTN";
+    case AttentionBackend::HYBRID_ATTN:
+        return os << "AttentionBackend::HYBRID_ATTN";
     case AttentionBackend::FLASHINFER:
         return os << "AttentionBackend::FLASHINFER";
     default:
@@ -46,12 +49,15 @@ inline AttentionBackend parse_attention_backend(const std::string &backend) {
     if (backend == "flash-attn") {
         return AttentionBackend::FLASH_ATTN;
     }
+    if (backend == "hybrid-attn") {
+        return AttentionBackend::HYBRID_ATTN;
+    }
     if (backend == "flashinfer") {
         return AttentionBackend::FLASHINFER;
     }
 
     throw std::invalid_argument(
-        "Invalid attention_backend: " + backend + ". Valid options are: static-attn, paged-attn, flash-attn, flashinfer");
+        "Invalid attention_backend: " + backend + ". Valid options are: static-attn, paged-attn, flash-attn, hybrid-attn, flashinfer");
 }
 
 } // namespace infinilm::backends
