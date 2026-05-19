@@ -24,6 +24,18 @@ def read_hf_config(model_path):
         )
     return config_dict
 
+# config.json (required) defines model architecture, while generation_config.json
+# (optional) defines generation behavior. They are kept as separate readers
+# because: 1) config.json must exist and requires model_type validation,
+# whereas generation_config.json may not exist; 2) keeping them separate
+# preserves clear semantics and avoids a one-size-fits-all function with
+# multiple conditional parameters.
+def read_hf_generation_config(model_path):
+    gen_config_path = os.path.join(model_path, "generation_config.json")
+    if os.path.exists(gen_config_path):
+        with open(gen_config_path, "r") as f:
+            return json.load(f)
+    return {}
 
 @dataclass
 class GenerationConfig:
@@ -49,6 +61,7 @@ class InferEngine(_infinilm.InferEngine):
         kv_cache_dtype=None,
     ):
         self.hf_config = read_hf_config(model_path)
+        self.hf_generation_config = read_hf_generation_config(model_path)
 
         if device is None:
             device = infinicore.device()
@@ -84,7 +97,23 @@ class InferEngine(_infinilm.InferEngine):
 
     @property
     def eos_token_id(self):
-        eos_token_id = self.hf_config["eos_token_id"]
+        # HuggingFace priority: generation_config.json > config.json
+        # HuggingFace's documented loading priority for generation parameters
+        # (see transformers/generation/utils.py, GenerationMixin.generate docstring):
+        #   1) from the `generation_config.json` model file, if it exists
+        #   2) from the model configuration (config.json)
+        #
+        # config.json may contain incomplete or outdated generation parameters
+        # because HuggingFace treats config.json as model architecture config
+        # and generation_config.json as generation behavior config. For example,
+        # InternLM3's config.json has eos_token_id=2, while
+        # generation_config.json has eos_token_id=[2, 128131].
+        # Following this priority ensures we always get the authoritative value.
+        eos_token_id = (
+            self.hf_generation_config.get("eos_token_id")
+            or self.hf_config.get("eos_token_id")
+            or []
+        )
         if isinstance(eos_token_id, int):
             eos_token_id = [eos_token_id]
         return eos_token_id
@@ -174,10 +203,7 @@ class InferEngine(_infinilm.InferEngine):
         tgt_sizes=None,
         _measure_and_log_time=False,
     ):
-        if generation_config.eos_token_id is None:
-            eos_token_id = self.eos_token_id
-        else:
-            eos_token_id = generation_config.eos_token_id
+        eos_token_id = self.eos_token_id
 
         past_seq_len = 0
         output_ids = []
