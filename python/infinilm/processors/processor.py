@@ -32,3 +32,28 @@ class InfinilmProcessor:
     def get_tokenizer(self):
         """Return the text tokenizer associated with this processor."""
         raise NotImplementedError("InfinilmProcessor is not implemented yet")
+
+# Global registry mapping model_type strings to their Processor classes
+_PROCESSOR_REGISTRY = {}
+
+
+def register_processor(model_type: str):
+    """Decorator to register a Processor class for a specific model type."""
+    def decorator(cls):
+        if model_type in _PROCESSOR_REGISTRY:
+            raise ValueError(
+                f"Duplicate processor registration: model_type '{model_type}' "
+                f"is already registered by {_PROCESSOR_REGISTRY[model_type].__name__}"
+            )
+        _PROCESSOR_REGISTRY[model_type] = cls
+        return cls
+    return decorator
+
+
+def get_processor_class(model_type: str):
+    """Retrieve the processor class for a given model type.
+
+    Falls back to the "default" registered processor if the model type
+    is not explicitly recognized.
+    """
+    return _PROCESSOR_REGISTRY.get(model_type, _PROCESSOR_REGISTRY["default"])

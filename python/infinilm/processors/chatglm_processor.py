@@ -3,8 +3,10 @@
 import re
 import types
 from .basic_llm_processor import BasicLLMProcessor
+from .processor import register_processor
 
 
+@register_processor("chatglm")
 class ChatGLMProcessor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):
         super().__init__(model_dir_path)

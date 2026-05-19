@@ -1,7 +1,9 @@
 from .basic_llm_processor import BasicLLMProcessor
+from .processor import register_processor
 from tokenizers import decoders as _dec
 
 
+@register_processor("llama")
 class LlamaProcessor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):
         super().__init__(model_dir_path)
