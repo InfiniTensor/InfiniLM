@@ -30,6 +30,7 @@ __pycache__/
 
 # txt
 *.txt
+!CMakeLists.txt
 
 *.http
 

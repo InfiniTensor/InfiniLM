@@ -37,6 +37,30 @@
     ```
 
 
+  - 安装 InfiniLM c++ 引擎
+    
+    使用xmake编译和安装
+    ```bash
+      xmake build _infinilm && xmake install _infinilm
+    ```
+    或
+    
+    使用cmake编译和安装
+    ```bash
+    mkdir build && cd build
+    
+    # 可能需要手动确保pybind11版本与InfiniCore的xmake一致
+    # 可能需要手动指定python版本
+    cmake .. \
+      -Dpybind11_DIR=/<path-to>/pybind11/share/cmake/pybind11 \ 
+      -DPYTHON_EXECUTABLE=$(which python) 
+
+    cmake --build . -j$(nproc)
+
+    cd ..
+    ```
+
+
   - 安装 InfiniLM Python 包
     ```bash
       pip install -e .
