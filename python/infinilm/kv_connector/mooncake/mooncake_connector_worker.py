@@ -78,6 +78,7 @@ class MooncakeXferMetadata(
     remote_tp_rank: int
     req_blocks: dict[ReqId, tuple[TransferId, list[int]]]
     kv_caches_base_addr: list[int]
+    kv_flag_addr: list[int]
 
 
 @dataclass
@@ -442,6 +443,7 @@ class MooncakeConnectorWorker:
                 lengths,
                 mismatch_reqs_ids,
                 xfer_reqs_ids,
+                xfer_block_ids,
             ) = await self._build_transfer_params(ready_reqs, meta)
 
             if mismatch_reqs_ids:
@@ -463,6 +465,7 @@ class MooncakeConnectorWorker:
                 remote_session = f"{meta.remote_hostname}:{meta.remote_port}"
 
                 # wait until return value
+                kv_flag_addr = meta.kv_flag_addr
                 ret_value = await self.sender_loop.run_in_executor(
                     self._sender_executor,
                     self._send_blocks,
@@ -471,6 +474,8 @@ class MooncakeConnectorWorker:
                     dst_ptrs,
                     lengths,
                     xfer_reqs_ids,
+                    xfer_block_ids,
+                    kv_flag_addr,
                 )
 
             if ret_value != 0:
@@ -524,7 +529,7 @@ class MooncakeConnectorWorker:
         self,
         ready_reqs: list[tuple[ReqId, SendBlockMeta]],
         agent_meta: MooncakeXferMetadata,
-    ) -> tuple[list[int], list[int], list[int], list[ReqId], list[ReqId]]:
+    ) -> tuple[list[int], list[int], list[int], list[ReqId], list[ReqId], list[int]]:
         local_base_addr = self.kv_caches_base_addr
         remote_base_addr = agent_meta.kv_caches_base_addr
         block_len = self.block_len
@@ -536,6 +541,7 @@ class MooncakeConnectorWorker:
 
         mismatch_reqs_ids: list[ReqId] = []
         xfer_reqs_ids: list[ReqId] = []
+        xfer_block_ids: list[int] = []
 
         for d_req_id, send_meta in ready_reqs:
             _, remote_block_ids = agent_meta.req_blocks[d_req_id]
@@ -579,6 +585,7 @@ class MooncakeConnectorWorker:
                     lengths.append(block_len * len(group_local_block_id))
 
             xfer_reqs_ids.append(d_req_id)
+            xfer_block_ids.extend(remote_block_ids)
             logger.debug(
                 "Calculate kv_caches ptrs for request %s (%d blocks) to %s",
                 d_req_id,
@@ -586,9 +593,14 @@ class MooncakeConnectorWorker:
                 remote_session,
             )
 
-        if False:
-            mismatch_reqs_ids = ["test_req_id"]
-        return src_ptrs, dst_ptrs, lengths, mismatch_reqs_ids, xfer_reqs_ids
+        return (
+            src_ptrs,
+            dst_ptrs,
+            lengths,
+            mismatch_reqs_ids,
+            xfer_reqs_ids,
+            xfer_block_ids,
+        )
 
     def _send_blocks(
         self,
@@ -597,6 +609,8 @@ class MooncakeConnectorWorker:
         dst_ptrs: list[int],
         lengths: list[int],
         xfer_reqs_ids: list[ReqId],
+        xfer_block_ids: list[int],
+        kv_flag_addr: list[int],
     ) -> int:
         logger.debug(
             "mooncake engine batch_transfer_sync_write to %s start,xfer_reqs_ids: %s",
@@ -608,6 +622,25 @@ class MooncakeConnectorWorker:
         ret_value = self.engine.batch_transfer_sync_write(
             remote_session, src_ptrs, dst_ptrs, lengths
         )
+
+        if ret_value == 0 and len(kv_flag_addr) > 0:
+            n = len(xfer_block_ids)
+            flag_src_ptrs = [self.kv_flag_src_ptrs[b] for b in xfer_block_ids]
+            flag_dst_ptrs = [kv_flag_addr[b] for b in xfer_block_ids]
+            flag_lengths = [1] * n
+
+            flag_ret_value = self.engine.batch_transfer_sync_write(
+                remote_session, flag_src_ptrs, flag_dst_ptrs, flag_lengths
+            )
+
+            if flag_ret_value != 0:
+                ret_value = flag_ret_value
+
+            logger.debug(
+                "mooncake engine sending flag to %s done, ret_value: %s",
+                remote_session,
+                flag_ret_value,
+            )
 
         if ret_value == 0:
             logger.debug(
@@ -623,7 +656,6 @@ class MooncakeConnectorWorker:
                 ret_value,
                 ", ".join(xfer_reqs_ids),
             )
-        # time.sleep(5)
         return ret_value
 
     def register_kv_caches(self, kv_caches: dict[str, infinicore.Tensor]):
@@ -689,6 +721,29 @@ class MooncakeConnectorWorker:
         logger.info(
             "registered num_blocks=%d block_len=%d", self.num_blocks, self.block_len
         )
+        # logger.info("registered kv_caches_base_addr=%d", len(self.kv_caches_base_addr))
+
+        if self.is_kv_consumer:
+            self.kv_flag = np.zeros(self.num_blocks, dtype=np.uint8)
+            flag_base_ptr = self.kv_flag.ctypes.data
+            self.kv_flag_ptrs = [flag_base_ptr + i for i in range(self.num_blocks)]
+            self.kv_flag_lens = [1] * self.num_blocks
+
+            ret_value_flags = self.engine.batch_register_memory(
+                self.kv_flag_ptrs, self.kv_flag_lens
+            )
+
+            if ret_value_flags != 0:
+                raise RuntimeError(
+                    "Mooncake batch memory registration failed for kv block flags."
+                )
+
+        if self.is_kv_producer:
+            self.kv_flag_src = np.ones(self.num_blocks, dtype=np.uint8)
+            flag_src_base_ptr = self.kv_flag_src.ctypes.data
+            self.kv_flag_src_ptrs = [
+                flag_src_base_ptr + i for i in range(self.num_blocks)
+            ]
 
         # No need to launch server for D node.
         if self.is_kv_consumer:
@@ -778,6 +833,17 @@ class MooncakeConnectorWorker:
             finished_recving_reqs or None,
         )
 
+    async def _wait_for_kv_flags_ready(self, block_ids: list[int]) -> None:
+        """Wait until Mooncake sets all kv_flag entries for the given blocks to 1."""
+        if not block_ids:
+            return
+
+        indices = np.asarray(block_ids, dtype=np.intp)
+        while not np.all(self.kv_flag[indices] == 1):
+            await asyncio.sleep(0.012)
+
+        self.kv_flag[indices] = 0
+
     async def receive_kv_from_single_worker(
         self,
         remote_engine_id,
@@ -795,6 +861,7 @@ class MooncakeConnectorWorker:
                 for req_id, pull_meta in pull_metas.items()
             },
             kv_caches_base_addr=self.kv_caches_base_addr,
+            kv_flag_addr=self.kv_flag_ptrs,
         )
 
         encoded_data = self._encoder.encode(metadata)
@@ -836,15 +903,24 @@ class MooncakeConnectorWorker:
 
                 # process response list
                 processed_reqs_count = 0
+                success_block_ids = []
+                finished_recving_reqs = set()
                 for response in response_list:
-                    processed_reqs_count += self.process_pulling_result(
+                    reqs_count, finished_reqs, block_ids = self.process_pulling_result(
                         remote_engine_id, response, pull_metas
                     )
+                    processed_reqs_count += reqs_count
+                    success_block_ids.extend(block_ids)
+                    finished_recving_reqs.update(finished_reqs)
 
                 # TODO:check if all reqs are processed
                 assert processed_reqs_count == len(pull_metas), (
                     "processed_reqs_count must be equal to the number of pull_metas"
                 )
+
+                await self._wait_for_kv_flags_ready(success_block_ids)
+
+                self.finished_recving_reqs.update(finished_recving_reqs)
 
         except zmq.ContextTerminated:
             logger.debug("ZMQ context terminated, exiting Mooncake receiver thread.")
@@ -885,9 +961,12 @@ class MooncakeConnectorWorker:
                     raise ValueError(
                         f"MooncakeConnectorWorker: Invalid status {status} for request {req_id}"
                     )
+        success_block_ids = []
         if len(success_reqs_ids) > 0:
             for req_id in success_reqs_ids:
                 pull_meta = pull_metas[req_id]
+
+                success_block_ids.extend(pull_meta.local_block_ids)
 
                 # No race because we are in async loop.
                 pull_meta.pull_tasks_count -= 1
@@ -921,9 +1000,9 @@ class MooncakeConnectorWorker:
             )
             self.xfer_failed_recving_reqs_ids.update(xfer_failed_reqs_ids)
 
-        self.finished_recving_reqs.update(success_reqs_ids + xfer_failed_reqs_ids)
+        finished_recving_reqs = set(success_reqs_ids) | set(xfer_failed_reqs_ids)
 
-        return reqs_count_of_response
+        return reqs_count_of_response, finished_recving_reqs, success_block_ids
 
     async def _connect_to_prefiller_bootstrap(self, remote_bootstrap_addr: str):
         url = remote_bootstrap_addr + "/query"

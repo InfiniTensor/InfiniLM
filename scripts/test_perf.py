@@ -26,9 +26,12 @@ PROMPTS = [
     "如果你能与任何虚构角色成为朋友，你会选择谁？",
     "想象一下，如果每个人都能读懂他人的思想。",
 ]
+NUM_REQUESTS = 64
+CONCURRENCY = 20
 
-NUM_REQUESTS = 1
-CONCURRENCY = 1
+NUM_REQUESTS = 10
+CONCURRENCY = 2
+
 API_URL = "http://127.0.0.1:8100/v1"
 MODEL = "FM9G-7B"
 

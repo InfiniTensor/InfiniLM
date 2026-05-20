@@ -29,8 +29,8 @@ class KVTransferConfig:
     kv_connector_extra_config: Optional[dict] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.kv_connector_extra_config is None:
-            self.kv_connector_extra_config = {"mooncake_protocol": "rdma"}
+        if self.kv_connector is not None and self.kv_role is None:
+            raise ValueError("Please specify kv_role when kv_connector is set.")
 
         if self.kv_role is not None and self.kv_role not in KV_ROLE_CHOICES:
             raise ValueError(
@@ -38,11 +38,22 @@ class KVTransferConfig:
                 f"Supported roles are {sorted(KV_ROLE_CHOICES)}"
             )
 
-        if self.kv_connector is not None and self.kv_role is None:
-            raise ValueError("Please specify kv_role when kv_connector is set.")
-
         if self.engine_id is None:
             self.engine_id = f"{self.kv_role}_" + str(uuid.uuid4())
 
-        # TODO : force use tcp for mooncake
-        os.environ["MC_FORCE_TCP"] = "true"
+        if not self.kv_connector_extra_config:
+            self.kv_connector_extra_config = dict(self.kv_connector_extra_config or {})
+            self.kv_connector_extra_config.setdefault("mooncake_protocol", "rdma")
+
+        assert all(
+            key in ["mooncake_protocol", "num_workers"]
+            for key in self.kv_connector_extra_config.keys()
+        )
+
+        mooncake_protocol = self.kv_connector_extra_config["mooncake_protocol"]
+        if mooncake_protocol not in ["tcp", "rdma"]:
+            raise ValueError(f"only support tcp or rdma, but got {mooncake_protocol}")
+
+        if mooncake_protocol == "tcp":
+            # NOTE: force use tcp for Mooncake
+            os.environ["MC_FORCE_TCP"] = "true"
