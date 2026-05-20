@@ -9,6 +9,9 @@ from infinilm.kv_connector import (
     KVConnectorRole,
 )
 from infinilm.config.kv_transfer import KVTransferConfig
+
+import infinicore
+
 from infinilm.llm import InferenceRequest
 
 logger = logging.getLogger(__name__)
@@ -16,16 +19,17 @@ logger = logging.getLogger(__name__)
 ReqId = str
 TransferId = str
 EngineId = str
+WorkerAddr = str
 
 
 @dataclass
 class PullReqMeta:
     d_req_id: ReqId
-    transfer_ids: TransferId
+    transfer_id: TransferId
     local_block_ids: list[int]
     remote_engine_id: str
     remote_bootstrap_addr: str
-    expire_time: float = float("inf")
+    expire_time: float = float("inf")  # not used
     pull_tasks_count: int = 0
 
 
@@ -50,19 +54,27 @@ class MooncakeConnectorMetadata(KVConnectorMetadata):
                 local_block_ids=local_block_ids,
                 remote_engine_id=remote_engine_id,
                 remote_bootstrap_addr=kv_transfer_params["remote_bootstrap_addr"],
-                transfer_ids=transfer_id,
+                transfer_id=transfer_id,
             )
         else:
             self.reqs_to_send[request_id] = (transfer_id, local_block_ids)
+
+    def __str__(self) -> str:
+        return (
+            f"MooncakeConnectorMetadata(reqs_to_recv={dict(self.reqs_to_recv)}, "
+            f"reqs_to_send={self.reqs_to_send}, "
+            f"reqs_not_processed={self.reqs_not_processed})"
+        )
 
 
 class MooncakeConnector(KVConnectorBase):
     def __init__(
         self,
         role: KVConnectorRole,
-        kv_transfer_config: KVTransferConfig | None = None,
+        kv_transfer_config: KVTransferConfig,
     ):
-        cfg = kv_transfer_config or KVTransferConfig()
+        assert kv_transfer_config is not None
+        cfg = kv_transfer_config
         super().__init__(
             role=role,
             kv_transfer_config=cfg,
@@ -70,18 +82,31 @@ class MooncakeConnector(KVConnectorBase):
 
         self.engine_id: EngineId | None = cfg.engine_id
 
+        logger.info(
+            "MooncakeConnector::__init__ kv_transfer_config=%s role=%s engine_id=%s",
+            cfg,
+            role,
+            self.engine_id,
+        )
+
         if role == KVConnectorRole.SCHEDULER:
             from infinilm.kv_connector.mooncake.mooncake_connector_scheduler import (
                 MooncakeConnectorScheduler,
             )
 
-            self.connector_scheduler: MooncakeConnectorScheduler | None = (
+            self.connector_scheduler: "MooncakeConnectorScheduler | None" = (
                 MooncakeConnectorScheduler(cfg, engine_id=self.engine_id)
             )
-            self.connector_worker = None
+            self.connector_worker: "MooncakeConnectorWorker | None" = None
         else:
+            from infinilm.kv_connector.mooncake.mooncake_connector_worker import (
+                MooncakeConnectorWorker,
+            )
+
             self.connector_scheduler = None
-            self.connector_worker = None
+            self.connector_worker = MooncakeConnectorWorker(
+                cfg, engine_id=self.engine_id
+            )
 
     def get_num_new_matched_tokens(
         self, request: InferenceRequest, num_computed_tokens: int
@@ -117,3 +142,23 @@ class MooncakeConnector(KVConnectorBase):
     ) -> tuple[bool, dict[str, Any] | None]:
         assert self.connector_scheduler is not None
         return self.connector_scheduler.request_finished(request, block_ids, block_size)
+
+    def register_kv_caches(self, kv_caches: dict[str, infinicore.Tensor]) -> None:
+        assert self.connector_worker is not None
+        self.connector_worker.register_kv_caches(kv_caches)
+
+    def start_load_kv(
+        self,
+        **kwargs,
+    ) -> None:
+        assert self.connector_worker is not None
+        assert isinstance(self._connector_metadata, MooncakeConnectorMetadata)
+        self.connector_worker.start_load_kv(self._connector_metadata)
+
+    def get_finished(
+        self,
+        finished_req_ids: set[str],  # noqa: ARG002
+    ) -> tuple[set[str] | None, set[str] | None]:
+        """Return finished receive and send request id sets, if any."""
+        assert self.connector_worker is not None
+        return self.connector_worker.get_finished()

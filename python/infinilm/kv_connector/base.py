@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from infinilm.llm.request import InferenceRequest
 from infinilm.config.kv_transfer import KVTransferConfig
+import infinicore
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,11 @@ class KVConnectorBase(ABC):
     @property
     def role(self) -> KVConnectorRole:
         return self._role
+
+    @property
+    def kv_transfer_config(self) -> KVTransferConfig:
+        """PD/KV transfer options (not EngineConfig—use this name, not ``.config``)."""
+        return self._kv_transfer_config
 
     # ==============================
     # Scheduler-side methods
@@ -187,3 +193,71 @@ class KVConnectorBase(ABC):
             returned by the engine.
         """
         pass
+
+    # ==============================
+    # Worker-side methods
+    # ==============================
+
+    def bind_connector_metadata(self, connector_metadata: KVConnectorMetadata) -> None:
+        """Set the connector metadata from the scheduler.
+
+        This function should be called by the model runner every time
+        before the model execution.
+
+        Args:
+            connector_metadata: the connector metadata.
+        """
+        self._connector_metadata = connector_metadata
+
+    def clear_connector_metadata(self) -> None:
+        """Clear the connector metadata.
+
+        This function should be called by the model runner every time
+        after the model execution.
+        """
+        self._connector_metadata = None
+
+    @abstractmethod
+    def register_kv_caches(self, kv_caches: dict[str, infinicore.Tensor]) -> None:
+        """Register  KV cache tensors of the connector.
+
+        Args:
+            kv_caches: Mapping from layer name to KV cache tensor.
+        """
+        pass
+
+    @abstractmethod
+    def start_load_kv(self, **kwargs: Any) -> None:
+        """
+        Start loading KV cache from the connector to the KV buffer.
+        This is called before the forward pass to enable async loading
+        during model execution.
+
+        Args:
+            **kwargs: additional arguments for the load operation
+        """
+        pass
+
+    def get_block_ids_with_load_errors(self) -> set[int]:
+        """
+        Get the set of block IDs that failed to load.
+
+        """
+        return set()
+
+    def get_kv_connector_stats(self):
+        """
+        Get the KV connector stats collected during the last interval.
+        """
+        return None
+
+    def get_finished(
+        self, finished_req_ids: set[str]
+    ) -> tuple[set[str] | None, set[str] | None, set[str] | None]:
+        return None, None, None
+
+    def shutdown(self):
+        """
+        Shutdown the connector.
+        """
+        return None

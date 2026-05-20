@@ -5,6 +5,9 @@
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
+import os
+
+KV_ROLE_CHOICES = frozenset({"kv_producer", "kv_consumer"})
 
 
 @dataclass
@@ -17,14 +20,40 @@ class KVTransferConfig:
         kv_role: Role of this node: 'kv_producer' (prefill) or 'kv_consumer' (decode).
         engine_id: Unique identifier for this engine instance used in KV transfers.
                    Auto-generated (UUID) if not provided.
-        connector_config: Extra configuration dict passed to the connector backend.
+        kv_connector_extra_config: Extra configuration dict passed to the connector backend.
     """
 
     kv_connector: Optional[str] = None
     kv_role: Optional[str] = None
     engine_id: Optional[str] = None
-    connector_config: dict = field(default_factory=dict)
+    kv_connector_extra_config: Optional[dict] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.kv_connector is not None and self.kv_role is None:
+            raise ValueError("Please specify kv_role when kv_connector is set.")
+
+        if self.kv_role is not None and self.kv_role not in KV_ROLE_CHOICES:
+            raise ValueError(
+                f"Unsupported kv_role: {self.kv_role!r}. "
+                f"Supported roles are {sorted(KV_ROLE_CHOICES)}"
+            )
+
         if self.engine_id is None:
-            self.engine_id = str(uuid.uuid4())
+            self.engine_id = f"{self.kv_role}_" + str(uuid.uuid4())
+
+        if not self.kv_connector_extra_config:
+            self.kv_connector_extra_config = dict(self.kv_connector_extra_config or {})
+            self.kv_connector_extra_config.setdefault("mooncake_protocol", "rdma")
+
+        assert all(
+            key in ["mooncake_protocol", "num_workers"]
+            for key in self.kv_connector_extra_config.keys()
+        )
+
+        mooncake_protocol = self.kv_connector_extra_config["mooncake_protocol"]
+        if mooncake_protocol not in ["tcp", "rdma"]:
+            raise ValueError(f"only support tcp or rdma, but got {mooncake_protocol}")
+
+        if mooncake_protocol == "tcp":
+            # NOTE: force use tcp for Mooncake
+            os.environ["MC_FORCE_TCP"] = "true"
