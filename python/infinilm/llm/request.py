@@ -146,6 +146,11 @@ class InferenceRequest:
         self.num_cached_tokens: int = 0
         self.num_blocks: int = 0
 
+        # PD disaggregation support
+        self.kv_transfer_params: Optional[dict] = (
+            None  # KV transfer parameters from the router
+        )
+
         # For server use
         self.request_data: Optional[dict] = request_data
         self.http_request: Optional[Any] = http_request
