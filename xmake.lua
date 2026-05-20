@@ -62,6 +62,15 @@ target("_infinilm")
 
     local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 
+    before_build(function (target)
+        local torch_cxx11_abi = os.iorunv("python", {"-c", "import torch; print(int(torch._C._GLIBCXX_USE_CXX11_ABI))"}):trim()
+        local torch_abi_define = "_GLIBCXX_USE_CXX11_ABI=" .. torch_cxx11_abi
+
+        target:add("defines", torch_abi_define)
+        target:add("cxflags", "-D" .. torch_abi_define)
+        target:add("cxxflags", "-D" .. torch_abi_define)
+    end)
+
     -- add_includedirs("csrc", { public = false })
     -- add_includedirs("csrc/pybind11", { public = false })
     add_includedirs(INFINI_ROOT.."/include", { public = true })
