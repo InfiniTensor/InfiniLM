@@ -108,6 +108,7 @@ inline void bind_infer_engine(py::module &m) {
             "Run inference on all ranks with arbitrary arguments")
         .def(
             "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
