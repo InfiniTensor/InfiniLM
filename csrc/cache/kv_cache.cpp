@@ -244,7 +244,8 @@ infinicore::Tensor PagedKVCache::create_layer_kv_cache(
     size_t block_size = config.block_size();
 
     infinicore::Shape kv_shape;
-    if (global_state::get_infinilm_config().attention_backend == backends::AttentionBackend::FLASH_ATTN) {
+    if (global_state::get_infinilm_config().attention_backend == backends::AttentionBackend::FLASH_ATTN ||
+        global_state::get_infinilm_config().attention_backend == backends::AttentionBackend::HYBRID_ATTN) {
         // FLASH_ATTN kernel expects BSHD layout
         kv_shape = {2, num_blocks_per_layer, block_size, num_rank_k_heads, k_dim};
     } else {
