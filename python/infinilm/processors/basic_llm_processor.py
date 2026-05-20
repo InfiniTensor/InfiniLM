@@ -183,62 +183,72 @@ class BasicLLMProcessor(InfinilmProcessor):
         for req in scheduler_output.scheduled_requests:
             num_cached = req.num_cached_tokens
             if scheduler_output.is_prefill:
-                # Prefill phase
                 req_tokens = req.get_input_tokens()
 
                 # Chunked-prefill: only feed [chunk_prefill_offset : +chunk_size).
-                # past_kv_lengths = chunk_prefill_offset (attention sees the prefix
-                # already committed); total_kv_lengths = chunk_prefill_offset +
-                # len(tokens_to_compute). This keeps batch_size=1 and total_tokens
-                # == chunk_size so the C++ ChunkPrefillCompiler graph hits.
                 if req.is_chunking():
                     start = req.chunk_prefill_offset
                     end = min(start + req.chunk_size, len(req_tokens))
                     tokens_to_compute = req_tokens[start:end]
                     compute_len = len(tokens_to_compute)
                     tokens.extend(tokens_to_compute)
-                    seq_len = end  # attention prefix length after this chunk
+                    seq_len = end
                     seq_lens.append(seq_len)
                     current_offset += compute_len
                     seq_offsets.append(current_offset)
-                    slot_mapping.extend(req.slot_mapping[start:end])
+                    # req.slot_mapping has length (prompt_length - num_cached) and is
+                    # indexed [0..prompt_length-num_cached). Translate absolute token
+                    # indices to slot_mapping indices.
+                    slot_start = start - num_cached
+                    slot_end = end - num_cached
+                    assert slot_start >= 0 and slot_end <= len(req.slot_mapping), (
+                        f"chunking slot slice out of range: start={start} "
+                        f"end={end} num_cached={num_cached} "
+                        f"len(slot_mapping)={len(req.slot_mapping)}"
+                    )
+                    slot_mapping.extend(req.slot_mapping[slot_start:slot_end])
                     cached_lens.append(start)
                     position_ids.extend(range(start, end))
                 else:
                     tokens_to_compute = req_tokens[num_cached:]
                     tokens.extend(tokens_to_compute)
-
                     compute_len = len(tokens_to_compute)
                     seq_len = len(req_tokens)
                     seq_lens.append(seq_len)
-
                     current_offset += compute_len
                     seq_offsets.append(current_offset)
-
                     slot_mapping.extend(req.slot_mapping)
                     cached_lens.append(num_cached)
                     position_ids.extend(range(num_cached, num_cached + compute_len))
-
             else:
-                # Decode phase
                 seq_len = req.get_total_length()
                 last_token = req.generated_token_ids[-1]
                 tokens.append(last_token)
                 seq_lens.append(seq_len)
-
                 current_offset += 1
                 seq_offsets.append(current_offset)
-
                 slot_mapping.extend(req.slot_mapping)
                 cached_lens.append(num_cached)
                 position_ids.append(seq_len - 1)
 
-            # Pad block_table to same length
             padded_block_table = req.block_table + [-1] * (
                 max_block_table_len - len(req.block_table)
             )
             block_tables.append(padded_block_table)
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
+            
+        # guarantee non-empty tokens and slot_mapping to avoid downstream errors. If empty, raise with detailed debug info.
+        if not tokens or not slot_mapping:
+            states = [
+                (r.request_id[:8], r.is_prefill, r.is_chunking(),
+                r.chunk_prefill_offset, r.prompt_length, r.num_cached_tokens,
+                len(r.slot_mapping), r.status.name)
+                for r in scheduler_output.scheduled_requests
+            ]
+            raise RuntimeError(
+                f"build_model_inputs got empty tokens/slot_mapping. "
+                f"is_prefill={scheduler_output.is_prefill}, states={states}"
+            )
 
         return {
             "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),

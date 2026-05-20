@@ -125,7 +125,7 @@ class BaseConfig:
         )
         self.parser.add_argument("--enable-graph", action="store_true")
         self.parser.add_argument("--enable-chunk-prefill-graph", action="store_true", help="enable chunk-prefill graph compiling")
-        self.parser.add_argument("--chunk-size", type=int, default=512, help="tokens per chunked-prefill slice (0 to disable)")
+        self.parser.add_argument("--chunk-size", type=int, default=0, help="tokens per chunked-prefill slice (0 to disable)")
         self.parser.add_argument(
             "--enable-paged-attn",
             action="store_true",

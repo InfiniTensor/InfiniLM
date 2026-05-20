@@ -15,7 +15,7 @@ namespace infinilm::engine {
 ChunkPrefillCompiler::ChunkPrefillCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {
     // Enumerate chunk sizes for chunk-prefill
-    for (size_t cs : {64, 128, 256, 512, 1024, 2048}) {
+    for (size_t cs : {256}) {
         chunk_sizes_.push_back(cs);
     }
     // Enumerate batch sizes for prefill (typically smaller than decode)

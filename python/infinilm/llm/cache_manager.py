@@ -119,24 +119,51 @@ class BlockManager:
     ) -> tuple[List[int], List[int], int]:
         """Allocate cache blocks for new request with prefix caching support.
 
-        Args:
-            token_ids: Input token sequence
-            block_table: Existing block_table (for decode phase)
+        Idempotent: if block_table already fully covers token_ids with valid
+        (still-active) blocks, returns a consistent (block_table, slot_mapping,
+        num_cached_tokens=0) without re-allocating.
 
-        Returns:
-            Tuple of (block_table, slot_mapping, num_cached_tokens)
+        Convention: len(slot_mapping) == num_tokens - num_cached_tokens
+                    (one slot per token that needs to be (re)computed).
         """
         if block_table is None:
             block_table = []
 
         num_tokens = len(token_ids)
-        num_blocks = (num_tokens + self.block_size - 1) // self.block_size
+        if num_tokens == 0:
+            return [], [], 0
+
+        num_blocks_needed = (num_tokens + self.block_size - 1) // self.block_size
+
+        # -------------------------------------------------------------- #
+        # Idempotent re-entry path                                       #
+        # -------------------------------------------------------------- #
+        # If block_table already covers the prompt AND all those blocks
+        # are still alive (ref_count > 0), reconstruct slot_mapping from
+        # block_table and return num_cached_tokens=0 (i.e., the forward
+        # will recompute everything into the same slots — wasteful but
+        # always correct, and keeps the slot_mapping length convention).
+        if block_table and len(block_table) >= num_blocks_needed:
+            bt = list(block_table[:num_blocks_needed])
+            if all(self.blocks[bid].ref_count > 0 for bid in bt):
+                slot_mapping = [
+                    bt[i // self.block_size] * self.block_size + (i % self.block_size)
+                    for i in range(num_tokens)
+                ]
+                # length = num_tokens = num_tokens - 0 ✓ matches convention
+                return bt, slot_mapping, 0
+            # Otherwise the block_table is stale — drop it and re-allocate.
+            block_table = []
+
+        # -------------------------------------------------------------- #
+        # Below: original code unchanged                                 #
+        # -------------------------------------------------------------- #
         slot_mapping = []
         num_cached_tokens = 0
         prefix_hash = -1
         cache_miss = False
 
-        for block_idx in range(num_blocks):
+        for block_idx in range(num_blocks_needed):
             start_idx = block_idx * self.block_size
             end_idx = min(start_idx + self.block_size, num_tokens)
             block_tokens = token_ids[start_idx:end_idx]

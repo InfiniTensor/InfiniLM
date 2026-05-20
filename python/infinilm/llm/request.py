@@ -196,7 +196,7 @@ class InferenceRequest:
         return (
             self.chunk_size > 0
             and self.is_prefill
-            and self.prompt_length > self.chunk_size
+            and (self.prompt_length - self.num_cached_tokens) > self.chunk_size
         )
 
     def chunk_is_last(self) -> bool:
