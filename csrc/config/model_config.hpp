@@ -105,5 +105,11 @@ public:
 private:
     nlohmann::json config_json;
     QuantConfig quant_config;
+
+    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> createLlama3Scaling(const nlohmann::json &rope_scaling) const;
+    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> createLongRopeScaling(const nlohmann::json &rope_scaling) const;
+    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> createDefaultScaling(const nlohmann::json &rope_scaling) const;
+    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> createNoneScaling(const nlohmann::json &rope_scaling) const;
+    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> createDynamicScaling(const nlohmann::json &rope_scaling) const;
 };
 } // namespace infinilm::config
