@@ -27,7 +27,7 @@ from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 from infinilm.config.kv_transfer import KVTransferConfig
-from infinilm.llm.engine_config import EngineConfig
+from infinilm.config.engine_config import EngineConfig
 from infinilm.kv_connector import KVConnectorRole, KVConnectorFactory
 
 
@@ -111,7 +111,6 @@ class LLMEngine:
         # Execute model
         runner_output = self.model_runner.execute_model(scheduler_output)
         sampled_tokens_list = runner_output.sampled_token_ids
-        
         self.scheduler.update_from_output(runner_output)
 
         # Update request status
@@ -191,9 +190,7 @@ class LLMEngine:
                     ):
                         token_text = ""
                     else:
-                        token_text = req.generated_text[
-                            req._text_output_offset :
-                        ]
+                        token_text = req.generated_text[req._text_output_offset :]
                         if token_text:
                             req._text_output_offset = len(req.generated_text)
 
@@ -822,7 +819,9 @@ class AsyncLLMEngine:
                         break
                     continue
                 except Exception as e:
-                    logger.error(f"Error while streaming request {request.request_id}: {e}")
+                    logger.error(
+                        f"Error while streaming request {request.request_id}: {e}"
+                    )
                     break
         finally:
             # Unified cleanup point: runs whether the loop exits normally,

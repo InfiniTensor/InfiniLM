@@ -729,11 +729,11 @@ class MooncakeConnectorWorker:
             self.kv_flag_ptrs = [flag_base_ptr + i for i in range(self.num_blocks)]
             self.kv_flag_lens = [1] * self.num_blocks
 
-            ret_value_flags = self.engine.batch_register_memory(
+            ret = self.engine.batch_register_memory(
                 self.kv_flag_ptrs, self.kv_flag_lens
             )
 
-            if ret_value_flags != 0:
+            if ret != 0:
                 raise RuntimeError(
                     "Mooncake batch memory registration failed for kv block flags."
                 )
@@ -744,6 +744,15 @@ class MooncakeConnectorWorker:
             self.kv_flag_src_ptrs = [
                 flag_src_base_ptr + i for i in range(self.num_blocks)
             ]
+            self.kv_flag_src_lens = [1] * self.num_blocks
+
+            ret = self.engine.batch_register_memory(
+                self.kv_flag_src_ptrs, self.kv_flag_src_lens
+            )
+            if ret != 0:
+                raise RuntimeError(
+                    "Mooncake batch memory registration failed for kv block src flag."
+                )
 
         # No need to launch server for D node.
         if self.is_kv_consumer:
