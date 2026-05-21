@@ -15,6 +15,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace infinilm::engine {
@@ -25,6 +26,7 @@ class RankWorker {
     enum class Command {
         INIT,
         LOAD,
+        LOAD_BATCH,
         PREPROCESS,
         RUN,
         RESET_CACHE,
@@ -83,6 +85,8 @@ public:
     void load_param(const std::string &name,
                     const infinicore::Tensor &param);
 
+    void load_params(const std::vector<std::pair<std::string, infinicore::Tensor>> &params);
+
     void process_weights_after_loading();
 
     // return the parameters (i.e. weights and biases).
@@ -139,6 +143,7 @@ private:
     // Task payloads (protected by mutex)
     std::string pending_param_name_;
     infinicore::Tensor pending_param_;
+    std::vector<std::pair<std::string, infinicore::Tensor>> pending_params_;
     Input pending_args_;
     std::unique_ptr<cache::CacheConfig> pending_cache_config_;
 

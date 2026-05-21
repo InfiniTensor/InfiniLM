@@ -89,6 +89,31 @@ void RankWorker::load_param(const std::string &name,
 }
 
 //------------------------------------------------------
+// load_params -- synchronous batch load
+//------------------------------------------------------
+void RankWorker::load_params(const std::vector<std::pair<std::string, infinicore::Tensor>> &params) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (should_exit_) {
+            throw std::runtime_error("RankWorker is closing; cannot load_params");
+        }
+
+        pending_params_ = params;
+        job_cmd_ = Command::LOAD_BATCH;
+        has_job_ = true;
+        job_done_ = false;
+    }
+    cv_.notify_all();
+
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return job_done_ || should_exit_; });
+
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker stopped while loading parameters");
+    }
+}
+
+//------------------------------------------------------
 // process_weights_after_loading -- asynchronous
 //------------------------------------------------------
 void RankWorker::process_weights_after_loading() {
@@ -266,6 +291,7 @@ void RankWorker::thread_loop() {
             Command local_cmd = Command::INIT;
             std::string local_param_name;
             infinicore::Tensor local_param;
+            std::vector<std::pair<std::string, infinicore::Tensor>> local_params;
             Input local_args;
             std::unique_ptr<cache::CacheConfig> local_cache_config;
 
@@ -283,6 +309,9 @@ void RankWorker::thread_loop() {
                 if (local_cmd == Command::LOAD) {
                     local_param_name = pending_param_name_;
                     local_param = pending_param_;
+                } else if (local_cmd == Command::LOAD_BATCH) {
+                    local_params = std::move(pending_params_);
+                    pending_params_.clear();
                 } else if (local_cmd == Command::PREPROCESS) {
 
                 } else if (local_cmd == Command::RUN) {
@@ -313,6 +342,29 @@ void RankWorker::thread_loop() {
                 }
 
                 // signal completion
+                {
+                    std::lock_guard<std::mutex> lk(mutex_);
+                    job_done_ = true;
+                }
+                cv_.notify_all();
+
+            } else if (local_cmd == Command::LOAD_BATCH) {
+                try {
+                    for (const auto &[name, param] : local_params) {
+                        model_->load_parameter_no_sync(name, param);
+                    }
+                    infinicore::context::syncStream();
+                } catch (const std::exception &e) {
+                    {
+                        std::lock_guard<std::mutex> lk(mutex_);
+                        should_exit_ = true;
+                        job_done_ = true;
+                    }
+                    cv_.notify_all();
+                    spdlog::error("[{}] exception during load_parameters_: {}\n", info(), e.what());
+                    break;
+                }
+
                 {
                     std::lock_guard<std::mutex> lk(mutex_);
                     job_done_ = true;

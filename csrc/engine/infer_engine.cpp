@@ -54,6 +54,18 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
         worker->load_param(name, param);
     }
 }
+
+void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
+    std::vector<std::pair<std::string, infinicore::Tensor>> param_vec;
+    param_vec.reserve(params.size());
+    for (const auto &[name, param] : params) {
+        param_vec.emplace_back(name, param);
+    }
+    for (auto &worker : workers_) {
+        worker->load_params(param_vec);
+    }
+}
+
 //------------------------------------------------------
 // load_param
 //------------------------------------------------------

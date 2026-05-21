@@ -372,8 +372,7 @@ class InferEngine(_infinilm.InferEngine):
         return super().state_dict()[0].keys()
 
     def load_state_dict(self, state_dict, strict=None):
-        for name, param in state_dict.items():
-            super().load_param(name, param._underlying)
+        super().load_params({name: param._underlying for name, param in state_dict.items()})
 
     def process_weights_after_loading(self):
         super().process_weights_after_loading()
