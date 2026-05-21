@@ -36,7 +36,7 @@ SiglipVisionEmbeddings::SiglipVisionEmbeddings(const nlohmann::json &config,
 }
 
 infinicore::Tensor SiglipVisionEmbeddings::forward(const infinicore::Tensor &pixel_values,
-                                                   const std::optional<infinicore::Tensor> &tgt_sizes) const {
+                                                   const infinicore::Tensor &tgt_sizes) const {
     auto patch_embeds = patch_embedding_->forward(pixel_values);
     auto batch_size = patch_embeds->size(0);
     auto seq_len = patch_embeds->size(2) * patch_embeds->size(3);
@@ -50,12 +50,11 @@ infinicore::Tensor SiglipVisionEmbeddings::forward(const infinicore::Tensor &pix
     const size_t num_patches_per_side = static_cast<size_t>(std::sqrt(static_cast<double>(num_positions_)));
 
     std::vector<int64_t> tgt_sizes_host;
-    if (tgt_sizes.has_value()) {
-        auto tgt_cpu = tgt_sizes.value()->to(infinicore::Device::cpu());
-        auto n = tgt_cpu->numel();
-        tgt_sizes_host.resize(n);
-        std::memcpy(tgt_sizes_host.data(), tgt_cpu->data(), n * sizeof(int64_t));
-    }
+
+    auto tgt_cpu = tgt_sizes->to(infinicore::Device::cpu());
+    auto n = tgt_cpu->numel();
+    tgt_sizes_host.resize(n);
+    std::memcpy(tgt_sizes_host.data(), tgt_cpu->data(), n * sizeof(int64_t));
 
     for (size_t b = 0; b < batch_size; ++b) {
         size_t nb_h = num_patches_per_side;
@@ -211,7 +210,7 @@ SiglipVisionModel::SiglipVisionModel(const nlohmann::json &config,
 }
 
 infinicore::Tensor SiglipVisionModel::forward(const infinicore::Tensor &pixel_values,
-                                              const std::optional<infinicore::Tensor> &tgt_sizes) const {
+                                              const infinicore::Tensor &tgt_sizes) const {
     auto hidden_states = embeddings_->forward(pixel_values, tgt_sizes);
     hidden_states = encoder_->forward(hidden_states, std::nullopt);
     return post_layernorm_->forward(hidden_states);

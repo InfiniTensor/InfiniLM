@@ -36,7 +36,7 @@ public:
                            const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const std::optional<infinicore::Tensor> &tgt_sizes) const;
+                               const infinicore::Tensor &tgt_sizes) const;
 
 private:
     size_t hidden_size_;
@@ -119,7 +119,7 @@ public:
                       bool drop_last_layer);
 
     infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const std::optional<infinicore::Tensor> &tgt_sizes) const;
+                               const infinicore::Tensor &tgt_sizes) const;
 
 private:
     nlohmann::json config_;

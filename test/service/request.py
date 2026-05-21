@@ -6,10 +6,8 @@ from openai import AsyncOpenAI
 
 
 def get_args():
-    # 1. 创建参数解析器（支持重复 --message 构建列表）
-    parser = argparse.ArgumentParser(description="向推理服务发送 OpenAI 格式请求")
+    parser = argparse.ArgumentParser(description="Send request in OpenAI format")
 
-    # 核心：重复 --content 自动拼成列表
     parser.add_argument(
         "--system",
         type=str,
@@ -23,15 +21,13 @@ def get_args():
         help="start with content type['text', 'image_url'] and colon, e.g. text:hello or image_url:http://example.com/image.jpg",
     )
 
-    # 目标服务地址与端口
     parser.add_argument(
-        "--port", type=int, default=8000, help="推理服务端口，默认 8000"
+        "--port", type=int, default=8000, help="Infer server port, default 8000"
     )
     parser.add_argument(
-        "--host", default="127.0.0.1", help="推理服务地址，默认 127.0.0.1"
+        "--host", default="127.0.0.1", help="Infer server url, default 127.0.0.1"
     )
 
-    # 解析参数
     return parser.parse_args()
 
 

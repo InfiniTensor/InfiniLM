@@ -40,8 +40,13 @@ struct AttentionMetadata {
                                                                                        input.slot_mapping) {}
 };
 
+struct MultiModalMetadata {
+    std::optional<std::vector<size_t>> image_req_ids;
+};
+
 struct ForwardContext {
     AttentionMetadata attn_metadata;
+    MultiModalMetadata mm_metadata;
     std::vector<infinicore::Tensor> kv_cache_vec;
 };
 
