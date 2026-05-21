@@ -77,26 +77,17 @@ class Scheduler:
     def schedule(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute.
 
-        Priority (revised so chunk-prefill actually interleaves):
-          1. Decode 
-          2. New prefill (waiting_queue)
-          3. Continue chunked-prefill (chunking_queue)
+        Priority (prefill first):
+        1. New prefill (waiting_queue) — minimize TTFT for new requests.
+        2. Decode (running_queue).
+        3. Continue chunked-prefill (chunking_queue).
 
-        Order each call:
-          1. Try decode (running_queue).
-          2. If we've yielded to waiting `max_waiting_yields` times in a row
-             AND chunking_queue is non-empty → force chunking this step.
-          3. Otherwise try waiting (may start a new chunking session and
-             emit a single-request batch immediately).
-          4. Otherwise try chunking (continue an in-flight chunked-prefill).
-          5. Otherwise (rare) — try waiting again as a final fallback.
+        Anti-starvation (only guards chunking against waiting):
+        After `max_waiting_yields` consecutive steps where waiting_queue won
+        over a non-empty chunking_queue, the next step is forced onto the
+        chunking_queue.
         """
-        # 1) Decode first — cheap and latency-sensitive.
-        decode_out = self._try_schedule_decode()
-        if decode_out is not None:
-            return decode_out
-
-        # 2) Forced chunking after too many consecutive yields.
+        # 0) Forced chunking after too many consecutive waiting yields.
         if self._waiting_yields_in_a_row >= self.max_waiting_yields:
             chunking_out = self._try_schedule_chunking()
             if chunking_out is not None:
@@ -104,23 +95,24 @@ class Scheduler:
                 return chunking_out
             # chunking_queue was actually empty — fall through to normal path.
 
-        # 3) Waiting queue — newly arrived prefill preempts in-flight chunking.
-        # Snapshot whether chunking had anything BEFORE we drain waiting,
-        # so we can decide whether this counts as a "yield over chunking".
-        # (qsize() is racy but only affects the counter by ±1 in rare edge cases — not correctness)
+        # 1) New prefill — highest priority.
+        # Snapshot chunking emptiness BEFORE running waiting, so we can decide
+        # whether this counts as a "yield over chunking".
         chunking_was_nonempty = self.chunking_queue.sync_q.qsize() > 0
-
         waiting_out = self._try_schedule_waiting()
         if waiting_out is not None:
             if chunking_was_nonempty:
-                # We took a step that COULD have been chunking — count it.
                 self._waiting_yields_in_a_row += 1
             else:
-                # No chunking to yield from; nothing was actually deferred.
                 self._waiting_yields_in_a_row = 0
             return waiting_out
 
-        # 4) Continue an in-flight chunked-prefill request.
+        # 2) Decode.
+        decode_out = self._try_schedule_decode()
+        if decode_out is not None:
+            return decode_out
+
+        # 3) Continue an in-flight chunked-prefill request.
         chunking_out = self._try_schedule_chunking()
         if chunking_out is not None:
             self._waiting_yields_in_a_row = 0

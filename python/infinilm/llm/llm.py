@@ -662,8 +662,13 @@ class AsyncLLMEngine:
                 requests, pending = self.engine.step()
                 if not requests:
                     time.sleep(0.01)
-                elif pending:
-                    self._loop.call_soon_threadsafe(self._batch_put, pending)
+                else:
+                    if pending:
+                        self._loop.call_soon_threadsafe(self._batch_put, pending)
+                    # Yield GIL so the asyncio main thread can deliver tokens
+                    # to clients between inference steps. Without this, the step
+                    # thread monopolizes the GIL and token streaming stalls.
+                    time.sleep(0.0005)
             except Exception as e:
                 logger.error(f"Error in step loop: {e}", exc_info=True)
                 self._healthy = False
