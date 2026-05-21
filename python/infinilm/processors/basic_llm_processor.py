@@ -87,7 +87,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         Decode phase:
             - input_ids: Only the last generated token [1, 1]
             - position_ids: [current_position] (position in full sequence)
-            - past_kv_lengths: [num_cached_tokens]
+            - past_kv_lengths: [num_local_cached_tokens]
             - total_kv_lengths: [total_tokens]
         """
         import infinicore
@@ -182,7 +182,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         current_offset = 0
 
         for req in scheduler_output.scheduled_requests:
-            num_cached = req.num_cached_tokens
+            num_cached = req.num_local_cached_tokens
             if scheduler_output.is_prefill:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()

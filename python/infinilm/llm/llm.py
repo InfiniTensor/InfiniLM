@@ -10,10 +10,9 @@ import asyncio
 import time
 import uuid
 import logging
+import janus
 import threading
 from typing import List, Optional, Union, AsyncIterator
-
-import infinicore
 
 from infinilm.llm.request import (
     InferenceRequest,
@@ -27,7 +26,9 @@ from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
+from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.llm.engine_config import EngineConfig
+from infinilm.kv_connector import KVConnectorRole, KVConnectorFactory
 
 
 logger = logging.getLogger(__name__)
@@ -55,10 +56,22 @@ class LLMEngine:
                 f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
             )
         elif config.cache_type == "paged":
+            connector = None
+            if config.kv_transfer_config and config.kv_transfer_config.kv_connector:
+                connector = KVConnectorFactory.create_connector(
+                    connector_name=config.kv_transfer_config.kv_connector,
+                    role=KVConnectorRole.SCHEDULER,
+                    kv_transfer_config=config.kv_transfer_config,
+                )
+                logger.info(
+                    f"KV Connector created: {config.kv_transfer_config.kv_connector} "
+                    f"(role={config.kv_transfer_config.kv_role})"
+                )
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
+                connector=connector,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
         else:
@@ -73,7 +86,7 @@ class LLMEngine:
 
         logger.info(
             f"LLMEngine initialized with model at {config.model_path} "
-            f"on device {config.device}"
+            f"on device {config.device}, "
             f"enable_graph={config.enable_graph}"
         )
 
@@ -81,22 +94,25 @@ class LLMEngine:
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
-    def step(self) -> tuple[list[InferenceRequest], list[tuple]]:
+    def step(self) -> tuple[bool, list[tuple]]:
         """Run one inference step.
 
         Returns:
             A tuple of:
-            - scheduled_requests: Requests that were scheduled and processed in this step.
+            - did_work
             - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
         """
-        # Schedule requests
+        # Schedule the next unit of work, which may be model execution,
+        # connector control metadata, or both.
         scheduler_output = self.scheduler.schedule()
-        if scheduler_output is None or not scheduler_output.scheduled_requests:
-            return [], []
+        if scheduler_output is None:
+            return False, []
 
         # Execute model
         runner_output = self.model_runner.execute_model(scheduler_output)
         sampled_tokens_list = runner_output.sampled_token_ids
+        
+        self.scheduler.update_from_output(runner_output)
 
         # Update request status
         pending = self._update_requests(
@@ -105,7 +121,18 @@ class LLMEngine:
             sampled_tokens_list,
         )
 
-        return scheduler_output.scheduled_requests, pending
+        # Return False (no immediate work) only when no requests were scheduled
+        # and no KV transfers completed in this step.
+        if not scheduler_output.scheduled_requests:
+            if not runner_output.kv_connector_output or (
+                not getattr(runner_output.kv_connector_output, "finished_sending", None)
+                and not getattr(
+                    runner_output.kv_connector_output, "finished_recving", None
+                )
+            ):
+                return False, pending
+
+        return True, pending
 
     def _update_requests(
         self,
@@ -117,7 +144,7 @@ class LLMEngine:
         if is_prefill:
             match self.cache_type:
                 case "paged":
-                    self.scheduler.cache_manager.reset_req_blocks()
+                    pass
                 case "static":
                     self.scheduler.update_cache()
                 case _:
@@ -128,13 +155,14 @@ class LLMEngine:
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
                 )
+                # close() may have set _aborted=True without setting a terminal status
+                # (status still RUNNING).
+                if not req.is_finished():
+                    req.mark_canceled()
                 continue
 
-            if req.is_prefill:
-                req.is_prefill = False
-
             req.generated_token_ids.append(token_id)
-            pending_tokens = req.generated_token_ids[req._pending_token_offset :]
+            pending_tokens = req.generated_token_ids[req._token_decode_offset :]
             delta = self.tokenizer.decode(pending_tokens)
             holds_back = bool(delta) and delta.endswith("\ufffd")
 
@@ -142,7 +170,7 @@ class LLMEngine:
 
             if not holds_back:
                 req.generated_text = last_committed_text + delta
-                req._pending_token_offset = len(req.generated_token_ids)
+                req._token_decode_offset = len(req.generated_token_ids)
 
             is_finished = self._check_request_finished(req, token_id)
 
@@ -164,10 +192,10 @@ class LLMEngine:
                         token_text = ""
                     else:
                         token_text = req.generated_text[
-                            req._stream_last_yielded_length :
+                            req._text_output_offset :
                         ]
                         if token_text:
-                            req._stream_last_yielded_length = len(req.generated_text)
+                            req._text_output_offset = len(req.generated_text)
 
                     if is_finished:
                         req.mark_finished(req.finish_reason)
@@ -444,6 +472,7 @@ class AsyncLLMEngine:
         top_k: int = 1,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        kv_transfer_config: Optional[KVTransferConfig] = None,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -463,6 +492,9 @@ class AsyncLLMEngine:
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            kv_connector: KV connector type ('MooncakeConnector').
+            kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
+            kv_connector_extra_config: Extra config dict for KV connector.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -480,6 +512,7 @@ class AsyncLLMEngine:
             top_k=top_k,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            kv_transfer_config=kv_transfer_config,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -488,6 +521,7 @@ class AsyncLLMEngine:
         self._step_thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
+        self._abort_queue: Optional[janus.Queue] = None
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
@@ -499,6 +533,7 @@ class AsyncLLMEngine:
             return
 
         self._loop = asyncio.get_running_loop()
+        self._abort_queue = janus.Queue()
         self._running = True
         self._step_thread = threading.Thread(
             target=self._step_loop, daemon=True, name="AsyncLLMEngineStepThread"
@@ -517,13 +552,69 @@ class AsyncLLMEngine:
             self._step_thread.join(timeout=5)
         logger.info("AsyncLLMEngine stopped")
 
+    def add_aborted_req(
+        self,
+        req: InferenceRequest,
+        reason: FinishReason = FinishReason.CANCELED,
+    ):
+        """Submit an abort request from async side to the step thread.
+
+        The step thread processes this in _drain_abort_queue() before each schedule().
+        """
+        if self._abort_queue is not None:
+            self._abort_queue.sync_q.put((req, reason))
+
+    def _drain_abort_queue(self):
+        """Process all pending abort requests before each schedule() call.
+
+        Runs in the step thread (sync context). Guarantees mark_*() is called
+        before schedule() so is_finished() checks in waiting/running queue loops
+        work correctly. Puts a final TokenOutput into the output queue to unblock
+        stream_request when _stream_chat is still alive after abort.
+        """
+        if self._abort_queue is None:
+            return
+        while True:
+            try:
+                req, reason = self._abort_queue.sync_q.get_nowait()
+            except Exception:
+                break
+
+            if req.is_finished():
+                continue
+
+            if reason == FinishReason.CANCELED:
+                req.mark_canceled()
+            elif reason == FinishReason.TIMEOUT:
+                req.mark_timeout()
+            else:
+                req.mark_failed(reason)
+
+            # Put a final token to unblock stream_request.
+            # If Starlette already cancelled _stream_chat, aclose() may have closed
+            # the queue; put_nowait will raise and we silently ignore it.
+            if req._output_queue is not None:
+                final = TokenOutput(
+                    request_id=req.request_id,
+                    token_id=-1,
+                    token_text="",
+                    finished=True,
+                    finish_reason=req.finish_reason,
+                    generated_text=req.generated_text,
+                )
+                try:
+                    req.output_queue.sync_q.put_nowait(final)
+                except Exception:
+                    pass
+
     def _step_loop(self):
         """Background loop that runs inference steps."""
         while self._running:
             try:
-                requests, pending = self.engine.step()
-                if not requests:
-                    time.sleep(0.01)
+                self._drain_abort_queue()
+                did_work, pending = self.engine.step()
+                if not did_work:
+                    time.sleep(0.003)
                 elif pending:
                     self._loop.call_soon_threadsafe(self._batch_put, pending)
             except Exception as e:
@@ -554,7 +645,6 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         # For server use
         request_data: Optional[dict] = None,
-        http_request: Optional[any] = None,
     ) -> InferenceRequest:
         """Add a request to the engine.
 
@@ -584,7 +674,6 @@ class AsyncLLMEngine:
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict (for server use).
-            http_request: Optional HTTP request object (for server use).
 
         Returns:
             The created InferenceRequest object.
@@ -633,8 +722,11 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,
-            http_request=http_request,
         )
+
+        if request_data and "kv_transfer_params" in request_data:
+            kv_params = request_data["kv_transfer_params"]
+            request.kv_transfer_params = kv_params
 
         # Initialize output queue for streaming
         _ = request.output_queue
@@ -648,7 +740,6 @@ class AsyncLLMEngine:
         sampling_params: Optional[SamplingParams] = None,
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
-        http_request: Optional[any] = None,
         add_generation_prompt: bool = True,
         **kwargs,
     ) -> InferenceRequest:
@@ -659,7 +750,6 @@ class AsyncLLMEngine:
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict.
-            http_request: Optional HTTP request object.
 
         Returns:
             The created InferenceRequest object.
@@ -672,7 +762,6 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
-            http_request=http_request,
         )
 
     async def stream_request(
@@ -693,53 +782,49 @@ class AsyncLLMEngine:
         import asyncio
 
         start = time.time()
-        while True:
-            try:
-                if request_timeout and time.time() - start > float(request_timeout):
-                    request.mark_timeout()
-                    yield TokenOutput(
-                        request_id=request.request_id,
-                        token_id=-1,
-                        token_text="",
-                        finished=True,
-                        finish_reason=FinishReason.TIMEOUT,
-                        generated_text=request.generated_text,
+        try:
+            while True:
+                try:
+                    if request_timeout and time.time() - start > float(request_timeout):
+                        self.add_aborted_req(request, FinishReason.TIMEOUT)
+
+                    token_output = await asyncio.wait_for(
+                        request.output_queue.async_q.get(), timeout=timeout
                     )
-                    break
 
-                token_output = await asyncio.wait_for(
-                    request.output_queue.async_q.get(), timeout=timeout
-                )
+                    request.output_queue.async_q.task_done()
 
-                request.output_queue.async_q.task_done()
+                    yield token_output
 
-                yield token_output
-
-                if token_output.finished:
-                    break
-            except asyncio.TimeoutError:
-                logger.warning(
-                    f"Timeout while waiting for token from request {request.request_id}"
-                )
-                if request.is_aborted():
-                    while not request.output_queue.async_q.empty():
-                        try:
-                            token_output = request.output_queue.async_q.get_nowait()
-                            request.output_queue.async_q.task_done()
-                            yield token_output
-                        except asyncio.QueueEmpty:
-                            break
-
-                    yield TokenOutput(
-                        request_id=request.request_id,
-                        token_id=-1,
-                        token_text="",
-                        finished=True,
-                        finish_reason=request.finish_reason,
-                        generated_text=request.generated_text,
+                    if token_output.finished:
+                        break
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Timeout while waiting for token from request {request.request_id}"
                     )
+                    if request.is_aborted():
+                        while not request.output_queue.async_q.empty():
+                            try:
+                                token_output = request.output_queue.async_q.get_nowait()
+                                request.output_queue.async_q.task_done()
+                                yield token_output
+                            except asyncio.QueueEmpty:
+                                break
+
+                        yield TokenOutput(
+                            request_id=request.request_id,
+                            token_id=-1,
+                            token_text="",
+                            finished=True,
+                            finish_reason=request.finish_reason,
+                            generated_text=request.generated_text,
+                        )
+                        break
+                    continue
+                except Exception as e:
+                    logger.error(f"Error while streaming request {request.request_id}: {e}")
                     break
-                continue
-            except Exception as e:
-                logger.error(f"Error while streaming request {request.request_id}: {e}")
-                break
+        finally:
+            # Unified cleanup point: runs whether the loop exits normally,
+            # via exception, or via aclose() (GeneratorExit from Starlette).
+            await request.close()

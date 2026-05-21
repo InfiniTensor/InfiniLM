@@ -18,23 +18,36 @@ logger = logging.getLogger(__name__)
 class RequestStatus(Enum):
     """Status of an inference request."""
 
+    # Pending
     WAITING = "waiting"
+    WAITING_FOR_REMOTE_KVS = "waiting_for_remote_kvs"
+
+    # Active
     RUNNING = "running"
+
+    # Successful terminal
     FINISHED = "finished"
+
+    # Abnormal terminal
     CANCELED = "canceled"
-    FAILED = "failed"
     TIMEOUT = "timeout"
+    FAILED = "failed"
 
 
 class FinishReason(Enum):
     """Reason for finishing generation."""
 
-    STOP = "stop"
-    LENGTH = "length"
+    # Normal completion
     EOS_TOKEN = "eos_token"
     STOP_STRING = "stop_string"
-    TIMEOUT = "timeout"
+    STOP = "stop"
+
+    # Controlled truncation
+    LENGTH = "length"
+
+    # Abnormal termination
     CANCELED = "canceled"
+    TIMEOUT = "timeout"
     ERROR = "error"
 
 
@@ -111,7 +124,6 @@ class InferenceRequest:
         arrival_time: Optional[float] = None,
         # For server use
         request_data: Optional[dict] = None,
-        http_request: Optional[Any] = None,
     ):
         self.arrival_time: float = arrival_time or time.time()
         self.finished_time: Optional[float] = None
@@ -119,48 +131,39 @@ class InferenceRequest:
         # Request metadata
         self.request_id: str = request_id
         self.prompt: Optional[str] = prompt
-        self.prompt_token_ids: List[int] = prompt_token_ids or []
+        self.prompt_token_ids: List[int] = prompt_token_ids if prompt_token_ids is not None else []
         self.prompt_length: int = len(self.prompt_token_ids)
         self.processed_inputs: Optional[dict] = processed_inputs
+        self.priority: int = 0
 
-        # Sampling parameters
+        # Sampling & stopping criteria
         self.sampling_params: SamplingParams = sampling_params or SamplingParams()
-
-        # EOS token IDs (from model config)
-        self.eos_token_ids: List[int] = eos_token_ids or []
+        self.eos_token_ids: List[int] = eos_token_ids if eos_token_ids is not None else []
 
         # Generation state
         self.generated_token_ids: List[int] = []
-        self.generated_text: str = ""
-        self.is_prefill: bool = True
+        self.generated_text: str = ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
         self.status: RequestStatus = RequestStatus.WAITING
         self.finish_reason: Optional[FinishReason] = None
-        self.priority: int = 0
 
         # KV cache management
-        self.cache_id: Optional[int] = None
         self.block_table: List[int] = []
         self.slot_mapping: List[int] = []
-        self.num_cached_tokens: int = 0
+        self.num_local_cached_tokens: int = 0  # Number of locally cached (prefix-hit) tokens
+        self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
         self.num_blocks: int = 0
 
         # PD disaggregation support
-        self.kv_transfer_params: Optional[dict] = (
-            None  # KV transfer parameters from the router
-        )
+        self.kv_transfer_params: Optional[dict] = None  # KV transfer parameters from the router
 
         # For server use
         self.request_data: Optional[dict] = request_data
-        self.http_request: Optional[Any] = http_request
 
-        # Output management (for async streaming)
+        # Async output & streaming
         self._output_queue: Optional[janus.Queue] = None
-        self._aborted = False
-
-        # Streaming helpers (vLLM-style UTF-8 buffering at the chunking layer)
-        # Used by the engine to compute "delta" text chunks from a full decode.
-        self._stream_last_yielded_length: int = 0
-        self._pending_token_offset: int = 0
+        self._aborted: bool = False
+        self._text_output_offset: int = 0
+        self._token_decode_offset: int = 0
 
     @property
     def output_queue(self) -> janus.Queue:

@@ -12,11 +12,13 @@ import uvicorn
 import logging
 import os
 import asyncio
+from typing import Optional
 from infinilm.base_config import BaseConfig
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
+from infinilm.config import KVTransferConfig
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,8 @@ class InferenceServer:
         enable_graph: bool = False,
         attn_backend: str = "default",
         ignore_eos: bool = False,
+        # PD disaggregation
+        kv_transfer_config: Optional[KVTransferConfig] = None,
     ):
         """Initialize inference server.
 
@@ -152,6 +156,7 @@ class InferenceServer:
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
         self.ignore_eos = ignore_eos
+        self.kv_transfer_config = kv_transfer_config
 
         self.engine: AsyncLLMEngine = None
 
@@ -183,6 +188,7 @@ class InferenceServer:
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
                 attn_backend=self.attn_backend,
+                kv_transfer_config=self.kv_transfer_config,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -339,6 +345,7 @@ class InferenceServer:
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
         """Handle streaming chat request."""
         req = None
+        _abort_reason = FinishReason.CANCELED
 
         try:
             messages = data.get("messages", [])
@@ -349,7 +356,6 @@ class InferenceServer:
                 sampling_params=sampling_params,
                 request_id=request_id,
                 request_data=data,
-                http_request=http_request,
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
@@ -362,10 +368,8 @@ class InferenceServer:
                 # Check client disconnect
                 if await http_request.is_disconnected():
                     logger.info(f"Client disconnected for request {request_id}")
-                    req.mark_canceled()
                     break
 
-                # If stream_request enforces timeout, we can just surface the state to the client.
                 if token_output.finish_reason == FinishReason.TIMEOUT:
                     logger.warning(
                         f"Request {request_id} timed out after {DEFAULT_REQUEST_TIMEOUT}s"
@@ -417,15 +421,14 @@ class InferenceServer:
                     break
 
         except asyncio.CancelledError:
+            # Starlette cancelled us (client disconnected); stream_request will be
+            # aclose()'d automatically via the async-for destructor.
             logger.info(f"Request {request_id} was cancelled")
-            if req:
-                req.mark_canceled()
             raise
 
         except Exception as e:
             logger.error(f"Stream error for {request_id}: {e}", exc_info=True)
-            if req:
-                req.mark_failed()
+            _abort_reason = FinishReason.ERROR
             error_chunk = json.dumps(
                 chunk_json(
                     request_id,
@@ -438,15 +441,17 @@ class InferenceServer:
             yield f"data: {error_chunk}\n\n"
 
         finally:
+            # Unified abort: reason is ERROR if we got here via Exception, else CANCELED.
+            # req.close() is handled by stream_request.finally.
             if req and not req.is_finished():
-                req.mark_canceled()
-            if req:
-                await req.close()
-            yield "data: [DONE]\n\n"
+                self.engine.add_aborted_req(req, _abort_reason)
+                
+        yield "data: [DONE]\n\n"
 
     async def _chat(self, request_id: str, data: dict, http_request: Request):
         """Handle non-streaming chat request."""
         req = None
+        _abort_reason = FinishReason.CANCELED
 
         try:
             messages = data.get("messages", [])
@@ -457,7 +462,6 @@ class InferenceServer:
                 sampling_params=sampling_params,
                 request_id=request_id,
                 request_data=data,
-                http_request=http_request,
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
@@ -472,7 +476,6 @@ class InferenceServer:
                 # Check client disconnect
                 if await http_request.is_disconnected():
                     logger.info(f"Client disconnected for request {request_id}")
-                    req.mark_canceled()
                     break
 
                 # Request-level timeout is handled inside stream_request.
@@ -508,21 +511,18 @@ class InferenceServer:
 
         except asyncio.CancelledError:
             logger.info(f"Request {request_id} was cancelled")
-            if req:
-                req.mark_canceled()
             raise
 
         except Exception as e:
             logger.error(f"Chat error for {request_id}: {e}", exc_info=True)
-            if req:
-                req.mark_failed()
+            _abort_reason = FinishReason.ERROR
             return JSONResponse(content={"error": str(e)}, status_code=500)
 
         finally:
+            # Unified abort: reason is ERROR if we got here via Exception, else CANCELED.
+            # req.close() is handled by stream_request.finally.
             if req and not req.is_finished():
-                req.mark_canceled()
-            if req:
-                await req.close()
+                self.engine.add_aborted_req(req, _abort_reason)
 
     def _convert_finish_reason(self, reason: FinishReason) -> str:
         """Convert FinishReason enum to string."""
@@ -550,10 +550,28 @@ def setup_logging(log_level: str = "INFO"):
     )
 
 
+def parse_kv_transfer_config(kv_transfer_config_str: str) -> KVTransferConfig:
+    """Parse JSON string into KVTransferConfig."""
+    kv_dict = json.loads(kv_transfer_config_str)
+    if not isinstance(kv_dict, dict):
+        raise ValueError("--kv-transfer-config must be a JSON object")
+
+    return KVTransferConfig(
+        kv_connector=kv_dict.get("kv_connector", None),
+        engine_id=kv_dict.get("engine_id", None),
+        kv_role=kv_dict.get("kv_role", None),
+        kv_connector_extra_config=kv_dict.get("kv_connector_extra_config", None),
+    )
+
+
 def main():
     cfg = BaseConfig()
     setup_logging(cfg.log_level)
     device = cfg.get_device_str(cfg.device)
+
+    kv_transfer_config = None
+    if cfg.kv_transfer_config:
+        kv_transfer_config = parse_kv_transfer_config(cfg.kv_transfer_config)
 
     server = InferenceServer(
         model_path=cfg.model,
@@ -574,6 +592,7 @@ def main():
         enable_graph=cfg.enable_graph,
         attn_backend=cfg.attn,
         ignore_eos=cfg.ignore_eos,
+        kv_transfer_config=kv_transfer_config,
     )
     server.start()
 
