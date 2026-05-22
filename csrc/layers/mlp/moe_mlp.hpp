@@ -15,11 +15,12 @@ public:
 
     size_t hidden_size() const { return hidden_size_; }
     size_t moe_intermediate_size() const { return moe_intermediate_size_; }
+    void set_alpha(float alpha) { down_proj_->set_alpha(alpha); }
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, gate_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, up_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, down_proj);
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> gate_proj_;
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> up_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> down_proj_;
 
     size_t hidden_size_;
     size_t moe_intermediate_size_;

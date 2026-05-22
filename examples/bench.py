@@ -24,6 +24,57 @@ DATA_TYPE_BYTES = {
 
 _PAGED_KV_BLOCK_SIZE = 256
 
+# Maps model_type to its specific config key normalization rules.
+# Each rule maps a standard key (e.g., "head_dim") to either:
+#   - A string: representing the model-specific key name for direct mapping.
+#   - A callable: a function that takes the config dict and computes the derived value.
+_CONFIG_KEY_MAP = {
+    "chatglm": {
+        "num_key_value_heads": "multi_query_group_num",
+        "num_hidden_layers": "num_layers",
+        "head_dim": "kv_channels",
+    },
+    "baichuan": {
+        "num_key_value_heads": "num_attention_heads",
+        "head_dim": lambda cfg: cfg["hidden_size"] // cfg["num_attention_heads"],
+    },
+}
+
+def _normalize_config(config, model_type):
+    """
+    Normalize model config to standard keys.
+
+    Applies model-specific key mappings and derived computations defined in
+    _CONFIG_KEY_MAP. Standard keys already present in the original config
+    will not be overwritten.
+    """
+    normalized = dict(config)
+
+    key_map = _CONFIG_KEY_MAP.get(model_type)
+
+    if not key_map:
+        return normalized
+
+    for std_key, rule in key_map.items():
+        # Skip if the standard key already exists in the original config
+        if std_key in normalized:
+            continue
+
+        # Rule is a string: perform a direct key remapping
+        if isinstance(rule, str):
+            if rule in normalized:
+                normalized[std_key] = normalized[rule]
+
+        # Rule is a callable: compute the derived value dynamically
+        elif callable(rule):
+            try:
+                normalized[std_key] = rule(normalized)
+            except (KeyError, ZeroDivisionError, TypeError):
+                # Silently skip if dependencies are missing or computation fails
+                pass
+
+    return normalized
+
 # BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128]
 # INPUT_LENS = [32, 256, 1024, 4096]
 # OUTPUT_LENS = [256, 1024, 4096]
@@ -46,6 +97,8 @@ def get_test_cases(
     """Generate cases ordered by ascending KV cache memory usage."""
     # Load model config to derive attention dimensions
     config = read_json_file(os.path.join(model_path, "config.json"))
+    model_type = config.get("model_type", "")
+    config = _normalize_config(config, model_type)
     head_dim = config.get(
         "head_dim", config.get("hidden_size") // config.get("num_attention_heads")
     )

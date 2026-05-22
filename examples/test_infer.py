@@ -42,14 +42,14 @@ def test(
     )
 
     conversations = [
-        {"role": "user", "content": [{"type": "text", "text": prompt}]}
+        [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
         for prompt in prompts
     ]
     if image_path is not None:
         for conversation in conversations:
-            conversation["content"] = [
+            conversation[0]["content"] = [
                 {"type": "image_url", "image_url": {"url": image_path}}
-            ] + conversation["content"]
+            ] + conversation[0]["content"]
 
     t1 = time.time()
     print("=================== start generate ====================")

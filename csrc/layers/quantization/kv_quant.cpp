@@ -7,11 +7,11 @@ namespace infinilm {
 void KVQuantUtils::quantize(
     infinicore::Tensor &k,
     infinicore::Tensor &v,
-    infinicore::quantization::KVQuantAlgo algo,
+    infinilm::quantization::KVQuantAlgo algo,
     const infinicore::Tensor &k_scale,
     const infinicore::Tensor &v_scale) {
 
-    if (algo == infinicore::quantization::KVQuantAlgo::NONE) {
+    if (algo == infinilm::quantization::KVQuantAlgo::NONE) {
         return;
     }
 
@@ -26,12 +26,12 @@ void KVQuantUtils::quantize(
 void KVQuantUtils::dequantize(
     infinicore::Tensor &k,
     infinicore::Tensor &v,
-    infinicore::quantization::KVQuantAlgo algo,
+    infinilm::quantization::KVQuantAlgo algo,
     const infinicore::Tensor &k_scale,
     const infinicore::Tensor &v_scale,
     const infinicore::Tensor &reference) {
 
-    if (algo == infinicore::quantization::KVQuantAlgo::NONE) {
+    if (algo == infinilm::quantization::KVQuantAlgo::NONE) {
         return; // 无需反量化
     }
 

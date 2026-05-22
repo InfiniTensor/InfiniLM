@@ -3,8 +3,10 @@ from typing import override
 from transformers import AutoConfig, AutoProcessor
 
 from .processor import InfinilmProcessor
+from .processor import register_processor
 
 
+@register_processor("minicpmv")
 class MiniCPMVProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
         """Initialize the processor with the model directory path."""

@@ -177,6 +177,32 @@ class StaticScheduler:
                 del self.cached_block_hashes[matched:]
 
             prefix_hit_len = matched * _BLOCK_SIZE
+
+            # Prevent 100% prefix cache hits to avoid an empty prefill input.
+            # When prefix_hit_len equals the total token length, the remaining tokens
+            # for prefill would be zero (input_ids becomes empty), leading to crashes
+            # or incorrect state transitions in the downstream processor.
+            #
+            # This fix is directly inspired by SGLang's approach in their core scheduler
+            # logic (specifically the `adjust_max_prefix_ids` method). SGLang explicitly
+            # trims the prefix matching length to ensure at least one token is left:
+            #
+            #   # To work around some bugs in logprob computation, we need to
+            #   # ensure each request has at least one token. Later, we can relax
+            #   # this requirement and use `input_len`.
+            #   max_prefix_len = input_len - 1
+            #
+            # By forcing the last token to be "missed" from the cache hit, we guarantee
+            # that every request has at least one token to go through the prefill forward
+            # pass. This elegantly avoids the complexity of hijacking the request into
+            # the decode phase and handles edge cases in logprob computation gracefully.
+            #
+            # Mathematically and architecturally, this 2-line adjustment is exactly
+            # equivalent to SGLang's robust production strategy.
+            #
+            if prefix_hit_len >= len(tokens):
+                prefix_hit_len = len(tokens) - 1
+
             logger.info(
                 f"Prefill cache match: {matched}/{num_full_blocks} blocks "
                 f"({prefix_hit_len} tokens reused, {len(self.pending_block_hashes)} pending)"
