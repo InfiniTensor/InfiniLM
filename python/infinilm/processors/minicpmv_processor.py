@@ -13,7 +13,11 @@ class MiniCPMVProcessor(InfinilmProcessor):
         )
         self.tokenizer = self.processor.tokenizer
         self.config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
-        self.pixel_values_dtype = self.config.dtype
+        self.pixel_values_dtype = (
+            self.config.dtype
+            if hasattr(self.config, "dtype")
+            else self.config.torch_dtype
+        )
 
     @override
     def __call__(
