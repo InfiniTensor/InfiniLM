@@ -12,18 +12,25 @@ class BasicLLMProcessor(InfinilmProcessor):
         )
 
     def __call__(self, prompt: str, return_tensors: str = None, **kwargs) -> dict:
+        # add_special_tokens=False Prevent duplicate BOS token for Llama-3/3.1 models.
+        # The `prompt` string here is already rendered by `apply_chat_template(tokenize=False)`,
+        # which explicitly includes the `<|begin_of_text|>` (BOS) token at the start.
+        # Since `LlamaTokenizerFast` defaults to `add_bos_token=True`, calling the tokenizer
+        # with the default `add_special_tokens=True` would prepend a second BOS token.
+        # This shifts the RoPE positional encodings by 1 and causes greedy decoding outputs
+        # to diverge significantly from HuggingFace. We must explicitly disable it.
         if return_tensors is None:
-            return self.tokenizer(prompt)
+            return self.tokenizer(prompt, add_special_tokens=False)
         elif return_tensors == "infini":
             import infinicore
 
             result = {}
-            for key, tensor in self.tokenizer(prompt, return_tensors="pt").items():
+            for key, tensor in self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False).items():
                 result[key] = tensor.from_torch(tensor)
             return result
 
         # "pt" or "np" or "tf".
-        return self.tokenizer(prompt, return_tensors="pt")
+        return self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
 
     def apply_chat_template(
         self,
