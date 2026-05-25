@@ -33,6 +33,8 @@ MiniCPMVModel::MiniCPMVModel(std::shared_ptr<infinilm::config::ModelConfig> mode
                               embed_dim,
                               num_heads,
                               vision_cfg.value("hidden_size", 768),
+                              vision_cfg.value("image_size", 224),
+                              vision_cfg.value("patch_size", 16),
                               dtype,
                               device);
 }

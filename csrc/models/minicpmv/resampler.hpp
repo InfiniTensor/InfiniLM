@@ -39,6 +39,8 @@ public:
               size_t embed_dim,
               size_t num_heads,
               size_t kv_dim,
+              size_t image_size,
+              size_t patch_size,
               const infinicore::DataType &dtype,
               const infinicore::Device &device);
 
@@ -50,10 +52,13 @@ private:
     size_t embed_dim_;
     size_t num_heads_;
     size_t kv_dim_;
+    size_t image_size_;
+    size_t patch_size_;
     bool use_kv_proj_;
 
     INFINICORE_NN_PARAMETER(query);
     INFINICORE_NN_PARAMETER(proj);
+    INFINICORE_NN_BUFFER(embedding_table);
     INFINICORE_NN_MODULE(infinicore::nn::Linear, kv_proj);
     INFINICORE_NN_MODULE(ResamplerAttention, attn);
     INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, ln_q);

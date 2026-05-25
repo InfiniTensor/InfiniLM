@@ -25,7 +25,24 @@ def get_args():
         "--port", type=int, default=8000, help="Infer server port, default 8000"
     )
     parser.add_argument(
-        "--host", default="127.0.0.1", help="Infer server url, default 127.0.0.1"
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Infer server url, default 127.0.0.1",
+    )
+
+    parser.add_argument(
+        "--api-url",
+        type=str,
+        default=None,
+        help="Full service url, if given host and port will be ignored",
+    )
+
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default="default",
+        help="Name of the model being served, needed by vllm",
     )
 
     return parser.parse_args()
@@ -56,12 +73,12 @@ def build_messages(content_args, system_prompt):
     return messages
 
 
-async def benchmark_user(client, messages):
+async def benchmark_user(client, messages, model_name):
     try:
         print(f"  ❓ 提问: {messages}")
         start_time = time.time()
         stream = await client.chat.completions.create(
-            model="default",
+            model=model_name,
             messages=messages,
             stream=True,
         )
@@ -110,8 +127,14 @@ def main():
     if not args.content:
         args.content = ["text:山东最高的山是？"]
     messages = build_messages(args.content, args.system)
-    client = AsyncOpenAI(base_url=f"http://{args.host}:{args.port}", api_key="default")
-    asyncio.run(benchmark_user(client, messages))
+    api_url = (
+        f"http://{args.api_url}"
+        if args.api_url is not None
+        else f"http://{args.host}:{args.port}"
+    )
+
+    client = AsyncOpenAI(base_url=api_url, api_key="default")
+    asyncio.run(benchmark_user(client, messages, args.model_name))
 
 
 if __name__ == "__main__":
