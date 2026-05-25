@@ -119,7 +119,7 @@ class BaseConfig:
             "--attn",
             type=str,
             default="default",
-            choices=["default", "paged-attn", "flash-attn"],
+            choices=["default", "paged-attn", "flash-attn", "flash-prefill", "flash-decode"],
         )
         self.parser.add_argument("--enable-graph", action="store_true")
         self.parser.add_argument(

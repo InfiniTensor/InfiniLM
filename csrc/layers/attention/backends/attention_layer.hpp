@@ -2,15 +2,17 @@
 
 #include "../../../backends/attention_backends.hpp"
 #include "../../../global_state/global_state.hpp"
-#include "flash_attn.hpp"
 #include "infinicore/tensor.hpp"
+#include "flash_attn.hpp"
+#include "flash_decode_attn.hpp"
+#include "flash_prefill_attn.hpp"
 #include "paged_attn.hpp"
 #include "static_attn.hpp"
 #include <memory>
 #include <variant>
 
 namespace infinilm::layers::attention {
-using AttentionImpl = std::variant<std::shared_ptr<backends::StaticAttentionImpl>, std::shared_ptr<backends::PagedAttentionImpl>, std::shared_ptr<backends::FlashAttentionImpl>>;
+using AttentionImpl = std::variant<std::shared_ptr<backends::StaticAttentionImpl>, std::shared_ptr<backends::PagedAttentionImpl>, std::shared_ptr<backends::FlashAttentionImpl>, std::shared_ptr<backends::FlashPrefillAttentionImpl>, std::shared_ptr<backends::FlashDecodeAttentionImpl>>;
 
 /**
  * @brief Attention layer.

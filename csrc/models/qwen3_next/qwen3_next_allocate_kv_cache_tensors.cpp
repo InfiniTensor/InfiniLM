@@ -57,6 +57,39 @@ std::vector<infinicore::Tensor> qwen3_next_allocate_kv_cache_tensors(
     case backends::AttentionBackend::FLASH_ATTN: {
         ;
     }
+    case backends::AttentionBackend::FLASH_PREFILL:
+    case backends::AttentionBackend::FLASH_DECODE: {
+        auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+        if (nullptr == paged_kv_cache_config) {
+            throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: invalid paged kv cache config type");
+        }
+        const size_t num_hidden_layers = text_config->get<size_t>("num_hidden_layers");
+        kv_cache_vec.reserve(num_hidden_layers);
+
+        const size_t head_dim = text_config->get<size_t>("head_dim");
+        const size_t num_key_value_heads = text_config->get<size_t>("num_key_value_heads");
+        const auto &dtype{text_config->get_dtype()};
+        const std::vector<std::string> layer_types = text_config->get<std::vector<std::string>>("layer_types");
+
+        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+            const std::string &layer_type = layer_types[layer_idx];
+            if ("linear_attention" == layer_type) {
+                kv_cache_vec.emplace_back();
+            } else if ("full_attention" == layer_type) {
+                auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
+                    head_dim,
+                    head_dim,
+                    num_key_value_heads,
+                    num_key_value_heads,
+                    dtype,
+                    *paged_kv_cache_config);
+                kv_cache_vec.push_back(kv_cache);
+            } else {
+                throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: unsupported layer_type '" + layer_type + "' for layer " + std::to_string(layer_idx));
+            }
+        }
+        break;
+    }
     case backends::AttentionBackend::PAGED_ATTN: {
         auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (nullptr == paged_kv_cache_config) {
