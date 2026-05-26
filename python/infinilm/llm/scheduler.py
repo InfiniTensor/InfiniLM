@@ -41,6 +41,7 @@ class Scheduler:
         max_batch_size: int = 16,
         num_blocks: int = 512,
         block_size: int = 256,
+        max_num_batched_tokens: int = 1024,
         connector=None,
     ):
         self.waiting_queue = janus.Queue()
@@ -56,13 +57,9 @@ class Scheduler:
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
         self.block_size = block_size
 
-        self.connector = connector
+        self.max_num_batched_tokens = max_num_batched_tokens
 
-        assert "INFINILM_MAX_NUM_BATCHED_TOKENS" in os.environ
-        self.max_num_batched_tokens = int(
-            os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", 65535)
-        )
-        assert self.max_num_batched_tokens > 1024
+        self.connector = connector
 
     def add_request(self, request: InferenceRequest):
         if request is not None:

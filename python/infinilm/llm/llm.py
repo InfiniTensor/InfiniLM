@@ -6,6 +6,7 @@ This module provides:
 - AsyncLLM class for asynchronous streaming (server use)
 """
 
+import os
 import asyncio
 import time
 import uuid
@@ -66,10 +67,20 @@ class LLMEngine:
                     f"KV Connector created: {config.kv_transfer_config.kv_connector} "
                     f"(role={config.kv_transfer_config.kv_role})"
                 )
+
+            max_position_embeddings = self.model_runner.model_engine.hf_config[
+                "max_position_embeddings"
+            ]
+            max_num_batched_tokens = int(
+                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
+            )
+            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
+
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
+                max_num_batched_tokens=max_num_batched_tokens,
                 connector=connector,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
@@ -685,13 +696,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert (
-                messages is not None
-            ), "Either messages or prompt/prompt_token_ids must be provided"
+            assert messages is not None, (
+                "Either messages or prompt/prompt_token_ids must be provided"
+            )
 
-            assert (
-                apply_chat_template
-            ), "apply_chat_template needs to be true for multi-role conversation"
+            assert apply_chat_template, (
+                "apply_chat_template needs to be true for multi-role conversation"
+            )
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt

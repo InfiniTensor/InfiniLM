@@ -23,7 +23,7 @@ public:
 
         if (const char *max_num_batched_tokens_env = getenv("INFINILM_MAX_NUM_BATCHED_TOKENS")) {
             max_num_batched_tokens = std::stoi(max_num_batched_tokens_env);
-            ASSERT(max_num_batched_tokens >= 1024 && max_num_batched_tokens < max_position_embeddings);
+            ASSERT(max_num_batched_tokens >= 1024 && max_num_batched_tokens <= max_position_embeddings);
         }
     }
 
