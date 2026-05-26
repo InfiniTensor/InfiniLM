@@ -107,7 +107,11 @@ class BasicLLMProcessor(InfinilmProcessor):
             input_offsets = [0, len(input_tokens)]
         else:
             # Decode: send only the last generated token
-            last_token = req.generated_token_ids[-1]
+            last_token = (
+                req.generated_token_ids[-1]
+                if req.generated_token_ids
+                else req.prompt_token_ids[-1]
+            )
             current_position = req.get_total_length() - 1
             input_ids = [[last_token]]
             position_ids = [[current_position]]
@@ -203,7 +207,11 @@ class BasicLLMProcessor(InfinilmProcessor):
             else:
                 # Decode phase
                 seq_len = req.get_total_length()
-                last_token = req.generated_token_ids[-1]
+                last_token = (
+                    req.generated_token_ids[-1]
+                    if req.generated_token_ids
+                    else req.prompt_token_ids[-1]
+                )
                 tokens.append(last_token)
                 seq_lens.append(seq_len)
 

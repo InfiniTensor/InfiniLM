@@ -79,14 +79,6 @@ class Scheduler:
                 self.complete_requests([req])
                 continue
 
-            if req.status == RequestStatus.WAITING_FOR_REMOTE_KVS:
-                if req.request_id in self.finished_receiving_kv_req_ids:
-                    self.update_waiting_for_remote_kv(req)
-                    req.status = RequestStatus.WAITING
-                else:
-                    deferred_requests.append(req)
-                    continue
-
             req_tokens = req.get_input_tokens()
 
             if req.num_computed_tokens == 0:
@@ -161,7 +153,6 @@ class Scheduler:
 
             if load_kv_async:
                 req.status = RequestStatus.WAITING_FOR_REMOTE_KVS
-                deferred_requests.append(req)
                 self.remote_kv_requests[req.request_id] = req
                 self.pending_kv_decode_blocks += (
                     req.sampling_params.max_tokens + self.block_size - 1
@@ -186,6 +177,30 @@ class Scheduler:
                 meta = self.connector.build_connector_meta()
                 scheduler_output.kv_connector_metadata = meta
             return scheduler_output
+
+        # Promote completed remote KV transfers directly into the decode batch.
+        # Failed transfers are re-queued for prefill.
+        if self.connector is not None and self.remote_kv_requests:
+            for req_id in list(self.remote_kv_requests.keys()):
+                req = self.remote_kv_requests[req_id]
+                if req.is_finished():
+                    self.complete_requests([req])
+                    continue
+                if req_id in self.failed_receiving_kv_req_ids:
+                    logger.warning(
+                        f"Request {req_id[:8]}... failed receiving KV, re-queuing for prefill."
+                    )
+                    self.update_waiting_for_remote_kv(req)
+                    req.status = RequestStatus.WAITING
+                    self.waiting_queue.sync_q.put(req)
+                elif req_id in self.finished_receiving_kv_req_ids:
+                    if len(scheduled_requests) < self.max_batch_size:
+                        logger.info(
+                            f"Request {req_id[:8]}... finished receiving KV, scheduling for decode."
+                        )
+                        self.update_waiting_for_remote_kv(req)
+                        req.status = RequestStatus.RUNNING
+                        scheduled_requests.append(req)
 
         # Process Running queue (decode phase)
         while len(scheduled_requests) < self.max_batch_size:
@@ -392,6 +407,7 @@ class Scheduler:
             "num_blocks": self.cache_manager.num_blocks,
             "block_size": self.cache_manager.block_size,
             "num_free_blocks": self.cache_manager.get_num_free_blocks(),
+            "usable_blocks": self.cache_manager.get_total_usable_blocks(),
             "num_pending_blocks": len(self.cache_manager.pending_block_ids),
             "num_used_blocks": len(self.cache_manager.used_block_ids),
         }
