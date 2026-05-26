@@ -30,7 +30,6 @@ from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.config.engine_config import EngineConfig
 from infinilm.kv_connector import KVConnectorRole, KVConnectorFactory
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -686,13 +685,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert messages is not None, (
-                "Either messages or prompt/prompt_token_ids must be provided"
-            )
+            assert (
+                messages is not None
+            ), "Either messages or prompt/prompt_token_ids must be provided"
 
-            assert apply_chat_template, (
-                "apply_chat_template needs to be true for multi-role conversation"
-            )
+            assert (
+                apply_chat_template
+            ), "apply_chat_template needs to be true for multi-role conversation"
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt
@@ -783,6 +782,9 @@ class AsyncLLMEngine:
             while True:
                 try:
                     if request_timeout and time.time() - start > float(request_timeout):
+                        logger.warning(
+                            f"Request {request.request_id} exceeded request timeout of {request_timeout} seconds"
+                        )
                         self.add_aborted_req(request, FinishReason.TIMEOUT)
 
                     token_output = await asyncio.wait_for(

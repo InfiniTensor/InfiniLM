@@ -3,9 +3,8 @@ import asyncio
 import httpx
 import ipaddress
 import itertools
+import json
 import os
-import sys
-import traceback
 import urllib
 import uuid
 import uvicorn
@@ -212,6 +211,65 @@ def get_next_client(app: FastAPI, service_type: str):
         raise ValueError(f"Unknown service type: {service_type}")
 
 
+async def forward_request(client_info: dict, api: str, req_data: dict, headers: dict):
+    """Forward a request to a backend node and yield response bytes.
+    Modeled after disagg_proxy_demo.forward_request, adapted for httpx.
+    """
+    try:
+        async with client_info["client"].stream(
+            "POST", api, json=req_data, headers=headers
+        ) as response:
+            if 200 <= response.status_code < 300 or 400 <= response.status_code < 500:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+            else:
+                error_bytes = await response.aread()
+                try:
+                    error_body = json.loads(error_bytes)
+                except Exception:
+                    error_body = error_bytes.decode(errors="replace")
+                logger.error(
+                    "Backend %s%s returned status %d: %s",
+                    client_info.get("url", ""),
+                    api,
+                    response.status_code,
+                    error_body,
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Backend error {response.status_code}: {error_body}",
+                )
+    except HTTPException:
+        raise
+    except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+        logger.error(
+            "Connection error to %s%s: %s",
+            client_info.get("url", ""),
+            api,
+            e,
+        )
+        raise HTTPException(
+            status_code=502, detail=f"Backend connection error: {e}"
+        ) from e
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "HTTP error from %s%s: %s",
+            client_info.get("url", ""),
+            api,
+            e,
+        )
+        raise HTTPException(status_code=e.response.status_code, detail=str(e)) from e
+    except Exception as e:
+        logger.error(
+            "Unexpected error forwarding to %s%s: %s",
+            client_info.get("url", ""),
+            api,
+            e,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 async def send_request(
     client_info: dict, dp_rank: int, api: str, req_data: dict, request_id: str
 ):
@@ -233,11 +291,12 @@ async def send_request(
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
         "X-Request-Id": request_id,
         "X-data-parallel-rank": str(dp_rank),
+        # Uncomment in high-concurrency or long-context scenarios (minor performance overhead):
+        # "Connection": "close",
     }
-    response = await client_info["client"].post(api, json=req_data, headers=headers)
-    response.raise_for_status()
-
-    await response.aclose()
+    # Consume prefill response via forward_request for unified error handling
+    async for _ in forward_request(client_info, api, req_data, headers):
+        pass
 
 
 async def stream_response(
@@ -261,12 +320,9 @@ async def stream_response(
         "transfer_id": f"xfer-{request_id}",
     }
 
-    async with decode_client_info["client"].stream(
-        "POST", api, json=req_data, headers=headers
-    ) as response:
-        response.raise_for_status()
-        async for chunk in response.aiter_bytes():
-            yield chunk
+    # Delegate to forward_request for unified error handling
+    async for chunk in forward_request(decode_client_info, api, req_data, headers):
+        yield chunk
 
 
 async def _handle_completions(api: str, request: Request):
@@ -275,18 +331,20 @@ async def _handle_completions(api: str, request: Request):
 
     try:
         req_data = await request.json()
-        request_id = f"cmpl-{uuid.uuid4().hex}"
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
-        prefill_client_info, prefill_dp_rank = get_next_client(request.app, "prefill")
-        asyncio.create_task(
-            send_request(
-                prefill_client_info, prefill_dp_rank, api, req_data, request_id
-            )
-        )
+    request_id = f"cmpl-{uuid.uuid4().hex}"
 
-        decode_client_info = get_next_client(request.app, "decode")
+    prefill_client_info, prefill_dp_rank = get_next_client(request.app, "prefill")
+    asyncio.create_task(
+        send_request(prefill_client_info, prefill_dp_rank, api, req_data, request_id)
+    )
 
-        async def generate_stream():
+    decode_client_info = get_next_client(request.app, "decode")
+
+    async def generate_stream():
+        try:
             async for chunk in stream_response(
                 prefill_client_info,
                 prefill_dp_rank,
@@ -296,16 +354,18 @@ async def _handle_completions(api: str, request: Request):
                 request_id=request_id,
             ):
                 yield chunk
+        except HTTPException as e:
+            logger.error(
+                "Decode error for %s: HTTP %d - %s", request_id, e.status_code, e.detail
+            )
+            yield json.dumps(
+                {"error": {"message": e.detail, "code": e.status_code}}
+            ).encode()
+        except Exception as e:
+            logger.error("Stream error for %s: %s", request_id, e, exc_info=True)
+            yield json.dumps({"error": {"message": str(e), "code": 500}}).encode()
 
-        return StreamingResponse(generate_stream(), media_type="application/json")
-
-    except Exception as e:
-        exc_info = sys.exc_info()
-        # TODO: change to use logger
-        print(f"Error occurred in disagg prefill proxy server - {api} endpoint")
-        print(e)
-        print("".join(traceback.format_exception(*exc_info)))
-        raise
+    return StreamingResponse(generate_stream(), media_type="application/json")
 
 
 @app.post("/v1/completions")

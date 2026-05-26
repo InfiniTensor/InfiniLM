@@ -131,30 +131,40 @@ class InferenceRequest:
         # Request metadata
         self.request_id: str = request_id
         self.prompt: Optional[str] = prompt
-        self.prompt_token_ids: List[int] = prompt_token_ids if prompt_token_ids is not None else []
+        self.prompt_token_ids: List[int] = (
+            prompt_token_ids if prompt_token_ids is not None else []
+        )
         self.prompt_length: int = len(self.prompt_token_ids)
         self.processed_inputs: Optional[dict] = processed_inputs
         self.priority: int = 0
 
         # Sampling & stopping criteria
         self.sampling_params: SamplingParams = sampling_params or SamplingParams()
-        self.eos_token_ids: List[int] = eos_token_ids if eos_token_ids is not None else []
+        self.eos_token_ids: List[int] = (
+            eos_token_ids if eos_token_ids is not None else []
+        )
 
         # Generation state
         self.generated_token_ids: List[int] = []
-        self.generated_text: str = ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
+        self.generated_text: str = (
+            ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
+        )
         self.status: RequestStatus = RequestStatus.WAITING
         self.finish_reason: Optional[FinishReason] = None
 
         # KV cache management
         self.block_table: List[int] = []
         self.slot_mapping: List[int] = []
-        self.num_local_cached_tokens: int = 0  # Number of locally cached (prefix-hit) tokens
+        self.num_local_cached_tokens: int = (
+            0  # Number of locally cached (prefix-hit) tokens
+        )
         self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
         self.num_blocks: int = 0
 
         # PD disaggregation support
-        self.kv_transfer_params: Optional[dict] = None  # KV transfer parameters from the router
+        self.kv_transfer_params: Optional[dict] = (
+            None  # KV transfer parameters from the router
+        )
 
         # For server use
         self.request_data: Optional[dict] = request_data
@@ -256,7 +266,7 @@ class InferenceRequest:
 
             self._output_queue.close()
             try:
-                await asyncio.wait_for(self._output_queue.wait_closed(), timeout=0.5)
+                await asyncio.wait_for(self._output_queue.wait_closed(), timeout=5.0)
             except asyncio.TimeoutError:
                 logger.warning("wait_closed timeout, force close")
 
