@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../global_state/global_state.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "../linear/linear.hpp"
 #include "infinicore/device.hpp"
@@ -32,11 +33,16 @@ public:
         model_config_ = model_config;
 
         size_t hidden_size = model_config->get<size_t>("hidden_size");
-        size_t vocab_size = model_config->get<size_t>("vocab_size");
+        vocab_size_ = model_config->get<size_t>("vocab_size");
         const auto &dtype{model_config->get_dtype()};
 
         model_ = this->register_module<Model>("model", model_config, device);
-        lm_head_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("lm_head", hidden_size, vocab_size, false, dtype, device);
+        lm_head_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("lm_head", hidden_size, vocab_size_, false, dtype, device);
+
+        const size_t max_num_batched_tokens = infinilm::global_state::get_infinilm_config().max_num_batched_tokens;
+        if (max_logits_.empty()) {
+            max_logits_ = infinicore::Tensor::empty({1 * max_num_batched_tokens, vocab_size_}, dtype, device);
+        }
     }
 
     /**
@@ -44,7 +50,9 @@ public:
      */
     Output forward(const Input &input) const override {
         auto hidden_states = model_->forward(input);
-        auto logits = lm_head_->forward(hidden_states);
+        const size_t seq_len = hidden_states->shape()[1];
+        auto logits = max_logits_->narrow({{0, 0, seq_len}})->view({1, seq_len, vocab_size_});
+        lm_head_->forward_(logits, hidden_states);
         return {logits};
     }
 
@@ -57,6 +65,10 @@ public:
 protected:
     INFINICORE_NN_MODULE(Model, model);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
+
+private:
+    size_t vocab_size_;
+    inline static thread_local infinicore::Tensor max_logits_;
 };
 
 } // namespace infinilm::layers::causal_lm_templates

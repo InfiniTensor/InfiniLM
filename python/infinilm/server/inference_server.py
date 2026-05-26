@@ -210,7 +210,7 @@ class InferenceServer:
         async def chat_completions(request: Request):
             try:
                 data = await request.json()
-                logger.debug(f"Received request data: {data}")
+                # logger.debug(f"Received request data: {data}")
             except Exception as e:
                 logger.error(f"Failed to parse request JSON: {e}")
                 return JSONResponse(content={"error": "Invalid JSON"}, status_code=400)
@@ -445,7 +445,6 @@ class InferenceServer:
             # req.close() is handled by stream_request.finally.
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
-                
         yield "data: [DONE]\n\n"
 
     async def _chat(self, request_id: str, data: dict, http_request: Request):

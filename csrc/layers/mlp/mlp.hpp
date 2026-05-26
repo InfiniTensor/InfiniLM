@@ -51,6 +51,13 @@ protected:
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
+
+private:
+    size_t rank_gate_up_output_size_;
+    size_t rank_intermediate_size_;
+    inline static thread_local infinicore::Tensor max_gate_up_output_;
+    inline static thread_local infinicore::Tensor max_intermediate_;
+    inline static thread_local infinicore::Tensor max_down_output_;
 };
 
 } // namespace infinilm::layers::mlp

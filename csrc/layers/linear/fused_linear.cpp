@@ -31,14 +31,14 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      const infinicore::Device &device,
                                      engine::distributed::RankInfo rank_info)
     : infinilm::nn::ColumnParallelLinear(
-          hidden_size,
-          calculate_out_feature_size(num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, rank_info),
-          quantization,
-          (q_bias || k_bias || v_bias),
-          dtype,
-          device,
-          rank_info.tp_rank,
-          rank_info.tp_size),
+        hidden_size,
+        calculate_out_feature_size(num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, rank_info),
+        quantization,
+        (q_bias || k_bias || v_bias),
+        dtype,
+        device,
+        rank_info.tp_rank,
+        rank_info.tp_size),
       q_dim_(q_dim),
       k_dim_(k_dim),
       v_dim_(v_dim),
@@ -62,6 +62,17 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 QKVParallelLinear::forward_split(infinicore::Tensor &input) {
     auto output = this->forward(input);
+
+    auto q_out = output->narrow({{2, 0, q_out_size_}});
+    auto k_out = output->narrow({{2, q_out_size_, k_out_size_}});
+    auto v_out = output->narrow({{2, q_out_size_ + k_out_size_, v_out_size_}});
+
+    return std::make_tuple(q_out, k_out, v_out);
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+QKVParallelLinear::forward_split_(infinicore::Tensor &output, infinicore::Tensor &input) {
+    this->forward_(output, input);
 
     auto q_out = output->narrow({{2, 0, q_out_size_}});
     auto k_out = output->narrow({{2, q_out_size_, k_out_size_}});
@@ -128,6 +139,15 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> GateUpParallelLinear::forward_split(infinicore::Tensor &input) {
     auto output = this->forward(input);
+    auto cols = output->shape()[2];
+    auto gate_output = output->narrow({{2, 0, cols / 2}});
+    auto up_output = output->narrow({{2, cols / 2, cols / 2}});
+    return std::make_tuple(gate_output, up_output);
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+GateUpParallelLinear::forward_split_(infinicore::Tensor &output, infinicore::Tensor &input) {
+    this->forward_(output, input);
     auto cols = output->shape()[2];
     auto gate_output = output->narrow({{2, 0, cols / 2}});
     auto up_output = output->narrow({{2, cols / 2, cols / 2}});

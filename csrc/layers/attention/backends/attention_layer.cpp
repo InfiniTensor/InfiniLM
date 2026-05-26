@@ -9,16 +9,17 @@ AttentionLayer::AttentionLayer(size_t num_heads,
                                size_t layer_idx,
                                infinicore::Tensor k_scale,
                                infinicore::Tensor v_scale,
-                               ::infinilm::backends::AttentionBackend attn_backend) : k_scale_(k_scale), v_scale_(v_scale), layer_idx_(layer_idx), attn_backend_(attn_backend) {
+                               ::infinilm::backends::AttentionBackend attn_backend,
+                               const infinicore::Device &device) : k_scale_(k_scale), v_scale_(v_scale), layer_idx_(layer_idx), attn_backend_(attn_backend) {
     switch (attn_backend) {
     case ::infinilm::backends::AttentionBackend::STATIC_ATTN:
-        attn_backend_impl_ = std::make_shared<backends::StaticAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        attn_backend_impl_ = std::make_shared<backends::StaticAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx, device);
         break;
     case ::infinilm::backends::AttentionBackend::PAGED_ATTN:
-        attn_backend_impl_ = std::make_shared<backends::PagedAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        attn_backend_impl_ = std::make_shared<backends::PagedAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx, device);
         break;
     case ::infinilm::backends::AttentionBackend::FLASH_ATTN:
-        attn_backend_impl_ = std::make_shared<backends::FlashAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        attn_backend_impl_ = std::make_shared<backends::FlashAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx, device);
         break;
     default:
         throw std::runtime_error("infinilm::layers::attention::AttentionLayer: unsupported attention backend");

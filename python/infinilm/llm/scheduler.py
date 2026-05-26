@@ -2,6 +2,7 @@
 Scheduler - Request scheduling and batch management with Paged Attention KV Cache.
 """
 
+import os
 import queue
 import janus
 import logging
@@ -57,6 +58,12 @@ class Scheduler:
 
         self.connector = connector
 
+        assert "INFINILM_MAX_NUM_BATCHED_TOKENS" in os.environ
+        self.max_num_batched_tokens = int(
+            os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", 65535)
+        )
+        assert self.max_num_batched_tokens > 1024
+
     def add_request(self, request: InferenceRequest):
         if request is not None:
             request.status = RequestStatus.WAITING
@@ -67,9 +74,13 @@ class Scheduler:
         deferred_requests = []
         scheduled_requests = []
         is_prefill = False
+        current_num_batched_tokens = 0
 
         # Process Waiting queue (prefill phase)
-        while len(scheduled_requests) < self.max_batch_size:
+        while (
+            len(scheduled_requests) < self.max_batch_size
+            and current_num_batched_tokens < self.max_num_batched_tokens
+        ):
             try:
                 req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:
@@ -111,6 +122,7 @@ class Scheduler:
                         "Insufficient KV cache blocks for request %s, deferring.",
                         req.request_id,
                     )
+
                     if num_local_computed_tokens > 0:
                         self.cache_manager.free_blocks(cached_block_table)
                     deferred_requests.append(req)
@@ -160,6 +172,10 @@ class Scheduler:
                 continue
 
             scheduled_requests.append(req)
+
+            num_tokens_this_step = req.get_prompt_length() - req.num_local_cached_tokens
+            current_num_batched_tokens += num_tokens_this_step
+
             req.status = RequestStatus.RUNNING
 
         if deferred_requests:

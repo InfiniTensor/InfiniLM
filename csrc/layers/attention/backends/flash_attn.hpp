@@ -16,7 +16,8 @@ public:
                        size_t head_size,
                        float scale,
                        size_t num_kv_heads,
-                       size_t layer_idx);
+                       size_t layer_idx,
+                       const infinicore::Device &device);
 
     /**
      * @brief Forward pass with FlashAttention.
@@ -50,5 +51,8 @@ private:
     size_t layer_idx_;
     size_t head_dim_; // Note: head_dim equals to head_size
     size_t max_position_embeddings_;
+
+private:
+    inline static thread_local infinicore::Tensor max_attn_output_;
 };
 } // namespace infinilm::layers::attention::backends

@@ -44,12 +44,24 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
 
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
-                                                                          kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
+                                                                          kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_, device);
 
     INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
 
     infinilm::layers::attention::init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
+
+    if (attention_backend_ != ::infinilm::backends::AttentionBackend::STATIC_ATTN) {
+        const size_t max_num_batched_tokens = infinilm::global_state::get_infinilm_config().max_num_batched_tokens;
+        rank_qkv_output_size_ = qkv_proj_->out_features() / static_cast<size_t>(tp_size);
+        if (max_qkv_output_.empty()) {
+            max_qkv_output_ = infinicore::Tensor::empty({1 * max_num_batched_tokens, rank_qkv_output_size_}, dtype, device);
+        }
+
+        if (max_o_output_.empty()) {
+            max_o_output_ = infinicore::Tensor::empty({1 * max_num_batched_tokens, hidden_size_}, dtype, device);
+        }
+    }
 }
 
 infinicore::Tensor Qwen3Attention::forward(const infinicore::Tensor &positions,
@@ -118,7 +130,8 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     ASSERT_EQ(batch_size, 1);
 
     // 1. Project Q, K, V
-    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    auto qkv_output = max_qkv_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, rank_qkv_output_size_});
+    auto [q, k, v] = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
@@ -147,6 +160,8 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
 
     // 6. Project output
-    return o_proj_->forward(attn_output);
+    auto o_output = max_o_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, hidden_size_});
+    o_proj_->forward_(o_output, attn_output);
+    return o_output;
 }
 } // namespace infinilm::models::qwen3

@@ -40,20 +40,32 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
 
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
     attn_ = std::make_shared<AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
-                                             kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
+                                             kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_, device);
 
     init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
+
+    if (attention_backend_ != ::infinilm::backends::AttentionBackend::STATIC_ATTN) {
+        const size_t max_num_batched_tokens = infinilm::global_state::get_infinilm_config().max_num_batched_tokens;
+        rank_qkv_output_size_ = qkv_proj_->out_features() / static_cast<size_t>(tp_size);
+        if (max_qkv_output_.empty()) {
+            max_qkv_output_ = infinicore::Tensor::empty({1 * max_num_batched_tokens, rank_qkv_output_size_}, dtype, device);
+        }
+
+        if (max_o_output_.empty()) {
+            max_o_output_ = infinicore::Tensor::empty({1 * max_num_batched_tokens, hidden_size_}, dtype, device);
+        }
+    }
 }
 
 infinicore::Tensor Attention::forward(const infinicore::Tensor &positions,
                                       const infinicore::Tensor &hidden_states) const {
     if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
-        return forward_static_(positions, hidden_states);
+        return _forward_static(positions, hidden_states);
     }
-    return forward_paged_(positions, hidden_states);
+    return _forward_paged(positions, hidden_states);
 }
 
-infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position_ids,
+infinicore::Tensor Attention::_forward_static(const infinicore::Tensor &position_ids,
                                               const infinicore::Tensor &hidden_states) const {
     // hidden_states shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
@@ -94,7 +106,7 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     return output;
 }
 
-infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_ids,
+infinicore::Tensor Attention::_forward_paged(const infinicore::Tensor &position_ids,
                                              const infinicore::Tensor &hidden_states) const {
     // hidden_states shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
@@ -106,7 +118,8 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     ASSERT_EQ(batch_size, 1);
 
     // 1. Project Q, K, V
-    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    auto qkv_output = max_qkv_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, rank_qkv_output_size_});
+    auto [q, k, v] = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
@@ -133,8 +146,9 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
 
     // 6. Project output
-    auto output = o_proj_->forward(attn_output);
-    return output;
+    auto o_output = max_o_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, hidden_size_});
+    o_proj_->forward_(o_output, attn_output);
+    return o_output;
 }
 
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,

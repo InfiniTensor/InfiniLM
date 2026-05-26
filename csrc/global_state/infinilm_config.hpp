@@ -16,11 +16,21 @@ public:
     InfinilmConfig(const infinilm::backends::AttentionBackend &backend,
                    const std::shared_ptr<infinilm::config::ModelConfig> &model_config)
         : attention_backend(backend),
-          model_config(model_config) {}
+          model_config(model_config) {
+
+        const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
+        max_num_batched_tokens = max_position_embeddings;
+
+        if (const char *max_num_batched_tokens_env = getenv("INFINILM_MAX_NUM_BATCHED_TOKENS")) {
+            max_num_batched_tokens = std::stoi(max_num_batched_tokens_env);
+            ASSERT(max_num_batched_tokens >= 1024 && max_num_batched_tokens < max_position_embeddings);
+        }
+    }
 
 public:
     infinilm::backends::AttentionBackend attention_backend;
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
+    size_t max_num_batched_tokens = -1;
 };
 
 /**

@@ -6,7 +6,7 @@ namespace infinilm::quantization {
 class NoneQuantization : public BaseQuantization {
 public:
     explicit NoneQuantization(const nlohmann::json &quant_config)
-        : BaseQuantization(quant_config) {};
+        : BaseQuantization(quant_config){};
 
     QuantScheme get_quant_scheme() const override {
         return QuantScheme::NONE;
@@ -20,6 +20,13 @@ public:
         bool bias) const override;
 
     infinicore::Tensor forward(
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        float alpha = 1.0f) const override;
+
+    void forward_(
+        infinicore::Tensor &output,
         const ParamsMap &params,
         const infinicore::Tensor &input,
         bool has_bias,

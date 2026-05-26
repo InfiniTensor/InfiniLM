@@ -11,7 +11,8 @@ FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
                                        size_t head_size,
                                        float scale,
                                        size_t num_kv_heads,
-                                       size_t layer_idx)
+                                       size_t layer_idx,
+                                       const infinicore::Device &device)
     : num_heads_(num_heads),
       head_size_(head_size),
       scale_(scale),
@@ -23,7 +24,16 @@ FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
     if (!infinilm_config.model_config) {
         throw std::runtime_error("infinilm::layers::attention::backends::FlashAttentionImpl: model_config is null");
     }
-    max_position_embeddings_ = infinilm_config.model_config->get<size_t>("max_position_embeddings");
+
+    const auto &model_config = infinilm_config.model_config;
+    const auto &dtype{model_config->get_dtype()};
+    max_position_embeddings_ = model_config->get<size_t>("max_position_embeddings");
+
+    // pre allocate
+    const size_t max_num_batched_tokens = infinilm_config.max_num_batched_tokens;
+    if (max_attn_output_.empty()) {
+        max_attn_output_ = infinicore::Tensor::empty({max_num_batched_tokens, num_heads_, head_dim_}, dtype, device);
+    }
 }
 
 infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
@@ -48,8 +58,9 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
 
     // 2. Compute attention
-    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
+    infinicore::Tensor attn_output;
     if (is_prefill) {
+        attn_output = max_attn_output_->narrow({{0, 0, seq_len}});
         infinicore::op::mha_varlen_(
             attn_output,
             query,

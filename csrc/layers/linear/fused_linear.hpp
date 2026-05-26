@@ -1,7 +1,7 @@
 #pragma once
 #include "../../engine/distributed/communication_group.hpp"
-#include "linear.hpp"
 #include "../quantization/quantization.hpp"
+#include "linear.hpp"
 #include <functional>
 
 namespace infinilm::layers::linear {
@@ -42,6 +42,9 @@ public:
 
     std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
     forward_split(infinicore::Tensor &input);
+
+    std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+    forward_split_(infinicore::Tensor &output, infinicore::Tensor &input);
 
     bool has_q_bias() const;
     bool has_k_bias() const;
@@ -107,6 +110,9 @@ public:
     void process_weights_after_loading() override;
 
     std::tuple<infinicore::Tensor, infinicore::Tensor> forward_split(infinicore::Tensor &input);
+
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    forward_split_(infinicore::Tensor &output, infinicore::Tensor &input);
 
     bool has_gate_bias() const;
     bool has_up_bias() const;

@@ -43,5 +43,10 @@ protected:
     // For off-line kv cache quantization
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+
+private:
+    size_t rank_qkv_output_size_;
+    inline static thread_local infinicore::Tensor max_qkv_output_;
+    inline static thread_local infinicore::Tensor max_o_output_;
 };
 } // namespace infinilm::models::qwen3

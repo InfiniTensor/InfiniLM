@@ -31,10 +31,10 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 private:
-    infinicore::Tensor forward_static_(const infinicore::Tensor &positions,
+    infinicore::Tensor _forward_static(const infinicore::Tensor &positions,
                                        const infinicore::Tensor &hidden_states) const;
 
-    infinicore::Tensor forward_paged_(const infinicore::Tensor &positions,
+    infinicore::Tensor _forward_paged(const infinicore::Tensor &positions,
                                       const infinicore::Tensor &hidden_states) const;
 
 protected:
@@ -53,9 +53,14 @@ protected:
     // For off-line kv cache quantization
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+
+private:
+    size_t rank_qkv_output_size_;
+    inline static thread_local infinicore::Tensor max_qkv_output_;
+    inline static thread_local infinicore::Tensor max_o_output_;
 };
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
-                              const infinicore::Device &device,
-                              infinicore::nn::Parameter &kv_cache_k_scale,
-                              infinicore::nn::Parameter &kv_cache_v_scale);
+                                const infinicore::Device &device,
+                                infinicore::nn::Parameter &kv_cache_k_scale,
+                                infinicore::nn::Parameter &kv_cache_v_scale);
 } // namespace infinilm::layers::attention

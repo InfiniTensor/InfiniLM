@@ -177,7 +177,6 @@ class ModelRunner:
         # Run inference
         sampled_tokens = self.model_engine.forward(**model_input)
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
-
         return sampled_tokens_list
 
     @contextmanager
