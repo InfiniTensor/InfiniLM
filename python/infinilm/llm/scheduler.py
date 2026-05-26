@@ -114,6 +114,21 @@ class Scheduler:
                     num_computed_tokens -= 1
                 num_new_tokens = req.get_prompt_length() - num_computed_tokens
 
+                # Early token budget check: skip can_accept_request and allocate_slots
+                # for requests that would exceed the per-schedule token budget.
+                if not load_kv_async:
+                    _num_tokens_this_step = (
+                        req.get_prompt_length() - num_local_computed_tokens
+                    )
+                    if (
+                        current_num_batched_tokens + _num_tokens_this_step
+                        >= self.max_num_batched_tokens
+                    ):
+                        if num_local_computed_tokens > 0:
+                            self.cache_manager.free_blocks(cached_block_table)
+                        deferred_requests.append(req)
+                        break
+
                 if not self.can_accept_request(
                     req,
                     num_local_computed_tokens,
