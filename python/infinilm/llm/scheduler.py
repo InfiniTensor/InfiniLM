@@ -95,9 +95,7 @@ class Scheduler:
                 return chunking_out
             # chunking_queue was actually empty — fall through to normal path.
 
-        # 1) New prefill — highest priority.
-        # Snapshot chunking emptiness BEFORE running waiting, so we can decide
-        # whether this counts as a "yield over chunking".
+        # 1) New prefill 
         chunking_was_nonempty = self.chunking_queue.sync_q.qsize() > 0
         waiting_out = self._try_schedule_waiting()
         if waiting_out is not None:
@@ -108,8 +106,13 @@ class Scheduler:
             return waiting_out
 
         # 2) Decode.
+        chunking_was_nonempty = self.chunking_queue.sync_q.qsize() > 0
         decode_out = self._try_schedule_decode()
         if decode_out is not None:
+            if chunking_was_nonempty:
+                self._waiting_yields_in_a_row += 1
+            else:
+                self._waiting_yields_in_a_row = 0
             return decode_out
 
         # 3) Continue an in-flight chunked-prefill request.
