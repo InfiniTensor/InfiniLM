@@ -155,10 +155,6 @@ class MiniCPMVProcessor(InfinilmProcessor):
                 ):
                     import torch
 
-                    assert len(scheduler_output.scheduled_requests) == 1, (
-                        "Batching is not supported for image inputs yet"
-                    )
-
                     num_cached_patch = (
                         (req.processed_inputs["image_bound"][0][:, 1] <= num_cached)
                         .sum()

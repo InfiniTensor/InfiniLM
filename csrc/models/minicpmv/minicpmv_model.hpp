@@ -23,9 +23,9 @@ public:
     void reset_cache(const cache::CacheConfig *cache_config) override;
 
 private:
-    infinicore::Tensor replace_embeddings(const infinicore::Tensor &inputs_embeds,
-                                          const infinicore::Tensor &vision_hidden,
-                                          const infinicore::Tensor &image_bound) const;
+    void replace_embeddings(infinicore::Tensor inputs_embeds,
+                            const infinicore::Tensor &vision_hidden,
+                            const infinicore::Tensor &image_bound) const;
 
     std::shared_ptr<infinilm::config::ModelConfig> config_;
 

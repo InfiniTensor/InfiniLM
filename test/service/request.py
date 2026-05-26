@@ -39,10 +39,10 @@ def get_args():
     )
 
     parser.add_argument(
-        "--model-name",
+        "--model",
         type=str,
         default="default",
-        help="Name of the model being served, needed by vllm",
+        help="Name or path of the model being served, needed by vllm",
     )
 
     return parser.parse_args()

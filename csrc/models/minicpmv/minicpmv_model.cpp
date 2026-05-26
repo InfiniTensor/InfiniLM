@@ -39,18 +39,15 @@ MiniCPMVModel::MiniCPMVModel(std::shared_ptr<infinilm::config::ModelConfig> mode
                               device);
 }
 
-infinicore::Tensor MiniCPMVModel::replace_embeddings(const infinicore::Tensor &inputs_embeds,
-                                                     const infinicore::Tensor &vision_hidden,
-                                                     const infinicore::Tensor &image_bound) const {
-    auto out = infinicore::Tensor::empty(inputs_embeds->shape(), inputs_embeds->dtype(), inputs_embeds->device());
-    out->copy_from(inputs_embeds);
-
+void MiniCPMVModel::replace_embeddings(infinicore::Tensor inputs_embeds,
+                                       const infinicore::Tensor &vision_hidden,
+                                       const infinicore::Tensor &image_bound) const {
     auto bounds_cpu = image_bound->to(infinicore::Device::cpu());
     auto batch_size = inputs_embeds->size(0);
 
     ASSERT_EQ(batch_size, 1);
     ASSERT_EQ(bounds_cpu->size(0), 1);
-    auto out_slice = out->squeeze(0);
+    auto out_slice = inputs_embeds->squeeze(0);
     auto bound_slice = bounds_cpu->squeeze(0);
     auto vision_len = vision_hidden->size(0);
     for (size_t patch = 0; patch < vision_len; ++patch) {
@@ -62,8 +59,6 @@ infinicore::Tensor MiniCPMVModel::replace_embeddings(const infinicore::Tensor &i
 
         out_slice->narrow({{0, size_t(start), size_t(end - start)}})->copy_from(patch_embed);
     }
-
-    return out;
 }
 
 InfinilmModel::Output MiniCPMVModel::forward(const InfinilmModel::Input &input) const {
@@ -90,7 +85,7 @@ InfinilmModel::Output MiniCPMVModel::forward(const InfinilmModel::Input &input) 
             auto pixel_values = input.pixel_values.value().at(i);
             auto vision_embedding = vpm_->forward(pixel_values, input.tgt_sizes.value().at(i));
             auto vision_hidden = resampler_->forward(vision_embedding, input.tgt_sizes.value().at(i));
-            inputs_embeds = replace_embeddings(inputs_embeds->narrow({{1, size_t(offsets[i]), size_t(offsets[i + 1] - offsets[i])}}), vision_hidden, input.image_bound.value().at(i));
+            replace_embeddings(inputs_embeds->narrow({{1, size_t(offsets[i]), size_t(offsets[i + 1] - offsets[i])}}), vision_hidden, input.image_bound.value().at(i));
         }
 
         auto hidden_states = llm_->model().forward_embeds(
