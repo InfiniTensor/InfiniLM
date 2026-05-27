@@ -325,48 +325,83 @@ if __name__ == "__main__":
     #                                Warmup
     # ---------------------------------------------------------------------------- #
     if cfg.warmup:
-        warmup_steps = 1
-
-        # warmup cache capacity
-        warmup_cache_len = 128
-        warmup_batch = len(test.input_ids_list)
-
-        test.model.reset_cache(
-            StaticKVCacheConfig(
-                max_batch_size=warmup_batch,
-                max_cache_len=warmup_cache_len,
-            )
-        )
-
-        avg_prompt_len = min(64, max(len(ids) for ids in test.input_ids_list))
-
-        warmup_ids = [
-            ids[:avg_prompt_len] if len(ids) >= avg_prompt_len else ids
-            for ids in test.input_ids_list
-        ]
-
-        input_ids_infini = infinicore.from_list(warmup_ids)
-
         print("=================== warmup start ===================")
+        # -------------------------------------------------------- #
+        #           reset cache before warmup
+        #           support both paged cache and static cache
+        # -------------------------------------------------------- #
+        if cache_config is not None:
+            # Paged KVCache
+            test.model.reset_cache(cache_config)
+        else:
+            # Static KVCache
+            max_batch_size = max(c["batch_size"] for _, c in cases_dict.items())
+            max_cache_len = max(
+                c["input_len"] + c["output_len"]
+                for _, c in cases_dict.items()
+            )
 
-        for _ in range(warmup_steps):
+            test.model.reset_cache(
+                StaticKVCacheConfig(
+                    max_batch_size=max_batch_size,
+                    max_cache_len=max_cache_len,
+                )
+            )
+
+        warmup_shapes = []
+        seen = set()
+        for _, case in cases_dict.items():
+            key = (case["batch_size"], case["input_len"])
+            if key in seen:
+                continue
+            seen.add(key)
+            warmup_shapes.append((case["batch_size"], case["input_len"]))
+
+        for w_batch, w_input_len in warmup_shapes:
+            tqdm.write(
+                f"\033[93m[warmup] batch={w_batch}, input_len={w_input_len}, "
+                f"will prefill + 3 decode steps\033[0m"
+            )
+
+            warmup_ids = repeat_prompt(test.input_ids_list[0], target_length=w_input_len)
+            warmup_ids_list = [warmup_ids] * w_batch
+            warmup_input = infinicore.from_list(warmup_ids_list)
+
             _ = test.model.generate(
-                input_ids_infini,
+                warmup_input,
                 GenerationConfig(
-                    max_new_tokens=5,  # decode kernel warmup
-                    temperature=cfg.temperature,
+                    max_new_tokens=3,
+                    eos_token_id=[],
                     top_k=cfg.top_k,
                     top_p=cfg.top_p,
+                    temperature=cfg.temperature,
                     stop_on_eos=False,
                 ),
                 _measure_and_log_time=False,
             )
 
         print("=================== warmup done ====================")
-
-        # reset cache back to benchmark config
+        # -------------------------------------------------------- #
+        #        reset cache back to benchmark config
+        #        support both paged cache and static cache
+        # -------------------------------------------------------- #
         if cache_config is not None:
+            # Paged KVCache
             test.model.reset_cache(cache_config)
+        else:
+            # Static KVCache
+            max_batch_size = max(c["batch_size"] for _, c in cases_dict.items())
+            max_cache_len = max(
+                c["input_len"] + c["output_len"]
+                for _, c in cases_dict.items()
+            )
+
+            test.model.reset_cache(
+                StaticKVCacheConfig(
+                    max_batch_size=max_batch_size,
+                    max_cache_len=max_cache_len,
+                )
+            )
 
     # ---------------------------------------------------------------------------- #
     #                                Warmup done
