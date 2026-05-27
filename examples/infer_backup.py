@@ -168,6 +168,18 @@ def test(
                 for text in input_contents
             ]
 
+    # Fixed prefill length for profiling / mcTracer parity (TRACE_PREFILL_LEN env).
+    _trace_prefill_len = os.environ.get("TRACE_PREFILL_LEN")
+    if _trace_prefill_len:
+        n = int(_trace_prefill_len)
+        seed = tokenizer.encode(" benchmark ", add_special_tokens=False)
+        if not seed:
+            seed = [tokenizer.pad_token_id or 0]
+        rep: list[int] = []
+        while len(rep) < n:
+            rep.extend(seed)
+        input_ids_list = [rep[:n]]
+
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
     # ---------------------------------------------------------------------------- #

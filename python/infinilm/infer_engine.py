@@ -65,6 +65,7 @@ class InferEngine(_infinilm.InferEngine):
 
         if device is None:
             device = infinicore.device()
+        self._infini_device = device
 
         hf_config_str = json.dumps(self.hf_config)
         super().__init__(
@@ -83,6 +84,28 @@ class InferEngine(_infinilm.InferEngine):
         self.use_cache = False
 
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
+
+        self._maybe_bootstrap_compiled_subgraphs()
+
+    def _maybe_bootstrap_compiled_subgraphs(self):
+        try:
+            from infinicore.compiled_subgraphs import (
+                any_compiled_subgraph_flag_enabled,
+                bootstrap_from_infinicore_device,
+            )
+        except ImportError:
+            return
+        if not any_compiled_subgraph_flag_enabled():
+            return
+        from infinicore.utils import to_torch_dtype
+
+        hidden = int(self.hf_config.get("hidden_size", 3584))
+        bootstrap_from_infinicore_device(
+            infini_device=self._infini_device,
+            hidden_size=hidden,
+            dtype=to_torch_dtype(self.dtype),
+            warmup=True,
+        )
 
     @property
     def dtype(self):
@@ -167,25 +190,30 @@ class InferEngine(_infinilm.InferEngine):
             image_bound = image_bound._underlying if image_bound is not None else None
             tgt_sizes = tgt_sizes._underlying if tgt_sizes is not None else None
 
+            input_kwargs = dict(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                past_sequence_lengths=past_kv_lengths,
+                total_sequence_lengths=total_kv_lengths,
+                input_offsets=input_offsets,
+                cu_seqlens=cu_seqlens,
+                block_tables=block_tables,
+                slot_mapping=slot_mapping,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
+            if pixel_values is not None:
+                input_kwargs["pixel_values"] = pixel_values
+            if image_bound is not None:
+                input_kwargs["image_bound"] = image_bound
+            if tgt_sizes is not None:
+                input_kwargs["tgt_sizes"] = tgt_sizes
+
             return infinicore.Tensor(
                 super()
                 .forward(
-                    super().Input(
-                        input_ids,
-                        pixel_values=pixel_values,
-                        position_ids=position_ids,
-                        past_sequence_lengths=past_kv_lengths,
-                        total_sequence_lengths=total_kv_lengths,
-                        input_offsets=input_offsets,
-                        cu_seqlens=cu_seqlens,
-                        block_tables=block_tables,
-                        slot_mapping=slot_mapping,
-                        image_bound=image_bound,
-                        tgt_sizes=tgt_sizes,
-                        temperature=temperature,
-                        top_k=top_k,
-                        top_p=top_p,
-                    )
+                    super().Input(**input_kwargs)
                 )
                 .output_ids
             )
@@ -366,4 +394,6 @@ class InferEngine(_infinilm.InferEngine):
             super().load_param(name, param._underlying)
             
     def process_weights_after_loading(self):
-        super().process_weights_after_loading()
+        fn = getattr(super(), "process_weights_after_loading", None)
+        if fn is not None:
+            fn()

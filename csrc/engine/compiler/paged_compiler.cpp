@@ -71,7 +71,101 @@ void PagedCompiler::compile() {
 
             compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
         }
+
+        // Prefill graphs: one capture per bucket (MVP: 4096 full prefill, batch_size == 1).
+        compiled_map_prefill_.clear();
+        for (size_t seq_bucket : prefill_seq_buckets_) {
+            const size_t S = seq_bucket;
+            InfinilmModel::Input input;
+            input.input_ids = infinicore::Tensor::empty({1, S}, infinicore::DataType::I64, infinicore::context::getDevice());
+            input.position_ids = infinicore::Tensor::empty({S}, infinicore::DataType::I64, infinicore::context::getDevice());
+            input.past_sequence_lengths = infinicore::Tensor::empty({1}, infinicore::DataType::I32, infinicore::context::getDevice());
+            input.total_sequence_lengths = infinicore::Tensor::empty({1}, infinicore::DataType::I32, infinicore::context::getDevice());
+            set_zeros(input.input_ids.value());
+            set_zeros(input.position_ids.value());
+            set_zeros(input.past_sequence_lengths.value());
+            set_zeros(input.total_sequence_lengths.value());
+
+            std::vector<int32_t> past_lengths_vec(1, 0);
+            std::vector<int32_t> total_lengths_vec(1, static_cast<int32_t>(S));
+            infinicore::context::memcpyH2D(
+                input.past_sequence_lengths.value()->data(), past_lengths_vec.data(), sizeof(int32_t), false);
+            infinicore::context::memcpyH2D(
+                input.total_sequence_lengths.value()->data(), total_lengths_vec.data(), sizeof(int32_t), false);
+
+            input.input_offsets = infinicore::Tensor::empty({2}, infinicore::DataType::I32, infinicore::context::getDevice());
+            std::vector<int32_t> input_offsets_vec{0, static_cast<int32_t>(S)};
+            infinicore::context::memcpyH2D(
+                input.input_offsets.value()->data(), input_offsets_vec.data(), 2 * sizeof(int32_t), false);
+
+            input.cu_seqlens = infinicore::Tensor::empty({2}, infinicore::DataType::I32, infinicore::context::getDevice());
+            infinicore::context::memcpyH2D(
+                input.cu_seqlens.value()->data(), input_offsets_vec.data(), 2 * sizeof(int32_t), false);
+
+            const size_t block_per_req = nblocks;
+            input.block_tables = block_tables_holder_->as_strided({1, block_per_req}, {(ptrdiff_t)block_per_req, 1});
+            input.slot_mapping = infinicore::Tensor::empty({S}, infinicore::DataType::I64, infinicore::context::getDevice());
+            set_zeros(input.slot_mapping.value());
+
+            infinilm::global_state::get_forward_context().attn_metadata = {
+                input.past_sequence_lengths,
+                input.total_sequence_lengths,
+                input.input_offsets,
+                input.cu_seqlens,
+                input.block_tables,
+                input.slot_mapping,
+            };
+
+            barrier_->wait();
+            infinicore::context::startGraphRecording();
+            auto output = model_->forward(input);
+            auto graph = infinicore::context::stopGraphRecording();
+            barrier_->wait();
+
+            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
+                new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
+
+            compiled_map_prefill_[seq_bucket] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
+        }
     }
+}
+
+void PagedCompiler::record_graph_hit(bool is_prefill) {
+    if (is_prefill) {
+        ++prefill_graph_hits_;
+    } else {
+        ++decode_graph_hits_;
+    }
+}
+
+void PagedCompiler::record_graph_miss(bool is_prefill) {
+    if (is_prefill) {
+        ++prefill_graph_misses_;
+    } else {
+        ++decode_graph_misses_;
+    }
+}
+
+PagedCompiler::GraphStats PagedCompiler::graph_stats() const {
+    return GraphStats{
+        prefill_graph_hits_,
+        prefill_graph_misses_,
+        decode_graph_hits_,
+        decode_graph_misses_,
+    };
+}
+
+static size_t compute_prefill_len(const InfinilmModel::Input &input) {
+    if (input.input_offsets.has_value()) {
+        const auto &offsets = input.input_offsets.value();
+        const size_t n = offsets->size(0);
+        if (n >= 2) {
+            auto cpu_offsets = offsets->to(infinicore::Device::cpu());
+            const auto *data = reinterpret_cast<const int32_t *>(cpu_offsets->data());
+            return static_cast<size_t>(data[n - 1] - data[0]);
+        }
+    }
+    return input.input_ids.value()->size(1);
 }
 
 PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &input) {
@@ -79,9 +173,38 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         size_t batch_size = input.block_tables.value()->size(0);
         size_t block_per_req = input.block_tables.value()->size(1);
 
-        // only support decode only batch
         if (batch_size != input.input_ids.value()->size(1)) {
-            return {nullptr, nullptr};
+            const size_t compute_len = compute_prefill_len(input);
+            auto result = compiled_map_prefill_.find(compute_len);
+            if (result == compiled_map_prefill_.end()) {
+                return {nullptr, nullptr};
+            }
+
+            auto &graph_input = result->second.input;
+
+            graph_input.input_ids.value()->copy_from(input.input_ids.value());
+            graph_input.position_ids.value()->copy_from(input.position_ids.value());
+            if (graph_input.past_sequence_lengths.has_value() && input.past_sequence_lengths.has_value()) {
+                graph_input.past_sequence_lengths.value()->copy_from(input.past_sequence_lengths.value());
+            }
+            graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
+            graph_input.input_offsets.value()->copy_from(input.input_offsets.value());
+            graph_input.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
+
+            const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
+            if (block_per_req > compiled_block_per_req) {
+                return {nullptr, nullptr};
+            }
+
+            auto &graph_block_tables = graph_input.block_tables.value();
+            set_minus_one(graph_block_tables);
+            graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
+            graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
+
+            auto graph = std::get<0>(result->second.compiled);
+            auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+
+            return std::make_tuple(graph, shared_output);
         } else {
             auto result = compiled_map_decode_.find(batch_size);
             if (result == compiled_map_decode_.end()) {

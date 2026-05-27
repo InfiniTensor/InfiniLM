@@ -23,4 +23,16 @@ GeneralCompiler::Compiled GeneralCompiler::get_compiled(const InfinilmModel::Inp
     return result;
 }
 
+void GeneralCompiler::record_graph_hit(bool is_prefill) {
+    paged_compiler_->record_graph_hit(is_prefill);
+}
+
+void GeneralCompiler::record_graph_miss(bool is_prefill) {
+    paged_compiler_->record_graph_miss(is_prefill);
+}
+
+PagedCompiler::GraphStats GeneralCompiler::graph_stats() const {
+    return paged_compiler_->graph_stats();
+}
+
 } // namespace infinilm::engine

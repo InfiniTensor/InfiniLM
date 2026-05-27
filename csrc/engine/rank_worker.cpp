@@ -346,12 +346,34 @@ void RankWorker::thread_loop() {
                         std::lock_guard<std::mutex> lk(mutex_);
 
                         infinicore::Tensor logits;
+                        bool is_prefill = false;
+                        if (local_args.block_tables.has_value() && local_args.input_ids.has_value()) {
+                            const size_t batch_size = local_args.block_tables.value()->size(0);
+                            const size_t input_width = local_args.input_ids.value()->size(1);
+                            is_prefill = batch_size != input_width;
+                        }
                         // Try to get compiled graph
                         if (compiler_ != nullptr) {
+                            auto *general_compiler = dynamic_cast<GeneralCompiler *>(compiler_.get());
                             auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
+                                if (general_compiler != nullptr) {
+                                    general_compiler->record_graph_hit(is_prefill);
+                                }
+                            } else if (general_compiler != nullptr) {
+                                general_compiler->record_graph_miss(is_prefill);
+                            }
+                            if (general_compiler != nullptr && is_prefill) {
+                                const auto stats = general_compiler->graph_stats();
+                                spdlog::info(
+                                    "[{}] prefill_graph_hit={} prefill_graph_miss={} decode_graph_hit={} decode_graph_miss={}",
+                                    info(),
+                                    stats.prefill_graph_hits,
+                                    stats.prefill_graph_misses,
+                                    stats.decode_graph_hits,
+                                    stats.decode_graph_misses);
                             }
                         }
                         // Fall back to eager mode

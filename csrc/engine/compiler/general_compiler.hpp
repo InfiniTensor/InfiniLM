@@ -12,6 +12,10 @@ public:
 
     Compiled get_compiled(const InfinilmModel::Input &input) override;
 
+    void record_graph_hit(bool is_prefill);
+    void record_graph_miss(bool is_prefill);
+    PagedCompiler::GraphStats graph_stats() const;
+
 private:
     std::unique_ptr<StaticBatchingCompiler> static_batching_compiler_;
     std::unique_ptr<PagedCompiler> paged_compiler_;
