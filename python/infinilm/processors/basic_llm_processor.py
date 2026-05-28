@@ -4,6 +4,29 @@ from ..llm.static_scheduler import StaticSchedulerOutput
 from ..llm.scheduler import SchedulerOutput
 
 
+def extend_to_next_power_of_two(lst):
+    """Pad ``lst`` to the next power-of-two length with ``-1``.
+
+    Padding marks unused slots (same convention as ``block_tables``).
+    Callers must ``narrow`` to the real length before passing data to kernels.
+
+    Args:
+        lst: Input list of numeric offsets or cumulative lengths.
+
+    Returns:
+        A new list. Empty input yields ``[0]``; already power-of-two yields a copy.
+    """
+    if not lst:
+        return [0]
+    n = len(lst)
+    next_pow = 1
+    while next_pow < n:
+        next_pow <<= 1
+    if next_pow == n:
+        return lst[:]
+    return lst + [-1] * (next_pow - n)
+
+
 @register_processor("default")
 class BasicLLMProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
@@ -35,9 +58,13 @@ class BasicLLMProcessor(InfinilmProcessor):
         normalized_conversation = []
         for message in conversation:
             if isinstance(message["content"], list):
-                assert len(message["content"]) == 1, "Only one content item supported in list"
+                assert len(message["content"]) == 1, (
+                    "Only one content item supported in list"
+                )
                 content_item = message["content"][0]
-                assert "type" in content_item and "text" in content_item, "Content dict must have 'type' and 'text' keys"
+                assert "type" in content_item and "text" in content_item, (
+                    "Content dict must have 'type' and 'text' keys"
+                )
                 normalized_conversation.append(
                     {"role": message["role"], "content": content_item["text"]}
                 )
@@ -229,21 +256,44 @@ class BasicLLMProcessor(InfinilmProcessor):
             block_tables.append(padded_block_table)
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
-        return {
-            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
-            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
-            "past_kv_lengths": infinicore.from_list(
-                cached_lens, dtype=infinicore.int32
-            ),
-            "total_kv_lengths": infinicore.from_list(seq_lens, dtype=infinicore.int32),
-            "input_offsets": infinicore.from_list(seq_offsets, dtype=infinicore.int32),
-            "cu_seqlens": infinicore.from_list(cu_seqlens, dtype=infinicore.int32),
-            "block_tables": infinicore.from_list(block_tables, dtype=infinicore.int32),
-            "slot_mapping": infinicore.from_list(slot_mapping, dtype=infinicore.int64),
+        assert seq_offsets[-1] == len(tokens), (
+            f"seq_offsets[-1]={seq_offsets[-1]} != len(tokens)={len(tokens)}"
+        )
+
+        length = len(seq_offsets)
+        seq_offsets = extend_to_next_power_of_two(seq_offsets)
+        cu_seqlens = extend_to_next_power_of_two(cu_seqlens)
+
+        input_ids = infinicore.from_list([tokens], dtype=infinicore.int64)
+        position_ids = infinicore.from_list(position_ids, dtype=infinicore.int64)
+        past_kv_lengths = infinicore.from_list(cached_lens, dtype=infinicore.int32)
+        total_kv_lengths = infinicore.from_list(seq_lens, dtype=infinicore.int32)
+
+        input_offsets = infinicore.from_list(
+            seq_offsets, dtype=infinicore.int32
+        ).narrow(0, 0, length)
+
+        cu_seqlens = infinicore.from_list(cu_seqlens, dtype=infinicore.int32).narrow(
+            0, 0, length
+        )
+
+        block_tables = infinicore.from_list(block_tables, dtype=infinicore.int32)
+        slot_mapping = infinicore.from_list(slot_mapping, dtype=infinicore.int64)
+
+        return_dict = {
+            "input_ids": input_ids,
+            "position_ids": position_ids,
+            "past_kv_lengths": past_kv_lengths,
+            "total_kv_lengths": total_kv_lengths,
+            "input_offsets": input_offsets,
+            "cu_seqlens": cu_seqlens,
+            "block_tables": block_tables,
+            "slot_mapping": slot_mapping,
             "temperature": temperature,
             "top_k": top_k,
             "top_p": top_p,
         }
+        return return_dict
 
     def get_tokenizer(self):
         return self.tokenizer

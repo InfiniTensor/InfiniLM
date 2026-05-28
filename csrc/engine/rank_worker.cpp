@@ -386,18 +386,23 @@ void RankWorker::thread_loop() {
                             const auto &vocab_size{logits_shape[2]};
                             const auto &total_len{logits_shape[1]};
                             const auto &batch_size{logits_shape[0]};
+                            int32_t seq_length = static_cast<int32_t>(batch_size * total_len);
 
                             auto n_req = local_args.input_offsets.value()->size(0) - 1;
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+                            ASSERT(input_offsets[n_req] == seq_length);
 
                             auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
 
                             for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
+                                int32_t score_index = input_offsets[i + 1] - 1;
+                                ASSERT(input_offsets[i + 1] > input_offsets[i]);
+                                ASSERT(score_index >= 0 && score_index < seq_length);
+
+                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(score_index), 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
+                                infinicore::op::random_sample_(out, score, random_val, top_p, top_k, temperature);
                             }
 
                             output_ids = output_ids->to(infinicore::Device::cpu());

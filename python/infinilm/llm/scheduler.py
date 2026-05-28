@@ -261,6 +261,8 @@ class Scheduler:
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,
             )
+            # logger.info("Scheduled decode: %d", len(scheduled_requests))
+
             if self.connector is not None:
                 meta = self.connector.build_connector_meta()
                 scheduler_output.kv_connector_metadata = meta
