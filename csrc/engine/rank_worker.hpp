@@ -63,11 +63,15 @@ public:
 
         float top_p{1};
 
+        /// When true, rank 0 also returns pre-sampling logits (parity / debug).
+        bool return_logits{false};
+
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
 
     struct Output {
         infinicore::Tensor output_ids;
+        std::optional<infinicore::Tensor> logits;
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -103,6 +107,9 @@ public:
 
     // Thread-safe accessor for last output produced by RUN.
     Output get_output();
+
+    /// Snapshot of paged KV cache tensors after the last ``reset_cache`` (worker thread).
+    std::vector<infinicore::Tensor> get_paged_kv_cache_tensors();
 
     std::string info() const;
 
@@ -152,6 +159,8 @@ private:
     std::mt19937 rng_;
 
     RankBarrier *barrier_;
+
+    std::vector<infinicore::Tensor> kv_cache_snapshot_;
 };
 
 } // namespace infinilm::engine

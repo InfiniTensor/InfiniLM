@@ -212,6 +212,11 @@ RankWorker::Output RankWorker::get_output() {
     return output_;
 }
 
+std::vector<infinicore::Tensor> RankWorker::get_paged_kv_cache_tensors() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return kv_cache_snapshot_;
+}
+
 //------------------------------------------------------
 // thread_loop
 //------------------------------------------------------
@@ -253,6 +258,7 @@ void RankWorker::thread_loop() {
             if (!model_) {
                 throw std::runtime_error("Failed to create model");
             }
+            kv_cache_snapshot_ = global_state::get_forward_context().kv_cache_vec;
             if (enable_graph_compiling_) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }
@@ -408,9 +414,14 @@ void RankWorker::thread_loop() {
 
                             output_ids = output_ids->to(infinicore::Device::cpu());
 
+                            std::optional<infinicore::Tensor> parity_logits;
+                            if (local_args.return_logits) {
+                                parity_logits = logits->to(infinicore::Device::cpu());
+                            }
+
                             infinicore::context::syncStream();
 
-                            auto out{Output{output_ids}};
+                            auto out{Output{output_ids, parity_logits}};
 
                             output_ = std::move(out);
                         }
@@ -432,6 +443,7 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::RESET_CACHE) {
                 try {
                     model_->reset_cache(local_cache_config != nullptr ? local_cache_config.get() : nullptr);
+                    kv_cache_snapshot_ = global_state::get_forward_context().kv_cache_vec;
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
                         job_done_ = true;

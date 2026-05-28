@@ -1,7 +1,12 @@
+import logging
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 import infinicore
+import torch
+
+logger = logging.getLogger(__name__)
 
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 from infinilm.distributed import DistConfig
@@ -62,6 +67,7 @@ class InferEngine(_infinilm.InferEngine):
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
+        self._model_path = model_path
 
         if device is None:
             device = infinicore.device()
@@ -85,6 +91,15 @@ class InferEngine(_infinilm.InferEngine):
 
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
 
+        self._compiled_prefill_runner = None
+        self._compiled_prefill_ready = False
+        try:
+            from infinilm.compile.env import prefill_compile_enabled
+
+            self._prefill_compile_enabled = prefill_compile_enabled()
+        except ImportError:
+            self._prefill_compile_enabled = False
+
         self._maybe_bootstrap_compiled_subgraphs()
 
     def _maybe_bootstrap_compiled_subgraphs(self):
@@ -106,6 +121,162 @@ class InferEngine(_infinilm.InferEngine):
             dtype=to_torch_dtype(self.dtype),
             warmup=True,
         )
+
+    def _compiled_prefill_supported(self) -> bool:
+        if not self._prefill_compile_enabled:
+            return False
+        if not self.enable_paged_attn:
+            return False
+        if self.hf_config.get("model_type") not in ("fm9g", "fm9g7b", "llama", "minicpm"):
+            return False
+        return True
+
+    def _ensure_compiled_prefill_runner(self):
+        if not self._compiled_prefill_supported():
+            return
+        if self._compiled_prefill_runner is not None:
+            return
+
+        from infinilm.compile import CompiledPrefillConfig, CompiledPrefillRunner
+        from infinilm.compile.env import (
+            compile_max_seq_len,
+            compile_warmup_seq_lens,
+            prefill_share_weights_enabled,
+        )
+        from infinicore.utils import to_torch_dtype
+
+        max_seq = compile_max_seq_len()
+        cfg = CompiledPrefillConfig(
+            model_path=self._model_path,
+            max_seq_len=max_seq,
+        )
+        torch_device = torch.device("cuda", 0)
+        cpp_state_dict = None
+        if prefill_share_weights_enabled():
+            cpp_state_dict = super().state_dict()[0]
+        warmup_seq_lens = compile_warmup_seq_lens(max_seq)
+        runner = CompiledPrefillRunner(
+            cfg,
+            device=torch_device,
+            dtype=to_torch_dtype(self.dtype),
+            warmup_seq_lens=warmup_seq_lens,
+            cpp_state_dict=cpp_state_dict,
+        )
+        self._compiled_prefill_runner = runner
+        self._compiled_prefill_ready = True
+
+    @staticmethod
+    def _sample_token_from_logits(
+        logits_1d: torch.Tensor,
+        generation_config: GenerationConfig,
+    ) -> infinicore.Tensor:
+        """Match C++ ``random_sample`` on 1-D last-token logits."""
+        import random
+
+        from infinicore.nn.functional import random_sample
+
+        logits_infini = infinicore.from_torch(logits_1d.reshape(-1).contiguous())
+        out = random_sample(
+            logits_infini,
+            random.random(),
+            generation_config.top_p,
+            generation_config.top_k,
+            generation_config.temperature,
+        )
+        return out.unsqueeze(0)
+
+    @staticmethod
+    def _infinicore_input_ids_to_torch(input_ids) -> torch.Tensor:
+        arr = input_ids.to_numpy()
+        return torch.tensor(arr, dtype=torch.long, device=torch.device("cuda", 0))
+
+    def try_hybrid_prefill_forward(self, **model_input) -> Optional[infinicore.Tensor]:
+        """Server/scheduler prefill: hybrid torch compile when eligible (batch size 1)."""
+        if not self._compiled_prefill_supported() or not self.enable_paged_attn:
+            return None
+        past_kv_lengths = model_input.get("past_kv_lengths")
+        if past_kv_lengths is None or past_kv_lengths.shape[0] != 1:
+            return None
+        block_tables = model_input.get("block_tables")
+        if block_tables is None:
+            return None
+
+        paged_block_size = self.get_cache_config().block_size()
+        cpp_prefill_kwargs = {
+            k: model_input[k]
+            for k in (
+                "input_ids",
+                "position_ids",
+                "past_kv_lengths",
+                "total_kv_lengths",
+                "input_offsets",
+                "cu_seqlens",
+                "block_tables",
+                "slot_mapping",
+                "temperature",
+                "top_k",
+                "top_p",
+            )
+            if k in model_input
+        }
+        logger.info(
+            "hybrid compiled prefill (server path), seq_len=%s",
+            model_input["input_ids"].shape[-1],
+        )
+        return self._hybrid_compiled_prefill_step(
+            model_input["input_ids"],
+            temperature=float(model_input.get("temperature", 1.0)),
+            top_k=int(model_input.get("top_k", 1)),
+            top_p=float(model_input.get("top_p", 1.0)),
+            block_tables=block_tables,
+            slot_mapping=model_input.get("slot_mapping"),
+            paged_block_size=paged_block_size,
+            cpp_prefill_kwargs=cpp_prefill_kwargs,
+        )
+
+    def _hybrid_compiled_prefill_step(
+        self,
+        input_ids,
+        *,
+        temperature: float,
+        top_k: int,
+        top_p: float,
+        block_tables,
+        slot_mapping,
+        paged_block_size: int,
+        cpp_prefill_kwargs: dict,
+    ):
+        """Iter-0 hybrid prefill: compiled torch logits (+ optional torch KV write)."""
+        from infinilm.compile.env import prefill_share_weights_enabled
+
+        self._ensure_compiled_prefill_runner()
+        runner = self._compiled_prefill_runner
+        if runner is None:
+            infinicore.sync_device()
+            return self(**cpp_prefill_kwargs)
+
+        input_ids_torch = self._infinicore_input_ids_to_torch(input_ids)
+        if prefill_share_weights_enabled():
+            kv_layers = super().get_paged_kv_cache_tensors()
+            last_logits = runner.run_prefill_paged(
+                input_ids_torch,
+                kv_layers=kv_layers,
+                slot_mapping=slot_mapping,
+                block_size=paged_block_size,
+            )
+        else:
+            last_logits = runner.run_prefill_last_logits(input_ids_torch)
+            infinicore.sync_device()
+            self(**cpp_prefill_kwargs)
+
+        infinicore.sync_device()
+        gen_cfg = GenerationConfig(
+            max_new_tokens=1,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+        )
+        return self._sample_token_from_logits(last_logits, gen_cfg)
 
     @property
     def dtype(self):
@@ -161,6 +332,7 @@ class InferEngine(_infinilm.InferEngine):
         temperature=None,
         top_k=None,
         top_p=None,
+        return_logits=False,
     ):
         try:
             # TODO: Remove `_underlying` and simplify the corresponding code.
@@ -202,6 +374,7 @@ class InferEngine(_infinilm.InferEngine):
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
+                return_logits=return_logits,
             )
             if pixel_values is not None:
                 input_kwargs["pixel_values"] = pixel_values
@@ -210,13 +383,14 @@ class InferEngine(_infinilm.InferEngine):
             if tgt_sizes is not None:
                 input_kwargs["tgt_sizes"] = tgt_sizes
 
-            return infinicore.Tensor(
-                super()
-                .forward(
-                    super().Input(**input_kwargs)
-                )
-                .output_ids
-            )
+            output = super().forward(super().Input(**input_kwargs))
+            if return_logits:
+                if output.logits is None:
+                    raise RuntimeError(
+                        "InferEngine forward: return_logits=True but C++ returned no logits"
+                    )
+                return infinicore.Tensor(output.logits)
+            return infinicore.Tensor(output.output_ids)
         except BaseException as e:
             handle_oom_and_exit(e)
             raise
@@ -246,6 +420,11 @@ class InferEngine(_infinilm.InferEngine):
 
         if _measure_and_log_time:
             time_measurements = []
+
+        # Init compiled torch backbone before paged-attn slot/block tensors are
+        # allocated (extra GPU allocations during meta-init have caused MACA segfaults).
+        if self._compiled_prefill_supported() and self.enable_paged_attn:
+            self._ensure_compiled_prefill_runner()
 
         block_tables = None
         max_blocks_per_batch = 0
@@ -327,22 +506,54 @@ class InferEngine(_infinilm.InferEngine):
                 [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
             )
 
-            output_id = self(
-                input_ids=input_ids,
-                pixel_values=pixel_values if iter == 0 else None,
-                position_ids=position_ids,
-                past_kv_lengths=past_kv_lengths,
-                total_kv_lengths=total_kv_lengths,
-                input_offsets=input_offsets,
-                cu_seqlens=cu_seqlens,
-                block_tables=block_tables,
-                slot_mapping=slot_mapping,
-                image_bound=image_bound if iter == 0 else None,
-                tgt_sizes=tgt_sizes if iter == 0 else None,
-                temperature=generation_config.temperature,
-                top_k=generation_config.top_k,
-                top_p=generation_config.top_p,
-            )
+            if (
+                iter == 0
+                and self._compiled_prefill_supported()
+                and self.enable_paged_attn
+            ):
+                cpp_prefill_kwargs = dict(
+                    input_ids=input_ids,
+                    pixel_values=pixel_values,
+                    position_ids=position_ids,
+                    past_kv_lengths=past_kv_lengths,
+                    total_kv_lengths=total_kv_lengths,
+                    input_offsets=input_offsets,
+                    cu_seqlens=cu_seqlens,
+                    block_tables=block_tables,
+                    slot_mapping=slot_mapping,
+                    image_bound=image_bound,
+                    tgt_sizes=tgt_sizes,
+                    temperature=generation_config.temperature,
+                    top_k=generation_config.top_k,
+                    top_p=generation_config.top_p,
+                )
+                output_id = self._hybrid_compiled_prefill_step(
+                    input_ids,
+                    temperature=generation_config.temperature,
+                    top_k=generation_config.top_k,
+                    top_p=generation_config.top_p,
+                    block_tables=block_tables,
+                    slot_mapping=slot_mapping,
+                    paged_block_size=paged_block_size,
+                    cpp_prefill_kwargs=cpp_prefill_kwargs,
+                )
+            else:
+                output_id = self(
+                    input_ids=input_ids,
+                    pixel_values=pixel_values if iter == 0 else None,
+                    position_ids=position_ids,
+                    past_kv_lengths=past_kv_lengths,
+                    total_kv_lengths=total_kv_lengths,
+                    input_offsets=input_offsets,
+                    cu_seqlens=cu_seqlens,
+                    block_tables=block_tables,
+                    slot_mapping=slot_mapping,
+                    image_bound=image_bound if iter == 0 else None,
+                    tgt_sizes=tgt_sizes if iter == 0 else None,
+                    temperature=generation_config.temperature,
+                    top_k=generation_config.top_k,
+                    top_p=generation_config.top_p,
+                )
 
             output_ids.append(output_id)
 
@@ -384,6 +595,9 @@ class InferEngine(_infinilm.InferEngine):
     def reset_cache(self, cache_config):
         infinicore.sync_device()
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
+        # Bootstrap compiled backbone before C++ paged KV allocation (MACA segfault workaround).
+        if self._compiled_prefill_supported() and self.enable_paged_attn:
+            self._ensure_compiled_prefill_runner()
         super().reset_cache(cache_config)
 
     def state_dict_keyname(self):

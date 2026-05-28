@@ -166,4 +166,11 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     this->compile();
 }
 
+std::vector<infinicore::Tensor> InferEngine::get_paged_kv_cache_tensors() {
+    if (workers_.empty()) {
+        return {};
+    }
+    return workers_[0]->get_paged_kv_cache_tensors();
+}
+
 } // namespace infinilm::engine

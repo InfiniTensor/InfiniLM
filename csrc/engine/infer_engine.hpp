@@ -52,6 +52,9 @@ public:
     // Get current KV configuration
     const cache::CacheConfig *get_cache_config() const { return cache_config_.get(); }
 
+    // Per-layer paged KV tensors (rank 0) for hybrid torch prefill handoff.
+    std::vector<infinicore::Tensor> get_paged_kv_cache_tensors();
+
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     std::unique_ptr<RankBarrier> barrier_;

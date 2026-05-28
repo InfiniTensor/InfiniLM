@@ -75,6 +75,13 @@ inline void bind_infer_engine(py::module &m) {
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
+        .def("get_paged_kv_cache_tensors", [](InferEngine &self) {
+            py::list layers;
+            for (const auto &t : self.get_paged_kv_cache_tensors()) {
+                layers.append(infinicore::Tensor(t));
+            }
+            return layers;
+        })
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
 
     py::class_<InferEngine::Input>(infer_engine, "Input")
@@ -116,6 +123,7 @@ inline void bind_infer_engine(py::module &m) {
                     "temperature",
                     "top_p",
                     "top_k",
+                    "return_logits",
                 };
 
                 for (auto &item : kwargs) {
@@ -132,6 +140,8 @@ inline void bind_infer_engine(py::module &m) {
                         input.top_p = py::cast<float>(item.second);
                     } else if (key == "top_k") {
                         input.top_k = py::cast<int>(item.second);
+                    } else if (key == "return_logits") {
+                        input.return_logits = py::cast<bool>(item.second);
                     }
                 }
 
@@ -161,10 +171,12 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("tgt_sizes", &InferEngine::Input::tgt_sizes)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
-        .def_readwrite("top_p", &InferEngine::Input::top_p);
+        .def_readwrite("top_p", &InferEngine::Input::top_p)
+        .def_readwrite("return_logits", &InferEngine::Input::return_logits);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
-        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor");
+        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor")
+        .def_readwrite("logits", &InferEngine::Output::logits, "Optional logits before sampling");
 }
 
 } // namespace infinilm::engine

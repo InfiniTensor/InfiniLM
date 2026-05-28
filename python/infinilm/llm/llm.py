@@ -190,8 +190,13 @@ class LLMEngine:
             self.config.top_k,
         )
 
-        # Run inference
-        sampled_tokens = self.model_engine.forward(**model_input)
+        # Run inference (hybrid compiled prefill for single-request prefill steps).
+        if scheduler_output.is_prefill:
+            sampled_tokens = self.model_engine.try_hybrid_prefill_forward(**model_input)
+            if sampled_tokens is None:
+                sampled_tokens = self.model_engine.forward(**model_input)
+        else:
+            sampled_tokens = self.model_engine.forward(**model_input)
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
         # Update request status
