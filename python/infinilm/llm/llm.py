@@ -221,9 +221,8 @@ class LLMEngine:
         # and re-enqueue the request to keep chunking.
         chunk_mid_step = (
             is_prefill
-            and len(requests) == 1
-            and requests[0].is_chunking()
-            and not requests[0].chunk_is_last()
+            and len(requests) > 0
+            and all(r.is_chunking() and not r.chunk_is_last() for r in requests)
         )
 
         if is_prefill and not chunk_mid_step:
@@ -236,16 +235,14 @@ class LLMEngine:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
 
         if chunk_mid_step:
-            req = requests[0]
-            req.chunk_prefill_offset += req.chunk_size
-            # If this request was aborted while chunking, drop it.
-            if req.is_aborted():
-                logger.info(
-                    f"Request {req.request_id} aborted by client during chunked-prefill"
-                )
-                return []
-            # Re-enqueue to keep producing chunks; no token sampled yet.
-            self.scheduler.requeue_chunking(req)
+            for req in requests:
+                req.chunk_prefill_offset += req.chunk_size
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted by client during chunked-prefill"
+                    )
+                    continue
+                self.scheduler.requeue_chunking(req)
             return []
 
         pending = []

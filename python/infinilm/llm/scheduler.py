@@ -127,24 +127,27 @@ class Scheduler:
     #  Per-queue schedulers                                              #
     # ------------------------------------------------------------------ #
     def _try_schedule_chunking(self) -> Optional[SchedulerOutput]:
-        """Pull one in-flight chunked-prefill request and emit a single-request batch.
-
-        The C++ ChunkPrefillCompiler graph is keyed on (batch_size, chunk_size).
-        Python currently sends batch=1 — see chunk_prefill_compiler.cpp.
-        """
-        while True:
+        scheduled: List[InferenceRequest] = []
+        while len(scheduled) < self.max_batch_size:
             try:
                 req = self.chunking_queue.sync_q.get_nowait()
             except queue.Empty:
-                return None
+                break
             if req.is_finished():
-                # Drain finished entries silently and keep looking.
                 self.complete_requests([req])
                 continue
-            return SchedulerOutput(
-                scheduled_requests=[req],
-                is_prefill=True,
-            )
+            # 最后一块（partial 或恰好等于 chunk_size 的最后整块）单独跑。
+            # 不能和中间整块混批：最后一块要采样+提交 block，中间块两个都不做。
+            if req.chunk_is_last():
+                if not scheduled:
+                    return SchedulerOutput([req], is_prefill=True)
+                # 已经攒了中间块，先把这个 last-chunk 放回队头，等下个 step 单独跑。
+                self.chunking_queue.sync_q.put(req)
+                break
+            scheduled.append(req)
+        if scheduled:
+            return SchedulerOutput(scheduled, is_prefill=True)
+        return None
 
     def _try_schedule_waiting(self) -> Optional[SchedulerOutput]:
         """Pull new prefill requests from waiting_queue and form a prefill batch.
