@@ -58,6 +58,9 @@ public:
         return get<size_t>("hidden_size") / get<size_t>("num_attention_heads");
     }
 
+    // Compute the actual rotary dimension based on partial rotation factor
+    size_t get_rotary_dim() const;
+
     QuantConfig get_quant_config() const {
         return quant_config;
     }
@@ -68,7 +71,7 @@ public:
 
     infinicore::DataType get_dtype() const;
     infinilm::quantization::QuantScheme get_quant_scheme() const;
-    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> get_rope_scaling() const;
+
     void set_kv_quant_scheme(infinicore::DataType kv_cache_dtype) {
         this->quant_config.set_kv_quant_scheme(kv_cache_dtype);
     }
@@ -102,8 +105,18 @@ public:
     // Stream output operator
     friend std::ostream &operator<<(std::ostream &os, const ModelConfig &config);
 
+    infinicore::nn::RoPE::Algo get_rope_algo() const {
+        return rope_algo_;
+    }
+
+    void set_rope_algo(infinicore::nn::RoPE::Algo algo) {
+        rope_algo_ = algo;
+    }
+
 private:
     nlohmann::json config_json;
     QuantConfig quant_config;
+
+    infinicore::nn::RoPE::Algo rope_algo_ = infinicore::nn::RoPE::Algo::GPT_NEOX;
 };
 } // namespace infinilm::config

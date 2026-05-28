@@ -1,0 +1,66 @@
+#include "../../config/model_config.hpp"
+#include "infinicore/nn/rope_scaling_configs.hpp"
+#include "rotary_embedding_factory.hpp"
+#include <vector>
+
+namespace infinilm::layers::rotary_embedding {
+namespace {
+/**
+ * @brief Default creator for types that apply no scaling.
+ * Returns nullptr, which the InfiniCore RoPE layer interprets as a 1.0x pass-through.
+ */
+std::shared_ptr<infinicore::nn::RopeScalingConfig>
+create_default_scaling_config(const std::shared_ptr<config::ModelConfig> &) {
+    return nullptr;
+}
+
+// TODO(rubik) create_dynamic_scaling
+
+/**
+ * @brief Creator function for LongRoPE scaling configuration.
+ * Extracts 'short_factor', 'long_factor', etc., from the model config.
+ */
+std::shared_ptr<infinicore::nn::RopeScalingConfig>
+create_longrope_config(const std::shared_ptr<config::ModelConfig> &cfg) {
+    const auto &rope_scaling = cfg->get_config_json()["rope_scaling"];
+
+    // Required fields for LongRopeConfig
+    if (!rope_scaling.contains("short_factor") || !rope_scaling.contains("long_factor") || !rope_scaling.contains("original_max_position_embeddings")) {
+        throw std::runtime_error(
+            "LongRopeConfig requires 'short_factor', 'long_factor', and 'original_max_position_embeddings'");
+    }
+
+    auto short_factor = rope_scaling["short_factor"].get<std::vector<float>>();
+    auto long_factor = rope_scaling["long_factor"].get<std::vector<float>>();
+    size_t original_max_position_embeddings = rope_scaling["original_max_position_embeddings"].get<size_t>();
+
+    float factor = 1.0f;
+    if (rope_scaling.contains("factor")) {
+        factor = rope_scaling["factor"].get<float>();
+    }
+
+    return std::make_shared<infinicore::nn::LongRopeScalingConfig>(
+        std::move(short_factor),
+        std::move(long_factor),
+        original_max_position_embeddings,
+        factor);
+}
+
+// Future scaling creators go here (e.g., create_llama3, create_linear)
+
+} // anonymous namespace
+
+// Static self-registration block
+// Registers creator functions into the factory registry upon program startup.
+static bool _registered = []() {
+    auto &registry = get_scaling_registry();
+    registry["default"] = create_default_scaling_config;
+    registry["none"] = create_default_scaling_config;
+    registry["dynamic"] = create_default_scaling_config;
+    registry["longrope"] = create_longrope_config;
+    // add new scaling
+    // registry["llama3"] = create_llama3_scaling;
+    return true;
+}();
+
+} // namespace infinilm::layers::rotary_embedding
