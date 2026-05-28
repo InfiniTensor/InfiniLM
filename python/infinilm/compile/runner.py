@@ -18,11 +18,9 @@ from .config import CompiledPrefillConfig
 logger = logging.getLogger(__name__)
 
 # Smallest init warmup length (``compile_warmup_seq_lens`` default). Shorter runtime
-# lengths (chat template overhead) must use eager forward: after a longer compiled
-# call, a shorter ``backbone()`` can re-enter ``VllmBackend`` (only one call allowed).
+# lengths (chat template overhead) use eager forward.
 _MIN_COMPILED_SEQ_LEN = 8
-# Coarse buckets aligned with default ``COMPILE_WARMUP_SEQ_LENS`` (not every
-# power-of-two in ``compile_sizes`` is Inductor-warmed at init).
+# Coarse buckets aligned with default ``COMPILE_WARMUP_SEQ_LENS``.
 _COMPILE_BUCKETS = (512, 1024, 4096, 8448)
 
 
@@ -137,9 +135,6 @@ class CompiledPrefillRunner:
             warmup_seq_lens=warmup_seq_lens,
             cpp_state_dict=cpp_state_dict,
         )
-        # After the first runtime compiled call, pad to this bucket so nearby
-        # lengths (e.g. 1031 then 1033) do not re-enter ``VllmBackend``.
-        self._pinned_compile_bucket: Optional[int] = None
 
     @property
     def model(self):
@@ -161,23 +156,14 @@ class CompiledPrefillRunner:
         logits = self.backbone.inner.forward_prefill_compile(input_ids)
         return logits[0, -1, :]
 
-    def _compiled_call_failed(self, exc: BaseException) -> bool:
-        msg = str(exc)
-        return "VllmBackend can only be called once" in msg
-
     def _prepare_compiled_input_ids(
         self, input_ids: torch.Tensor
     ) -> Tuple[torch.Tensor, int]:
+        """Pad to the Inductor warmup bucket so runtime stays on compiled bytecode."""
         seq_len = int(input_ids.shape[1])
-        if self._pinned_compile_bucket is None:
-            self._pinned_compile_bucket = self._compile_bucket_len(seq_len)
-            return input_ids, seq_len
-        bucket = self._pinned_compile_bucket
+        bucket = self._compile_bucket_len(seq_len)
         if seq_len == bucket:
             return input_ids, seq_len
-        if seq_len > bucket:
-            self._pinned_compile_bucket = self._compile_bucket_len(seq_len)
-            bucket = self._pinned_compile_bucket
         pad = torch.zeros(
             (input_ids.shape[0], bucket - seq_len),
             dtype=input_ids.dtype,
@@ -198,18 +184,8 @@ class CompiledPrefillRunner:
         if self._use_eager_prefill(input_ids):
             return self._eager_last_logits(input_ids)
         padded, seq_len = self._prepare_compiled_input_ids(input_ids)
-        try:
-            logits = self.backbone(padded)
-            return logits[0, seq_len - 1, :]
-        except Exception as exc:
-            if not self._compiled_call_failed(exc):
-                raise
-            logger.warning(
-                "compiled prefill fallback to eager (seq_len=%s): %s",
-                seq_len,
-                exc,
-            )
-            return self._eager_last_logits(input_ids)
+        logits = self.backbone(padded)
+        return logits[0, seq_len - 1, :]
 
     @torch.inference_mode()
     def run_prefill_paged(
@@ -232,20 +208,8 @@ class CompiledPrefillRunner:
             return logits[0, -1, :]
 
         padded, seq_len = self._prepare_compiled_input_ids(input_ids)
-        try:
-            compiled_logits = self.backbone(padded)
-            last_logits = compiled_logits[0, seq_len - 1, :]
-            with paged_prefill_context(ctx):
-                self.backbone.inner.forward_prefill_compile(input_ids)
-            return last_logits
-        except Exception as exc:
-            if not self._compiled_call_failed(exc):
-                raise
-            logger.warning(
-                "compiled paged prefill fallback to eager (seq_len=%s): %s",
-                seq_len,
-                exc,
-            )
-            with paged_prefill_context(ctx):
-                logits = self.backbone.inner.forward_prefill_compile(input_ids)
-            return logits[0, -1, :]
+        compiled_logits = self.backbone(padded)
+        last_logits = compiled_logits[0, seq_len - 1, :]
+        with paged_prefill_context(ctx):
+            self.backbone.inner.forward_prefill_compile(input_ids)
+        return last_logits

@@ -49,10 +49,15 @@ class VllmPrefillBackbone(nn.Module, TorchCompileWrapperWithCustomDispatcher):
         # nn.Module.__call__ would bypass torch.compile; mirror vLLM decorator.
         if torch.compiler.is_compiling():
             return self.forward(input_ids, **kwargs)
-        # Always mark seq dim dynamic so runtime lengths (e.g. chat template ~7
-        # tokens) do not re-enter VllmBackend (it may only be invoked once).
-        torch._dynamo.mark_dynamic(input_ids, 1)
-        return self.compiled_callable(input_ids, **kwargs)
+
+        # First call: Dynamo + VllmBackend once. Later calls: direct bytecode dispatch.
+        if len(self.compiled_codes) < 1 or not self.use_custom_dispatcher:
+            torch._dynamo.mark_dynamic(input_ids, 1)
+            torch._dynamo.eval_frame.remove_from_cache(self.original_code_object)
+            return self.compiled_callable(input_ids, **kwargs)
+
+        with self.dispatch_to_code(0):
+            return self.forward(input_ids, **kwargs)
 
     @property
     def inner(self) -> TorchLlamaPrefillModel:
