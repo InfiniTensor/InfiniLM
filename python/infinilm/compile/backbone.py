@@ -41,6 +41,9 @@ class VllmPrefillBackbone(nn.Module, TorchCompileWrapperWithCustomDispatcher):
             splitting_flash_boundary=True,
             cpp_state_dict=cpp_state_dict,
         )
+        # PIECEWISE leaves ``use_custom_dispatcher`` false; enable bytecode dispatch
+        # after the first ``compiled_callable`` pass populates ``compiled_codes``.
+        self.use_custom_dispatcher = True
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         return self._model.forward_prefill_compile(input_ids)

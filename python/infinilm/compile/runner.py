@@ -20,8 +20,16 @@ logger = logging.getLogger(__name__)
 # Smallest init warmup length (``compile_warmup_seq_lens`` default). Shorter runtime
 # lengths (chat template overhead) use eager forward.
 _MIN_COMPILED_SEQ_LEN = 8
-# Coarse buckets aligned with default ``COMPILE_WARMUP_SEQ_LENS``.
-_COMPILE_BUCKETS = (512, 1024, 4096, 8448)
+def _compile_buckets(max_seq_len: int) -> Tuple[int, ...]:
+    """Coarse buckets aligned with default ``COMPILE_WARMUP_SEQ_LENS`` / Inductor ladder."""
+    buckets: List[int] = [512, 1024, 4096]
+    if max_seq_len >= 8192:
+        buckets.append(8192)
+    if max_seq_len >= 8448:
+        buckets.append(8448)
+    elif max_seq_len not in buckets:
+        buckets.append(max_seq_len)
+    return tuple(buckets)
 
 
 def _build_vllm_config(cfg: CompiledPrefillConfig):
@@ -145,7 +153,7 @@ class CompiledPrefillRunner:
 
     def _compile_bucket_len(self, seq_len: int) -> int:
         cap = self.cfg.max_seq_len
-        for bucket in _COMPILE_BUCKETS:
+        for bucket in _compile_buckets(cap):
             if bucket > cap:
                 continue
             if seq_len <= bucket:
