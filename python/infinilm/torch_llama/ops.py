@@ -9,8 +9,10 @@ import torch
 
 _LIB: Optional[torch.library.Library] = None
 _REGISTERED = False
+_PAGED_KV_REGISTERED = False
 
 PREFILL_FLASH_ATTN_OP = "infinilm.prefill_flash_attention"
+WRITE_PAGED_KV_OP = "infinilm.write_paged_kv"
 
 
 def _run_flash_attention(
@@ -84,3 +86,43 @@ def register_prefill_flash_attention_op() -> None:
         return torch.empty_like(query)
 
     _REGISTERED = True
+
+
+def register_write_paged_kv_op() -> None:
+    """Idempotent registration of ``infinilm.write_paged_kv`` (graph-safe paged KV side effect)."""
+    global _LIB, _PAGED_KV_REGISTERED
+    if _PAGED_KV_REGISTERED:
+        return
+
+    if _LIB is None:
+        _LIB = torch.library.Library("infinilm", "FRAGMENT")
+
+    _LIB.define(
+        "write_paged_kv(Tensor key, Tensor value, int layer_idx) -> ()"
+    )
+
+    def _write_impl(
+        key: torch.Tensor,
+        value: torch.Tensor,
+        layer_idx: int,
+    ) -> None:
+        from .kv_paged import active_paged_prefill_context, write_layer_kv_from_torch
+
+        ctx = active_paged_prefill_context()
+        if ctx is None:
+            return
+        write_layer_kv_from_torch(ctx, int(layer_idx), key, value)
+
+    @torch.library.impl("infinilm::write_paged_kv", "CUDA")
+    def _write_cuda(key, value, layer_idx):
+        _write_impl(key, value, layer_idx)
+
+    @torch.library.impl("infinilm::write_paged_kv", "PrivateUse1")
+    def _write_maca(key, value, layer_idx):
+        _write_impl(key, value, layer_idx)
+
+    @torch.library.register_fake("infinilm::write_paged_kv")
+    def _write_fake(key, value, layer_idx):
+        return None
+
+    _PAGED_KV_REGISTERED = True

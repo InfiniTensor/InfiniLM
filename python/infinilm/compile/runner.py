@@ -170,7 +170,7 @@ class CompiledPrefillRunner:
         """Pad to the Inductor warmup bucket so runtime stays on compiled bytecode."""
         seq_len = int(input_ids.shape[1])
         bucket = self._compile_bucket_len(seq_len)
-        if seq_len == bucket:
+        if seq_len >= bucket:
             return input_ids, seq_len
         pad = torch.zeros(
             (input_ids.shape[0], bucket - seq_len),
@@ -204,7 +204,7 @@ class CompiledPrefillRunner:
         slot_mapping,
         block_size: int = 256,
     ) -> torch.Tensor:
-        """Compiled logits + eager KV write (requires shared C++ weights)."""
+        """Single compiled forward with graph-safe paged KV writes (shared C++ weights)."""
         ctx = PagedPrefillContext(
             kv_layers=list(kv_layers),
             slot_mapping=slot_mapping,
@@ -215,9 +215,7 @@ class CompiledPrefillRunner:
                 logits = self.backbone.inner.forward_prefill_compile(input_ids)
             return logits[0, -1, :]
 
-        padded, seq_len = self._prepare_compiled_input_ids(input_ids)
-        compiled_logits = self.backbone(padded)
-        last_logits = compiled_logits[0, seq_len - 1, :]
         with paged_prefill_context(ctx):
-            self.backbone.inner.forward_prefill_compile(input_ids)
-        return last_logits
+            padded, seq_len = self._prepare_compiled_input_ids(input_ids)
+            compiled_logits = self.backbone(padded)
+            return compiled_logits[0, seq_len - 1, :]

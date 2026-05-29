@@ -219,8 +219,11 @@ class InferEngine(_infinilm.InferEngine):
             )
             if k in model_input
         }
+        from infinilm.compile.env import prefill_share_weights_enabled
+
         logger.info(
-            "hybrid compiled prefill (server path), seq_len=%s",
+            "compiled prefill (server path, share_weights=%s), seq_len=%s",
+            prefill_share_weights_enabled(),
             model_input["input_ids"].shape[-1],
         )
         return self._hybrid_compiled_prefill_step(

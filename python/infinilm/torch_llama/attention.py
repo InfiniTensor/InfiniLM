@@ -58,11 +58,12 @@ def splitting_flash_attention_forward(
     if is_causal is None:
         is_causal = module.is_causal
 
-    from .kv_paged import active_paged_prefill_context, write_layer_kv_from_torch
+    from .kv_paged import active_paged_prefill_context
 
     paged_ctx = active_paged_prefill_context()
-    if paged_ctx is not None and not torch.compiler.is_compiling():
-        write_layer_kv_from_torch(paged_ctx, paged_ctx.next_layer_idx(), key, value)
+    if paged_ctx is not None:
+        layer_idx = paged_ctx.next_layer_idx()
+        torch.ops.infinilm.write_paged_kv(key, value, layer_idx)
 
     softmax_scale = scaling if scaling is not None else module.scaling
     attn_output = torch.ops.infinilm.prefill_flash_attention(
@@ -74,7 +75,10 @@ def splitting_flash_attention_forward(
 def register_splitting_flash_attention() -> None:
     """Register custom op + attention implementation for compile splitting."""
     global _ATTENTION_REGISTERED
+    from .ops import register_write_paged_kv_op
+
     register_prefill_flash_attention_op()
+    register_write_paged_kv_op()
     if not _ATTENTION_REGISTERED:
         ALL_ATTENTION_FUNCTIONS[SPLITTING_FLASH_ATTN_IMPL] = (
             splitting_flash_attention_forward
