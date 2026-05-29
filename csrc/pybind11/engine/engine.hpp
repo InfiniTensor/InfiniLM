@@ -1,5 +1,6 @@
 #include "../../engine/infer_engine.hpp"
 #include "infinicore/tensor.hpp"
+#include <pybind11/gil.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -70,8 +71,20 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
-        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def(
+            "forward",
+            [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
+                return self.forward(input);
+            },
+            "Run inference on all ranks with arbitrary arguments",
+            py::call_guard<py::gil_scoped_release>())
+        .def(
+            "reset_cache",
+            [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) {
+                self.reset_cache(cfg ? cfg.get() : nullptr);
+            },
+            py::arg("cache_config") = py::none(),
+            py::call_guard<py::gil_scoped_release>())
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
@@ -176,7 +189,10 @@ inline void bind_infer_engine(py::module &m) {
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
         .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor")
-        .def_readwrite("logits", &InferEngine::Output::logits, "Optional logits before sampling");
+        .def_readwrite(
+            "logits",
+            &InferEngine::Output::logits,
+            "Optional debug logits (see ``return_logits``)");
 }
 
 } // namespace infinilm::engine

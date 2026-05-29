@@ -63,7 +63,7 @@ public:
 
         float top_p{1};
 
-        /// When true, rank 0 also returns pre-sampling logits (parity / debug).
+        /// Opt-in: return pre-sample logits on CPU for benchmarks (``compile_prefill_parity.py`` only).
         bool return_logits{false};
 
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;

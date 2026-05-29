@@ -26,6 +26,11 @@ def prefill_share_weights_enabled() -> bool:
     return _truthy("INFINI_PREFILL_SHARE_WEIGHTS", "0")
 
 
+def return_logits_enabled() -> bool:
+    """Opt-in: return pre-sample logits on CPU (``compile_prefill_parity.py`` only; default off)."""
+    return _truthy("INFINI_RETURN_LOGITS", "0")
+
+
 def compile_max_seq_len(default: int = 8448) -> int:
     raw = os.environ.get("INFINI_COMPILE_MAX_SEQ")
     return int(raw) if raw else default

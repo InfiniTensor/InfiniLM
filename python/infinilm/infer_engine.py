@@ -187,8 +187,11 @@ class InferEngine(_infinilm.InferEngine):
 
     @staticmethod
     def _infinicore_input_ids_to_torch(input_ids) -> torch.Tensor:
-        arr = input_ids.to_numpy()
-        return torch.tensor(arr, dtype=torch.long, device=torch.device("cuda", 0))
+        if not isinstance(input_ids, infinicore.Tensor):
+            input_ids = infinicore.Tensor(input_ids)
+        if input_ids.device.type != "cuda":
+            input_ids = input_ids.to(infinicore.device("cuda", 0))
+        return infinicore.to_torch(input_ids.contiguous())
 
     def try_hybrid_prefill_forward(self, **model_input) -> Optional[infinicore.Tensor]:
         """Server/scheduler prefill: hybrid torch compile when eligible (batch size 1)."""
@@ -221,7 +224,7 @@ class InferEngine(_infinilm.InferEngine):
         }
         from infinilm.compile.env import prefill_share_weights_enabled
 
-        logger.info(
+        logger.debug(
             "compiled prefill (server path, share_weights=%s), seq_len=%s",
             prefill_share_weights_enabled(),
             model_input["input_ids"].shape[-1],
@@ -272,7 +275,7 @@ class InferEngine(_infinilm.InferEngine):
             infinicore.sync_device()
             self(**cpp_prefill_kwargs)
 
-        infinicore.sync_device()
+        infinicore.sync_stream()
         gen_cfg = GenerationConfig(
             max_new_tokens=1,
             temperature=temperature,

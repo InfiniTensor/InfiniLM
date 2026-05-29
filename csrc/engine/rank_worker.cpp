@@ -414,14 +414,14 @@ void RankWorker::thread_loop() {
 
                             output_ids = output_ids->to(infinicore::Device::cpu());
 
-                            std::optional<infinicore::Tensor> parity_logits;
+                            std::optional<infinicore::Tensor> optional_logits;
                             if (local_args.return_logits) {
-                                parity_logits = logits->to(infinicore::Device::cpu());
+                                optional_logits = logits->to(infinicore::Device::cpu());
                             }
 
                             infinicore::context::syncStream();
 
-                            auto out{Output{output_ids, parity_logits}};
+                            auto out{Output{output_ids, optional_logits}};
 
                             output_ = std::move(out);
                         }
