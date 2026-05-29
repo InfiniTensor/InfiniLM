@@ -59,6 +59,7 @@ class InferEngine(_infinilm.InferEngine):
         distributed_config=DistConfig(1),
         cache_config=None,
         enable_graph_compiling=False,
+        enable_chunk_prefill_graph=False,
         attention_backend="default",
         kv_cache_dtype=None,
     ):
@@ -75,6 +76,7 @@ class InferEngine(_infinilm.InferEngine):
             device._underlying.type,
             cache_config,
             enable_graph_compiling,
+            enable_chunk_prefill_graph,
             attention_backend,
             (
                 parse_dtype(kv_cache_dtype)._underlying

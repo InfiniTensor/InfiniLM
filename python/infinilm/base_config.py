@@ -60,6 +60,8 @@ class BaseConfig:
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
+        self.enable_chunk_prefill_graph = self.args.enable_chunk_prefill_graph
+        self.chunk_size = self.args.chunk_size
         self.enable_paged_attn = self.args.enable_paged_attn
         self.num_blocks = self.args.num_blocks
         self.block_size = self.args.block_size
@@ -123,6 +125,8 @@ class BaseConfig:
             choices=["default", "paged-attn", "flash-attn"],
         )
         self.parser.add_argument("--enable-graph", action="store_true")
+        self.parser.add_argument("--enable-chunk-prefill-graph", action="store_true", help="enable chunk-prefill graph compiling")
+        self.parser.add_argument("--chunk-size", type=int, default=0, help="tokens per chunked-prefill slice (0 to disable)")
         self.parser.add_argument(
             "--enable-paged-attn",
             action="store_true",

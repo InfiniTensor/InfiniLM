@@ -26,6 +26,7 @@ public:
         infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
         const cache::CacheConfig *cache_config = nullptr,
         bool enable_graph_compiling = false,
+        bool enable_chunk_prefill_graph = false,
         backends::AttentionBackend attention_backend = backends::AttentionBackend::Default,
         std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt);
 

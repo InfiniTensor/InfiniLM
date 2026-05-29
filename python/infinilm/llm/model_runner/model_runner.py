@@ -72,6 +72,7 @@ class ModelRunner:
             distributed_config=DistConfig(config.tensor_parallel_size),
             cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
+            enable_chunk_prefill_graph=config.enable_chunk_prefill_graph,
             attention_backend=config.attn_backend,
         )
 

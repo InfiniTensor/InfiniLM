@@ -13,6 +13,7 @@ InferEngine::InferEngine(
     infinicore::Device::Type device_type,
     const cache::CacheConfig *cache_config,
     bool enable_graph_compiling,
+    bool enable_chunk_prefill_graph,
     backends::AttentionBackend attention_backend,
     std::optional<infinicore::DataType> kv_cache_dtype) // Changed parameter
     : communication_group_(distributed_config, device_type), attention_backend_(attention_backend) {
@@ -39,6 +40,7 @@ InferEngine::InferEngine(
             cache_config_ != nullptr ? cache_config_.get() : nullptr,
             barrier_.get(),
             enable_graph_compiling,
+            enable_chunk_prefill_graph,
             attention_backend_));
     }
     // Compile the model on all workers

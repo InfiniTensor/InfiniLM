@@ -37,6 +37,7 @@ inline void bind_infer_engine(py::module &m) {
                           infinicore::Device::Type dev,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
                           bool enable_graph_compiling,
+                          bool enable_chunk_prefill_graph,
                           const std::string &attention_backend,
                           std::optional<infinicore::DataType> kv_cache_dtype) {
                  return std::make_shared<InferEngine>(
@@ -45,6 +46,7 @@ inline void bind_infer_engine(py::module &m) {
                      dev,
                      cache_cfg ? cache_cfg.get() : nullptr,
                      enable_graph_compiling,
+                     enable_chunk_prefill_graph,
                      infinilm::backends::parse_attention_backend(attention_backend),
                      kv_cache_dtype);
              }),
@@ -53,6 +55,7 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("device_type") = infinicore::context::getDevice().getType(),
              py::arg("cache_config") = py::none(),
              py::arg("enable_graph_compiling") = false,
+             py::arg("enable_chunk_prefill_graph") = false,
              py::arg("attention_backend") = "default",
              py::arg("kv_cache_dtype") = py::none())
         .def("load_param", &InferEngine::load_param,
