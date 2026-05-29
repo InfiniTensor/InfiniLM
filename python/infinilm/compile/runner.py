@@ -14,22 +14,37 @@ from infinilm.torch_llama.kv_paged import PagedPrefillContext, paged_prefill_con
 
 from .backbone import VllmPrefillBackbone
 from .config import CompiledPrefillConfig
+from .env import compile_buckets, compile_bucket_mode
 
 logger = logging.getLogger(__name__)
 
 # Smallest init warmup length (``compile_warmup_seq_lens`` default). Shorter runtime
 # lengths (chat template overhead) use eager forward.
 _MIN_COMPILED_SEQ_LEN = 8
-def _compile_buckets(max_seq_len: int) -> Tuple[int, ...]:
-    """Coarse buckets aligned with default ``COMPILE_WARMUP_SEQ_LENS`` / Inductor ladder."""
-    buckets: List[int] = [512, 1024, 4096]
-    if max_seq_len >= 8192:
-        buckets.append(8192)
-    if max_seq_len >= 8448:
-        buckets.append(8448)
-    elif max_seq_len not in buckets:
-        buckets.append(max_seq_len)
-    return tuple(buckets)
+
+
+def _run_compiled_backbone(
+    backbone: VllmPrefillBackbone,
+    vllm_config,
+    cfg: CompiledPrefillConfig,
+    input_ids: torch.Tensor,
+) -> torch.Tensor:
+    """Invoke compiled backbone; set vLLM forward context when CUDAGraph is on."""
+    from vllm.config import CUDAGraphMode
+    from vllm.forward_context import BatchDescriptor, set_forward_context
+
+    num_tokens = int(input_ids.shape[1])
+    mode = (
+        CUDAGraphMode.PIECEWISE if cfg.use_cudagraph else CUDAGraphMode.NONE
+    )
+    with set_forward_context(
+        None,
+        vllm_config,
+        num_tokens=num_tokens,
+        cudagraph_runtime_mode=mode,
+        batch_descriptor=BatchDescriptor(num_tokens),
+    ):
+        return backbone(input_ids)
 
 
 def _build_vllm_config(cfg: CompiledPrefillConfig):
@@ -90,6 +105,10 @@ def compile_prefill_backbone(
         cfg.max_seq_len,
         cfg.cache_dir,
     )
+    if cfg.use_cudagraph:
+        logger.info(
+            "compiled prefill: piecewise CUDAGraph enabled (INFINI_PREFILL_CUDAGRAPH=1)"
+        )
 
     if warmup_seq_lens is None:
         warmup_seq_lens = [8]
@@ -109,7 +128,7 @@ def compile_prefill_backbone(
         for seq_len in warmup_seq_lens:
             dummy = torch.zeros((1, seq_len), dtype=torch.long, device=dev)
             with torch.inference_mode():
-                out = backbone(dummy)
+                out = _run_compiled_backbone(backbone, vllm_config, cfg, dummy)
             assert out.shape == (1, seq_len, vocab), out.shape
 
     elapsed = time.perf_counter() - t0
@@ -153,12 +172,17 @@ class CompiledPrefillRunner:
 
     def _compile_bucket_len(self, seq_len: int) -> int:
         cap = self.cfg.max_seq_len
-        for bucket in _compile_buckets(cap):
+        for bucket in compile_buckets(cap):
             if bucket > cap:
                 continue
             if seq_len <= bucket:
                 return bucket
         return cap
+
+    def _run_backbone(self, input_ids: torch.Tensor) -> torch.Tensor:
+        return _run_compiled_backbone(
+            self.backbone, self.vllm_config, self.cfg, input_ids
+        )
 
     def _eager_last_logits(self, input_ids: torch.Tensor) -> torch.Tensor:
         logits = self.backbone.inner.forward_prefill_compile(input_ids)
@@ -170,6 +194,14 @@ class CompiledPrefillRunner:
         """Pad to the Inductor warmup bucket so runtime stays on compiled bytecode."""
         seq_len = int(input_ids.shape[1])
         bucket = self._compile_bucket_len(seq_len)
+        if bucket != seq_len:
+            logger.info(
+                "compiled prefill bucket: seq_len=%s bucket=%s pad=%s mode=%s",
+                seq_len,
+                bucket,
+                max(0, bucket - seq_len),
+                compile_bucket_mode(),
+            )
         if seq_len >= bucket:
             return input_ids, seq_len
         pad = torch.zeros(
@@ -184,7 +216,7 @@ class CompiledPrefillRunner:
         if self._use_eager_prefill(input_ids):
             return self.backbone.inner.forward_prefill_compile(input_ids)
         padded, seq_len = self._prepare_compiled_input_ids(input_ids)
-        logits = self.backbone(padded)
+        logits = self._run_backbone(padded)
         return logits[:, :seq_len, :]
 
     @torch.inference_mode()
@@ -192,7 +224,7 @@ class CompiledPrefillRunner:
         if self._use_eager_prefill(input_ids):
             return self._eager_last_logits(input_ids)
         padded, seq_len = self._prepare_compiled_input_ids(input_ids)
-        logits = self.backbone(padded)
+        logits = self._run_backbone(padded)
         return logits[0, seq_len - 1, :]
 
     @torch.inference_mode()
@@ -217,5 +249,5 @@ class CompiledPrefillRunner:
 
         with paged_prefill_context(ctx):
             padded, seq_len = self._prepare_compiled_input_ids(input_ids)
-            compiled_logits = self.backbone(padded)
+            compiled_logits = self._run_backbone(padded)
             return compiled_logits[0, seq_len - 1, :]

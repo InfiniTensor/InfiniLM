@@ -39,10 +39,12 @@ class Scheduler:
         max_batch_size: int = 16,
         num_blocks: int = 512,
         block_size: int = 256,
+        max_prefill_batch_size: Optional[int] = None,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
         self.max_batch_size = max_batch_size
+        self.max_prefill_batch_size = max_prefill_batch_size
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
         self.block_size = block_size
@@ -58,7 +60,11 @@ class Scheduler:
         is_prefill = False
 
         # Process Waiting queue (prefill phase)
-        while len(scheduled_requests) < self.max_batch_size:
+        prefill_batch_cap = min(
+            self.max_batch_size,
+            self.max_prefill_batch_size or self.max_batch_size,
+        )
+        while len(scheduled_requests) < prefill_batch_cap:
             try:
                 req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:

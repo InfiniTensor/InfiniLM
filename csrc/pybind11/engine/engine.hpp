@@ -89,11 +89,18 @@ inline void bind_infer_engine(py::module &m) {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
         .def("get_paged_kv_cache_tensors", [](InferEngine &self) {
-            py::list layers;
-            for (const auto &t : self.get_paged_kv_cache_tensors()) {
-                layers.append(infinicore::Tensor(t));
+            std::vector<infinicore::Tensor> layers;
+            {
+                py::gil_scoped_release release;
+                for (const auto &t : self.get_paged_kv_cache_tensors()) {
+                    layers.emplace_back(t);
+                }
             }
-            return layers;
+            py::list out;
+            for (const auto &t : layers) {
+                out.append(infinicore::Tensor(t));
+            }
+            return out;
         })
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
 

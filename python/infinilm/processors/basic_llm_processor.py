@@ -228,7 +228,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             block_tables.append(padded_block_table)
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
-        return {
+        model_input = {
             "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
             "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
             "past_kv_lengths": infinicore.from_list(
@@ -243,6 +243,24 @@ class BasicLLMProcessor(InfinilmProcessor):
             "top_k": top_k,
             "top_p": top_p,
         }
+        if (
+            scheduler_output.is_prefill
+            and len(scheduler_output.scheduled_requests) == 1
+        ):
+            try:
+                from infinilm.compile.env import prefill_compile_enabled
+
+                if prefill_compile_enabled():
+                    import torch
+
+                    model_input["input_ids_torch"] = torch.tensor(
+                        tokens,
+                        dtype=torch.long,
+                        device=torch.device("cuda", 0),
+                    ).view(1, -1)
+            except ImportError:
+                pass
+        return model_input
 
     def get_tokenizer(self):
         return self.tokenizer

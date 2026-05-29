@@ -192,12 +192,15 @@ class LLMEngine:
 
         # Run inference (hybrid compiled prefill for single-request prefill steps).
         if scheduler_output.is_prefill:
-            sampled_tokens = self.model_engine.try_hybrid_prefill_forward(**model_input)
-            if sampled_tokens is None:
+            hybrid_tokens = self.model_engine.try_hybrid_prefill_forward(**model_input)
+            if hybrid_tokens is not None:
+                sampled_tokens_list = hybrid_tokens
+            else:
                 sampled_tokens = self.model_engine.forward(**model_input)
+                sampled_tokens_list = sampled_tokens.to_numpy().tolist()
         else:
             sampled_tokens = self.model_engine.forward(**model_input)
-        sampled_tokens_list = sampled_tokens.to_numpy().tolist()
+            sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
         # Update request status
         pending = self._update_requests(

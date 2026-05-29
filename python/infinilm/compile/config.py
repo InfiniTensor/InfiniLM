@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from .env import prefill_cudagraph_enabled
+from .env import compile_buckets, prefill_cudagraph_enabled
 
 # Flash-attn custom op kept outside Inductor (vLLM ``splitting_ops`` pattern).
 DEFAULT_SPLITTING_OPS: List[str] = ["infinilm.prefill_flash_attention"]
@@ -60,6 +60,9 @@ class CompiledPrefillConfig:
     def __post_init__(self) -> None:
         if self.compile_sizes is None:
             self.compile_sizes = default_compile_size_ladder(self.max_seq_len)
+        self.compile_sizes = sorted(
+            set(self.compile_sizes) | set(compile_buckets(self.max_seq_len))
+        )
         if self.cudagraph_capture_sizes is None:
             self.cudagraph_capture_sizes = list(self.compile_sizes)
         if self.splitting_ops is None:
