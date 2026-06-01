@@ -71,16 +71,18 @@ class TorchLlamaPrefillModel(nn.Module):
         return logits[:, -1, :]
 
 
-def _materialize_meta_rotary_buffers(inner: AutoModelForCausalLM) -> None:
-    """Copy ``inv_freq`` into ``original_inv_freq`` when meta-init left the latter empty."""
+def _materialize_rotary_for_compile(inner: AutoModelForCausalLM) -> None:
+    """Float32 ``original_inv_freq`` on device for capture-safe RoPE (no Inductor copy)."""
     rotary = getattr(getattr(inner, "model", inner), "rotary_emb", None)
-    if rotary is None or not hasattr(rotary, "original_inv_freq"):
-        return
-    original = rotary.original_inv_freq
-    if original.device.type != "meta":
+    if rotary is None:
         return
     device = rotary.inv_freq.device
-    rotary.original_inv_freq = rotary.inv_freq.to(device=device).clone()
+    if device.type == "meta":
+        device = next(inner.parameters()).device
+    inv_f32 = rotary.inv_freq.to(device=device, dtype=torch.float32).contiguous()
+    if hasattr(rotary, "original_inv_freq"):
+        rotary.original_inv_freq = inv_f32.clone()
+    rotary.register_buffer("_inv_freq_f32", inv_f32, persistent=False)
 
 
 def load_torch_llama(
@@ -131,7 +133,7 @@ def load_torch_llama(
         from infinilm.compile.weights import bind_cpp_weights_to_torch
 
         bind_cpp_weights_to_torch(wrapper, cpp_state_dict, strict=False)
-        _materialize_meta_rotary_buffers(inner)
+        _materialize_rotary_for_compile(inner)
         return wrapper
 
     inner = AutoModelForCausalLM.from_pretrained(
@@ -147,4 +149,5 @@ def load_torch_llama(
         from .attention import enable_splitting_flash_on_model
 
         enable_splitting_flash_on_model(inner)
+    _materialize_rotary_for_compile(inner)
     return TorchLlamaPrefillModel(inner)

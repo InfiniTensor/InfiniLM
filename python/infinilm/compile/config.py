@@ -64,7 +64,13 @@ class CompiledPrefillConfig:
             set(self.compile_sizes) | set(compile_buckets(self.max_seq_len))
         )
         if self.cudagraph_capture_sizes is None:
-            self.cudagraph_capture_sizes = list(self.compile_sizes)
+            # Sparse bench buckets for capture (vLLM aligns pool to capture set).
+            if self.use_cudagraph:
+                self.cudagraph_capture_sizes = list(
+                    compile_buckets(self.max_seq_len)
+                )
+            else:
+                self.cudagraph_capture_sizes = list(self.compile_sizes)
         if self.splitting_ops is None:
             self.splitting_ops = list(DEFAULT_SPLITTING_OPS)
 

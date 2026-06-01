@@ -28,15 +28,20 @@ def _run_compiled_backbone(
     vllm_config,
     cfg: CompiledPrefillConfig,
     input_ids: torch.Tensor,
+    *,
+    cudagraph_runtime_mode: Optional[object] = None,
 ) -> torch.Tensor:
     """Invoke compiled backbone; set vLLM forward context when CUDAGraph is on."""
     from vllm.config import CUDAGraphMode
     from vllm.forward_context import BatchDescriptor, set_forward_context
 
     num_tokens = int(input_ids.shape[1])
-    mode = (
-        CUDAGraphMode.PIECEWISE if cfg.use_cudagraph else CUDAGraphMode.NONE
-    )
+    if cudagraph_runtime_mode is None:
+        mode = (
+            CUDAGraphMode.PIECEWISE if cfg.use_cudagraph else CUDAGraphMode.NONE
+        )
+    else:
+        mode = cudagraph_runtime_mode
     with set_forward_context(
         None,
         vllm_config,
@@ -77,6 +82,77 @@ def _build_vllm_config(cfg: CompiledPrefillConfig):
     )
     compilation_config.init_with_cudagraph_sizes(list(cfg.cudagraph_capture_sizes))
     return VllmConfig(model_config=model_config, compilation_config=compilation_config)
+
+
+def _warmup_compiled_backbone(
+    backbone: VllmPrefillBackbone,
+    vllm_config,
+    cfg: CompiledPrefillConfig,
+    dev: torch.device,
+    vocab: int,
+    warmup_seq_lens: List[int],
+) -> None:
+    """Phase 1: Inductor compile only (no stream capture)."""
+    from vllm.config import CUDAGraphMode
+
+    for seq_len in warmup_seq_lens:
+        dummy = torch.zeros((1, seq_len), dtype=torch.long, device=dev)
+        with torch.inference_mode():
+            out = _run_compiled_backbone(
+                backbone,
+                vllm_config,
+                cfg,
+                dummy,
+                cudagraph_runtime_mode=CUDAGraphMode.NONE,
+            )
+        assert out.shape == (1, seq_len, vocab), out.shape
+
+
+def _capture_cudagraphs(
+    backbone: VllmPrefillBackbone,
+    vllm_config,
+    cfg: CompiledPrefillConfig,
+    dev: torch.device,
+    vocab: int,
+    capture_sizes: List[int],
+) -> None:
+    """Phase 2: piecewise CUDAGraph capture on already-compiled bytecode."""
+    from vllm.compilation.monitor import set_cudagraph_capturing_enabled
+    from vllm.config import CUDAGraphMode
+
+    # Large shapes first so smaller captures reuse the graph memory pool.
+    sizes = sorted(capture_sizes, reverse=True)
+    num_warmups = vllm_config.compilation_config.cudagraph_num_of_warmups
+    logger.info(
+        "compiled prefill: capturing piecewise CUDAGraphs for %s bucket(s)",
+        len(sizes),
+    )
+    set_cudagraph_capturing_enabled(True)
+    try:
+        for seq_len in sizes:
+            dummy = torch.zeros((1, seq_len), dtype=torch.long, device=dev)
+            with torch.inference_mode():
+                # At least one NONE replay on the capture path before graph capture
+                # (vLLM ``_capture_cudagraphs``; avoids legacy↔capture stream deps).
+                none_runs = max(1, num_warmups)
+                for _ in range(none_runs):
+                    _run_compiled_backbone(
+                        backbone,
+                        vllm_config,
+                        cfg,
+                        dummy,
+                        cudagraph_runtime_mode=CUDAGraphMode.NONE,
+                    )
+                out = _run_compiled_backbone(
+                    backbone,
+                    vllm_config,
+                    cfg,
+                    dummy,
+                    cudagraph_runtime_mode=CUDAGraphMode.PIECEWISE,
+                )
+            assert out.shape == (1, seq_len, vocab), out.shape
+    finally:
+        set_cudagraph_capturing_enabled(False)
 
 
 def compile_prefill_backbone(
@@ -125,11 +201,22 @@ def compile_prefill_backbone(
         )
         dev = next(backbone.inner.parameters()).device
         vocab = backbone.inner.config.vocab_size
-        for seq_len in warmup_seq_lens:
-            dummy = torch.zeros((1, seq_len), dtype=torch.long, device=dev)
-            with torch.inference_mode():
-                out = _run_compiled_backbone(backbone, vllm_config, cfg, dummy)
-            assert out.shape == (1, seq_len, vocab), out.shape
+        if cfg.use_cudagraph:
+            _warmup_compiled_backbone(
+                backbone, vllm_config, cfg, dev, vocab, warmup_seq_lens
+            )
+            _capture_cudagraphs(
+                backbone,
+                vllm_config,
+                cfg,
+                dev,
+                vocab,
+                list(cfg.cudagraph_capture_sizes),
+            )
+        else:
+            _warmup_compiled_backbone(
+                backbone, vllm_config, cfg, dev, vocab, warmup_seq_lens
+            )
 
     elapsed = time.perf_counter() - t0
     vllm_config.compilation_config.compilation_time = elapsed

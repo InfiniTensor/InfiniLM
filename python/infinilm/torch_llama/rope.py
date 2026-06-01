@@ -17,15 +17,17 @@ def rotary_embeddings_compile_friendly(
     Safe when prefill ``seq_len <= original_max_position_embeddings`` (9g: 65536;
     compile ladder tops out at 8192).
     """
-    inv_freq_src = rotary_module.original_inv_freq
-    if inv_freq_src.device.type == "meta":
-        # ``to_empty`` materializes ``inv_freq`` but leaves ``original_inv_freq`` on meta
-        # (shared-weight / meta-init path).
-        inv_freq_src = rotary_module.inv_freq
-    inv_freq = inv_freq_src.to(hidden.device)
-    inv_freq_expanded = (
-        inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
-    )
+    inv_freq = getattr(rotary_module, "_inv_freq_f32", None)
+    if inv_freq is None:
+        inv_freq_src = rotary_module.original_inv_freq
+        if inv_freq_src.device.type == "meta":
+            inv_freq_src = rotary_module.inv_freq
+        inv_freq = inv_freq_src
+        if inv_freq.dtype != torch.float32:
+            inv_freq = inv_freq.float()
+        if inv_freq.device != hidden.device:
+            inv_freq = inv_freq.to(hidden.device)
+    inv_freq_expanded = inv_freq[None, :, None].expand(position_ids.shape[0], -1, 1)
     position_ids_expanded = position_ids[:, None, :].float()
 
     device_type = (
