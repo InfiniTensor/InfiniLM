@@ -14,13 +14,45 @@ from infinilm.torch_llama.kv_paged import PagedPrefillContext, paged_prefill_con
 
 from .backbone import VllmPrefillBackbone
 from .config import CompiledPrefillConfig
-from .env import compile_buckets, compile_bucket_mode
+from .env import compile_bucket_mode, compile_buckets
+from .mem_profile import snapshot_gpu_mem
 
 logger = logging.getLogger(__name__)
 
 # Smallest init warmup length (``compile_warmup_seq_lens`` default). Shorter runtime
 # lengths (chat template overhead) use eager forward.
 _MIN_COMPILED_SEQ_LEN = 8
+
+
+class _CudagraphInputPool:
+    """Persistent ``input_ids`` buffers for vLLM piecewise CUDAGraph replay.
+
+    vLLM ``CUDAGraphWrapper`` replays without copying runtime inputs; capture and
+    replay must use the same ``data_ptr`` per bucket (see vLLM ``gpu_model_runner``).
+    """
+
+    def __init__(self, device: torch.device, *, dtype: torch.dtype = torch.long):
+        self._device = device
+        self._dtype = dtype
+        self._buffers: dict[int, torch.Tensor] = {}
+
+    def get(self, bucket: int) -> torch.Tensor:
+        buf = self._buffers.get(bucket)
+        if buf is None:
+            buf = torch.zeros((1, bucket), dtype=self._dtype, device=self._device)
+            self._buffers[bucket] = buf
+        return buf
+
+    def stage(self, input_ids: torch.Tensor, bucket: int) -> torch.Tensor:
+        """Copy tokens into the capture buffer; zero-fill padding tail."""
+        buf = self.get(bucket)
+        seq_len = int(input_ids.shape[1])
+        if seq_len > bucket:
+            raise ValueError(f"seq_len {seq_len} exceeds cudagraph bucket {bucket}")
+        buf.zero_()
+        if seq_len > 0:
+            buf[0, :seq_len].copy_(input_ids[0, :seq_len])
+        return buf
 
 
 def _run_compiled_backbone(
@@ -37,9 +69,16 @@ def _run_compiled_backbone(
 
     num_tokens = int(input_ids.shape[1])
     if cudagraph_runtime_mode is None:
-        mode = (
-            CUDAGraphMode.PIECEWISE if cfg.use_cudagraph else CUDAGraphMode.NONE
-        )
+        capture_set = set(cfg.cudagraph_capture_sizes or ())
+        use_cg = cfg.use_cudagraph and num_tokens in capture_set
+        if cfg.use_cudagraph and not use_cg:
+            logger.info(
+                "compiled prefill: bucket %s not in CUDAGraph capture set %s; "
+                "eager Inductor replay",
+                num_tokens,
+                sorted(capture_set),
+            )
+        mode = CUDAGraphMode.PIECEWISE if use_cg else CUDAGraphMode.NONE
     else:
         mode = cudagraph_runtime_mode
     with set_forward_context(
@@ -115,6 +154,7 @@ def _capture_cudagraphs(
     dev: torch.device,
     vocab: int,
     capture_sizes: List[int],
+    input_pool: _CudagraphInputPool,
 ) -> None:
     """Phase 2: piecewise CUDAGraph capture on already-compiled bytecode."""
     from vllm.compilation.monitor import set_cudagraph_capturing_enabled
@@ -130,7 +170,9 @@ def _capture_cudagraphs(
     set_cudagraph_capturing_enabled(True)
     try:
         for seq_len in sizes:
-            dummy = torch.zeros((1, seq_len), dtype=torch.long, device=dev)
+            # Reuse persistent buffers so replay sees the same input addresses.
+            dummy = input_pool.get(seq_len)
+            dummy.zero_()
             with torch.inference_mode():
                 # At least one NONE replay on the capture path before graph capture
                 # (vLLM ``_capture_cudagraphs``; avoids legacy↔capture stream deps).
@@ -162,12 +204,13 @@ def compile_prefill_backbone(
     dtype: Optional[torch.dtype] = None,
     warmup_seq_lens: Optional[List[int]] = None,
     cpp_state_dict: Optional[dict] = None,
-) -> Tuple[VllmPrefillBackbone, float, object]:
+) -> Tuple[VllmPrefillBackbone, float, object, Optional[_CudagraphInputPool]]:
     """
     Build ``VllmPrefillBackbone`` (vLLM torch.compile wrapper + ``VllmBackend``).
 
     Returns:
-        (backbone, compile_seconds, vllm_config)
+        (backbone, compile_seconds, vllm_config, input_pool)
+        ``input_pool`` is set when ``cfg.use_cudagraph`` (persistent replay buffers).
     """
     from vllm.config import set_current_vllm_config
 
@@ -183,7 +226,9 @@ def compile_prefill_backbone(
     )
     if cfg.use_cudagraph:
         logger.info(
-            "compiled prefill: piecewise CUDAGraph enabled (INFINI_PREFILL_CUDAGRAPH=1)"
+            "compiled prefill: piecewise CUDAGraph enabled (INFINI_PREFILL_CUDAGRAPH=1) "
+            "capture_sizes=%s",
+            cfg.cudagraph_capture_sizes,
         )
 
     if warmup_seq_lens is None:
@@ -201,10 +246,14 @@ def compile_prefill_backbone(
         )
         dev = next(backbone.inner.parameters()).device
         vocab = backbone.inner.config.vocab_size
+        snapshot_gpu_mem("T0_model_load")
+        input_pool: Optional[_CudagraphInputPool] = None
         if cfg.use_cudagraph:
+            input_pool = _CudagraphInputPool(dev)
             _warmup_compiled_backbone(
                 backbone, vllm_config, cfg, dev, vocab, warmup_seq_lens
             )
+            snapshot_gpu_mem("T1_after_inductor_warmup")
             _capture_cudagraphs(
                 backbone,
                 vllm_config,
@@ -212,20 +261,28 @@ def compile_prefill_backbone(
                 dev,
                 vocab,
                 list(cfg.cudagraph_capture_sizes),
+                input_pool,
             )
+            snapshot_gpu_mem("T2_after_cudagraph_capture")
         else:
             _warmup_compiled_backbone(
                 backbone, vllm_config, cfg, dev, vocab, warmup_seq_lens
             )
+            snapshot_gpu_mem("T1_after_inductor_warmup")
 
     elapsed = time.perf_counter() - t0
     vllm_config.compilation_config.compilation_time = elapsed
     logger.info("torch.compile takes %.3f s", elapsed)
-    return backbone, elapsed, vllm_config
+    return backbone, elapsed, vllm_config, input_pool
 
 
 class CompiledPrefillRunner:
     """Loads torch backbone, runs init compile, exposes compiled prefill forward."""
+
+    _REPLAY_CHECKPOINTS = (
+        (4096, "T4_first_4096_replay"),
+        (8192, "T5_first_8192_replay"),
+    )
 
     def __init__(
         self,
@@ -242,17 +299,29 @@ class CompiledPrefillRunner:
         if cfg.max_seq_len not in warmup_seq_lens:
             warmup_seq_lens = list(warmup_seq_lens) + [cfg.max_seq_len]
 
-        self.backbone, self.compile_seconds, self.vllm_config = compile_prefill_backbone(
+        (
+            self.backbone,
+            self.compile_seconds,
+            self.vllm_config,
+            self._cudagraph_input_pool,
+        ) = compile_prefill_backbone(
             cfg,
             device=device,
             dtype=dtype,
             warmup_seq_lens=warmup_seq_lens,
             cpp_state_dict=cpp_state_dict,
         )
+        self._cudagraph_replay_logged: set[str] = set()
 
     @property
     def model(self):
         return self.backbone.inner
+
+    def _maybe_log_replay_mem(self, bucket: int) -> None:
+        for threshold, label in self._REPLAY_CHECKPOINTS:
+            if bucket >= threshold and label not in self._cudagraph_replay_logged:
+                snapshot_gpu_mem(label, once=True)
+                self._cudagraph_replay_logged.add(label)
 
     def _use_eager_prefill(self, input_ids: torch.Tensor) -> bool:
         return int(input_ids.shape[1]) < _MIN_COMPILED_SEQ_LEN
@@ -289,6 +358,10 @@ class CompiledPrefillRunner:
                 max(0, bucket - seq_len),
                 compile_bucket_mode(),
             )
+        if self.cfg.use_cudagraph and self._cudagraph_input_pool is not None:
+            staged = self._cudagraph_input_pool.stage(input_ids, bucket)
+            self._maybe_log_replay_mem(bucket)
+            return staged, seq_len
         if seq_len >= bucket:
             return input_ids, seq_len
         pad = torch.zeros(

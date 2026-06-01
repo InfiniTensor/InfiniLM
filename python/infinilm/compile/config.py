@@ -9,7 +9,12 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from .env import compile_buckets, prefill_cudagraph_enabled
+from .env import (
+    compile_buckets,
+    prefill_cudagraph_capture_buckets,
+    prefill_cudagraph_enabled,
+    prefill_cudagraph_max_bucket,
+)
 
 # Flash-attn custom op kept outside Inductor (vLLM ``splitting_ops`` pattern).
 DEFAULT_SPLITTING_OPS: List[str] = ["infinilm.prefill_flash_attention"]
@@ -64,11 +69,16 @@ class CompiledPrefillConfig:
             set(self.compile_sizes) | set(compile_buckets(self.max_seq_len))
         )
         if self.cudagraph_capture_sizes is None:
-            # Sparse bench buckets for capture (vLLM aligns pool to capture set).
             if self.use_cudagraph:
-                self.cudagraph_capture_sizes = list(
-                    compile_buckets(self.max_seq_len)
-                )
+                explicit = prefill_cudagraph_capture_buckets(self.max_seq_len)
+                if explicit is not None:
+                    self.cudagraph_capture_sizes = list(explicit)
+                else:
+                    buckets = list(compile_buckets(self.max_seq_len))
+                    max_cg = prefill_cudagraph_max_bucket()
+                    if max_cg is not None:
+                        buckets = [b for b in buckets if b <= max_cg]
+                    self.cudagraph_capture_sizes = buckets
             else:
                 self.cudagraph_capture_sizes = list(self.compile_sizes)
         if self.splitting_ops is None:

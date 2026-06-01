@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import os
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 # Power-mode overflow buckets (+256 past anchor); ignored in linear mode.
 COMPILE_OVERFLOW_BUCKET_1024 = 1280
@@ -27,6 +27,54 @@ def prefill_compile_enabled() -> bool:
 def prefill_cudagraph_enabled() -> bool:
     """Enable vLLM piecewise CUDAGraph on the compiled prefill backbone."""
     return _truthy("INFINI_PREFILL_CUDAGRAPH", "0")
+
+
+def prefill_cudagraph_max_bucket(default: int = 4096) -> Optional[int]:
+    """Max bucket for CUDAGraph capture/replay; larger buckets use eager Inductor.
+
+    Set ``INFINI_PREFILL_CUDAGRAPH_MAX_BUCKET=0`` to disable the cap (capture all
+    buckets). Default 4096 avoids @8192+ replay ATU faults on MetaX.
+    Ignored when explicit capture buckets / ``CAPTURE_MODE=longseq`` is set.
+    """
+    if os.environ.get("INFINI_PREFILL_CUDAGRAPH_CAPTURE_BUCKETS", "").strip():
+        return None
+    if os.environ.get("INFINI_PREFILL_CUDAGRAPH_CAPTURE_MODE", "").strip().lower() in (
+        "longseq",
+        "long_seq",
+        "large",
+        "8192",
+    ):
+        return None
+    raw = os.environ.get("INFINI_PREFILL_CUDAGRAPH_MAX_BUCKET")
+    if raw is None:
+        return default if prefill_cudagraph_enabled() else None
+    val = raw.strip().lower()
+    if val in ("", "0", "none", "off", "false", "no"):
+        return None
+    return int(raw)
+
+
+# Large-bucket-only capture (saves init vs full bench ladder; ATU experiment).
+_LONGSEQ_CUDAGRAPH_CAPTURE_BUCKETS: Tuple[int, ...] = (7168, 8192, 8448)
+
+
+def prefill_cudagraph_capture_buckets(max_seq_len: int) -> Optional[Tuple[int, ...]]:
+    """Explicit CUDAGraph capture sizes (Inductor still warms all compile buckets).
+
+    ``INFINI_PREFILL_CUDAGRAPH_CAPTURE_MODE=longseq`` → 7168,8192,8448 (within max_seq).
+    Or ``INFINI_PREFILL_CUDAGRAPH_CAPTURE_BUCKETS=7168,8192,8448``.
+    """
+    mode = os.environ.get("INFINI_PREFILL_CUDAGRAPH_CAPTURE_MODE", "").strip().lower()
+    raw = os.environ.get("INFINI_PREFILL_CUDAGRAPH_CAPTURE_BUCKETS", "").strip()
+    if mode in ("longseq", "long_seq", "large", "8192"):
+        candidates = _LONGSEQ_CUDAGRAPH_CAPTURE_BUCKETS
+    elif raw:
+        candidates = tuple(int(x.strip()) for x in raw.split(",") if x.strip())
+    else:
+        return None
+    allowed = set(compile_buckets(max_seq_len))
+    picked = tuple(sorted(b for b in candidates if b in allowed and b <= max_seq_len))
+    return picked if picked else None
 
 
 def prefill_share_weights_enabled() -> bool:

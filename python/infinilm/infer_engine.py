@@ -180,6 +180,9 @@ class InferEngine(_infinilm.InferEngine):
         )
         self._compiled_prefill_runner = runner
         self._compiled_prefill_ready = True
+        from infinilm.compile.mem_profile import snapshot_gpu_mem
+
+        snapshot_gpu_mem("T3_server_idle")
 
     @staticmethod
     def _sample_token_id_from_logits(
