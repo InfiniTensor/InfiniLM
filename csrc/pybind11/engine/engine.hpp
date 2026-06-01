@@ -28,13 +28,64 @@ inline void bind_dist_config(py::module &m) {
 
 namespace infinilm::engine {
 
+inline infinicore::Tensor tensor_from_python(py::object obj) {
+    auto data_ptr = obj.attr("data_ptr")().cast<std::uintptr_t>();
+    auto shape = obj.attr("shape").cast<infinicore::Shape>();
+    auto strides = obj.attr("stride")().cast<infinicore::Strides>();
+    auto dtype = static_cast<infinicore::DataType>(py::int_(obj.attr("dtype").attr("_underlying")).cast<int>());
+    auto py_device = obj.attr("device").attr("_underlying");
+    auto device_type = static_cast<infinicore::Device::Type>(py::int_(py_device.attr("type")).cast<int>());
+    auto device_index = py_device.attr("index").cast<int>();
+    return infinicore::Tensor::strided_from_blob(
+        reinterpret_cast<void *>(data_ptr),
+        shape,
+        strides,
+        dtype,
+        infinicore::Device(device_type, device_index));
+}
+
+inline std::optional<infinicore::Tensor> optional_tensor_from_python(py::object obj) {
+    if (obj.is_none()) {
+        return std::nullopt;
+    }
+    return tensor_from_python(obj);
+}
+
+inline py::object dtype_to_python(infinicore::DataType dtype) {
+    auto inf = py::module_::import("infinicore");
+    switch (dtype) {
+    case infinicore::DataType::I64: return inf.attr("int64");
+    case infinicore::DataType::I32: return inf.attr("int32");
+    case infinicore::DataType::BF16: return inf.attr("bfloat16");
+    case infinicore::DataType::F16: return inf.attr("float16");
+    case infinicore::DataType::F32: return inf.attr("float32");
+    default: throw std::runtime_error("Unsupported output dtype for Python wrapper");
+    }
+}
+
+inline py::object device_to_python(const infinicore::Device &device) {
+    auto inf = py::module_::import("infinicore");
+    const char *type = device.getType() == infinicore::Device::Type::CPU ? "cpu" : "cuda";
+    return inf.attr("device")(type, device.getIndex());
+}
+
+inline py::object tensor_to_python(const infinicore::Tensor &tensor) {
+    auto inf = py::module_::import("infinicore");
+    return inf.attr("strided_from_blob")(
+        reinterpret_cast<std::uintptr_t>(tensor->data()),
+        tensor->shape(),
+        tensor->strides(),
+        py::arg("dtype") = dtype_to_python(tensor->dtype()),
+        py::arg("device") = device_to_python(tensor->device()));
+}
+
 inline void bind_infer_engine(py::module &m) {
     py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(m, "InferEngine");
     infer_engine
         .def(py::init([](
                           const std::string &model_path,
                           const distributed::DistConfig &dist,
-                          infinicore::Device::Type dev,
+                          int dev,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
                           bool enable_graph_compiling,
                           const std::string &attention_backend,
@@ -42,7 +93,7 @@ inline void bind_infer_engine(py::module &m) {
                  return std::make_shared<InferEngine>(
                      model_path,
                      dist,
-                     dev,
+                     static_cast<infinicore::Device::Type>(dev),
                      cache_cfg ? cache_cfg.get() : nullptr,
                      enable_graph_compiling,
                      infinilm::backends::parse_attention_backend(attention_backend),
@@ -50,12 +101,14 @@ inline void bind_infer_engine(py::module &m) {
              }),
              py::arg("model_path") = "",
              py::arg("distributed_config") = distributed::DistConfig(),
-             py::arg("device_type") = infinicore::context::getDevice().getType(),
+             py::arg("device_type") = static_cast<int>(infinicore::context::getDevice().getType()),
              py::arg("cache_config") = py::none(),
              py::arg("enable_graph_compiling") = false,
              py::arg("attention_backend") = "default",
              py::arg("kv_cache_dtype") = py::none())
-        .def("load_param", &InferEngine::load_param,
+        .def("load_param", [](InferEngine &self, const std::string &name, py::object param) {
+            self.load_param(name, tensor_from_python(param));
+        },
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")
         .def("state_dict", [](InferEngine &self) {
@@ -69,7 +122,59 @@ inline void bind_infer_engine(py::module &m) {
             }
             return state_dict_tp_all;
         })
+        .def("state_dict_keyname", [](InferEngine &self) {
+            py::list keys;
+            auto all_state = self.state_dict();
+            if (!all_state.empty()) {
+                for (const auto &item : all_state[0]) {
+                    keys.append(item.first);
+                }
+            }
+            return keys;
+        })
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
+        .def("forward_py", [](InferEngine &self,
+                              py::object input_ids,
+                              py::object pixel_values,
+                              py::object position_ids,
+                              py::object past_sequence_lengths,
+                              py::object total_sequence_lengths,
+                              py::object input_offsets,
+                              py::object cu_seqlens,
+                              py::object block_tables,
+                              py::object slot_mapping,
+                              py::object image_bound,
+                              py::object tgt_sizes,
+                              py::kwargs kwargs) {
+            InferEngine::Input input{
+                optional_tensor_from_python(input_ids),
+                optional_tensor_from_python(pixel_values),
+                optional_tensor_from_python(position_ids),
+                optional_tensor_from_python(past_sequence_lengths),
+                optional_tensor_from_python(total_sequence_lengths),
+                optional_tensor_from_python(input_offsets),
+                optional_tensor_from_python(cu_seqlens),
+                optional_tensor_from_python(block_tables),
+                optional_tensor_from_python(slot_mapping),
+                optional_tensor_from_python(image_bound),
+                optional_tensor_from_python(tgt_sizes),
+            };
+            input.temperature = kwargs.contains("temperature") && !kwargs["temperature"].is_none() ? kwargs["temperature"].cast<float>() : 1.0f;
+            input.top_p = kwargs.contains("top_p") && !kwargs["top_p"].is_none() ? kwargs["top_p"].cast<float>() : 1.0f;
+            input.top_k = kwargs.contains("top_k") && !kwargs["top_k"].is_none() ? kwargs["top_k"].cast<int>() : 1;
+            return tensor_to_python(self.forward(input).output_ids);
+        },
+             py::arg("input_ids") = py::none(),
+             py::arg("pixel_values") = py::none(),
+             py::arg("position_ids") = py::none(),
+             py::arg("past_sequence_lengths") = py::none(),
+             py::arg("total_sequence_lengths") = py::none(),
+             py::arg("input_offsets") = py::none(),
+             py::arg("cu_seqlens") = py::none(),
+             py::arg("block_tables") = py::none(),
+             py::arg("slot_mapping") = py::none(),
+             py::arg("image_bound") = py::none(),
+             py::arg("tgt_sizes") = py::none())
         .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output { return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
         .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {

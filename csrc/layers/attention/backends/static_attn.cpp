@@ -56,7 +56,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     auto [k_total, v_total] = do_kv_cache_update(layer, k_permuted, v_permuted, kv_cache, past_sequence_lengths.value());
 
     infinicore::Tensor attn_output;
-    if (false) {
+    if (true) {
         // experimental nineoothed flash attention
         attn_output = infinicore::op::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scale_, true);
         attn_output = attn_output->permute({0, 2, 1, 3})

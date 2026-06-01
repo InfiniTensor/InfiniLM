@@ -70,7 +70,7 @@ class InferEngine(_infinilm.InferEngine):
         super().__init__(
             hf_config_str,
             distributed_config._underlying,
-            device._underlying.type,
+            int(device._underlying.type),
             cache_config,
             enable_graph_compiling,
             attention_backend,
@@ -140,6 +140,23 @@ class InferEngine(_infinilm.InferEngine):
         top_p=None,
     ):
         try:
+            return super().forward_py(
+                input_ids,
+                pixel_values,
+                position_ids,
+                past_kv_lengths,
+                total_kv_lengths,
+                input_offsets,
+                cu_seqlens,
+                block_tables,
+                slot_mapping,
+                image_bound,
+                tgt_sizes,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
+
             # TODO: Remove `_underlying` and simplify the corresponding code.
             input_ids = input_ids._underlying if input_ids is not None else None
             pixel_values = (
@@ -359,11 +376,11 @@ class InferEngine(_infinilm.InferEngine):
         super().reset_cache(cache_config)
 
     def state_dict_keyname(self):
-        return super().state_dict()[0].keys()
+        return super().state_dict_keyname()
 
     def load_state_dict(self, state_dict, strict=None):
         for name, param in state_dict.items():
-            super().load_param(name, param._underlying)
+            super().load_param(name, param)
             
     def process_weights_after_loading(self):
         super().process_weights_after_loading()
