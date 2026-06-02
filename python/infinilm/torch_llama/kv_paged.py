@@ -83,6 +83,8 @@ def write_layer_kv_from_torch(
     v_pool = v_cache.permute([0, 2, 1, 3])
 
     slot_mapping = ctx.slot_mapping
+    if hasattr(slot_mapping, "shape") and int(slot_mapping.shape[0]) > seq_len:
+        slot_mapping = slot_mapping[:seq_len]
     target_device = infinicore.device("cuda", 0)
     if str(slot_mapping.device) != str(target_device):
         slot_mapping = slot_mapping.to(target_device)

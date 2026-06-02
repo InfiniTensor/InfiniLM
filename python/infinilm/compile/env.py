@@ -29,6 +29,15 @@ def prefill_cudagraph_enabled() -> bool:
     return _truthy("INFINI_PREFILL_CUDAGRAPH", "0")
 
 
+def prefill_cg_allow_partial_pad() -> bool:
+    """Repro-only: allow bucket-padded CUDAGraph replay when ``seq_len < bucket``.
+
+    Default off. Set ``INFINI_PREFILL_CG_ALLOW_PARTIAL=1`` (smoke repro) to restore the
+    pre-fix padded path that triggers MetaX Xnack/ATU on shorts like 14→512.
+    """
+    return _truthy("INFINI_PREFILL_CG_ALLOW_PARTIAL", "0")
+
+
 def prefill_cudagraph_max_bucket(default: int = 4096) -> Optional[int]:
     """Max bucket for CUDAGraph capture/replay; larger buckets use eager Inductor.
 
@@ -80,6 +89,11 @@ def prefill_cudagraph_capture_buckets(max_seq_len: int) -> Optional[Tuple[int, .
 def prefill_share_weights_enabled() -> bool:
     """Reuse C++ weight buffers for torch KV write in ``run_prefill_paged`` (opt-in)."""
     return _truthy("INFINI_PREFILL_SHARE_WEIGHTS", "0")
+
+
+def prefill_cg_debug_ptrs_enabled() -> bool:
+    """Log pooled ``input_ids`` / ``slot_mapping`` ``data_ptr()`` at capture vs replay."""
+    return _truthy("INFINI_PREFILL_CG_DEBUG_PTRS", "0")
 
 
 def return_logits_enabled() -> bool:

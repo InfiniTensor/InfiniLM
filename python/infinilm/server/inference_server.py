@@ -184,6 +184,20 @@ class InferenceServer:
                 enable_graph=self.enable_graph,
                 attn_backend=self.attn_backend,
             )
+            me = self.engine.engine.model_engine
+            if getattr(me, "_compiled_prefill_supported", lambda: False)():
+                import time
+
+                deadline = time.monotonic() + float(
+                    os.environ.get("INFINI_PREFILL_CAPTURE_WAIT_S", "900")
+                )
+                while not me._hybrid_prefill_ready():
+                    if time.monotonic() > deadline:
+                        raise RuntimeError(
+                            "CUDAGraph capture did not finish before server ready deadline"
+                        )
+                    time.sleep(2)
+                logger.info("compiled prefill: server ready (CUDAGraph capture done)")
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
             logger.info(f"  enable_graph: {self.enable_graph}")

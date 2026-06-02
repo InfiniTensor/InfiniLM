@@ -123,6 +123,17 @@ class InferEngine(_infinilm.InferEngine):
             warmup=True,
         )
 
+    def _hybrid_prefill_ready(self) -> bool:
+        """True when hybrid may run (CUDAGraph capture finished if enabled)."""
+        runner = self._compiled_prefill_runner
+        if runner is None:
+            return False
+        from infinilm.compile.env import prefill_cudagraph_enabled
+
+        if prefill_cudagraph_enabled() and not runner._cudagraph_capture_done:
+            return False
+        return True
+
     def _compiled_prefill_supported(self) -> bool:
         if not self._prefill_compile_enabled:
             return False
@@ -139,7 +150,7 @@ class InferEngine(_infinilm.InferEngine):
         self._paged_kv_layers_cache = super().get_paged_kv_cache_tensors()
         return self._paged_kv_layers_cache
 
-    def _ensure_compiled_prefill_runner(self):
+    def _ensure_compiled_prefill_runner(self, *, block_size: int = 256):
         if not self._compiled_prefill_supported():
             return
         if self._compiled_prefill_runner is not None:
@@ -151,6 +162,7 @@ class InferEngine(_infinilm.InferEngine):
             compile_bucket_step,
             compile_max_seq_len,
             compile_warmup_seq_lens,
+            prefill_cudagraph_enabled,
             prefill_share_weights_enabled,
         )
         from infinicore.utils import to_torch_dtype
@@ -162,8 +174,15 @@ class InferEngine(_infinilm.InferEngine):
         )
         torch_device = torch.device("cuda", 0)
         cpp_state_dict = None
+        kv_layers = None
         if prefill_share_weights_enabled():
             cpp_state_dict = super().state_dict()[0]
+            if self._paged_kv_layers_cache is not None:
+                kv_layers = self._paged_kv_layers_cache
+            if self.enable_paged_attn:
+                cache_cfg = self.get_cache_config()
+                if cache_cfg is not None:
+                    block_size = cache_cfg.block_size()
         warmup_seq_lens = compile_warmup_seq_lens(max_seq)
         logger.info(
             "compiled prefill warmup seq_lens=%s mode=%s step=%s",
@@ -177,9 +196,17 @@ class InferEngine(_infinilm.InferEngine):
             dtype=to_torch_dtype(self.dtype),
             warmup_seq_lens=warmup_seq_lens,
             cpp_state_dict=cpp_state_dict,
+            kv_layers=kv_layers,
+            block_size=block_size,
         )
         self._compiled_prefill_runner = runner
         self._compiled_prefill_ready = True
+        if (
+            kv_layers is not None
+            and prefill_share_weights_enabled()
+            and prefill_cudagraph_enabled()
+        ):
+            runner.ensure_cudagraph_capture(kv_layers, block_size=block_size)
         from infinilm.compile.mem_profile import snapshot_gpu_mem
 
         snapshot_gpu_mem("T3_server_idle")
@@ -222,6 +249,25 @@ class InferEngine(_infinilm.InferEngine):
             return None
         block_tables = model_input.get("block_tables")
         if block_tables is None:
+            return None
+
+        input_ids = model_input["input_ids"]
+        seq_len = int(input_ids.shape[-1])
+        from infinilm.compile.env import (
+            compile_buckets,
+            compile_max_seq_len,
+            prefill_cudagraph_enabled,
+        )
+        from infinilm.compile.runner import min_compiled_prefill_seq_len
+
+        if not self._hybrid_prefill_ready():
+            return None
+
+        min_seq = min_compiled_prefill_seq_len()
+        if prefill_cudagraph_enabled():
+            # C-Eval shorts: stay on C++ until smallest compile bucket (512).
+            min_seq = max(min_seq, min(compile_buckets(compile_max_seq_len())))
+        if seq_len < min_seq:
             return None
 
         paged_block_size = self.get_cache_config().block_size()
@@ -280,7 +326,7 @@ class InferEngine(_infinilm.InferEngine):
 
         self._ensure_compiled_prefill_runner()
         runner = self._compiled_prefill_runner
-        if runner is None:
+        if runner is None or not self._hybrid_prefill_ready():
             infinicore.sync_device()
             return self(**cpp_prefill_kwargs)
 
@@ -627,10 +673,30 @@ class InferEngine(_infinilm.InferEngine):
         infinicore.sync_device()
         self._paged_kv_layers_cache = None
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
+        paged_block_size = (
+            cache_config.block_size()
+            if isinstance(cache_config, PagedKVCacheConfig)
+            else 256
+        )
         # Bootstrap compiled backbone before C++ paged KV allocation (MACA segfault workaround).
         if self._compiled_prefill_supported() and self.enable_paged_attn:
-            self._ensure_compiled_prefill_runner()
+            self._ensure_compiled_prefill_runner(block_size=paged_block_size)
         super().reset_cache(cache_config)
+        if self._compiled_prefill_runner is not None and self.enable_paged_attn:
+            from infinilm.compile.env import (
+                prefill_cudagraph_enabled,
+                prefill_share_weights_enabled,
+            )
+
+            if prefill_share_weights_enabled() and prefill_cudagraph_enabled():
+                kv_layers = self._get_paged_kv_layers()
+                block_size = self.get_cache_config().block_size()
+                self._compiled_prefill_runner.ensure_cudagraph_capture(
+                    kv_layers, block_size=block_size
+                )
+                logger.info(
+                    "compiled prefill: CUDAGraph capture complete (ready for hybrid prefill)"
+                )
 
     def state_dict_keyname(self):
         return super().state_dict()[0].keys()
