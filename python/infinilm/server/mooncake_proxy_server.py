@@ -29,7 +29,7 @@ def make_http_address(hostname, port):
     return f"http://{hostname}:{port}"
 
 
-async def get_prefiller_info(prefill_clients, ready_event):
+async def wait_for_cluster_ready(prefill_clients, decode_clients, ready_event):
     for prefill_client in prefill_clients:
         while True:
             try:
@@ -56,7 +56,21 @@ async def get_prefiller_info(prefill_clients, ready_event):
             prefill_client["dp_engine_id"][int(dp_rank)] = engine_info["engine_id"]
         prefill_client["dp_size"] = len(data)
 
-    ready_event.set()  # Signal that all prefiller info has been collected
+    for decode_client in decode_clients:
+        while True:
+            try:
+                response = await decode_client["client"].get("/health")
+                response.raise_for_status()
+                logger.warning("successfully handshake with decode server!")
+                break
+            except Exception as e:
+                await asyncio.sleep(1)  # Wait before retrying
+                logger.warning(
+                    "waiting for handshake with decode server: %s",
+                    decode_client,
+                )
+
+    ready_event.set()  # Signal that all prefiller and decoder info has been collected
 
 
 def prefiller_cycle(prefill_clients):
@@ -110,7 +124,11 @@ async def lifespan(app: FastAPI):
             }
         )
 
-    asyncio.create_task(get_prefiller_info(app.state.prefill_clients, app.state.ready))
+    asyncio.create_task(
+        wait_for_cluster_ready(
+            app.state.prefill_clients, app.state.decode_clients, app.state.ready
+        )
+    )
     app.state.prefill_iterator = prefiller_cycle(app.state.prefill_clients)
     app.state.decode_iterator = itertools.cycle(range(len(app.state.decode_clients)))
 
@@ -241,7 +259,7 @@ async def forward_request(client_info: dict, api: str, req_data: dict, headers: 
                 )
     except HTTPException:
         raise
-    except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+    except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
         logger.error(
             "Connection error to %s%s: %s",
             client_info.get("url", ""),
@@ -310,6 +328,8 @@ async def stream_response(
     headers = {
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
         "X-Request-Id": request_id,
+        # Uncomment in high-concurrency or long-context scenarios (minor performance overhead):
+        # "Connection": "close",
     }
 
     req_data["kv_transfer_params"] = {
