@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../layers/common_modules.hpp"
+#include "fm9g_fused_decoder_layer.hpp"
 #include "infinicore/nn/linear.hpp"
 #include <cmath>
 #include <memory>
@@ -38,7 +39,7 @@ public:
     }
 };
 
-using FM9GDecoderLayer = infinilm::layers::causal_lm_templates::TextDecoderLayer<FM9GAttention, FM9GMLP>;
+using FM9GDecoderLayer = FM9GFusedDecoderLayer<FM9GAttention, FM9GMLP>;
 
 using FM9GModel = infinilm::layers::causal_lm_templates::TextModel<FM9GDecoderLayer>;
 

@@ -44,6 +44,10 @@ public:
     size_t hidden_size() const { return hidden_size_; }
     size_t intermediate_size() const { return intermediate_size_; }
 
+    infinicore::Tensor gate_up_weight() const { return gate_up_proj_->weight(); }
+    infinicore::Tensor down_weight() const { return down_proj_->weight(); }
+    float down_alpha() const { return down_proj_->alpha(); }
+
 protected:
     std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> down_proj_;
