@@ -124,189 +124,44 @@ class InferEngine(_infinilm.InferEngine):
         )
 
     def _hybrid_prefill_ready(self) -> bool:
-        """True when hybrid may run (CUDAGraph capture finished if enabled)."""
-        runner = self._compiled_prefill_runner
-        if runner is None:
-            return False
-        from infinilm.compile.env import prefill_cudagraph_enabled
+        from infinilm.compile.hybrid_prefill import hybrid_prefill_ready
 
-        if prefill_cudagraph_enabled() and not runner._cudagraph_capture_done:
-            return False
-        return True
+        return hybrid_prefill_ready(self)
 
     def _compiled_prefill_supported(self) -> bool:
-        if not self._prefill_compile_enabled:
-            return False
-        if not self.enable_paged_attn:
-            return False
-        if self.hf_config.get("model_type") not in ("fm9g", "fm9g7b", "llama", "minicpm"):
-            return False
-        return True
+        from infinilm.compile.hybrid_prefill import compiled_prefill_supported
+
+        return compiled_prefill_supported(self)
 
     def _get_paged_kv_layers(self):
-        """Cached paged KV layer handles for share-weights hybrid prefill."""
-        if self._paged_kv_layers_cache is not None:
-            return self._paged_kv_layers_cache
-        self._paged_kv_layers_cache = super().get_paged_kv_cache_tensors()
-        return self._paged_kv_layers_cache
+        from infinilm.compile.hybrid_prefill import get_paged_kv_layers
+
+        return get_paged_kv_layers(self)
 
     def _ensure_compiled_prefill_runner(self, *, block_size: int = 256):
-        if not self._compiled_prefill_supported():
-            return
-        if self._compiled_prefill_runner is not None:
-            return
+        from infinilm.compile.hybrid_prefill import ensure_compiled_prefill_runner
 
-        from infinilm.compile import CompiledPrefillConfig, CompiledPrefillRunner
-        from infinilm.compile.env import (
-            compile_bucket_mode,
-            compile_bucket_step,
-            compile_max_seq_len,
-            compile_warmup_seq_lens,
-            prefill_cudagraph_enabled,
-            prefill_share_weights_enabled,
-        )
-        from infinicore.utils import to_torch_dtype
-
-        max_seq = compile_max_seq_len()
-        cfg = CompiledPrefillConfig(
-            model_path=self._model_path,
-            max_seq_len=max_seq,
-        )
-        torch_device = torch.device("cuda", 0)
-        cpp_state_dict = None
-        kv_layers = None
-        if prefill_share_weights_enabled():
-            cpp_state_dict = super().state_dict()[0]
-            if self._paged_kv_layers_cache is not None:
-                kv_layers = self._paged_kv_layers_cache
-            if self.enable_paged_attn:
-                cache_cfg = self.get_cache_config()
-                if cache_cfg is not None:
-                    block_size = cache_cfg.block_size()
-        warmup_seq_lens = compile_warmup_seq_lens(max_seq)
-        logger.info(
-            "compiled prefill warmup seq_lens=%s mode=%s step=%s",
-            warmup_seq_lens,
-            compile_bucket_mode(),
-            compile_bucket_step(),
-        )
-        runner = CompiledPrefillRunner(
-            cfg,
-            device=torch_device,
-            dtype=to_torch_dtype(self.dtype),
-            warmup_seq_lens=warmup_seq_lens,
-            cpp_state_dict=cpp_state_dict,
-            kv_layers=kv_layers,
-            block_size=block_size,
-        )
-        self._compiled_prefill_runner = runner
-        self._compiled_prefill_ready = True
-        if (
-            kv_layers is not None
-            and prefill_share_weights_enabled()
-            and prefill_cudagraph_enabled()
-        ):
-            runner.ensure_cudagraph_capture(kv_layers, block_size=block_size)
-        from infinilm.compile.mem_profile import snapshot_gpu_mem
-
-        snapshot_gpu_mem("T3_server_idle")
+        ensure_compiled_prefill_runner(self, block_size=block_size)
 
     @staticmethod
     def _sample_token_id_from_logits(
         logits_1d: torch.Tensor,
         generation_config: GenerationConfig,
     ) -> int:
-        """Match C++ ``random_sample`` on 1-D last-token logits; return scalar token id."""
-        import random
+        from infinilm.compile.hybrid_prefill import sample_token_id_from_logits
 
-        from infinicore.nn.functional import random_sample
-        from infinilm.generation.utils import infini_to_numpy
-
-        logits_infini = infinicore.from_torch(logits_1d.reshape(-1).contiguous())
-        out = random_sample(
-            logits_infini,
-            random.random(),
-            generation_config.top_p,
-            generation_config.top_k,
-            generation_config.temperature,
-        )
-        return int(infini_to_numpy(out).reshape(-1)[0])
+        return sample_token_id_from_logits(logits_1d, generation_config)
 
     @staticmethod
     def _infinicore_input_ids_to_torch(input_ids) -> torch.Tensor:
-        if not isinstance(input_ids, infinicore.Tensor):
-            input_ids = infinicore.Tensor(input_ids)
-        if input_ids.device.type != "cuda":
-            input_ids = input_ids.to(infinicore.device("cuda", 0))
-        return infinicore.to_torch(input_ids.contiguous())
+        from infinilm.compile.hybrid_prefill import infinicore_input_ids_to_torch
+
+        return infinicore_input_ids_to_torch(input_ids)
 
     def try_hybrid_prefill_forward(self, **model_input) -> Optional[List[int]]:
-        """Server/scheduler prefill: hybrid torch compile when eligible (batch size 1)."""
-        if not self._compiled_prefill_supported() or not self.enable_paged_attn:
-            return None
-        past_kv_lengths = model_input.get("past_kv_lengths")
-        if past_kv_lengths is None or past_kv_lengths.shape[0] != 1:
-            return None
-        block_tables = model_input.get("block_tables")
-        if block_tables is None:
-            return None
+        from infinilm.compile.hybrid_prefill import try_hybrid_prefill_forward
 
-        input_ids = model_input["input_ids"]
-        seq_len = int(input_ids.shape[-1])
-        from infinilm.compile.env import (
-            compile_buckets,
-            compile_max_seq_len,
-            prefill_cudagraph_enabled,
-        )
-        from infinilm.compile.runner import min_compiled_prefill_seq_len
-
-        if not self._hybrid_prefill_ready():
-            return None
-
-        min_seq = min_compiled_prefill_seq_len()
-        if prefill_cudagraph_enabled():
-            # C-Eval shorts: stay on C++ until smallest compile bucket (512).
-            min_seq = max(min_seq, min(compile_buckets(compile_max_seq_len())))
-        if seq_len < min_seq:
-            return None
-
-        paged_block_size = self.get_cache_config().block_size()
-        cpp_prefill_kwargs = {
-            k: model_input[k]
-            for k in (
-                "input_ids",
-                "position_ids",
-                "past_kv_lengths",
-                "total_kv_lengths",
-                "input_offsets",
-                "cu_seqlens",
-                "block_tables",
-                "slot_mapping",
-                "temperature",
-                "top_k",
-                "top_p",
-            )
-            if k in model_input
-        }
-        from infinilm.compile.env import prefill_share_weights_enabled
-
-        logger.debug(
-            "compiled prefill (server path, share_weights=%s), seq_len=%s",
-            prefill_share_weights_enabled(),
-            model_input["input_ids"].shape[-1],
-        )
-        token_id = self._hybrid_compiled_prefill_step(
-            model_input["input_ids"],
-            input_ids_torch=model_input.get("input_ids_torch"),
-            temperature=float(model_input.get("temperature", 1.0)),
-            top_k=int(model_input.get("top_k", 1)),
-            top_p=float(model_input.get("top_p", 1.0)),
-            block_tables=block_tables,
-            slot_mapping=model_input.get("slot_mapping"),
-            paged_block_size=paged_block_size,
-            cpp_prefill_kwargs=cpp_prefill_kwargs,
-        )
-        return [token_id]
+        return try_hybrid_prefill_forward(self, **model_input)
 
     def _hybrid_compiled_prefill_step(
         self,
@@ -321,38 +176,20 @@ class InferEngine(_infinilm.InferEngine):
         paged_block_size: int,
         cpp_prefill_kwargs: dict,
     ):
-        """Iter-0 hybrid prefill: compiled torch logits (+ optional torch KV write)."""
-        from infinilm.compile.env import prefill_share_weights_enabled
+        from infinilm.compile.hybrid_prefill import hybrid_compiled_prefill_step
 
-        self._ensure_compiled_prefill_runner()
-        runner = self._compiled_prefill_runner
-        if runner is None or not self._hybrid_prefill_ready():
-            infinicore.sync_device()
-            return self(**cpp_prefill_kwargs)
-
-        if input_ids_torch is None:
-            input_ids_torch = self._infinicore_input_ids_to_torch(input_ids)
-        if prefill_share_weights_enabled():
-            kv_layers = self._get_paged_kv_layers()
-            last_logits = runner.run_prefill_paged(
-                input_ids_torch,
-                kv_layers=kv_layers,
-                slot_mapping=slot_mapping,
-                block_size=paged_block_size,
-            )
-        else:
-            last_logits = runner.run_prefill_last_logits(input_ids_torch)
-            infinicore.sync_device()
-            self(**cpp_prefill_kwargs)
-
-        infinicore.sync_stream()
-        gen_cfg = GenerationConfig(
-            max_new_tokens=1,
+        return hybrid_compiled_prefill_step(
+            self,
+            input_ids,
+            input_ids_torch=input_ids_torch,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            block_tables=block_tables,
+            slot_mapping=slot_mapping,
+            paged_block_size=paged_block_size,
+            cpp_prefill_kwargs=cpp_prefill_kwargs,
         )
-        return self._sample_token_id_from_logits(last_logits, gen_cfg)
 
     @property
     def dtype(self):
@@ -465,8 +302,8 @@ class InferEngine(_infinilm.InferEngine):
                     raise RuntimeError(
                         "InferEngine forward: return_logits=True but C++ returned no logits"
                     )
-                return infinicore.Tensor(output.logits)
-            return infinicore.Tensor(output.output_ids)
+                return self._tensor_from_blob_meta(output.logits)
+            return self._tensor_from_blob_meta(output.output_ids)
         except BaseException as e:
             handle_oom_and_exit(e)
             raise
@@ -682,28 +519,48 @@ class InferEngine(_infinilm.InferEngine):
         if self._compiled_prefill_supported() and self.enable_paged_attn:
             self._ensure_compiled_prefill_runner(block_size=paged_block_size)
         super().reset_cache(cache_config)
-        if self._compiled_prefill_runner is not None and self.enable_paged_attn:
-            from infinilm.compile.env import (
-                prefill_cudagraph_enabled,
-                prefill_share_weights_enabled,
-            )
+        from infinilm.compile.hybrid_prefill import finish_cudagraph_capture_after_reset_cache
 
-            if prefill_share_weights_enabled() and prefill_cudagraph_enabled():
-                kv_layers = self._get_paged_kv_layers()
-                block_size = self.get_cache_config().block_size()
-                self._compiled_prefill_runner.ensure_cudagraph_capture(
-                    kv_layers, block_size=block_size
-                )
-                logger.info(
-                    "compiled prefill: CUDAGraph capture complete (ready for hybrid prefill)"
-                )
+        finish_cudagraph_capture_after_reset_cache(self)
 
     def state_dict_keyname(self):
-        return super().state_dict()[0].keys()
+        return super().state_dict_keys()[0]
+
+    @staticmethod
+    def _tensor_from_blob_meta(meta: dict):
+        import infinicore
+        from infinicore.tensor import from_blob, strided_from_blob
+
+        dtype = infinicore.dtype(infinicore.lib._infinicore.DataType(meta["dtype"]))
+        dev_str = str(meta["device"])
+        if dev_str.startswith("METAX"):
+            dev_str = f"cuda:{dev_str.split(':', 1)[-1]}"
+        elif dev_str.upper().startswith("CPU"):
+            dev_str = "cpu"
+        device = infinicore.device(dev_str)
+        strides = meta.get("strides")
+        if strides is None:
+            return from_blob(
+                meta["data_ptr"], meta["shape"], dtype=dtype, device=device
+            )
+        return strided_from_blob(
+            meta["data_ptr"], meta["shape"], strides, dtype=dtype, device=device
+        )
+
+    def _cpp_state_dict_for_compile(self) -> dict:
+        """Export C++ weight buffers as infinicore.Tensor views for torch share-weights."""
+        out = {}
+        for name in super().state_dict_keys()[0]:
+            out[name] = self._tensor_from_blob_meta(super().weight_blob(name))
+        return out
+
+    def load_param(self, name, param):
+        underlying = param._underlying if hasattr(param, "_underlying") else param
+        super().load_param(name, underlying)
 
     def load_state_dict(self, state_dict, strict=None):
         for name, param in state_dict.items():
-            super().load_param(name, param._underlying)
+            self.load_param(name, param)
             
     def process_weights_after_loading(self):
         fn = getattr(super(), "process_weights_after_loading", None)

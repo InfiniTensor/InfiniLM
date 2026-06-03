@@ -1,5 +1,19 @@
 # Copyright (c) 2025, InfiniCore
-"""Environment flags for hybrid compiled prefill (Phases 3–6)."""
+"""Environment flags for hybrid compiled prefill (Phases 3–6).
+
+Classification (for PR review):
+  PROD — default-on production path when ``INFINI_PREFILL_COMPILE=1`` (+ share/CG flags):
+    ``prefill_compile_enabled``, ``prefill_share_weights_enabled``, ``prefill_cudagraph_enabled``,
+    ``compile_max_seq_len``, ``compile_bucket_mode`` (``bench`` in serve scripts),
+    ``compile_buckets`` / ``compile_warmup_seq_lens``.
+  REPRO — opt-in experiment / bisect knobs (not set in ``serve_infinilm.sh``):
+    ``prefill_cg_allow_partial_pad``, ``prefill_cudagraph_max_bucket``,
+    ``prefill_cudagraph_capture_buckets`` / ``CAPTURE_MODE=longseq``,
+    ``COMPILE_BUCKET_MODE=power|linear``, ``COMPILE_WARMUP_SEQ_LENS``.
+  DEBUG — diagnostics only:
+    ``prefill_cg_debug_ptrs_enabled``, ``return_logits_enabled``,
+    ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``).
+"""
 
 from __future__ import annotations
 

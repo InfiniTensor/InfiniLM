@@ -6,185 +6,40 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
-import infinicore
 import torch
-
-from infinilm.torch_llama.kv_paged import PagedPrefillContext, paged_prefill_context
 
 from .backbone import VllmPrefillBackbone
 from .config import CompiledPrefillConfig
-from .env import compile_bucket_mode, compile_buckets, prefill_cg_debug_ptrs_enabled
-from .mem_profile import snapshot_gpu_mem
+from .cudagraph_capture import _capture_cudagraphs, _warmup_compiled_backbone
+from .cudagraph_pools import (
+    _CudagraphInputPool,
+    _CudagraphSlotMappingPool,
+    _maybe_log_cg_ptrs,
+)
+from .cudagraph_runtime import (
+    cudagraph_runtime_mode_for_paged,
+    mark_partial_cudagraph_replay,
+    min_compiled_prefill_seq_len,
+    prime_cudagraph_bucket_runtime,
+    _run_compiled_backbone,
+)
+from .env import compile_bucket_mode, compile_buckets
 
 logger = logging.getLogger(__name__)
 
-# Smallest init warmup length (``compile_warmup_seq_lens`` default). Shorter runtime
-# lengths (chat template overhead) use eager forward.
-_MIN_COMPILED_SEQ_LEN = 8
+__all__ = [
+    "CompiledPrefillRunner",
+    "compile_prefill_backbone",
+    "min_compiled_prefill_seq_len",
+]
 
 
-def min_compiled_prefill_seq_len() -> int:
-    """Public accessor for server hybrid gating."""
-    return _MIN_COMPILED_SEQ_LEN
+def _snapshot_gpu_mem(checkpoint: str, *, once: bool = False) -> None:
+    from .mem_profile import snapshot_gpu_mem
 
-
-class _CudagraphInputPool:
-    """Persistent ``input_ids`` buffers for vLLM piecewise CUDAGraph replay.
-
-    vLLM ``CUDAGraphWrapper`` replays without copying runtime inputs; capture and
-    replay must use the same ``data_ptr`` per bucket (see vLLM ``gpu_model_runner``).
-    """
-
-    def __init__(self, device: torch.device, *, dtype: torch.dtype = torch.long):
-        self._device = device
-        self._dtype = dtype
-        self._buffers: dict[int, torch.Tensor] = {}
-
-    def get(self, bucket: int) -> torch.Tensor:
-        buf = self._buffers.get(bucket)
-        if buf is None:
-            buf = torch.zeros((1, bucket), dtype=self._dtype, device=self._device)
-            self._buffers[bucket] = buf
-        return buf
-
-    def stage(self, input_ids: torch.Tensor, bucket: int) -> torch.Tensor:
-        """Copy tokens into the capture buffer; zero-fill padding tail."""
-        buf = self.get(bucket)
-        seq_len = int(input_ids.shape[1])
-        if seq_len > bucket:
-            raise ValueError(f"seq_len {seq_len} exceeds cudagraph bucket {bucket}")
-        buf.zero_()
-        if seq_len > 0:
-            buf[0, :seq_len].copy_(input_ids[0, :seq_len])
-        return buf
-
-
-class _CudagraphSlotMappingPool:
-    """Persistent ``slot_mapping`` buffers for paged KV writes during CUDAGraph replay.
-
-    Padding tail is filled with ``-1`` (ignored by ``paged_caching``). Capture and
-    replay must use the same underlying buffer per bucket.
-    """
-
-    def __init__(self, device: torch.device):
-        self._device = device
-        self._buffers: dict[int, torch.Tensor] = {}
-        self._infini: dict[int, infinicore.Tensor] = {}
-
-    def get(self, bucket: int) -> torch.Tensor:
-        buf = self._buffers.get(bucket)
-        if buf is None:
-            buf = torch.full((bucket,), -1, dtype=torch.int64, device=self._device)
-            self._buffers[bucket] = buf
-            self._infini[bucket] = infinicore.from_torch(buf)
-        return buf
-
-    def _slot_mapping_to_torch(self, slot_mapping) -> torch.Tensor:
-        if isinstance(slot_mapping, torch.Tensor):
-            sm = slot_mapping
-        else:
-            sm = infinicore.to_torch(slot_mapping.contiguous())
-        if sm.device != self._device:
-            sm = sm.to(self._device)
-        return sm.reshape(-1)
-
-    def stage(
-        self,
-        slot_mapping,
-        bucket: int,
-        seq_len: int,
-    ) -> infinicore.Tensor:
-        """Copy valid slots into ``buf[:seq_len]``; pad ``buf[seq_len:bucket]`` with ``-1``."""
-        if seq_len > bucket:
-            raise ValueError(f"seq_len {seq_len} exceeds cudagraph bucket {bucket}")
-        buf = self.get(bucket)
-        buf.fill_(-1)
-        if seq_len > 0:
-            sm = self._slot_mapping_to_torch(slot_mapping)
-            buf[:seq_len].copy_(sm[:seq_len])
-        return self._infini[bucket]
-
-    def synthetic(self, bucket: int, effective_seq_len: Optional[int] = None) -> infinicore.Tensor:
-        """Capture-time slots matching replay padding (valid prefix, ``-1`` tail)."""
-        if effective_seq_len is None:
-            effective_seq_len = bucket
-        effective_seq_len = min(int(effective_seq_len), bucket)
-        buf = self.get(bucket)
-        buf.fill_(-1)
-        if effective_seq_len > 0:
-            buf[:effective_seq_len].copy_(
-                torch.arange(effective_seq_len, dtype=torch.int64, device=self._device)
-            )
-        return self._infini[bucket]
-
-
-def _paged_capture_effective_seq_len(bucket: int, max_seq: int) -> int:
-    """Valid slot prefix length at CUDAGraph capture (must be >= any replay ``seq_len`` in bucket).
-
-    Capture must upper-bound replay paged-write footprint: all bucket positions get
-    real slot indices; ``slot_mapping_pool.synthetic`` still pads ``buf[seq_len:bucket]``
-    with ``-1`` at replay when ``seq_len < bucket``.
-    """
-    del max_seq  # ladder is implicit in ``bucket``; kept for call-site stability.
-    return bucket
-
-
-def _maybe_log_cg_ptrs(
-    label: str,
-    *,
-    input_ids: Optional[torch.Tensor] = None,
-    slot_mapping: Optional[torch.Tensor] = None,
-) -> None:
-    if not prefill_cg_debug_ptrs_enabled():
-        return
-    parts = [label]
-    if input_ids is not None:
-        parts.append(f"input_ids ptr={input_ids.data_ptr()}")
-    if slot_mapping is not None:
-        parts.append(f"slot_mapping ptr={slot_mapping.data_ptr()}")
-    logger.info("cudagraph ptrs: %s", " ".join(parts))
-
-
-def _run_compiled_backbone(
-    backbone: VllmPrefillBackbone,
-    vllm_config,
-    cfg: CompiledPrefillConfig,
-    input_ids: torch.Tensor,
-    *,
-    cudagraph_runtime_mode: Optional[object] = None,
-) -> torch.Tensor:
-    """Invoke compiled backbone; set vLLM forward context when CUDAGraph is on."""
-    from vllm.config import CUDAGraphMode
-    from vllm.forward_context import BatchDescriptor, set_forward_context
-
-    num_tokens = int(input_ids.shape[1])
-    if cudagraph_runtime_mode is None:
-        capture_set = set(cfg.cudagraph_capture_sizes or ())
-        use_cg = (
-            cfg.use_cudagraph
-            and num_tokens in capture_set
-            and num_tokens >= _PARTIAL_CG_PIECEWISE_MIN_BUCKET
-        )
-        if cfg.use_cudagraph and not use_cg:
-            logger.info(
-                "compiled prefill: bucket %s not in CUDAGraph capture set %s; "
-                "eager Inductor replay",
-                num_tokens,
-                sorted(capture_set),
-            )
-        mode = CUDAGraphMode.PIECEWISE if use_cg else CUDAGraphMode.NONE
-    else:
-        mode = cudagraph_runtime_mode
-    with set_forward_context(
-        None,
-        vllm_config,
-        num_tokens=num_tokens,
-        cudagraph_runtime_mode=mode,
-        batch_descriptor=BatchDescriptor(num_tokens),
-    ):
-        return backbone(input_ids)
+    snapshot_gpu_mem(checkpoint, once=once)
 
 
 def _build_vllm_config(cfg: CompiledPrefillConfig):
@@ -217,125 +72,6 @@ def _build_vllm_config(cfg: CompiledPrefillConfig):
     )
     compilation_config.init_with_cudagraph_sizes(list(cfg.cudagraph_capture_sizes))
     return VllmConfig(model_config=model_config, compilation_config=compilation_config)
-
-
-def _warmup_compiled_backbone(
-    backbone: VllmPrefillBackbone,
-    vllm_config,
-    cfg: CompiledPrefillConfig,
-    dev: torch.device,
-    vocab: int,
-    warmup_seq_lens: List[int],
-) -> None:
-    """Phase 1: Inductor compile only (no stream capture)."""
-    from vllm.config import CUDAGraphMode
-
-    for seq_len in warmup_seq_lens:
-        dummy = torch.zeros((1, seq_len), dtype=torch.long, device=dev)
-        with torch.inference_mode():
-            out = _run_compiled_backbone(
-                backbone,
-                vllm_config,
-                cfg,
-                dummy,
-                cudagraph_runtime_mode=CUDAGraphMode.NONE,
-            )
-        assert out.shape == (1, seq_len, vocab), out.shape
-
-
-def _capture_cudagraphs(
-    backbone: VllmPrefillBackbone,
-    vllm_config,
-    cfg: CompiledPrefillConfig,
-    dev: torch.device,
-    vocab: int,
-    capture_sizes: List[int],
-    input_pool: _CudagraphInputPool,
-    *,
-    kv_layers: Optional[list] = None,
-    slot_mapping_pool: Optional[_CudagraphSlotMappingPool] = None,
-    block_size: int = 256,
-    use_paged_ctx: bool = False,
-) -> None:
-    """Phase 2: piecewise CUDAGraph capture on already-compiled bytecode."""
-    from vllm.compilation.monitor import set_cudagraph_capturing_enabled
-    from vllm.config import CUDAGraphMode
-
-    # Large shapes first so smaller captures reuse the graph memory pool.
-    # With paged KV side effects, ascending order avoids corrupting larger graphs.
-    sizes = sorted(capture_sizes, reverse=not use_paged_ctx)
-    num_warmups = vllm_config.compilation_config.cudagraph_num_of_warmups
-    logger.info(
-        "compiled prefill: capturing piecewise CUDAGraphs for %s bucket(s)"
-        " (paged_ctx=%s)",
-        len(sizes),
-        use_paged_ctx,
-    )
-    set_cudagraph_capturing_enabled(True)
-    try:
-        for seq_len in sizes:
-            # Reuse persistent buffers so replay sees the same input addresses.
-            dummy = input_pool.get(seq_len)
-            dummy.zero_()
-            paged_ctx: Optional[PagedPrefillContext] = None
-            if use_paged_ctx:
-                if kv_layers is None or slot_mapping_pool is None:
-                    raise ValueError(
-                        "paged CUDAGraph capture requires kv_layers and slot_mapping_pool"
-                    )
-                staged_slots = slot_mapping_pool.synthetic(
-                    seq_len,
-                    effective_seq_len=_paged_capture_effective_seq_len(
-                        seq_len, cfg.max_seq_len
-                    ),
-                )
-                paged_ctx = PagedPrefillContext(
-                    kv_layers=list(kv_layers),
-                    slot_mapping=staged_slots,
-                    block_size=block_size,
-                )
-            _maybe_log_cg_ptrs(
-                f"capture bucket={seq_len}",
-                input_ids=dummy,
-                slot_mapping=(
-                    slot_mapping_pool.get(seq_len)
-                    if slot_mapping_pool is not None
-                    else None
-                ),
-            )
-
-            def _capture_once(cudagraph_runtime_mode) -> torch.Tensor:
-                if paged_ctx is not None:
-                    with paged_prefill_context(paged_ctx):
-                        return _run_compiled_backbone(
-                            backbone,
-                            vllm_config,
-                            cfg,
-                            dummy,
-                            cudagraph_runtime_mode=cudagraph_runtime_mode,
-                        )
-                return _run_compiled_backbone(
-                    backbone,
-                    vllm_config,
-                    cfg,
-                    dummy,
-                    cudagraph_runtime_mode=cudagraph_runtime_mode,
-                )
-
-            with torch.inference_mode():
-                # At least one NONE replay on the capture path before graph capture
-                # (vLLM ``_capture_cudagraphs``; avoids legacy↔capture stream deps).
-                none_runs = max(1, num_warmups)
-                for _ in range(none_runs):
-                    _capture_once(CUDAGraphMode.NONE)
-                out = _capture_once(CUDAGraphMode.PIECEWISE)
-            assert out.shape == (1, seq_len, vocab), out.shape
-    finally:
-        set_cudagraph_capturing_enabled(False)
-
-
-# Partial PIECEWISE replay below this bucket poisons larger CUDAGraphs on MetaX.
-_PARTIAL_CG_PIECEWISE_MIN_BUCKET = 4096
 
 
 def compile_prefill_backbone(
@@ -396,7 +132,7 @@ def compile_prefill_backbone(
         )
         dev = next(backbone.inner.parameters()).device
         vocab = backbone.inner.config.vocab_size
-        snapshot_gpu_mem("T0_model_load")
+        _snapshot_gpu_mem("T0_model_load")
         input_pool: Optional[_CudagraphInputPool] = None
         slot_pool: Optional[_CudagraphSlotMappingPool] = None
         use_paged_capture = cpp_state_dict is not None
@@ -407,7 +143,7 @@ def compile_prefill_backbone(
             _warmup_compiled_backbone(
                 backbone, vllm_config, cfg, dev, vocab, warmup_seq_lens
             )
-            snapshot_gpu_mem("T1_after_inductor_warmup")
+            _snapshot_gpu_mem("T1_after_inductor_warmup")
             if not defer_cudagraph_capture and (
                 not use_paged_capture or kv_layers is not None
             ):
@@ -425,7 +161,7 @@ def compile_prefill_backbone(
                     block_size=block_size,
                     use_paged_ctx=use_paged_capture and kv_layers is not None,
                 )
-                snapshot_gpu_mem("T2_after_cudagraph_capture")
+                _snapshot_gpu_mem("T2_after_cudagraph_capture")
             elif defer_cudagraph_capture:
                 logger.info(
                     "compiled prefill: deferring CUDAGraph capture until kv_layers "
@@ -435,7 +171,7 @@ def compile_prefill_backbone(
             _warmup_compiled_backbone(
                 backbone, vllm_config, cfg, dev, vocab, warmup_seq_lens
             )
-            snapshot_gpu_mem("T1_after_inductor_warmup")
+            _snapshot_gpu_mem("T1_after_inductor_warmup")
 
     elapsed = time.perf_counter() - t0
     vllm_config.compilation_config.compilation_time = elapsed
@@ -530,7 +266,7 @@ class CompiledPrefillRunner:
         )
         self._cudagraph_needs_reprime.clear()
         self._cudagraph_runtime_seen.clear()
-        snapshot_gpu_mem("T2_after_cudagraph_capture")
+        _snapshot_gpu_mem("T2_after_cudagraph_capture")
         self._cudagraph_capture_done = True
 
     @property
@@ -540,11 +276,11 @@ class CompiledPrefillRunner:
     def _maybe_log_replay_mem(self, bucket: int) -> None:
         for threshold, label in self._REPLAY_CHECKPOINTS:
             if bucket >= threshold and label not in self._cudagraph_replay_logged:
-                snapshot_gpu_mem(label, once=True)
+                _snapshot_gpu_mem(label, once=True)
                 self._cudagraph_replay_logged.add(label)
 
     def _use_eager_prefill(self, input_ids: torch.Tensor) -> bool:
-        return int(input_ids.shape[1]) < _MIN_COMPILED_SEQ_LEN
+        return int(input_ids.shape[1]) < min_compiled_prefill_seq_len()
 
     def _compile_bucket_len(self, seq_len: int) -> int:
         cap = self.cfg.max_seq_len
@@ -568,84 +304,6 @@ class CompiledPrefillRunner:
             input_ids,
             cudagraph_runtime_mode=cudagraph_runtime_mode,
         )
-
-    def _mark_partial_cudagraph_replay(self, bucket: int, seq_len: int) -> None:
-        if seq_len >= bucket or not self.cfg.use_cudagraph:
-            return
-        capture_set = set(self.cfg.cudagraph_capture_sizes or ())
-        for b in capture_set:
-            if b > bucket:
-                self._cudagraph_needs_reprime.add(b)
-
-    def _cudagraph_runtime_mode_for_paged(
-        self, seq_len: int, bucket: int
-    ) -> Optional[object]:
-        """CUDAGraph replay mode for bucket-padded compiled prefill.
-
-        * ``seq_len < bucket``: always ``NONE`` (no partial PIECEWISE; MetaX ATU).
-        * ``seq_len == bucket`` and bucket ≥ 4096: ``PIECEWISE`` full-bucket replay.
-        * Repro: ``INFINI_PREFILL_CG_ALLOW_PARTIAL=1`` restores auto PIECEWISE on partial.
-        """
-        from .env import prefill_cg_allow_partial_pad
-        from vllm.config import CUDAGraphMode
-
-        if not self.cfg.use_cudagraph:
-            return None
-        if prefill_cg_allow_partial_pad():
-            return None
-        if seq_len < bucket:
-            return CUDAGraphMode.NONE
-        if seq_len == bucket and bucket >= _PARTIAL_CG_PIECEWISE_MIN_BUCKET:
-            return CUDAGraphMode.PIECEWISE
-        return CUDAGraphMode.NONE
-
-    def _prime_cudagraph_bucket_runtime(
-        self,
-        bucket: int,
-        *,
-        kv_layers,
-        block_size: int,
-    ) -> bool:
-        if (
-            not self.cfg.use_cudagraph
-            or self._cudagraph_input_pool is None
-            or self._cudagraph_slot_pool is None
-        ):
-            return False
-        if bucket in self._cudagraph_runtime_seen and bucket not in self._cudagraph_needs_reprime:
-            return False
-        if (
-            bucket < _PARTIAL_CG_PIECEWISE_MIN_BUCKET
-            and bucket not in self._cudagraph_needs_reprime
-        ):
-            return False
-        from vllm.config import CUDAGraphMode
-
-        dummy = self._cudagraph_input_pool.get(bucket)
-        dummy.zero_()
-        staged_slots = self._cudagraph_slot_pool.synthetic(
-            bucket,
-            effective_seq_len=_paged_capture_effective_seq_len(
-                bucket, self.cfg.max_seq_len
-            ),
-        )
-        ctx = PagedPrefillContext(
-            kv_layers=list(kv_layers),
-            slot_mapping=staged_slots,
-            block_size=block_size,
-        )
-        with paged_prefill_context(ctx):
-            self._run_backbone(
-                dummy,
-                cudagraph_runtime_mode=CUDAGraphMode.PIECEWISE,
-            )
-        self._cudagraph_needs_reprime.discard(bucket)
-        self._cudagraph_runtime_seen.add(bucket)
-        return True
-
-    def _eager_last_logits(self, input_ids: torch.Tensor) -> torch.Tensor:
-        logits = self.backbone.inner.forward_prefill_compile(input_ids)
-        return logits[0, -1, :]
 
     def _prepare_compiled_input_ids(
         self, input_ids: torch.Tensor
@@ -674,6 +332,10 @@ class CompiledPrefillRunner:
         )
         return torch.cat([input_ids, pad], dim=1), seq_len
 
+    def _eager_last_logits(self, input_ids: torch.Tensor) -> torch.Tensor:
+        logits = self.backbone.inner.forward_prefill_compile(input_ids)
+        return logits[0, -1, :]
+
     @torch.inference_mode()
     def run_prefill(self, input_ids: torch.Tensor) -> torch.Tensor:
         if self._use_eager_prefill(input_ids):
@@ -700,6 +362,9 @@ class CompiledPrefillRunner:
         block_size: int = 256,
     ) -> torch.Tensor:
         """Single compiled forward with graph-safe paged KV writes (shared C++ weights)."""
+        from infinilm.torch_llama.kv_paged import PagedPrefillContext, paged_prefill_context
+        from vllm.config import CUDAGraphMode
+
         seq_len = int(input_ids.shape[1])
         bucket = self._compile_bucket_len(seq_len)
         use_compiled = not self._use_eager_prefill(input_ids)
@@ -725,12 +390,20 @@ class CompiledPrefillRunner:
 
         with paged_prefill_context(ctx):
             padded, seq_len = self._prepare_compiled_input_ids(input_ids)
-            cg_mode = self._cudagraph_runtime_mode_for_paged(seq_len, bucket)
-            from vllm.config import CUDAGraphMode
+            cg_mode = cudagraph_runtime_mode_for_paged(self.cfg, seq_len, bucket)
 
             if cg_mode is CUDAGraphMode.PIECEWISE:
-                self._prime_cudagraph_bucket_runtime(
-                    bucket, kv_layers=kv_layers, block_size=block_size
+                prime_cudagraph_bucket_runtime(
+                    cfg=self.cfg,
+                    backbone=self.backbone,
+                    vllm_config=self.vllm_config,
+                    bucket=bucket,
+                    kv_layers=kv_layers,
+                    block_size=block_size,
+                    input_pool=self._cudagraph_input_pool,
+                    slot_pool=self._cudagraph_slot_pool,
+                    needs_reprime=self._cudagraph_needs_reprime,
+                    runtime_seen=self._cudagraph_runtime_seen,
                 )
             if self.cfg.use_cudagraph and self._cudagraph_input_pool is not None:
                 _maybe_log_cg_ptrs(
@@ -743,5 +416,7 @@ class CompiledPrefillRunner:
             compiled_logits = self._run_backbone(padded, cudagraph_runtime_mode=cg_mode)
 
             if cg_mode is not None and cg_mode is not CUDAGraphMode.NONE:
-                self._mark_partial_cudagraph_replay(bucket, seq_len)
+                mark_partial_cudagraph_replay(
+                    self.cfg, bucket, seq_len, self._cudagraph_needs_reprime
+                )
             return compiled_logits[0, seq_len - 1, :]

@@ -373,7 +373,7 @@ void RankWorker::thread_loop() {
                             }
                             if (general_compiler != nullptr && is_prefill) {
                                 const auto stats = general_compiler->graph_stats();
-                                spdlog::info(
+                                spdlog::debug(
                                     "[{}] prefill_graph_hit={} prefill_graph_miss={} decode_graph_hit={} decode_graph_miss={}",
                                     info(),
                                     stats.prefill_graph_hits,

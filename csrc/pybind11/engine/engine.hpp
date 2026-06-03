@@ -1,4 +1,5 @@
 #include "../../engine/infer_engine.hpp"
+#include "infinicore/device.hpp"
 #include "infinicore/tensor.hpp"
 #include <pybind11/gil.h>
 #include <pybind11/pybind11.h>
@@ -29,17 +30,83 @@ inline void bind_dist_config(py::module &m) {
 
 namespace infinilm::engine {
 
+namespace {
+
+infinicore::Tensor tensor_from_py(py::handle param) {
+    py::handle t = param;
+    if (py::hasattr(param, "_underlying")) {
+        t = param.attr("_underlying");
+    }
+    auto shape = t.attr("shape").cast<infinicore::Shape>();
+    void *ptr = reinterpret_cast<void *>(t.attr("data_ptr")().cast<uintptr_t>());
+    auto dtype = static_cast<infinicore::DataType>(py::cast<int>(py::int_(t.attr("dtype"))));
+    py::object dev_obj = t.attr("device");
+    infinicore::Device::Type dev_type = infinicore::Device::Type::CPU;
+    infinicore::Device::Index dev_index = 0;
+    if (py::isinstance<py::str>(dev_obj)) {
+        const std::string s = py::str(dev_obj);
+        const auto colon = s.find(':');
+        const std::string kind = (colon == std::string::npos) ? s : s.substr(0, colon);
+        if (colon != std::string::npos) {
+            dev_index = static_cast<infinicore::Device::Index>(std::stoul(s.substr(colon + 1)));
+        }
+        if (kind == "CPU") {
+            dev_type = infinicore::Device::Type::CPU;
+        } else if (kind == "METAX" || kind == "cuda") {
+            dev_type = infinicore::Device::Type::METAX;
+        } else if (kind == "NVIDIA") {
+            dev_type = infinicore::Device::Type::NVIDIA;
+        } else {
+            dev_type = infinicore::Device::Type::METAX;
+        }
+    } else {
+        dev_type = static_cast<infinicore::Device::Type>(
+            py::cast<int>(py::int_(dev_obj.attr("type"))));
+        dev_index = dev_obj.attr("index").cast<infinicore::Device::Index>();
+    }
+    infinicore::Device device(dev_type, dev_index);
+    if (t.attr("is_contiguous")().cast<bool>()) {
+        return infinicore::Tensor::from_blob(ptr, shape, dtype, device);
+    }
+    auto strides = t.attr("strides").cast<infinicore::Strides>();
+    return infinicore::Tensor::strided_from_blob(ptr, shape, strides, dtype, device);
+}
+
+std::optional<infinicore::Tensor> optional_tensor_from_py(py::handle param) {
+    if (param.is_none()) {
+        return std::nullopt;
+    }
+    return tensor_from_py(param);
+}
+
+py::dict tensor_to_blob_meta(const infinicore::Tensor &t) {
+    py::dict meta;
+    meta["data_ptr"] = reinterpret_cast<uintptr_t>(t->data());
+    meta["shape"] = t->shape();
+    meta["dtype"] = py::int_(static_cast<int>(t->dtype()));
+    meta["device"] = py::str(static_cast<std::string>(t->device().toString()));
+    if (t->is_contiguous()) {
+        meta["strides"] = py::none();
+    } else {
+        meta["strides"] = t->strides();
+    }
+    return meta;
+}
+
+} // namespace
+
 inline void bind_infer_engine(py::module &m) {
     py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(m, "InferEngine");
     infer_engine
         .def(py::init([](
                           const std::string &model_path,
                           const distributed::DistConfig &dist,
-                          infinicore::Device::Type dev,
+                          int dev_type,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
                           bool enable_graph_compiling,
                           const std::string &attention_backend,
                           std::optional<infinicore::DataType> kv_cache_dtype) {
+                 auto dev = static_cast<infinicore::Device::Type>(dev_type);
                  return std::make_shared<InferEngine>(
                      model_path,
                      dist,
@@ -51,14 +118,53 @@ inline void bind_infer_engine(py::module &m) {
              }),
              py::arg("model_path") = "",
              py::arg("distributed_config") = distributed::DistConfig(),
-             py::arg("device_type") = infinicore::context::getDevice().getType(),
+             py::arg("device_type") = static_cast<int>(infinicore::context::getDevice().getType()),
              py::arg("cache_config") = py::none(),
              py::arg("enable_graph_compiling") = false,
              py::arg("attention_backend") = "default",
              py::arg("kv_cache_dtype") = py::none())
-        .def("load_param", &InferEngine::load_param,
-             py::arg("name"), py::arg("param"),
-             "Load a parameter tensor into all workers (each worker picks its shard)")
+        .def(
+            "load_param",
+            [](InferEngine &self, const std::string &name, py::handle param) {
+                self.load_param(name, tensor_from_py(param));
+            },
+            py::arg("name"),
+            py::arg("param"),
+            "Load a parameter tensor into all workers (each worker picks its shard)")
+        .def("weight_blob", [](InferEngine &self, const std::string &name) -> py::dict {
+            for (const auto &state_dict_tp : self.state_dict()) {
+                for (const auto &[n, param] : state_dict_tp) {
+                    if (n != name) {
+                        continue;
+                    }
+                    const infinicore::Tensor &t = param;
+                    py::dict meta;
+                    meta["data_ptr"] = reinterpret_cast<uintptr_t>(t->data());
+                    meta["shape"] = t->shape();
+                    meta["dtype"] = py::int_(static_cast<int>(t->dtype()));
+                    meta["device"] = py::str(static_cast<std::string>(t->device().toString()));
+                    if (t->is_contiguous()) {
+                        meta["strides"] = py::none();
+                    } else {
+                        meta["strides"] = t->strides();
+                    }
+                    return meta;
+                }
+            }
+            throw std::runtime_error("weight not found: " + name);
+        })
+        .def("state_dict_keys", [](InferEngine &self) {
+            py::list state_dict_keys_tp_all;
+            for (const auto &state_dict_tp : self.state_dict()) {
+                py::list keys;
+                for (const auto &[name, param] : state_dict_tp) {
+                    (void)param;
+                    keys.append(py::cast(name));
+                }
+                state_dict_keys_tp_all.append(keys);
+            }
+            return state_dict_keys_tp_all;
+        })
         .def("state_dict", [](InferEngine &self) {
             py::list state_dict_tp_all;
             for (const auto &state_dict_tp : self.state_dict()) {
@@ -88,17 +194,10 @@ inline void bind_infer_engine(py::module &m) {
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
-        .def("get_paged_kv_cache_tensors", [](InferEngine &self) {
-            std::vector<infinicore::Tensor> layers;
-            {
-                py::gil_scoped_release release;
-                for (const auto &t : self.get_paged_kv_cache_tensors()) {
-                    layers.emplace_back(t);
-                }
-            }
+        .def("paged_kv_blob_layers", [](InferEngine &self) -> py::list {
             py::list out;
-            for (const auto &t : layers) {
-                out.append(infinicore::Tensor(t));
+            for (const auto &t : self.get_paged_kv_cache_tensors()) {
+                out.append(tensor_to_blob_meta(t));
             }
             return out;
         })
@@ -107,30 +206,30 @@ inline void bind_infer_engine(py::module &m) {
     py::class_<InferEngine::Input>(infer_engine, "Input")
         .def(
             py::init([](
-                         std::optional<infinicore::Tensor> input_ids,
-                         std::optional<infinicore::Tensor> pixel_values,
-                         std::optional<infinicore::Tensor> position_ids,
-                         std::optional<infinicore::Tensor> past_sequence_lengths,
-                         std::optional<infinicore::Tensor> total_sequence_lengths,
-                         std::optional<infinicore::Tensor> input_offsets,
-                         std::optional<infinicore::Tensor> cu_seqlens,
-                         std::optional<infinicore::Tensor> block_tables,
-                         std::optional<infinicore::Tensor> slot_mapping,
-                         std::optional<infinicore::Tensor> image_bound,
-                         std::optional<infinicore::Tensor> tgt_sizes,
+                         py::handle input_ids,
+                         py::handle pixel_values,
+                         py::handle position_ids,
+                         py::handle past_sequence_lengths,
+                         py::handle total_sequence_lengths,
+                         py::handle input_offsets,
+                         py::handle cu_seqlens,
+                         py::handle block_tables,
+                         py::handle slot_mapping,
+                         py::handle image_bound,
+                         py::handle tgt_sizes,
                          py::kwargs kwargs) {
                 InferEngine::Input input{
-                    std::move(input_ids),
-                    std::move(pixel_values),
-                    std::move(position_ids),
-                    std::move(past_sequence_lengths),
-                    std::move(total_sequence_lengths),
-                    std::move(input_offsets),
-                    std::move(cu_seqlens),
-                    std::move(block_tables),
-                    std::move(slot_mapping),
-                    std::move(image_bound),
-                    std::move(tgt_sizes),
+                    optional_tensor_from_py(input_ids),
+                    optional_tensor_from_py(pixel_values),
+                    optional_tensor_from_py(position_ids),
+                    optional_tensor_from_py(past_sequence_lengths),
+                    optional_tensor_from_py(total_sequence_lengths),
+                    optional_tensor_from_py(input_offsets),
+                    optional_tensor_from_py(cu_seqlens),
+                    optional_tensor_from_py(block_tables),
+                    optional_tensor_from_py(slot_mapping),
+                    optional_tensor_from_py(image_bound),
+                    optional_tensor_from_py(tgt_sizes),
                 };
 
                 // Explicit defaults
@@ -195,11 +294,15 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("return_logits", &InferEngine::Input::return_logits);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
-        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Output tensor")
-        .def_readwrite(
-            "logits",
-            &InferEngine::Output::logits,
-            "Optional debug logits (see ``return_logits``)");
+        .def_property_readonly("output_ids", [](const InferEngine::Output &self) {
+            return tensor_to_blob_meta(self.output_ids);
+        })
+        .def_property_readonly("logits", [](const InferEngine::Output &self) -> py::object {
+            if (!self.logits.has_value()) {
+                return py::none();
+            }
+            return tensor_to_blob_meta(*self.logits);
+        });
 }
 
 } // namespace infinilm::engine
