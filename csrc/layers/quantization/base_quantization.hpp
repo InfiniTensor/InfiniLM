@@ -85,9 +85,11 @@ public:
     // or nullptr if no replacement is needed.
     virtual std::shared_ptr<BaseQuantization> process_weights_after_loading(
         ParamsMap &params,
-        const infinicore::Device &device) const {
+        const infinicore::Device &device,
+        int split_dim = -1) const {
         (void)params;
         (void)device;
+        (void)split_dim;
         return nullptr;
     }
 

@@ -1,5 +1,7 @@
 #include "gptq.hpp"
+#include "gptq_marlin.hpp"
 #include "gptq_qy.hpp"
+#include "marlin_utils.hpp"
 
 namespace infinilm::quantization {
 
@@ -20,7 +22,8 @@ std::vector<ParamDescriptor> GPTQ::get_param_layout(
     descs.push_back({"qweight", {in_features / 8, out_features}, infinicore::DataType::I32, gptq_tp_dim, tp_rank, tp_size});
     descs.push_back({"qzeros", {in_features / group_size, out_features / 8}, infinicore::DataType::I32, gptq_tp_dim, tp_rank, tp_size});
     descs.push_back({"scales", {in_features / group_size, out_features}, dtype, gptq_tp_dim, tp_rank, tp_size});
-    descs.push_back({"g_idx", {in_features}, infinicore::DataType::I32, 0, tp_rank, tp_size});
+    const bool row_parallel = split_dim == 1;
+    descs.push_back({"g_idx", {in_features}, infinicore::DataType::I32, row_parallel ? 0 : -1, row_parallel ? tp_rank : 0, row_parallel ? tp_size : 1});
     if (bias) {
         descs.push_back({"bias", {out_features}, dtype, -1, 0, 1});
     }
@@ -38,10 +41,56 @@ infinicore::Tensor GPTQ::forward(
 
 std::shared_ptr<BaseQuantization> GPTQ::process_weights_after_loading(
     ParamsMap &params,
-    const infinicore::Device &device) const {
+    const infinicore::Device &device,
+    int split_dim) const {
 
     if (device.getType() == infinicore::Device::Type::QY) {
         return GPTQ_QY::convert_from_gptq(params, device, get_config());
+    }
+
+    if (device.getType() == infinicore::Device::Type::NVIDIA) {
+        const int bits = get_or<int>("bits", get_or<int>("w_bit", 4));
+        const bool is_sym = get_or<bool>("sym", true);
+        if (bits == 4 && is_sym) {
+            auto qweight = params.at("qweight");
+            const size_t input_size_per_partition = qweight->size(0) * get_packing_num();
+            const size_t output_size_per_partition = qweight->size(1);
+            const int group_size = get_group_size();
+            if (marlin::supports_shape(input_size_per_partition, output_size_per_partition, group_size)) {
+                const bool desc_act = get_or<bool>("desc_act", false);
+                const bool row_parallel = split_dim == 1;
+                const bool is_k_full = (!desc_act) || (desc_act && !row_parallel);
+
+                if (desc_act) {
+                    infinicore::Tensor perm;
+                    params["g_idx"] = marlin::sort_g_idx(params.at("g_idx"), perm);
+                    params["perm"] = perm;
+                } else {
+                    params["g_idx"] = marlin::make_empty_i32(device);
+                    params["perm"] = marlin::make_empty_i32(device);
+                }
+
+                params["qweight"] = marlin::gptq_marlin_repack(
+                    qweight,
+                    params.at("perm"),
+                    input_size_per_partition,
+                    output_size_per_partition,
+                    bits);
+                params["scales"] = marlin::permute_scales(
+                    params.at("scales"),
+                    input_size_per_partition,
+                    output_size_per_partition,
+                    group_size);
+                params["qzeros"] = marlin::make_empty_i32(device);
+                params["global_scales"] = marlin::make_empty_i32(device);
+
+                return std::make_shared<GPTQMarlin>(
+                    get_config(),
+                    input_size_per_partition,
+                    output_size_per_partition,
+                    is_k_full);
+            }
+        }
     }
     return std::const_pointer_cast<BaseQuantization>(shared_from_this());
 }
