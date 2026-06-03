@@ -7,7 +7,8 @@ Classification (for PR review):
     ``compile_max_seq_len``, ``compile_bucket_mode`` (``bench`` in serve scripts),
     ``compile_buckets`` / ``compile_warmup_seq_lens``.
   REPRO — opt-in experiment / bisect knobs (not set in ``serve_infinilm.sh``):
-    ``prefill_cg_allow_partial_pad``, ``prefill_cudagraph_max_bucket``,
+    ``prefill_cg_kv_outside_graph``, ``prefill_cg_allow_partial_pad``,
+    ``prefill_cudagraph_max_bucket``,
     ``prefill_cudagraph_capture_buckets`` / ``CAPTURE_MODE=longseq``,
     ``COMPILE_BUCKET_MODE=power|linear``, ``COMPILE_WARMUP_SEQ_LENS``.
   DEBUG — diagnostics only:
@@ -43,6 +44,14 @@ def prefill_cudagraph_enabled() -> bool:
     return _truthy("INFINI_PREFILL_CUDAGRAPH", "0")
 
 
+def prefill_cg_kv_outside_graph() -> bool:
+    """Phase 1: stage K/V in-graph; flush to paged cache eagerly after CUDAGraph replay.
+
+    Default off until Phase 1 validation passes. Set ``INFINI_PREFILL_CG_KV_OUTSIDE_GRAPH=1``.
+    """
+    return _truthy("INFINI_PREFILL_CG_KV_OUTSIDE_GRAPH", "0")
+
+
 def prefill_cg_allow_partial_pad() -> bool:
     """Repro-only: allow bucket-padded CUDAGraph replay when ``seq_len < bucket``.
 
@@ -50,6 +59,15 @@ def prefill_cg_allow_partial_pad() -> bool:
     pre-fix padded path that triggers MetaX Xnack/ATU on shorts like 14→512.
     """
     return _truthy("INFINI_PREFILL_CG_ALLOW_PARTIAL", "0")
+
+
+def prefill_cg_valid_seq_len() -> bool:
+    """Phase 2: pass pooled ``valid_seq_len`` into ``prefill_flash_attention`` for partial replay.
+
+    Default on when ``INFINI_PREFILL_CG_VALID_SEQ_LEN`` is unset (safe no-op at full bucket).
+    Set ``INFINI_PREFILL_CG_VALID_SEQ_LEN=0`` to disable.
+    """
+    return _truthy("INFINI_PREFILL_CG_VALID_SEQ_LEN", "1")
 
 
 def prefill_cudagraph_max_bucket(default: int = 4096) -> Optional[int]:

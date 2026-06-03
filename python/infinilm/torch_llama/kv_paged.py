@@ -52,6 +52,32 @@ def _cpp_tensor(t) -> object:
     return t._underlying if hasattr(t, "_underlying") else t
 
 
+def _to_torch_view(t) -> torch.Tensor:
+    if isinstance(t, torch.Tensor):
+        return t
+    if hasattr(t, "_underlying"):
+        return infinicore.to_torch(t)
+    fn = getattr(_infinicore, "_tensor_as_torch", None)
+    if fn is None:
+        raise RuntimeError(
+            "infinicore tensor views require InfiniCore built with aten enabled"
+        )
+    return fn(t)
+
+
+def _slot_mapping_for_caching(slot_mapping, seq_len: int) -> object:
+    """Return C++ slot_mapping prefix ``[:seq_len]`` on GPU for ``paged_caching_``."""
+    if isinstance(slot_mapping, torch.Tensor):
+        sm = slot_mapping.reshape(-1)
+    else:
+        sm = _to_torch_view(slot_mapping).reshape(-1)
+    if sm.shape[0] > seq_len:
+        sm = sm[:seq_len]
+    if sm.device.type != "cuda":
+        sm = sm.to("cuda")
+    return _cpp_tensor(infinicore.from_torch(sm.contiguous()))
+
+
 def _split_layer_kv(kv_layer):
     """Split per-layer KV ``[2, num_blocks, block_size, num_kv_heads, head_dim]``."""
     kv = _cpp_tensor(kv_layer)
@@ -75,24 +101,55 @@ def write_layer_kv_from_torch(
     if key.dim() != 4 or value.dim() != 4:
         raise ValueError("expected key/value rank-4 BHSD tensors")
     seq_len = key.shape[1]
-    k_tokens = key.reshape(seq_len, key.shape[2], key.shape[3]).contiguous()
-    v_tokens = value.reshape(seq_len, value.shape[2], value.shape[3]).contiguous()
+    k_tokens = (
+        key.reshape(seq_len, key.shape[2], key.shape[3]).contiguous().clone()
+    )
+    v_tokens = (
+        value.reshape(seq_len, value.shape[2], value.shape[3]).contiguous().clone()
+    )
 
     k_cache, v_cache = _split_layer_kv(ctx.kv_layers[layer_idx])
     k_pool = k_cache.permute([0, 2, 1, 3])
     v_pool = v_cache.permute([0, 2, 1, 3])
 
-    slot_mapping = ctx.slot_mapping
-    if hasattr(slot_mapping, "shape") and int(slot_mapping.shape[0]) > seq_len:
-        slot_mapping = slot_mapping[:seq_len]
-    target_device = infinicore.device("cuda", 0)
-    if str(slot_mapping.device) != str(target_device):
-        slot_mapping = slot_mapping.to(target_device)
+    slot_mapping = _slot_mapping_for_caching(ctx.slot_mapping, seq_len)
 
     _infinicore.paged_caching_(
         k_pool,
         v_pool,
         _cpp_tensor(infinicore.from_torch(k_tokens)),
         _cpp_tensor(infinicore.from_torch(v_tokens)),
-        _cpp_tensor(slot_mapping),
+        slot_mapping,
     )
+
+
+def flush_staged_kv_to_paged_cache(
+    staging_pool,
+    bucket: int,
+    seq_len: int,
+    ctx: PagedPrefillContext,
+) -> None:
+    """Eager post-replay flush: write staged K/V into C++ paged cache per layer."""
+    for layer_idx in range(staging_pool.num_layers):
+        key, value = staging_pool.staged_layer_kv(bucket, layer_idx, seq_len)
+        write_layer_kv_from_torch(ctx, layer_idx, key, value)
+
+
+def read_paged_kv_at_slots(
+    kv_layer,
+    slot_indices: list[int],
+    *,
+    block_size: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Gather K/V vectors at physical paged slots for layer ``kv_layer`` (batch=1)."""
+    k_cache, v_cache = _split_layer_kv(kv_layer)
+    k_t = _to_torch_view(k_cache).contiguous()
+    v_t = _to_torch_view(v_cache).contiguous()
+    k_rows: list[torch.Tensor] = []
+    v_rows: list[torch.Tensor] = []
+    for slot in slot_indices:
+        block = int(slot) // block_size
+        offset = int(slot) % block_size
+        k_rows.append(k_t[block, offset])
+        v_rows.append(v_t[block, offset])
+    return torch.stack(k_rows, dim=0), torch.stack(v_rows, dim=0)

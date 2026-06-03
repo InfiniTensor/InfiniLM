@@ -11,6 +11,8 @@ from typing import List, Optional
 
 from .env import (
     compile_buckets,
+    prefill_cg_kv_outside_graph,
+    prefill_cg_valid_seq_len,
     prefill_cudagraph_capture_buckets,
     prefill_cudagraph_enabled,
     prefill_cudagraph_max_bucket,
@@ -18,6 +20,7 @@ from .env import (
 
 # Flash-attn custom op kept outside Inductor (vLLM ``splitting_ops`` pattern).
 DEFAULT_SPLITTING_OPS: List[str] = ["infinilm.prefill_flash_attention"]
+STAGE_PAGED_KV_SPLITTING_OP = "infinilm.stage_paged_kv"
 
 
 def default_compile_size_ladder(max_seq_len: int = 8192) -> List[int]:
@@ -83,6 +86,13 @@ class CompiledPrefillConfig:
                 self.cudagraph_capture_sizes = list(self.compile_sizes)
         if self.splitting_ops is None:
             self.splitting_ops = list(DEFAULT_SPLITTING_OPS)
+        if prefill_cg_kv_outside_graph():
+            ops = list(self.splitting_ops)
+            if STAGE_PAGED_KV_SPLITTING_OP not in ops:
+                ops.append(STAGE_PAGED_KV_SPLITTING_OP)
+            self.splitting_ops = ops
+            if not self.prefix.endswith("_kv_outside_stage"):
+                self.prefix = f"{self.prefix}_kv_outside_stage"
 
     @property
     def model_hash(self) -> str:
@@ -106,6 +116,8 @@ class CompiledPrefillConfig:
             "cudagraph_capture_sizes": self.cudagraph_capture_sizes,
             "splitting_ops": self.splitting_ops,
             "enable_fusion": self.enable_fusion,
+            "kv_outside_graph": prefill_cg_kv_outside_graph(),
+            "valid_seq_len": prefill_cg_valid_seq_len(),
         }
         with open(os.path.join(self.cache_dir, "infinilm_compile_meta.json"), "w") as f:
             json.dump(meta, f, indent=2)
