@@ -350,8 +350,17 @@ void RankWorker::thread_loop() {
 
             } else if (local_cmd == Command::LOAD_BATCH) {
                 try {
+                    auto local_state_dict = model_->state_dict();
                     for (const auto &[name, param] : local_params) {
-                        model_->load_parameter_no_sync(name, param);
+                        auto it = local_state_dict.find(name);
+                        if (it == local_state_dict.end()) {
+                            continue;
+                        }
+                        try {
+                            it->second.load_no_sync(param);
+                        } catch (const std::exception &e) {
+                            throw std::runtime_error("Error loading parameter '" + name + "'. \n" + e.what());
+                        }
                     }
                     infinicore::context::syncStream();
                 } catch (const std::exception &e) {
