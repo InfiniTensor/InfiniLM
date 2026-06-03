@@ -36,7 +36,7 @@ struct LlamaConfig : public InfinilmModel::Config {
     size_t max_position_embeddings = 2048; // Maximum sequence length
     double rope_theta = 10000.0;           // RoPE base frequency
 
-    std::shared_ptr<infinicore::nn::RoPE::ScalingConfig> rope_scaling = nullptr; // RoPE scaling type
+    std::shared_ptr<infinicore::nn::RopeScalingConfig> rope_scaling = nullptr; // RoPE scaling type
 
     // Normalization
     double rms_norm_eps = 1e-6; // RMSNorm epsilon

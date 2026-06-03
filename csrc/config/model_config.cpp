@@ -25,56 +25,6 @@ ModelConfig::get_quant_scheme() const {
     }
 }
 
-std::shared_ptr<infinicore::nn::RoPE::ScalingConfig>
-ModelConfig::get_rope_scaling() const {
-    if (!config_json.contains("rope_scaling") || config_json["rope_scaling"].is_null()) {
-        return nullptr;
-    }
-
-    const auto &rope_scaling = config_json["rope_scaling"];
-    if (!rope_scaling.is_object()) {
-        throw std::runtime_error("rope_scaling must be an object");
-    }
-
-    std::string type_str;
-    if (rope_scaling.contains("type")) {
-        type_str = rope_scaling["type"].get<std::string>();
-    } else if (rope_scaling.contains("rope_type")) {
-        type_str = rope_scaling["rope_type"].get<std::string>();
-    } else {
-        throw std::runtime_error("rope_scaling must contain 'type' or 'rope_type' field");
-    }
-
-    if (type_str == "longrope") {
-        // Required fields for LongRopeConfig
-        if (!rope_scaling.contains("short_factor") || !rope_scaling.contains("long_factor") || !rope_scaling.contains("original_max_position_embeddings")) {
-            throw std::runtime_error(
-                "LongRopeConfig requires 'short_factor', 'long_factor', and 'original_max_position_embeddings'");
-        }
-
-        auto short_factor = rope_scaling["short_factor"].get<std::vector<float>>();
-        auto long_factor = rope_scaling["long_factor"].get<std::vector<float>>();
-        size_t original_max_position_embeddings = rope_scaling["original_max_position_embeddings"].get<size_t>();
-
-        float factor = 1.0f;
-        if (rope_scaling.contains("factor")) {
-            factor = rope_scaling["factor"].get<float>();
-        }
-
-        return std::make_shared<infinicore::nn::RoPE::LongRopeConfig>(
-            std::move(short_factor),
-            std::move(long_factor),
-            original_max_position_embeddings,
-            factor);
-    } else if (type_str == "default" || type_str == "none" || type_str == "dynamic") {
-        // Default scaling, no scaling applied
-        // Currently not handling extended sequence lengths for dynamic scaling. Add specific branches when needed.
-        return nullptr;
-    } else {
-        throw std::runtime_error("Unsupported rope_scaling type: " + type_str);
-    }
-}
-
 infinicore::DataType ModelConfig::get_dtype() const {
     std::string dtype_str;
     if (config_json.contains("dtype")) {
@@ -86,6 +36,24 @@ infinicore::DataType ModelConfig::get_dtype() const {
     }
 
     return parse_dtype(dtype_str);
+}
+
+size_t ModelConfig::get_rotary_dim() const {
+    size_t head_dim = get_head_dim();
+    double partial_rotary_factor = get_or<double>("partial_rotary_factor", 1.0);
+
+    if (partial_rotary_factor <= 0.0 || partial_rotary_factor >= 1.0) {
+        return head_dim;
+    }
+
+    size_t rotary_dim = static_cast<size_t>(std::llround(
+        static_cast<double>(head_dim) * partial_rotary_factor));
+    rotary_dim = std::clamp(rotary_dim, static_cast<size_t>(2), head_dim);
+
+    if (rotary_dim % 2 != 0) {
+        rotary_dim -= 1;
+    }
+    return std::max(rotary_dim, static_cast<size_t>(2));
 }
 
 std::ostream &operator<<(std::ostream &os, const ModelConfig &config) {

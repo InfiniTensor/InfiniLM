@@ -18,6 +18,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_glm4_model_config(
         config_json["attention_bias"] = false;
     }
 
+    // Use GPT-J style RoPE (interleaved dimensions) for GLM4
+    model_config->set_rope_algo(infinicore::nn::RoPE::Algo::GPT_J);
+
     return model_config;
 }
 

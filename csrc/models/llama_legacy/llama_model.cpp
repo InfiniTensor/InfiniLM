@@ -1,4 +1,5 @@
 #include "llama_model.hpp"
+#include "../../layers/rotary_embedding/rotary_embedding_factory.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
@@ -22,9 +23,10 @@ LlamaModel::LlamaModel(std::shared_ptr<infinilm::config::ModelConfig> model_conf
     }
     INFINICORE_NN_MODULE_INIT(norm, model_config_->get<size_t>("hidden_size"), model_config_->get<double>("rms_norm_eps"),
                               dtype, device);
-    INFINICORE_NN_MODULE_INIT(rotary_emb, model_config_->get_head_dim(), model_config_->get<size_t>("max_position_embeddings"),
+    auto rope_scaling_config = infinilm::layers::rotary_embedding::make_scaling_config(model_config_);
+    INFINICORE_NN_MODULE_INIT(rotary_emb, model_config_->get_head_dim(), model_config->get_rotary_dim(), model_config_->get<size_t>("max_position_embeddings"),
                               model_config_->get<double>("rope_theta"), infinicore::nn::RoPE::Algo::GPT_NEOX,
-                              dtype, device, model_config_->get_rope_scaling());
+                              dtype, device, rope_scaling_config);
 
     for (auto &layer : layers_) {
         if (layer) {
