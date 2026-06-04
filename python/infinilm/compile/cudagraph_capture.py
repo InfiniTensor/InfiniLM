@@ -24,9 +24,157 @@ from .cudagraph_pools import (
     valid_seq_len_context,
 )
 from .cudagraph_runtime import _run_compiled_backbone
-from .env import prefill_cg_kv_outside_graph
+from .env import (
+    cudagraph_pool_tier_id,
+    cudagraph_pool_tier_repr_bucket,
+    prefill_cg_kv_outside_graph,
+    prefill_cg_pool_tier_isolation,
+)
 
 logger = logging.getLogger(__name__)
+
+_TIER_GRAPH_POOLS: dict[str, object] = {}
+
+
+def refresh_cudagraph_wrapper_refs(holder) -> int:
+    """Snapshot live ``CUDAGraphWrapper`` instances after compile/capture."""
+    from vllm.compilation.cuda_graph import CUDAGraphWrapper
+    import gc
+
+    refs: list = []
+    for obj in gc.get_objects():
+        try:
+            if isinstance(obj, CUDAGraphWrapper):
+                refs.append(obj)
+        except ReferenceError:
+            continue
+    holder._cudagraph_wrappers = refs
+    return len(refs)
+
+
+def _wrapper_refs(backbone: VllmPrefillBackbone) -> list:
+    return list(getattr(backbone, "_cudagraph_wrappers", ()))
+
+
+def _iter_cudagraph_wrappers(root: Optional[torch.nn.Module] = None):
+    if root is None:
+        return
+    yield from _wrapper_refs(root)
+
+
+def _graph_pool_for_bucket(bucket: int):
+    from vllm.platforms import current_platform
+
+    if not prefill_cg_pool_tier_isolation():
+        return current_platform.get_global_graph_pool()
+    tier = cudagraph_pool_tier_id(bucket)
+    pool = _TIER_GRAPH_POOLS.get(tier)
+    if pool is None:
+        pool = current_platform.graph_pool_handle()
+        _TIER_GRAPH_POOLS[tier] = pool
+    return pool
+
+
+def sync_cudagraph_wrapper_pools(backbone: VllmPrefillBackbone, bucket: int) -> None:
+    """Point piecewise wrappers at the tier pool for ``bucket`` (when isolation on)."""
+    if not prefill_cg_pool_tier_isolation():
+        return
+    refs = _wrapper_refs(backbone)
+    if not refs:
+        return
+    pool = _graph_pool_for_bucket(bucket)
+    for wrapper in refs:
+        wrapper.graph_pool = pool
+
+
+def cudagraph_bucket_has_piecewise_entry(
+    backbone: VllmPrefillBackbone,
+    bucket: int,
+) -> bool:
+    """Return True when a piecewise CUDAGraph entry exists for ``bucket``."""
+    for wrapper in _iter_cudagraph_wrappers(backbone):
+        for desc in wrapper.concrete_cudagraph_entries:
+            if int(desc.num_tokens) == int(bucket):
+                return True
+    return False
+
+
+def sync_captured_buckets_from_wrappers(
+    backbone: VllmPrefillBackbone,
+    capture_sizes: Optional[object],
+) -> set[int]:
+    """Buckets with live piecewise entries (capture succeeded)."""
+    capture_set = {int(b) for b in (capture_sizes or ())}
+    return {
+        b
+        for b in capture_set
+        if cudagraph_bucket_has_piecewise_entry(backbone, b)
+    }
+
+
+def invalidate_cudagraph_entries(
+    backbone: VllmPrefillBackbone,
+    buckets: Optional[List[int]] = None,
+) -> int:
+    """Drop cached piecewise graphs so the next PIECEWISE pass re-captures."""
+    bucket_set = None if buckets is None else {int(b) for b in buckets}
+    cleared = 0
+    for wrapper in _iter_cudagraph_wrappers(backbone):
+        if bucket_set is None:
+            cleared += len(wrapper.concrete_cudagraph_entries)
+            wrapper.concrete_cudagraph_entries.clear()
+            continue
+        drop = [
+            desc
+            for desc in wrapper.concrete_cudagraph_entries
+            if desc.num_tokens in bucket_set
+        ]
+        for desc in drop:
+            del wrapper.concrete_cudagraph_entries[desc]
+        cleared += len(drop)
+    if cleared:
+        logger.info(
+            "compiled prefill: invalidated %s CUDAGraph entries for bucket(s) %s",
+            cleared,
+            sorted(bucket_set) if bucket_set is not None else "all",
+        )
+    return cleared
+
+
+def reset_cudagraph_pools_for_buckets(
+    backbone: Optional[VllmPrefillBackbone] = None,
+    buckets: Optional[List[int]] = None,
+) -> None:
+    """Allocate fresh driver graph pool(s) after partial replay poisons memory."""
+    from vllm.platforms import current_platform
+
+    if prefill_cg_pool_tier_isolation():
+        if buckets:
+            tiers = sorted(set(cudagraph_pool_tier_id(int(b)) for b in buckets))
+        else:
+            tiers = ["short", "mid", "long"]
+        for tier in tiers:
+            _TIER_GRAPH_POOLS.pop(tier, None)
+            _TIER_GRAPH_POOLS[tier] = current_platform.graph_pool_handle()
+        if backbone is not None:
+            for tier in tiers:
+                sync_cudagraph_wrapper_pools(
+                    backbone, cudagraph_pool_tier_repr_bucket(tier)
+                )
+        return
+    cls = current_platform.__class__
+    pool = current_platform.graph_pool_handle()
+    cls._global_graph_pool = pool
+    if backbone is not None:
+        for wrapper in _iter_cudagraph_wrappers(backbone):
+            wrapper.graph_pool = pool
+
+
+def reset_global_cudagraph_pool(
+    backbone: Optional[VllmPrefillBackbone] = None,
+) -> None:
+    """Backward-compatible alias: reset all pools (or global pool when isolation off)."""
+    reset_cudagraph_pools_for_buckets(backbone, buckets=None)
 
 
 def _warmup_compiled_backbone(
@@ -89,6 +237,8 @@ def _capture_cudagraph_bucket(
     kv_outside = prefill_cg_kv_outside_graph() and kv_staging_pool is not None
     if kv_outside:
         use_paged_ctx = False
+
+    sync_cudagraph_wrapper_pools(backbone, seq_len)
 
     num_warmups = vllm_config.compilation_config.cudagraph_num_of_warmups
     dummy = input_pool.get(seq_len)
@@ -169,6 +319,7 @@ def recapture_cudagraph_buckets(
     valid_len_pool: Optional[_CudagraphValidLenPool] = None,
     block_size: int = 256,
     use_paged_ctx: bool = False,
+    capture_order: Optional[str] = None,
 ) -> None:
     """Re-capture piecewise CUDAGraphs after partial-bucket Inductor replay poisons a pool."""
     from vllm.compilation.monitor import set_cudagraph_capturing_enabled
@@ -178,7 +329,15 @@ def recapture_cudagraph_buckets(
     kv_outside = prefill_cg_kv_outside_graph() and kv_staging_pool is not None
     if kv_outside:
         use_paged_ctx = False
-    sizes = sorted(set(int(b) for b in buckets), reverse=not use_paged_ctx)
+    unique = sorted(set(int(b) for b in buckets))
+    if capture_order == "ascending":
+        sizes = unique
+    elif capture_order == "descending":
+        sizes = list(reversed(unique))
+    else:
+        sizes = sorted(unique, reverse=not use_paged_ctx)
+    invalidate_cudagraph_entries(backbone, sizes)
+    reset_cudagraph_pools_for_buckets(backbone, sizes)
     logger.info(
         "compiled prefill: re-capturing piecewise CUDAGraphs for bucket(s) %s "
         "(partial replay poison)",

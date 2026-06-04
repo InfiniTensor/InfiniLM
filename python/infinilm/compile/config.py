@@ -12,6 +12,9 @@ from typing import List, Optional
 from .env import (
     compile_buckets,
     prefill_cg_kv_outside_graph,
+    prefill_cg_pool_tier_isolation,
+    prefill_cg_power_ladder_enabled,
+    prefill_cg_power_capture_buckets,
     prefill_cg_valid_seq_len,
     prefill_cudagraph_capture_buckets,
     prefill_cudagraph_enabled,
@@ -76,6 +79,10 @@ class CompiledPrefillConfig:
                 explicit = prefill_cudagraph_capture_buckets(self.max_seq_len)
                 if explicit is not None:
                     self.cudagraph_capture_sizes = list(explicit)
+                elif prefill_cg_power_ladder_enabled():
+                    self.cudagraph_capture_sizes = list(
+                        prefill_cg_power_capture_buckets(self.max_seq_len)
+                    )
                 else:
                     buckets = list(compile_buckets(self.max_seq_len))
                     max_cg = prefill_cudagraph_max_bucket()
@@ -118,6 +125,8 @@ class CompiledPrefillConfig:
             "enable_fusion": self.enable_fusion,
             "kv_outside_graph": prefill_cg_kv_outside_graph(),
             "valid_seq_len": prefill_cg_valid_seq_len(),
+            "power_cg_ladder": prefill_cg_power_ladder_enabled(),
+            "pool_tier_isolation": prefill_cg_pool_tier_isolation(),
         }
         with open(os.path.join(self.cache_dir, "infinilm_compile_meta.json"), "w") as f:
             json.dump(meta, f, indent=2)

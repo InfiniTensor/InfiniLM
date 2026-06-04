@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Optional, Set
+from typing import Optional, Set, List, AbstractSet
 
 import torch
 
@@ -22,12 +22,18 @@ from .cudagraph_pools import (
     kv_staging_context,
     valid_seq_len_context,
 )
-from .env import prefill_cg_kv_outside_graph, prefill_cg_valid_seq_len
+from .env import (
+    cudagraph_buckets_needing_recapture,
+    cudagraph_poison_ladder_buckets,
+    min_cudagraph_piecewise_bucket,
+    prefill_cg_baseline_none,
+    prefill_cg_kv_outside_graph,
+    prefill_cg_pool_tier_isolation,
+    prefill_cg_valid_seq_len,
+)
 
 logger = logging.getLogger(__name__)
 
-# Partial PIECEWISE replay below this bucket poisons larger CUDAGraphs on MetaX.
-PARTIAL_CG_PIECEWISE_MIN_BUCKET = 4096
 _MIN_COMPILED_SEQ_LEN = 8
 
 
@@ -48,13 +54,18 @@ def _run_compiled_backbone(
     from vllm.config import CUDAGraphMode
     from vllm.forward_context import BatchDescriptor, set_forward_context
 
+    from .cudagraph_capture import sync_cudagraph_wrapper_pools
+
     num_tokens = int(input_ids.shape[1])
+    if cfg.use_cudagraph and prefill_cg_pool_tier_isolation():
+        sync_cudagraph_wrapper_pools(backbone, num_tokens)
+    min_piecewise = min_cudagraph_piecewise_bucket(cfg.cudagraph_capture_sizes)
     if cudagraph_runtime_mode is None:
         capture_set = set(cfg.cudagraph_capture_sizes or ())
         use_cg = (
             cfg.use_cudagraph
             and num_tokens in capture_set
-            and num_tokens >= PARTIAL_CG_PIECEWISE_MIN_BUCKET
+            and num_tokens >= min_piecewise
         )
         if cfg.use_cudagraph and not use_cg:
             logger.info(
@@ -80,46 +91,31 @@ def cudagraph_runtime_mode_for_paged(
     cfg: CompiledPrefillConfig,
     seq_len: int,
     bucket: int,
+    *,
+    captured_buckets: Optional[AbstractSet[int]] = None,
 ) -> Optional[object]:
     """CUDAGraph replay mode for bucket-padded compiled prefill.
 
-    * ``seq_len < bucket`` without valid-length: ``NONE`` (MetaX ATU on partial pad).
-    * Phase 2: ``valid_seq_len`` + ``ALLOW_PARTIAL`` → ``PIECEWISE`` for capture buckets.
-    * ``seq_len == bucket`` and bucket ≥ 4096: ``PIECEWISE`` full-bucket replay.
-    * Legacy repro: ``INFINI_PREFILL_CG_ALLOW_PARTIAL=1`` without valid-length → auto mode.
+    One mode per bucket: ``PIECEWISE`` when piecewise capture succeeded for
+    ``bucket`` (partial pad requires ``valid_seq_len``); otherwise ``NONE``.
     """
-    from .env import prefill_cg_allow_partial_pad
     from vllm.config import CUDAGraphMode
 
     if not cfg.use_cudagraph:
         return None
-    capture_set = set(cfg.cudagraph_capture_sizes or ())
+    capture_set = {int(b) for b in (cfg.cudagraph_capture_sizes or ())}
     if bucket not in capture_set:
         return CUDAGraphMode.NONE
 
-    if (
-        prefill_cg_valid_seq_len()
-        and prefill_cg_allow_partial_pad()
-        and seq_len < bucket
-    ):
-        # Partial bucket: Inductor NONE matches eager; PIECEWISE CG replay diverges on MetaX.
+    if captured_buckets is None:
+        captured_buckets = capture_set
+    if int(bucket) not in captured_buckets:
         return CUDAGraphMode.NONE
 
-    if (
-        prefill_cg_valid_seq_len()
-        and prefill_cg_allow_partial_pad()
-        and seq_len == bucket
-    ):
-        return CUDAGraphMode.PIECEWISE
-
-    if prefill_cg_allow_partial_pad():
-        return None
-
-    if seq_len < bucket:
+    if prefill_cg_baseline_none():
         return CUDAGraphMode.NONE
-    if seq_len == bucket and bucket >= PARTIAL_CG_PIECEWISE_MIN_BUCKET:
-        return CUDAGraphMode.PIECEWISE
-    return CUDAGraphMode.NONE
+
+    return CUDAGraphMode.PIECEWISE
 
 
 def prime_cudagraph_bucket_runtime(
@@ -147,11 +143,12 @@ def prime_cudagraph_bucket_runtime(
         return False
     if bucket in runtime_seen and bucket not in needs_reprime:
         return False
+    min_piecewise = min_cudagraph_piecewise_bucket(cfg.cudagraph_capture_sizes)
     allow_small_bucket = (
         prefill_cg_valid_seq_len() and bucket in (cfg.cudagraph_capture_sizes or ())
     )
     if (
-        bucket < PARTIAL_CG_PIECEWISE_MIN_BUCKET
+        bucket < min_piecewise
         and bucket not in needs_reprime
         and not allow_small_bucket
     ):
@@ -207,18 +204,59 @@ def prime_cudagraph_bucket_runtime(
     return True
 
 
+def _capture_buckets_in_poison_ladder(
+    cfg: CompiledPrefillConfig,
+    bucket: int,
+) -> Set[int]:
+    """Buckets that share a CUDAGraph pool tier with ``bucket`` at or above it."""
+    return set(
+        cudagraph_poison_ladder_buckets(bucket, cfg.cudagraph_capture_sizes)
+    )
+
+
+def buckets_needing_recapture(
+    needs_reprime: Set[int],
+    bucket: int,
+    capture_sizes: Optional[object] = None,
+) -> List[int]:
+    """Poisoned capture buckets that must be re-captured before replay at ``bucket``."""
+    return list(
+        cudagraph_buckets_needing_recapture(needs_reprime, bucket, capture_sizes)
+    )
+
+
+def conservative_reprime_before_piecewise(
+    cfg: CompiledPrefillConfig,
+    bucket: int,
+    last_forward_bucket: Optional[int],
+    needs_reprime: Set[int],
+) -> None:
+    """Mark capture buckets for reprime when a smaller bucket ran since last prime.
+
+    Partial or eager Inductor replay at bucket ``L < B`` can poison the shared
+    vLLM CUDAGraph pool used by PIECEWISE replay at ``B``.
+    """
+    if not cfg.use_cudagraph or last_forward_bucket is None:
+        return
+    if last_forward_bucket >= bucket:
+        return
+    needs_reprime.update(_capture_buckets_in_poison_ladder(cfg, bucket))
+
+
 def mark_partial_cudagraph_replay(
     cfg: CompiledPrefillConfig,
     bucket: int,
     seq_len: int,
     needs_reprime: Set[int],
+    *,
+    cudagraph_runtime_mode: Optional[object] = None,
 ) -> None:
+    """Record pool poisoning after bucket-padded replay (``NONE`` or ``PIECEWISE``).
+
+    Partial pad replay at ``seq_len < bucket`` corrupts same-bucket and larger
+    piecewise graphs on MetaX regardless of the runtime CUDAGraph mode used.
+    """
+    del cudagraph_runtime_mode  # reserved for debug logging
     if seq_len >= bucket or not cfg.use_cudagraph:
         return
-    capture_set = set(cfg.cudagraph_capture_sizes or ())
-    # Partial Inductor replay at ``seq_len < bucket`` poisons same-bucket PIECEWISE CG on MetaX.
-    if bucket in capture_set:
-        needs_reprime.add(bucket)
-    for b in capture_set:
-        if b > bucket:
-            needs_reprime.add(b)
+    needs_reprime.update(_capture_buckets_in_poison_ladder(cfg, bucket))

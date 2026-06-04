@@ -8,8 +8,10 @@ Classification (for PR review):
     ``compile_buckets`` / ``compile_warmup_seq_lens``.
   REPRO — opt-in experiment / bisect knobs (not set in ``serve_infinilm.sh``):
     ``prefill_cg_kv_outside_graph``, ``prefill_cg_allow_partial_pad``,
+    ``prefill_cg_piecewise_min_bucket``,
     ``prefill_cudagraph_max_bucket``,
     ``prefill_cudagraph_capture_buckets`` / ``CAPTURE_MODE=longseq``,
+    ``INFINI_PREFILL_CG_POWER_LADDER``, ``INFINI_PREFILL_CG_POOL_TIER_ISOLATION``,
     ``COMPILE_BUCKET_MODE=power|linear``, ``COMPILE_WARMUP_SEQ_LENS``.
   DEBUG — diagnostics only:
     ``prefill_cg_debug_ptrs_enabled``, ``return_logits_enabled``,
@@ -53,12 +55,29 @@ def prefill_cg_kv_outside_graph() -> bool:
 
 
 def prefill_cg_allow_partial_pad() -> bool:
-    """Repro-only: allow bucket-padded CUDAGraph replay when ``seq_len < bucket``.
+    """Legacy repro knob (unused at runtime after Phase 4).
 
-    Default off. Set ``INFINI_PREFILL_CG_ALLOW_PARTIAL=1`` (smoke repro) to restore the
-    pre-fix padded path that triggers MetaX Xnack/ATU on shorts like 14→512.
+    Kept for bisect scripts that still export ``INFINI_PREFILL_CG_ALLOW_PARTIAL=1``.
+    Partial PIECEWISE replay is the default when ``prefill_cg_valid_seq_len()`` is on.
     """
     return _truthy("INFINI_PREFILL_CG_ALLOW_PARTIAL", "0")
+
+
+def prefill_cg_piecewise_min_bucket(default: int = 512) -> int:
+    """Minimum capture bucket eligible for PIECEWISE CUDAGraph replay.
+
+    Set ``INFINI_PREFILL_CG_PIECEWISE_MIN_BUCKET`` (default **512**). Buckets below
+    this floor use eager Inductor even when present in ``cudagraph_capture_sizes``.
+    """
+    raw = os.environ.get("INFINI_PREFILL_CG_PIECEWISE_MIN_BUCKET")
+    if raw is None or not raw.strip():
+        return default
+    return int(raw.strip())
+
+
+def prefill_cg_baseline_none() -> bool:
+    """Smoke/parity: force ``CUDAGraphMode.NONE`` at replay (PIECEWISE vs NONE baseline)."""
+    return _truthy("INFINI_PREFILL_CG_BASELINE_NONE", "0")
 
 
 def prefill_cg_valid_seq_len() -> bool:
@@ -116,6 +135,95 @@ def prefill_cudagraph_capture_buckets(max_seq_len: int) -> Optional[Tuple[int, .
     allowed = set(compile_buckets(max_seq_len))
     picked = tuple(sorted(b for b in candidates if b in allowed and b <= max_seq_len))
     return picked if picked else None
+
+
+def prefill_cg_pool_tier_isolation() -> bool:
+    """Phase 3b: separate vLLM CUDAGraph memory pools per power-tier (short/mid/long)."""
+    return _truthy("INFINI_PREFILL_CG_POOL_TIER_ISOLATION", "0")
+
+
+# vLLM-style sparse CUDAGraph capture anchors (power compile ladder subset).
+POWER_CG_CAPTURE_ANCHORS: Tuple[int, ...] = (1024, 4096, 8192)
+
+# Pool tier boundaries aligned to power anchors (pad bucket → tier).
+_CG_POOL_TIER_SHORT_MAX = 1024
+_CG_POOL_TIER_MID_MAX = 4096
+
+
+def prefill_cg_power_ladder_enabled() -> bool:
+    """Use sparse power capture buckets (1024/4096/8192) instead of full compile ladder."""
+    return _truthy("INFINI_PREFILL_CG_POWER_LADDER", "0")
+
+
+def prefill_cg_power_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
+    """CUDAGraph capture sizes for the power ladder (subset of compile buckets)."""
+    picked = [b for b in POWER_CG_CAPTURE_ANCHORS if b <= max_seq_len]
+    if max_seq_len not in picked:
+        picked.append(max_seq_len)
+    allowed = set(compile_buckets(max_seq_len))
+    return tuple(sorted(b for b in picked if b in allowed))
+
+
+def cudagraph_pool_tier_id(bucket: int) -> str:
+    """Map a compile/capture bucket to short | mid | long (power-tier graph pool)."""
+    if bucket <= _CG_POOL_TIER_SHORT_MAX:
+        return "short"
+    if bucket <= _CG_POOL_TIER_MID_MAX:
+        return "mid"
+    return "long"
+
+
+def cudagraph_pool_tier_repr_bucket(tier_id: str) -> int:
+    """Representative bucket per tier for pool (re)initialization."""
+    return {"short": 512, "mid": 2048, "long": 8192}[tier_id]
+
+
+def cudagraph_poison_ladder_buckets(
+    bucket: int,
+    capture_sizes: Optional[object],
+) -> frozenset[int]:
+    """Capture buckets that may be poisoned after partial replay at ``bucket``."""
+    capture_set = set(capture_sizes or ())
+    if not capture_set:
+        return frozenset()
+    if prefill_cg_pool_tier_isolation():
+        tier = cudagraph_pool_tier_id(bucket)
+        return frozenset(
+            b
+            for b in capture_set
+            if cudagraph_pool_tier_id(b) == tier and b >= bucket
+        )
+    return frozenset({bucket} | {b for b in capture_set if b > bucket})
+
+
+def cudagraph_buckets_needing_recapture(
+    needs_reprime: set[int],
+    bucket: int,
+    capture_sizes: Optional[object],
+) -> Tuple[int, ...]:
+    """Buckets to re-capture before forward at ``bucket`` (tier-scoped when isolation on)."""
+    capture_set = set(capture_sizes or ())
+    if not needs_reprime or not capture_set:
+        return ()
+    if prefill_cg_pool_tier_isolation():
+        tier = cudagraph_pool_tier_id(bucket)
+        tier_capture = sorted(
+            b for b in capture_set if cudagraph_pool_tier_id(b) == tier
+        )
+        if not any(b in needs_reprime for b in tier_capture):
+            return ()
+        return tuple(b for b in tier_capture if b >= bucket)
+    if bucket not in needs_reprime:
+        return ()
+    return tuple(sorted(b for b in needs_reprime if b in capture_set and b >= bucket))
+
+
+def min_cudagraph_piecewise_bucket(capture_sizes: Optional[object]) -> int:
+    """Smallest capture bucket eligible for PIECEWISE replay (env floor + capture set)."""
+    floor = prefill_cg_piecewise_min_bucket()
+    if capture_sizes:
+        return max(floor, min(int(b) for b in capture_sizes))
+    return floor
 
 
 def prefill_share_weights_enabled() -> bool:

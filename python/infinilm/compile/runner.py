@@ -13,7 +13,7 @@ import torch
 
 from .backbone import VllmPrefillBackbone
 from .config import CompiledPrefillConfig
-from .cudagraph_capture import _capture_cudagraphs, _warmup_compiled_backbone, recapture_cudagraph_buckets
+from .cudagraph_capture import _capture_cudagraphs, _warmup_compiled_backbone, recapture_cudagraph_buckets, refresh_cudagraph_wrapper_refs, sync_captured_buckets_from_wrappers
 from .cudagraph_pools import (
     _CudagraphInputPool,
     _CudagraphKvStagingPool,
@@ -24,6 +24,8 @@ from .cudagraph_pools import (
     valid_seq_len_context,
 )
 from .cudagraph_runtime import (
+    buckets_needing_recapture,
+    conservative_reprime_before_piecewise,
     cudagraph_runtime_mode_for_paged,
     mark_partial_cudagraph_replay,
     min_compiled_prefill_seq_len,
@@ -33,7 +35,9 @@ from .cudagraph_runtime import (
 from .env import (
     compile_bucket_mode,
     compile_buckets,
+    cudagraph_pool_tier_id,
     prefill_cg_kv_outside_graph,
+    prefill_cg_pool_tier_isolation,
     prefill_cg_valid_seq_len,
 )
 
@@ -235,6 +239,7 @@ def compile_prefill_backbone(
                     and kv_layers is not None
                     and not kv_outside_graph,
                 )
+                refresh_cudagraph_wrapper_refs(backbone)
                 _snapshot_gpu_mem("T2_after_cudagraph_capture")
             elif defer_cudagraph_capture:
                 logger.info(
@@ -308,11 +313,69 @@ class CompiledPrefillRunner:
         self._cudagraph_replay_logged: set[str] = set()
         self._cudagraph_needs_reprime: set[int] = set()
         self._cudagraph_runtime_seen: set[int] = set()
+        self._cudagraph_captured_buckets: set[int] = set()
+        self._cudagraph_last_forward_bucket: Optional[int] = None
+        self._cudagraph_wrappers: list = []
         if cfg.use_cudagraph and kv_layers is not None and cpp_state_dict is not None:
             self._cudagraph_capture_done = True
         if self._cudagraph_capture_done:
             for b in self.cfg.cudagraph_capture_sizes or ():
                 self._cudagraph_runtime_seen.add(int(b))
+            refresh_cudagraph_wrapper_refs(self.backbone)
+            self._cudagraph_wrappers = list(
+                getattr(self.backbone, "_cudagraph_wrappers", [])
+            )
+            self._cudagraph_captured_buckets = sync_captured_buckets_from_wrappers(
+                self.backbone, self.cfg.cudagraph_capture_sizes
+            )
+
+    def _sync_captured_buckets(self) -> None:
+        self._cudagraph_captured_buckets = sync_captured_buckets_from_wrappers(
+            self.backbone, self.cfg.cudagraph_capture_sizes
+        )
+
+    def recapture_cudagraph_for_buckets(
+        self,
+        buckets: List[int],
+        *,
+        kv_layers,
+        block_size: Optional[int] = None,
+    ) -> None:
+        """Force piecewise re-capture (parity gates / explicit poison recovery)."""
+        if not self.cfg.use_cudagraph or self._cudagraph_input_pool is None:
+            return
+        bs = block_size if block_size is not None else self._block_size
+        unique = sorted({int(b) for b in buckets if b})
+        if not unique:
+            return
+        kv_outside = prefill_cg_kv_outside_graph() and self._cudagraph_kv_staging_pool is not None
+        dev = next(self.backbone.inner.parameters()).device
+        vocab = self.backbone.inner.config.vocab_size
+        recapture_cudagraph_buckets(
+            self.backbone,
+            self.vllm_config,
+            self.cfg,
+            dev,
+            vocab,
+            unique,
+            self._cudagraph_input_pool,
+            kv_layers=kv_layers,
+            slot_mapping_pool=self._cudagraph_slot_pool,
+            kv_staging_pool=self._cudagraph_kv_staging_pool,
+            valid_len_pool=self._cudagraph_valid_len_pool,
+            block_size=bs,
+            use_paged_ctx=not kv_outside,
+            capture_order="descending",
+        )
+        for b in unique:
+            self._cudagraph_needs_reprime.discard(b)
+            self._cudagraph_runtime_seen.add(b)
+        self._cudagraph_last_forward_bucket = None
+        refresh_cudagraph_wrapper_refs(self.backbone)
+        self._cudagraph_wrappers = list(
+            getattr(self.backbone, "_cudagraph_wrappers", [])
+        )
+        self._sync_captured_buckets()
 
     def ensure_cudagraph_capture(
         self,
@@ -349,8 +412,12 @@ class CompiledPrefillRunner:
         )
         self._cudagraph_needs_reprime.clear()
         self._cudagraph_runtime_seen.clear()
+        self._cudagraph_last_forward_bucket = None
         for b in capture_sizes:
             self._cudagraph_runtime_seen.add(int(b))
+        refresh_cudagraph_wrapper_refs(self.backbone)
+        self._cudagraph_wrappers = list(self.backbone._cudagraph_wrappers)
+        self._sync_captured_buckets()
         _snapshot_gpu_mem("T2_after_cudagraph_capture")
         self._cudagraph_capture_done = True
 
@@ -488,21 +555,50 @@ class CompiledPrefillRunner:
             return logits[0, -1, :]
 
         padded, seq_len = self._prepare_compiled_input_ids(input_ids)
-        cg_mode = cudagraph_runtime_mode_for_paged(self.cfg, seq_len, bucket)
+        cg_mode = cudagraph_runtime_mode_for_paged(
+            self.cfg,
+            seq_len,
+            bucket,
+            captured_buckets=self._cudagraph_captured_buckets,
+        )
+
+        if (
+            self.cfg.use_cudagraph
+            and prefill_cg_pool_tier_isolation()
+            and self._cudagraph_last_forward_bucket is not None
+        ):
+            cur_tier = cudagraph_pool_tier_id(bucket)
+            last_tier = cudagraph_pool_tier_id(self._cudagraph_last_forward_bucket)
+            if cur_tier != last_tier:
+                self._cudagraph_needs_reprime = {
+                    b
+                    for b in self._cudagraph_needs_reprime
+                    if cudagraph_pool_tier_id(b) == cur_tier
+                }
+
+        if cg_mode is CUDAGraphMode.PIECEWISE:
+            conservative_reprime_before_piecewise(
+                self.cfg,
+                bucket,
+                self._cudagraph_last_forward_bucket,
+                self._cudagraph_needs_reprime,
+            )
 
         recaptured: set[int] = set()
-        if (
-            cg_mode is CUDAGraphMode.PIECEWISE
-            and bucket in self._cudagraph_needs_reprime
-            and self._cudagraph_input_pool is not None
-        ):
+        poisoned = buckets_needing_recapture(
+            self._cudagraph_needs_reprime,
+            bucket,
+            self.cfg.cudagraph_capture_sizes,
+        )
+        if self.cfg.use_cudagraph and poisoned and self._cudagraph_input_pool is not None:
+            logger.info(
+                "compiled prefill: poisoned ladder before bucket %s; "
+                "re-capturing %s",
+                bucket,
+                poisoned,
+            )
             dev = next(self.backbone.inner.parameters()).device
             vocab = self.backbone.inner.config.vocab_size
-            poisoned = sorted(
-                b
-                for b in self._cudagraph_needs_reprime
-                if b in set(self.cfg.cudagraph_capture_sizes or ())
-            )
             recapture_cudagraph_buckets(
                 self.backbone,
                 self.vllm_config,
@@ -517,17 +613,19 @@ class CompiledPrefillRunner:
                 valid_len_pool=self._cudagraph_valid_len_pool,
                 block_size=block_size,
                 use_paged_ctx=not kv_outside,
+                capture_order="descending",
             )
             for b in poisoned:
                 self._cudagraph_needs_reprime.discard(b)
                 self._cudagraph_runtime_seen.add(b)
                 recaptured.add(b)
+            refresh_cudagraph_wrapper_refs(self.backbone)
+            self._cudagraph_wrappers = list(
+                getattr(self.backbone, "_cudagraph_wrappers", [])
+            )
+            self._sync_captured_buckets()
 
-        if (
-            cg_mode is CUDAGraphMode.PIECEWISE
-            and seq_len >= bucket
-            and bucket not in recaptured
-        ):
+        if cg_mode is CUDAGraphMode.PIECEWISE and bucket not in recaptured:
             prime_cudagraph_bucket_runtime(
                 cfg=self.cfg,
                 backbone=self.backbone,
@@ -541,6 +639,8 @@ class CompiledPrefillRunner:
                 valid_len_pool=self._cudagraph_valid_len_pool,
                 needs_reprime=self._cudagraph_needs_reprime,
                 runtime_seen=self._cudagraph_runtime_seen,
+                prime_seq_len=seq_len if seq_len < bucket else None,
+                reuse_staged_input=seq_len < bucket,
             )
         if self.cfg.use_cudagraph and self._cudagraph_input_pool is not None:
             _maybe_log_cg_ptrs(
@@ -576,6 +676,11 @@ class CompiledPrefillRunner:
 
         if self.cfg.use_cudagraph and seq_len < bucket:
             mark_partial_cudagraph_replay(
-                self.cfg, bucket, seq_len, self._cudagraph_needs_reprime
+                self.cfg,
+                bucket,
+                seq_len,
+                self._cudagraph_needs_reprime,
+                cudagraph_runtime_mode=cg_mode,
             )
+        self._cudagraph_last_forward_bucket = bucket
         return compiled_logits[0, seq_len - 1, :]
