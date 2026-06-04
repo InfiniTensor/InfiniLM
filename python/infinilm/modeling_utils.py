@@ -5,6 +5,7 @@ import time
 import torch
 from safetensors import safe_open
 import glob
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from tqdm import tqdm
 import infinicore
 
@@ -110,6 +111,61 @@ def load_state_dict(
     return state_dict
 
 
+def _weight_load_worker_count(file_count: int) -> int:
+    if file_count <= 1:
+        return 1
+
+    configured = os.environ.get("INFINILM_WEIGHT_LOAD_WORKERS")
+    if configured is not None:
+        try:
+            return max(1, min(file_count, int(configured)))
+        except ValueError:
+            raise ValueError("INFINILM_WEIGHT_LOAD_WORKERS must be an integer.")
+
+    return min(file_count, 4)
+
+
+def _load_safetensors_shard(file_path: str, torch_device: str, torch_dtype):
+    return file_path, load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
+
+
+def _iter_safetensors_shards(file_list: List[str], torch_device: str, torch_dtype):
+    worker_count = _weight_load_worker_count(len(file_list))
+    if worker_count == 1:
+        for file_path in file_list:
+            yield _load_safetensors_shard(file_path, torch_device, torch_dtype)
+        return
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        pending = set()
+        file_iter = iter(file_list)
+
+        for _ in range(worker_count):
+            try:
+                file_path = next(file_iter)
+            except StopIteration:
+                break
+            pending.add(
+                executor.submit(
+                    _load_safetensors_shard, file_path, torch_device, torch_dtype
+                )
+            )
+
+        while pending:
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                yield future.result()
+                try:
+                    file_path = next(file_iter)
+                except StopIteration:
+                    continue
+                pending.add(
+                    executor.submit(
+                        _load_safetensors_shard, file_path, torch_device, torch_dtype
+                    )
+                )
+
+
 def get_model_state_dict(
     model_path: str,
     device: infinicore.device,
@@ -129,10 +185,11 @@ def get_model_state_dict(
     #          Load weights from  all *.safetensors files
     # --------------------------------------------------------- #
     model_param = {}
-    for file_path in glob.glob(os.path.join(model_path, "*.safetensors")):
-        model_param.update(
-            load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
-        )
+    file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
+    for _, shard_param in _iter_safetensors_shards(
+        file_list, torch_device, torch_dtype
+    ):
+        model_param.update(shard_param)
 
     # Apply scale_emb for fm9g models (embed_tokens uses lookup, not GEMM)
     scale_emb = _get_scale_emb(model_path)
@@ -184,15 +241,11 @@ def load_model_state_dict_by_file(
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
     if len(file_list) > 0:
-        for file_path in tqdm(file_list, desc="Processing files"):
+        shard_iter = _iter_safetensors_shards(file_list, torch_device, torch_dtype)
+        for file_path, model_param in tqdm(
+            shard_iter, total=len(file_list), desc="Processing files"
+        ):
             tqdm.write(f"Processing: {os.path.basename(file_path)}")
-
-            # --------------------------------------------------------- #
-            #          Load weights from *.safetensors file
-            # --------------------------------------------------------- #
-            model_param = load_state_dict(
-                file_path, device=torch_device, dtype=torch_dtype
-            )
 
             # Apply model-specific weight remapping
             remapper = _WEIGHT_REMAPPER.get(model_type)
