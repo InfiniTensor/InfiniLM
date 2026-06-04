@@ -98,14 +98,26 @@ class Scheduler:
                 )
             )
 
+            num_tokens_this_step = (
+                req.get_prompt_length() - req.num_cached_tokens
+            )
+            if (
+                current_num_batched_tokens + num_tokens_this_step
+                >= self.max_num_batched_tokens
+            ):
+                if req.num_cached_tokens > 0:
+                    self.cache_manager.free_blocks(req.block_table)
+                    req.block_table = []
+                    req.slot_mapping = []
+                    req.num_cached_tokens = 0
+
+                self.waiting_queue.sync_q.put(req)
+                break
+
+            current_num_batched_tokens += num_tokens_this_step
             req.num_blocks = len(req.block_table)
             req.status = RequestStatus.RUNNING
             scheduled_requests.append(req)
-
-            # TODO
-            # num_tokens_this_step = req.get_prompt_length() - req.num_cached_tokens
-            # current_num_batched_tokens += num_tokens_this_step
-            assert False
 
         # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
