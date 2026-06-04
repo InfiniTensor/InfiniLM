@@ -437,8 +437,11 @@ def load_model_state_dict_by_file(
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
     if len(file_list) > 0:
         batch_iter = _iter_safetensors_batches(file_list, torch_device, torch_dtype)
+        seen_files = set()
         for file_path, model_param in tqdm(batch_iter, desc="Processing weights"):
-            tqdm.write(f"Processing: {os.path.basename(file_path)}")
+            if file_path not in seen_files:
+                tqdm.write(f"Processing: {os.path.basename(file_path)}")
+                seen_files.add(file_path)
 
             # Apply model-specific weight remapping
             remapper = _WEIGHT_REMAPPER.get(model_type)
