@@ -40,6 +40,7 @@ _CONFIG_KEY_MAP = {
     },
 }
 
+
 def _normalize_config(config, model_type):
     """
     Normalize model config to standard keys.
@@ -74,6 +75,7 @@ def _normalize_config(config, model_type):
                 pass
 
     return normalized
+
 
 # BATCH_SIZES = [1, 4, 8, 16, 32, 64, 128]
 # INPUT_LENS = [32, 256, 1024, 4096]
@@ -248,7 +250,8 @@ class TestModel:
         numpy_output_ids = np.array(
             [output_id.to_numpy()[0] for output_id in output_ids]
         )
-        print(self.tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
+        if not skip_load:
+            print(self.tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
 
         print(
             f"total_time: {round((t2 - t1) * 1000, 2)} ms",
