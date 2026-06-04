@@ -4,6 +4,7 @@ from typing import Dict, Union, Optional, List
 import time
 import torch
 from safetensors import safe_open
+from safetensors.torch import load as load_safetensors
 import glob
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from queue import Queue
@@ -94,6 +95,13 @@ def load_state_dict(
     if not checkpoint_file.endswith(".safetensors"):
         return {}
 
+    if _safetensors_load_strategy() == "eager":
+        with open(checkpoint_file, "rb") as f:
+            return {
+                name: tensor.to(device=device)
+                for name, tensor in load_safetensors(f.read()).items()
+            }
+
     state_dict = {}
     with safe_open(checkpoint_file, framework="pt") as f:
         metadata = f.metadata()
@@ -138,6 +146,60 @@ def _weight_load_batch_bytes() -> int:
         raise ValueError("INFINILM_WEIGHT_LOAD_BATCH_MB must be an integer.")
 
     return max(1, batch_mb) * 1024 * 1024
+
+
+def _safetensors_load_strategy() -> str:
+    strategy = os.environ.get("INFINILM_SAFETENSORS_LOAD_STRATEGY", "lazy").lower()
+    if strategy not in ("lazy", "eager", "prefetch"):
+        raise ValueError(
+            "INFINILM_SAFETENSORS_LOAD_STRATEGY must be one of: lazy, eager, prefetch."
+        )
+    return strategy
+
+
+def _safetensors_prefetch_threads() -> int:
+    configured = os.environ.get("INFINILM_SAFETENSORS_PREFETCH_THREADS")
+    if configured is None:
+        return 8
+    try:
+        return max(1, int(configured))
+    except ValueError:
+        raise ValueError("INFINILM_SAFETENSORS_PREFETCH_THREADS must be an integer.")
+
+
+def _safetensors_prefetch_block_bytes() -> int:
+    configured = os.environ.get("INFINILM_SAFETENSORS_PREFETCH_BLOCK_MB")
+    if configured is None:
+        return 16 * 1024 * 1024
+    try:
+        return max(1, int(configured)) * 1024 * 1024
+    except ValueError:
+        raise ValueError("INFINILM_SAFETENSORS_PREFETCH_BLOCK_MB must be an integer.")
+
+
+def _prefetch_checkpoint(file_path: str, block_bytes: int):
+    with open(file_path, "rb") as f:
+        while f.read(block_bytes):
+            pass
+
+
+def _start_safetensors_prefetch(file_list: List[str]):
+    if len(file_list) == 0:
+        return
+
+    threads = _safetensors_prefetch_threads()
+    block_bytes = _safetensors_prefetch_block_bytes()
+
+    def prefetch_all():
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = [
+                executor.submit(_prefetch_checkpoint, file_path, block_bytes)
+                for file_path in file_list
+            ]
+            for future in futures:
+                future.result()
+
+    threading.Thread(target=prefetch_all, name="weight-prefetch", daemon=True).start()
 
 
 def _load_safetensors_shard(file_path: str, torch_device: str, torch_dtype):
@@ -194,6 +256,24 @@ def _read_safetensors_batches(
 ):
     batch = {}
     batch_bytes = 0
+    strategy = _safetensors_load_strategy()
+
+    if strategy == "eager":
+        with open(file_path, "rb") as f:
+            state_dict = load_safetensors(f.read())
+        for name, tensor in state_dict.items():
+            tensor = tensor.to(device=torch_device)
+            tensor_bytes = _tensor_nbytes(tensor)
+            if batch and batch_bytes + tensor_bytes > max_batch_bytes:
+                output_queue.put((file_path, batch))
+                batch = {}
+                batch_bytes = 0
+            batch[name] = tensor
+            batch_bytes += tensor_bytes
+        if batch:
+            output_queue.put((file_path, batch))
+        return
+
     with safe_open(file_path, framework="pt") as f:
         metadata = f.metadata()
         if metadata is not None and metadata.get("format") not in [
@@ -224,7 +304,14 @@ def _iter_safetensors_batches(file_list: List[str], torch_device: str, torch_dty
     if len(file_list) == 0:
         return
 
-    worker_count = _weight_load_worker_count(len(file_list))
+    strategy = _safetensors_load_strategy()
+    if strategy == "prefetch":
+        _start_safetensors_prefetch(file_list)
+
+    if strategy == "eager" and os.environ.get("INFINILM_WEIGHT_LOAD_WORKERS") is None:
+        worker_count = 1
+    else:
+        worker_count = _weight_load_worker_count(len(file_list))
     max_batch_bytes = _weight_load_batch_bytes()
     output_queue = Queue(maxsize=worker_count * 2)
     file_queue = Queue()
