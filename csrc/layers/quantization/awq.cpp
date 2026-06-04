@@ -101,6 +101,26 @@ std::shared_ptr<BaseQuantization> AWQ::process_weights_after_loading(
 #endif
 }
 
+void AWQ::forward_(
+    infinicore::Tensor &output,
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float /*alpha*/) const {
+
+    auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
+    auto qweight = params.at("qweight");
+    auto scales = params.at("scales");
+    auto qzeros = params.at("qzeros");
+
+    std::optional<infinicore::Tensor> bias_opt;
+    if (has_bias) {
+        bias_opt = params.at("bias");
+    }
+
+    infinicore::op::linear_w4a16_awq_(output, input_contiguous->contiguous(), qweight, scales, qzeros, bias_opt);
+}
+
 std::vector<SplitParam> AWQ::split_params(
     const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
     const std::vector<SplitInfo> &splits,

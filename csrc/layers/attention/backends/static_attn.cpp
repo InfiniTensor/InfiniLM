@@ -11,7 +11,8 @@ StaticAttentionImpl::StaticAttentionImpl(size_t num_heads,
                                          size_t head_size,
                                          float scale,
                                          size_t num_kv_heads,
-                                         size_t layer_idx)
+                                         size_t layer_idx,
+                                         const infinicore::Device & /*device*/)
     : num_heads_(num_heads),
       head_size_(head_size),
       scale_(scale),

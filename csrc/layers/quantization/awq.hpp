@@ -38,6 +38,13 @@ public:
         bool has_bias,
         float alpha = 1.0f) const override;
 
+    void forward_(
+        infinicore::Tensor &output,
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        float alpha = 1.0f) const override;
+
     std::vector<SplitParam> split_params(
         const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
         const std::vector<SplitInfo> &splits,

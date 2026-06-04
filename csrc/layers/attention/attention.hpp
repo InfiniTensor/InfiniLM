@@ -5,6 +5,8 @@
 #include "../../global_state/global_state.hpp"
 #include "../linear/linear.hpp"
 #include "backends/attention_layer.hpp"
+#include "infinicore/device.hpp"
+#include "infinicore/dtype.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
@@ -41,6 +43,8 @@ private:
     infinicore::Tensor forward_paged_(const infinicore::Tensor &positions,
                                       const infinicore::Tensor &hidden_states) const;
 
+    void _initialize_preallocated_workspace();
+
 protected:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
@@ -53,10 +57,19 @@ protected:
     size_t num_key_value_heads_;
     size_t hidden_size_;
     size_t head_dim_;
+    infinicore::Device device_;
+    infinicore::DataType dtype_;
 
     // For off-line kv cache quantization
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+
+private:
+    size_t rank_qkv_output_size_;
+
+    // preallocated workspace for Attention
+    infinicore::Tensor max_qkv_output_;
+    infinicore::Tensor max_o_output_;
 };
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
                                 const infinicore::Device &device,

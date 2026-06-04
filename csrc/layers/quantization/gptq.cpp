@@ -40,6 +40,16 @@ infinicore::Tensor GPTQ::forward(
                              "Call process_weights_after_loading() first.");
 }
 
+void GPTQ::forward_(
+    infinicore::Tensor & /*output*/,
+    const ParamsMap & /*params*/,
+    const infinicore::Tensor & /*input*/,
+    bool /*has_bias*/,
+    float /*alpha*/) const {
+    throw std::runtime_error("GPTQ_W4A16 must be converted to GPTQ_QY before forward pass. "
+                             "Call process_weights_after_loading() first.");
+}
+
 std::shared_ptr<BaseQuantization> GPTQ::process_weights_after_loading(
     ParamsMap &params,
     const infinicore::Device &device,

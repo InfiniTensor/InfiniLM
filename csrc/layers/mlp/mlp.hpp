@@ -2,7 +2,10 @@
 
 #include "../../config/model_config.hpp"
 #include "../linear/linear.hpp"
+#include "infinicore/device.hpp"
+#include "infinicore/dtype.hpp"
 #include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
 
 namespace infinilm::layers::mlp {
 
@@ -55,6 +58,19 @@ protected:
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
+    infinicore::Device device_;
+    infinicore::DataType dtype_;
+
+private:
+    void _initialize_preallocated_workspace();
+
+    size_t rank_gate_up_output_size_;
+    size_t rank_intermediate_size_;
+
+    // preallocated workspace for MLP
+    infinicore::Tensor max_gate_up_output_;
+    infinicore::Tensor max_intermediate_;
+    infinicore::Tensor max_down_output_;
 };
 
 } // namespace infinilm::layers::mlp

@@ -18,12 +18,17 @@ public:
                    bool use_mla = false)
         : attention_backend(backend),
           use_mla(use_mla),
-          model_config(model_config) {}
+          model_config(model_config) {
+
+        const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
+        ASSERT(max_num_batched_tokens >= 512 && max_num_batched_tokens <= max_position_embeddings);
+    }
 
 public:
     infinilm::backends::AttentionBackend attention_backend;
     bool use_mla{false};
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
+    size_t max_num_batched_tokens = 0;
 };
 
 /**

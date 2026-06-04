@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../../../global_state/global_state.hpp"
+#include "infinicore/device.hpp"
+#include "infinicore/dtype.hpp"
 #include "infinicore/tensor.hpp"
 #include <tuple>
 
@@ -16,7 +18,8 @@ public:
                        size_t head_size,
                        float scale,
                        size_t num_kv_heads,
-                       size_t layer_idx);
+                       size_t layer_idx,
+                       const infinicore::Device &device);
 
     /**
      * @brief Forward pass with PagedAttention.
@@ -43,11 +46,19 @@ public:
                                                                           const infinicore::Tensor slot_mapping) const;
 
 private:
+    void _initialize_preallocated_workspace();
+
     size_t num_heads_;
     size_t head_size_;
     float scale_;
     size_t num_kv_heads_;
     size_t layer_idx_;
     size_t head_dim_; // Note: head_dim equals to head_size
+    infinicore::Device device_;
+    infinicore::DataType dtype_;
+
+    // preallocated workspace for PagedAttentionImpl
+    infinicore::Tensor max_attn_output_;
 };
+
 } // namespace infinilm::layers::attention::backends
