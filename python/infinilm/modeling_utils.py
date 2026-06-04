@@ -438,36 +438,38 @@ def load_model_state_dict_by_file(
     if len(file_list) > 0:
         batch_iter = _iter_safetensors_batches(file_list, torch_device, torch_dtype)
         seen_files = set()
-        for file_path, model_param in tqdm(batch_iter, desc="Processing weights"):
-            if file_path not in seen_files:
-                tqdm.write(f"Processing: {os.path.basename(file_path)}")
-                seen_files.add(file_path)
+        with tqdm(total=len(file_list), desc="Processing files") as progress:
+            for file_path, model_param in batch_iter:
+                if file_path not in seen_files:
+                    tqdm.write(f"Processing: {os.path.basename(file_path)}")
+                    seen_files.add(file_path)
+                    progress.update(1)
 
-            # Apply model-specific weight remapping
-            remapper = _WEIGHT_REMAPPER.get(model_type)
-            if remapper is not None:
-                model_param = remapper(model_param, config=model.hf_config)
+                # Apply model-specific weight remapping
+                remapper = _WEIGHT_REMAPPER.get(model_type)
+                if remapper is not None:
+                    model_param = remapper(model_param, config=model.hf_config)
 
-            already_loaded_keys.extend(model_param.keys())
+                already_loaded_keys.extend(model_param.keys())
 
-            # --------------------------------------------------------- #
-            #         Scale embed_tokens on torch side before converting
-            # --------------------------------------------------------- #
-            if "model.embed_tokens.weight" in model_param:
-                embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
-                if scale_emb != 1.0:
-                    model_param["model.embed_tokens.weight"] = (
-                        embed_tokens_torch_unscaled * float(scale_emb)
-                    )
+                # --------------------------------------------------------- #
+                #         Scale embed_tokens on torch side before converting
+                # --------------------------------------------------------- #
+                if "model.embed_tokens.weight" in model_param:
+                    embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
+                    if scale_emb != 1.0:
+                        model_param["model.embed_tokens.weight"] = (
+                            embed_tokens_torch_unscaled * float(scale_emb)
+                        )
 
-            # --------------------------------------------------------- #
-            #         model_param_infini references torch.Tensor
-            # --------------------------------------------------------- #
-            model_param_infini = {}
-            for key in model_param.keys():
-                model_param_infini[key] = infinicore.from_torch(model_param[key])
-            model.load_state_dict(model_param_infini, strict=False)
-            infinicore.sync_device()
+                # --------------------------------------------------------- #
+                #         model_param_infini references torch.Tensor
+                # --------------------------------------------------------- #
+                model_param_infini = {}
+                for key in model_param.keys():
+                    model_param_infini[key] = infinicore.from_torch(model_param[key])
+                model.load_state_dict(model_param_infini, strict=False)
+                infinicore.sync_device()
         model.process_weights_after_loading()
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
