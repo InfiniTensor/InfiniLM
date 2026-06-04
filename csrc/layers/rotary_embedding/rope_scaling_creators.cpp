@@ -46,6 +46,33 @@ create_longrope_config(const std::shared_ptr<config::ModelConfig> &cfg) {
         factor);
 }
 
+/**
+ * @brief Creator function for Llama3 RoPE scaling configuration.
+ * Extracts 'factor', 'low_freq_factor', 'high_freq_factor', and
+ * 'original_max_position_embeddings' from the model config.
+ */
+std::shared_ptr<infinicore::nn::RopeScalingConfig>
+create_llama3_scaling_config(const std::shared_ptr<config::ModelConfig> &cfg) {
+    const auto &rope_scaling = cfg->get_config_json()["rope_scaling"];
+
+    // Validate required fields for Llama3 scaling
+    if (!rope_scaling.contains("factor") || !rope_scaling.contains("low_freq_factor") || !rope_scaling.contains("high_freq_factor") || !rope_scaling.contains("original_max_position_embeddings")) {
+        throw std::runtime_error(
+            "Llama3RopeScalingConfig requires 'factor', 'low_freq_factor', 'high_freq_factor', and 'original_max_position_embeddings'");
+    }
+
+    float factor = rope_scaling["factor"].get<float>();
+    float low_freq_factor = rope_scaling["low_freq_factor"].get<float>();
+    float high_freq_factor = rope_scaling["high_freq_factor"].get<float>();
+    size_t original_max_position_embeddings = rope_scaling["original_max_position_embeddings"].get<size_t>();
+
+    return std::make_shared<infinicore::nn::Llama3RopeScalingConfig>(
+        factor,
+        low_freq_factor,
+        high_freq_factor,
+        original_max_position_embeddings);
+}
+
 // Future scaling creators go here (e.g., create_llama3, create_linear)
 
 } // anonymous namespace
@@ -58,8 +85,7 @@ static bool _registered = []() {
     registry["none"] = create_default_scaling_config;
     registry["dynamic"] = create_default_scaling_config;
     registry["longrope"] = create_longrope_config;
-    // add new scaling
-    // registry["llama3"] = create_llama3_scaling;
+    registry["llama3"] = create_llama3_scaling_config;
     return true;
 }();
 
