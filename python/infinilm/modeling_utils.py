@@ -6,6 +6,8 @@ import torch
 from safetensors import safe_open
 import glob
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from queue import Queue
+import threading
 from tqdm import tqdm
 import infinicore
 
@@ -125,6 +127,19 @@ def _weight_load_worker_count(file_count: int) -> int:
     return min(file_count, 4)
 
 
+def _weight_load_batch_bytes() -> int:
+    configured = os.environ.get("INFINILM_WEIGHT_LOAD_BATCH_MB")
+    if configured is None:
+        return 512 * 1024 * 1024
+
+    try:
+        batch_mb = int(configured)
+    except ValueError:
+        raise ValueError("INFINILM_WEIGHT_LOAD_BATCH_MB must be an integer.")
+
+    return max(1, batch_mb) * 1024 * 1024
+
+
 def _load_safetensors_shard(file_path: str, torch_device: str, torch_dtype):
     return file_path, load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
 
@@ -164,6 +179,99 @@ def _iter_safetensors_shards(file_list: List[str], torch_device: str, torch_dtyp
                         _load_safetensors_shard, file_path, torch_device, torch_dtype
                     )
                 )
+
+
+def _tensor_nbytes(tensor: torch.Tensor) -> int:
+    return tensor.numel() * tensor.element_size()
+
+
+def _read_safetensors_batches(
+    file_path: str,
+    torch_device: str,
+    torch_dtype,
+    max_batch_bytes: int,
+    output_queue: Queue,
+):
+    batch = {}
+    batch_bytes = 0
+    with safe_open(file_path, framework="pt") as f:
+        metadata = f.metadata()
+        if metadata is not None and metadata.get("format") not in [
+            "pt",
+            "tf",
+            "flax",
+            "mlx",
+        ]:
+            raise OSError(
+                f"The safetensors archive passed at {file_path} does not contain the valid metadata."
+            )
+
+        for name in f.keys():
+            tensor = f.get_tensor(name).to(device=torch_device)
+            tensor_bytes = _tensor_nbytes(tensor)
+            if batch and batch_bytes + tensor_bytes > max_batch_bytes:
+                output_queue.put((file_path, batch))
+                batch = {}
+                batch_bytes = 0
+            batch[name] = tensor
+            batch_bytes += tensor_bytes
+
+    if batch:
+        output_queue.put((file_path, batch))
+
+
+def _iter_safetensors_batches(file_list: List[str], torch_device: str, torch_dtype):
+    if len(file_list) == 0:
+        return
+
+    worker_count = _weight_load_worker_count(len(file_list))
+    max_batch_bytes = _weight_load_batch_bytes()
+    output_queue = Queue(maxsize=worker_count * 2)
+    file_queue = Queue()
+    stop_event = threading.Event()
+    sentinel = object()
+
+    for file_path in file_list:
+        file_queue.put(file_path)
+    for _ in range(worker_count):
+        file_queue.put(None)
+
+    def worker():
+        try:
+            while not stop_event.is_set():
+                file_path = file_queue.get()
+                if file_path is None:
+                    return
+                _read_safetensors_batches(
+                    file_path, torch_device, torch_dtype, max_batch_bytes, output_queue
+                )
+        except BaseException as exc:
+            output_queue.put(exc)
+        finally:
+            output_queue.put(sentinel)
+
+    threads = [
+        threading.Thread(target=worker, name=f"weight-loader-{idx}", daemon=True)
+        for idx in range(worker_count)
+    ]
+    for thread in threads:
+        thread.start()
+
+    finished = 0
+    try:
+        while finished < worker_count:
+            item = output_queue.get()
+            if item is sentinel:
+                finished += 1
+                continue
+            if isinstance(item, BaseException):
+                stop_event.set()
+                raise item
+            yield item
+    finally:
+        stop_event.set()
+        for thread in threads:
+            thread.join()
 
 
 def get_model_state_dict(
@@ -241,10 +349,8 @@ def load_model_state_dict_by_file(
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
     if len(file_list) > 0:
-        shard_iter = _iter_safetensors_shards(file_list, torch_device, torch_dtype)
-        for file_path, model_param in tqdm(
-            shard_iter, total=len(file_list), desc="Processing files"
-        ):
+        batch_iter = _iter_safetensors_batches(file_list, torch_device, torch_dtype)
+        for file_path, model_param in tqdm(batch_iter, desc="Processing weights"):
             tqdm.write(f"Processing: {os.path.basename(file_path)}")
 
             # Apply model-specific weight remapping
