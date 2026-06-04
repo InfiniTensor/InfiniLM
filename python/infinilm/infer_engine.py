@@ -30,6 +30,7 @@ def read_hf_config(model_path):
         )
     return config_dict
 
+
 # config.json (required) defines model architecture, while generation_config.json
 # (optional) defines generation behavior. They are kept as separate readers
 # because: 1) config.json must exist and requires model_type validation,
@@ -42,6 +43,7 @@ def read_hf_generation_config(model_path):
         with open(gen_config_path, "r") as f:
             return json.load(f)
     return {}
+
 
 @dataclass
 class GenerationConfig:
@@ -65,12 +67,19 @@ class InferEngine(_infinilm.InferEngine):
         enable_graph_compiling=False,
         attention_backend="default",
         kv_cache_dtype=None,
+        max_num_batched_tokens: int | None = None,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
 
         if device is None:
             device = infinicore.device()
+
+        max_position_embeddings = self.hf_config["max_position_embeddings"]
+        if max_num_batched_tokens is None:
+            max_num_batched_tokens = max_position_embeddings
+        assert 512 <= max_num_batched_tokens <= max_position_embeddings
+        self.max_num_batched_tokens = max_num_batched_tokens
 
         hf_config_str = json.dumps(self.hf_config)
         super().__init__(
@@ -85,6 +94,7 @@ class InferEngine(_infinilm.InferEngine):
                 if kv_cache_dtype is not None
                 else None
             ),
+            max_num_batched_tokens,
         )
         self.use_cache = False
 
@@ -375,10 +385,14 @@ class InferEngine(_infinilm.InferEngine):
         super().reset_cache(cache_config)
 
     def state_dict_keyname(self):
-        return sorted({name for state_dict in super().state_dict() for name in state_dict.keys()})
+        return sorted(
+            {name for state_dict in super().state_dict() for name in state_dict.keys()}
+        )
 
     def load_state_dict(self, state_dict, strict=None):
-        super().load_params({name: param._underlying for name, param in state_dict.items()})
+        super().load_params(
+            {name: param._underlying for name, param in state_dict.items()}
+        )
 
     def process_weights_after_loading(self):
         super().process_weights_after_loading()

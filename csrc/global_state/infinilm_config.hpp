@@ -14,13 +14,19 @@ struct InfinilmConfig {
 public:
     InfinilmConfig() = default;
     InfinilmConfig(const infinilm::backends::AttentionBackend &backend,
-                   const std::shared_ptr<infinilm::config::ModelConfig> &model_config)
+                   const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
+                   size_t max_num_batched_tokens)
         : attention_backend(backend),
-          model_config(model_config) {}
+          model_config(model_config),
+          max_num_batched_tokens(max_num_batched_tokens) {
+        const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
+        ASSERT(max_num_batched_tokens >= 512 && max_num_batched_tokens <= max_position_embeddings);
+    }
 
 public:
     infinilm::backends::AttentionBackend attention_backend;
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
+    size_t max_num_batched_tokens = 0;
 };
 
 /**

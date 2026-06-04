@@ -169,6 +169,7 @@ class TestModel:
         cache_config=None,
         enable_graph=False,
         attn_backend="default",
+        max_num_batched_tokens: int = None,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -182,6 +183,7 @@ class TestModel:
             enable_graph_compiling=enable_graph,
             attention_backend=attn_backend,
             kv_cache_dtype=cfg.kv_cache_dtype,
+            max_num_batched_tokens=max_num_batched_tokens,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -281,6 +283,7 @@ if __name__ == "__main__":
     enable_paged_attn = cfg.enable_paged_attn
     enable_graph = cfg.enable_graph
     attn_backend = cfg.attn
+    max_num_batched_tokens = cfg.max_num_batched_tokens
 
     if isinstance(batch_size, int):
         batch_size = [batch_size]
@@ -322,6 +325,7 @@ if __name__ == "__main__":
         cache_config=cache_config,
         enable_graph=enable_graph,
         attn_backend=attn_backend,
+        max_num_batched_tokens=max_num_batched_tokens,
     )
 
     # ---------------------------------------------------------------------------- #

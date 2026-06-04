@@ -70,6 +70,17 @@ QKVParallelLinear::forward_split(infinicore::Tensor &input) {
     return std::make_tuple(q_out, k_out, v_out);
 }
 
+std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+QKVParallelLinear::forward_split_(infinicore::Tensor &output, infinicore::Tensor &input) {
+    this->forward_(output, input);
+
+    auto q_out = output->narrow({{2, 0, q_out_size_}});
+    auto k_out = output->narrow({{2, q_out_size_, k_out_size_}});
+    auto v_out = output->narrow({{2, q_out_size_ + k_out_size_, v_out_size_}});
+
+    return std::make_tuple(q_out, k_out, v_out);
+}
+
 bool QKVParallelLinear::has_q_bias() const { return q_bias_; }
 bool QKVParallelLinear::has_k_bias() const { return k_bias_; }
 bool QKVParallelLinear::has_v_bias() const { return v_bias_; }
@@ -138,6 +149,15 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> GateUpParallelLinear::forward_split(infinicore::Tensor &input) {
     auto output = this->forward(input);
+    auto cols = output->shape()[2];
+    auto gate_output = output->narrow({{2, 0, cols / 2}});
+    auto up_output = output->narrow({{2, cols / 2, cols / 2}});
+    return std::make_tuple(gate_output, up_output);
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+GateUpParallelLinear::forward_split_(infinicore::Tensor &output, infinicore::Tensor &input) {
+    this->forward_(output, input);
     auto cols = output->shape()[2];
     auto gate_output = output->narrow({{2, 0, cols / 2}});
     auto up_output = output->narrow({{2, cols / 2, cols / 2}});

@@ -39,6 +39,7 @@ class Scheduler:
         max_batch_size: int = 16,
         num_blocks: int = 512,
         block_size: int = 256,
+        max_num_batched_tokens: int = 1024,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
@@ -46,6 +47,8 @@ class Scheduler:
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
         self.block_size = block_size
+
+        self.max_num_batched_tokens = max_num_batched_tokens
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
@@ -56,9 +59,13 @@ class Scheduler:
         """Schedule and return batch of requests to execute."""
         scheduled_requests = []
         is_prefill = False
+        current_num_batched_tokens = 0
 
         # Process Waiting queue (prefill phase)
-        while len(scheduled_requests) < self.max_batch_size:
+        while (
+            len(scheduled_requests) < self.max_batch_size
+            and current_num_batched_tokens < self.max_num_batched_tokens
+        ):
             try:
                 req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:
@@ -94,6 +101,11 @@ class Scheduler:
             req.num_blocks = len(req.block_table)
             req.status = RequestStatus.RUNNING
             scheduled_requests.append(req)
+
+            # TODO
+            # num_tokens_this_step = req.get_prompt_length() - req.num_cached_tokens
+            # current_num_batched_tokens += num_tokens_this_step
+            assert False
 
         # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:

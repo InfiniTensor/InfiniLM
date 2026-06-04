@@ -18,7 +18,8 @@ public:
                         size_t head_size,
                         float scale,
                         size_t num_kv_heads,
-                        size_t layer_idx);
+                        size_t layer_idx,
+                        const infinicore::Device &device);
 
     infinicore::Tensor forward(const AttentionLayer &layer,
                                infinicore::Tensor &q_reshaped, // query

@@ -55,6 +55,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_paged_attn=False,
         enable_graph=False,
         attn_backend="default",
+        max_num_batched_tokens: int | None = None,
     ):
         import transformers
         import infinicore
@@ -119,6 +120,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             ),
             enable_graph_compiling=enable_graph,
             attention_backend=attn_backend,
+            max_num_batched_tokens=max_num_batched_tokens,
         )
 
         # Enable KV cache for generation
@@ -1125,6 +1127,7 @@ def main():
             cfg.bench,
             cfg.enable_paged_attn,
             cfg.enable_graph,
+            cfg.max_num_batched_tokens,
             cfg.attn,
         )
 

@@ -31,7 +31,8 @@ public:
                    size_t layer_idx,
                    infinicore::Tensor k_scale,
                    infinicore::Tensor v_scale,
-                   ::infinilm::backends::AttentionBackend attention_backend);
+                   ::infinilm::backends::AttentionBackend attention_backend,
+                   const infinicore::Device &device);
 
     infinicore::Tensor forward(infinicore::Tensor &query,
                                infinicore::Tensor &key,

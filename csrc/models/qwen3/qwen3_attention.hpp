@@ -25,6 +25,8 @@ private:
     infinicore::Tensor forward_paged_(const infinicore::Tensor &positions,
                                       const infinicore::Tensor &hidden_states) const;
 
+    void _initialize_preallocated_workspace();
+
 protected:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
@@ -39,9 +41,17 @@ protected:
     size_t num_key_value_heads_;
     size_t hidden_size_;
     size_t head_dim_;
+    infinicore::Device device_;
+    infinicore::DataType dtype_;
 
     // For off-line kv cache quantization
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+
+    size_t rank_qkv_output_size_;
+
+    // preallocated workspace for Attention
+    infinicore::Tensor max_qkv_output_;
+    infinicore::Tensor max_o_output_;
 };
 } // namespace infinilm::models::qwen3
