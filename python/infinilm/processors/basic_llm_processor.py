@@ -4,6 +4,29 @@ from ..llm.static_scheduler import StaticSchedulerOutput
 from ..llm.scheduler import SchedulerOutput
 
 
+def extend_to_alignment(lst, alignment: int = 64):
+    """Pad ``lst`` to a multiple of ``alignment`` elements with ``-1``.
+
+    ``alignment`` is in elements, not bytes (default 64). Required for safe
+    ``infinicore.from_list`` copies; callers should ``narrow`` to the logical
+    length before passing data to kernels.
+
+    Args:
+        lst: Input list of numeric offsets or cumulative lengths.
+        alignment: Element-count alignment. Defaults to 64.
+
+    Returns:
+        A new list. Empty input yields ``[0]``; already aligned yields a copy.
+    """
+    if not lst:
+        return [0]
+    n = len(lst)
+    aligned_len = ((n + alignment - 1) // alignment) * alignment
+    if aligned_len == n:
+        return lst[:]
+    return lst + [-1] * (aligned_len - n)
+
+
 @register_processor("default")
 class BasicLLMProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
@@ -25,7 +48,9 @@ class BasicLLMProcessor(InfinilmProcessor):
             import infinicore
 
             result = {}
-            for key, tensor in self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False).items():
+            for key, tensor in self.tokenizer(
+                prompt, return_tensors="pt", add_special_tokens=False
+            ).items():
                 result[key] = tensor.from_torch(tensor)
             return result
 
@@ -42,9 +67,13 @@ class BasicLLMProcessor(InfinilmProcessor):
         normalized_conversation = []
         for message in conversation:
             if isinstance(message["content"], list):
-                assert len(message["content"]) == 1, "Only one content item supported in list"
+                assert len(message["content"]) == 1, (
+                    "Only one content item supported in list"
+                )
                 content_item = message["content"][0]
-                assert "type" in content_item and "text" in content_item, "Content dict must have 'type' and 'text' keys"
+                assert "type" in content_item and "text" in content_item, (
+                    "Content dict must have 'type' and 'text' keys"
+                )
                 normalized_conversation.append(
                     {"role": message["role"], "content": content_item["text"]}
                 )
@@ -228,17 +257,42 @@ class BasicLLMProcessor(InfinilmProcessor):
             block_tables.append(padded_block_table)
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
+        assert seq_offsets[-1] == len(tokens), (
+            f"seq_offsets[-1]={seq_offsets[-1]} != len(tokens)={len(tokens)}"
+        )
+
+        length = len(seq_offsets)
+        # Pad to a 64-element boundary for safe from_list/H2D copy, then narrow
+        # back to the logical length.
+        seq_offsets = extend_to_alignment(seq_offsets)
+        cu_seqlens = extend_to_alignment(cu_seqlens)
+
+        # TODO: 其他position_ids，past_kv_lengths，total_kv_lengths，slot_mapping应该都是一维的，请也要padding，并narrow。
+        input_ids = infinicore.from_list([tokens], dtype=infinicore.int64)
+        position_ids = infinicore.from_list(position_ids, dtype=infinicore.int64)
+        past_kv_lengths = infinicore.from_list(cached_lens, dtype=infinicore.int32)
+        total_kv_lengths = infinicore.from_list(seq_lens, dtype=infinicore.int32)
+
+        input_offsets = infinicore.from_list(
+            seq_offsets, dtype=infinicore.int32
+        ).narrow(0, 0, length)
+
+        cu_seqlens = infinicore.from_list(cu_seqlens, dtype=infinicore.int32).narrow(
+            0, 0, length
+        )
+
+        block_tables = infinicore.from_list(block_tables, dtype=infinicore.int32)
+        slot_mapping = infinicore.from_list(slot_mapping, dtype=infinicore.int64)
+
         return {
-            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
-            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
-            "past_kv_lengths": infinicore.from_list(
-                cached_lens, dtype=infinicore.int32
-            ),
-            "total_kv_lengths": infinicore.from_list(seq_lens, dtype=infinicore.int32),
-            "input_offsets": infinicore.from_list(seq_offsets, dtype=infinicore.int32),
-            "cu_seqlens": infinicore.from_list(cu_seqlens, dtype=infinicore.int32),
-            "block_tables": infinicore.from_list(block_tables, dtype=infinicore.int32),
-            "slot_mapping": infinicore.from_list(slot_mapping, dtype=infinicore.int64),
+            "input_ids": input_ids,
+            "position_ids": position_ids,
+            "past_kv_lengths": past_kv_lengths,
+            "total_kv_lengths": total_kv_lengths,
+            "input_offsets": input_offsets,
+            "cu_seqlens": cu_seqlens,
+            "block_tables": block_tables,
+            "slot_mapping": slot_mapping,
             "temperature": temperature,
             "top_k": top_k,
             "top_p": top_p,
