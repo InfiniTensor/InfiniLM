@@ -81,7 +81,7 @@
     
     - 使用paged attention, flash attention后端，cuda graph等功能：
       ```bash
-      CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --enable-paged-attn --attn=flash-atten --enable-graph
+      CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --enable-paged-attn --attn=flash-attn --enable-graph
       ```
     
     - 测试推理服务性能：

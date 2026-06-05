@@ -1,46 +1,44 @@
 #include "rotary_embedding.hpp"
-#include <algorithm> // std::clamp
-#include <cmath>     // std::llround
+#include "../../config/model_config.hpp"
+#include "rotary_embedding_factory.hpp"
+#include <memory>
 #include <string>
-#include <unordered_map>
 
 namespace infinilm::layers::rotary_embedding {
-namespace {
+
+// Cache dictionary to avoid redundant allocations of RoPE instances.
+// thread_local ensures it is only visible within this compilation unit.
 thread_local std::unordered_map<std::string, std::shared_ptr<infinicore::nn::RoPE>> _ROPE_DICT;
-} // namespace
 
-size_t get_rotary_dim(size_t head_dim, double partial_rotary_factor) {
-    if (partial_rotary_factor <= 0.0 || partial_rotary_factor >= 1.0) {
-        return head_dim;
-    }
+std::shared_ptr<infinicore::nn::RoPE>
+get_rope(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
+         const infinicore::Device &device) {
 
-    size_t rotary_dim = static_cast<size_t>(std::llround(
-        static_cast<double>(head_dim) * partial_rotary_factor));
-    rotary_dim = std::clamp(rotary_dim, static_cast<size_t>(2), head_dim);
-
-    // RoPE operates on complex pairs, so the rotary dimension must be even
-    if (rotary_dim % 2 != 0) {
-        rotary_dim -= 1;
-    }
-    return std::max(rotary_dim, static_cast<size_t>(2));
-}
-
-std::shared_ptr<infinicore::nn::RoPE> get_rope(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
-                                               const infinicore::Device &device,
-                                               infinicore::nn::RoPE::Algo algo) {
-    // 1. Get head dimension
+    // 1. Compute the actual rotary dimension
+    size_t rotary_dim = model_config->get_rotary_dim();
     size_t head_dim = model_config->get_head_dim();
 
-    // 2. Safely get partial_rotary_factor, defaulting to 1.0 (full rotation)
-    double partial_rotary_factor = model_config->get_or<double>("partial_rotary_factor", 1.0);
+    // 2. Resolve scaling config via the internal factory
+    auto scaling = make_scaling_config(model_config);
 
-    // 3. Compute the actual rotary dimension
-    size_t rotary_dim = get_rotary_dim(head_dim, partial_rotary_factor);
+    // 3. Cache key must include rotary_dim AND the actual scaling type
+    //    to avoid reusing the same RoPE instance across models with different settings
+    //    (Enhancement: dynamically determine scaling_type instead of hardcoding "default")
+    std::string scaling_type_str = "default";
+    if (scaling) {
+        // Assuming we can get the type string from the JSON for cache key generation,
+        // or ideally, ScalingConfig should have a virtual std::string type_name() const method.
+        // Here we read it from JSON for the cache key purpose only, keeping it decoupled from InfiniCore.
+        const auto &rope_scaling_json = model_config->get_config_json()["rope_scaling"];
+        if (rope_scaling_json.contains("type")) {
+            scaling_type_str = rope_scaling_json["type"].get<std::string>();
+        } else if (rope_scaling_json.contains("rope_type")) {
+            scaling_type_str = rope_scaling_json["rope_type"].get<std::string>();
+        }
+    }
 
-    // 4. Cache key must include rotary_dim to avoid reusing the same RoPE instance
-    //    across models with different partial_rotary_factor values
-    const std::string scaling_type = "default";
-    std::string cache_key = scaling_type + "_rope_dim_" + std::to_string(rotary_dim);
+    std::string cache_key = scaling_type_str + "_rope_dim_" + std::to_string(rotary_dim)
+                          + "_dev_" + device.toString();
     auto it = _ROPE_DICT.find(cache_key);
     if (it != _ROPE_DICT.end()) {
         return it->second;
@@ -49,9 +47,10 @@ std::shared_ptr<infinicore::nn::RoPE> get_rope(const std::shared_ptr<infinilm::c
     const auto &dtype = model_config->get_dtype();
     size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
     double rope_theta = model_config->get<double>("rope_theta");
-    auto rope = std::make_shared<infinicore::nn::RoPE>(rotary_dim, max_position_embeddings, rope_theta,
-                                                       algo, dtype, device,
-                                                       model_config->get_rope_scaling());
+
+    infinicore::nn::RoPE::Algo algo = model_config->get_rope_algo();
+    auto rope = std::make_shared<infinicore::nn::RoPE>(head_dim, rotary_dim, max_position_embeddings, rope_theta,
+                                                       algo, dtype, device, scaling);
 
     _ROPE_DICT.emplace(cache_key, rope);
     return rope;

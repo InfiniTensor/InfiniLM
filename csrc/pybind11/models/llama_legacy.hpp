@@ -104,8 +104,8 @@ inline void bind_llama(py::module &m) {
                     return py::none();
                 }
 
-                using ScalingConfig = infinicore::nn::RoPE::ScalingConfig;
-                using LongRopeConfig = infinicore::nn::RoPE::LongRopeConfig;
+                using ScalingConfig = infinicore::nn::RopeScalingConfig;
+                using LongRopeConfig = infinicore::nn::LongRopeScalingConfig;
 
                 py::dict d;
 
@@ -148,7 +148,7 @@ inline void bind_llama(py::module &m) {
                                      : get_str("type");
 
                 if (type == "longrope") {
-                    using LongRopeConfig = infinicore::nn::RoPE::LongRopeConfig;
+                    using LongRopeConfig = infinicore::nn::LongRopeScalingConfig;
 
                     if (!d.contains("short_factor") || !d.contains("long_factor") || !d.contains("original_max_position_embeddings")) {
                         throw py::value_error(

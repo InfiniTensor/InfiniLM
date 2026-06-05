@@ -37,6 +37,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_chatglm_model_config(
         config_json["rope_theta"] = 10000.0;
     }
 
+    // Use GPT-J style RoPE (interleaved dimensions) for chatglm, chatglm/GLM4 share same attention layer
+    model_config->set_rope_algo(infinicore::nn::RoPE::Algo::GPT_J);
+
     return model_config;
 }
 
