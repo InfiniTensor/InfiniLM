@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../fused_weights_processor.hpp"
 #include "../linear/linear.hpp"
 #include "infinicore/nn/module.hpp"
 
@@ -17,7 +18,7 @@ namespace infinilm::layers::mlp {
  *
  * Formula: down_proj(SiLU(gate_proj(x)) * up_proj(x))
  */
-class MLP : public infinicore::nn::Module {
+class MLP : public infinicore::nn::Module, public infinilm::layers::FusedWeightsProcessor {
 public:
     /**
      * @brief Construct MLP module
@@ -36,7 +37,7 @@ public:
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
-    void process_fused_weights_after_loading() {
+    void process_fused_weights_after_loading() override {
         gate_up_proj_->process_weights_after_loading();
     }
 

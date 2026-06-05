@@ -132,6 +132,11 @@ inline void set_minus_one(infinicore::Tensor &tensor) {
     infinicore::context::memcpyH2D(tensor->data(), minus_one.data(), tensor->nbytes(), false);
 }
 
+inline void set_minus_one_device_async(infinicore::Tensor &tensor) {
+    infinicore::context::setDeviceMemoryAsync(
+        tensor->data(), 0xFF, tensor->nbytes(), infinicore::context::getStream());
+}
+
 // Hash combine utility (similar to boost::hash_combine)
 inline void hash_combine(size_t &seed, size_t value) {
     seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);

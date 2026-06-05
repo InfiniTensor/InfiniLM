@@ -63,6 +63,7 @@ protected:
     std::unique_ptr<cache::CacheConfig> cache_config_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     backends::AttentionBackend attention_backend_ = backends::AttentionBackend::Default;
+    bool weights_processed_ = false;
 };
 
 } // namespace infinilm::engine

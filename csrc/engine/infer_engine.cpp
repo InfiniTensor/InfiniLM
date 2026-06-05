@@ -42,8 +42,10 @@ InferEngine::InferEngine(
             enable_graph_compiling,
             attention_backend_));
     }
-    // Compile the model on all workers
-    this->compile();
+    // Graphs must be compiled after weights are loaded and post-processed.
+    // Quantized models may replace their linear implementations during
+    // process_weights_after_loading(), so compiling here would capture stale
+    // fallback operators.
 }
 
 //------------------------------------------------------
@@ -77,6 +79,8 @@ void InferEngine::process_weights_after_loading() {
     for (auto &worker : workers_) {
         worker->process_weights_after_loading();
     }
+    weights_processed_ = true;
+    this->compile();
 }
 
 //------------------------------------------------------
@@ -159,6 +163,9 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
 }
 
 void InferEngine::compile() {
+    if (!weights_processed_) {
+        return;
+    }
     for (auto &worker : workers_) {
         worker->compile();
     }

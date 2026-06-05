@@ -3,6 +3,7 @@
 #include "../../utils.hpp"
 
 namespace infinilm::engine {
+
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {
     for (size_t b = 1; b < 64; ++b) {
@@ -101,11 +102,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 return {nullptr, nullptr};
             }
 
-            // Initialize full padding to -1, then overwrite the narrowed logical region.
-            // This matches scheduler padding semantics without risking -1 access during graph recording.
+            // Initialize only the active graph rows to -1, then overwrite the
+            // runtime logical region. Avoid clearing the full preallocated
+            // holder on every decode token.
             auto &graph_block_tables = graph_input.block_tables.value();
-            set_minus_one(graph_block_tables);
-            graph_input.block_tables.value()->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
+            set_minus_one_device_async(graph_block_tables);
+            graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
 
             auto graph = std::get<0>(result->second.compiled);

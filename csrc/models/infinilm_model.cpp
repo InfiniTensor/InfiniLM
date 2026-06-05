@@ -1,8 +1,7 @@
 #include "infinilm_model.hpp"
 #include "../cache/kv_cache.hpp"
 #include "../global_state/global_state.hpp"
-#include "../layers/attention/attention.hpp"
-#include "../layers/mlp/mlp.hpp"
+#include "../layers/fused_weights_processor.hpp"
 #include <stdexcept>
 
 namespace infinilm {
@@ -99,12 +98,9 @@ void InfinilmModel::process_weights_recursive_(infinicore::nn::Module *module) {
     if (auto *linear = dynamic_cast<infinilm::nn::BaseLinear *>(module)) {
         linear->process_weights_after_loading();
     }
-    // Process fused linear held by Attention/MLP as non-registered members
-    if (auto *attn = dynamic_cast<infinilm::layers::attention::Attention *>(module)) {
-        attn->process_fused_weights_after_loading();
-    }
-    if (auto *mlp = dynamic_cast<infinilm::layers::mlp::MLP *>(module)) {
-        mlp->process_fused_weights_after_loading();
+    // Process fused linear held as non-registered members.
+    if (auto *processor = dynamic_cast<infinilm::layers::FusedWeightsProcessor *>(module)) {
+        processor->process_fused_weights_after_loading();
     }
 }
 
