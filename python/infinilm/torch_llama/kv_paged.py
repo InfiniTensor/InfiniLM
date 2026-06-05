@@ -65,6 +65,25 @@ def _to_torch_view(t) -> torch.Tensor:
     return fn(t)
 
 
+def ensure_hybrid_prefill_gpu_context(*, device_index: int = 0) -> None:
+    """Align InfiniCore + torch CUDA on the AsyncLLMEngine step thread.
+
+    ``basic_llm_processor.build_model_inputs`` uses ``infinicore.from_list`` (CPU)
+    before hybrid compiled prefill; without resetting device, MetaX torch GEMM in
+    the compiled backbone can ATU-fault on the first server warmup request.
+    """
+    infinicore.set_device(infinicore.device("cuda", device_index))
+    if torch.cuda.is_available():
+        torch.cuda.set_device(device_index)
+
+
+def _ensure_infinicore_gpu_context(torch_tensor: torch.Tensor) -> None:
+    """Align thread-local InfiniCore device with torch CUDA before infiniop."""
+    if not isinstance(torch_tensor, torch.Tensor) or not torch_tensor.is_cuda:
+        return
+    ensure_hybrid_prefill_gpu_context(device_index=int(torch_tensor.device.index))
+
+
 def _slot_mapping_for_caching(slot_mapping, seq_len: int) -> object:
     """Return C++ slot_mapping prefix ``[:seq_len]`` on GPU for ``paged_caching_``."""
     if isinstance(slot_mapping, torch.Tensor):
@@ -100,6 +119,7 @@ def write_layer_kv_from_torch(
     """
     if key.dim() != 4 or value.dim() != 4:
         raise ValueError("expected key/value rank-4 BHSD tensors")
+    _ensure_infinicore_gpu_context(key)
     seq_len = key.shape[1]
     k_tokens = (
         key.reshape(seq_len, key.shape[2], key.shape[3]).contiguous().clone()

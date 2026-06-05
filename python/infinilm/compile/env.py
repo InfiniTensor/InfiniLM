@@ -4,7 +4,7 @@
 Classification (for PR review):
   PROD — default-on production path when ``INFINI_PREFILL_COMPILE=1`` (+ share/CG flags):
     ``prefill_compile_enabled``, ``prefill_share_weights_enabled``, ``prefill_cudagraph_enabled``,
-    ``compile_max_seq_len``, ``compile_bucket_mode`` (``bench`` in serve scripts),
+    ``compile_max_seq_len``, ``compile_bucket_mode`` (``power`` in serve scripts),
     ``compile_buckets`` / ``compile_warmup_seq_lens``.
   REPRO — opt-in experiment / bisect knobs (not set in ``serve_infinilm.sh``):
     ``prefill_cg_kv_outside_graph``, ``prefill_cg_allow_partial_pad``,
@@ -26,6 +26,7 @@ from typing import List, Optional, Tuple
 # Power-mode overflow buckets (+256 past anchor); ignored in linear mode.
 COMPILE_OVERFLOW_BUCKET_1024 = 1280
 COMPILE_OVERFLOW_BUCKET_4096 = 4352
+COMPILE_OVERFLOW_BUCKET_8192 = 8448
 COMPILE_OVERFLOW_BUCKET = COMPILE_OVERFLOW_BUCKET_4096
 
 # Linear ladder step (tokens); default matches 2× paged block_size (256).
@@ -55,10 +56,10 @@ def prefill_cg_kv_outside_graph() -> bool:
 
 
 def prefill_cg_allow_partial_pad() -> bool:
-    """Legacy repro knob (unused at runtime after Phase 4).
+    """When True, partial bucket pad uses PIECEWISE CUDAGraph replay.
 
-    Kept for bisect scripts that still export ``INFINI_PREFILL_CG_ALLOW_PARTIAL=1``.
-    Partial PIECEWISE replay is the default when ``prefill_cg_valid_seq_len()`` is on.
+    Default **off**: MetaX mcblas can ATU on vLLM-bench random prompts @519→1024
+    during partial PIECEWISE replay. Full-bucket replay stays PIECEWISE.
     """
     return _truthy("INFINI_PREFILL_CG_ALLOW_PARTIAL", "0")
 
@@ -87,6 +88,14 @@ def prefill_cg_valid_seq_len() -> bool:
     Set ``INFINI_PREFILL_CG_VALID_SEQ_LEN=0`` to disable.
     """
     return _truthy("INFINI_PREFILL_CG_VALID_SEQ_LEN", "1")
+
+
+def prefill_cg_skip_poison_recapture() -> bool:
+    """Smoke/parity: skip partial poison marking and ladder recapture (graph reuse stress).
+
+    Set ``INFINI_PREFILL_CG_SKIP_POISON_RECAPTURE=1`` only in validation smokes — not for serve.
+    """
+    return _truthy("INFINI_PREFILL_CG_SKIP_POISON_RECAPTURE", "0")
 
 
 def prefill_cudagraph_max_bucket(default: int = 4096) -> Optional[int]:
@@ -142,26 +151,80 @@ def prefill_cg_pool_tier_isolation() -> bool:
     return _truthy("INFINI_PREFILL_CG_POOL_TIER_ISOLATION", "0")
 
 
-# vLLM-style sparse CUDAGraph capture anchors (power compile ladder subset).
+# Legacy sparse CG anchors (repro only; production uses ``vllm_unified_power_ladder``).
 POWER_CG_CAPTURE_ANCHORS: Tuple[int, ...] = (1024, 4096, 8192)
 
 # Pool tier boundaries aligned to power anchors (pad bucket → tier).
 _CG_POOL_TIER_SHORT_MAX = 1024
 _CG_POOL_TIER_MID_MAX = 4096
 
+# vLLM default piecewise ladder floor (512) through 8192, plus non-power ``max_seq_len`` tail.
+_VLLM_POWER_LADDER_FLOOR = 512
+_VLLM_POWER_LADDER_CAP = 8192
+
+
+def compile_overflow_tail_bucket(max_seq_len: int) -> Optional[int]:
+    """Headroom bucket when chat-template tokenization exceeds the 8192 compile cap."""
+    if (
+        max_seq_len >= _VLLM_POWER_LADDER_CAP
+        and max_seq_len < COMPILE_OVERFLOW_BUCKET_8192
+    ):
+        return COMPILE_OVERFLOW_BUCKET_8192
+    return None
+
+
+def compile_bucket_ceiling(max_seq_len: int) -> int:
+    """Upper bound for Inductor warmup + CG capture buckets (includes overflow tail)."""
+    tail = compile_overflow_tail_bucket(max_seq_len)
+    return max(max_seq_len, tail or 0)
+
+
+def vllm_unified_power_ladder(
+    max_seq_len: int,
+    *,
+    min_bucket: int = _VLLM_POWER_LADDER_FLOOR,
+) -> Tuple[int, ...]:
+    """Unified Inductor pad + CUDAGraph capture buckets (vLLM power-of-2 + max_seq tail).
+
+    Powers of two from ``min_bucket`` (512) through 8192. When ``max_seq_len`` exceeds
+    8192 (chunked prefill not ready), append ``max_seq_len`` as the tail bucket
+    (e.g. 8448 for bench harness overflow).
+    """
+    if max_seq_len <= 0:
+        raise ValueError(f"max_seq_len must be positive, got {max_seq_len}")
+    buckets: List[int] = []
+    s = min_bucket
+    while s <= min(max_seq_len, _VLLM_POWER_LADDER_CAP):
+        buckets.append(s)
+        next_s = s * 2
+        if next_s <= s:
+            break
+        s = next_s
+    if max_seq_len >= _VLLM_POWER_LADDER_CAP and _VLLM_POWER_LADDER_CAP not in buckets:
+        buckets.append(_VLLM_POWER_LADDER_CAP)
+    if max_seq_len > _VLLM_POWER_LADDER_CAP:
+        buckets.append(max_seq_len)
+    elif max_seq_len not in buckets:
+        buckets.append(max_seq_len)
+    tail = compile_overflow_tail_bucket(max_seq_len)
+    if tail is not None:
+        buckets.append(tail)
+    ceiling = compile_bucket_ceiling(max_seq_len)
+    return tuple(sorted(b for b in set(buckets) if b <= ceiling))
+
 
 def prefill_cg_power_ladder_enabled() -> bool:
-    """Use sparse power capture buckets (1024/4096/8192) instead of full compile ladder."""
+    """Legacy repro knob (unified power ladder is default via ``COMPILE_BUCKET_MODE=power``).
+
+    When set with ``COMPILE_BUCKET_MODE=bench``, forces CG capture sizes to
+    ``vllm_unified_power_ladder`` while runtime padding stays on the bench ladder.
+    """
     return _truthy("INFINI_PREFILL_CG_POWER_LADDER", "0")
 
 
 def prefill_cg_power_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
-    """CUDAGraph capture sizes for the power ladder (subset of compile buckets)."""
-    picked = [b for b in POWER_CG_CAPTURE_ANCHORS if b <= max_seq_len]
-    if max_seq_len not in picked:
-        picked.append(max_seq_len)
-    allowed = set(compile_buckets(max_seq_len))
-    return tuple(sorted(b for b in picked if b in allowed))
+    """CUDAGraph capture sizes aligned with the unified vLLM power ladder."""
+    return vllm_unified_power_ladder(max_seq_len)
 
 
 def cudagraph_pool_tier_id(bucket: int) -> str:
@@ -187,11 +250,10 @@ def cudagraph_poison_ladder_buckets(
     if not capture_set:
         return frozenset()
     if prefill_cg_pool_tier_isolation():
+        # Partial replay poisons the shared tier graph pool (512+1024 share "short").
         tier = cudagraph_pool_tier_id(bucket)
         return frozenset(
-            b
-            for b in capture_set
-            if cudagraph_pool_tier_id(b) == tier and b >= bucket
+            b for b in capture_set if cudagraph_pool_tier_id(b) == tier
         )
     return frozenset({bucket} | {b for b in capture_set if b > bucket})
 
@@ -212,7 +274,8 @@ def cudagraph_buckets_needing_recapture(
         )
         if not any(b in needs_reprime for b in tier_capture):
             return ()
-        return tuple(b for b in tier_capture if b >= bucket)
+        # Re-capture every bucket in the tier: pools are shared within a tier.
+        return tuple(tier_capture)
     if bucket not in needs_reprime:
         return ()
     return tuple(sorted(b for b in needs_reprime if b in capture_set and b >= bucket))
@@ -257,20 +320,7 @@ def compile_bucket_step(default: int = _DEFAULT_COMPILE_BUCKET_STEP) -> int:
 
 
 def _compile_buckets_power(max_seq_len: int) -> Tuple[int, ...]:
-    buckets: List[int] = [512, 1024]
-    if max_seq_len > 1024:
-        buckets.append(COMPILE_OVERFLOW_BUCKET_1024)
-    if max_seq_len >= 4096:
-        buckets.append(4096)
-    if max_seq_len > 4096:
-        buckets.append(COMPILE_OVERFLOW_BUCKET_4096)
-    if max_seq_len >= 8192:
-        buckets.append(8192)
-    if max_seq_len >= 8448:
-        buckets.append(8448)
-    elif max_seq_len not in buckets:
-        buckets.append(max_seq_len)
-    return tuple(buckets)
+    return vllm_unified_power_ladder(max_seq_len)
 
 
 # Sparse ladder for PRD-02 server TTFT sweeps (1024/4096/8192 + harness overflow).
@@ -330,6 +380,9 @@ def compile_warmup_seq_lens(max_seq: int) -> List[int]:
         lens = [int(x.strip()) for x in raw.split(",") if x.strip()]
     else:
         lens = [8, 64, *compile_buckets(max_seq)]
+    ceiling = compile_bucket_ceiling(max_seq)
     if max_seq not in lens:
         lens.append(max_seq)
-    return sorted({n for n in lens if 0 < n <= max_seq})
+    if ceiling not in lens:
+        lens.append(ceiling)
+    return sorted({n for n in lens if 0 < n <= ceiling})

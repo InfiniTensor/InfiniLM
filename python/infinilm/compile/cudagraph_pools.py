@@ -195,6 +195,9 @@ class _CudagraphSlotMappingPool:
         return buf
 
     def _slot_mapping_to_torch(self, slot_mapping) -> torch.Tensor:
+        from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
+
+        ensure_hybrid_prefill_gpu_context(device_index=int(self._device.index))
         if isinstance(slot_mapping, torch.Tensor):
             sm = slot_mapping
         else:

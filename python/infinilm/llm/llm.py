@@ -7,6 +7,8 @@ This module provides:
 """
 
 import asyncio
+import os
+import queue
 import time
 import uuid
 import logging
@@ -117,12 +119,20 @@ class LLMEngine:
             cache_config = PagedKVCacheConfig(
                 num_blocks=config.num_blocks, block_size=config.block_size
             )
+            disable_prefix_cache = os.environ.get(
+                "INFINI_PREFILL_DISABLE_PREFIX_CACHE", "0"
+            ) == "1"
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
+                enable_prefix_cache=not disable_prefix_cache,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
+            if disable_prefix_cache:
+                logger.info(
+                    "Prefix cache disabled (INFINI_PREFILL_DISABLE_PREFIX_CACHE=1)"
+                )
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
@@ -177,6 +187,9 @@ class LLMEngine:
             - scheduled_requests: Requests that were scheduled and processed in this step.
             - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
         """
+        from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
+
+        ensure_hybrid_prefill_gpu_context()
         # Schedule requests
         scheduler_output = self.scheduler.schedule()
         if scheduler_output is None or not scheduler_output.scheduled_requests:
@@ -195,7 +208,17 @@ class LLMEngine:
             k: v for k, v in model_input.items() if k != "input_ids_torch"
         }
         if scheduler_output.is_prefill:
-            hybrid_tokens = self.model_engine.try_hybrid_prefill_forward(**model_input)
+            skip_hybrid = False
+            if len(scheduler_output.scheduled_requests) == 1:
+                req = scheduler_output.scheduled_requests[0]
+                compute_len = len(req.get_input_tokens()) - req.num_cached_tokens
+                non_cached_slots = req.slot_mapping[req.num_cached_tokens :]
+                skip_hybrid = compute_len == 0 or len(non_cached_slots) == 0
+            hybrid_tokens = (
+                None
+                if skip_hybrid
+                else self.model_engine.try_hybrid_prefill_forward(**model_input)
+            )
             if hybrid_tokens is not None:
                 sampled_tokens_list = hybrid_tokens
             else:
@@ -324,8 +347,9 @@ class LLMEngine:
         return False
 
     def tokenize(self, text: str) -> List[int]:
-        """Tokenize text to token IDs."""
-        return self.tokenizer.encode(text)
+        """Tokenize text to token IDs (matches ``processor`` / server HTTP path)."""
+        enc = self.processor.tokenizer(text, add_special_tokens=False)
+        return list(enc["input_ids"])
 
     def detokenize(self, token_ids: List[int]) -> str:
         """Detokenize token IDs to text."""
@@ -531,6 +555,63 @@ class LLM:
         )
 
 
+def _serving_warmup_http_fidelity() -> bool:
+    """Use AutoTokenizer + list content + defer tokenize (matches HTTP openai-chat path)."""
+    explicit = os.environ.get("INFINI_PREFILL_SERVING_WARMUP_HTTP_FIDELITY")
+    if explicit is not None:
+        return explicit.strip() == "1"
+    try:
+        from infinilm.compile.env import prefill_cg_allow_partial_pad
+
+        return prefill_cg_allow_partial_pad()
+    except ImportError:
+        return False
+
+
+def _should_defer_tokenize_to_step_thread() -> bool:
+    """Defer message normalize + tokenize to the step thread for partial PIECEWISE CG."""
+    try:
+        from infinilm.compile.env import (
+            prefill_cg_allow_partial_pad,
+            prefill_compile_enabled,
+            prefill_cudagraph_enabled,
+        )
+
+        return (
+            prefill_compile_enabled()
+            and prefill_cudagraph_enabled()
+            and prefill_cg_allow_partial_pad()
+        )
+    except ImportError:
+        return False
+
+
+def normalize_chat_messages(messages: list) -> list:
+    """Normalize OpenAI/vLLM-bench messages (list multimodal content → string)."""
+    normalized = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            normalized.append(msg)
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text" and "text" in part:
+                        text_parts.append(part["text"])
+                    elif isinstance(part, str):
+                        text_parts.append(part)
+                elif isinstance(part, str):
+                    text_parts.append(part)
+            normalized_msg = msg.copy()
+            normalized_msg["content"] = "".join(text_parts) if text_parts else ""
+            normalized.append(normalized_msg)
+        else:
+            normalized.append(msg)
+    return normalized
+
+
 class AsyncLLMEngine:
     """Asynchronous LLM engine for server use with streaming support."""
 
@@ -595,9 +676,22 @@ class AsyncLLMEngine:
         self._step_thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
+        self._serving_capture_ready = threading.Event()
+        self._serving_capture_error: Optional[BaseException] = None
+        self._deferred_tokenize_queue: queue.Queue[InferenceRequest] = queue.Queue()
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
+
+    def wait_for_serving_capture(self, timeout: Optional[float] = None) -> bool:
+        """Block until piecewise CUDAGraph capture finishes on the step thread."""
+        if not self._serving_capture_ready.wait(timeout=timeout):
+            return False
+        if self._serving_capture_error is not None:
+            raise RuntimeError(
+                "CUDAGraph capture failed on serving thread"
+            ) from self._serving_capture_error
+        return True
 
     def start(self):
         """Start the background inference loop."""
@@ -607,6 +701,8 @@ class AsyncLLMEngine:
 
         self._loop = asyncio.get_running_loop()
         self._running = True
+        self._serving_capture_ready.clear()
+        self._serving_capture_error = None
         self._step_thread = threading.Thread(
             target=self._step_loop, daemon=True, name="AsyncLLMEngineStepThread"
         )
@@ -624,10 +720,145 @@ class AsyncLLMEngine:
             self._step_thread.join(timeout=5)
         logger.info("AsyncLLMEngine stopped")
 
+    def _warmup_serving_bench_prefill(self) -> None:
+        """Run one vLLM-bench-shaped partial prefill on the step thread before HTTP."""
+        from infinilm.compile.env import prefill_compile_enabled, prefill_cudagraph_enabled
+
+        if not prefill_compile_enabled() or not prefill_cudagraph_enabled():
+            return
+        skip_warmup = os.environ.get("INFINI_PREFILL_SKIP_SERVING_WARMUP", "1").strip() or "1"
+        if skip_warmup == "1":
+            return
+        try:
+            from infinilm.compile.env import prefill_cg_allow_partial_pad
+        except ImportError:
+            prefill_cg_allow_partial_pad = lambda: False  # type: ignore[misc,assignment]
+        try:
+            from vllm.benchmarks.datasets import RandomDataset
+        except ImportError:
+            logger.warning(
+                "compiled prefill: skip serving warmup (vllm benchmarks unavailable)"
+            )
+            return
+
+        seed_raw = os.environ.get("INFINI_PREFILL_SERVING_WARMUP_SEED", "0").strip()
+        input_len_raw = os.environ.get(
+            "INFINI_PREFILL_SERVING_WARMUP_INPUT_LEN", "512"
+        ).strip()
+        seed = int(seed_raw or "0")
+        input_len = int(input_len_raw or "512")
+        http_fidelity = _serving_warmup_http_fidelity()
+        ds = RandomDataset(random_seed=seed)
+        sample_kwargs = dict(
+            input_len=input_len,
+            output_len=1,
+            prefix_len=0,
+        )
+        if not prefill_cg_allow_partial_pad() and not http_fidelity:
+            sample_kwargs["range_ratio"] = 0.0
+        bench_tokenizer = self.engine.tokenizer
+        if http_fidelity:
+            from transformers import AutoTokenizer
+
+            bench_tokenizer = AutoTokenizer.from_pretrained(
+                self.config.model_path, trust_remote_code=True
+            )
+        prompt = ds.sample(bench_tokenizer, 1, **sample_kwargs)[0].prompt
+        messages = (
+            [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+            if http_fidelity
+            else normalize_chat_messages(
+                [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+            )
+        )
+        sampling_params = SamplingParams(
+            max_tokens=1, temperature=1.0, top_p=1.0, top_k=1
+        )
+        if http_fidelity and _should_defer_tokenize_to_step_thread():
+            request = InferenceRequest(
+                request_id="__serving_warmup__",
+                prompt=None,
+                prompt_token_ids=[],
+                processed_inputs=None,
+                sampling_params=sampling_params,
+                eos_token_ids=self.engine.eos_token_ids,
+            )
+            request._deferred_tokenize = {
+                "messages": messages,
+                "prompt": None,
+                "apply_chat_template": True,
+                "add_generation_prompt": True,
+                "chat_template_kwargs": {},
+            }
+            self._finalize_deferred_tokenize(request)
+            self.engine.add_request(request)
+            prompt_len = len(request.prompt_token_ids)
+        else:
+            prompt_text = self.engine.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+            )
+            token_ids = self.engine.tokenize(prompt_text)
+            self.engine.add_request(
+                InferenceRequest(
+                    request_id="__serving_warmup__",
+                    prompt=prompt_text,
+                    prompt_token_ids=token_ids,
+                    sampling_params=sampling_params,
+                )
+            )
+            prompt_len = len(token_ids)
+        scheduled, _pending = self.engine.step()
+        if not scheduled:
+            raise RuntimeError("serving warmup produced no scheduled requests")
+        runner = getattr(self.engine.model_engine, "_compiled_prefill_runner", None)
+        if runner is not None and prefill_cg_allow_partial_pad() and prompt_len > 0:
+            bucket = runner._compile_bucket_len(prompt_len)
+            kv_layers = self.engine.model_engine._get_paged_kv_layers()
+            block_size = self.engine.model_engine.get_cache_config().block_size()
+            if kv_layers:
+                runner.settle_serving_warmup_bucket(
+                    bucket,
+                    prompt_len,
+                    kv_layers=kv_layers,
+                    block_size=block_size,
+                )
+        logger.info(
+            "compiled prefill: serving-thread bench warmup OK (prompt_len=%s)",
+            prompt_len,
+        )
+
     def _step_loop(self):
         """Background loop that runs inference steps."""
+        from infinilm.compile.hybrid_prefill import ensure_serving_thread_cudagraph_capture
+
+        try:
+            ensure_serving_thread_cudagraph_capture(self.engine.model_engine)
+            import torch
+            from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
+
+            ensure_hybrid_prefill_gpu_context()
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            self._warmup_serving_bench_prefill()
+        except Exception as e:
+            logger.error(
+                "Failed to prepare CUDAGraph capture on serving thread: %s",
+                e,
+                exc_info=True,
+            )
+            self._serving_capture_error = e
+            self._healthy = False
+            self._running = False
+            self._serving_capture_ready.set()
+            return
+        self._serving_capture_ready.set()
         while self._running:
             try:
+                from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
+
+                ensure_hybrid_prefill_gpu_context()
+                self._flush_deferred_tokenize()
                 requests, pending = self.engine.step()
                 if not requests:
                     time.sleep(0.01)
@@ -650,6 +881,67 @@ class AsyncLLMEngine:
                     f"Likely due to client disconnecting or request cancelation."
                 )
 
+    def _flush_deferred_tokenize(self) -> None:
+        """Tokenize pending HTTP/async requests on the serving step thread."""
+        from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
+
+        ensure_hybrid_prefill_gpu_context()
+        while True:
+            try:
+                request = self._deferred_tokenize_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._finalize_deferred_tokenize(request)
+            self.engine.add_request(request)
+
+    def _finalize_deferred_tokenize(self, request: InferenceRequest) -> None:
+        spec = getattr(request, "_deferred_tokenize", None)
+        if not spec:
+            return
+
+        messages = spec.get("messages")
+        if messages is not None:
+            messages = normalize_chat_messages(messages)
+        prompt = spec.get("prompt")
+        apply_chat_template = bool(spec.get("apply_chat_template", True))
+        add_generation_prompt = bool(spec.get("add_generation_prompt", True))
+        chat_template_kwargs = spec.get("chat_template_kwargs") or {}
+
+        processed_inputs = None
+        if prompt is not None:
+            prompt_token_ids = self.engine.tokenize(prompt)
+        else:
+            assert messages is not None, (
+                "deferred tokenize requires messages or prompt"
+            )
+            assert apply_chat_template, (
+                "apply_chat_template needs to be true for multi-role conversation"
+            )
+            prompt = self.engine.apply_chat_template(
+                messages,
+                add_generation_prompt=add_generation_prompt,
+                chat_template_kwargs=chat_template_kwargs,
+            )
+            images, videos, audios = resolve_multimodal_inputs(messages)
+            if images or videos or audios:
+                processed_inputs = self.engine.process(
+                    prompt, images, videos, audios, return_tensors="pt"
+                )
+                prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
+            else:
+                prompt_token_ids = self.engine.tokenize(prompt)
+
+        request.prompt = prompt
+        request.prompt_token_ids = prompt_token_ids
+        request.prompt_length = len(prompt_token_ids)
+        request.processed_inputs = processed_inputs
+        request._deferred_tokenize = None
+        logger.info(
+            "compiled prefill: deferred tokenize done request=%s prompt_len=%s",
+            request.request_id,
+            len(prompt_token_ids),
+        )
+
     def add_request(
         self,
         messages: Optional[List[dict]],
@@ -659,6 +951,7 @@ class AsyncLLMEngine:
         prompt_token_ids: Optional[List[int]] = None,
         sampling_params: Optional[SamplingParams] = None,
         request_id: Optional[str] = None,
+        chat_template_kwargs: Optional[dict] = None,
         # For server use
         request_data: Optional[dict] = None,
         http_request: Optional[any] = None,
@@ -699,6 +992,41 @@ class AsyncLLMEngine:
         if request_id is None:
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
+        if sampling_params is None:
+            sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
+        elif sampling_params.max_tokens is None:
+            sampling_params = sampling_params.clone()
+            sampling_params.max_tokens = self.config.max_tokens
+
+        needs_tokenize = prompt_token_ids is None and (
+            messages is not None or prompt is not None
+        )
+        if needs_tokenize and _should_defer_tokenize_to_step_thread():
+            request = InferenceRequest(
+                request_id=request_id,
+                prompt=None,
+                prompt_token_ids=[],
+                processed_inputs=None,
+                sampling_params=sampling_params,
+                eos_token_ids=self.engine.eos_token_ids,
+                request_data=request_data,
+                http_request=http_request,
+            )
+            request._deferred_tokenize = {
+                "messages": messages,
+                "prompt": prompt,
+                "apply_chat_template": apply_chat_template,
+                "add_generation_prompt": add_generation_prompt,
+                "chat_template_kwargs": chat_template_kwargs or {},
+            }
+            _ = request.output_queue
+            self._deferred_tokenize_queue.put(request)
+            logger.info(
+                "compiled prefill: deferred request %s to serving thread (partial PIECEWISE)",
+                request_id,
+            )
+            return request
+
         images, videos, audios = None, None, None
         processed_inputs = None
 
@@ -710,6 +1038,7 @@ class AsyncLLMEngine:
             assert messages is not None, (
                 "Either messages or prompt/prompt_token_ids must be provided"
             )
+            messages = normalize_chat_messages(messages)
 
             assert apply_chat_template, (
                 "apply_chat_template needs to be true for multi-role conversation"
@@ -720,17 +1049,16 @@ class AsyncLLMEngine:
             )
 
             images, videos, audios = resolve_multimodal_inputs(messages)
-            processed_inputs = self.engine.process(
-                prompt, images, videos, audios, return_tensors="pt"
-            )
-
-            prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
-
-        if sampling_params is None:
-            sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
-        elif sampling_params.max_tokens is None:
-            sampling_params = sampling_params.clone()
-            sampling_params.max_tokens = self.config.max_tokens
+            if images or videos or audios:
+                processed_inputs = self.engine.process(
+                    prompt, images, videos, audios, return_tensors="pt"
+                )
+                prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
+            else:
+                # CPU-only token ids: ``return_tensors=\"pt\"`` on the asyncio /
+                # HTTP thread leaves torch state that ATU-faults partial PIECEWISE
+                # CUDAGraph replay on the AsyncLLMEngine step thread (MetaX).
+                prompt_token_ids = self.engine.tokenize(prompt)
 
         request = InferenceRequest(
             request_id=request_id,
@@ -757,6 +1085,7 @@ class AsyncLLMEngine:
         request_data: Optional[dict] = None,
         http_request: Optional[any] = None,
         add_generation_prompt: bool = True,
+        chat_template_kwargs: Optional[dict] = None,
         **kwargs,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
@@ -776,6 +1105,7 @@ class AsyncLLMEngine:
             messages=messages,
             apply_chat_template=True,
             add_generation_prompt=add_generation_prompt,
+            chat_template_kwargs=chat_template_kwargs,
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,

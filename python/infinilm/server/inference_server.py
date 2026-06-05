@@ -8,6 +8,7 @@ import time
 import json
 import uuid
 import argparse
+import signal
 import uvicorn
 import logging
 import os
@@ -17,6 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
+from infinilm.llm.llm import normalize_chat_messages, _should_defer_tokenize_to_step_thread
 
 logger = logging.getLogger(__name__)
 
@@ -155,11 +157,118 @@ class InferenceServer:
 
         self.engine: AsyncLLMEngine = None
 
+    @staticmethod
+    def _preflight_vllm_platform() -> None:
+        """Touch vLLM platform/datasets before engine init (matches ASGI smoke order)."""
+        try:
+            from infinilm.compile.env import (
+                prefill_compile_enabled,
+                prefill_cudagraph_enabled,
+            )
+
+            if not (prefill_compile_enabled() and prefill_cudagraph_enabled()):
+                return
+        except ImportError:
+            return
+        try:
+            from vllm.benchmarks.datasets import RandomDataset  # noqa: F401
+
+            from vllm.platforms import current_platform
+
+            logger.debug(
+                "compiled prefill: vLLM preflight platform=%s",
+                type(current_platform).__name__,
+            )
+        except ImportError as exc:
+            logger.warning("compiled prefill: vLLM preflight skipped: %s", exc)
+
+    async def _bootstrap_engine(self) -> None:
+        """Initialize engine on the asyncio loop that will serve HTTP requests."""
+        self._preflight_vllm_platform()
+        self.engine = AsyncLLMEngine(
+            model_path=self.model_path,
+            device=self.device,
+            dtype=self.dtype,
+            tensor_parallel_size=self.tensor_parallel_size,
+            cache_type=self.cache_type,
+            max_batch_size=self.max_batch_size,
+            max_tokens=self.max_tokens,
+            num_blocks=self.num_blocks,
+            block_size=self.block_size,
+            max_cache_len=self.max_cache_len,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            top_k=self.top_k,
+            enable_graph=self.enable_graph,
+            attn_backend=self.attn_backend,
+        )
+        me = self.engine.engine.model_engine
+        if getattr(me, "_compiled_prefill_supported", lambda: False)():
+            deadline = time.monotonic() + float(
+                os.environ.get("INFINI_PREFILL_CAPTURE_WAIT_S", "900")
+            )
+            while not me._hybrid_prefill_ready():
+                if time.monotonic() > deadline:
+                    raise RuntimeError(
+                        "Compiled prefill did not finish before server ready deadline"
+                    )
+                await asyncio.sleep(2)
+            self.engine.start()
+            if not self.engine.wait_for_serving_capture(
+                timeout=max(0.0, deadline - time.monotonic())
+            ):
+                raise RuntimeError(
+                    "CUDAGraph capture did not finish on serving thread "
+                    "before server ready deadline"
+                )
+            logger.info(
+                "compiled prefill: server ready "
+                "(serving-thread CUDAGraph capture done)"
+            )
+        else:
+            self.engine.start()
+        logger.info(f"Engine initialized with model at {self.model_path}")
+        logger.info(f"  enable_graph: {self.enable_graph}")
+
+    async def _serve(self) -> None:
+        """Run engine + uvicorn on one asyncio loop (matches embedded/runtime smokes)."""
+        await self._bootstrap_engine()
+        app = self._create_app()
+        config = uvicorn.Config(
+            app,
+            host=self.host,
+            port=self.port,
+            loop="asyncio",
+            log_level=os.environ.get("UVICORN_LOG_LEVEL", "info"),
+        )
+        server = uvicorn.Server(config)
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def _request_shutdown() -> None:
+            stop_event.set()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, _request_shutdown)
+            except NotImplementedError:
+                pass
+
+        serve_task = asyncio.create_task(server.serve())
+        try:
+            await stop_event.wait()
+        finally:
+            server.should_exit = True
+            serve_task.cancel()
+            try:
+                await serve_task
+            except asyncio.CancelledError:
+                pass
+
     def start(self):
         """Start the HTTP server."""
-        app = self._create_app()
         logger.info(f"Starting API Server at {self.host}:{self.port}...")
-        uvicorn.run(app, host=self.host, port=self.port)
+        asyncio.run(self._serve())
         logger.info("Inference Server stopped")
 
     def _create_app(self):
@@ -167,42 +276,10 @@ class InferenceServer:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            self.engine = AsyncLLMEngine(
-                model_path=self.model_path,
-                device=self.device,
-                dtype=self.dtype,
-                tensor_parallel_size=self.tensor_parallel_size,
-                cache_type=self.cache_type,
-                max_batch_size=self.max_batch_size,
-                max_tokens=self.max_tokens,
-                num_blocks=self.num_blocks,
-                block_size=self.block_size,
-                max_cache_len=self.max_cache_len,
-                temperature=self.temperature,
-                top_p=self.top_p,
-                top_k=self.top_k,
-                enable_graph=self.enable_graph,
-                attn_backend=self.attn_backend,
-            )
-            me = self.engine.engine.model_engine
-            if getattr(me, "_compiled_prefill_supported", lambda: False)():
-                import time
-
-                deadline = time.monotonic() + float(
-                    os.environ.get("INFINI_PREFILL_CAPTURE_WAIT_S", "900")
-                )
-                while not me._hybrid_prefill_ready():
-                    if time.monotonic() > deadline:
-                        raise RuntimeError(
-                            "CUDAGraph capture did not finish before server ready deadline"
-                        )
-                    time.sleep(2)
-                logger.info("compiled prefill: server ready (CUDAGraph capture done)")
-            self.engine.start()
-            logger.info(f"Engine initialized with model at {self.model_path}")
-            logger.info(f"  enable_graph: {self.enable_graph}")
+            # Engine bootstrapped in ``_serve`` before uvicorn binds the port.
             yield
-            self.engine.stop()
+            if self.engine is not None:
+                self.engine.stop()
 
         app = FastAPI(lifespan=lifespan)
         self._register_routes(app)
@@ -231,12 +308,20 @@ class InferenceServer:
                 else:
                     data["messages"] = [{"role": "user", "content": data.get("prompt")}]
 
-            # Normalize messages to handle multimodal content (list format)
-            data["messages"] = self._normalize_messages(data.get("messages", []))
+            # Normalize on the asyncio thread only when not deferring to step thread.
+            # vLLM bench openai-chat sends list-shaped ``content``; step-thread
+            # normalize+tokenize avoids MetaX ATU on partial PIECEWISE replay.
+            if not _should_defer_tokenize_to_step_thread():
+                data["messages"] = normalize_chat_messages(data.get("messages", []))
+            else:
+                data["messages"] = data.get("messages", [])
 
             stream = data.get("stream", False)
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
+            from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
+
+            ensure_hybrid_prefill_gpu_context()
             if stream:
                 return StreamingResponse(
                     self._stream_chat(request_id, data, request),
@@ -282,37 +367,8 @@ class InferenceServer:
             return _models_payload()
 
     def _normalize_messages(self, messages: list) -> list:
-        """Normalize messages to handle multimodal content (list format).
-
-        Converts content from list format [{"type": "text", "text": "..."}]
-        to string format for chat template compatibility.
-        """
-        normalized = []
-        for msg in messages:
-            if not isinstance(msg, dict):
-                normalized.append(msg)
-                continue
-
-            content = msg.get("content")
-            if isinstance(content, list):
-                # Extract text from multimodal content list
-                text_parts = []
-                for part in content:
-                    if isinstance(part, dict):
-                        if part.get("type") == "text" and "text" in part:
-                            text_parts.append(part["text"])
-                        elif isinstance(part, str):
-                            text_parts.append(part)
-                    elif isinstance(part, str):
-                        text_parts.append(part)
-                # Join all text parts
-                normalized_msg = msg.copy()
-                normalized_msg["content"] = "".join(text_parts) if text_parts else ""
-                normalized.append(normalized_msg)
-            else:
-                normalized.append(msg)
-
-        return normalized
+        """Normalize messages to handle multimodal content (list format)."""
+        return normalize_chat_messages(messages)
 
     def _build_sampling_params(self, data: dict) -> SamplingParams:
         """Build SamplingParams from request data."""
@@ -331,11 +387,14 @@ class InferenceServer:
                 return sp.get(key)
             return default
 
-        # Accept common alias
-        max_tokens = pick("max_tokens", self.max_tokens)
+        # Accept OpenAI / vLLM bench aliases (bench sends max_completion_tokens).
+        max_tokens = pick("max_tokens", None)
         if max_tokens is None:
-            # Some clients use max_new_tokens
-            max_tokens = pick("max_new_tokens", self.max_tokens)
+            max_tokens = pick("max_completion_tokens", None)
+        if max_tokens is None:
+            max_tokens = pick("max_new_tokens", None)
+        if max_tokens is None:
+            max_tokens = self.max_tokens
 
         stop = pick("stop", None)
         if isinstance(stop, str):

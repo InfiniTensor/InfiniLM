@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import threading
 import time
 from typing import List, Optional, Tuple
 
@@ -13,7 +14,15 @@ import torch
 
 from .backbone import VllmPrefillBackbone
 from .config import CompiledPrefillConfig
-from .cudagraph_capture import _capture_cudagraphs, _warmup_compiled_backbone, recapture_cudagraph_buckets, refresh_cudagraph_wrapper_refs, sync_captured_buckets_from_wrappers
+from .cudagraph_capture import (
+    _capture_cudagraphs,
+    _warmup_compiled_backbone,
+    invalidate_cudagraph_entries,
+    recapture_cudagraph_buckets,
+    refresh_cudagraph_wrapper_refs,
+    reset_cudagraph_pools_for_buckets,
+    sync_captured_buckets_from_wrappers,
+)
 from .cudagraph_pools import (
     _CudagraphInputPool,
     _CudagraphKvStagingPool,
@@ -37,6 +46,7 @@ from .env import (
     compile_buckets,
     cudagraph_pool_tier_id,
     prefill_cg_kv_outside_graph,
+    prefill_cg_skip_poison_recapture,
     prefill_cg_pool_tier_isolation,
     prefill_cg_valid_seq_len,
 )
@@ -315,6 +325,7 @@ class CompiledPrefillRunner:
         self._cudagraph_runtime_seen: set[int] = set()
         self._cudagraph_captured_buckets: set[int] = set()
         self._cudagraph_last_forward_bucket: Optional[int] = None
+        self._cudagraph_capture_thread_id: Optional[int] = None
         self._cudagraph_wrappers: list = []
         if cfg.use_cudagraph and kv_layers is not None and cpp_state_dict is not None:
             self._cudagraph_capture_done = True
@@ -332,6 +343,51 @@ class CompiledPrefillRunner:
     def _sync_captured_buckets(self) -> None:
         self._cudagraph_captured_buckets = sync_captured_buckets_from_wrappers(
             self.backbone, self.cfg.cudagraph_capture_sizes
+        )
+
+    def settle_serving_warmup_bucket(
+        self,
+        bucket: int,
+        seq_len: int,
+        *,
+        kv_layers,
+        block_size: Optional[int] = None,
+    ) -> None:
+        """Re-capture/prime after partial serving warmup so first HTTP avoids sync poison."""
+        if not self.cfg.use_cudagraph or self._cudagraph_input_pool is None:
+            return
+        bs = block_size if block_size is not None else self._block_size
+        with torch.inference_mode():
+            poisoned = buckets_needing_recapture(
+                self._cudagraph_needs_reprime,
+                int(bucket),
+                self.cfg.cudagraph_capture_sizes,
+            )
+            if poisoned and not prefill_cg_skip_poison_recapture():
+                self.recapture_cudagraph_for_buckets(
+                    poisoned, kv_layers=kv_layers, block_size=bs
+                )
+            if int(seq_len) < int(bucket):
+                prime_cudagraph_bucket_runtime(
+                    cfg=self.cfg,
+                    backbone=self.backbone,
+                    vllm_config=self.vllm_config,
+                    bucket=int(bucket),
+                    kv_layers=kv_layers,
+                    block_size=bs,
+                    input_pool=self._cudagraph_input_pool,
+                    slot_pool=self._cudagraph_slot_pool,
+                    kv_staging_pool=self._cudagraph_kv_staging_pool,
+                    valid_len_pool=self._cudagraph_valid_len_pool,
+                    needs_reprime=self._cudagraph_needs_reprime,
+                    runtime_seen=self._cudagraph_runtime_seen,
+                    prime_seq_len=int(seq_len),
+                    reuse_staged_input=True,
+                )
+        logger.info(
+            "compiled prefill: serving warmup settled bucket=%s (seq_len=%s)",
+            bucket,
+            seq_len,
         )
 
     def recapture_cudagraph_for_buckets(
@@ -418,8 +474,51 @@ class CompiledPrefillRunner:
         refresh_cudagraph_wrapper_refs(self.backbone)
         self._cudagraph_wrappers = list(self.backbone._cudagraph_wrappers)
         self._sync_captured_buckets()
+        logger.info(
+            "compiled prefill: captured buckets live=%s expected=%s",
+            sorted(self._cudagraph_captured_buckets),
+            sorted(capture_sizes),
+        )
         _snapshot_gpu_mem("T2_after_cudagraph_capture")
         self._cudagraph_capture_done = True
+        self._cudagraph_capture_thread_id = threading.get_ident()
+
+    def ensure_cudagraph_on_serving_thread(
+        self,
+        kv_layers,
+        *,
+        block_size: Optional[int] = None,
+    ) -> None:
+        """Re-capture piecewise graphs on the AsyncLLMEngine step thread when needed.
+
+        CUDAGraph capture during ``reset_cache`` runs on the server main thread;
+        replay from the background step thread can ATU-fault on MetaX unless graphs
+        are captured on the same thread that serves requests.
+        """
+        if not self.cfg.use_cudagraph:
+            return
+        cur_tid = threading.get_ident()
+        if (
+            self._cudagraph_capture_done
+            and self._cudagraph_capture_thread_id == cur_tid
+        ):
+            return
+        if self._cudagraph_capture_done:
+            buckets = list(self.cfg.cudagraph_capture_sizes or ())
+            logger.info(
+                "compiled prefill: re-capturing CUDAGraphs on serving thread "
+                "(capture_tid=%s serving_tid=%s buckets=%s)",
+                self._cudagraph_capture_thread_id,
+                cur_tid,
+                buckets,
+            )
+            invalidate_cudagraph_entries(self.backbone, buckets)
+            reset_cudagraph_pools_for_buckets(self.backbone, buckets)
+            self._cudagraph_capture_done = False
+            self._cudagraph_runtime_seen.clear()
+            self._cudagraph_needs_reprime.clear()
+            self._cudagraph_last_forward_bucket = None
+        self.ensure_cudagraph_capture(kv_layers, block_size=block_size)
 
     @property
     def model(self):
@@ -436,11 +535,12 @@ class CompiledPrefillRunner:
 
     def _compile_bucket_len(self, seq_len: int) -> int:
         cap = self.cfg.max_seq_len
-        for bucket in compile_buckets(cap):
-            if bucket > cap:
-                continue
+        buckets = compile_buckets(cap)
+        for bucket in buckets:
             if seq_len <= bucket:
                 return bucket
+        if buckets:
+            return buckets[-1]
         return cap
 
     def _run_backbone(
@@ -537,6 +637,10 @@ class CompiledPrefillRunner:
         seq_len = int(input_ids.shape[1])
         bucket = self._compile_bucket_len(seq_len)
         use_compiled = not self._use_eager_prefill(input_ids)
+        if use_compiled and self.cfg.use_cudagraph:
+            self.ensure_cudagraph_on_serving_thread(
+                kv_layers, block_size=block_size
+            )
         kv_outside = prefill_cg_kv_outside_graph() and self._cudagraph_kv_staging_pool is not None
         staged_slots = slot_mapping
         if self.cfg.use_cudagraph and self._cudagraph_slot_pool is not None:
@@ -590,7 +694,12 @@ class CompiledPrefillRunner:
             bucket,
             self.cfg.cudagraph_capture_sizes,
         )
-        if self.cfg.use_cudagraph and poisoned and self._cudagraph_input_pool is not None:
+        if (
+            self.cfg.use_cudagraph
+            and poisoned
+            and self._cudagraph_input_pool is not None
+            and not prefill_cg_skip_poison_recapture()
+        ):
             logger.info(
                 "compiled prefill: poisoned ladder before bucket %s; "
                 "re-capturing %s",
@@ -674,7 +783,11 @@ class CompiledPrefillRunner:
                     bucket=bucket,
                 )
 
-        if self.cfg.use_cudagraph and seq_len < bucket:
+        if (
+            self.cfg.use_cudagraph
+            and seq_len < bucket
+            and not prefill_cg_skip_poison_recapture()
+        ):
             mark_partial_cudagraph_replay(
                 self.cfg,
                 bucket,

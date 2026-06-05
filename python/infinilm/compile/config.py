@@ -10,15 +10,16 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .env import (
+    compile_bucket_mode,
     compile_buckets,
     prefill_cg_kv_outside_graph,
     prefill_cg_pool_tier_isolation,
     prefill_cg_power_ladder_enabled,
-    prefill_cg_power_capture_buckets,
     prefill_cg_valid_seq_len,
     prefill_cudagraph_capture_buckets,
     prefill_cudagraph_enabled,
     prefill_cudagraph_max_bucket,
+    vllm_unified_power_ladder,
 )
 
 # Flash-attn custom op kept outside Inductor (vLLM ``splitting_ops`` pattern).
@@ -27,14 +28,8 @@ STAGE_PAGED_KV_SPLITTING_OP = "infinilm.stage_paged_kv"
 
 
 def default_compile_size_ladder(max_seq_len: int = 8192) -> List[int]:
-    """Powers-of-two ladder up to ``max_seq_len`` (vLLM-style capture/compile sizes)."""
-    sizes: List[int] = []
-    s = 1
-    while s < max_seq_len:
-        sizes.append(s)
-        s *= 2
-    sizes.append(max_seq_len)
-    return sizes
+    """Unified vLLM power-of-2 ladder (+ ``max_seq_len`` tail when > 8192)."""
+    return list(vllm_unified_power_ladder(max_seq_len))
 
 
 def model_cache_hash(model_path: str) -> str:
@@ -79,10 +74,12 @@ class CompiledPrefillConfig:
                 explicit = prefill_cudagraph_capture_buckets(self.max_seq_len)
                 if explicit is not None:
                     self.cudagraph_capture_sizes = list(explicit)
-                elif prefill_cg_power_ladder_enabled():
-                    self.cudagraph_capture_sizes = list(
-                        prefill_cg_power_capture_buckets(self.max_seq_len)
-                    )
+                elif (
+                    compile_bucket_mode() == "power"
+                    or prefill_cg_power_ladder_enabled()
+                ):
+                    # Unified ladder: same sizes for Inductor padding and CG capture.
+                    self.cudagraph_capture_sizes = list(self.compile_sizes)
                 else:
                     buckets = list(compile_buckets(self.max_seq_len))
                     max_cg = prefill_cudagraph_max_bucket()
@@ -126,6 +123,7 @@ class CompiledPrefillConfig:
             "kv_outside_graph": prefill_cg_kv_outside_graph(),
             "valid_seq_len": prefill_cg_valid_seq_len(),
             "power_cg_ladder": prefill_cg_power_ladder_enabled(),
+            "unified_vllm_power_ladder": compile_bucket_mode() == "power",
             "pool_tier_isolation": prefill_cg_pool_tier_isolation(),
         }
         with open(os.path.join(self.cache_dir, "infinilm_compile_meta.json"), "w") as f:

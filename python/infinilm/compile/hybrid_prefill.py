@@ -13,15 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 def hybrid_prefill_ready(engine) -> bool:
-    """True when hybrid may run (CUDAGraph capture finished if enabled)."""
-    runner = engine._compiled_prefill_runner
-    if runner is None:
-        return False
-    from infinilm.compile.env import prefill_cudagraph_enabled
-
-    if prefill_cudagraph_enabled() and not runner._cudagraph_capture_done:
-        return False
-    return True
+    """True when hybrid may run (compiled runner initialized)."""
+    return engine._compiled_prefill_runner is not None
 
 
 def compiled_prefill_supported(engine) -> bool:
@@ -151,7 +144,9 @@ def hybrid_compiled_prefill_step(
 ):
     """Iter-0 hybrid prefill: compiled torch logits (+ optional torch KV write)."""
     from infinilm.compile.env import prefill_share_weights_enabled
+    from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
 
+    ensure_hybrid_prefill_gpu_context()
     ensure_compiled_prefill_runner(engine)
     runner = engine._compiled_prefill_runner
     if runner is None or not hybrid_prefill_ready(engine):
@@ -255,7 +250,7 @@ def try_hybrid_prefill_forward(engine, **model_input) -> Optional[List[int]]:
 
 
 def finish_cudagraph_capture_after_reset_cache(engine) -> None:
-    """Run deferred CUDAGraph capture once paged KV tensors exist after reset_cache."""
+    """Paged KV is ready; piecewise CUDAGraph capture runs on the serving thread."""
     if engine._compiled_prefill_runner is None or not engine.enable_paged_attn:
         return
     from infinilm.compile.env import (
@@ -264,11 +259,29 @@ def finish_cudagraph_capture_after_reset_cache(engine) -> None:
     )
 
     if prefill_share_weights_enabled() and prefill_cudagraph_enabled():
-        kv_layers = get_paged_kv_layers(engine)
-        block_size = engine.get_cache_config().block_size()
-        engine._compiled_prefill_runner.ensure_cudagraph_capture(
-            kv_layers, block_size=block_size
-        )
         logger.info(
-            "compiled prefill: CUDAGraph capture complete (ready for hybrid prefill)"
+            "compiled prefill: deferring CUDAGraph capture to serving thread "
+            "(AsyncLLMEngine step thread or first run_prefill_paged)"
+        )
+
+
+def ensure_serving_thread_cudagraph_capture(engine) -> None:
+    """Capture piecewise CUDAGraphs on the AsyncLLMEngine step thread before replay."""
+    runner = engine._compiled_prefill_runner
+    if runner is None or not runner.cfg.use_cudagraph:
+        return
+    if not engine.enable_paged_attn:
+        return
+    from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
+
+    ensure_hybrid_prefill_gpu_context()
+    kv_layers = get_paged_kv_layers(engine)
+    block_size = engine.get_cache_config().block_size()
+    runner.ensure_cudagraph_on_serving_thread(kv_layers, block_size=block_size)
+    if runner._cudagraph_capture_done:
+        import torch
+
+        torch.cuda.synchronize()
+        logger.info(
+            "compiled prefill: CUDAGraph capture complete on serving thread"
         )

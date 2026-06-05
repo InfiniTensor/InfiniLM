@@ -40,13 +40,18 @@ class Scheduler:
         num_blocks: int = 512,
         block_size: int = 256,
         max_prefill_batch_size: Optional[int] = None,
+        enable_prefix_cache: bool = True,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
         self.max_batch_size = max_batch_size
         self.max_prefill_batch_size = max_prefill_batch_size
 
-        self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
+        self.cache_manager = BlockManager(
+            num_blocks=num_blocks,
+            block_size=block_size,
+            enable_prefix_cache=enable_prefix_cache,
+        )
         self.block_size = block_size
 
     def add_request(self, request: InferenceRequest):

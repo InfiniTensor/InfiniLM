@@ -302,6 +302,7 @@ def _capture_cudagraph_bucket(
             _capture_once(CUDAGraphMode.NONE)
         out = _capture_once(CUDAGraphMode.PIECEWISE)
     assert out.shape == (1, seq_len, vocab), out.shape
+    logger.info("compiled prefill: CUDAGraph captured bucket=%s", seq_len)
 
 
 def recapture_cudagraph_buckets(

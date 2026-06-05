@@ -44,12 +44,15 @@ class BlockManager:
     - Slot mapping generation for physical-to-logical position mapping
     """
 
-    def __init__(self, num_blocks: int, block_size: int):
+    def __init__(
+        self, num_blocks: int, block_size: int, enable_prefix_cache: bool = True
+    ):
         assert (
             num_blocks > 0 and block_size > 0
         ), "num_blocks and block_size must be positive"
         self.num_blocks = num_blocks
         self.block_size = block_size
+        self.enable_prefix_cache = enable_prefix_cache
 
         self.blocks: List[Block] = [Block(i) for i in range(num_blocks)]
         self.hash_to_block_id: Dict[int, int] = {}
@@ -134,7 +137,7 @@ class BlockManager:
         slot_mapping = []
         num_cached_tokens = 0
         prefix_hash = -1
-        cache_miss = False
+        cache_miss = not self.enable_prefix_cache
 
         for block_idx in range(num_blocks):
             start_idx = block_idx * self.block_size

@@ -1,7 +1,11 @@
+import logging
+
 from .processor import InfinilmProcessor, register_processor
 from transformers import AutoTokenizer
 from ..llm.static_scheduler import StaticSchedulerOutput
 from ..llm.scheduler import SchedulerOutput
+
+logger = logging.getLogger(__name__)
 
 
 @register_processor("default")
@@ -10,6 +14,21 @@ class BasicLLMProcessor(InfinilmProcessor):
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir_path, trust_remote_code=True
         )
+
+    @staticmethod
+    def _slot_mapping_for_hybrid_prefill(slot_mapping: list[int]):
+        """GPU slot indices for hybrid CG replay (avoids CPU ``from_list`` on step thread)."""
+        import infinicore
+        import torch
+
+        if not slot_mapping:
+            return infinicore.from_torch(
+                torch.empty(0, dtype=torch.int64, device=torch.device("cuda", 0))
+            )
+        slots = torch.tensor(
+            slot_mapping, dtype=torch.int64, device=torch.device("cuda", 0)
+        )
+        return infinicore.from_torch(slots.contiguous())
 
     def __call__(self, prompt: str, return_tensors: str = None, **kwargs) -> dict:
         # add_special_tokens=False Prevent duplicate BOS token for Llama-3/3.1 models.
@@ -144,6 +163,32 @@ class BasicLLMProcessor(InfinilmProcessor):
             "top_p": top_p,
         }
 
+    @staticmethod
+    def _gpu_infinicore_int32(values: list[int]):
+        """Stage small int32 metadata on GPU for hybrid CG replay."""
+        import infinicore
+        import torch
+
+        if not values:
+            return infinicore.from_list(values, dtype=infinicore.int32)
+        tensor = torch.tensor(
+            values, dtype=torch.int32, device=torch.device("cuda", 0)
+        )
+        return infinicore.from_torch(tensor.contiguous())
+
+    @staticmethod
+    def _gpu_infinicore_int64(values: list[int]):
+        """Stage index metadata on GPU for hybrid CG replay (MetaX step thread)."""
+        import infinicore
+        import torch
+
+        if not values:
+            return infinicore.from_list(values, dtype=infinicore.int64)
+        tensor = torch.tensor(
+            values, dtype=torch.long, device=torch.device("cuda", 0)
+        )
+        return infinicore.from_torch(tensor.contiguous())
+
     def _build_model_input_from_batch_scheduler_output(
         self, scheduler_output: SchedulerOutput, temperature, top_p, top_k
     ) -> dict:
@@ -203,7 +248,7 @@ class BasicLLMProcessor(InfinilmProcessor):
                 current_offset += compute_len
                 seq_offsets.append(current_offset)
 
-                slot_mapping.extend(req.slot_mapping)
+                slot_mapping.extend(req.slot_mapping[num_cached:])
                 cached_lens.append(num_cached)
                 position_ids.extend(range(num_cached, num_cached + compute_len))
 
@@ -228,38 +273,95 @@ class BasicLLMProcessor(InfinilmProcessor):
             block_tables.append(padded_block_table)
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
-        model_input = {
-            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
-            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
-            "past_kv_lengths": infinicore.from_list(
-                cached_lens, dtype=infinicore.int32
-            ),
-            "total_kv_lengths": infinicore.from_list(seq_lens, dtype=infinicore.int32),
-            "input_offsets": infinicore.from_list(seq_offsets, dtype=infinicore.int32),
-            "cu_seqlens": infinicore.from_list(cu_seqlens, dtype=infinicore.int32),
-            "block_tables": infinicore.from_list(block_tables, dtype=infinicore.int32),
-            "slot_mapping": infinicore.from_list(slot_mapping, dtype=infinicore.int64),
-            "temperature": temperature,
-            "top_k": top_k,
-            "top_p": top_p,
-        }
+        hybrid_gpu_metadata = False
         if (
             scheduler_output.is_prefill
             and len(scheduler_output.scheduled_requests) == 1
         ):
+            req = scheduler_output.scheduled_requests[0]
+            num_cached = req.num_cached_tokens
+            compute_len = len(req.get_input_tokens()) - num_cached
             try:
                 from infinilm.compile.env import prefill_compile_enabled
 
-                if prefill_compile_enabled():
-                    import torch
+                hybrid_gpu_metadata = prefill_compile_enabled() and compute_len > 0
+            except ImportError:
+                hybrid_gpu_metadata = False
 
-                    model_input["input_ids_torch"] = torch.tensor(
-                        tokens,
-                        dtype=torch.long,
-                        device=torch.device("cuda", 0),
-                    ).view(1, -1)
+        model_input: dict = {}
+        if hybrid_gpu_metadata:
+            model_input["position_ids"] = self._gpu_infinicore_int64(position_ids)
+            model_input["past_kv_lengths"] = self._gpu_infinicore_int32(cached_lens)
+            model_input["total_kv_lengths"] = self._gpu_infinicore_int32(seq_lens)
+            model_input["input_offsets"] = self._gpu_infinicore_int32(seq_offsets)
+            model_input["cu_seqlens"] = self._gpu_infinicore_int32(cu_seqlens)
+            model_input["block_tables"] = self._gpu_infinicore_int32(block_tables)
+        else:
+            model_input["position_ids"] = infinicore.from_list(
+                position_ids, dtype=infinicore.int64
+            )
+            model_input["past_kv_lengths"] = infinicore.from_list(
+                cached_lens, dtype=infinicore.int32
+            )
+            model_input["total_kv_lengths"] = infinicore.from_list(
+                seq_lens, dtype=infinicore.int32
+            )
+            model_input["input_offsets"] = infinicore.from_list(
+                seq_offsets, dtype=infinicore.int32
+            )
+            model_input["cu_seqlens"] = infinicore.from_list(
+                cu_seqlens, dtype=infinicore.int32
+            )
+            model_input["block_tables"] = infinicore.from_list(
+                block_tables, dtype=infinicore.int32
+            )
+        model_input.update(
+            {
+                "slot_mapping": self._slot_mapping_for_hybrid_prefill(slot_mapping),
+                "temperature": temperature,
+                "top_k": top_k,
+                "top_p": top_p,
+            }
+        )
+        input_ids_torch = None
+        if (
+            scheduler_output.is_prefill
+            and len(scheduler_output.scheduled_requests) == 1
+            and hybrid_gpu_metadata
+        ):
+            try:
+                import torch
+
+                input_ids_torch = torch.tensor(
+                    tokens,
+                    dtype=torch.long,
+                    device=torch.device("cuda", 0),
+                ).view(1, -1)
+                model_input["input_ids_torch"] = input_ids_torch
+                model_input["input_ids"] = infinicore.from_torch(
+                    input_ids_torch.contiguous()
+                )
             except ImportError:
                 pass
+        if "input_ids" not in model_input:
+            model_input["input_ids"] = infinicore.from_list(
+                [tokens], dtype=infinicore.int64
+            )
+        if (
+            scheduler_output.is_prefill
+            and len(scheduler_output.scheduled_requests) == 1
+            and hybrid_gpu_metadata
+        ):
+            req = scheduler_output.scheduled_requests[0]
+            compute_len = len(tokens)
+            logger.info(
+                "compiled prefill: build_model_inputs prefill "
+                "prompt_len=%s num_cached=%s compute_len=%s slot_mapping_len=%s",
+                len(req.get_input_tokens()),
+                req.num_cached_tokens,
+                compute_len,
+                len(slot_mapping),
+            )
         return model_input
 
     def get_tokenizer(self):

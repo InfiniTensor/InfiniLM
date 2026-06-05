@@ -25,6 +25,7 @@ from .cudagraph_pools import (
 from .env import (
     cudagraph_buckets_needing_recapture,
     cudagraph_poison_ladder_buckets,
+    cudagraph_pool_tier_id,
     min_cudagraph_piecewise_bucket,
     prefill_cg_baseline_none,
     prefill_cg_kv_outside_graph,
@@ -115,6 +116,11 @@ def cudagraph_runtime_mode_for_paged(
     if prefill_cg_baseline_none():
         return CUDAGraphMode.NONE
 
+    from infinilm.compile.env import prefill_cg_allow_partial_pad
+
+    if seq_len < bucket and not prefill_cg_allow_partial_pad():
+        return CUDAGraphMode.NONE
+
     return CUDAGraphMode.PIECEWISE
 
 
@@ -142,7 +148,10 @@ def prime_cudagraph_bucket_runtime(
     ):
         return False
     if bucket in runtime_seen and bucket not in needs_reprime:
-        return False
+        # Capture marks buckets seen at full length; partial replay still needs
+        # a bucket-local prime at ``prime_seq_len < bucket`` before PIECEWISE.
+        if prime_seq_len is None or int(prime_seq_len) >= bucket:
+            return False
     min_piecewise = min_cudagraph_piecewise_bucket(cfg.cudagraph_capture_sizes)
     allow_small_bucket = (
         prefill_cg_valid_seq_len() and bucket in (cfg.cudagraph_capture_sizes or ())
@@ -238,6 +247,16 @@ def conservative_reprime_before_piecewise(
     """
     if not cfg.use_cudagraph or last_forward_bucket is None:
         return
+    if prefill_cg_pool_tier_isolation():
+        same_tier = cudagraph_pool_tier_id(last_forward_bucket) == cudagraph_pool_tier_id(
+            bucket
+        )
+        if same_tier and any(
+            b in needs_reprime
+            for b in _capture_buckets_in_poison_ladder(cfg, last_forward_bucket)
+        ):
+            # Larger→smaller replay in one tier: pool already poisoned by partial pad.
+            return
     if last_forward_bucket >= bucket:
         return
     needs_reprime.update(_capture_buckets_in_poison_ladder(cfg, bucket))
