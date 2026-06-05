@@ -134,7 +134,7 @@ def main():
     )
 
     client = AsyncOpenAI(base_url=api_url, api_key="default")
-    asyncio.run(benchmark_user(client, messages, args.model_name))
+    asyncio.run(benchmark_user(client, messages, args.model))
 
 
 if __name__ == "__main__":

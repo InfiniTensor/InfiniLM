@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../layers/linear/fused_linear.hpp"
 #include "infinicore/nn/layer_norm.hpp"
-#include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 
@@ -30,7 +30,7 @@ private:
 
     INFINICORE_NN_PARAMETER(in_proj_weight);
     INFINICORE_NN_PARAMETER(in_proj_bias);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, out_proj);
+    INFINICORE_NN_MODULE(infinilm::nn::Linear, out_proj);
 };
 
 class Resampler : public infinicore::nn::Module {
@@ -59,7 +59,7 @@ private:
     INFINICORE_NN_PARAMETER(query);
     INFINICORE_NN_PARAMETER(proj);
     INFINICORE_NN_BUFFER(embedding_table);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, kv_proj);
+    INFINICORE_NN_MODULE(infinilm::nn::Linear, kv_proj);
     INFINICORE_NN_MODULE(ResamplerAttention, attn);
     INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, ln_q);
     INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, ln_kv);

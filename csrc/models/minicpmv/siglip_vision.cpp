@@ -1,6 +1,8 @@
 #include "siglip_vision.hpp"
 
+#include "../../global_state/global_state.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/mha.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -92,44 +94,52 @@ SiglipAttention::SiglipAttention(const nlohmann::json &config,
     if (embed_dim_ % num_heads_ != 0) {
         throw std::runtime_error("SiglipAttention: embed_dim must be divisible by num_heads");
     }
-    INFINICORE_NN_MODULE_INIT(q_proj, embed_dim_, embed_dim_, true, dtype, device);
-    INFINICORE_NN_MODULE_INIT(k_proj, embed_dim_, embed_dim_, true, dtype, device);
-    INFINICORE_NN_MODULE_INIT(v_proj, embed_dim_, embed_dim_, true, dtype, device);
+    qkv_proj_ = std::make_shared<infinilm::layers::linear::QKVParallelLinear>(
+        embed_dim_, head_dim_, num_heads_, num_heads_,
+        "q_proj", "k_proj", "v_proj", [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
+        nullptr, true, dtype, device);
+
     INFINICORE_NN_MODULE_INIT(out_proj, embed_dim_, embed_dim_, true, dtype, device);
+
+    attention_backend_ = infinilm::global_state::get_infinilm_config().attention_backend;
 }
 
 infinicore::Tensor SiglipAttention::forward(const infinicore::Tensor &hidden_states,
                                             const std::optional<infinicore::Tensor> &attention_mask) const {
-    (void)attention_mask;
     auto shape = hidden_states->shape();
     size_t batch_size = shape[0];
     size_t seq_len = shape[1];
 
-    auto q = q_proj_->forward(const_cast<infinicore::Tensor &>(hidden_states));
-    auto k = k_proj_->forward(const_cast<infinicore::Tensor &>(hidden_states));
-    auto v = v_proj_->forward(const_cast<infinicore::Tensor &>(hidden_states));
+    auto qkv = qkv_proj_->forward(const_cast<infinicore::Tensor &>(hidden_states))->view({batch_size, seq_len, num_heads_ * 3, head_dim_});
+    auto q = qkv->narrow({{2, 0, num_heads_}});
+    auto k = qkv->narrow({{2, num_heads_, num_heads_}});
+    auto v = qkv->narrow({{2, num_heads_ * 2, num_heads_}});
 
-    auto q_reshaped = q->view({batch_size, seq_len, num_heads_, head_dim_})->permute({0, 2, 1, 3})->contiguous();
-    auto k_reshaped = k->view({batch_size, seq_len, num_heads_, head_dim_})->permute({0, 2, 1, 3})->contiguous();
-    auto v_reshaped = v->view({batch_size, seq_len, num_heads_, head_dim_})->permute({0, 2, 1, 3})->contiguous();
+    if (attention_backend_ == infinilm::backends::AttentionBackend::FLASH_ATTN) {
+        auto out = infinicore::op::mha(q, k, v, std::nullopt, scale_, false)->view({batch_size, seq_len, num_heads_ * head_dim_});
+        return out_proj_->forward(out);
+    } else {
+        auto q_reshaped = q->view({batch_size, seq_len, num_heads_, head_dim_})->permute({0, 2, 1, 3})->contiguous();
+        auto k_reshaped = k->view({batch_size, seq_len, num_heads_, head_dim_})->permute({0, 2, 1, 3})->contiguous();
+        auto v_reshaped = v->view({batch_size, seq_len, num_heads_, head_dim_})->permute({0, 2, 1, 3})->contiguous();
 
-    auto q_flat = q_reshaped->view({batch_size * num_heads_, seq_len, head_dim_});
-    auto k_flat = k_reshaped->view({batch_size * num_heads_, seq_len, head_dim_});
-    auto v_flat = v_reshaped->view({batch_size * num_heads_, seq_len, head_dim_});
+        auto q_flat = q_reshaped->view({batch_size * num_heads_, seq_len, head_dim_});
+        auto k_flat = k_reshaped->view({batch_size * num_heads_, seq_len, head_dim_});
+        auto v_flat = v_reshaped->view({batch_size * num_heads_, seq_len, head_dim_});
 
-    auto k_t = k_flat->permute({0, 2, 1});
-    auto attn_weights = infinicore::op::matmul(q_flat, k_t, scale_);
+        auto k_t = k_flat->permute({0, 2, 1});
+        auto attn_weights = infinicore::op::matmul(q_flat, k_t, scale_);
 
-    auto attn_view = attn_weights->view({batch_size * num_heads_, seq_len, seq_len});
-    infinicore::op::softmax_(attn_view, attn_view, -1);
+        auto attn_view = attn_weights->view({batch_size * num_heads_, seq_len, seq_len});
+        infinicore::op::softmax_(attn_view, attn_view, -1);
 
-    auto attn_output = infinicore::op::matmul(attn_weights, v_flat);
-    auto out = attn_output->view({batch_size, num_heads_, seq_len, head_dim_})
-                   ->permute({0, 2, 1, 3})
-                   ->contiguous()
-                   ->view({batch_size, seq_len, embed_dim_});
-
-    return out_proj_->forward(out);
+        auto attn_output = infinicore::op::matmul(attn_weights, v_flat);
+        auto out = attn_output->view({batch_size, num_heads_, seq_len, head_dim_})
+                       ->permute({0, 2, 1, 3})
+                       ->contiguous()
+                       ->view({batch_size, seq_len, embed_dim_});
+        return out_proj_->forward(out);
+    }
 }
 
 SiglipMLP::SiglipMLP(const nlohmann::json &config,

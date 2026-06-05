@@ -4,6 +4,8 @@
 
 namespace infinilm::quantization {
 
+NoneQuantization::NoneQuantization() : NoneQuantization(nlohmann::json()) {}
+
 std::vector<ParamDescriptor> NoneQuantization::get_param_layout(
     size_t in_features, size_t out_features,
     int split_dim, int tp_rank, int tp_size,
@@ -14,8 +16,7 @@ std::vector<ParamDescriptor> NoneQuantization::get_param_layout(
     std::vector<ParamDescriptor> descs;
     descs.push_back({"weight", {out_features, in_features}, dtype, split_dim, tp_rank, tp_size});
     if (bias) {
-        descs.push_back({"bias", {out_features}, dtype, split_dim >= 0 ? 0 : -1,
-                         split_dim >= 0 ? tp_rank : 0, split_dim >= 0 ? tp_size : 1});
+        descs.push_back({"bias", {out_features}, dtype, split_dim >= 0 ? 0 : -1, split_dim >= 0 ? tp_rank : 0, split_dim >= 0 ? tp_size : 1});
     }
     return descs;
 }
