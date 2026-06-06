@@ -10,14 +10,9 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .env import (
-    compile_bucket_mode,
     compile_buckets,
-    prefill_cg_kv_outside_graph,
-    prefill_cg_power_ladder_enabled,
-    prefill_cg_valid_seq_len,
-    prefill_cudagraph_capture_buckets,
+    default_cudagraph_capture_buckets,
     prefill_cudagraph_enabled,
-    prefill_cudagraph_max_bucket,
     vllm_unified_power_ladder,
 )
 
@@ -70,26 +65,14 @@ class CompiledPrefillConfig:
         )
         if self.cudagraph_capture_sizes is None:
             if self.use_cudagraph:
-                explicit = prefill_cudagraph_capture_buckets(self.max_seq_len)
-                if explicit is not None:
-                    self.cudagraph_capture_sizes = list(explicit)
-                elif (
-                    compile_bucket_mode() == "power"
-                    or prefill_cg_power_ladder_enabled()
-                ):
-                    # Unified ladder: same sizes for Inductor padding and CG capture.
-                    self.cudagraph_capture_sizes = list(self.compile_sizes)
-                else:
-                    buckets = list(compile_buckets(self.max_seq_len))
-                    max_cg = prefill_cudagraph_max_bucket()
-                    if max_cg is not None:
-                        buckets = [b for b in buckets if b <= max_cg]
-                    self.cudagraph_capture_sizes = buckets
+                self.cudagraph_capture_sizes = list(
+                    default_cudagraph_capture_buckets(self.max_seq_len)
+                )
             else:
                 self.cudagraph_capture_sizes = list(self.compile_sizes)
         if self.splitting_ops is None:
             self.splitting_ops = list(DEFAULT_SPLITTING_OPS)
-        if prefill_cg_kv_outside_graph():
+        if self.use_cudagraph:
             ops = list(self.splitting_ops)
             if STAGE_PAGED_KV_SPLITTING_OP not in ops:
                 ops.append(STAGE_PAGED_KV_SPLITTING_OP)
@@ -119,10 +102,8 @@ class CompiledPrefillConfig:
             "cudagraph_capture_sizes": self.cudagraph_capture_sizes,
             "splitting_ops": self.splitting_ops,
             "enable_fusion": self.enable_fusion,
-            "kv_outside_graph": prefill_cg_kv_outside_graph(),
-            "valid_seq_len": prefill_cg_valid_seq_len(),
-            "power_cg_ladder": prefill_cg_power_ladder_enabled(),
-            "unified_vllm_power_ladder": compile_bucket_mode() == "power",
+            "kv_outside_graph": self.use_cudagraph,
+            "valid_seq_len": self.use_cudagraph,
         }
         with open(os.path.join(self.cache_dir, "infinilm_compile_meta.json"), "w") as f:
             json.dump(meta, f, indent=2)

@@ -46,8 +46,6 @@ def ensure_compiled_prefill_runner(engine, *, block_size: int = 256) -> None:
 
     from infinilm.compile import CompiledPrefillConfig, CompiledPrefillRunner
     from infinilm.compile.env import (
-        compile_bucket_mode,
-        compile_bucket_step,
         compile_max_seq_len,
         compile_warmup_seq_lens,
         prefill_cudagraph_enabled,
@@ -72,12 +70,7 @@ def ensure_compiled_prefill_runner(engine, *, block_size: int = 256) -> None:
             if cache_cfg is not None:
                 block_size = cache_cfg.block_size()
     warmup_seq_lens = compile_warmup_seq_lens(max_seq)
-    logger.info(
-        "compiled prefill warmup seq_lens=%s mode=%s step=%s",
-        warmup_seq_lens,
-        compile_bucket_mode(),
-        compile_bucket_step(),
-    )
+    logger.info("compiled prefill warmup seq_lens=%s", warmup_seq_lens)
     runner = CompiledPrefillRunner(
         cfg,
         device=torch_device,

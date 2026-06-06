@@ -8,15 +8,12 @@ from typing import Optional
 import infinicore
 import torch
 
-from .env import prefill_cg_scrub_tail
-
-
 class CudagraphPersistentBuffers:
     """Single max-bucket buffers with prefix views for piecewise CUDAGraph replay.
 
     Mirrors vLLM ``CpuGpuBuffer`` + ``input_ids.gpu[:num_input_tokens]``: capture
     and replay share the same underlying ``data_ptr``; only the active prefix is
-    copied on staging (garbage tail left stale unless ``SCRUB_TAIL=1``).
+    copied on staging (vLLM garbage tail left stale).
     """
 
     def __init__(
@@ -62,8 +59,6 @@ class CudagraphPersistentBuffers:
                 f"seq_len {seq_len} exceeds cudagraph bucket {bucket}"
             )
         view = self.view_input_ids(bucket)
-        if prefill_cg_scrub_tail():
-            view.zero_()
         if seq_len > 0:
             view[0, :seq_len].copy_(input_ids[0, :seq_len])
         return view

@@ -38,11 +38,8 @@ from .cudagraph_runtime import (
 from .env import (
     build_bs_to_padded_bucket,
     compile_bucket_ceiling,
-    compile_bucket_mode,
     compile_buckets,
     padded_bucket_for_seq_len,
-    prefill_cg_kv_outside_graph,
-    prefill_cg_valid_seq_len,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,7 +95,7 @@ def _make_valid_len_pool(
     capture_buckets: Optional[List[int]] = None,
     use_cudagraph: bool = False,
 ) -> Optional[_CudagraphValidLenPool]:
-    if not use_cudagraph or not prefill_cg_valid_seq_len():
+    if not use_cudagraph:
         return None
     return _CudagraphValidLenPool(device, capture_buckets=capture_buckets)
 
@@ -128,8 +125,6 @@ def _make_kv_staging_pool(
     *,
     capture_buckets: Optional[List[int]] = None,
 ) -> Optional[_CudagraphKvStagingPool]:
-    if not prefill_cg_kv_outside_graph():
-        return None
     cfg = backbone.inner.config
     num_layers = int(getattr(cfg, "num_hidden_layers", 0))
     num_kv_heads = int(getattr(cfg, "num_key_value_heads", 0))
@@ -218,7 +213,7 @@ def compile_prefill_backbone(
         kv_staging_pool: Optional[_CudagraphKvStagingPool] = None
         valid_len_pool: Optional[_CudagraphValidLenPool] = None
         use_paged_capture = cpp_state_dict is not None
-        kv_outside_graph = prefill_cg_kv_outside_graph()
+        kv_outside_graph = cfg.use_cudagraph
         if cfg.use_cudagraph:
             capture_bucket_list = list(cfg.cudagraph_capture_sizes or ())
             cudagraph_buffers = _make_cudagraph_buffers(
@@ -390,7 +385,7 @@ class CompiledPrefillRunner:
             kv_staging_pool=self._cudagraph_kv_staging_pool,
             valid_len_pool=self._cudagraph_valid_len_pool,
             block_size=bs,
-            use_paged_ctx=not prefill_cg_kv_outside_graph(),
+            use_paged_ctx=False,
         )
         refresh_cudagraph_wrapper_refs(self.backbone)
         self._cudagraph_wrappers = list(self.backbone._cudagraph_wrappers)
@@ -471,11 +466,7 @@ class CompiledPrefillRunner:
         bucket: Optional[int] = None,
     ) -> torch.Tensor:
         cm: contextlib.AbstractContextManager = contextlib.nullcontext()
-        if (
-            bucket is not None
-            and seq_len is not None
-            and prefill_cg_valid_seq_len()
-        ):
+        if bucket is not None and seq_len is not None:
             if self._cudagraph_valid_len_pool is not None:
                 valid_tensor, valid_mask = self._cudagraph_valid_len_pool.stage(
                     seq_len, bucket
@@ -501,11 +492,10 @@ class CompiledPrefillRunner:
         bucket = self._compile_bucket_len(seq_len)
         if bucket != seq_len:
             logger.info(
-                "compiled prefill bucket: seq_len=%s bucket=%s pad=%s mode=%s",
+                "compiled prefill bucket: seq_len=%s bucket=%s pad=%s",
                 seq_len,
                 bucket,
                 max(0, bucket - seq_len),
-                compile_bucket_mode(),
             )
         if self.cfg.use_cudagraph and self._cudagraph_buffers is not None:
             staged = self._cudagraph_buffers.stage_input_ids(input_ids, bucket)
@@ -565,7 +555,7 @@ class CompiledPrefillRunner:
             self.ensure_cudagraph_on_serving_thread(
                 kv_layers, block_size=block_size
             )
-        kv_outside = prefill_cg_kv_outside_graph() and self._cudagraph_kv_staging_pool is not None
+        kv_outside = self._cudagraph_kv_staging_pool is not None
         staged_slots = slot_mapping
         if self.cfg.use_cudagraph and self._cudagraph_buffers is not None:
             stage_bucket = bucket if use_compiled else seq_len

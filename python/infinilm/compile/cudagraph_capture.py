@@ -23,10 +23,6 @@ from .cudagraph_pools import (
     valid_seq_len_context,
 )
 from .cudagraph_runtime import _run_compiled_backbone
-from .env import (
-    prefill_cg_kv_outside_graph,
-    prefill_cg_valid_seq_len,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +191,7 @@ def _capture_cudagraph_bucket(
     """Capture (or re-capture) piecewise CUDAGraph for a single bucket."""
     from vllm.config import CUDAGraphMode
 
-    kv_outside = prefill_cg_kv_outside_graph() and kv_staging_pool is not None
+    kv_outside = kv_staging_pool is not None
     if kv_outside:
         use_paged_ctx = False
 
@@ -242,7 +238,7 @@ def _capture_cudagraph_bucket(
             ctx_stack.append(
                 valid_seq_len_context(valid_tensor, mask=valid_mask)
             )
-        elif prefill_cg_valid_seq_len():
+        else:
             valid_tensor = buffers.stage_valid_seq_len(seq_len)
             ctx_stack.append(
                 valid_seq_len_context(valid_tensor, mask=None)
@@ -285,7 +281,7 @@ def _capture_cudagraphs(
     """Phase 2: piecewise CUDAGraph capture on already-compiled bytecode."""
     from vllm.compilation.monitor import set_cudagraph_capturing_enabled
 
-    kv_outside = prefill_cg_kv_outside_graph() and kv_staging_pool is not None
+    kv_outside = kv_staging_pool is not None
     if kv_outside:
         use_paged_ctx = False
 

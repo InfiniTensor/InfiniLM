@@ -58,7 +58,6 @@ def splitting_flash_attention_forward(
     if is_causal is None:
         is_causal = module.is_causal
 
-    from infinilm.compile.env import prefill_cg_kv_outside_graph, prefill_cg_valid_seq_len
     from infinilm.compile.cudagraph_pools import (
         active_kv_staging_context,
         active_valid_seq_len_tensor,
@@ -67,7 +66,7 @@ def splitting_flash_attention_forward(
 
     paged_ctx = active_paged_prefill_context()
     staging_ctx = active_kv_staging_context()
-    if prefill_cg_kv_outside_graph() and staging_ctx is not None:
+    if staging_ctx is not None:
         layer_idx = staging_ctx.next_layer_idx()
         torch.ops.infinilm.stage_paged_kv(key, value, layer_idx)
     elif paged_ctx is not None:
@@ -75,11 +74,7 @@ def splitting_flash_attention_forward(
         torch.ops.infinilm.write_paged_kv(key, value, layer_idx)
 
     softmax_scale = scaling if scaling is not None else module.scaling
-    valid_seq_len = (
-        active_valid_seq_len_tensor()
-        if prefill_cg_valid_seq_len()
-        else None
-    )
+    valid_seq_len = active_valid_seq_len_tensor()
     attn_output = torch.ops.infinilm.prefill_flash_attention(
         query,
         key,

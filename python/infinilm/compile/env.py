@@ -2,20 +2,17 @@
 """Environment flags for hybrid compiled prefill (Phases 3–6).
 
 Classification (for PR review):
-  PROD — default-on production path when ``INFINI_PREFILL_COMPILE=1`` (+ share/CG flags):
+  PROD — master switches + ladder driver:
     ``prefill_compile_enabled``, ``prefill_share_weights_enabled``, ``prefill_cudagraph_enabled``,
-    ``compile_max_seq_len``, ``compile_bucket_mode`` (``power`` in serve scripts),
-    ``compile_buckets`` / ``compile_warmup_seq_lens``,
-    ``prefill_cg_kv_outside_graph`` (vLLM piecewise: attention outside captured subgraphs).
-  REPRO — opt-in experiment / bisect knobs (not set in ``serve_infinilm.sh``):
-    ``prefill_cg_piecewise_min_bucket``,
-    ``prefill_cudagraph_max_bucket``,
-    ``prefill_cudagraph_capture_buckets`` / ``CAPTURE_MODE=longseq``,
-    ``INFINI_PREFILL_CG_POWER_LADDER``, ``COMPILE_BUCKET_MODE=power|linear``,
-    ``COMPILE_WARMUP_SEQ_LENS``.
-  DEBUG — diagnostics only:
-    ``prefill_cg_debug_ptrs_enabled``, ``return_logits_enabled``,
-    ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``).
+    ``compile_max_seq_len``, ``compile_buckets`` / ``compile_warmup_seq_lens``.
+  DEBUG — diagnostics / smoke baselines only:
+    ``prefill_cg_debug_ptrs_enabled``, ``prefill_cg_baseline_none``,
+    ``return_logits_enabled``, ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``).
+
+Bucket ladders and CUDAGraph capture sizes are derived from ``INFINI_COMPILE_MAX_SEQ``
+via ``vllm_unified_power_ladder`` (compile) and ``default_cudagraph_capture_buckets``
+(CG capture excludes the 8448 overflow tail). KV-outside-graph, valid-seq scoping,
+and vLLM garbage-tail staging are hardcoded in the compile path when CG is enabled.
 """
 
 from __future__ import annotations
@@ -23,14 +20,15 @@ from __future__ import annotations
 import os
 from typing import List, Optional, Tuple
 
-# Power-mode overflow buckets (+256 past anchor); ignored in linear mode.
+# Power-mode overflow buckets (+256 past anchor).
 COMPILE_OVERFLOW_BUCKET_1024 = 1280
 COMPILE_OVERFLOW_BUCKET_4096 = 4352
 COMPILE_OVERFLOW_BUCKET_8192 = 8448
 COMPILE_OVERFLOW_BUCKET = COMPILE_OVERFLOW_BUCKET_4096
 
-# Linear ladder step (tokens); default matches 2× paged block_size (256).
-_DEFAULT_COMPILE_BUCKET_STEP = 512
+# vLLM default piecewise ladder floor (512) through 8192, plus non-power max_seq tail.
+_VLLM_POWER_LADDER_FLOOR = 512
+_VLLM_POWER_LADDER_CAP = 8192
 
 
 def _truthy(name: str, default: str = "0") -> bool:
@@ -47,104 +45,29 @@ def prefill_cudagraph_enabled() -> bool:
     return _truthy("INFINI_PREFILL_CUDAGRAPH", "0")
 
 
-def prefill_cg_kv_outside_graph() -> bool:
-    """Stage K/V outside piecewise CUDAGraph; flush to paged cache eagerly after replay.
-
-    Default **on** (vLLM parity: attention runs eager with fresh metadata at replay).
-    Set ``INFINI_PREFILL_CG_KV_OUTSIDE_GRAPH=0`` to restore in-graph KV capture path.
-    """
-    return _truthy("INFINI_PREFILL_CG_KV_OUTSIDE_GRAPH", "1")
-
-
-def prefill_cg_piecewise_min_bucket(default: int = 512) -> int:
-    """Minimum capture bucket eligible for PIECEWISE CUDAGraph replay.
-
-    Set ``INFINI_PREFILL_CG_PIECEWISE_MIN_BUCKET`` (default **512**). Buckets below
-    this floor use eager Inductor even when present in ``cudagraph_capture_sizes``.
-    """
-    raw = os.environ.get("INFINI_PREFILL_CG_PIECEWISE_MIN_BUCKET")
-    if raw is None or not raw.strip():
-        return default
-    return int(raw.strip())
-
-
 def prefill_cg_baseline_none() -> bool:
     """Smoke/parity: force ``CUDAGraphMode.NONE`` at replay (PIECEWISE vs NONE baseline)."""
     return _truthy("INFINI_PREFILL_CG_BASELINE_NONE", "0")
 
 
-def prefill_cg_valid_seq_len() -> bool:
-    """Phase 2: pass pooled ``valid_seq_len`` into ``prefill_flash_attention`` for partial replay.
-
-    Default on when ``INFINI_PREFILL_CG_VALID_SEQ_LEN`` is unset (safe no-op at full bucket).
-    Set ``INFINI_PREFILL_CG_VALID_SEQ_LEN=0`` to disable.
-    """
-    return _truthy("INFINI_PREFILL_CG_VALID_SEQ_LEN", "1")
+def prefill_share_weights_enabled() -> bool:
+    """Reuse C++ weight buffers for torch KV write in ``run_prefill_paged`` (opt-in)."""
+    return _truthy("INFINI_PREFILL_SHARE_WEIGHTS", "0")
 
 
-def prefill_cg_scrub_tail() -> bool:
-    """Legacy staging hygiene: ``zero_`` / ``fill_(-1)`` entire bucket before copy.
-
-    Default **off** (vLLM garbage-tail staging). Set ``INFINI_PREFILL_CG_SCRUB_TAIL=1``
-    to restore per-bucket tail scrub on replay.
-    """
-    return _truthy("INFINI_PREFILL_CG_SCRUB_TAIL", "0")
+def prefill_cg_debug_ptrs_enabled() -> bool:
+    """Log pooled ``input_ids`` / ``slot_mapping`` ``data_ptr()`` at capture vs replay."""
+    return _truthy("INFINI_PREFILL_CG_DEBUG_PTRS", "0")
 
 
-def prefill_cudagraph_max_bucket(default: int = 4096) -> Optional[int]:
-    """Max bucket for CUDAGraph capture/replay; larger buckets use eager Inductor.
-
-    Set ``INFINI_PREFILL_CUDAGRAPH_MAX_BUCKET=0`` to disable the cap (capture all
-    buckets). Default 4096 avoids @8192+ replay ATU faults on MetaX.
-    Ignored when explicit capture buckets / ``CAPTURE_MODE=longseq`` is set.
-    """
-    if os.environ.get("INFINI_PREFILL_CUDAGRAPH_CAPTURE_BUCKETS", "").strip():
-        return None
-    if os.environ.get("INFINI_PREFILL_CUDAGRAPH_CAPTURE_MODE", "").strip().lower() in (
-        "longseq",
-        "long_seq",
-        "large",
-        "8192",
-    ):
-        return None
-    raw = os.environ.get("INFINI_PREFILL_CUDAGRAPH_MAX_BUCKET")
-    if raw is None:
-        return default if prefill_cudagraph_enabled() else None
-    val = raw.strip().lower()
-    if val in ("", "0", "none", "off", "false", "no"):
-        return None
-    return int(raw)
+def return_logits_enabled() -> bool:
+    """Opt-in: return pre-sample logits on CPU (``compile_prefill_parity.py`` only; default off)."""
+    return _truthy("INFINI_RETURN_LOGITS", "0")
 
 
-# Large-bucket-only capture (saves init vs full bench ladder; ATU experiment).
-_LONGSEQ_CUDAGRAPH_CAPTURE_BUCKETS: Tuple[int, ...] = (7168, 8192, 8448)
-
-
-def prefill_cudagraph_capture_buckets(max_seq_len: int) -> Optional[Tuple[int, ...]]:
-    """Explicit CUDAGraph capture sizes (Inductor still warms all compile buckets).
-
-    ``INFINI_PREFILL_CUDAGRAPH_CAPTURE_MODE=longseq`` → 7168,8192,8448 (within max_seq).
-    Or ``INFINI_PREFILL_CUDAGRAPH_CAPTURE_BUCKETS=7168,8192,8448``.
-    """
-    mode = os.environ.get("INFINI_PREFILL_CUDAGRAPH_CAPTURE_MODE", "").strip().lower()
-    raw = os.environ.get("INFINI_PREFILL_CUDAGRAPH_CAPTURE_BUCKETS", "").strip()
-    if mode in ("longseq", "long_seq", "large", "8192"):
-        candidates = _LONGSEQ_CUDAGRAPH_CAPTURE_BUCKETS
-    elif raw:
-        candidates = tuple(int(x.strip()) for x in raw.split(",") if x.strip())
-    else:
-        return None
-    allowed = set(compile_buckets(max_seq_len))
-    picked = tuple(sorted(b for b in candidates if b in allowed and b <= max_seq_len))
-    return picked if picked else None
-
-
-# Legacy sparse CG anchors (repro only; production uses ``vllm_unified_power_ladder``).
-POWER_CG_CAPTURE_ANCHORS: Tuple[int, ...] = (1024, 4096, 8192)
-
-# vLLM default piecewise ladder floor (512) through 8192, plus non-power ``max_seq_len`` tail.
-_VLLM_POWER_LADDER_FLOOR = 512
-_VLLM_POWER_LADDER_CAP = 8192
+def compile_max_seq_len(default: int = 8448) -> int:
+    raw = os.environ.get("INFINI_COMPILE_MAX_SEQ")
+    return int(raw) if raw else default
 
 
 def compile_overflow_tail_bucket(max_seq_len: int) -> Optional[int]:
@@ -158,7 +81,7 @@ def compile_overflow_tail_bucket(max_seq_len: int) -> Optional[int]:
 
 
 def compile_bucket_ceiling(max_seq_len: int) -> int:
-    """Upper bound for Inductor warmup + CG capture buckets (includes overflow tail)."""
+    """Upper bound for Inductor warmup + CG buffer sizing (includes overflow tail)."""
     tail = compile_overflow_tail_bucket(max_seq_len)
     return max(max_seq_len, tail or 0)
 
@@ -168,7 +91,7 @@ def vllm_unified_power_ladder(
     *,
     min_bucket: int = _VLLM_POWER_LADDER_FLOOR,
 ) -> Tuple[int, ...]:
-    """Unified Inductor pad + CUDAGraph capture buckets (vLLM power-of-2 + max_seq tail).
+    """Unified Inductor pad buckets (vLLM power-of-2 + max_seq tail).
 
     Powers of two from ``min_bucket`` (512) through 8192. When ``max_seq_len`` exceeds
     8192 (chunked prefill not ready), append ``max_seq_len`` as the tail bucket
@@ -197,110 +120,27 @@ def vllm_unified_power_ladder(
     return tuple(sorted(b for b in set(buckets) if b <= ceiling))
 
 
-def prefill_cg_power_ladder_enabled() -> bool:
-    """Legacy repro knob (unified power ladder is default via ``COMPILE_BUCKET_MODE=power``).
+def default_cudagraph_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
+    """Power ladder buckets eligible for PIECEWISE CUDAGraph capture.
 
-    When set with ``COMPILE_BUCKET_MODE=bench``, forces CG capture sizes to
-    ``vllm_unified_power_ladder`` while runtime padding stays on the bench ladder.
+    Caps at 8192: buckets above the power anchor (e.g. 8448 ``max_seq_len`` tail)
+    use eager Inductor replay only.
     """
-    return _truthy("INFINI_PREFILL_CG_POWER_LADDER", "0")
-
-
-def prefill_cg_power_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
-    """CUDAGraph capture sizes aligned with the unified vLLM power ladder."""
-    return vllm_unified_power_ladder(max_seq_len)
+    ladder = vllm_unified_power_ladder(max_seq_len)
+    return tuple(b for b in ladder if b <= _VLLM_POWER_LADDER_CAP)
 
 
 def min_cudagraph_piecewise_bucket(capture_sizes: Optional[object]) -> int:
-    """Smallest capture bucket eligible for PIECEWISE replay (env floor + capture set)."""
-    floor = prefill_cg_piecewise_min_bucket()
+    """Smallest capture bucket eligible for PIECEWISE replay."""
+    floor = _VLLM_POWER_LADDER_FLOOR
     if capture_sizes:
         return max(floor, min(int(b) for b in capture_sizes))
     return floor
 
 
-def prefill_share_weights_enabled() -> bool:
-    """Reuse C++ weight buffers for torch KV write in ``run_prefill_paged`` (opt-in)."""
-    return _truthy("INFINI_PREFILL_SHARE_WEIGHTS", "0")
-
-
-def prefill_cg_debug_ptrs_enabled() -> bool:
-    """Log pooled ``input_ids`` / ``slot_mapping`` ``data_ptr()`` at capture vs replay."""
-    return _truthy("INFINI_PREFILL_CG_DEBUG_PTRS", "0")
-
-
-def return_logits_enabled() -> bool:
-    """Opt-in: return pre-sample logits on CPU (``compile_prefill_parity.py`` only; default off)."""
-    return _truthy("INFINI_RETURN_LOGITS", "0")
-
-
-def compile_max_seq_len(default: int = 8448) -> int:
-    raw = os.environ.get("INFINI_COMPILE_MAX_SEQ")
-    return int(raw) if raw else default
-
-
-def compile_bucket_mode() -> str:
-    """``bench`` | ``linear`` | ``power`` (see ``compile_buckets``)."""
-    return os.environ.get("COMPILE_BUCKET_MODE", "power").strip().lower()
-
-
-def compile_bucket_step(default: int = _DEFAULT_COMPILE_BUCKET_STEP) -> int:
-    raw = os.environ.get("COMPILE_BUCKET_STEP")
-    return int(raw) if raw else default
-
-
-def _compile_buckets_power(max_seq_len: int) -> Tuple[int, ...]:
-    return vllm_unified_power_ladder(max_seq_len)
-
-
-# Sparse ladder for PRD-02 server TTFT sweeps (1024/4096/8192 + harness overflow).
-_BENCH_BUCKET_ANCHORS: Tuple[int, ...] = (
-    512,
-    1024,
-    1536,
-    2048,
-    4096,
-    4608,
-    5120,
-    6144,
-    7168,
-    8192,
-)
-
-
-def _compile_buckets_bench(max_seq_len: int) -> Tuple[int, ...]:
-    buckets = [a for a in _BENCH_BUCKET_ANCHORS if a <= max_seq_len]
-    if max_seq_len not in buckets:
-        buckets.append(max_seq_len)
-    return tuple(buckets)
-
-
-def _compile_buckets_linear(max_seq_len: int, step: int) -> Tuple[int, ...]:
-    if step <= 0:
-        raise ValueError(f"COMPILE_BUCKET_STEP must be positive, got {step}")
-    buckets: List[int] = []
-    b = step
-    while b < max_seq_len:
-        buckets.append(b)
-        b += step
-    if max_seq_len not in buckets:
-        buckets.append(max_seq_len)
-    return tuple(buckets)
-
-
 def compile_buckets(max_seq_len: int) -> Tuple[int, ...]:
     """Runtime Inductor padding buckets (must match init warmup when unset)."""
-    mode = compile_bucket_mode()
-    if mode == "power":
-        return _compile_buckets_power(max_seq_len)
-    if mode in ("bench", "benchmark", "sparse"):
-        return _compile_buckets_bench(max_seq_len)
-    if mode in ("linear", "step"):
-        return _compile_buckets_linear(max_seq_len, compile_bucket_step())
-    raise ValueError(
-        f"unknown COMPILE_BUCKET_MODE={mode!r} "
-        "(use 'bench', 'linear', or 'power')"
-    )
+    return vllm_unified_power_ladder(max_seq_len)
 
 
 def build_bs_to_padded_bucket(capture_sizes: list[int]) -> list[int]:
