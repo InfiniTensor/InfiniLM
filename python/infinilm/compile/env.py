@@ -40,6 +40,11 @@ def prefill_compile_enabled() -> bool:
     return _truthy("INFINI_PREFILL_COMPILE", "0")
 
 
+def prefill_native_cg_enabled() -> bool:
+    """Native C++ piecewise CUDAGraph prefill (HPCC v1; no torch.compile)."""
+    return _truthy("INFINI_PREFILL_NATIVE_CG", "0")
+
+
 def prefill_cudagraph_enabled() -> bool:
     """Enable vLLM piecewise CUDAGraph on the compiled prefill backbone."""
     return _truthy("INFINI_PREFILL_CUDAGRAPH", "0")

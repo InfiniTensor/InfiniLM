@@ -98,6 +98,43 @@ public:
         return embed_tokens_->forward(input_ids);
     }
 
+    size_t num_layers() const { return layers_.size(); }
+
+    void piecewise_embed(const infinilm::InfinilmModel::Input &input,
+                         infinicore::Tensor &hidden_states) const {
+        auto embedded = embed_tokens_->forward(input.input_ids.value());
+        hidden_states->copy_from(embedded);
+    }
+
+    void piecewise_pre_attn_layer(size_t layer_idx,
+                                  const infinilm::InfinilmModel::Input &input,
+                                  infinicore::Tensor &hidden_states,
+                                  infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_pre_attn(
+            input.position_ids.value(), hidden_states, residual, staging);
+    }
+
+    void piecewise_eager_attn_layer(size_t layer_idx,
+                                    const infinilm::InfinilmModel::Input &input) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_eager_attn(input.position_ids.value(), staging);
+    }
+
+    void piecewise_post_attn_layer(size_t layer_idx,
+                                   const infinilm::InfinilmModel::Input &,
+                                   infinicore::Tensor &hidden_states,
+                                   infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_post_attn(hidden_states, residual, staging);
+    }
+
+    infinicore::Tensor piecewise_lm_head(infinicore::Tensor &hidden_states,
+                                         infinicore::Tensor &residual) const {
+        norm_->forward_inplace(hidden_states, residual);
+        return hidden_states;
+    }
+
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
     INFINICORE_NN_MODULE_VEC(DecoderLayer, layers);

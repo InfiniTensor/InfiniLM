@@ -58,6 +58,26 @@ public:
         return cache_config_.get();
     }
 
+    /// Native piecewise CUDAGraph prefill (PRD-03). Default: unsupported.
+    virtual bool supports_native_piecewise_prefill() const { return false; }
+    virtual size_t native_piecewise_num_layers() const { return 0; }
+    virtual void native_piecewise_embed(const Input &input,
+                                        infinicore::Tensor &hidden_states) const;
+    virtual void native_piecewise_pre_attn_layer(size_t layer_idx,
+                                                 const Input &input,
+                                                 infinicore::Tensor &hidden_states,
+                                                 infinicore::Tensor &residual) const;
+    virtual void native_piecewise_eager_attn_layer(size_t layer_idx,
+                                                     const Input &input) const;
+    virtual void native_piecewise_post_attn_layer(size_t layer_idx,
+                                                  const Input &input,
+                                                  infinicore::Tensor &hidden_states,
+                                                  infinicore::Tensor &residual) const;
+    virtual void native_piecewise_lm_head(const Input &input,
+                                          infinicore::Tensor &hidden_states,
+                                          infinicore::Tensor &residual,
+                                          infinicore::Tensor &logits_out) const;
+
     void process_weights_after_loading();
 
 protected:

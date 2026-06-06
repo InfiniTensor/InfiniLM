@@ -164,8 +164,11 @@ class InferenceServer:
             from infinilm.compile.env import (
                 prefill_compile_enabled,
                 prefill_cudagraph_enabled,
+                prefill_native_cg_enabled,
             )
 
+            if prefill_native_cg_enabled():
+                return
             if not (prefill_compile_enabled() and prefill_cudagraph_enabled()):
                 return
         except ImportError:

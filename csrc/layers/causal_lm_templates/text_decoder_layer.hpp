@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../global_state/piecewise_prefill_state.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
@@ -60,6 +61,28 @@ public:
     }
 
     size_t layer_idx() const { return layer_idx_; }
+
+    void piecewise_pre_attn(const infinicore::Tensor &positions,
+                            infinicore::Tensor &hidden_states,
+                            infinicore::Tensor &residual,
+                            global_state::PiecewiseLayerStaging &staging) const {
+        input_layernorm_->forward_inplace(hidden_states, residual);
+        self_attn_->forward_pre_attn_piecewise(positions, hidden_states, staging);
+    }
+
+    void piecewise_eager_attn(const infinicore::Tensor &positions,
+                              global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_eager_attn_piecewise(positions, staging);
+    }
+
+    void piecewise_post_attn(infinicore::Tensor &hidden_states,
+                             infinicore::Tensor &residual,
+                             global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_post_attn_piecewise_into(hidden_states, staging);
+        post_attention_layernorm_->forward_inplace(hidden_states, residual);
+        auto mlp_out = mlp_->forward(hidden_states);
+        hidden_states->copy_from(mlp_out);
+    }
 
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);

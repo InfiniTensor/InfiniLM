@@ -94,6 +94,80 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     return output;
 }
 
+void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_ids,
+                                           const infinicore::Tensor &hidden_states,
+                                           global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    auto hidden_states_mutable = hidden_states;
+    auto shape = hidden_states->shape();
+    size_t batch_size = shape[0];
+    size_t seq_len = shape[1];
+    ASSERT_EQ(batch_size, 1);
+
+    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+
+    auto q_heads = q->view({1, seq_len, num_attention_heads_, head_dim_});
+    auto k_heads = k->view({1, seq_len, num_key_value_heads_, head_dim_});
+    auto v_heads = v->view({1, seq_len, num_key_value_heads_, head_dim_});
+
+    if (valid_len < seq_len) {
+        staging.q_rope->narrow({{1, 0, valid_len}})->copy_from(q_heads->narrow({{1, 0, valid_len}}));
+        staging.k_rope->narrow({{1, 0, valid_len}})->copy_from(k_heads->narrow({{1, 0, valid_len}}));
+        staging.v_rope->narrow({{1, 0, valid_len}})->copy_from(v_heads->narrow({{1, 0, valid_len}}));
+    } else {
+        staging.q_rope->copy_from(q_heads);
+        staging.k_rope->copy_from(k_heads);
+        staging.v_rope->copy_from(v_heads);
+    }
+
+    auto pos_shape = position_ids->shape();
+    infinicore::Tensor pos_ids_for_rope = position_ids;
+    if (pos_shape.size() == 2) {
+        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
+        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
+    } else if (pos_shape.size() == 1) {
+        pos_ids_for_rope = position_ids;
+    } else {
+        throw std::runtime_error("Unexpected position_ids shape");
+    }
+
+    auto q_rope = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    auto k_rope = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
+    rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
+}
+
+void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
+                                             global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.q_rope->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+
+    auto q = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    auto k = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    auto v = staging.v_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+
+    auto attn_output = attn_->forward(q, k, v);
+    if (valid_len < seq_len) {
+        staging.attn_output->narrow({{1, 0, valid_len}})->copy_from(attn_output->narrow({{1, 0, valid_len}}));
+    } else {
+        staging.attn_output->copy_from(attn_output);
+    }
+}
+
+void Attention::forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
+                                               global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.attn_output->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+
+    auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+    auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
+    auto projected = o_proj_->forward(attn_for_proj);
+    hidden_narrow->copy_from(projected);
+}
+
 infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_ids,
                                              const infinicore::Tensor &hidden_states) const {
     // hidden_states shape: [batch, seq_len, hidden_size]

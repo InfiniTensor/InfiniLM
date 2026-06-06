@@ -139,6 +139,18 @@ class LLMEngine:
         self.model_engine.reset_cache(cache_config)
         self.cache_type = config.cache_type
 
+        if config.enable_graph:
+            try:
+                from infinilm.compile.env import prefill_native_cg_enabled
+
+                if prefill_native_cg_enabled():
+                    logger.info(
+                        "native piecewise CG enabled (INFINI_PREFILL_NATIVE_CG=1); "
+                        "prefill graphs captured in C++ at init"
+                    )
+            except ImportError:
+                pass
+
         # Get EOS token IDs from model config
         self.eos_token_ids = self.model_engine.eos_token_id or []
         if isinstance(self.eos_token_ids, int):

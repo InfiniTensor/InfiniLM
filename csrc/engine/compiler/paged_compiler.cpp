@@ -75,7 +75,7 @@ void PagedCompiler::compile() {
 
         // Prefill graphs: one capture per bucket (MVP: 4096 full prefill, batch_size == 1).
         compiled_map_prefill_.clear();
-        if (!skip_cpp_prefill_graph()) {
+        if (!skip_cpp_prefill_graph() && !native_piecewise_prefill_enabled()) {
         for (size_t seq_bucket : prefill_seq_buckets_) {
             const size_t S = seq_bucket;
             InfinilmModel::Input input;
@@ -177,7 +177,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         size_t block_per_req = input.block_tables.value()->size(1);
 
         if (batch_size != input.input_ids.value()->size(1)) {
-            if (skip_cpp_prefill_graph()) {
+            if (skip_cpp_prefill_graph() || native_piecewise_prefill_enabled()) {
                 return {nullptr, nullptr};
             }
             const size_t compute_len = compute_prefill_len(input);

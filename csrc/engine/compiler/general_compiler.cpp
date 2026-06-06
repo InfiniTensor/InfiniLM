@@ -1,14 +1,22 @@
 #include "general_compiler.hpp"
 
+#include "../compiled_prefill_flags.hpp"
+
 namespace infinilm::engine {
 GeneralCompiler::GeneralCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier) : GraphCompiler(model, barrier) {
     static_batching_compiler_ = std::make_unique<StaticBatchingCompiler>(model_, barrier);
     paged_compiler_ = std::make_unique<PagedCompiler>(model_, barrier);
+    if (native_piecewise_prefill_enabled()) {
+        piecewise_prefill_compiler_ = std::make_unique<PiecewisePrefillCompiler>(model_, barrier);
+    }
 }
 
 void GeneralCompiler::compile() {
     static_batching_compiler_->compile();
     paged_compiler_->compile();
+    if (piecewise_prefill_compiler_ != nullptr) {
+        piecewise_prefill_compiler_->compile();
+    }
 }
 
 GeneralCompiler::Compiled GeneralCompiler::get_compiled(const InfinilmModel::Input &input) {
@@ -23,6 +31,25 @@ GeneralCompiler::Compiled GeneralCompiler::get_compiled(const InfinilmModel::Inp
     return result;
 }
 
+std::optional<infinicore::Tensor> GeneralCompiler::run_native_piecewise_prefill(const InfinilmModel::Input &input) {
+    if (piecewise_prefill_compiler_ == nullptr) {
+        return std::nullopt;
+    }
+    return piecewise_prefill_compiler_->run_prefill(input);
+}
+
+bool GeneralCompiler::native_piecewise_enabled() const {
+    return piecewise_prefill_compiler_ != nullptr && piecewise_prefill_compiler_->enabled();
+}
+
+const std::vector<size_t> &GeneralCompiler::native_capture_buckets() const {
+    static const std::vector<size_t> empty;
+    if (piecewise_prefill_compiler_ == nullptr) {
+        return empty;
+    }
+    return piecewise_prefill_compiler_->capture_buckets();
+}
+
 void GeneralCompiler::record_graph_hit(bool is_prefill) {
     paged_compiler_->record_graph_hit(is_prefill);
 }
@@ -32,7 +59,13 @@ void GeneralCompiler::record_graph_miss(bool is_prefill) {
 }
 
 PagedCompiler::GraphStats GeneralCompiler::graph_stats() const {
-    return paged_compiler_->graph_stats();
+    auto stats = paged_compiler_->graph_stats();
+    if (piecewise_prefill_compiler_ != nullptr) {
+        stats.piecewise_segment_replays = piecewise_prefill_compiler_->segment_replays();
+        stats.piecewise_prefill_hits = piecewise_prefill_compiler_->prefill_hits();
+        stats.piecewise_prefill_misses = piecewise_prefill_compiler_->prefill_misses();
+    }
+    return stats;
 }
 
 } // namespace infinilm::engine

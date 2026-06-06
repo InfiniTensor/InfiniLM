@@ -53,6 +53,7 @@ public:
     }
 
     Model &model() { return *model_; }
+    const Model &model() const { return *model_; }
 
 protected:
     INFINICORE_NN_MODULE(Model, model);

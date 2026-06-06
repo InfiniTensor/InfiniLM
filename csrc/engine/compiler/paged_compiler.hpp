@@ -12,6 +12,9 @@ public:
         size_t prefill_graph_misses{0};
         size_t decode_graph_hits{0};
         size_t decode_graph_misses{0};
+        size_t piecewise_segment_replays{0};
+        size_t piecewise_prefill_hits{0};
+        size_t piecewise_prefill_misses{0};
     };
 
     PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier);

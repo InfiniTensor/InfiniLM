@@ -3,6 +3,7 @@
 #include "../../backends/attention_backends.hpp"
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../global_state/piecewise_prefill_state.hpp"
 #include "../linear/linear.hpp"
 #include "backends/attention_layer.hpp"
 #include "infinicore/nn/module.hpp"
@@ -19,6 +20,19 @@ public:
 
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
+
+    /// Piecewise prefill: QKV + RoPE, writes Q/K/V staging tensors.
+    void forward_pre_attn_piecewise(const infinicore::Tensor &positions,
+                                    const infinicore::Tensor &hidden_states,
+                                    global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Piecewise prefill: KV cache + varlen attention (eager, outside graph).
+    void forward_eager_attn_piecewise(const infinicore::Tensor &positions,
+                                      global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Piecewise prefill: O-proj into ``hidden_states`` persistent buffer (stable at capture/replay).
+    void forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
+                                          global_state::PiecewiseLayerStaging &staging) const;
 
     void process_fused_weights_after_loading() {
         qkv_proj_->process_weights_after_loading();

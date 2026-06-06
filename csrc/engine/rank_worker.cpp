@@ -358,26 +358,39 @@ void RankWorker::thread_loop() {
                             const size_t input_width = local_args.input_ids.value()->size(1);
                             is_prefill = batch_size != input_width;
                         }
-                        // Try to get compiled graph
+                        auto model_input = local_args.to_model_input(infinicore::Device::cpu());
                         if (compiler_ != nullptr) {
                             auto *general_compiler = dynamic_cast<GeneralCompiler *>(compiler_.get());
-                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
-                            if (graph != nullptr && output != nullptr) {
-                                graph->run();
-                                logits = output->logits;
-                                if (general_compiler != nullptr) {
-                                    general_compiler->record_graph_hit(is_prefill);
+                            if (is_prefill && general_compiler != nullptr
+                                && general_compiler->native_piecewise_enabled()) {
+                                if (auto pw_logits = general_compiler->run_native_piecewise_prefill(model_input)) {
+                                    logits = *pw_logits;
                                 }
-                            } else if (general_compiler != nullptr) {
-                                general_compiler->record_graph_miss(is_prefill);
+                            }
+                            if (!logits) {
+                                auto [graph, output] = compiler_->get_compiled(model_input);
+                                if (graph != nullptr && output != nullptr) {
+                                    graph->run();
+                                    logits = output->logits;
+                                    if (general_compiler != nullptr) {
+                                        general_compiler->record_graph_hit(is_prefill);
+                                    }
+                                } else if (general_compiler != nullptr) {
+                                    general_compiler->record_graph_miss(is_prefill);
+                                }
                             }
                             if (general_compiler != nullptr && is_prefill) {
                                 const auto stats = general_compiler->graph_stats();
                                 spdlog::debug(
-                                    "[{}] prefill_graph_hit={} prefill_graph_miss={} decode_graph_hit={} decode_graph_miss={}",
+                                    "[{}] prefill_graph_hit={} prefill_graph_miss={} "
+                                    "piecewise_hits={} piecewise_misses={} segment_replays={} "
+                                    "decode_graph_hit={} decode_graph_miss={}",
                                     info(),
                                     stats.prefill_graph_hits,
                                     stats.prefill_graph_misses,
+                                    stats.piecewise_prefill_hits,
+                                    stats.piecewise_prefill_misses,
+                                    stats.piecewise_segment_replays,
                                     stats.decode_graph_hits,
                                     stats.decode_graph_misses);
                             }

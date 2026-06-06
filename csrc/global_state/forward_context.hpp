@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../models/infinilm_model.hpp"
+#include "piecewise_prefill_state.hpp"
 
 namespace infinilm::global_state {
 
@@ -43,6 +44,7 @@ struct AttentionMetadata {
 struct ForwardContext {
     AttentionMetadata attn_metadata;
     std::vector<infinicore::Tensor> kv_cache_vec;
+    PiecewisePrefillState piecewise;
 };
 
 void initialize_forward_context(ForwardContext &forward_context);

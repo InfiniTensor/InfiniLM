@@ -6,6 +6,7 @@ from .env import (
     compile_max_seq_len,
     prefill_compile_enabled,
     prefill_cudagraph_enabled,
+    prefill_native_cg_enabled,
     prefill_share_weights_enabled,
 )
 from .runner import CompiledPrefillRunner, min_compiled_prefill_seq_len
@@ -17,5 +18,6 @@ __all__ = [
     "min_compiled_prefill_seq_len",
     "prefill_compile_enabled",
     "prefill_cudagraph_enabled",
+    "prefill_native_cg_enabled",
     "prefill_share_weights_enabled",
 ]

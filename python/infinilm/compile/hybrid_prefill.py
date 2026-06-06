@@ -18,6 +18,13 @@ def hybrid_prefill_ready(engine) -> bool:
 
 
 def compiled_prefill_supported(engine) -> bool:
+    try:
+        from infinilm.compile.env import prefill_native_cg_enabled
+
+        if prefill_native_cg_enabled():
+            return False
+    except ImportError:
+        pass
     if not engine._prefill_compile_enabled:
         return False
     if not engine.enable_paged_attn:

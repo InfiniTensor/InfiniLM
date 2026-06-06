@@ -88,6 +88,37 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
     return kv_cache_vec;
 }
 
+void InfinilmModel::native_piecewise_embed(const Input &,
+                                           infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_embed not supported");
+}
+
+void InfinilmModel::native_piecewise_pre_attn_layer(size_t,
+                                                    const Input &,
+                                                    infinicore::Tensor &,
+                                                    infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_pre_attn_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_eager_attn_layer(size_t,
+                                                      const Input &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_eager_attn_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_post_attn_layer(size_t,
+                                                     const Input &,
+                                                     infinicore::Tensor &,
+                                                     infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_post_attn_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_lm_head(const Input &,
+                                             infinicore::Tensor &,
+                                             infinicore::Tensor &,
+                                             infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_lm_head not supported");
+}
+
 void InfinilmModel::process_weights_after_loading() {
     process_weights_recursive_(this);
 }

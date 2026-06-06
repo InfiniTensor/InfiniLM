@@ -95,13 +95,19 @@ class InferEngine(_infinilm.InferEngine):
         self._compiled_prefill_ready = False
         self._paged_kv_layers_cache = None
         try:
-            from infinilm.compile.env import prefill_compile_enabled
+            from infinilm.compile.env import (
+                prefill_compile_enabled,
+                prefill_native_cg_enabled,
+            )
 
+            self._prefill_native_cg_enabled = prefill_native_cg_enabled()
             self._prefill_compile_enabled = prefill_compile_enabled()
         except ImportError:
+            self._prefill_native_cg_enabled = False
             self._prefill_compile_enabled = False
 
-        self._maybe_bootstrap_compiled_subgraphs()
+        if not self._prefill_native_cg_enabled:
+            self._maybe_bootstrap_compiled_subgraphs()
 
     def _maybe_bootstrap_compiled_subgraphs(self):
         try:
@@ -516,12 +522,31 @@ class InferEngine(_infinilm.InferEngine):
             else 256
         )
         # Bootstrap compiled backbone before C++ paged KV allocation (MACA segfault workaround).
-        if self._compiled_prefill_supported() and self.enable_paged_attn:
+        if (
+            not getattr(self, "_prefill_native_cg_enabled", False)
+            and self._compiled_prefill_supported()
+            and self.enable_paged_attn
+        ):
             self._ensure_compiled_prefill_runner(block_size=paged_block_size)
         super().reset_cache(cache_config)
-        from infinilm.compile.hybrid_prefill import finish_cudagraph_capture_after_reset_cache
+        if getattr(self, "_prefill_native_cg_enabled", False) and self.enable_paged_attn:
+            from infinilm.compile.env import (
+                compile_max_seq_len,
+                default_cudagraph_capture_buckets,
+            )
 
-        finish_cudagraph_capture_after_reset_cache(self)
+            buckets = default_cudagraph_capture_buckets(compile_max_seq_len())
+            logger.info(
+                "native piecewise CG: C++ capture complete buckets=%s max_seq=%s",
+                list(buckets),
+                compile_max_seq_len(),
+            )
+        else:
+            from infinilm.compile.hybrid_prefill import (
+                finish_cudagraph_capture_after_reset_cache,
+            )
+
+            finish_cudagraph_capture_after_reset_cache(self)
 
     def state_dict_keyname(self):
         return super().state_dict_keys()[0]
