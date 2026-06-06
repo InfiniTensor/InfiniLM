@@ -113,7 +113,8 @@ void PiecewisePrefillCompiler::allocate_layer_staging_(size_t bucket, size_t num
     const size_t tp_size = std::max<size_t>(
         1, static_cast<size_t>(infinilm::global_state::get_tensor_model_parallel_world_size()));
     const size_t num_heads = model_config->get<size_t>("num_attention_heads") / static_cast<size_t>(tp_size);
-    const size_t num_kv_heads = model_config->get<size_t>("num_key_value_heads") / static_cast<size_t>(tp_size);
+    const size_t total_kv = model_config->get<size_t>("num_key_value_heads");
+    const size_t num_kv_heads = total_kv < tp_size ? 1 : total_kv / tp_size;
     const size_t head_dim = model_config->get_head_dim();
 
     for (size_t i = 0; i < num_layers; ++i) {
