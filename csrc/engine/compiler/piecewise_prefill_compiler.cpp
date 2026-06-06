@@ -373,11 +373,16 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         bucket_graphs.post_attn[layer]->run();
         ++segment_replays_;
     }
-    bucket_graphs.lm_head->run();
-    ++segment_replays_;
+    if (input.is_final_prefill_chunk) {
+        bucket_graphs.lm_head->run();
+        ++segment_replays_;
+    }
 
     piecewise.phase = global_state::PiecewiseCapturePhase::None;
     ++prefill_hits_;
+    if (!input.is_final_prefill_chunk) {
+        return std::nullopt;
+    }
     return bucket_graphs.logits_holder;
 }
 

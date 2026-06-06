@@ -236,24 +236,36 @@ class BasicLLMProcessor(InfinilmProcessor):
         for req in scheduler_output.scheduled_requests:
             num_cached = req.num_cached_tokens
             if scheduler_output.is_prefill:
-                # Prefill phase
                 req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
-                tokens.extend(tokens_to_compute)
 
-                compute_len = len(tokens_to_compute)
-                seq_len = len(req_tokens)
-                seq_lens.append(seq_len)
-
-                current_offset += compute_len
-                seq_offsets.append(current_offset)
-
-                # BlockManager returns slot_mapping for newly allocated slots only (prefix
-                # cache hits do not append cached slots to this list).
-                slot_mapping.extend(req.slot_mapping)
-                cached_lens.append(num_cached)
-                position_ids.extend(range(num_cached, num_cached + compute_len))
-
+                if req.is_chunking():
+                    start = req.chunk_prefill_offset
+                    end = min(start + req.chunk_size, len(req_tokens))
+                    tokens_to_compute = req_tokens[start:end]
+                    compute_len = len(tokens_to_compute)
+                    tokens.extend(tokens_to_compute)
+                    total_kv_len = start + compute_len
+                    seq_lens.append(total_kv_len)
+                    current_offset += compute_len
+                    seq_offsets.append(current_offset)
+                    slot_start = start - num_cached
+                    slot_end = end - num_cached
+                    slot_mapping.extend(req.slot_mapping[slot_start:slot_end])
+                    cached_lens.append(start)
+                    position_ids.extend(range(start, end))
+                    cu_seqlens.append(cu_seqlens[-1] + total_kv_len)
+                else:
+                    tokens_to_compute = req_tokens[num_cached:]
+                    tokens.extend(tokens_to_compute)
+                    compute_len = len(tokens_to_compute)
+                    seq_len = len(req_tokens)
+                    seq_lens.append(seq_len)
+                    current_offset += compute_len
+                    seq_offsets.append(current_offset)
+                    slot_mapping.extend(req.slot_mapping)
+                    cached_lens.append(num_cached)
+                    position_ids.extend(range(num_cached, num_cached + compute_len))
+                    cu_seqlens.append(cu_seqlens[-1] + seq_len)
             else:
                 # Decode phase
                 seq_len = req.get_total_length()
@@ -273,16 +285,22 @@ class BasicLLMProcessor(InfinilmProcessor):
                 max_block_table_len - len(req.block_table)
             )
             block_tables.append(padded_block_table)
-            cu_seqlens.append(cu_seqlens[-1] + seq_len)
+            if not scheduler_output.is_prefill:
+                cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
         hybrid_gpu_metadata = False
-        if (
-            scheduler_output.is_prefill
-            and len(scheduler_output.scheduled_requests) == 1
-        ):
+        is_final_prefill_chunk = True
+        if scheduler_output.is_prefill and len(scheduler_output.scheduled_requests) == 1:
             req = scheduler_output.scheduled_requests[0]
+            if req.chunk_size > 0 and req.is_prefill:
+                is_final_prefill_chunk = req.chunk_is_last()
             num_cached = req.num_cached_tokens
-            compute_len = len(req.get_input_tokens()) - num_cached
+            if req.is_chunking():
+                start = req.chunk_prefill_offset
+                end = min(start + req.chunk_size, len(req.get_input_tokens()))
+                compute_len = end - start
+            else:
+                compute_len = len(req.get_input_tokens()) - num_cached
             try:
                 from infinilm.compile.env import prefill_compile_enabled
 
@@ -323,6 +341,7 @@ class BasicLLMProcessor(InfinilmProcessor):
                 "temperature": temperature,
                 "top_k": top_k,
                 "top_p": top_p,
+                "is_final_prefill_chunk": is_final_prefill_chunk,
             }
         )
         input_ids_torch = None

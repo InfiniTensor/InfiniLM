@@ -44,6 +44,8 @@ public:
         /// Target patch sizes for each image (MiniCPM-V).
         /// Tensor shape: [batch, 2] or [batch, max_slices, 2] if pre-flattened.
         std::optional<infinicore::Tensor> tgt_sizes;
+        /// When false, piecewise prefill skips lm_head (intermediate chunked-prefill chunk).
+        bool is_final_prefill_chunk{true};
     };
 
     struct Output {

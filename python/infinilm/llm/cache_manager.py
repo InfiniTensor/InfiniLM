@@ -133,13 +133,27 @@ class BlockManager:
             block_table = []
 
         num_tokens = len(token_ids)
-        num_blocks = (num_tokens + self.block_size - 1) // self.block_size
+        if num_tokens == 0:
+            return [], [], 0
+
+        num_blocks_needed = (num_tokens + self.block_size - 1) // self.block_size
+
+        if block_table and len(block_table) >= num_blocks_needed:
+            bt = list(block_table[:num_blocks_needed])
+            if all(self.blocks[bid].ref_count > 0 for bid in bt):
+                slot_mapping = [
+                    bt[i // self.block_size] * self.block_size + (i % self.block_size)
+                    for i in range(num_tokens)
+                ]
+                return bt, slot_mapping, 0
+            block_table = []
+
         slot_mapping = []
         num_cached_tokens = 0
         prefix_hash = -1
         cache_miss = not self.enable_prefix_cache
 
-        for block_idx in range(num_blocks):
+        for block_idx in range(num_blocks_needed):
             start_idx = block_idx * self.block_size
             end_idx = min(start_idx + self.block_size, num_tokens)
             block_tokens = token_ids[start_idx:end_idx]

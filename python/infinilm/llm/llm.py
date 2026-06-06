@@ -74,6 +74,7 @@ class EngineConfig:
     top_p: float = 0.8
     top_k: int = 1
     enable_graph: bool = False
+    chunk_size: int = 0
     attn_backend: str = "default"
     skip_load: bool = False
 
@@ -139,6 +140,18 @@ class LLMEngine:
         self.model_engine.reset_cache(cache_config)
         self.cache_type = config.cache_type
 
+        try:
+            from infinilm.compile.env import prefill_chunked_enabled, prefill_chunk_size
+
+            if config.chunk_size == 0 and prefill_chunked_enabled():
+                config.chunk_size = prefill_chunk_size()
+                logger.info(
+                    "chunked prefill enabled chunk_size=%s (INFINI_PREFILL_CHUNKED=1)",
+                    config.chunk_size,
+                )
+        except ImportError:
+            pass
+
         if config.enable_graph:
             try:
                 from infinilm.compile.env import prefill_native_cg_enabled
@@ -189,6 +202,8 @@ class LLMEngine:
 
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
+        if self.cache_type == "paged" and self.config.chunk_size > 0:
+            request.chunk_size = self.config.chunk_size
         self.scheduler.add_request(request)
 
     def step(self) -> tuple[list[InferenceRequest], list[tuple]]:
@@ -223,8 +238,17 @@ class LLMEngine:
             skip_hybrid = False
             if len(scheduler_output.scheduled_requests) == 1:
                 req = scheduler_output.scheduled_requests[0]
-                compute_len = len(req.get_input_tokens()) - req.num_cached_tokens
-                non_cached_slots = req.slot_mapping[req.num_cached_tokens :]
+                if req.is_chunking():
+                    start = req.chunk_prefill_offset
+                    end = min(start + req.chunk_size, len(req.get_input_tokens()))
+                    compute_len = end - start
+                else:
+                    compute_len = len(req.get_input_tokens()) - req.num_cached_tokens
+                non_cached_slots = req.slot_mapping
+                if req.is_chunking():
+                    slot_start = start - req.num_cached_tokens
+                    slot_end = end - req.num_cached_tokens
+                    non_cached_slots = req.slot_mapping[slot_start:slot_end]
                 skip_hybrid = compute_len == 0 or len(non_cached_slots) == 0
             hybrid_tokens = (
                 None
@@ -256,7 +280,13 @@ class LLMEngine:
         sampled_tokens: List[int],
     ) -> List[tuple]:
         """Update request status after inference step."""
-        if is_prefill:
+        chunk_mid_step = (
+            is_prefill
+            and len(requests) > 0
+            and all(r.is_chunking() and not r.chunk_is_last() for r in requests)
+        )
+
+        if is_prefill and not chunk_mid_step:
             match self.cache_type:
                 case "paged":
                     self.scheduler.cache_manager.reset_req_blocks()
@@ -264,6 +294,21 @@ class LLMEngine:
                     self.scheduler.update_cache()
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
+
+        if chunk_mid_step:
+            for req in requests:
+                chunk_len = min(
+                    req.chunk_size, req.prompt_length - req.chunk_prefill_offset
+                )
+                req.chunk_prefill_offset += chunk_len
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted by client during chunked-prefill"
+                    )
+                    continue
+                self.scheduler.requeue_chunking(req)
+            return []
+
         pending = []
         for req, token_id in zip(requests, sampled_tokens):
             if req.is_aborted():
@@ -273,6 +318,8 @@ class LLMEngine:
                 continue
 
             if req.is_prefill:
+                req.chunk_prefill_offset = 0
+                req.chunk_size = 0
                 req.is_prefill = False
 
             req.generated_token_ids.append(token_id)
@@ -850,8 +897,10 @@ class AsyncLLMEngine:
                 requests, pending = self.engine.step()
                 if not requests:
                     time.sleep(0.01)
-                elif pending:
-                    self._loop.call_soon_threadsafe(self._batch_put, pending)
+                else:
+                    if pending:
+                        self._loop.call_soon_threadsafe(self._batch_put, pending)
+                    time.sleep(0.0005)
             except Exception as e:
                 logger.error(f"Error in step loop: {e}", exc_info=True)
                 self._healthy = False

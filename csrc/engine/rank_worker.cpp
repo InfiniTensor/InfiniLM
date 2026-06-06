@@ -373,6 +373,8 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         bool is_prefill = false;
+                        bool skip_sampling = false;
+                        bool piecewise_ran = false;
                         if (local_args.block_tables.has_value() && local_args.input_ids.has_value()) {
                             const size_t batch_size = local_args.block_tables.value()->size(0);
                             const size_t input_width = local_args.input_ids.value()->size(1);
@@ -385,9 +387,13 @@ void RankWorker::thread_loop() {
                                 && general_compiler->native_piecewise_enabled()) {
                                 if (auto pw_logits = general_compiler->run_native_piecewise_prefill(model_input)) {
                                     logits = *pw_logits;
+                                    piecewise_ran = true;
+                                } else if (!model_input.is_final_prefill_chunk) {
+                                    piecewise_ran = true;
+                                    skip_sampling = true;
                                 }
                             }
-                            if (!logits) {
+                            if (!logits && !piecewise_ran) {
                                 auto [graph, output] = compiler_->get_compiled(model_input);
                                 if (graph != nullptr && output != nullptr) {
                                     graph->run();
@@ -416,13 +422,22 @@ void RankWorker::thread_loop() {
                             }
                         }
                         // Fall back to eager mode
-                        if (!logits) {
+                        if (!logits && !piecewise_ran) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
                             logits = model_->forward(model_args).logits;
                         }
 
                         // Random sampling (rank 0 only)
                         if (rank_info_.tp_rank == 0) {
+                            if (skip_sampling) {
+                                const auto n_req = local_args.input_offsets.has_value()
+                                                       ? local_args.input_offsets.value()->size(0) - 1
+                                                       : 1;
+                                auto output_ids{infinicore::Tensor::empty(
+                                    {n_req}, infinicore::DataType::I64, rank_info_.device)};
+                                infinicore::context::syncStream();
+                                output_ = Output{output_ids, std::nullopt};
+                            } else {
                             auto temperature{local_args.temperature};
                             auto top_p{local_args.top_p};
                             auto top_k{local_args.top_k};
@@ -457,6 +472,7 @@ void RankWorker::thread_loop() {
                             auto out{Output{output_ids, optional_logits}};
 
                             output_ = std::move(out);
+                            }
                         }
 
                         job_done_ = true;

@@ -45,6 +45,18 @@ def prefill_native_cg_enabled() -> bool:
     return _truthy("INFINI_PREFILL_NATIVE_CG", "0")
 
 
+def prefill_chunked_enabled() -> bool:
+    """Multi-step chunked prefill for long prompts (server / AsyncLLMEngine)."""
+    return _truthy("INFINI_PREFILL_CHUNKED", "0")
+
+
+def prefill_chunk_size(default: int = 8192) -> int:
+    """Max new tokens per chunked prefill step (clamped to power ladder cap)."""
+    raw = os.environ.get("INFINI_PREFILL_CHUNK_SIZE")
+    size = int(raw) if raw else default
+    return min(max(size, 1), _VLLM_POWER_LADDER_CAP)
+
+
 def prefill_cudagraph_enabled() -> bool:
     """Enable vLLM piecewise CUDAGraph on the compiled prefill backbone."""
     return _truthy("INFINI_PREFILL_CUDAGRAPH", "0")
@@ -99,8 +111,8 @@ def vllm_unified_power_ladder(
     """Unified Inductor pad buckets (vLLM power-of-2 + max_seq tail).
 
     Powers of two from ``min_bucket`` (512) through 8192. When ``max_seq_len`` exceeds
-    8192 (chunked prefill not ready), append ``max_seq_len`` as the tail bucket
-    (e.g. 8448 for bench harness overflow).
+    8192, append ``max_seq_len`` as the tail bucket (e.g. 8448 for bench harness
+    overflow). Long prompts beyond 8192 use chunked prefill (``INFINI_PREFILL_CHUNKED``).
     """
     if max_seq_len <= 0:
         raise ValueError(f"max_seq_len must be positive, got {max_seq_len}")

@@ -102,6 +102,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(slot_mapping),
         to_device(image_bound),
         to_device(tgt_sizes),
+        is_final_prefill_chunk,
     };
 
     infinilm::global_state::get_forward_context().attn_metadata = {

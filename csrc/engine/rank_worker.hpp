@@ -66,6 +66,9 @@ public:
         /// Opt-in: return pre-sample logits on CPU for benchmarks (``compile_prefill_parity.py`` only).
         bool return_logits{false};
 
+        /// When false, piecewise prefill skips lm_head (intermediate chunked-prefill chunk).
+        bool is_final_prefill_chunk{true};
+
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
 

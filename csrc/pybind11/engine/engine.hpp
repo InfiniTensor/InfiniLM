@@ -262,6 +262,7 @@ inline void bind_infer_engine(py::module &m) {
                     "top_p",
                     "top_k",
                     "return_logits",
+                    "is_final_prefill_chunk",
                 };
 
                 for (auto &item : kwargs) {
@@ -280,6 +281,8 @@ inline void bind_infer_engine(py::module &m) {
                         input.top_k = py::cast<int>(item.second);
                     } else if (key == "return_logits") {
                         input.return_logits = py::cast<bool>(item.second);
+                    } else if (key == "is_final_prefill_chunk") {
+                        input.is_final_prefill_chunk = py::cast<bool>(item.second);
                     }
                 }
 
@@ -310,7 +313,8 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p)
-        .def_readwrite("return_logits", &InferEngine::Input::return_logits);
+        .def_readwrite("return_logits", &InferEngine::Input::return_logits)
+        .def_readwrite("is_final_prefill_chunk", &InferEngine::Input::is_final_prefill_chunk);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
         .def_property_readonly("output_ids", [](const InferEngine::Output &self) {

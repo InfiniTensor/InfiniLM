@@ -252,6 +252,7 @@ class InferEngine(_infinilm.InferEngine):
         top_k=None,
         top_p=None,
         return_logits=False,
+        is_final_prefill_chunk=True,
     ):
         try:
             # TODO: Remove `_underlying` and simplify the corresponding code.
@@ -294,6 +295,7 @@ class InferEngine(_infinilm.InferEngine):
                 top_k=top_k,
                 top_p=top_p,
                 return_logits=return_logits,
+                is_final_prefill_chunk=is_final_prefill_chunk,
             )
             if pixel_values is not None:
                 input_kwargs["pixel_values"] = pixel_values

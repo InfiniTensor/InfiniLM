@@ -28,10 +28,13 @@ class SchedulerOutput:
 class Scheduler:
     """Request scheduler with integrated BlockManager for KV cache management.
 
-    Scheduling logic:
-    1. Running queue: Check for new blocks needed, update slot_mapping
-    2. Waiting queue: Try block reuse (prefix caching), allocate new blocks
-    3. Reference counting: Free blocks when requests complete
+    Scheduling priority:
+      1. New prefill (waiting_queue) — minimize TTFT for new requests.
+      2. Decode (running_queue).
+      3. Continue chunked-prefill (chunking_queue) — single-request batch.
+
+    Anti-starvation: after `max_waiting_yields` consecutive steps where
+    waiting/decode won over a non-empty chunking_queue, chunking is forced.
     """
 
     def __init__(
@@ -41,9 +44,11 @@ class Scheduler:
         block_size: int = 256,
         max_prefill_batch_size: Optional[int] = None,
         enable_prefix_cache: bool = True,
+        max_waiting_yields: int = 4,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
+        self.chunking_queue = janus.Queue()
         self.max_batch_size = max_batch_size
         self.max_prefill_batch_size = max_prefill_batch_size
 
@@ -54,6 +59,9 @@ class Scheduler:
         )
         self.block_size = block_size
 
+        self._waiting_yields_in_a_row: int = 0
+        self.max_waiting_yields: int = max_waiting_yields
+
     def add_request(self, request: InferenceRequest):
         if request is not None:
             request.status = RequestStatus.WAITING
@@ -61,20 +69,71 @@ class Scheduler:
 
     def schedule(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute."""
-        scheduled_requests = []
-        is_prefill = False
+        if self._waiting_yields_in_a_row >= self.max_waiting_yields:
+            chunking_out = self._try_schedule_chunking()
+            if chunking_out is not None:
+                self._waiting_yields_in_a_row = 0
+                return chunking_out
 
-        # Process Waiting queue (prefill phase)
+        chunking_was_nonempty = self.chunking_queue.sync_q.qsize() > 0
+        waiting_out = self._try_schedule_waiting()
+        if waiting_out is not None:
+            if chunking_was_nonempty:
+                self._waiting_yields_in_a_row += 1
+            else:
+                self._waiting_yields_in_a_row = 0
+            return waiting_out
+
+        chunking_was_nonempty = self.chunking_queue.sync_q.qsize() > 0
+        decode_out = self._try_schedule_decode()
+        if decode_out is not None:
+            if chunking_was_nonempty:
+                self._waiting_yields_in_a_row += 1
+            else:
+                self._waiting_yields_in_a_row = 0
+            return decode_out
+
+        chunking_out = self._try_schedule_chunking()
+        if chunking_out is not None:
+            self._waiting_yields_in_a_row = 0
+            return chunking_out
+
+        return None
+
+    def _try_schedule_chunking(self) -> Optional[SchedulerOutput]:
+        scheduled: List[InferenceRequest] = []
+        while len(scheduled) < self.max_batch_size:
+            try:
+                req = self.chunking_queue.sync_q.get_nowait()
+            except queue.Empty:
+                break
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+            # Last chunk runs alone (sampling + block commit).
+            if req.chunk_is_last():
+                if not scheduled:
+                    return SchedulerOutput([req], is_prefill=True)
+                self.chunking_queue.sync_q.put(req)
+                break
+            scheduled.append(req)
+        if scheduled:
+            return SchedulerOutput(scheduled, is_prefill=True)
+        return None
+
+    def _try_schedule_waiting(self) -> Optional[SchedulerOutput]:
+        scheduled_requests: List[InferenceRequest] = []
         prefill_batch_cap = min(
             self.max_batch_size,
             self.max_prefill_batch_size or self.max_batch_size,
         )
+
         while len(scheduled_requests) < prefill_batch_cap:
             try:
                 req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
-            # Skip requests that were already finished (e.g., timed out/canceled while waiting)
+
             if req.is_finished():
                 self.complete_requests([req])
                 continue
@@ -83,11 +142,6 @@ class Scheduler:
                 self.waiting_queue.sync_q.put(req)
                 break
 
-            # Skip requests that were already finished (e.g., timed out/canceled while waiting)
-            if req.is_finished():
-                self.complete_requests([req])
-                continue
-
             req_tokens = req.get_input_tokens()
             num_required_blocks = req.get_num_blocks_required(self.block_size)
 
@@ -95,35 +149,45 @@ class Scheduler:
                 if not self.cache_manager.try_free_blocks(num_required_blocks):
                     raise RuntimeError("No available cache blocks for new request")
 
-            # Allocate blocks with automatic prefix caching support
-            req.block_table, req.slot_mapping, req.num_cached_tokens = (
-                self.cache_manager.allocate_blocks(req_tokens, req.block_table)
-            )
+            if not req.block_table:
+                req.block_table, req.slot_mapping, req.num_cached_tokens = (
+                    self.cache_manager.allocate_blocks(req_tokens, req.block_table)
+                )
 
             req.num_blocks = len(req.block_table)
             req.status = RequestStatus.RUNNING
+
+            remaining = req.prompt_length - req.num_cached_tokens
+            if req.chunk_size > 0 and remaining > req.chunk_size:
+                req.chunk_prefill_offset = req.num_cached_tokens
+                if scheduled_requests:
+                    for already in scheduled_requests:
+                        already.status = RequestStatus.WAITING
+                        self.waiting_queue.sync_q.put(already)
+                return SchedulerOutput([req], is_prefill=True)
+
             scheduled_requests.append(req)
 
-        # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
-            is_prefill = True
             return SchedulerOutput(
                 scheduled_requests=scheduled_requests,
-                is_prefill=is_prefill,
+                is_prefill=True,
             )
+        return None
 
-        # Process Running queue (decode phase)
+    def _try_schedule_decode(self) -> Optional[SchedulerOutput]:
+        scheduled_requests: List[InferenceRequest] = []
+
         while len(scheduled_requests) < self.max_batch_size:
             try:
                 req = self.running_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
-            # Skip requests that were already finished (e.g., timed out/canceled while running)
+
             if req.is_finished():
                 self.complete_requests([req])
                 continue
 
-            # Decode phase: allocate slot for newly generated token
             try:
                 req.block_table, new_slot = self.cache_manager.append_slot(
                     req.block_table, req.get_total_length(), req.get_all_token_ids()
@@ -132,19 +196,19 @@ class Scheduler:
                 req.num_blocks = len(req.block_table)
                 req.num_cached_tokens = req.get_total_length() - 1
                 scheduled_requests.append(req)
-
             except RuntimeError as e:
                 raise RuntimeError("No available cache blocks for new token") from e
 
-        # Return decode batch if any running requests were scheduled
         if scheduled_requests:
-            is_prefill = False
             return SchedulerOutput(
                 scheduled_requests=scheduled_requests,
-                is_prefill=is_prefill,
+                is_prefill=False,
             )
-
         return None
+
+    def requeue_chunking(self, req: InferenceRequest):
+        """Put a request back into the chunking queue after a chunk has run."""
+        self.chunking_queue.sync_q.put(req)
 
     def complete_requests(self, requests: List[InferenceRequest]):
         """Handle completed requests and free their blocks."""
@@ -171,13 +235,11 @@ class Scheduler:
                         f"Request {req.request_id[:8]}... timed out: {req.finish_reason}"
                     )
             else:
-                # Still running, put back in running queue
                 self.running_queue.sync_q.put(req)
 
     def can_accept_request(self, request: InferenceRequest) -> bool:
         total_required_blocks = 0
 
-        # Calculate blocks needed for running requests
         running_queue_size = self.running_queue.sync_q.qsize()
         for _ in range(running_queue_size):
             req = self.running_queue.sync_q.get()
@@ -190,13 +252,11 @@ class Scheduler:
             total_required_blocks += num_blocks_needed
             self.running_queue.sync_q.put(req)
 
-        # Calculate blocks needed for the new request
         total_length = request.get_prompt_length()
         total_length += request.sampling_params.max_tokens
         num_blocks_needed = (total_length + self.block_size - 1) // self.block_size
         total_required_blocks += num_blocks_needed
 
-        # Compare with total usable blocks in cache manager
         return total_required_blocks <= self.cache_manager.get_total_usable_blocks()
 
     def get_cache_stats(self) -> dict:
