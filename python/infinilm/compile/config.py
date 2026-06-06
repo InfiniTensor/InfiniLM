@@ -13,7 +13,6 @@ from .env import (
     compile_bucket_mode,
     compile_buckets,
     prefill_cg_kv_outside_graph,
-    prefill_cg_pool_tier_isolation,
     prefill_cg_power_ladder_enabled,
     prefill_cg_valid_seq_len,
     prefill_cudagraph_capture_buckets,
@@ -124,7 +123,6 @@ class CompiledPrefillConfig:
             "valid_seq_len": prefill_cg_valid_seq_len(),
             "power_cg_ladder": prefill_cg_power_ladder_enabled(),
             "unified_vllm_power_ladder": compile_bucket_mode() == "power",
-            "pool_tier_isolation": prefill_cg_pool_tier_isolation(),
         }
         with open(os.path.join(self.cache_dir, "infinilm_compile_meta.json"), "w") as f:
             json.dump(meta, f, indent=2)

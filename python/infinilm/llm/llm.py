@@ -561,27 +561,19 @@ def _serving_warmup_http_fidelity() -> bool:
     if explicit is not None:
         return explicit.strip() == "1"
     try:
-        from infinilm.compile.env import prefill_cg_allow_partial_pad
+        from infinilm.compile.env import prefill_compile_enabled, prefill_cudagraph_enabled
 
-        return prefill_cg_allow_partial_pad()
+        return prefill_compile_enabled() and prefill_cudagraph_enabled()
     except ImportError:
         return False
 
 
 def _should_defer_tokenize_to_step_thread() -> bool:
-    """Defer message normalize + tokenize to the step thread for partial PIECEWISE CG."""
+    """Defer message normalize + tokenize to the step thread for compiled CUDAGraph prefill."""
     try:
-        from infinilm.compile.env import (
-            prefill_cg_allow_partial_pad,
-            prefill_compile_enabled,
-            prefill_cudagraph_enabled,
-        )
+        from infinilm.compile.env import prefill_compile_enabled, prefill_cudagraph_enabled
 
-        return (
-            prefill_compile_enabled()
-            and prefill_cudagraph_enabled()
-            and prefill_cg_allow_partial_pad()
-        )
+        return prefill_compile_enabled() and prefill_cudagraph_enabled()
     except ImportError:
         return False
 
@@ -730,10 +722,6 @@ class AsyncLLMEngine:
         if skip_warmup == "1":
             return
         try:
-            from infinilm.compile.env import prefill_cg_allow_partial_pad
-        except ImportError:
-            prefill_cg_allow_partial_pad = lambda: False  # type: ignore[misc,assignment]
-        try:
             from vllm.benchmarks.datasets import RandomDataset
         except ImportError:
             logger.warning(
@@ -754,7 +742,7 @@ class AsyncLLMEngine:
             output_len=1,
             prefix_len=0,
         )
-        if not prefill_cg_allow_partial_pad() and not http_fidelity:
+        if not http_fidelity:
             sample_kwargs["range_ratio"] = 0.0
         bench_tokenizer = self.engine.tokenizer
         if http_fidelity:
@@ -811,18 +799,6 @@ class AsyncLLMEngine:
         scheduled, _pending = self.engine.step()
         if not scheduled:
             raise RuntimeError("serving warmup produced no scheduled requests")
-        runner = getattr(self.engine.model_engine, "_compiled_prefill_runner", None)
-        if runner is not None and prefill_cg_allow_partial_pad() and prompt_len > 0:
-            bucket = runner._compile_bucket_len(prompt_len)
-            kv_layers = self.engine.model_engine._get_paged_kv_layers()
-            block_size = self.engine.model_engine.get_cache_config().block_size()
-            if kv_layers:
-                runner.settle_serving_warmup_bucket(
-                    bucket,
-                    prompt_len,
-                    kv_layers=kv_layers,
-                    block_size=block_size,
-                )
         logger.info(
             "compiled prefill: serving-thread bench warmup OK (prompt_len=%s)",
             prompt_len,

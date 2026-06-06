@@ -5,14 +5,14 @@ Classification (for PR review):
   PROD — default-on production path when ``INFINI_PREFILL_COMPILE=1`` (+ share/CG flags):
     ``prefill_compile_enabled``, ``prefill_share_weights_enabled``, ``prefill_cudagraph_enabled``,
     ``compile_max_seq_len``, ``compile_bucket_mode`` (``power`` in serve scripts),
-    ``compile_buckets`` / ``compile_warmup_seq_lens``.
+    ``compile_buckets`` / ``compile_warmup_seq_lens``,
+    ``prefill_cg_kv_outside_graph`` (vLLM piecewise: attention outside captured subgraphs).
   REPRO — opt-in experiment / bisect knobs (not set in ``serve_infinilm.sh``):
-    ``prefill_cg_kv_outside_graph``, ``prefill_cg_allow_partial_pad``,
     ``prefill_cg_piecewise_min_bucket``,
     ``prefill_cudagraph_max_bucket``,
     ``prefill_cudagraph_capture_buckets`` / ``CAPTURE_MODE=longseq``,
-    ``INFINI_PREFILL_CG_POWER_LADDER``, ``INFINI_PREFILL_CG_POOL_TIER_ISOLATION``,
-    ``COMPILE_BUCKET_MODE=power|linear``, ``COMPILE_WARMUP_SEQ_LENS``.
+    ``INFINI_PREFILL_CG_POWER_LADDER``, ``COMPILE_BUCKET_MODE=power|linear``,
+    ``COMPILE_WARMUP_SEQ_LENS``.
   DEBUG — diagnostics only:
     ``prefill_cg_debug_ptrs_enabled``, ``return_logits_enabled``,
     ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``).
@@ -48,20 +48,12 @@ def prefill_cudagraph_enabled() -> bool:
 
 
 def prefill_cg_kv_outside_graph() -> bool:
-    """Phase 1: stage K/V in-graph; flush to paged cache eagerly after CUDAGraph replay.
+    """Stage K/V outside piecewise CUDAGraph; flush to paged cache eagerly after replay.
 
-    Default off until Phase 1 validation passes. Set ``INFINI_PREFILL_CG_KV_OUTSIDE_GRAPH=1``.
+    Default **on** (vLLM parity: attention runs eager with fresh metadata at replay).
+    Set ``INFINI_PREFILL_CG_KV_OUTSIDE_GRAPH=0`` to restore in-graph KV capture path.
     """
-    return _truthy("INFINI_PREFILL_CG_KV_OUTSIDE_GRAPH", "0")
-
-
-def prefill_cg_allow_partial_pad() -> bool:
-    """When True, partial bucket pad uses PIECEWISE CUDAGraph replay.
-
-    Default **off**: MetaX mcblas can ATU on vLLM-bench random prompts @519→1024
-    during partial PIECEWISE replay. Full-bucket replay stays PIECEWISE.
-    """
-    return _truthy("INFINI_PREFILL_CG_ALLOW_PARTIAL", "0")
+    return _truthy("INFINI_PREFILL_CG_KV_OUTSIDE_GRAPH", "1")
 
 
 def prefill_cg_piecewise_min_bucket(default: int = 512) -> int:
@@ -90,12 +82,13 @@ def prefill_cg_valid_seq_len() -> bool:
     return _truthy("INFINI_PREFILL_CG_VALID_SEQ_LEN", "1")
 
 
-def prefill_cg_skip_poison_recapture() -> bool:
-    """Smoke/parity: skip partial poison marking and ladder recapture (graph reuse stress).
+def prefill_cg_scrub_tail() -> bool:
+    """Legacy staging hygiene: ``zero_`` / ``fill_(-1)`` entire bucket before copy.
 
-    Set ``INFINI_PREFILL_CG_SKIP_POISON_RECAPTURE=1`` only in validation smokes — not for serve.
+    Default **off** (vLLM garbage-tail staging). Set ``INFINI_PREFILL_CG_SCRUB_TAIL=1``
+    to restore per-bucket tail scrub on replay.
     """
-    return _truthy("INFINI_PREFILL_CG_SKIP_POISON_RECAPTURE", "0")
+    return _truthy("INFINI_PREFILL_CG_SCRUB_TAIL", "0")
 
 
 def prefill_cudagraph_max_bucket(default: int = 4096) -> Optional[int]:
@@ -146,17 +139,8 @@ def prefill_cudagraph_capture_buckets(max_seq_len: int) -> Optional[Tuple[int, .
     return picked if picked else None
 
 
-def prefill_cg_pool_tier_isolation() -> bool:
-    """Phase 3b: separate vLLM CUDAGraph memory pools per power-tier (short/mid/long)."""
-    return _truthy("INFINI_PREFILL_CG_POOL_TIER_ISOLATION", "0")
-
-
 # Legacy sparse CG anchors (repro only; production uses ``vllm_unified_power_ladder``).
 POWER_CG_CAPTURE_ANCHORS: Tuple[int, ...] = (1024, 4096, 8192)
-
-# Pool tier boundaries aligned to power anchors (pad bucket → tier).
-_CG_POOL_TIER_SHORT_MAX = 1024
-_CG_POOL_TIER_MID_MAX = 4096
 
 # vLLM default piecewise ladder floor (512) through 8192, plus non-power ``max_seq_len`` tail.
 _VLLM_POWER_LADDER_FLOOR = 512
@@ -225,60 +209,6 @@ def prefill_cg_power_ladder_enabled() -> bool:
 def prefill_cg_power_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
     """CUDAGraph capture sizes aligned with the unified vLLM power ladder."""
     return vllm_unified_power_ladder(max_seq_len)
-
-
-def cudagraph_pool_tier_id(bucket: int) -> str:
-    """Map a compile/capture bucket to short | mid | long (power-tier graph pool)."""
-    if bucket <= _CG_POOL_TIER_SHORT_MAX:
-        return "short"
-    if bucket <= _CG_POOL_TIER_MID_MAX:
-        return "mid"
-    return "long"
-
-
-def cudagraph_pool_tier_repr_bucket(tier_id: str) -> int:
-    """Representative bucket per tier for pool (re)initialization."""
-    return {"short": 512, "mid": 2048, "long": 8192}[tier_id]
-
-
-def cudagraph_poison_ladder_buckets(
-    bucket: int,
-    capture_sizes: Optional[object],
-) -> frozenset[int]:
-    """Capture buckets that may be poisoned after partial replay at ``bucket``."""
-    capture_set = set(capture_sizes or ())
-    if not capture_set:
-        return frozenset()
-    if prefill_cg_pool_tier_isolation():
-        # Partial replay poisons the shared tier graph pool (512+1024 share "short").
-        tier = cudagraph_pool_tier_id(bucket)
-        return frozenset(
-            b for b in capture_set if cudagraph_pool_tier_id(b) == tier
-        )
-    return frozenset({bucket} | {b for b in capture_set if b > bucket})
-
-
-def cudagraph_buckets_needing_recapture(
-    needs_reprime: set[int],
-    bucket: int,
-    capture_sizes: Optional[object],
-) -> Tuple[int, ...]:
-    """Buckets to re-capture before forward at ``bucket`` (tier-scoped when isolation on)."""
-    capture_set = set(capture_sizes or ())
-    if not needs_reprime or not capture_set:
-        return ()
-    if prefill_cg_pool_tier_isolation():
-        tier = cudagraph_pool_tier_id(bucket)
-        tier_capture = sorted(
-            b for b in capture_set if cudagraph_pool_tier_id(b) == tier
-        )
-        if not any(b in needs_reprime for b in tier_capture):
-            return ()
-        # Re-capture every bucket in the tier: pools are shared within a tier.
-        return tuple(tier_capture)
-    if bucket not in needs_reprime:
-        return ()
-    return tuple(sorted(b for b in needs_reprime if b in capture_set and b >= bucket))
 
 
 def min_cudagraph_piecewise_bucket(capture_sizes: Optional[object]) -> int:
@@ -371,6 +301,43 @@ def compile_buckets(max_seq_len: int) -> Tuple[int, ...]:
         f"unknown COMPILE_BUCKET_MODE={mode!r} "
         "(use 'bench', 'linear', or 'power')"
     )
+
+
+def build_bs_to_padded_bucket(capture_sizes: list[int]) -> list[int]:
+    """O(1) seq_len → padded bucket table (mirrors vLLM ``init_with_cudagraph_sizes``).
+
+    ``capture_sizes`` are the Inductor pad ladder (typically ``compile_buckets``).
+    Returns ``table[bs]`` = smallest capture bucket ≥ ``bs`` within each interval.
+    """
+    if not capture_sizes:
+        return [0]
+    sizes = sorted({int(s) for s in capture_sizes if int(s) > 0}, reverse=True)
+    max_capture_size = sizes[0]
+    table = [0] * (max_capture_size + 1)
+    for end, start in zip(sizes, sizes[1:] + [0]):
+        for bs in range(start, end):
+            if bs == start:
+                table[bs] = start
+            else:
+                table[bs] = end
+    table[max_capture_size] = max_capture_size
+    return table
+
+
+def padded_bucket_for_seq_len(
+    seq_len: int,
+    bs_to_padded: list[int],
+    *,
+    fallback: int,
+) -> int:
+    """Lookup padded bucket for ``seq_len`` using a vLLM-style pad table."""
+    if seq_len < 0:
+        raise ValueError(f"seq_len must be non-negative, got {seq_len}")
+    if seq_len < len(bs_to_padded):
+        padded = bs_to_padded[seq_len]
+        if padded > 0:
+            return padded
+    return fallback
 
 
 def compile_warmup_seq_lens(max_seq: int) -> List[int]:
