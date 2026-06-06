@@ -185,6 +185,23 @@ def padded_bucket_for_seq_len(
     return fallback
 
 
+def graph_replay_bucket_for_seq_len(
+    seq_len: int,
+    bs_to_padded: list[int],
+    *,
+    fallback: int,
+) -> int:
+    """CG replay bucket matches compile pad (includes 8448 overflow tail)."""
+    return padded_bucket_for_seq_len(seq_len, bs_to_padded, fallback=fallback)
+
+
+def native_piecewise_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
+    """Native C++ capture ladder: compile buckets capped at the 8448 overflow tail."""
+    return tuple(
+        b for b in compile_buckets(max_seq_len) if b <= COMPILE_OVERFLOW_BUCKET_8192
+    )
+
+
 def compile_warmup_seq_lens(max_seq: int) -> List[int]:
     """Explicit Inductor warmup lengths (comma-separated ``COMPILE_WARMUP_SEQ_LENS``)."""
     raw = os.environ.get("COMPILE_WARMUP_SEQ_LENS")

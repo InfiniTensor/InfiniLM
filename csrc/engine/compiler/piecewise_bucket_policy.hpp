@@ -41,7 +41,8 @@ inline std::vector<size_t> piecewise_compile_buckets(size_t max_seq_len) {
 inline std::vector<size_t> piecewise_capture_buckets(size_t max_seq_len) {
     auto buckets = piecewise_compile_buckets(max_seq_len);
     buckets.erase(
-        std::remove_if(buckets.begin(), buckets.end(), [](size_t b) { return b > kPiecewisePowerLadderCap; }),
+        std::remove_if(buckets.begin(), buckets.end(),
+                       [](size_t b) { return b > kPiecewiseOverflowTailBucket; }),
         buckets.end());
     return buckets;
 }
@@ -72,6 +73,10 @@ inline size_t padded_bucket_for_seq_len(size_t seq_len,
         return bs_to_padded[seq_len];
     }
     return fallback;
+}
+
+inline size_t graph_replay_bucket_for_padded(size_t padded_bucket) {
+    return padded_bucket;
 }
 
 } // namespace infinilm::engine

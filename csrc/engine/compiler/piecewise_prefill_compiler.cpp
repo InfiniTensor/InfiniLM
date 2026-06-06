@@ -41,6 +41,34 @@ void set_attn_metadata(const InfinilmModel::Input &input) {
     };
 }
 
+void zero_tensor_tail_seq_(infinicore::Tensor &tensor, size_t valid_len, size_t bucket) {
+    if (valid_len >= bucket) {
+        return;
+    }
+    auto tail = tensor->narrow({{1, valid_len, bucket - valid_len}});
+    set_zeros(tail);
+}
+
+void clear_stale_bucket_tails_(global_state::PiecewisePrefillState &piecewise,
+                               infinicore::Tensor &logits_holder,
+                               size_t valid_seq_len,
+                               size_t bucket) {
+    if (valid_seq_len >= bucket) {
+        return;
+    }
+    zero_tensor_tail_seq_(piecewise.hidden_states, valid_seq_len, bucket);
+    zero_tensor_tail_seq_(piecewise.residual, valid_seq_len, bucket);
+    for (auto &staging : piecewise.layer_staging) {
+        zero_tensor_tail_seq_(staging.q_rope, valid_seq_len, bucket);
+        zero_tensor_tail_seq_(staging.k_rope, valid_seq_len, bucket);
+        zero_tensor_tail_seq_(staging.v_rope, valid_seq_len, bucket);
+        zero_tensor_tail_seq_(staging.attn_output, valid_seq_len, bucket);
+    }
+    if (logits_holder) {
+        zero_tensor_tail_seq_(logits_holder, valid_seq_len, bucket);
+    }
+}
+
 } // namespace
 
 PiecewisePrefillCompiler::PiecewisePrefillCompiler(const std::shared_ptr<InfinilmModel> &model,
@@ -295,8 +323,12 @@ void PiecewisePrefillCompiler::copy_runtime_into_bucket_(BucketGraphs &bucket_gr
         ->narrow({{0, 0, valid_seq_len}})
         ->copy_from(runtime.slot_mapping.value());
     if (valid_seq_len < bucket) {
-        auto tail = graph_input.slot_mapping.value()->narrow({{0, valid_seq_len, bucket - valid_seq_len}});
-        set_minus_one(tail);
+        auto slot_tail = graph_input.slot_mapping.value()->narrow({{0, valid_seq_len, bucket - valid_seq_len}});
+        set_minus_one(slot_tail);
+        auto ids_tail = graph_input.input_ids.value()->narrow({{1, valid_seq_len, bucket - valid_seq_len}});
+        set_zeros(ids_tail);
+        auto pos_tail = graph_input.position_ids.value()->narrow({{0, valid_seq_len, bucket - valid_seq_len}});
+        set_zeros(pos_tail);
     }
 }
 
@@ -306,12 +338,13 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     }
     const size_t seq_len = compute_prefill_len(input);
     const size_t padded = padded_bucket_for(seq_len);
-    if (padded > kPiecewisePowerLadderCap || compiled_.find(padded) == compiled_.end()) {
+    const size_t graph_bucket = graph_replay_bucket_for_padded(padded);
+    if (compiled_.find(graph_bucket) == compiled_.end()) {
         ++prefill_misses_;
         return std::nullopt;
     }
 
-    auto &bucket_graphs = compiled_.at(padded);
+    auto &bucket_graphs = compiled_.at(graph_bucket);
     copy_runtime_into_bucket_(bucket_graphs, input, seq_len);
     set_attn_metadata(bucket_graphs.input);
 
@@ -321,6 +354,12 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     piecewise.hidden_states = bucket_graphs.hidden_states;
     piecewise.residual = bucket_graphs.residual;
     piecewise.layer_staging = bucket_graphs.layer_staging;
+
+    // Fresh residual each replay (matches capture warmup); hidden prefix comes from embed.
+    set_zeros(piecewise.residual);
+    if (seq_len < graph_bucket) {
+        clear_stale_bucket_tails_(piecewise, bucket_graphs.logits_holder, seq_len, graph_bucket);
+    }
 
     model_->native_piecewise_embed(bucket_graphs.input, piecewise.hidden_states);
 

@@ -55,6 +55,10 @@ public:
     // Per-layer paged KV tensors (rank 0) for hybrid torch prefill handoff.
     std::vector<infinicore::Tensor> get_paged_kv_cache_tensors();
 
+    PagedCompiler::GraphStats prefill_graph_stats() const;
+
+    std::vector<size_t> native_capture_buckets() const;
+
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     std::unique_ptr<RankBarrier> barrier_;

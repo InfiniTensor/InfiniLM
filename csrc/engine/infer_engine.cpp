@@ -173,4 +173,18 @@ std::vector<infinicore::Tensor> InferEngine::get_paged_kv_cache_tensors() {
     return workers_[0]->get_paged_kv_cache_tensors();
 }
 
+PagedCompiler::GraphStats InferEngine::prefill_graph_stats() const {
+    if (workers_.empty()) {
+        return {};
+    }
+    return workers_[0]->prefill_graph_stats();
+}
+
+std::vector<size_t> InferEngine::native_capture_buckets() const {
+    if (workers_.empty()) {
+        return {};
+    }
+    return workers_[0]->native_capture_buckets();
+}
+
 } // namespace infinilm::engine

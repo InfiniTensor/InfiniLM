@@ -201,6 +201,25 @@ inline void bind_infer_engine(py::module &m) {
             }
             return out;
         })
+        .def("prefill_graph_stats", [](const InferEngine &self) -> py::dict {
+            const auto stats = self.prefill_graph_stats();
+            py::dict out;
+            out["prefill_graph_hits"] = stats.prefill_graph_hits;
+            out["prefill_graph_misses"] = stats.prefill_graph_misses;
+            out["decode_graph_hits"] = stats.decode_graph_hits;
+            out["decode_graph_misses"] = stats.decode_graph_misses;
+            out["piecewise_segment_replays"] = stats.piecewise_segment_replays;
+            out["piecewise_prefill_hits"] = stats.piecewise_prefill_hits;
+            out["piecewise_prefill_misses"] = stats.piecewise_prefill_misses;
+            return out;
+        })
+        .def("native_capture_buckets", [](const InferEngine &self) -> py::list {
+            py::list out;
+            for (size_t bucket : self.native_capture_buckets()) {
+                out.append(static_cast<int>(bucket));
+            }
+            return out;
+        })
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
 
     py::class_<InferEngine::Input>(infer_engine, "Input")

@@ -217,6 +217,26 @@ std::vector<infinicore::Tensor> RankWorker::get_paged_kv_cache_tensors() {
     return kv_cache_snapshot_;
 }
 
+PagedCompiler::GraphStats RankWorker::prefill_graph_stats() const {
+    if (compiler_ == nullptr) {
+        return {};
+    }
+    if (auto *general = dynamic_cast<GeneralCompiler *>(compiler_.get())) {
+        return general->graph_stats();
+    }
+    return {};
+}
+
+std::vector<size_t> RankWorker::native_capture_buckets() const {
+    if (compiler_ == nullptr) {
+        return {};
+    }
+    if (auto *general = dynamic_cast<GeneralCompiler *>(compiler_.get())) {
+        return general->native_capture_buckets();
+    }
+    return {};
+}
+
 //------------------------------------------------------
 // thread_loop
 //------------------------------------------------------

@@ -111,6 +111,10 @@ public:
     /// Snapshot of paged KV cache tensors after the last ``reset_cache`` (worker thread).
     std::vector<infinicore::Tensor> get_paged_kv_cache_tensors();
 
+    PagedCompiler::GraphStats prefill_graph_stats() const;
+
+    std::vector<size_t> native_capture_buckets() const;
+
     std::string info() const;
 
 private:

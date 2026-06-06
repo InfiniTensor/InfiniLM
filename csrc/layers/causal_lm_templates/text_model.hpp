@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../global_state/global_state.hpp"
+#include "../../utils.hpp"
 #include "../../config/model_config.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "infinicore/nn/embedding.hpp"
@@ -102,8 +104,15 @@ public:
 
     void piecewise_embed(const infinilm::InfinilmModel::Input &input,
                          infinicore::Tensor &hidden_states) const {
+        auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
+        const size_t bucket = hidden_states->size(1);
+        const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
         auto embedded = embed_tokens_->forward(input.input_ids.value());
-        hidden_states->copy_from(embedded);
+        hidden_states->narrow({{1, 0, valid_len}})->copy_from(embedded->narrow({{1, 0, valid_len}}));
+        if (valid_len < bucket) {
+            auto tail = hidden_states->narrow({{1, valid_len, bucket - valid_len}});
+            set_zeros(tail);
+        }
     }
 
     void piecewise_pre_attn_layer(size_t layer_idx,

@@ -115,6 +115,12 @@ void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_id
         staging.q_rope->narrow({{1, 0, valid_len}})->copy_from(q_heads->narrow({{1, 0, valid_len}}));
         staging.k_rope->narrow({{1, 0, valid_len}})->copy_from(k_heads->narrow({{1, 0, valid_len}}));
         staging.v_rope->narrow({{1, 0, valid_len}})->copy_from(v_heads->narrow({{1, 0, valid_len}}));
+        auto q_tail = staging.q_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        auto k_tail = staging.k_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        auto v_tail = staging.v_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(q_tail);
+        set_zeros(k_tail);
+        set_zeros(v_tail);
     } else {
         staging.q_rope->copy_from(q_heads);
         staging.k_rope->copy_from(k_heads);
@@ -151,6 +157,8 @@ void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
     auto attn_output = attn_->forward(q, k, v);
     if (valid_len < seq_len) {
         staging.attn_output->narrow({{1, 0, valid_len}})->copy_from(attn_output->narrow({{1, 0, valid_len}}));
+        auto attn_tail = staging.attn_output->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(attn_tail);
     } else {
         staging.attn_output->copy_from(attn_output);
     }
@@ -166,6 +174,10 @@ void Attention::forward_post_attn_piecewise_into(infinicore::Tensor &hidden_stat
     auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
     auto projected = o_proj_->forward(attn_for_proj);
     hidden_narrow->copy_from(projected);
+    if (valid_len < seq_len) {
+        auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(hidden_tail);
+    }
 }
 
 infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_ids,
