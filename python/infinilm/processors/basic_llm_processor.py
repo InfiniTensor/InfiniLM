@@ -248,7 +248,9 @@ class BasicLLMProcessor(InfinilmProcessor):
                 current_offset += compute_len
                 seq_offsets.append(current_offset)
 
-                slot_mapping.extend(req.slot_mapping[num_cached:])
+                # BlockManager returns slot_mapping for newly allocated slots only (prefix
+                # cache hits do not append cached slots to this list).
+                slot_mapping.extend(req.slot_mapping)
                 cached_lens.append(num_cached)
                 position_ids.extend(range(num_cached, num_cached + compute_len))
 
