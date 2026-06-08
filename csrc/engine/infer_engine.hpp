@@ -9,6 +9,7 @@
 #include "rank_worker.hpp"
 
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace infinilm::engine {
@@ -31,6 +32,9 @@ public:
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);
+
+    // Load a batch of parameters to all workers, syncing each worker once after the batch.
+    void load_params(const std::unordered_map<std::string, infinicore::Tensor> &params);
 
     // process the weights after loading on all workers (e.g., for quantization)
     void process_weights_after_loading();
