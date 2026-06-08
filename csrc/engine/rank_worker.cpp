@@ -7,6 +7,7 @@
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace infinilm::engine {
 
@@ -350,18 +351,12 @@ void RankWorker::thread_loop() {
 
             } else if (local_cmd == Command::LOAD_BATCH) {
                 try {
-                    auto local_state_dict = model_->state_dict();
+                    std::unordered_map<std::string, infinicore::Tensor> local_param_map;
+                    local_param_map.reserve(local_params.size());
                     for (const auto &[name, param] : local_params) {
-                        auto it = local_state_dict.find(name);
-                        if (it == local_state_dict.end()) {
-                            throw std::runtime_error("Parameter '" + name + "' not found in module.");
-                        }
-                        try {
-                            it->second.load_no_sync(param);
-                        } catch (const std::exception &e) {
-                            throw std::runtime_error("Error loading parameter '" + name + "'. \n" + e.what());
-                        }
+                        local_param_map.emplace(name, param);
                     }
+                    model_->load_parameters_no_sync(local_param_map);
                     infinicore::context::syncStream();
                 } catch (const std::exception &e) {
                     {
