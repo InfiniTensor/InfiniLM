@@ -435,6 +435,7 @@ void RankWorker::thread_loop() {
                                                        : 1;
                                 auto output_ids{infinicore::Tensor::empty(
                                     {n_req}, infinicore::DataType::I64, rank_info_.device)};
+                                set_zeros(output_ids);
                                 infinicore::context::syncStream();
                                 output_ = Output{output_ids, std::nullopt};
                             } else {

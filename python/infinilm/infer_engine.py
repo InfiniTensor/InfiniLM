@@ -588,7 +588,7 @@ class InferEngine(_infinilm.InferEngine):
     def load_state_dict(self, state_dict, strict=None):
         for name, param in state_dict.items():
             self.load_param(name, param)
-            
+
     def process_weights_after_loading(self):
         fn = getattr(super(), "process_weights_after_loading", None)
         if fn is not None:

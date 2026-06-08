@@ -44,9 +44,14 @@ public:
         /// Target patch sizes for each image (MiniCPM-V).
         /// Tensor shape: [batch, 2] or [batch, max_slices, 2] if pre-flattened.
         std::optional<infinicore::Tensor> tgt_sizes;
-        /// When false, piecewise prefill skips lm_head (intermediate chunked-prefill chunk).
-        bool is_final_prefill_chunk{true};
+        /// Per-request final-chunk flags. Empty means all rows are final (lm_head + sampling).
+        std::vector<bool> is_final_prefill_chunk;
     };
+
+    static bool any_final_prefill_chunk(const std::vector<bool> &flags) {
+        return flags.empty()
+               || std::any_of(flags.begin(), flags.end(), [](bool v) { return v; });
+    }
 
     struct Output {
         /// Logits.

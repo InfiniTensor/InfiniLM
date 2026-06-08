@@ -292,7 +292,10 @@ class BasicLLMProcessor(InfinilmProcessor):
         is_final_prefill_chunk = True
         if scheduler_output.is_prefill and len(scheduler_output.scheduled_requests) == 1:
             req = scheduler_output.scheduled_requests[0]
-            if req.chunk_size > 0 and req.is_prefill:
+            # Only multi-step chunked prefill uses chunk_is_last(); single-shot
+            # prefill (prompt fits one chunk, or prefix cache leaves a short
+            # remainder) must still run lm_head + sampling.
+            if req.chunk_size > 0 and req.is_prefill and req.is_chunking():
                 is_final_prefill_chunk = req.chunk_is_last()
             num_cached = req.num_cached_tokens
             if req.is_chunking():
