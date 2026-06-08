@@ -41,6 +41,10 @@ public:
         gate_up_proj_->process_weights_after_loading();
     }
 
+    void reset_fused_runtime_state() const override {
+        gate_up_proj_->reset_runtime_state();
+    }
+
     // Module information
     size_t hidden_size() const { return hidden_size_; }
     size_t intermediate_size() const { return intermediate_size_; }

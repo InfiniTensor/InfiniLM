@@ -1,6 +1,7 @@
 #include "gptq_marlin.hpp"
 #include "marlin_utils.hpp"
 
+#include "../../utils.hpp"
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/gptq_marlin_gemm.hpp"
 
@@ -8,9 +9,33 @@
 
 namespace infinilm::quantization {
 
+infinicore::Tensor GPTQMarlin::get_workspace(
+    infinicore::Tensor out,
+    const infinicore::Tensor &a,
+    const infinicore::Tensor &b,
+    infinicore::Tensor &b_scales,
+    infinicore::Tensor &global_scales,
+    infinicore::Tensor &b_zeros,
+    infinicore::Tensor &g_idx,
+    infinicore::Tensor &perm) const {
+    const auto required = infinicore::op::gptq_marlin_gemm_workspace_size(
+        out, a, b, b_scales, global_scales, b_zeros, g_idx, perm);
+    if (!workspace_ || workspace_->numel() < required || workspace_->device() != out->device()) {
+        workspace_ = infinicore::Tensor::empty({required}, infinicore::DataType::U8, out->device());
+        set_zeros(workspace_);
+    }
+    return workspace_;
+}
+
 std::vector<ParamDescriptor> GPTQMarlin::get_param_layout(
     size_t, size_t, int, int, int, int, const infinicore::DataType &, bool) const {
     return {};
+}
+
+void GPTQMarlin::reset_runtime_state() const {
+    if (workspace_) {
+        set_zeros_device_async(workspace_);
+    }
 }
 
 infinicore::Tensor GPTQMarlin::forward(
@@ -32,7 +57,10 @@ infinicore::Tensor GPTQMarlin::forward(
     auto perm = params.at("perm");
     auto global_scales = params.at("global_scales");
 
-    infinicore::op::gptq_marlin_gemm_(
+    auto workspace = get_workspace(output, flat_input, qweight, scales, global_scales, qzeros, g_idx, perm);
+
+    infinicore::op::gptq_marlin_gemm_with_workspace_(
+        workspace,
         output,
         flat_input,
         qweight,

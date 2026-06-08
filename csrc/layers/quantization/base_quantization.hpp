@@ -93,6 +93,13 @@ public:
         return nullptr;
     }
 
+    // Reset transient buffers whose contents affect the next kernel launch.
+    // Marlin currently uses a zero-initialized lock/workspace region; stale
+    // lock values from warmup, graph capture, or a previous graph replay can
+    // make the next launch wait forever. Quantization schemes without such
+    // runtime state can keep the default no-op implementation.
+    virtual void reset_runtime_state() const {}
+
     template <typename T>
     T get(const std::string &key) const {
         if (!quant_config_.contains(key)) {

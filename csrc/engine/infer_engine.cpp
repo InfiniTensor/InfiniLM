@@ -98,6 +98,13 @@ std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> InferEng
     return results;
 }
 
+std::vector<std::string> InferEngine::state_dict_keys() {
+    if (0 == workers_.size()) {
+        throw std::runtime_error(" Model object not found. ");
+    }
+    return workers_.front()->state_dict_keys();
+}
+
 //------------------------------------------------------
 // forward
 //------------------------------------------------------

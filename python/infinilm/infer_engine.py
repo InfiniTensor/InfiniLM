@@ -378,9 +378,7 @@ class InferEngine(_infinilm.InferEngine):
         super().reset_cache(cache_config)
 
     def state_dict_keyname(self):
-        return sorted(
-            {name for state_dict in super().state_dict() for name in state_dict.keys()}
-        )
+        return list(super().state_dict_keyname())
 
     def load_state_dict(self, state_dict, strict=None):
         super().load_params(

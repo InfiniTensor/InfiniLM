@@ -1,5 +1,6 @@
 import os
 import json
+import gc
 from typing import Dict, Union, Optional, List
 import time
 import torch
@@ -219,6 +220,18 @@ def load_model_state_dict_by_file(
                 model_param_infini[key] = infinicore.from_torch(model_param[key])
             model.load_state_dict(model_param_infini, strict=False)
             infinicore.sync_device()
+            del model_param_infini
+            del model_param
+            gc.collect()
+
+        if not (
+            "lm_head.weight" in model_keys
+            and "lm_head.weight" not in already_loaded_keys
+            and embed_tokens_torch_unscaled is not None
+        ):
+            embed_tokens_torch_unscaled = None
+            gc.collect()
+
         model.process_weights_after_loading()
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
@@ -249,6 +262,9 @@ def load_model_state_dict_by_file(
 
         model.load_state_dict(model_param_infini, strict=True)
         infinicore.sync_device()
+        del model_param_infini
+        del model_params
+        gc.collect()
     else:
         raise KeyError("Weight file not found.")
 
@@ -259,6 +275,9 @@ def load_model_state_dict_by_file(
             lm_head_tensor = infinicore.from_torch(embed_tokens_torch_unscaled)
             model.load_state_dict({"lm_head.weight": lm_head_tensor}, strict=False)
             already_loaded_keys.append("lm_head.weight")
+            del lm_head_tensor
+            embed_tokens_torch_unscaled = None
+            gc.collect()
 
     check_parameters(model_keys, already_loaded_keys)
 

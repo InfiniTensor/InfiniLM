@@ -127,6 +127,11 @@ inline void set_zeros(infinicore::Tensor &tensor) {
     infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
 }
 
+inline void set_zeros_device_async(infinicore::Tensor &tensor) {
+    infinicore::context::setDeviceMemoryAsync(
+        tensor->data(), 0, tensor->nbytes(), infinicore::context::getStream());
+}
+
 inline void set_minus_one(infinicore::Tensor &tensor) {
     std::vector<uint8_t> minus_one(tensor->nbytes(), 0xFF);
     infinicore::context::memcpyH2D(tensor->data(), minus_one.data(), tensor->nbytes(), false);

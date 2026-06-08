@@ -88,6 +88,7 @@ inline void bind_infer_engine(py::module &m) {
         .def("load_params", &InferEngine::load_params,
              py::arg("params"),
              "Load a batch of parameter tensors into all workers, syncing once per worker")
+        .def("state_dict_keyname", &InferEngine::state_dict_keys)
         .def("state_dict", [](InferEngine &self) {
             py::list state_dict_tp_all;
             for (const auto &state_dict_tp : self.state_dict()) {

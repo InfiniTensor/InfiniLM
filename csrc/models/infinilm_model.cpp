@@ -2,6 +2,7 @@
 #include "../cache/kv_cache.hpp"
 #include "../global_state/global_state.hpp"
 #include "../layers/fused_weights_processor.hpp"
+#include "../layers/linear/base_linear.hpp"
 #include <stdexcept>
 
 namespace infinilm {
@@ -87,20 +88,42 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
 }
 
 void InfinilmModel::process_weights_after_loading() {
-    process_weights_recursive_(this);
+    size_t linear_count = 0;
+    size_t fused_count = 0;
+    process_weights_recursive_(this, linear_count, fused_count);
 }
 
-void InfinilmModel::process_weights_recursive_(infinicore::nn::Module *module) {
-    for (const auto &[name, sub] : module->children()) {
-        process_weights_recursive_(sub.get());
+void InfinilmModel::reset_runtime_state() const {
+    size_t linear_count = 0;
+    reset_runtime_state_recursive_(this, linear_count);
+}
+
+void InfinilmModel::process_weights_recursive_(infinicore::nn::Module *module, size_t &linear_count, size_t &fused_count) {
+    for (const auto &[_, sub] : module->children()) {
+        process_weights_recursive_(sub.get(), linear_count, fused_count);
     }
     // Process BaseLinear (o_proj, down_proj, lm_head, etc.)
     if (auto *linear = dynamic_cast<infinilm::nn::BaseLinear *>(module)) {
         linear->process_weights_after_loading();
+        ++linear_count;
     }
     // Process fused linear held as non-registered members.
     if (auto *processor = dynamic_cast<infinilm::layers::FusedWeightsProcessor *>(module)) {
         processor->process_fused_weights_after_loading();
+        ++fused_count;
+    }
+}
+
+void InfinilmModel::reset_runtime_state_recursive_(const infinicore::nn::Module *module, size_t &linear_count) {
+    for (const auto &[_, sub] : module->children()) {
+        reset_runtime_state_recursive_(sub.get(), linear_count);
+    }
+    if (auto *linear = dynamic_cast<const infinilm::nn::BaseLinear *>(module)) {
+        linear->reset_runtime_state();
+        ++linear_count;
+    }
+    if (auto *processor = dynamic_cast<const infinilm::layers::FusedWeightsProcessor *>(module)) {
+        processor->reset_fused_runtime_state();
     }
 }
 
