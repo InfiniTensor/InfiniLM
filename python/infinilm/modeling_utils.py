@@ -4,11 +4,7 @@ from typing import Dict, Union, Optional, List
 import time
 import torch
 from safetensors import safe_open
-from safetensors.torch import load as load_safetensors
 import glob
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from queue import Queue
-import threading
 from tqdm import tqdm
 import infinicore
 
@@ -95,13 +91,6 @@ def load_state_dict(
     if not checkpoint_file.endswith(".safetensors"):
         return {}
 
-    if _safetensors_load_strategy() == "eager":
-        with open(checkpoint_file, "rb") as f:
-            return {
-                name: tensor.to(device=device)
-                for name, tensor in load_safetensors(f.read()).items()
-            }
-
     state_dict = {}
     with safe_open(checkpoint_file, framework="pt") as f:
         metadata = f.metadata()
@@ -119,246 +108,6 @@ def load_state_dict(
             state_dict[k] = f.get_tensor(k).to(device=device)
 
     return state_dict
-
-
-def _weight_load_worker_count(file_count: int) -> int:
-    if file_count <= 1:
-        return 1
-
-    configured = os.environ.get("INFINILM_WEIGHT_LOAD_WORKERS")
-    if configured is not None:
-        try:
-            return max(1, min(file_count, int(configured)))
-        except ValueError:
-            raise ValueError("INFINILM_WEIGHT_LOAD_WORKERS must be an integer.")
-
-    return min(file_count, 4)
-
-
-def _weight_load_batch_bytes() -> int:
-    configured = os.environ.get("INFINILM_WEIGHT_LOAD_BATCH_MB")
-    if configured is None:
-        return 512 * 1024 * 1024
-
-    try:
-        batch_mb = int(configured)
-    except ValueError:
-        raise ValueError("INFINILM_WEIGHT_LOAD_BATCH_MB must be an integer.")
-
-    return max(1, batch_mb) * 1024 * 1024
-
-
-def _safetensors_load_strategy() -> str:
-    strategy = os.environ.get("INFINILM_SAFETENSORS_LOAD_STRATEGY", "lazy").lower()
-    if strategy not in ("lazy", "eager", "prefetch"):
-        raise ValueError(
-            "INFINILM_SAFETENSORS_LOAD_STRATEGY must be one of: lazy, eager, prefetch."
-        )
-    return strategy
-
-
-def _safetensors_prefetch_threads() -> int:
-    configured = os.environ.get("INFINILM_SAFETENSORS_PREFETCH_THREADS")
-    if configured is None:
-        return 8
-    try:
-        return max(1, int(configured))
-    except ValueError:
-        raise ValueError("INFINILM_SAFETENSORS_PREFETCH_THREADS must be an integer.")
-
-
-def _safetensors_prefetch_block_bytes() -> int:
-    configured = os.environ.get("INFINILM_SAFETENSORS_PREFETCH_BLOCK_MB")
-    if configured is None:
-        return 16 * 1024 * 1024
-    try:
-        return max(1, int(configured)) * 1024 * 1024
-    except ValueError:
-        raise ValueError("INFINILM_SAFETENSORS_PREFETCH_BLOCK_MB must be an integer.")
-
-
-def _prefetch_checkpoint(file_path: str, block_bytes: int):
-    with open(file_path, "rb") as f:
-        while f.read(block_bytes):
-            pass
-
-
-def _start_safetensors_prefetch(file_list: List[str]):
-    if len(file_list) == 0:
-        return
-
-    threads = _safetensors_prefetch_threads()
-    block_bytes = _safetensors_prefetch_block_bytes()
-
-    def prefetch_all():
-        with ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = [
-                executor.submit(_prefetch_checkpoint, file_path, block_bytes)
-                for file_path in file_list
-            ]
-            for future in futures:
-                future.result()
-
-    threading.Thread(target=prefetch_all, name="weight-prefetch", daemon=True).start()
-
-
-def _load_safetensors_shard(file_path: str, torch_device: str, torch_dtype):
-    return file_path, load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
-
-
-def _iter_safetensors_shards(file_list: List[str], torch_device: str, torch_dtype):
-    worker_count = _weight_load_worker_count(len(file_list))
-    if worker_count == 1:
-        for file_path in file_list:
-            yield _load_safetensors_shard(file_path, torch_device, torch_dtype)
-        return
-
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        pending = set()
-        file_iter = iter(file_list)
-
-        for _ in range(worker_count):
-            try:
-                file_path = next(file_iter)
-            except StopIteration:
-                break
-            pending.add(
-                executor.submit(
-                    _load_safetensors_shard, file_path, torch_device, torch_dtype
-                )
-            )
-
-        while pending:
-            done, pending = wait(pending, return_when=FIRST_COMPLETED)
-            for future in done:
-                yield future.result()
-                try:
-                    file_path = next(file_iter)
-                except StopIteration:
-                    continue
-                pending.add(
-                    executor.submit(
-                        _load_safetensors_shard, file_path, torch_device, torch_dtype
-                    )
-                )
-
-
-def _tensor_nbytes(tensor: torch.Tensor) -> int:
-    return tensor.numel() * tensor.element_size()
-
-
-def _read_safetensors_batches(
-    file_path: str,
-    torch_device: str,
-    torch_dtype,
-    max_batch_bytes: int,
-    output_queue: Queue,
-):
-    batch = {}
-    batch_bytes = 0
-    strategy = _safetensors_load_strategy()
-
-    if strategy == "eager":
-        with open(file_path, "rb") as f:
-            state_dict = load_safetensors(f.read())
-        for name, tensor in state_dict.items():
-            tensor = tensor.to(device=torch_device)
-            tensor_bytes = _tensor_nbytes(tensor)
-            if batch and batch_bytes + tensor_bytes > max_batch_bytes:
-                output_queue.put((file_path, batch))
-                batch = {}
-                batch_bytes = 0
-            batch[name] = tensor
-            batch_bytes += tensor_bytes
-        if batch:
-            output_queue.put((file_path, batch))
-        return
-
-    with safe_open(file_path, framework="pt") as f:
-        metadata = f.metadata()
-        if metadata is not None and metadata.get("format") not in [
-            "pt",
-            "tf",
-            "flax",
-            "mlx",
-        ]:
-            raise OSError(
-                f"The safetensors archive passed at {file_path} does not contain the valid metadata."
-            )
-
-        for name in f.keys():
-            tensor = f.get_tensor(name).to(device=torch_device)
-            tensor_bytes = _tensor_nbytes(tensor)
-            if batch and batch_bytes + tensor_bytes > max_batch_bytes:
-                output_queue.put((file_path, batch))
-                batch = {}
-                batch_bytes = 0
-            batch[name] = tensor
-            batch_bytes += tensor_bytes
-
-    if batch:
-        output_queue.put((file_path, batch))
-
-
-def _iter_safetensors_batches(file_list: List[str], torch_device: str, torch_dtype):
-    if len(file_list) == 0:
-        return
-
-    strategy = _safetensors_load_strategy()
-    if strategy == "prefetch":
-        _start_safetensors_prefetch(file_list)
-
-    if strategy == "eager" and os.environ.get("INFINILM_WEIGHT_LOAD_WORKERS") is None:
-        worker_count = 1
-    else:
-        worker_count = _weight_load_worker_count(len(file_list))
-    max_batch_bytes = _weight_load_batch_bytes()
-    output_queue = Queue(maxsize=worker_count * 2)
-    file_queue = Queue()
-    stop_event = threading.Event()
-    sentinel = object()
-
-    for file_path in file_list:
-        file_queue.put(file_path)
-    for _ in range(worker_count):
-        file_queue.put(None)
-
-    def worker():
-        try:
-            while not stop_event.is_set():
-                file_path = file_queue.get()
-                if file_path is None:
-                    return
-                _read_safetensors_batches(
-                    file_path, torch_device, torch_dtype, max_batch_bytes, output_queue
-                )
-        except BaseException as exc:
-            output_queue.put(exc)
-        finally:
-            output_queue.put(sentinel)
-
-    threads = [
-        threading.Thread(target=worker, name=f"weight-loader-{idx}", daemon=True)
-        for idx in range(worker_count)
-    ]
-    for thread in threads:
-        thread.start()
-
-    finished = 0
-    try:
-        while finished < worker_count:
-            item = output_queue.get()
-            if item is sentinel:
-                finished += 1
-                continue
-            if isinstance(item, BaseException):
-                stop_event.set()
-                raise item
-            yield item
-    finally:
-        stop_event.set()
-        for thread in threads:
-            thread.join()
 
 
 def get_model_state_dict(
@@ -380,11 +129,10 @@ def get_model_state_dict(
     #          Load weights from  all *.safetensors files
     # --------------------------------------------------------- #
     model_param = {}
-    file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
-    for _, shard_param in _iter_safetensors_shards(
-        file_list, torch_device, torch_dtype
-    ):
-        model_param.update(shard_param)
+    for file_path in glob.glob(os.path.join(model_path, "*.safetensors")):
+        model_param.update(
+            load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
+        )
 
     # Apply scale_emb for fm9g models (embed_tokens uses lookup, not GEMM)
     scale_emb = _get_scale_emb(model_path)
@@ -436,40 +184,41 @@ def load_model_state_dict_by_file(
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
     if len(file_list) > 0:
-        batch_iter = _iter_safetensors_batches(file_list, torch_device, torch_dtype)
-        seen_files = set()
-        with tqdm(total=len(file_list), desc="Processing files") as progress:
-            for file_path, model_param in batch_iter:
-                if file_path not in seen_files:
-                    tqdm.write(f"Processing: {os.path.basename(file_path)}")
-                    seen_files.add(file_path)
-                    progress.update(1)
+        for file_path in tqdm(file_list, desc="Processing files"):
+            tqdm.write(f"Processing: {os.path.basename(file_path)}")
 
-                # Apply model-specific weight remapping
-                remapper = _WEIGHT_REMAPPER.get(model_type)
-                if remapper is not None:
-                    model_param = remapper(model_param, config=model.hf_config)
+            # --------------------------------------------------------- #
+            #          Load weights from *.safetensors file
+            # --------------------------------------------------------- #
+            model_param = load_state_dict(
+                file_path, device=torch_device, dtype=torch_dtype
+            )
 
-                already_loaded_keys.extend(model_param.keys())
+            # Apply model-specific weight remapping
+            remapper = _WEIGHT_REMAPPER.get(model_type)
+            if remapper is not None:
+                model_param = remapper(model_param, config=model.hf_config)
 
-                # --------------------------------------------------------- #
-                #         Scale embed_tokens on torch side before converting
-                # --------------------------------------------------------- #
-                if "model.embed_tokens.weight" in model_param:
-                    embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
-                    if scale_emb != 1.0:
-                        model_param["model.embed_tokens.weight"] = (
-                            embed_tokens_torch_unscaled * float(scale_emb)
-                        )
+            already_loaded_keys.extend(model_param.keys())
 
-                # --------------------------------------------------------- #
-                #         model_param_infini references torch.Tensor
-                # --------------------------------------------------------- #
-                model_param_infini = {}
-                for key in model_param.keys():
-                    model_param_infini[key] = infinicore.from_torch(model_param[key])
-                model.load_state_dict(model_param_infini, strict=False)
-                infinicore.sync_device()
+            # --------------------------------------------------------- #
+            #         Scale embed_tokens on torch side before converting
+            # --------------------------------------------------------- #
+            if "model.embed_tokens.weight" in model_param:
+                embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
+                if scale_emb != 1.0:
+                    model_param["model.embed_tokens.weight"] = (
+                        embed_tokens_torch_unscaled * float(scale_emb)
+                    )
+
+            # --------------------------------------------------------- #
+            #         model_param_infini references torch.Tensor
+            # --------------------------------------------------------- #
+            model_param_infini = {}
+            for key in model_param.keys():
+                model_param_infini[key] = infinicore.from_torch(model_param[key])
+            model.load_state_dict(model_param_infini, strict=False)
+            infinicore.sync_device()
         model.process_weights_after_loading()
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
