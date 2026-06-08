@@ -354,7 +354,7 @@ void RankWorker::thread_loop() {
                     for (const auto &[name, param] : local_params) {
                         auto it = local_state_dict.find(name);
                         if (it == local_state_dict.end()) {
-                            continue;
+                            throw std::runtime_error("Parameter '" + name + "' not found in module.");
                         }
                         try {
                             it->second.load_no_sync(param);
