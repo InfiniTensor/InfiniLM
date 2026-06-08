@@ -7,7 +7,6 @@
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
-#include <unordered_map>
 
 namespace infinilm::engine {
 
@@ -92,7 +91,7 @@ void RankWorker::load_param(const std::string &name,
 //------------------------------------------------------
 // load_params -- synchronous batch load
 //------------------------------------------------------
-void RankWorker::load_params(const std::vector<std::pair<std::string, infinicore::Tensor>> &params) {
+void RankWorker::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (should_exit_) {
@@ -292,7 +291,7 @@ void RankWorker::thread_loop() {
             Command local_cmd = Command::INIT;
             std::string local_param_name;
             infinicore::Tensor local_param;
-            std::vector<std::pair<std::string, infinicore::Tensor>> local_params;
+            std::unordered_map<std::string, infinicore::Tensor> local_params;
             Input local_args;
             std::unique_ptr<cache::CacheConfig> local_cache_config;
 
@@ -351,12 +350,7 @@ void RankWorker::thread_loop() {
 
             } else if (local_cmd == Command::LOAD_BATCH) {
                 try {
-                    std::unordered_map<std::string, infinicore::Tensor> local_param_map;
-                    local_param_map.reserve(local_params.size());
-                    for (const auto &[name, param] : local_params) {
-                        local_param_map.emplace(name, param);
-                    }
-                    model_->load_parameters_no_sync(local_param_map);
+                    model_->load_parameters_no_sync(local_params);
                     infinicore::context::syncStream();
                 } catch (const std::exception &e) {
                     {
