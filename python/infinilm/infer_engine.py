@@ -125,7 +125,6 @@ class InferEngine(_infinilm.InferEngine):
         self,
         input_ids,
         *,
-        pixel_values=None,
         position_ids=None,
         past_kv_lengths=None,
         total_kv_lengths=None,
@@ -133,8 +132,10 @@ class InferEngine(_infinilm.InferEngine):
         cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
+        pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
+        image_req_ids=None,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -142,9 +143,6 @@ class InferEngine(_infinilm.InferEngine):
         try:
             # TODO: Remove `_underlying` and simplify the corresponding code.
             input_ids = input_ids._underlying if input_ids is not None else None
-            pixel_values = (
-                pixel_values._underlying if pixel_values is not None else None
-            )
             position_ids = (
                 position_ids._underlying if position_ids is not None else None
             )
@@ -164,15 +162,25 @@ class InferEngine(_infinilm.InferEngine):
             slot_mapping = (
                 slot_mapping._underlying if slot_mapping is not None else None
             )
-            image_bound = image_bound._underlying if image_bound is not None else None
-            tgt_sizes = tgt_sizes._underlying if tgt_sizes is not None else None
+
+            def convert_tensor_list(tensor_list_):
+                if tensor_list_ is None:
+                    return None
+                if not isinstance(tensor_list_, list):
+                    tensor_list_ = [tensor_list_]
+                if len(tensor_list_) == 0:
+                    return None
+                return [tensor._underlying for tensor in tensor_list_]
+
+            pixel_values = convert_tensor_list(pixel_values)
+            image_bound = convert_tensor_list(image_bound)
+            tgt_sizes = convert_tensor_list(tgt_sizes)
 
             return infinicore.Tensor(
                 super()
                 .forward(
                     super().Input(
                         input_ids,
-                        pixel_values=pixel_values,
                         position_ids=position_ids,
                         past_sequence_lengths=past_kv_lengths,
                         total_sequence_lengths=total_kv_lengths,
@@ -180,8 +188,10 @@ class InferEngine(_infinilm.InferEngine):
                         cu_seqlens=cu_seqlens,
                         block_tables=block_tables,
                         slot_mapping=slot_mapping,
+                        pixel_values=pixel_values,
                         image_bound=image_bound,
                         tgt_sizes=tgt_sizes,
+                        image_req_ids=image_req_ids,
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
@@ -364,6 +374,6 @@ class InferEngine(_infinilm.InferEngine):
     def load_state_dict(self, state_dict, strict=None):
         for name, param in state_dict.items():
             super().load_param(name, param._underlying)
-            
+
     def process_weights_after_loading(self):
         super().process_weights_after_loading()

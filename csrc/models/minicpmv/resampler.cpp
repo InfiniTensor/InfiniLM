@@ -121,15 +121,20 @@ Resampler::Resampler(size_t num_queries,
                      size_t embed_dim,
                      size_t num_heads,
                      size_t kv_dim,
+                     size_t image_size,
+                     size_t patch_size,
                      const infinicore::DataType &dtype,
                      const infinicore::Device &device)
     : num_queries_(num_queries),
       embed_dim_(embed_dim),
       num_heads_(num_heads),
       kv_dim_(kv_dim),
+      image_size_(image_size),
+      patch_size_(patch_size),
       use_kv_proj_(kv_dim != embed_dim) {
     INFINICORE_NN_PARAMETER_INIT(query, ({num_queries_, embed_dim_}, dtype, device));
     INFINICORE_NN_PARAMETER_INIT(proj, ({embed_dim_, embed_dim_}, dtype, device));
+
     INFINICORE_NN_MODULE_INIT(attn, embed_dim_, num_heads_, dtype, device);
     INFINICORE_NN_MODULE_INIT(ln_q, embed_dim_, 1e-6, dtype, device);
     INFINICORE_NN_MODULE_INIT(ln_kv, embed_dim_, 1e-6, dtype, device);
@@ -138,10 +143,19 @@ Resampler::Resampler(size_t num_queries,
     if (use_kv_proj_) {
         INFINICORE_NN_MODULE_INIT(kv_proj, kv_dim_, embed_dim_, false, dtype, device);
     }
+
+    // Initialize full 2d embeddings with max size, calculate on cpu and copy to gpu
+    size_t num_patches = image_size_ / patch_size_;
+    INFINICORE_NN_BUFFER_INIT(embedding_table, ({num_patches, num_patches, embed_dim_}, dtype, device_));
+    std::vector<float> buf(num_patches * num_patches * embed_dim_);
+    compute_2d_sincos_pos_embed(buf.data(), embed_dim_, num_patches, num_patches);
+    auto embedding_table_cpu = infinicore::Tensor::zeros({num_patches, num_patches, embed_dim_}, dtype, infinicore::Device::cpu());
+    write_pos_embed(embedding_table_cpu->data(), embedding_table_cpu->dtype(), buf.data(), num_patches * num_patches * embed_dim_);
+    embedding_table_->copy_from(embedding_table_cpu);
 }
 
 infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
-                                      const std::optional<infinicore::Tensor> &tgt_sizes) const {
+                                      const infinicore::Tensor &tgt_sizes) const {
     auto batch_size = x->size(0);
     auto seq_len = x->size(1);
 
@@ -152,33 +166,22 @@ infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
     kv = ln_kv_->forward(kv);
 
     // Build positional embeddings on CPU
-    std::vector<int64_t> tgt_sizes_host;
-    if (tgt_sizes.has_value()) {
-        auto tgt_cpu = tgt_sizes.value()->to(infinicore::Device::cpu());
-        auto n = tgt_cpu->numel();
-        tgt_sizes_host.resize(n);
-        std::memcpy(tgt_sizes_host.data(), tgt_cpu->data(), n * sizeof(int64_t));
-    }
+    auto tgt_cpu = tgt_sizes->to(infinicore::Device::cpu());
+    int64_t *tgt_sizes_ptr = (int64_t *)(tgt_cpu->data());
 
-    auto pos_cpu = infinicore::Tensor::zeros({batch_size, seq_len, embed_dim_}, kv->dtype(), infinicore::Device::cpu());
-    auto *pos_ptr = reinterpret_cast<std::byte *>(pos_cpu->data());
-    const size_t elem_size = pos_cpu->element_size();
+    auto pos_embeddings = infinicore::Tensor::zeros(kv->shape(), kv->dtype(), kv->device());
 
     for (size_t b = 0; b < batch_size; ++b) {
-        size_t tgt_h = 1;
-        size_t tgt_w = seq_len;
-        if (!tgt_sizes_host.empty()) {
-            tgt_h = static_cast<size_t>(tgt_sizes_host[b * 2]);
-            tgt_w = static_cast<size_t>(tgt_sizes_host[b * 2 + 1]);
-        }
-        const size_t patch_len = tgt_h * tgt_w;
-        std::vector<float> buf(patch_len * embed_dim_);
-        compute_2d_sincos_pos_embed(buf.data(), embed_dim_, tgt_h, tgt_w);
-        write_pos_embed(pos_ptr + b * seq_len * embed_dim_ * elem_size, pos_cpu->dtype(), buf.data(), patch_len * embed_dim_);
+
+        auto tgt_h = static_cast<size_t>(tgt_sizes_ptr[b * 2]);
+        auto tgt_w = static_cast<size_t>(tgt_sizes_ptr[b * 2 + 1]);
+
+        auto src_embeddings = embedding_table_->narrow({{0, 0, tgt_h}, {1, 0, tgt_w}});
+        auto tgt_embeddings = pos_embeddings->narrow({{0, b, 1}, {1, 0, tgt_h * tgt_w}})->view({tgt_h, tgt_w, embed_dim_});
+        tgt_embeddings->copy_from(src_embeddings);
     }
 
-    auto pos = pos_cpu->to(kv->device());
-    auto kv_with_pos = infinicore::op::add(kv, pos);
+    auto kv_with_pos = infinicore::op::add(kv, pos_embeddings);
 
     auto q = ln_q_->forward(query_);
     if (q->shape().size() == 2) {

@@ -33,22 +33,21 @@ MiniCPMVModel::MiniCPMVModel(std::shared_ptr<infinilm::config::ModelConfig> mode
                               embed_dim,
                               num_heads,
                               vision_cfg.value("hidden_size", 768),
+                              vision_cfg.value("image_size", 224),
+                              vision_cfg.value("patch_size", 16),
                               dtype,
                               device);
 }
 
-infinicore::Tensor MiniCPMVModel::replace_embeddings(const infinicore::Tensor &inputs_embeds,
-                                                     const infinicore::Tensor &vision_hidden,
-                                                     const infinicore::Tensor &image_bound) const {
-    auto out = infinicore::Tensor::empty(inputs_embeds->shape(), inputs_embeds->dtype(), inputs_embeds->device());
-    out->copy_from(inputs_embeds);
-
+void MiniCPMVModel::replace_embeddings(infinicore::Tensor inputs_embeds,
+                                       const infinicore::Tensor &vision_hidden,
+                                       const infinicore::Tensor &image_bound) const {
     auto bounds_cpu = image_bound->to(infinicore::Device::cpu());
     auto batch_size = inputs_embeds->size(0);
 
     ASSERT_EQ(batch_size, 1);
     ASSERT_EQ(bounds_cpu->size(0), 1);
-    auto out_slice = out->squeeze(0);
+    auto out_slice = inputs_embeds->squeeze(0);
     auto bound_slice = bounds_cpu->squeeze(0);
     auto vision_len = vision_hidden->size(0);
     for (size_t patch = 0; patch < vision_len; ++patch) {
@@ -60,8 +59,6 @@ infinicore::Tensor MiniCPMVModel::replace_embeddings(const infinicore::Tensor &i
 
         out_slice->narrow({{0, size_t(start), size_t(end - start)}})->copy_from(patch_embed);
     }
-
-    return out;
 }
 
 InfinilmModel::Output MiniCPMVModel::forward(const InfinilmModel::Input &input) const {
@@ -70,36 +67,30 @@ InfinilmModel::Output MiniCPMVModel::forward(const InfinilmModel::Input &input) 
     }
     auto input_ids = input.input_ids.value();
 
-    if (input.pixel_values.has_value() && input_ids->size(1) > 1) {
-        if (!input.image_bound.has_value()) {
-            throw std::runtime_error("MiniCPMVModel: image_bound required for multimodal input");
+    if (input.pixel_values.has_value() && input.pixel_values.value().size() > 0) {
+        if (!input.image_bound.has_value() or !input.tgt_sizes.has_value()) {
+            throw std::runtime_error("MiniCPMVModel: image_bound and tgt_sizes must be provided with pixel_values");
         }
-        auto pixel_values = input.pixel_values.value();
-        auto vision_embedding = vpm_->forward(pixel_values, input.tgt_sizes);
-        auto vision_hidden = resampler_->forward(vision_embedding, input.tgt_sizes);
+        if (input.pixel_values->size() != input.image_bound->size() || input.pixel_values->size() != input.tgt_sizes->size()) {
+            throw std::runtime_error("MiniCPMVModel: pixel_values, image_bound and tgt_sizes must have the same number of elements");
+        }
 
         auto inputs_embeds = llm_->model().embed_tokens(input_ids);
-        auto merged_embeds = replace_embeddings(inputs_embeds, vision_hidden, input.image_bound.value());
 
-        infinicore::Tensor position_ids;
-        if (input.position_ids.has_value()) {
-            position_ids = input.position_ids.value();
-        } else {
-            auto batch = merged_embeds->size(0);
-            auto seq_len = merged_embeds->size(1);
-            auto pos_cpu = infinicore::Tensor::zeros({batch, seq_len}, infinicore::DataType::I64, infinicore::Device::cpu());
-            auto *pos_ptr = reinterpret_cast<int64_t *>(pos_cpu->data());
-            for (size_t b = 0; b < batch; ++b) {
-                for (size_t i = 0; i < seq_len; ++i) {
-                    pos_ptr[b * seq_len + i] = static_cast<int64_t>(i);
-                }
-            }
-            position_ids = pos_cpu->to(merged_embeds->device());
+        // inputs_embeds concat tokens from all requests, while images are processed per request
+        // slice inputs_embeds using request offsets to get the embedding of each request
+        infinicore::Tensor input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device::cpu());
+        int32_t *offsets = (int32_t *)(input_offsets_cpu->data());
+        for (size_t i : global_state::get_forward_context().mm_metadata.image_req_ids.value()) {
+            auto pixel_values = input.pixel_values.value().at(i);
+            auto vision_embedding = vpm_->forward(pixel_values, input.tgt_sizes.value().at(i));
+            auto vision_hidden = resampler_->forward(vision_embedding, input.tgt_sizes.value().at(i));
+            replace_embeddings(inputs_embeds->narrow({{1, size_t(offsets[i]), size_t(offsets[i + 1] - offsets[i])}}), vision_hidden, input.image_bound.value().at(i));
         }
 
         auto hidden_states = llm_->model().forward_embeds(
-            merged_embeds,
-            position_ids);
+            inputs_embeds,
+            input.position_ids.value());
 
         auto logits = llm_->logits_from_hidden(hidden_states);
         return {logits};

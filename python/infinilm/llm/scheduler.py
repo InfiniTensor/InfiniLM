@@ -86,7 +86,9 @@ class Scheduler:
 
             # Allocate blocks with automatic prefix caching support
             req.block_table, req.slot_mapping, req.num_cached_tokens = (
-                self.cache_manager.allocate_blocks(req_tokens, req.block_table)
+                self.cache_manager.allocate_blocks(
+                    req_tokens, req.block_table, req.get_mm_token_index_mappings()
+                )
             )
 
             req.num_blocks = len(req.block_table)

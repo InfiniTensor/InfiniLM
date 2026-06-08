@@ -218,7 +218,8 @@ class InferenceServer:
                     data["messages"] = [{"role": "user", "content": data.get("prompt")}]
 
             # Normalize messages to handle multimodal content (list format)
-            data["messages"] = self._normalize_messages(data.get("messages", []))
+            # data["messages"] = self._normalize_messages(data.get("messages", []))
+            data["messages"] = data.get("messages", [])
 
             stream = data.get("stream", False)
             request_id = f"cmpl-{uuid.uuid4().hex}"

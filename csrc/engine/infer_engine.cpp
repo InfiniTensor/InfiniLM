@@ -89,10 +89,21 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         -> std::optional<infinicore::Tensor> {
         return t.has_value() ? t.value()->to(device) : t;
     };
+    auto to_device_vec = [&](const std::optional<std::vector<infinicore::Tensor>> &vec)
+        -> std::optional<std::vector<infinicore::Tensor>> {
+        if (!vec.has_value()) {
+            return vec;
+        }
+        std::vector<infinicore::Tensor> result;
+        result.reserve(vec->size());
+        for (const auto &t : vec.value()) {
+            result.push_back(t->to(device));
+        }
+        return result;
+    };
 
     infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
-        to_device(pixel_values),
         to_device(position_ids),
         to_device(past_sequence_lengths), // @todo: on device in the future
         to_device(total_sequence_lengths),
@@ -100,8 +111,9 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(cu_seqlens),
         to_device(block_tables),
         to_device(slot_mapping),
-        to_device(image_bound),
-        to_device(tgt_sizes),
+        to_device_vec(pixel_values),
+        to_device_vec(image_bound),
+        to_device_vec(tgt_sizes),
     };
 
     infinilm::global_state::get_forward_context().attn_metadata = {
@@ -110,8 +122,11 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         input.input_offsets,
         input.cu_seqlens,
         input.block_tables,
-        input.slot_mapping,
-    };
+        input.slot_mapping};
+
+    global_state::get_forward_context().mm_metadata = {
+        image_req_ids};
+
     return input;
 }
 

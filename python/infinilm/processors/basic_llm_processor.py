@@ -2,6 +2,7 @@ from .processor import InfinilmProcessor, register_processor
 from transformers import AutoTokenizer
 from ..llm.static_scheduler import StaticSchedulerOutput
 from ..llm.scheduler import SchedulerOutput
+from typing import override
 
 
 @register_processor("default")
@@ -11,6 +12,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             model_dir_path, trust_remote_code=True
         )
 
+    @override
     def __call__(self, prompt: str, return_tensors: str = None, **kwargs) -> dict:
         # add_special_tokens=False Prevent duplicate BOS token for Llama-3/3.1 models.
         # The `prompt` string here is already rendered by `apply_chat_template(tokenize=False)`,
@@ -32,6 +34,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         # "pt" or "np" or "tf".
         return self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
 
+    @override
     def apply_chat_template(
         self,
         conversation,
@@ -57,6 +60,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             **kwargs,
         )
 
+    @override
     def build_model_inputs(
         self,
         scheduler_output: SchedulerOutput | StaticSchedulerOutput,
@@ -244,5 +248,12 @@ class BasicLLMProcessor(InfinilmProcessor):
             "top_p": top_p,
         }
 
+    @override
     def get_tokenizer(self):
         return self.tokenizer
+
+    @override
+    def get_mm_token_index_list(
+        self, prompt_token_ids, image_ids=None, video_ids=None, audio_ids=None, **kwargs
+    ):
+        return []

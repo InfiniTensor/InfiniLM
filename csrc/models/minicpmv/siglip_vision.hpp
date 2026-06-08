@@ -1,9 +1,10 @@
 #pragma once
 
+#include "../../backends/attention_backends.hpp"
 #include "../../config/model_config.hpp"
+#include "../../layers/linear/fused_linear.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/layer_norm.hpp"
-#include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 #include <nlohmann/json.hpp>
@@ -36,7 +37,7 @@ public:
                            const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const std::optional<infinicore::Tensor> &tgt_sizes) const;
+                               const infinicore::Tensor &tgt_sizes) const;
 
 private:
     size_t hidden_size_;
@@ -61,11 +62,10 @@ private:
     size_t num_heads_;
     size_t head_dim_;
     float scale_;
+    infinilm::backends::AttentionBackend attention_backend_;
 
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, q_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, k_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, v_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, out_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
+    INFINICORE_NN_MODULE(infinilm::nn::Linear, out_proj);
 };
 
 class SiglipMLP : public infinicore::nn::Module {
@@ -78,8 +78,8 @@ public:
 
 private:
     std::string activation_;
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, fc1);
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, fc2);
+    INFINICORE_NN_MODULE(infinilm::nn::Linear, fc1);
+    INFINICORE_NN_MODULE(infinilm::nn::Linear, fc2);
 };
 
 class SiglipEncoderLayer : public infinicore::nn::Module {
@@ -119,7 +119,7 @@ public:
                       bool drop_last_layer);
 
     infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const std::optional<infinicore::Tensor> &tgt_sizes) const;
+                               const infinicore::Tensor &tgt_sizes) const;
 
 private:
     nlohmann::json config_;
