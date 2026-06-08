@@ -127,6 +127,7 @@ class LLMEngine:
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
+                max_prefill_batch_size=config.max_batch_size,
                 enable_prefix_cache=not disable_prefix_cache,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
@@ -236,20 +237,21 @@ class LLMEngine:
         }
         if scheduler_output.is_prefill:
             skip_hybrid = False
-            if len(scheduler_output.scheduled_requests) == 1:
-                req = scheduler_output.scheduled_requests[0]
+            compute_len = 0
+            for req in scheduler_output.scheduled_requests:
                 if req.is_chunking():
                     start = req.chunk_prefill_offset
                     end = min(start + req.chunk_size, len(req.get_input_tokens()))
-                    compute_len = end - start
-                else:
-                    compute_len = len(req.get_input_tokens()) - req.num_cached_tokens
-                non_cached_slots = req.slot_mapping
-                if req.is_chunking():
+                    req_compute = end - start
                     slot_start = start - req.num_cached_tokens
                     slot_end = end - req.num_cached_tokens
                     non_cached_slots = req.slot_mapping[slot_start:slot_end]
-                skip_hybrid = compute_len == 0 or len(non_cached_slots) == 0
+                else:
+                    req_compute = len(req.get_input_tokens()) - req.num_cached_tokens
+                    non_cached_slots = req.slot_mapping
+                compute_len += req_compute
+                if req_compute == 0 or len(non_cached_slots) == 0:
+                    skip_hybrid = True
             hybrid_tokens = (
                 None
                 if skip_hybrid
@@ -286,7 +288,11 @@ class LLMEngine:
             and all(r.is_chunking() and not r.chunk_is_last() for r in requests)
         )
 
-        if is_prefill and not chunk_mid_step:
+        has_final_prefill_complete = any(
+            r.is_prefill and (not r.is_chunking() or r.chunk_is_last()) for r in requests
+        )
+
+        if is_prefill and not chunk_mid_step and has_final_prefill_complete:
             match self.cache_type:
                 case "paged":
                     self.scheduler.cache_manager.reset_req_blocks()
@@ -309,8 +315,18 @@ class LLMEngine:
                 self.scheduler.requeue_chunking(req)
             return []
 
+        prefill_final_requests = (
+            [
+                r
+                for r in requests
+                if r.is_prefill and (not r.is_chunking() or r.chunk_is_last())
+            ]
+            if is_prefill
+            else requests
+        )
+
         pending = []
-        for req, token_id in zip(requests, sampled_tokens):
+        for req, token_id in zip(prefill_final_requests, sampled_tokens):
             if req.is_aborted():
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"

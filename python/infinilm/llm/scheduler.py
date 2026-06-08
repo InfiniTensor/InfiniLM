@@ -2,6 +2,7 @@
 Scheduler - Request scheduling and batch management with Paged Attention KV Cache.
 """
 
+import os
 import queue
 import janus
 import logging
@@ -10,6 +11,21 @@ from infinilm.llm.request import RequestStatus, InferenceRequest
 from infinilm.llm.cache_manager import BlockManager
 
 logger = logging.getLogger(__name__)
+
+# Piecewise CG power-ladder cap (matches piecewise_bucket_policy.hpp).
+_PACK_BUCKET_CAP = 8192
+
+
+def _padded_bucket(total_q: int) -> int:
+    """Pad total Q token count to the next power-of-two bucket (512..8192)."""
+    if total_q <= 0:
+        return 0
+    if total_q > _PACK_BUCKET_CAP:
+        return total_q
+    bucket = 512
+    while bucket < total_q:
+        bucket *= 2
+    return bucket
 
 
 class SchedulerOutput:
@@ -31,7 +47,7 @@ class Scheduler:
     Scheduling priority:
       1. New prefill (waiting_queue) — minimize TTFT for new requests.
       2. Decode (running_queue).
-      3. Continue chunked-prefill (chunking_queue) — single-request batch.
+      3. Continue chunked-prefill (chunking_queue) — pack up to max_batch_size.
 
     Anti-starvation: after `max_waiting_yields` consecutive steps where
     waiting/decode won over a non-empty chunking_queue, chunking is forced.
@@ -50,6 +66,9 @@ class Scheduler:
         self.running_queue = janus.Queue()
         self.chunking_queue = janus.Queue()
         self.max_batch_size = max_batch_size
+        env_prefill_batch = os.environ.get("INFINI_MAX_PREFILL_BATCH")
+        if max_prefill_batch_size is None and env_prefill_batch:
+            max_prefill_batch_size = int(env_prefill_batch)
         self.max_prefill_batch_size = max_prefill_batch_size
 
         self.cache_manager = BlockManager(
@@ -100,8 +119,84 @@ class Scheduler:
 
         return None
 
+    def _pack_token_budget(self, chunk_size: int) -> int:
+        """Max sum(compute_len) per prefill pack step (piecewise bucket cap)."""
+        return _PACK_BUCKET_CAP
+
+    @staticmethod
+    def _prefill_compute_len(req: InferenceRequest) -> int:
+        remaining = req.prompt_length - req.num_cached_tokens
+        if req.is_chunking():
+            start = req.chunk_prefill_offset
+            end = min(start + req.chunk_size, len(req.get_input_tokens()))
+            return end - start
+        return remaining
+
+    @staticmethod
+    def _prefill_is_final_chunk(req: InferenceRequest) -> bool:
+        if req.chunk_size > 0 and req.is_prefill and req.is_chunking():
+            return req.chunk_is_last()
+        return True
+
+    @staticmethod
+    def _prefix_cache_pack_compatible(reqs: List[InferenceRequest]) -> bool:
+        """v1: reject pack when prefix-cache hit lengths differ."""
+        cached = [r.num_cached_tokens for r in reqs]
+        if any(c > 0 for c in cached):
+            return len(set(cached)) == 1
+        return True
+
+    def _can_add_to_prefill_pack(
+        self,
+        scheduled: List[InferenceRequest],
+        candidate: InferenceRequest,
+        *,
+        chunk_size: int,
+    ) -> bool:
+        if not scheduled:
+            return True
+        if candidate.chunk_size != scheduled[0].chunk_size:
+            return False
+        if not self._prefix_cache_pack_compatible(scheduled + [candidate]):
+            return False
+
+        phase_final = self._prefill_is_final_chunk(scheduled[0])
+        if self._prefill_is_final_chunk(candidate) != phase_final:
+            return False
+
+        total_q = sum(self._prefill_compute_len(r) for r in scheduled)
+        cand_q = self._prefill_compute_len(candidate)
+        if chunk_size > 0 and cand_q > chunk_size:
+            return False
+        total_q += cand_q
+        budget = self._pack_token_budget(chunk_size)
+        if total_q > budget:
+            return False
+        if _padded_bucket(total_q) > _PACK_BUCKET_CAP:
+            return False
+        return True
+
+    def _log_prefill_pack(self, scheduled: List[InferenceRequest]) -> None:
+        if len(scheduled) <= 1:
+            return
+        total_q = sum(self._prefill_compute_len(r) for r in scheduled)
+        bucket = _padded_bucket(total_q)
+        phase = (
+            "final"
+            if self._prefill_is_final_chunk(scheduled[0])
+            else "mid"
+        )
+        logger.info(
+            "scheduled prefill pack n_req=%s total_q=%s bucket=%s phase=%s",
+            len(scheduled),
+            total_q,
+            bucket,
+            phase,
+        )
+
     def _try_schedule_chunking(self) -> Optional[SchedulerOutput]:
         scheduled: List[InferenceRequest] = []
+        chunk_size = 0
         while len(scheduled) < self.max_batch_size:
             try:
                 req = self.chunking_queue.sync_q.get_nowait()
@@ -110,14 +205,16 @@ class Scheduler:
             if req.is_finished():
                 self.complete_requests([req])
                 continue
-            # Last chunk runs alone (sampling + block commit).
-            if req.chunk_is_last():
-                if not scheduled:
-                    return SchedulerOutput([req], is_prefill=True)
+            if not scheduled:
+                chunk_size = req.chunk_size
+            elif not self._can_add_to_prefill_pack(
+                scheduled, req, chunk_size=chunk_size
+            ):
                 self.chunking_queue.sync_q.put(req)
                 break
             scheduled.append(req)
         if scheduled:
+            self._log_prefill_pack(scheduled)
             return SchedulerOutput(scheduled, is_prefill=True)
         return None
 
@@ -127,6 +224,7 @@ class Scheduler:
             self.max_batch_size,
             self.max_prefill_batch_size or self.max_batch_size,
         )
+        chunk_size = 0
 
         while len(scheduled_requests) < prefill_batch_cap:
             try:
@@ -160,15 +258,23 @@ class Scheduler:
             remaining = req.prompt_length - req.num_cached_tokens
             if req.chunk_size > 0 and remaining > req.chunk_size:
                 req.chunk_prefill_offset = req.num_cached_tokens
-                if scheduled_requests:
-                    for already in scheduled_requests:
-                        already.status = RequestStatus.WAITING
-                        self.waiting_queue.sync_q.put(already)
-                return SchedulerOutput([req], is_prefill=True)
+
+            if scheduled_requests:
+                if chunk_size == 0:
+                    chunk_size = req.chunk_size
+                if not self._can_add_to_prefill_pack(
+                    scheduled_requests, req, chunk_size=chunk_size
+                ):
+                    req.status = RequestStatus.WAITING
+                    self.waiting_queue.sync_q.put(req)
+                    break
+            else:
+                chunk_size = req.chunk_size
 
             scheduled_requests.append(req)
 
         if scheduled_requests:
+            self._log_prefill_pack(scheduled_requests)
             return SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=True,

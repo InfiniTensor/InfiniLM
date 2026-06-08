@@ -282,7 +282,20 @@ inline void bind_infer_engine(py::module &m) {
                     } else if (key == "return_logits") {
                         input.return_logits = py::cast<bool>(item.second);
                     } else if (key == "is_final_prefill_chunk") {
-                        input.is_final_prefill_chunk = py::cast<bool>(item.second);
+                        if (py::isinstance<py::bool_>(item.second)) {
+                            const bool flag = py::cast<bool>(item.second);
+                            if (!flag) {
+                                size_t n_req = 1;
+                                if (input.block_tables.has_value()) {
+                                    n_req = input.block_tables.value()->size(0);
+                                } else if (input.input_offsets.has_value()) {
+                                    n_req = input.input_offsets.value()->size(0) - 1;
+                                }
+                                input.is_final_prefill_chunk.assign(n_req, false);
+                            }
+                        } else {
+                            input.is_final_prefill_chunk = py::cast<std::vector<bool>>(item.second);
+                        }
                     }
                 }
 

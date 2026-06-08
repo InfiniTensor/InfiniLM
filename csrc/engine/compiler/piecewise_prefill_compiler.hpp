@@ -42,7 +42,7 @@ public:
 
 private:
     void allocate_layer_staging_(size_t bucket, size_t num_layers);
-    InfinilmModel::Input make_bucket_input_(size_t bucket, size_t nblocks) const;
+    InfinilmModel::Input make_bucket_input_(size_t bucket, size_t nblocks, size_t n_req) const;
     void capture_bucket_(size_t bucket);
     void copy_runtime_into_bucket_(BucketGraphs &bucket_graphs,
                                    const InfinilmModel::Input &runtime,
@@ -54,6 +54,7 @@ private:
     size_t max_seq_len_{0};
     std::vector<size_t> capture_buckets_;
     std::vector<size_t> bs_to_padded_;
+    size_t max_capture_req_{1};
     infinicore::Tensor block_tables_holder_;
     std::unordered_map<size_t, BucketGraphs> compiled_;
     size_t segment_replays_{0};

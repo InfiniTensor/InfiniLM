@@ -10,6 +10,18 @@
 
 namespace infinilm::engine {
 
+namespace {
+
+bool row_is_final_prefill_chunk(const std::vector<bool> &flags, size_t row) {
+    return flags.empty() || row >= flags.size() || flags[row];
+}
+
+bool any_final_prefill_chunk(const std::vector<bool> &flags) {
+    return infinilm::InfinilmModel::any_final_prefill_chunk(flags);
+}
+
+} // namespace
+
 RankWorker::RankWorker(
     std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
     const distributed::RankInfo &rank_info,
@@ -388,7 +400,7 @@ void RankWorker::thread_loop() {
                                 if (auto pw_logits = general_compiler->run_native_piecewise_prefill(model_input)) {
                                     logits = *pw_logits;
                                     piecewise_ran = true;
-                                } else if (!model_input.is_final_prefill_chunk) {
+                                } else if (!any_final_prefill_chunk(model_input.is_final_prefill_chunk)) {
                                     piecewise_ran = true;
                                     skip_sampling = true;
                                 }
@@ -429,13 +441,24 @@ void RankWorker::thread_loop() {
 
                         // Random sampling (rank 0 only)
                         if (rank_info_.tp_rank == 0) {
-                            if (skip_sampling) {
-                                const auto n_req = local_args.input_offsets.has_value()
-                                                       ? local_args.input_offsets.value()->size(0) - 1
-                                                       : 1;
+                            const auto n_req = local_args.input_offsets.has_value()
+                                                   ? local_args.input_offsets.value()->size(0) - 1
+                                                   : 1;
+                            const auto &final_flags = local_args.is_final_prefill_chunk;
+                            std::vector<size_t> sample_rows;
+                            sample_rows.reserve(n_req);
+                            for (size_t i = 0; i < n_req; ++i) {
+                                if (row_is_final_prefill_chunk(final_flags, i)) {
+                                    sample_rows.push_back(i);
+                                }
+                            }
+
+                            if (skip_sampling || sample_rows.empty()) {
                                 auto output_ids{infinicore::Tensor::empty(
-                                    {n_req}, infinicore::DataType::I64, rank_info_.device)};
-                                set_zeros(output_ids);
+                                    {sample_rows.size()}, infinicore::DataType::I64, rank_info_.device)};
+                                if (sample_rows.size() > 0) {
+                                    set_zeros(output_ids);
+                                }
                                 infinicore::context::syncStream();
                                 output_ = Output{output_ids, std::nullopt};
                             } else {
@@ -448,14 +471,15 @@ void RankWorker::thread_loop() {
                             const auto &total_len{logits_shape[1]};
                             const auto &batch_size{logits_shape[0]};
 
-                            auto n_req = local_args.input_offsets.value()->size(0) - 1;
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
-                            auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
+                            auto output_ids{infinicore::Tensor::empty(
+                                {sample_rows.size()}, infinicore::DataType::I64, rank_info_.device)};
 
-                            for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
+                            for (size_t j = 0; j < sample_rows.size(); ++j) {
+                                const size_t i = sample_rows[j];
                                 auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                auto out{output_ids->narrow({{0, j, 1}})->view({})};
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
                                     out, score, random_val, top_p, top_k, temperature);

@@ -41,6 +41,25 @@ void set_attn_metadata(const InfinilmModel::Input &input) {
     };
 }
 
+void set_attn_metadata_for_varlen_batch(const InfinilmModel::Input &compiled,
+                                        const InfinilmModel::Input &runtime) {
+    const size_t runtime_n_req = runtime.block_tables.value()->size(0);
+    const size_t block_per_req = runtime.block_tables.value()->size(1);
+    const size_t offset_len = runtime.input_offsets.value()->size(0);
+    const size_t cu_len = runtime.cu_seqlens.value()->size(0);
+
+    auto &meta = infinilm::global_state::get_forward_context().attn_metadata;
+    meta.past_sequence_lengths = compiled.past_sequence_lengths.has_value()
+                                     ? std::optional<infinicore::Tensor>(
+                                           compiled.past_sequence_lengths.value()->narrow({{0, 0, runtime_n_req}}))
+                                     : std::nullopt;
+    meta.total_sequence_lengths = compiled.total_sequence_lengths.value()->narrow({{0, 0, runtime_n_req}});
+    meta.input_offsets = compiled.input_offsets.value()->narrow({{0, 0, offset_len}});
+    meta.cu_seqlens = compiled.cu_seqlens.value()->narrow({{0, 0, cu_len}});
+    meta.block_tables = compiled.block_tables.value()->narrow({{0, 0, runtime_n_req}, {1, 0, block_per_req}});
+    meta.slot_mapping = compiled.slot_mapping;
+}
+
 void zero_tensor_tail_seq_(infinicore::Tensor &tensor, size_t valid_len, size_t bucket) {
     if (valid_len >= bucket) {
         return;
@@ -128,13 +147,13 @@ void PiecewisePrefillCompiler::allocate_layer_staging_(size_t bucket, size_t num
     piecewise.residual = infinicore::Tensor::empty({1, bucket, hidden}, dtype, device);
 }
 
-InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket, size_t nblocks) const {
+InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket, size_t nblocks, size_t n_req) const {
     InfinilmModel::Input input;
     const auto device = infinicore::context::getDevice();
     input.input_ids = infinicore::Tensor::empty({1, bucket}, infinicore::DataType::I64, device);
     input.position_ids = infinicore::Tensor::empty({bucket}, infinicore::DataType::I64, device);
-    input.past_sequence_lengths = infinicore::Tensor::empty({1}, infinicore::DataType::I32, device);
-    input.total_sequence_lengths = infinicore::Tensor::empty({1}, infinicore::DataType::I32, device);
+    input.past_sequence_lengths = infinicore::Tensor::empty({n_req}, infinicore::DataType::I32, device);
+    input.total_sequence_lengths = infinicore::Tensor::empty({n_req}, infinicore::DataType::I32, device);
     set_zeros(input.input_ids.value());
     set_zeros(input.past_sequence_lengths.value());
     set_zeros(input.total_sequence_lengths.value());
@@ -144,28 +163,59 @@ InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket,
     infinicore::context::memcpyH2D(
         input.position_ids.value()->data(), position_ids_vec.data(), bucket * sizeof(int64_t), false);
 
-    std::vector<int32_t> past_lengths_vec(1, 0);
-    std::vector<int32_t> total_lengths_vec(1, static_cast<int32_t>(bucket));
-    infinicore::context::memcpyH2D(input.past_sequence_lengths.value()->data(), past_lengths_vec.data(), sizeof(int32_t), false);
-    infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_lengths_vec.data(), sizeof(int32_t), false);
+    std::vector<int32_t> past_lengths_vec(n_req, 0);
+    std::vector<int32_t> total_lengths_vec(n_req, static_cast<int32_t>(bucket / std::max<size_t>(1, n_req)));
+    infinicore::context::memcpyH2D(
+        input.past_sequence_lengths.value()->data(),
+        past_lengths_vec.data(),
+        n_req * sizeof(int32_t),
+        false);
+    infinicore::context::memcpyH2D(
+        input.total_sequence_lengths.value()->data(),
+        total_lengths_vec.data(),
+        n_req * sizeof(int32_t),
+        false);
 
-    input.input_offsets = infinicore::Tensor::empty({2}, infinicore::DataType::I32, device);
-    std::vector<int32_t> input_offsets_vec{0, static_cast<int32_t>(bucket)};
-    infinicore::context::memcpyH2D(input.input_offsets.value()->data(), input_offsets_vec.data(), 2 * sizeof(int32_t), false);
-    input.cu_seqlens = infinicore::Tensor::empty({2}, infinicore::DataType::I32, device);
-    infinicore::context::memcpyH2D(input.cu_seqlens.value()->data(), input_offsets_vec.data(), 2 * sizeof(int32_t), false);
+    input.input_offsets = infinicore::Tensor::empty({n_req + 1}, infinicore::DataType::I32, device);
+    std::vector<int32_t> input_offsets_vec(n_req + 1, 0);
+    const int32_t per_req = static_cast<int32_t>(bucket / std::max<size_t>(1, n_req));
+    for (size_t i = 0; i <= n_req; ++i) {
+        input_offsets_vec[i] = static_cast<int32_t>(std::min<size_t>(bucket, i * per_req));
+    }
+    input_offsets_vec[n_req] = static_cast<int32_t>(bucket);
+    infinicore::context::memcpyH2D(
+        input.input_offsets.value()->data(),
+        input_offsets_vec.data(),
+        (n_req + 1) * sizeof(int32_t),
+        false);
+
+    input.cu_seqlens = infinicore::Tensor::empty({n_req + 1}, infinicore::DataType::I32, device);
+    std::vector<int32_t> cu_seqlens_vec(n_req + 1, 0);
+    for (size_t i = 0; i <= n_req; ++i) {
+        cu_seqlens_vec[i] = static_cast<int32_t>(std::min<size_t>(bucket, i * per_req));
+    }
+    cu_seqlens_vec[n_req] = static_cast<int32_t>(bucket);
+    infinicore::context::memcpyH2D(
+        input.cu_seqlens.value()->data(),
+        cu_seqlens_vec.data(),
+        (n_req + 1) * sizeof(int32_t),
+        false);
 
     const size_t block_per_req = nblocks;
-    input.block_tables = block_tables_holder_->as_strided({1, block_per_req}, {(ptrdiff_t)block_per_req, 1});
+    input.block_tables = block_tables_holder_->as_strided({n_req, block_per_req}, {(ptrdiff_t)block_per_req, 1});
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
     const size_t block_size = paged_config != nullptr ? paged_config->block_size() : 256;
     const size_t blocks_needed = (bucket + block_size - 1) / block_size;
-    std::vector<int32_t> block_row(block_per_req, -1);
-    for (size_t b = 0; b < blocks_needed && b < block_per_req; ++b) {
-        block_row[b] = static_cast<int32_t>(b);
+    for (size_t row = 0; row < n_req; ++row) {
+        std::vector<int32_t> block_row(block_per_req, -1);
+        const size_t row_offset = row * blocks_needed;
+        for (size_t b = 0; b < blocks_needed && b < block_per_req; ++b) {
+            block_row[b] = static_cast<int32_t>(row_offset + b);
+        }
+        auto row_tensor = input.block_tables.value()->narrow({{0, row, 1}});
+        infinicore::context::memcpyH2D(
+            row_tensor->data(), block_row.data(), block_per_req * sizeof(int32_t), false);
     }
-    infinicore::context::memcpyH2D(
-        input.block_tables.value()->data(), block_row.data(), block_per_req * sizeof(int32_t), false);
 
     input.slot_mapping = infinicore::Tensor::empty({bucket}, infinicore::DataType::I64, device);
     std::vector<int64_t> slot_mapping_vec(bucket);
@@ -179,7 +229,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
     const size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
     const size_t num_layers = model_->native_piecewise_num_layers();
     allocate_layer_staging_(bucket, num_layers);
-    auto bucket_input = make_bucket_input_(bucket, nblocks);
+    auto bucket_input = make_bucket_input_(bucket, nblocks, max_capture_req_);
     set_attn_metadata(bucket_input);
 
     BucketGraphs graphs;
@@ -267,10 +317,17 @@ void PiecewisePrefillCompiler::compile() {
     enabled_ = true;
 
     const size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
+    max_capture_req_ = 4;
+    if (const char *raw = std::getenv("INFINI_MAX_PREFILL_BATCH")) {
+        max_capture_req_ = std::max<size_t>(1, std::stoul(raw));
+    }
     size_t max_bucket = capture_buckets_.empty() ? 0 : capture_buckets_.front();
     block_tables_holder_ = infinicore::Tensor::empty(
-        {nblocks}, infinicore::DataType::I32, infinicore::context::getDevice());
+        {max_capture_req_ * nblocks}, infinicore::DataType::I32, infinicore::context::getDevice());
     set_zeros(block_tables_holder_);
+    spdlog::info(
+        "native piecewise CG: capture warmup n_req={} (metadata only, hidden [1,bucket])",
+        max_capture_req_);
 
     compiled_.clear();
     for (size_t bucket : capture_buckets_) {
@@ -303,12 +360,27 @@ void PiecewisePrefillCompiler::copy_runtime_into_bucket_(BucketGraphs &bucket_gr
     graph_input.position_ids.value()
         ->narrow({{0, 0, valid_seq_len}})
         ->copy_from(runtime.position_ids.value());
-    if (graph_input.past_sequence_lengths.has_value() && runtime.past_sequence_lengths.has_value()) {
-        graph_input.past_sequence_lengths.value()->copy_from(runtime.past_sequence_lengths.value());
+
+    const size_t runtime_n_req = runtime.block_tables.value()->size(0);
+    const size_t compiled_n_req = graph_input.block_tables.value()->size(0);
+    if (runtime_n_req > compiled_n_req) {
+        throw std::runtime_error("block_tables batch exceeds compiled capture warmup width");
     }
-    graph_input.total_sequence_lengths.value()->copy_from(runtime.total_sequence_lengths.value());
-    graph_input.input_offsets.value()->copy_from(runtime.input_offsets.value());
-    graph_input.cu_seqlens.value()->copy_from(runtime.cu_seqlens.value());
+
+    if (graph_input.past_sequence_lengths.has_value() && runtime.past_sequence_lengths.has_value()) {
+        graph_input.past_sequence_lengths.value()
+            ->narrow({{0, 0, runtime_n_req}})
+            ->copy_from(runtime.past_sequence_lengths.value());
+    }
+    graph_input.total_sequence_lengths.value()
+        ->narrow({{0, 0, runtime_n_req}})
+        ->copy_from(runtime.total_sequence_lengths.value());
+    graph_input.input_offsets.value()
+        ->narrow({{0, 0, runtime_n_req + 1}})
+        ->copy_from(runtime.input_offsets.value());
+    graph_input.cu_seqlens.value()
+        ->narrow({{0, 0, runtime_n_req + 1}})
+        ->copy_from(runtime.cu_seqlens.value());
 
     const size_t block_per_req = runtime.block_tables.value()->size(1);
     const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
@@ -318,7 +390,15 @@ void PiecewisePrefillCompiler::copy_runtime_into_bucket_(BucketGraphs &bucket_gr
 
     auto &graph_block_tables = graph_input.block_tables.value();
     set_minus_one(graph_block_tables);
-    graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(runtime.block_tables.value());
+    graph_block_tables
+        ->narrow({{0, 0, runtime_n_req}, {1, 0, block_per_req}})
+        ->copy_from(runtime.block_tables.value());
+
+    if (runtime_n_req < compiled_n_req) {
+        auto stale_rows = graph_block_tables->narrow(
+            {{0, runtime_n_req, compiled_n_req - runtime_n_req}, {1, 0, compiled_block_per_req}});
+        set_minus_one(stale_rows);
+    }
 
     graph_input.slot_mapping.value()
         ->narrow({{0, 0, valid_seq_len}})
@@ -347,7 +427,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
 
     auto &bucket_graphs = compiled_.at(graph_bucket);
     copy_runtime_into_bucket_(bucket_graphs, input, seq_len);
-    set_attn_metadata(bucket_graphs.input);
+    set_attn_metadata_for_varlen_batch(bucket_graphs.input, input);
 
     auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
     piecewise.valid_seq_len = seq_len;
@@ -373,14 +453,14 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         bucket_graphs.post_attn[layer]->run();
         ++segment_replays_;
     }
-    if (input.is_final_prefill_chunk) {
+    if (InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         bucket_graphs.lm_head->run();
         ++segment_replays_;
     }
 
     piecewise.phase = global_state::PiecewiseCapturePhase::None;
     ++prefill_hits_;
-    if (!input.is_final_prefill_chunk) {
+    if (!InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         return std::nullopt;
     }
     return bucket_graphs.logits_holder;

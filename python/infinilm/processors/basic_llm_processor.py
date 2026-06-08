@@ -289,25 +289,23 @@ class BasicLLMProcessor(InfinilmProcessor):
                 cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
         hybrid_gpu_metadata = False
-        is_final_prefill_chunk = True
-        if scheduler_output.is_prefill and len(scheduler_output.scheduled_requests) == 1:
-            req = scheduler_output.scheduled_requests[0]
-            # Only multi-step chunked prefill uses chunk_is_last(); single-shot
-            # prefill (prompt fits one chunk, or prefix cache leaves a short
-            # remainder) must still run lm_head + sampling.
-            if req.chunk_size > 0 and req.is_prefill and req.is_chunking():
-                is_final_prefill_chunk = req.chunk_is_last()
-            num_cached = req.num_cached_tokens
-            if req.is_chunking():
-                start = req.chunk_prefill_offset
-                end = min(start + req.chunk_size, len(req.get_input_tokens()))
-                compute_len = end - start
-            else:
-                compute_len = len(req.get_input_tokens()) - num_cached
+        is_final_prefill_chunk: list[bool] = []
+        total_compute_len = len(tokens)
+        if scheduler_output.is_prefill:
+            for req in scheduler_output.scheduled_requests:
+                # Only multi-step chunked prefill uses chunk_is_last(); single-shot
+                # prefill (prompt fits one chunk, or prefix cache leaves a short
+                # remainder) must still run lm_head + sampling.
+                if req.chunk_size > 0 and req.is_prefill and req.is_chunking():
+                    is_final_prefill_chunk.append(req.chunk_is_last())
+                else:
+                    is_final_prefill_chunk.append(True)
             try:
                 from infinilm.compile.env import prefill_compile_enabled
 
-                hybrid_gpu_metadata = prefill_compile_enabled() and compute_len > 0
+                hybrid_gpu_metadata = (
+                    prefill_compile_enabled() and total_compute_len > 0
+                )
             except ImportError:
                 hybrid_gpu_metadata = False
 
@@ -347,12 +345,7 @@ class BasicLLMProcessor(InfinilmProcessor):
                 "is_final_prefill_chunk": is_final_prefill_chunk,
             }
         )
-        input_ids_torch = None
-        if (
-            scheduler_output.is_prefill
-            and len(scheduler_output.scheduled_requests) == 1
-            and hybrid_gpu_metadata
-        ):
+        if scheduler_output.is_prefill and hybrid_gpu_metadata:
             try:
                 import torch
 
@@ -371,19 +364,15 @@ class BasicLLMProcessor(InfinilmProcessor):
             model_input["input_ids"] = infinicore.from_list(
                 [tokens], dtype=infinicore.int64
             )
-        if (
-            scheduler_output.is_prefill
-            and len(scheduler_output.scheduled_requests) == 1
-            and hybrid_gpu_metadata
-        ):
-            req = scheduler_output.scheduled_requests[0]
-            compute_len = len(tokens)
+        if scheduler_output.is_prefill and hybrid_gpu_metadata:
+            n_req = len(scheduler_output.scheduled_requests)
+            n_final = sum(is_final_prefill_chunk)
             logger.info(
                 "compiled prefill: build_model_inputs prefill "
-                "prompt_len=%s num_cached=%s compute_len=%s slot_mapping_len=%s",
-                len(req.get_input_tokens()),
-                req.num_cached_tokens,
-                compute_len,
+                "n_req=%s total_compute_len=%s n_final=%s slot_mapping_len=%s",
+                n_req,
+                total_compute_len,
+                n_final,
                 len(slot_mapping),
             )
         return model_input
