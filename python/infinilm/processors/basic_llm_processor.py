@@ -2,7 +2,7 @@ from .processor import InfinilmProcessor, register_processor
 from transformers import AutoTokenizer
 from ..llm.static_scheduler import StaticSchedulerOutput
 from ..llm.scheduler import SchedulerOutput
-from typing import override
+from typing_extensions import override
 
 
 @register_processor("default")
@@ -27,7 +27,9 @@ class BasicLLMProcessor(InfinilmProcessor):
             import infinicore
 
             result = {}
-            for key, tensor in self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False).items():
+            for key, tensor in self.tokenizer(
+                prompt, return_tensors="pt", add_special_tokens=False
+            ).items():
                 result[key] = tensor.from_torch(tensor)
             return result
 
@@ -45,9 +47,13 @@ class BasicLLMProcessor(InfinilmProcessor):
         normalized_conversation = []
         for message in conversation:
             if isinstance(message["content"], list):
-                assert len(message["content"]) == 1, "Only one content item supported in list"
+                assert len(message["content"]) == 1, (
+                    "Only one content item supported in list"
+                )
                 content_item = message["content"][0]
-                assert "type" in content_item and "text" in content_item, "Content dict must have 'type' and 'text' keys"
+                assert "type" in content_item and "text" in content_item, (
+                    "Content dict must have 'type' and 'text' keys"
+                )
                 normalized_conversation.append(
                     {"role": message["role"], "content": content_item["text"]}
                 )
