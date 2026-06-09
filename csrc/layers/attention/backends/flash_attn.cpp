@@ -32,7 +32,10 @@ FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
     dtype_ = model_config->get_dtype();
     max_position_embeddings_ = model_config->get<size_t>("max_position_embeddings");
 
-    this->_initialize_preallocated_workspace();
+    enable_workspace_manager_ = infinilm_config.enable_workspace_manager;
+    if (enable_workspace_manager_) {
+        this->_register_inference_buffer();
+    }
 }
 
 infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
@@ -59,7 +62,11 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     // 2. Compute attention
     infinicore::Tensor attn_output;
     if (is_prefill) {
-        attn_output = max_attn_output_->narrow({{0, 0, seq_len}});
+        if (enable_workspace_manager_) {
+            attn_output = max_attn_output_->narrow({{0, 0, seq_len}});
+        } else {
+            attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, dtype_, device_);
+        }
         infinicore::op::mha_varlen_(
             attn_output,
             query,
@@ -109,9 +116,9 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cac
     return {k_cache_layer, v_cache_layer};
 }
 
-void FlashAttentionImpl::_initialize_preallocated_workspace() {
+void FlashAttentionImpl::_register_inference_buffer() {
     const auto &infinilm_config = infinilm::global_state::get_infinilm_config();
-    auto &preallocated_workspace = infinilm::global_state::get_forward_context().preallocated_workspace;
+    auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
     const size_t max_num_batched_tokens = infinilm_config.max_num_batched_tokens;
 
     const std::string cache_key = std::string("FlashAttentionImpl_max_num_batched_tokens_")
@@ -121,15 +128,16 @@ void FlashAttentionImpl::_initialize_preallocated_workspace() {
                                 + infinicore::toString(dtype_) + "_device_"
                                 + device_.toString();
 
-    if (preallocated_workspace.find(cache_key) == preallocated_workspace.end()) {
-        auto flash_attention_impl_buffer = infinicore::Tensor::empty({max_num_batched_tokens, num_heads_, head_dim_}, dtype_, device_);
-        preallocated_workspace[cache_key] = flash_attention_impl_buffer;
-    }
-
-    auto flash_attention_impl_buffer = preallocated_workspace.at(cache_key);
-    const auto buffer_shape = flash_attention_impl_buffer->shape();
-    ASSERT(buffer_shape[0] == max_num_batched_tokens && buffer_shape[1] == num_heads_ && buffer_shape[2] == head_dim_);
-
-    max_attn_output_ = flash_attention_impl_buffer;
+    const infinicore::Shape flash_attn_buffer_shape = {max_num_batched_tokens, num_heads_, head_dim_};
+    workspace_manager.register_buffer(
+        cache_key,
+        flash_attn_buffer_shape,
+        dtype_,
+        device_,
+        [this, max_num_batched_tokens](const infinicore::Tensor &flash_attention_impl_buffer) {
+            const auto buffer_shape = flash_attention_impl_buffer->shape();
+            ASSERT(buffer_shape[0] == max_num_batched_tokens && buffer_shape[1] == num_heads_ && buffer_shape[2] == head_dim_);
+            max_attn_output_ = flash_attention_impl_buffer;
+        });
 }
 } // namespace infinilm::layers::attention::backends

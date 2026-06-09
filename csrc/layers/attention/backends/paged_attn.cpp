@@ -2,7 +2,6 @@
 
 #include "../../../global_state/global_state.hpp"
 #include "../../../utils.hpp"
-#include "attention_layer.hpp"
 #include "infinicore/ops.hpp"
 
 #include <string>
@@ -30,7 +29,10 @@ PagedAttentionImpl::PagedAttentionImpl(size_t num_heads,
 
     dtype_ = infinilm_config.model_config->get_dtype();
 
-    this->_initialize_preallocated_workspace();
+    enable_workspace_manager_ = infinilm_config.enable_workspace_manager;
+    if (enable_workspace_manager_) {
+        this->_register_inference_buffer();
+    }
 }
 
 infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
@@ -53,7 +55,12 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
 
     // 2. Compute attention
-    infinicore::Tensor attn_output = max_attn_output_->narrow({{0, 0, seq_len}});
+    infinicore::Tensor attn_output;
+    if (enable_workspace_manager_) {
+        attn_output = max_attn_output_->narrow({{0, 0, seq_len}});
+    } else {
+        attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, dtype_, device_);
+    }
     if (is_prefill) {
         infinicore::op::paged_attention_prefill_(
             attn_output,
@@ -97,9 +104,9 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedAttentionImpl::do_kv_cac
     return {k_cache_layer, v_cache_layer};
 }
 
-void PagedAttentionImpl::_initialize_preallocated_workspace() {
+void PagedAttentionImpl::_register_inference_buffer() {
     const auto &infinilm_config = infinilm::global_state::get_infinilm_config();
-    auto &preallocated_workspace = infinilm::global_state::get_forward_context().preallocated_workspace;
+    auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
     const size_t max_num_batched_tokens = infinilm_config.max_num_batched_tokens;
 
     const std::string cache_key = std::string("PagedAttentionImpl_max_num_batched_tokens_")
@@ -109,16 +116,17 @@ void PagedAttentionImpl::_initialize_preallocated_workspace() {
                                 + infinicore::toString(dtype_) + "_device_"
                                 + device_.toString();
 
-    if (preallocated_workspace.find(cache_key) == preallocated_workspace.end()) {
-        auto paged_attention_impl_buffer = infinicore::Tensor::empty({max_num_batched_tokens, num_heads_, head_dim_}, dtype_, device_);
-        preallocated_workspace[cache_key] = paged_attention_impl_buffer;
-    }
-
-    auto paged_attention_impl_buffer = preallocated_workspace.at(cache_key);
-    const auto buffer_shape = paged_attention_impl_buffer->shape();
-    ASSERT(buffer_shape[0] == max_num_batched_tokens && buffer_shape[1] == num_heads_ && buffer_shape[2] == head_dim_);
-
-    max_attn_output_ = paged_attention_impl_buffer;
+    const infinicore::Shape paged_attn_buffer_shape = {max_num_batched_tokens, num_heads_, head_dim_};
+    workspace_manager.register_buffer(
+        cache_key,
+        paged_attn_buffer_shape,
+        dtype_,
+        device_,
+        [this, max_num_batched_tokens](const infinicore::Tensor &paged_attention_impl_buffer) {
+            const auto buffer_shape = paged_attention_impl_buffer->shape();
+            ASSERT(buffer_shape[0] == max_num_batched_tokens && buffer_shape[1] == num_heads_ && buffer_shape[2] == head_dim_);
+            max_attn_output_ = paged_attention_impl_buffer;
+        });
 }
 
 } // namespace infinilm::layers::attention::backends

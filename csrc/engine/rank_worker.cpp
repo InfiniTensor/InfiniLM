@@ -281,6 +281,14 @@ void RankWorker::thread_loop() {
                 model_config_,
                 rank_info_.device,
                 pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+
+            infinicore::context::syncStream();
+
+            if (infinilm_config_->enable_workspace_manager) {
+                forward_context_.workspace_manager.finalize_and_bind(rank_info_.device);
+            }
+            infinicore::context::syncStream();
+
             if (enable_graph_compiling_) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }

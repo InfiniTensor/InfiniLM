@@ -2,8 +2,6 @@
 
 #include "../../config/model_config.hpp"
 #include "../linear/linear.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/dtype.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 
@@ -62,13 +60,15 @@ protected:
     infinicore::DataType dtype_;
 
 private:
-    void _initialize_preallocated_workspace();
+    infinicore::Tensor _forward_with_inference_buffer(const infinicore::Tensor &hidden_states) const;
 
-    size_t rank_gate_up_output_size_;
-    size_t rank_intermediate_size_;
+    void _register_inference_buffer();
 
-    // preallocated workspace for MLP
-    infinicore::Tensor max_gate_up_output_;
+    bool enable_workspace_manager_{false};
+    size_t rank_gate_up_output_size_{0};
+    size_t rank_intermediate_size_{0};
+
+    infinicore::Tensor max_gate_up_output_; // inference buffer for MLP
     infinicore::Tensor max_intermediate_;
     infinicore::Tensor max_down_output_;
 };

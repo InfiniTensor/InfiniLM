@@ -3,6 +3,7 @@
 #include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
 #include <string>
+#include <tuple>
 
 namespace infinilm::models::qwen3 {
 
@@ -54,7 +55,10 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
     infinilm::layers::attention::init_kv_cache_quant_params(register_fn, device_, kv_cache_k_scale_, kv_cache_v_scale_);
 
     rank_qkv_output_size_ = qkv_proj_->out_features() / static_cast<size_t>(tp_size);
-    this->_initialize_preallocated_workspace();
+    enable_workspace_manager_ = infinilm::global_state::get_infinilm_config().enable_workspace_manager;
+    if (enable_workspace_manager_) {
+        this->_register_inference_buffer();
+    }
 }
 
 infinicore::Tensor Qwen3Attention::forward(const infinicore::Tensor &positions,
@@ -75,8 +79,13 @@ infinicore::Tensor Qwen3Attention::forward_static_(const infinicore::Tensor &pos
     size_t seq_len = shape[1];
 
     // 1. Project Q, K, V
-    auto qkv_output = max_qkv_output_->narrow({{0, 0, batch_size * seq_len}})->view({batch_size, seq_len, rank_qkv_output_size_});
-    auto [q, k, v] = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
+    infinicore::Tensor q, k, v;
+    if (enable_workspace_manager_) {
+        auto qkv_output = max_qkv_output_->narrow({{0, 0, batch_size * seq_len}})->view({batch_size, seq_len, rank_qkv_output_size_});
+        std::tie(q, k, v) = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
+    } else {
+        std::tie(q, k, v) = qkv_proj_->forward_split(hidden_states_mutable);
+    }
 
     q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
     k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
@@ -107,9 +116,12 @@ infinicore::Tensor Qwen3Attention::forward_static_(const infinicore::Tensor &pos
     auto attn_output = attn_->forward(q_rope, k_reshaped, v_reshaped);
 
     // 6. Project output
-    auto o_output = max_o_output_->narrow({{0, 0, batch_size * seq_len}})->view({batch_size, seq_len, hidden_size_});
-    o_proj_->forward_(o_output, attn_output);
-    return o_output;
+    if (enable_workspace_manager_) {
+        auto o_output = max_o_output_->narrow({{0, 0, batch_size * seq_len}})->view({batch_size, seq_len, hidden_size_});
+        o_proj_->forward_(o_output, attn_output);
+        return o_output;
+    }
+    return o_proj_->forward(attn_output);
 }
 
 infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &position_ids,
@@ -125,8 +137,13 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     ASSERT_EQ(batch_size, 1);
 
     // 1. Project Q, K, V
-    auto qkv_output = max_qkv_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, rank_qkv_output_size_});
-    auto [q, k, v] = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
+    infinicore::Tensor q, k, v;
+    if (enable_workspace_manager_) {
+        auto qkv_output = max_qkv_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, rank_qkv_output_size_});
+        std::tie(q, k, v) = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
+    } else {
+        std::tie(q, k, v) = qkv_proj_->forward_split(hidden_states_mutable);
+    }
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
@@ -155,15 +172,20 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
 
     // 6. Project output
-    auto o_output = max_o_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, hidden_size_});
-    o_proj_->forward_(o_output, attn_output);
-    return o_output;
+    if (enable_workspace_manager_) {
+        auto o_output = max_o_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, hidden_size_});
+        o_proj_->forward_(o_output, attn_output);
+        return o_output;
+    }
+    return o_proj_->forward(attn_output);
 }
 
-void Qwen3Attention::_initialize_preallocated_workspace() {
+void Qwen3Attention::_register_inference_buffer() {
     const auto &infinilm_config = infinilm::global_state::get_infinilm_config();
-    auto &preallocated_workspace = infinilm::global_state::get_forward_context().preallocated_workspace;
+    auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
     const size_t max_num_batched_tokens = infinilm_config.max_num_batched_tokens;
+
+    ASSERT(rank_qkv_output_size_ > 0 && hidden_size_ > 0);
 
     const std::string attention_cache_key = std::string("Qwen3Attention_max_num_batched_tokens_")
                                           + std::to_string(max_num_batched_tokens) + "_rank_qkv_output_size_"
@@ -172,18 +194,22 @@ void Qwen3Attention::_initialize_preallocated_workspace() {
                                           + infinicore::toString(dtype_) + "_device_"
                                           + device_.toString();
 
-    size_t max_output_size = std::max(rank_qkv_output_size_, hidden_size_);
-    if (preallocated_workspace.find(attention_cache_key) == preallocated_workspace.end()) {
-        auto attention_buffer = infinicore::Tensor::empty({max_num_batched_tokens * max_output_size}, dtype_, device_);
-        preallocated_workspace[attention_cache_key] = attention_buffer;
-    }
+    const size_t max_output_size = std::max(rank_qkv_output_size_, hidden_size_);
+    const infinicore::Shape attention_buffer_shape = {max_num_batched_tokens * max_output_size};
+    workspace_manager.register_buffer(
+        attention_cache_key,
+        attention_buffer_shape,
+        dtype_,
+        device_,
+        [this, max_num_batched_tokens, max_output_size](const infinicore::Tensor &attention_buffer) {
+            const auto attention_buffer_shape = attention_buffer->shape();
+            ASSERT(attention_buffer_shape[0] == max_num_batched_tokens * max_output_size);
 
-    auto attention_buffer = preallocated_workspace.at(attention_cache_key);
-    const auto attention_buffer_shape = attention_buffer->shape();
-    ASSERT(attention_buffer_shape[0] == max_num_batched_tokens * max_output_size);
-
-    max_qkv_output_ = attention_buffer->narrow({{0, 0, max_num_batched_tokens * rank_qkv_output_size_}})->view({max_num_batched_tokens, rank_qkv_output_size_});
-    max_o_output_ = attention_buffer->narrow({{0, 0, max_num_batched_tokens * hidden_size_}})->view({max_num_batched_tokens, hidden_size_});
+            max_qkv_output_ = attention_buffer->narrow({{0, 0, max_num_batched_tokens * rank_qkv_output_size_}})
+                                  ->view({max_num_batched_tokens, rank_qkv_output_size_});
+            max_o_output_ = attention_buffer->narrow({{0, 0, max_num_batched_tokens * hidden_size_}})
+                                ->view({max_num_batched_tokens, hidden_size_});
+        });
 }
 
 } // namespace infinilm::models::qwen3

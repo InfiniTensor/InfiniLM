@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../models/infinilm_model.hpp"
-#include <unordered_map>
+#include "../utils.hpp"
+#include "workspace_manager.hpp"
+#include <vector>
 
 namespace infinilm::global_state {
 
@@ -49,9 +51,7 @@ struct ForwardContext {
     AttentionMetadata attn_metadata;
     MultiModalMetadata mm_metadata;
     std::vector<infinicore::Tensor> kv_cache_vec;
-
-    // preallocated workspace for some modules
-    std::unordered_map<std::string, infinicore::Tensor> preallocated_workspace;
+    WorkspaceManager workspace_manager;
 };
 
 void initialize_forward_context(ForwardContext &forward_context);

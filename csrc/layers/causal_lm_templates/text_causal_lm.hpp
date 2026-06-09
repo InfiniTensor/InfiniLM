@@ -43,7 +43,10 @@ public:
         model_ = this->register_module<Model>("model", model_config, device);
         lm_head_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("lm_head", hidden_size, vocab_size_, false, dtype_, device_);
 
-        this->_initialize_preallocated_workspace();
+        enable_workspace_manager_ = infinilm::global_state::get_infinilm_config().enable_workspace_manager;
+        if (enable_workspace_manager_) {
+            this->_register_inference_buffer();
+        }
     }
 
     /**
@@ -51,13 +54,18 @@ public:
      */
     Output forward(const Input &input) const override {
         auto hidden_states = model_->forward(input);
+        infinicore::Tensor logits;
 
-        const auto shape = hidden_states->shape();
-        const size_t bs = shape[0];
-        const size_t seq_len = shape[1];
+        if (enable_workspace_manager_) {
+            const auto shape = hidden_states->shape();
+            const size_t bs = shape[0];
+            const size_t seq_len = shape[1];
+            logits = max_logits_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, vocab_size_});
+            lm_head_->forward_(logits, hidden_states);
+        } else {
+            logits = lm_head_->forward(hidden_states);
+        }
 
-        auto logits = max_logits_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, vocab_size_});
-        lm_head_->forward_(logits, hidden_states);
         return {logits};
     }
 
@@ -68,7 +76,7 @@ public:
     Model &model() { return *model_; }
 
 protected:
-    size_t vocab_size_;
+    size_t vocab_size_{0};
     infinicore::Device device_;
     infinicore::DataType dtype_;
 
@@ -76,10 +84,11 @@ protected:
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
 
 private:
-    void _initialize_preallocated_workspace() {
+    void _register_inference_buffer() {
         const auto &infinilm_config = infinilm::global_state::get_infinilm_config();
-        auto &preallocated_workspace = infinilm::global_state::get_forward_context().preallocated_workspace;
+        auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
         const size_t max_num_batched_tokens = infinilm_config.max_num_batched_tokens;
+        ASSERT(vocab_size_ > 0);
 
         const std::string text_causal_lm_cache_key = std::string("TextCausalLM_max_num_batched_tokens_")
                                                    + std::to_string(max_num_batched_tokens) + "_vocab_size_"
@@ -87,20 +96,22 @@ private:
                                                    + infinicore::toString(dtype_) + "_device_"
                                                    + device_.toString();
 
-        if (preallocated_workspace.find(text_causal_lm_cache_key) == preallocated_workspace.end()) {
-            auto logits_buffer = infinicore::Tensor::empty({max_num_batched_tokens, vocab_size_}, dtype_, device_);
-            preallocated_workspace[text_causal_lm_cache_key] = logits_buffer;
-        }
-
-        auto logits_buffer = preallocated_workspace.at(text_causal_lm_cache_key);
-        const auto logits_buffer_shape = logits_buffer->shape();
-        ASSERT(logits_buffer_shape[0] == max_num_batched_tokens && logits_buffer_shape[1] == vocab_size_);
-
-        max_logits_ = logits_buffer;
+        const infinicore::Shape logits_shape = {max_num_batched_tokens, vocab_size_};
+        workspace_manager.register_buffer(
+            text_causal_lm_cache_key,
+            0,
+            logits_shape,
+            dtype_,
+            device_,
+            [this, max_num_batched_tokens](const infinicore::Tensor &logits_buffer) {
+                const auto logits_buffer_shape = logits_buffer->shape();
+                ASSERT(logits_buffer_shape[0] == max_num_batched_tokens && logits_buffer_shape[1] == vocab_size_);
+                max_logits_ = logits_buffer;
+            });
     }
 
-    // preallocated workspace for TextCausalLM
-    infinicore::Tensor max_logits_;
+    bool enable_workspace_manager_{false};
+    infinicore::Tensor max_logits_; // inference buffer for TextCausalLM
 };
 
 } // namespace infinilm::layers::causal_lm_templates

@@ -4,8 +4,6 @@
 #include "../../global_state/global_state.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "../../utils.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/dtype.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
@@ -57,18 +55,26 @@ public:
 
         norm_ = this->register_module<infinicore::nn::RMSNorm>("norm", hidden_size_, rms_norm_eps, dtype_, device_);
 
-        this->_initialize_preallocated_workspace();
+        enable_workspace_manager_ = infinilm::global_state::get_infinilm_config().enable_workspace_manager;
+        if (enable_workspace_manager_) {
+            this->_register_inference_buffer();
+        }
     }
 
     infinicore::Tensor forward(const infinilm::InfinilmModel::Input &input) const {
         auto input_ids = input.input_ids.value();
         auto positions = input.position_ids.value();
         // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
-        const auto shape = input_ids->shape();
-        const size_t bs = shape[0];
-        const size_t seq_len = shape[1];
-        auto hidden_states = max_hidden_states_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, hidden_size_});
-        embed_tokens_->forward_(hidden_states, input_ids);
+        infinicore::Tensor hidden_states;
+        if (enable_workspace_manager_) {
+            const auto shape = input_ids->shape();
+            const size_t bs = shape[0];
+            const size_t seq_len = shape[1];
+            hidden_states = max_hidden_states_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, hidden_size_});
+            embed_tokens_->forward_(hidden_states, input_ids);
+        } else {
+            hidden_states = embed_tokens_->forward(input_ids);
+        }
 
         // 2. Process through all decoder layers
         size_t num_layers = layers_.size();
@@ -122,28 +128,34 @@ public:
     }
 
 private:
-    void _initialize_preallocated_workspace() {
+    void _register_inference_buffer() {
         const auto &infinilm_config = infinilm::global_state::get_infinilm_config();
-        auto &preallocated_workspace = infinilm::global_state::get_forward_context().preallocated_workspace;
+        auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
         const size_t max_num_batched_tokens = infinilm_config.max_num_batched_tokens;
+        ASSERT((hidden_size_ > 0) && (vocab_size_ > 0));
 
-        const std::string text_model_cache_key = std::string("TextModel_max_num_batched_tokens_") + std::to_string(max_num_batched_tokens) + "_hidden_size_" + std::to_string(hidden_size_) + "_dtype_" + infinicore::toString(dtype_) + "_device_" + device_.toString();
+        const std::string text_model_cache_key = std::string("TextModel_max_num_batched_tokens_")
+                                               + std::to_string(max_num_batched_tokens) + "_hidden_size_"
+                                               + std::to_string(hidden_size_) + "_dtype_"
+                                               + infinicore::toString(dtype_) + "_device_"
+                                               + device_.toString();
 
-        if (preallocated_workspace.find(text_model_cache_key) == preallocated_workspace.end()) {
-            auto text_model_buffer = infinicore::Tensor::empty({max_num_batched_tokens, hidden_size_}, dtype_, device_);
-            preallocated_workspace[text_model_cache_key] = text_model_buffer;
-        }
-
-        auto text_model_buffer = preallocated_workspace.at(text_model_cache_key);
-        const auto text_model_buffer_shape = text_model_buffer->shape();
-        ASSERT(text_model_buffer_shape[0] == max_num_batched_tokens && text_model_buffer_shape[1] == hidden_size_);
-
-        max_hidden_states_ = text_model_buffer;
+        const infinicore::Shape hidden_states_shape = {max_num_batched_tokens, hidden_size_};
+        workspace_manager.register_buffer(
+            text_model_cache_key,
+            hidden_states_shape,
+            dtype_,
+            device_,
+            [this, max_num_batched_tokens](const infinicore::Tensor &hidden_states_buffer) {
+                const auto hidden_states_buffer_shape = hidden_states_buffer->shape();
+                ASSERT(hidden_states_buffer_shape[0] == max_num_batched_tokens && hidden_states_buffer_shape[1] == hidden_size_);
+                max_hidden_states_ = hidden_states_buffer;
+            });
     }
 
 protected:
-    size_t vocab_size_;
-    size_t hidden_size_;
+    size_t vocab_size_{0};
+    size_t hidden_size_{0};
     infinicore::Device device_;
     infinicore::DataType dtype_;
 
@@ -152,8 +164,8 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
 
 private:
-    // preallocated workspace for TextModel
-    infinicore::Tensor max_hidden_states_;
+    bool enable_workspace_manager_{false};
+    infinicore::Tensor max_hidden_states_; // inference buffer for TextModel
 };
 
 } // namespace infinilm::layers::causal_lm_templates

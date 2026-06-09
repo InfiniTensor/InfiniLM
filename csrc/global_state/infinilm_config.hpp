@@ -20,8 +20,11 @@ public:
           use_mla(use_mla),
           model_config(model_config) {
 
-        const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
-        ASSERT(max_num_batched_tokens >= 512 && max_num_batched_tokens <= max_position_embeddings);
+        if (max_num_batched_tokens > 0) {
+            const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
+            ASSERT(max_num_batched_tokens >= 512 && max_num_batched_tokens <= max_position_embeddings);
+            enable_workspace_manager = true;
+        }
     }
 
 public:
@@ -29,6 +32,7 @@ public:
     bool use_mla{false};
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
     size_t max_num_batched_tokens = 0;
+    bool enable_workspace_manager{false};
 };
 
 /**
