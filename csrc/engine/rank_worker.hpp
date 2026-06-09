@@ -12,12 +12,19 @@
 #include <any>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace infinilm::engine {
+
+enum class SchedulingMode {
+    PREFILL,
+    DECODE,
+    MIXED,
+};
 
 using ForwardContext = infinilm::global_state::ForwardContext;
 
@@ -68,6 +75,9 @@ public:
 
         /// Per-request final-chunk flags. Empty means all rows are final (lm_head + sampling).
         std::vector<bool> is_final_prefill_chunk;
+
+        /// Explicit scheduling phase (v1 scheduler). Unset → legacy heuristic.
+        std::optional<SchedulingMode> scheduling_mode;
 
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };

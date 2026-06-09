@@ -25,7 +25,7 @@ from infinilm.llm.request import (
     FinishReason,
 )
 from infinilm.llm.sampling_params import SamplingParams
-from infinilm.llm.scheduler import Scheduler
+from infinilm.llm.scheduler import Scheduler, SchedulerOutput
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.processors import AutoInfinilmProcessor
 from infinilm.distributed import DistConfig
@@ -35,6 +35,14 @@ from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 
 logger = logging.getLogger(__name__)
+
+
+def _step_profile_enabled() -> bool:
+    return os.environ.get("INFINI_STEP_PROFILE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 
 @dataclass
@@ -218,10 +226,21 @@ class LLMEngine:
         from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
 
         ensure_hybrid_prefill_gpu_context()
+        profile = _step_profile_enabled()
+        t_step0 = time.perf_counter() if profile else 0.0
         # Schedule requests
         scheduler_output = self.scheduler.schedule()
         if scheduler_output is None or not scheduler_output.scheduled_requests:
             return [], []
+        if profile:
+            rows = scheduler_output.rows or []
+            logger.info(
+                "step_profile: scheduled n_rows=%d total_tokens=%d mode=%s debt_ms=%.3f",
+                len(rows),
+                scheduler_output.total_scheduled_tokens,
+                scheduler_output.scheduling_mode,
+                (time.perf_counter() - t_step0) * 1000.0,
+            )
 
         # Build model inputs
         model_input = self.processor.build_model_inputs(
@@ -231,11 +250,17 @@ class LLMEngine:
             self.config.top_k,
         )
 
-        # Run inference (hybrid compiled prefill for single-request prefill steps).
         cpp_model_input = {
             k: v for k, v in model_input.items() if k != "input_ids_torch"
         }
-        if scheduler_output.is_prefill:
+        use_hybrid_prefill = (
+            scheduler_output.rows
+            and scheduler_output.is_homogeneous_prefill()
+        ) or (
+            not scheduler_output.rows and scheduler_output.is_prefill
+        )
+
+        if use_hybrid_prefill:
             skip_hybrid = False
             compute_len = 0
             for req in scheduler_output.scheduled_requests:
@@ -260,28 +285,183 @@ class LLMEngine:
             if hybrid_tokens is not None:
                 sampled_tokens_list = hybrid_tokens
             else:
+                t_fwd0 = time.perf_counter() if profile else 0.0
+                if profile:
+                    logger.info("step_profile: forward begin")
                 sampled_tokens = self.model_engine.forward(**cpp_model_input)
+                if profile:
+                    logger.info(
+                        "step_profile: forward end ms=%.3f",
+                        (time.perf_counter() - t_fwd0) * 1000.0,
+                    )
                 sampled_tokens_list = sampled_tokens.to_numpy().tolist()
         else:
+            t_fwd0 = time.perf_counter() if profile else 0.0
+            if profile:
+                logger.info("step_profile: forward begin")
             sampled_tokens = self.model_engine.forward(**cpp_model_input)
+            if profile:
+                logger.info(
+                    "step_profile: forward end ms=%.3f",
+                    (time.perf_counter() - t_fwd0) * 1000.0,
+                )
             sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
-        # Update request status
-        pending = self._update_requests(
-            scheduler_output.is_prefill,
-            scheduler_output.scheduled_requests,
-            sampled_tokens_list,
-        )
+        t_up0 = time.perf_counter() if profile else 0.0
+        pending = self._update_requests(scheduler_output, sampled_tokens_list)
+        if profile:
+            logger.info(
+                "step_profile: update_requests end pending=%d ms=%.3f total_step_ms=%.3f",
+                len(pending),
+                (time.perf_counter() - t_up0) * 1000.0,
+                (time.perf_counter() - t_step0) * 1000.0,
+            )
 
         return scheduler_output.scheduled_requests, pending
 
     def _update_requests(
         self,
+        scheduler_output: SchedulerOutput,
+        sampled_tokens: List[int],
+    ) -> List[tuple]:
+        """Update request status after inference step."""
+        if scheduler_output.rows:
+            return self._update_requests_from_rows(scheduler_output, sampled_tokens)
+        return self._update_requests_legacy_phase(
+            scheduler_output.is_prefill,
+            scheduler_output.scheduled_requests,
+            sampled_tokens,
+        )
+
+    def _update_requests_from_rows(
+        self,
+        scheduler_output: SchedulerOutput,
+        sampled_tokens: List[int],
+    ) -> List[tuple]:
+        rows = scheduler_output.rows
+        token_iter = iter(sampled_tokens)
+        pending: List[tuple] = []
+
+        all_mid_chunk = bool(rows) and all(
+            r.is_prefill_row and not r.is_final_prefill_chunk for r in rows
+        )
+        if all_mid_chunk:
+            for row in rows:
+                req = row.request
+                req.chunk_prefill_offset += row.num_scheduled_tokens
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted by client during chunked-prefill"
+                    )
+                    continue
+            self.scheduler.complete_requests(scheduler_output.scheduled_requests)
+            return []
+
+        has_final_prefill_complete = any(
+            r.is_prefill_row and r.is_final_prefill_chunk for r in rows
+        )
+        if has_final_prefill_complete:
+            match self.cache_type:
+                case "paged":
+                    self.scheduler.cache_manager.reset_req_blocks()
+                case "static":
+                    self.scheduler.update_cache()
+                case _:
+                    raise ValueError(f"Unsupported cache_type: {self.cache_type}")
+
+        for row in rows:
+            req = row.request
+            if row.is_prefill_row and not row.is_final_prefill_chunk:
+                req.chunk_prefill_offset += row.num_scheduled_tokens
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted by client during chunked-prefill"
+                    )
+                    continue
+                continue
+
+            if req.is_aborted():
+                logger.info(
+                    f"Request {req.request_id} aborted by client, skipping update"
+                )
+                continue
+
+            try:
+                token_id = next(token_iter)
+            except StopIteration:
+                logger.error(
+                    "Missing sampled token for row request=%s prefill=%s final=%s",
+                    req.request_id,
+                    row.is_prefill_row,
+                    row.is_final_prefill_chunk,
+                )
+                continue
+
+            if row.is_prefill_row:
+                req.chunk_prefill_offset = 0
+                req.chunk_size = 0
+                req.is_prefill = False
+
+            req.generated_token_ids.append(token_id)
+            pending_tokens = req.generated_token_ids[req._pending_token_offset :]
+            delta = self.tokenizer.decode(pending_tokens)
+            holds_back = bool(delta) and delta.endswith("\ufffd")
+            last_committed_text = req.generated_text
+
+            if not holds_back:
+                req.generated_text = last_committed_text + delta
+                req._pending_token_offset = len(req.generated_token_ids)
+
+            is_finished = self._check_request_finished(req, token_id)
+
+            if req._output_queue is None:
+                if is_finished:
+                    req.mark_finished(req.finish_reason)
+            else:
+                if holds_back and not is_finished:
+                    token_text = ""
+                else:
+                    if is_finished and req.finish_reason in (
+                        FinishReason.EOS_TOKEN,
+                        FinishReason.LENGTH,
+                        FinishReason.STOP_STRING,
+                    ):
+                        token_text = ""
+                    else:
+                        token_text = req.generated_text[
+                            req._stream_last_yielded_length :
+                        ]
+                        if token_text:
+                            req._stream_last_yielded_length = len(req.generated_text)
+
+                    if is_finished:
+                        req.mark_finished(req.finish_reason)
+
+                output = TokenOutput(
+                    request_id=req.request_id,
+                    token_id=token_id,
+                    token_text=token_text,
+                    finished=is_finished,
+                    finish_reason=req.finish_reason if is_finished else None,
+                    generated_text=req.generated_text,
+                )
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted before putting token"
+                    )
+                    continue
+                pending.append((req.output_queue.async_q, output))
+
+        self.scheduler.complete_requests(scheduler_output.scheduled_requests)
+        return pending
+
+    def _update_requests_legacy_phase(
+        self,
         is_prefill: bool,
         requests: List[InferenceRequest],
         sampled_tokens: List[int],
     ) -> List[tuple]:
-        """Update request status after inference step."""
+        """Legacy global-phase request update (INFINI_V1_SCHEDULER=0)."""
         chunk_mid_step = (
             is_prefill
             and len(requests) > 0

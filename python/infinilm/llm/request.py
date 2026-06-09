@@ -191,6 +191,24 @@ class InferenceRequest:
     def get_max_tokens(self) -> Optional[int]:
         return self.sampling_params.max_tokens
 
+    @property
+    def num_computed_tokens(self) -> int:
+        """Tokens already computed (prefill offset or cached prefix; decode KV len - 1)."""
+        if self.is_prefill:
+            if self.chunk_prefill_offset > 0:
+                return self.chunk_prefill_offset
+            return self.num_cached_tokens
+        total = self.prompt_length + len(self.generated_token_ids)
+        return max(total - 1, 0)
+
+    def prefill_debt(self) -> int:
+        """Prompt tokens still to compute during prefill (0 when decoding)."""
+        if not self.is_prefill:
+            return 0
+        if self.chunk_size > 0 and self.chunk_prefill_offset > 0:
+            return self.prompt_length - self.chunk_prefill_offset
+        return self.prompt_length - self.num_cached_tokens
+
     def is_chunking(self) -> bool:
         """Return True if this request uses multi-step chunked prefill."""
         return (

@@ -57,6 +57,23 @@ def prefill_chunk_size(default: int = 8192) -> int:
     return min(max(size, 1), _VLLM_POWER_LADDER_CAP)
 
 
+def v1_scheduler_enabled() -> bool:
+    """Master switch: vLLM 0.17 token-budget scheduler (default off)."""
+    return _truthy("INFINI_V1_SCHEDULER", "0")
+
+
+def max_num_batched_tokens(default: int = 8192) -> int:
+    """Token budget per v1 scheduler step."""
+    raw = os.environ.get("INFINI_MAX_NUM_BATCHED_TOKENS")
+    return int(raw) if raw else default
+
+
+def long_prefill_threshold(default: int = 4096) -> int:
+    """Cap prefill tokens scheduled per row in one v1 step."""
+    raw = os.environ.get("INFINI_LONG_PREFILL_THRESHOLD")
+    return int(raw) if raw else default
+
+
 def prefill_cudagraph_enabled() -> bool:
     """Enable vLLM piecewise CUDAGraph on the compiled prefill backbone."""
     return _truthy("INFINI_PREFILL_CUDAGRAPH", "0")

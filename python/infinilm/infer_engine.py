@@ -253,6 +253,7 @@ class InferEngine(_infinilm.InferEngine):
         top_p=None,
         return_logits=False,
         is_final_prefill_chunk=True,
+        scheduling_mode=None,
     ):
         try:
             # TODO: Remove `_underlying` and simplify the corresponding code.
@@ -297,6 +298,8 @@ class InferEngine(_infinilm.InferEngine):
                 return_logits=return_logits,
                 is_final_prefill_chunk=is_final_prefill_chunk,
             )
+            if scheduling_mode is not None:
+                input_kwargs["scheduling_mode"] = scheduling_mode
             if pixel_values is not None:
                 input_kwargs["pixel_values"] = pixel_values
             if image_bound is not None:

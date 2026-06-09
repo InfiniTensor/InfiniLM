@@ -22,8 +22,17 @@ from infinilm.llm.llm import normalize_chat_messages, _should_defer_tokenize_to_
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STREAM_TIMEOUT = 100.0
-DEFAULT_REQUEST_TIMEOUT = 1000.0
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return float(raw)
+
+
+DEFAULT_REQUEST_TIMEOUT = _env_float("INFINI_REQUEST_TIMEOUT_S", 1000.0)
+DEFAULT_STREAM_TIMEOUT = _env_float(
+    "INFINI_STREAM_TIMEOUT_S", DEFAULT_REQUEST_TIMEOUT
+)
 
 
 def chunk_json(

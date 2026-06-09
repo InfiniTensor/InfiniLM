@@ -4,6 +4,8 @@
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
 #include "infinicore/ops.hpp"
+#include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -11,6 +13,20 @@
 namespace infinilm::engine {
 
 namespace {
+
+bool rank_worker_profile_enabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *raw = std::getenv("INFINI_RANK_WORKER_PROFILE");
+        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+double monotonic_ms() {
+    using clock = std::chrono::steady_clock;
+    return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
+}
 
 bool row_is_final_prefill_chunk(const std::vector<bool> &flags, size_t row) {
     return flags.empty() || row >= flags.size() || flags[row];
@@ -385,24 +401,80 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         bool is_prefill = false;
+                        bool is_mixed = false;
                         bool skip_sampling = false;
                         bool piecewise_ran = false;
-                        if (local_args.block_tables.has_value() && local_args.input_ids.has_value()) {
+                        if (local_args.scheduling_mode.has_value()) {
+                            switch (*local_args.scheduling_mode) {
+                            case SchedulingMode::PREFILL:
+                                is_prefill = true;
+                                break;
+                            case SchedulingMode::DECODE:
+                                is_prefill = false;
+                                break;
+                            case SchedulingMode::MIXED:
+                                is_mixed = true;
+                                is_prefill = false;
+                                break;
+                            }
+                        } else if (local_args.block_tables.has_value()
+                                   && local_args.input_ids.has_value()) {
                             const size_t batch_size = local_args.block_tables.value()->size(0);
                             const size_t input_width = local_args.input_ids.value()->size(1);
                             is_prefill = batch_size != input_width;
                         }
                         auto model_input = local_args.to_model_input(infinicore::Device::cpu());
-                        if (compiler_ != nullptr) {
+                        if (compiler_ != nullptr && !is_mixed) {
                             auto *general_compiler = dynamic_cast<GeneralCompiler *>(compiler_.get());
                             if (is_prefill && general_compiler != nullptr
                                 && general_compiler->native_piecewise_enabled()) {
+                                const bool profile = rank_worker_profile_enabled();
+                                const double t_pw0 = profile ? monotonic_ms() : 0.0;
+                                if (profile) {
+                                    size_t n_req = 1;
+                                    size_t input_width = 0;
+                                    if (local_args.block_tables.has_value()) {
+                                        n_req = local_args.block_tables.value()->size(0);
+                                    }
+                                    if (local_args.input_ids.has_value()) {
+                                        input_width = local_args.input_ids.value()->size(1);
+                                    }
+                                    const char *mode_str = "unknown";
+                                    if (local_args.scheduling_mode.has_value()) {
+                                        switch (*local_args.scheduling_mode) {
+                                        case SchedulingMode::PREFILL:
+                                            mode_str = "PREFILL";
+                                            break;
+                                        case SchedulingMode::DECODE:
+                                            mode_str = "DECODE";
+                                            break;
+                                        case SchedulingMode::MIXED:
+                                            mode_str = "MIXED";
+                                            break;
+                                        }
+                                    }
+                                    spdlog::info(
+                                        "rank_worker_profile: RUN native_piecewise begin mode={} n_req={} "
+                                        "input_width={} is_mixed={}",
+                                        mode_str,
+                                        n_req,
+                                        input_width,
+                                        is_mixed);
+                                }
                                 if (auto pw_logits = general_compiler->run_native_piecewise_prefill(model_input)) {
                                     logits = *pw_logits;
                                     piecewise_ran = true;
                                 } else if (!any_final_prefill_chunk(model_input.is_final_prefill_chunk)) {
                                     piecewise_ran = true;
                                     skip_sampling = true;
+                                }
+                                if (profile) {
+                                    spdlog::info(
+                                        "rank_worker_profile: RUN native_piecewise end piecewise_ran={} "
+                                        "skip_sampling={} wall_ms={:.3f}",
+                                        piecewise_ran,
+                                        skip_sampling,
+                                        monotonic_ms() - t_pw0);
                                 }
                             }
                             if (!logits && !piecewise_ran) {

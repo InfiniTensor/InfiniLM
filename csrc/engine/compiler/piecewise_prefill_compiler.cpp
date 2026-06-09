@@ -6,6 +6,8 @@
 #include "piecewise_bucket_policy.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <numeric>
 #include <sstream>
 #include <spdlog/spdlog.h>
@@ -13,6 +15,20 @@
 namespace infinilm::engine {
 
 namespace {
+
+bool rank_worker_profile_enabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *raw = std::getenv("INFINI_RANK_WORKER_PROFILE");
+        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+double monotonic_ms() {
+    using clock = std::chrono::steady_clock;
+    return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
+}
 
 size_t compute_prefill_len(const InfinilmModel::Input &input) {
     if (input.input_offsets.has_value()) {
@@ -417,17 +433,37 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     if (!enabled_) {
         return std::nullopt;
     }
+    const bool profile = rank_worker_profile_enabled();
+    const double t_total0 = profile ? monotonic_ms() : 0.0;
     const size_t seq_len = compute_prefill_len(input);
     const size_t padded = padded_bucket_for(seq_len);
     const size_t graph_bucket = graph_replay_bucket_for_padded(padded);
+    const size_t runtime_n_req = input.block_tables.has_value() ? input.block_tables.value()->size(0) : 1;
+    const bool final_chunk = InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk);
+    if (profile) {
+        spdlog::info(
+            "rank_worker_profile: piecewise run_prefill begin seq_len={} padded={} graph_bucket={} "
+            "n_req={} final_chunk={}",
+            seq_len,
+            padded,
+            graph_bucket,
+            runtime_n_req,
+            final_chunk);
+    }
     if (compiled_.find(graph_bucket) == compiled_.end()) {
         ++prefill_misses_;
         return std::nullopt;
     }
 
     auto &bucket_graphs = compiled_.at(graph_bucket);
+    const double t_copy0 = profile ? monotonic_ms() : 0.0;
     copy_runtime_into_bucket_(bucket_graphs, input, seq_len);
     set_attn_metadata_for_varlen_batch(bucket_graphs.input, input);
+    if (profile) {
+        spdlog::info(
+            "rank_worker_profile: piecewise copy_runtime+metadata_ms={:.3f}",
+            monotonic_ms() - t_copy0);
+    }
 
     auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
     piecewise.valid_seq_len = seq_len;
@@ -445,21 +481,51 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     model_->native_piecewise_embed(bucket_graphs.input, piecewise.hidden_states);
 
     const size_t num_layers = bucket_graphs.pre_attn.size();
+    double layers_ms = 0.0;
+    const double t_layers0 = profile ? monotonic_ms() : 0.0;
     for (size_t layer = 0; layer < num_layers; ++layer) {
+        const double t_layer0 = profile ? monotonic_ms() : 0.0;
         bucket_graphs.pre_attn[layer]->run();
         ++segment_replays_;
+        const double t_pre_attn = profile ? monotonic_ms() : 0.0;
         piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
         model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
+        const double t_eager_attn = profile ? monotonic_ms() : 0.0;
         bucket_graphs.post_attn[layer]->run();
         ++segment_replays_;
+        if (profile) {
+            spdlog::info(
+                "rank_worker_profile: piecewise layer={} pre_attn_ms={:.3f} eager_attn_ms={:.3f} "
+                "post_attn_ms={:.3f} layer_total_ms={:.3f}",
+                layer,
+                t_pre_attn - t_layer0,
+                t_eager_attn - t_pre_attn,
+                monotonic_ms() - t_eager_attn,
+                monotonic_ms() - t_layer0);
+        }
+    }
+    if (profile) {
+        layers_ms = monotonic_ms() - t_layers0;
     }
     if (InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
+        const double t_lm0 = profile ? monotonic_ms() : 0.0;
         bucket_graphs.lm_head->run();
         ++segment_replays_;
+        if (profile) {
+            spdlog::info(
+                "rank_worker_profile: piecewise lm_head_ms={:.3f}",
+                monotonic_ms() - t_lm0);
+        }
     }
 
     piecewise.phase = global_state::PiecewiseCapturePhase::None;
     ++prefill_hits_;
+    if (profile) {
+        spdlog::info(
+            "rank_worker_profile: piecewise run_prefill end layers_total_ms={:.3f} total_ms={:.3f}",
+            layers_ms,
+            monotonic_ms() - t_total0);
+    }
     if (!InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         return std::nullopt;
     }

@@ -263,6 +263,7 @@ inline void bind_infer_engine(py::module &m) {
                     "top_k",
                     "return_logits",
                     "is_final_prefill_chunk",
+                    "scheduling_mode",
                 };
 
                 for (auto &item : kwargs) {
@@ -296,6 +297,18 @@ inline void bind_infer_engine(py::module &m) {
                         } else {
                             input.is_final_prefill_chunk = py::cast<std::vector<bool>>(item.second);
                         }
+                    } else if (key == "scheduling_mode") {
+                        const std::string mode = py::cast<std::string>(item.second);
+                        if (mode == "PREFILL") {
+                            input.scheduling_mode = SchedulingMode::PREFILL;
+                        } else if (mode == "DECODE") {
+                            input.scheduling_mode = SchedulingMode::DECODE;
+                        } else if (mode == "MIXED") {
+                            input.scheduling_mode = SchedulingMode::MIXED;
+                        } else {
+                            throw py::value_error(
+                                "scheduling_mode must be PREFILL, DECODE, or MIXED");
+                        }
                     }
                 }
 
@@ -327,7 +340,8 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p)
         .def_readwrite("return_logits", &InferEngine::Input::return_logits)
-        .def_readwrite("is_final_prefill_chunk", &InferEngine::Input::is_final_prefill_chunk);
+        .def_readwrite("is_final_prefill_chunk", &InferEngine::Input::is_final_prefill_chunk)
+        .def_readwrite("scheduling_mode", &InferEngine::Input::scheduling_mode);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
         .def_property_readonly("output_ids", [](const InferEngine::Output &self) {
