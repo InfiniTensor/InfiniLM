@@ -121,7 +121,6 @@ class LLMEngine:
             cache_config = PagedKVCacheConfig(
                 num_blocks=config.num_blocks, block_size=config.block_size
             )
-
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,

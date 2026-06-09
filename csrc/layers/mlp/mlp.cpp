@@ -30,10 +30,29 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
 
     rank_gate_up_output_size_ = gate_up_proj_->out_features() / static_cast<size_t>(tp_size);
     rank_intermediate_size_ = rank_gate_up_output_size_ / 2;
-    this->_initialize_preallocated_workspace();
+
+    enable_workspace_manager_ = infinilm::global_state::get_infinilm_config().enable_workspace_manager;
+    if (enable_workspace_manager_) {
+        this->_register_inference_buffer();
+    }
 }
 
 infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
+    if (enable_workspace_manager_) {
+        return this->_forward_with_inference_buffer(hidden_states);
+    }
+
+    // 1. Project to gate and up
+    auto hidden_states_mutable = hidden_states;
+    auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
+    // 2. Apply SwiGLU: silu(gate) * up
+    auto intermediate = infinicore::op::swiglu(up, gate);
+    // 3. Project down
+    auto output = down_proj_->forward(intermediate);
+    return output;
+}
+
+infinicore::Tensor MLP::_forward_with_inference_buffer(const infinicore::Tensor &hidden_states) const {
     const auto shape = hidden_states->shape();
     const size_t bs = shape[0];
     const size_t seq_len = shape[1];
@@ -53,11 +72,12 @@ infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
     return down_output;
 }
 
-void MLP::_initialize_preallocated_workspace() {
-
+void MLP::_register_inference_buffer() {
     const auto &infinilm_config = infinilm::global_state::get_infinilm_config();
-    auto &preallocated_workspace = infinilm::global_state::get_forward_context().preallocated_workspace;
+    auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
     const size_t max_num_batched_tokens = infinilm_config.max_num_batched_tokens;
+
+    ASSERT(rank_gate_up_output_size_ > 0 && rank_intermediate_size_ > 0 && hidden_size_ > 0 && intermediate_size_ > 0);
 
     const std::string mlp_cache_key = std::string("MLP_max_num_batched_tokens_")
                                     + std::to_string(max_num_batched_tokens) + "_rank_gate_up_output_size_"
@@ -67,21 +87,34 @@ void MLP::_initialize_preallocated_workspace() {
                                     + infinicore::toString(dtype_) + "_device_"
                                     + device_.toString();
 
-    size_t max_gate_up_intermediate_size = std::max(rank_gate_up_output_size_, rank_intermediate_size_);
-    size_t max_output_size = max_gate_up_intermediate_size + hidden_size_;
+    auto align_up = [](size_t n, size_t alignment = 256) {
+        return (n + alignment - 1) & ~(alignment - 1);
+    };
 
-    if (preallocated_workspace.find(mlp_cache_key) == preallocated_workspace.end()) {
-        auto mlp_buffer = infinicore::Tensor::empty({max_num_batched_tokens * max_output_size}, dtype_, device_);
-        preallocated_workspace[mlp_cache_key] = mlp_buffer;
-    }
+    const size_t rank_gate_up_output_size_aligned = align_up(rank_gate_up_output_size_);
+    const size_t rank_intermediate_size_aligned = align_up(rank_gate_up_output_size_aligned + rank_intermediate_size_);
+    const size_t max_output_size = rank_intermediate_size_aligned + hidden_size_;
 
-    auto mlp_buffer = preallocated_workspace.at(mlp_cache_key);
-    const auto buffer_shape = mlp_buffer->shape();
-    ASSERT(buffer_shape[0] == max_num_batched_tokens * max_output_size);
+    const infinicore::Shape mlp_buffer_shape = {max_num_batched_tokens * max_output_size};
+    workspace_manager.register_buffer(
+        mlp_cache_key,
+        mlp_buffer_shape,
+        dtype_,
+        device_,
+        [this, max_num_batched_tokens, rank_gate_up_output_size_aligned, rank_intermediate_size_aligned,
+         max_output_size](const infinicore::Tensor &mlp_buffer) {
+            const auto buffer_shape = mlp_buffer->shape();
+            ASSERT(buffer_shape[0] == max_num_batched_tokens * max_output_size);
 
-    max_gate_up_output_ = mlp_buffer->narrow({{0, 0, max_num_batched_tokens * rank_gate_up_output_size_}})->view({max_num_batched_tokens, rank_gate_up_output_size_});
-    max_intermediate_ = mlp_buffer->narrow({{0, 0, max_num_batched_tokens * rank_intermediate_size_}})->view({max_num_batched_tokens, rank_intermediate_size_});
-    max_down_output_ = mlp_buffer->narrow({{0, max_num_batched_tokens * max_gate_up_intermediate_size, max_num_batched_tokens * hidden_size_}})->view({max_num_batched_tokens, hidden_size_});
+            max_gate_up_output_ = mlp_buffer->narrow({{0, 0, max_num_batched_tokens * rank_gate_up_output_size_}})
+                                      ->view({max_num_batched_tokens, rank_gate_up_output_size_});
+            max_intermediate_ = mlp_buffer->narrow({{0, max_num_batched_tokens * rank_gate_up_output_size_aligned,
+                                                     max_num_batched_tokens * rank_intermediate_size_}})
+                                    ->view({max_num_batched_tokens, rank_intermediate_size_});
+            max_down_output_ = mlp_buffer->narrow({{0, max_num_batched_tokens * rank_intermediate_size_aligned,
+                                                    max_num_batched_tokens * hidden_size_}})
+                                   ->view({max_num_batched_tokens, hidden_size_});
+        });
 }
 
 } // namespace infinilm::layers::mlp

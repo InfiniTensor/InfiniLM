@@ -1,8 +1,6 @@
 #pragma once
 
 #include "../../../global_state/global_state.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/dtype.hpp"
 #include "infinicore/tensor.hpp"
 #include <tuple>
 
@@ -46,7 +44,9 @@ public:
                                                                           const infinicore::Tensor slot_mapping) const;
 
 private:
-    void _initialize_preallocated_workspace();
+    void _register_inference_buffer();
+    bool enable_workspace_manager_{false};
+    infinicore::Tensor max_attn_output_; // inference buffer for PagedAttentionImpl
 
     size_t num_heads_;
     size_t head_size_;
@@ -56,9 +56,5 @@ private:
     size_t head_dim_; // Note: head_dim equals to head_size
     infinicore::Device device_;
     infinicore::DataType dtype_;
-
-    // preallocated workspace for PagedAttentionImpl
-    infinicore::Tensor max_attn_output_;
 };
-
 } // namespace infinilm::layers::attention::backends

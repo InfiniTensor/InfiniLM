@@ -98,9 +98,7 @@ class Scheduler:
                 )
             )
 
-            num_tokens_this_step = (
-                req.get_prompt_length() - req.num_cached_tokens
-            )
+            num_tokens_this_step = req.get_prompt_length() - req.num_cached_tokens
             if (
                 current_num_batched_tokens + num_tokens_this_step
                 >= self.max_num_batched_tokens

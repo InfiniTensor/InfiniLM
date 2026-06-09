@@ -19,14 +19,19 @@ public:
         : attention_backend(backend),
           model_config(model_config),
           max_num_batched_tokens(max_num_batched_tokens) {
-        const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
-        ASSERT(max_num_batched_tokens >= 512 && max_num_batched_tokens <= max_position_embeddings);
+
+        if (max_num_batched_tokens > 0) {
+            const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
+            ASSERT(max_num_batched_tokens >= 512 && max_num_batched_tokens <= max_position_embeddings);
+            enable_workspace_manager = true;
+        }
     }
 
 public:
     infinilm::backends::AttentionBackend attention_backend;
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
     size_t max_num_batched_tokens = 0;
+    bool enable_workspace_manager{false};
 };
 
 /**
