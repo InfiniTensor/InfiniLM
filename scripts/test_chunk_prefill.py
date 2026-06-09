@@ -40,9 +40,9 @@ def wait_for_server(popen, host, port, model, timeout=300):
     raise TimeoutError(f"server not ready within {timeout}s")
 
 
-def inference_server(chunk_size, device, port, batch_size, max_new_tokens, enable_paged_attn, enable_graph, model_path):
+def inference_server(chunk_size, device, port, batch_size, max_new_tokens, enable_paged_attn, enable_graph, enable_chunk_prefill_graph, model_path):
     print(INFERENCE_SERVER)
-    args = ["CUDA_VISIBLE_DEVICES=12", sys.executable, INFERENCE_SERVER,
+    args = [f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '0')}", sys.executable, INFERENCE_SERVER,
             f"--chunk-size {chunk_size}",
             f"--device {device}",
             f"--port {port}",
@@ -53,7 +53,8 @@ def inference_server(chunk_size, device, port, batch_size, max_new_tokens, enabl
         args.append("--enable-paged-attn")
     if enable_graph:
         args.append("--enable-graph")
-
+    if enable_chunk_prefill_graph:
+        args.append("--enable-chunk-prefill-graph")
     popen = subprocess.Popen(" ".join(args), shell=True, preexec_fn=os.setsid, stderr=subprocess.STDOUT)
     return popen
 
@@ -112,13 +113,14 @@ def parse_stats(output):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="比较 chunked prefill 开/关的 TTFT/E2E")
-    parser.add_argument("--device", type=str, default="iluvatar", help="设备类型")
+    parser.add_argument("--device", type=str, default="nvidia", help="设备类型")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--enable-paged-attn", type=bool, default=True)
     parser.add_argument("--enable-graph", type=bool, default=True)
+    parser.add_argument("--enable-chunk-prefill-graph", type=bool, default=True)
     parser.add_argument("--port", type=int, default=2333)
-    parser.add_argument("--model-path", type=str, default="/data-aisoft/mechdancer/models/9g_8b_thinking_llama/")
+    parser.add_argument("--model-path", type=str, default="/workspace/models/9g_8b_v2_thinking/9g_8b_thinking")
 
     
     args = parser.parse_args()
@@ -132,7 +134,8 @@ if __name__ == "__main__":
 
         server = inference_server(chunk_size=chunk_size, device=args.device, port=args.port,
                                 batch_size=args.batch_size, max_new_tokens=args.max_new_tokens,
-                                enable_paged_attn=args.enable_paged_attn, enable_graph=args.enable_graph,
+                                enable_paged_attn=args.enable_paged_attn, enable_graph=args.enable_graph, 
+                                enable_chunk_prefill_graph=args.enable_chunk_prefill_graph,
                                 model_path=args.model_path)
         try:
             wait_for_server(server, "127.0.0.1", args.port, model="FM9G-7B", timeout=300)

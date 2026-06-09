@@ -329,11 +329,18 @@ class InferenceServer:
                 return sp.get(key)
             return default
 
-        # Accept common alias
-        max_tokens = pick("max_tokens", self.max_tokens)
+        # Accept common aliases. vLLM bench serve's OpenAI-chat backend sends
+        # max_completion_tokens, while older clients often send max_new_tokens.
+        max_tokens = None
+        for key in ("max_tokens", "max_completion_tokens", "max_new_tokens"):
+            if key in data and data.get(key) is not None:
+                max_tokens = data.get(key)
+                break
+            if key in sp and sp.get(key) is not None:
+                max_tokens = sp.get(key)
+                break
         if max_tokens is None:
-            # Some clients use max_new_tokens
-            max_tokens = pick("max_new_tokens", self.max_tokens)
+            max_tokens = self.max_tokens
 
         stop = pick("stop", None)
         if isinstance(stop, str):
