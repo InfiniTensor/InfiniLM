@@ -1,4 +1,4 @@
-from typing import override
+from typing_extensions import override
 
 from transformers import AutoConfig, AutoProcessor
 
