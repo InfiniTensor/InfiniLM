@@ -103,6 +103,57 @@ class SchedulerPackTest(unittest.TestCase):
         assert out is not None
         self.assertEqual(len(out.scheduled_requests), 1)
 
+    def test_prefill_pack_respects_capture_width(self):
+        """max_batch_size=8 but capture width=4 → at most 4 requests per prefill pack."""
+        wide = Scheduler(
+            max_batch_size=8,
+            num_blocks=512,
+            block_size=256,
+            max_prefill_batch_size=4,
+            enable_prefix_cache=False,
+        )
+        chunk_size = 512
+        for i in range(6):
+            wide.add_request(_req(f"r{i}", 2048, chunk_size=chunk_size))
+
+        out = wide.schedule()
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertTrue(out.is_prefill)
+        self.assertLessEqual(len(out.scheduled_requests), 4)
+
+    def test_decode_skips_prefill_requests(self):
+        """Requests still marked is_prefill must not enter decode batches."""
+        chunk_size = 512
+        prefill_req = _req("prefill", 2048, chunk_size=chunk_size)
+        prefill_req.is_prefill = True
+        prefill_req.status = RequestStatus.RUNNING
+        prefill_req.block_table = [0, 1, 2, 3]
+        prefill_req.slot_mapping = [0]
+        prefill_req.num_cached_tokens = 511
+        prefill_req.num_blocks = 4
+
+        decode_req = _req("decode", 128, chunk_size=0)
+        decode_req.is_prefill = False
+        decode_req.status = RequestStatus.RUNNING
+        decode_req.generated_token_ids = [99]
+        decode_req.block_table = [4, 5]
+        decode_req.slot_mapping = [0]
+        decode_req.num_cached_tokens = 128
+        decode_req.num_blocks = 2
+
+        self.scheduler.running_queue.sync_q.put(prefill_req)
+        self.scheduler.running_queue.sync_q.put(decode_req)
+
+        out = self.scheduler.schedule()
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertFalse(out.is_prefill)
+        self.assertEqual(len(out.scheduled_requests), 1)
+        self.assertFalse(out.scheduled_requests[0].is_prefill)
+        self.assertEqual(out.scheduled_requests[0].request_id, "decode")
+        self.assertEqual(self.scheduler.chunking_queue.sync_q.qsize(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

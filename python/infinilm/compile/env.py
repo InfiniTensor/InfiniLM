@@ -225,10 +225,8 @@ def graph_replay_bucket_for_seq_len(
 
 
 def native_piecewise_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
-    """Native C++ capture ladder: compile buckets capped at the 8448 overflow tail."""
-    return tuple(
-        b for b in compile_buckets(max_seq_len) if b <= COMPILE_OVERFLOW_BUCKET_8192
-    )
+    """Native C++ capture ladder: power buckets through 8192 (8448 pad is eager-only)."""
+    return default_cudagraph_capture_buckets(max_seq_len)
 
 
 def compile_warmup_seq_lens(max_seq: int) -> List[int]:

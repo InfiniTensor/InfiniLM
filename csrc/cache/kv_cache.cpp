@@ -165,9 +165,11 @@ StaticKVCache::update(size_t layer_idx,
 // ==========================
 PagedKVCacheConfig::PagedKVCacheConfig(
     size_t num_blocks,
-    size_t block_size)
+    size_t block_size,
+    size_t max_batch_size)
     : num_blocks_(num_blocks),
-      block_size_(block_size) {
+      block_size_(block_size),
+      max_batch_size_(max_batch_size) {
 }
 
 std::unique_ptr<CacheConfig>
@@ -183,6 +185,11 @@ PagedKVCacheConfig::num_blocks() const {
 size_t
 PagedKVCacheConfig::block_size() const {
     return block_size_;
+}
+
+size_t
+PagedKVCacheConfig::max_batch_size() const {
+    return max_batch_size_;
 }
 
 // ==========================

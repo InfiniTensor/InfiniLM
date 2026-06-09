@@ -126,7 +126,9 @@ class LLMEngine:
             )
         elif config.cache_type == "paged":
             cache_config = PagedKVCacheConfig(
-                num_blocks=config.num_blocks, block_size=config.block_size
+                num_blocks=config.num_blocks,
+                block_size=config.block_size,
+                max_batch_size=config.max_batch_size,
             )
             disable_prefix_cache = os.environ.get(
                 "INFINI_PREFILL_DISABLE_PREFIX_CACHE", "0"
@@ -495,84 +497,131 @@ class LLMEngine:
                 self.scheduler.requeue_chunking(req)
             return []
 
-        prefill_final_requests = (
+        prefill_final_indices = (
             [
-                r
-                for r in requests
+                i
+                for i, r in enumerate(requests)
                 if r.is_prefill and (not r.is_chunking() or r.chunk_is_last())
             ]
             if is_prefill
-            else requests
+            else list(range(len(requests)))
         )
 
-        pending = []
-        for req, token_id in zip(prefill_final_requests, sampled_tokens):
-            if req.is_aborted():
-                logger.info(
-                    f"Request {req.request_id} aborted by client, skipping update"
+        if is_prefill and prefill_final_indices:
+            pending: List[tuple] = []
+            if len(sampled_tokens) != len(prefill_final_indices):
+                logger.error(
+                    "prefill token/sample mismatch: n_tokens=%s n_final=%s n_req=%s",
+                    len(sampled_tokens),
+                    len(prefill_final_indices),
+                    len(requests),
                 )
-                continue
+            token_by_idx = (
+                dict(zip(prefill_final_indices, sampled_tokens))
+                if len(sampled_tokens) == len(prefill_final_indices)
+                else {}
+            )
+            prefill_final_set = set(prefill_final_indices)
+            requests_for_complete: List[InferenceRequest] = []
+            for i, req in enumerate(requests):
+                if i in prefill_final_set:
+                    if i not in token_by_idx:
+                        if req.is_chunking():
+                            self.scheduler.requeue_chunking(req)
+                        else:
+                            self.scheduler.waiting_queue.sync_q.put(req)
+                        continue
+                    token_id = token_by_idx[i]
+                    pending.extend(
+                        self._apply_sampled_token(req, token_id)
+                    )
+                    requests_for_complete.append(req)
+                elif req.is_prefill:
+                    if req.is_chunking():
+                        self.scheduler.requeue_chunking(req)
+                    else:
+                        self.scheduler.waiting_queue.sync_q.put(req)
+                else:
+                    requests_for_complete.append(req)
+            self.scheduler.complete_requests(requests_for_complete)
+            return pending
 
-            if req.is_prefill:
-                req.chunk_prefill_offset = 0
-                req.chunk_size = 0
-                req.is_prefill = False
+        pending = []
+        for req, token_id in zip(requests, sampled_tokens):
+            pending.extend(self._apply_sampled_token(req, token_id))
 
-            req.generated_token_ids.append(token_id)
-            pending_tokens = req.generated_token_ids[req._pending_token_offset :]
-            delta = self.tokenizer.decode(pending_tokens)
-            holds_back = bool(delta) and delta.endswith("\ufffd")
+        self.scheduler.complete_requests(requests)
+        return pending
 
-            last_committed_text = req.generated_text
+    def _apply_sampled_token(
+        self, req: InferenceRequest, token_id: int
+    ) -> List[tuple]:
+        """Apply one sampled token to a request; return pending stream outputs."""
+        pending: List[tuple] = []
+        if req.is_aborted():
+            logger.info(
+                f"Request {req.request_id} aborted by client, skipping update"
+            )
+            return pending
 
-            if not holds_back:
-                req.generated_text = last_committed_text + delta
-                req._pending_token_offset = len(req.generated_token_ids)
+        if req.is_prefill:
+            req.chunk_prefill_offset = 0
+            req.chunk_size = 0
+            req.is_prefill = False
 
-            is_finished = self._check_request_finished(req, token_id)
+        req.generated_token_ids.append(token_id)
+        pending_tokens = req.generated_token_ids[req._pending_token_offset :]
+        delta = self.tokenizer.decode(pending_tokens)
+        holds_back = bool(delta) and delta.endswith("\ufffd")
 
-            # vLLM-style replacement character handling is primarily relevant for streaming.
-            # For offline generation (no output queue), keep the fast incremental path.
-            if req._output_queue is None:
+        last_committed_text = req.generated_text
+
+        if not holds_back:
+            req.generated_text = last_committed_text + delta
+            req._pending_token_offset = len(req.generated_token_ids)
+
+        is_finished = self._check_request_finished(req, token_id)
+
+        # vLLM-style replacement character handling is primarily relevant for streaming.
+        # For offline generation (no output queue), keep the fast incremental path.
+        if req._output_queue is None:
+            if is_finished:
+                req.mark_finished(req.finish_reason)
+
+        else:
+            if holds_back and not is_finished:
+                token_text = ""
+            else:
+                if is_finished and req.finish_reason in (
+                    FinishReason.EOS_TOKEN,
+                    FinishReason.LENGTH,
+                    FinishReason.STOP_STRING,
+                ):
+                    token_text = ""
+                else:
+                    token_text = req.generated_text[
+                        req._stream_last_yielded_length :
+                    ]
+                    if token_text:
+                        req._stream_last_yielded_length = len(req.generated_text)
+
                 if is_finished:
                     req.mark_finished(req.finish_reason)
 
-            else:
-                if holds_back and not is_finished:
-                    token_text = ""
-                else:
-                    if is_finished and req.finish_reason in (
-                        FinishReason.EOS_TOKEN,
-                        FinishReason.LENGTH,
-                        FinishReason.STOP_STRING,
-                    ):
-                        token_text = ""
-                    else:
-                        token_text = req.generated_text[
-                            req._stream_last_yielded_length :
-                        ]
-                        if token_text:
-                            req._stream_last_yielded_length = len(req.generated_text)
-
-                    if is_finished:
-                        req.mark_finished(req.finish_reason)
-
-                output = TokenOutput(
-                    request_id=req.request_id,
-                    token_id=token_id,
-                    token_text=token_text,
-                    finished=is_finished,
-                    finish_reason=req.finish_reason if is_finished else None,
-                    generated_text=req.generated_text,
+            output = TokenOutput(
+                request_id=req.request_id,
+                token_id=token_id,
+                token_text=token_text,
+                finished=is_finished,
+                finish_reason=req.finish_reason if is_finished else None,
+                generated_text=req.generated_text,
+            )
+            if req.is_aborted():
+                logger.info(
+                    f"Request {req.request_id} aborted before putting token"
                 )
-                if req.is_aborted():
-                    logger.info(
-                        f"Request {req.request_id} aborted before putting token"
-                    )
-                    continue
-                pending.append((req.output_queue.async_q, output))
-
-        self.scheduler.complete_requests(requests)
+                return pending
+            pending.append((req.output_queue.async_q, output))
         return pending
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:

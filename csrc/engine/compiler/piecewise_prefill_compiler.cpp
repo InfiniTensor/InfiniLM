@@ -332,8 +332,10 @@ void PiecewisePrefillCompiler::compile() {
     }
     enabled_ = true;
 
-    const size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
-    max_capture_req_ = 4;
+    const auto *paged_config =
+        dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
+    const size_t nblocks = paged_config->num_blocks();
+    max_capture_req_ = std::max<size_t>(1, paged_config->max_batch_size());
     if (const char *raw = std::getenv("INFINI_MAX_PREFILL_BATCH")) {
         max_capture_req_ = std::max<size_t>(1, std::stoul(raw));
     }

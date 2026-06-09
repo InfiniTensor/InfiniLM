@@ -35,6 +35,7 @@ public:
     std::optional<infinicore::Tensor> run_prefill(const InfinilmModel::Input &input);
 
     size_t padded_bucket_for(size_t seq_len) const;
+    size_t max_capture_req() const { return max_capture_req_; }
     const std::vector<size_t> &capture_buckets() const { return capture_buckets_; }
     size_t segment_replays() const { return segment_replays_; }
     size_t prefill_hits() const { return prefill_hits_; }

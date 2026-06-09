@@ -142,6 +142,7 @@ class Scheduler:
         if max_prefill_batch_size is None and env_prefill_batch:
             max_prefill_batch_size = int(env_prefill_batch)
         self.max_prefill_batch_size = max_prefill_batch_size
+        self.max_capture_req = max_prefill_batch_size or max_batch_size
 
         self.cache_manager = BlockManager(
             num_blocks=num_blocks,
@@ -484,10 +485,15 @@ class Scheduler:
             phase,
         )
 
+    def _prefill_pack_cap(self) -> int:
+        """Max requests per prefill pack (matches piecewise CG capture width)."""
+        return min(self.max_batch_size, self.max_capture_req)
+
     def _try_schedule_chunking(self) -> Optional[SchedulerOutput]:
         scheduled: List[InferenceRequest] = []
         chunk_size = 0
-        while len(scheduled) < self.max_batch_size:
+        prefill_cap = self._prefill_pack_cap()
+        while len(scheduled) < prefill_cap:
             try:
                 req = self.chunking_queue.sync_q.get_nowait()
             except queue.Empty:
@@ -510,10 +516,7 @@ class Scheduler:
 
     def _try_schedule_waiting(self) -> Optional[SchedulerOutput]:
         scheduled_requests: List[InferenceRequest] = []
-        prefill_batch_cap = min(
-            self.max_batch_size,
-            self.max_prefill_batch_size or self.max_batch_size,
-        )
+        prefill_batch_cap = self._prefill_pack_cap()
         chunk_size = 0
 
         while len(scheduled_requests) < prefill_batch_cap:
@@ -582,6 +585,17 @@ class Scheduler:
 
             if req.is_finished():
                 self.complete_requests([req])
+                continue
+
+            if req.is_prefill:
+                logger.warning(
+                    "decode scheduler: request %s still in prefill; requeue",
+                    req.request_id[:8],
+                )
+                if req.is_chunking():
+                    self.requeue_chunking(req)
+                else:
+                    self.waiting_queue.sync_q.put(req)
                 continue
 
             try:

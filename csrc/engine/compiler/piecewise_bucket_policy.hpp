@@ -40,9 +40,10 @@ inline std::vector<size_t> piecewise_compile_buckets(size_t max_seq_len) {
 
 inline std::vector<size_t> piecewise_capture_buckets(size_t max_seq_len) {
     auto buckets = piecewise_compile_buckets(max_seq_len);
+    // Pad ladder may include 8448 overflow tail; graphs capture through 8192 only.
     buckets.erase(
         std::remove_if(buckets.begin(), buckets.end(),
-                       [](size_t b) { return b > kPiecewiseOverflowTailBucket; }),
+                       [](size_t b) { return b > kPiecewisePowerLadderCap; }),
         buckets.end());
     return buckets;
 }
