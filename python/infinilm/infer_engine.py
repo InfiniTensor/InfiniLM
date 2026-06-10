@@ -18,6 +18,12 @@ def read_hf_config(model_path):
     with open(config_path, "r") as f:
         config_dict = json.load(f)
 
+    if (
+        config_dict.get("model_type") == "gpt2"
+        and config_dict.get("torch_dtype") is None
+        and config_dict.get("dtype") is None
+    ):
+        config_dict["torch_dtype"] = "float32"
     if "model_type" not in config_dict:
         raise ValueError(
             f"`model_type` is not specified in the config file `{config_path}`."

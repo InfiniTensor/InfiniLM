@@ -567,9 +567,63 @@ def _remap_baichuan(state_dict, config=None):
     return state_dict
 
 
+def _remap_gpt2(state_dict, config=None):
+    """Remap HuggingFace GPT-2 weights to InfiniLM GPT-2 module names.
+
+    HuggingFace GPT-2 uses Conv1D modules whose weights are stored as
+    [in_features, out_features]. InfiniLM Linear expects [out_features,
+    in_features], so projection weights must be transposed.
+    """
+    remapped = {}
+    for key, tensor in state_dict.items():
+        if key.endswith((".attn.bias", ".attn.masked_bias")):
+            continue
+
+        new_key = key
+
+        if new_key.startswith("wte."):
+            new_key = new_key.replace("wte.", "model.embed_tokens.", 1)
+        elif new_key.startswith("wpe."):
+            new_key = new_key.replace("wpe.", "model.embed_positions.", 1)
+        elif new_key.startswith("h."):
+            new_key = new_key.replace("h.", "model.layers.", 1)
+        elif new_key.startswith("ln_f."):
+            new_key = new_key.replace("ln_f.", "model.norm.", 1)
+
+        if key.endswith(("attn.c_proj.weight", "mlp.c_fc.weight", "mlp.c_proj.weight")):
+            tensor = tensor.t().contiguous()
+
+        new_key = new_key.replace(".attn.c_proj.", ".attn.o_proj.")
+        if new_key.endswith(".attn.o_proj.bias"):
+            new_key = new_key.removesuffix(".attn.o_proj.bias") + ".attn.o_proj_bias"
+        elif new_key.endswith(".mlp.c_proj.bias"):
+            new_key = new_key.removesuffix(".mlp.c_proj.bias") + ".mlp.c_proj_bias"
+
+        if new_key.endswith(".attn.c_attn.weight"):
+            q, k, v = tensor.t().contiguous().chunk(3, dim=0)
+            prefix = new_key.removesuffix(".attn.c_attn.weight")
+            remapped[f"{prefix}.attn.q_proj.weight"] = q
+            remapped[f"{prefix}.attn.k_proj.weight"] = k
+            remapped[f"{prefix}.attn.v_proj.weight"] = v
+        elif new_key.endswith(".attn.c_attn.bias"):
+            q, k, v = tensor.chunk(3, dim=0)
+            prefix = new_key.removesuffix(".attn.c_attn.bias")
+            remapped[f"{prefix}.attn.q_proj.bias"] = q
+            remapped[f"{prefix}.attn.k_proj.bias"] = k
+            remapped[f"{prefix}.attn.v_proj.bias"] = v
+        else:
+            remapped[new_key] = tensor
+
+    if "lm_head.weight" not in remapped and "model.embed_tokens.weight" in remapped:
+        remapped["lm_head.weight"] = remapped["model.embed_tokens.weight"]
+
+    return remapped
+
+
 # Model type → remap function mapping
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
     "baichuan": _remap_baichuan,
+    "gpt2": _remap_gpt2,
 }
