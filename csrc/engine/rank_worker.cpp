@@ -1,5 +1,6 @@
 #include "rank_worker.hpp"
 
+#include "../global_state/ar_profile.hpp"
 #include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
@@ -494,15 +495,49 @@ void RankWorker::thread_loop() {
                             if (!logits && !piecewise_ran) {
                                 auto [graph, output] = compiler_->get_compiled(model_input);
                                 if (graph != nullptr && output != nullptr) {
+                                    const bool ar_profile = global_state::ar_profile::enabled();
+                                    const size_t n_ar =
+                                        global_state::get_forward_context().post_graph_allreduces.size();
+                                    double pre_barrier_ms = 0.0;
+                                    double graph_run_ms = 0.0;
+                                    double post_sync_ms = 0.0;
                                     if (rank_info_.tp_size > 1) {
+                                        const double t_barrier0 = ar_profile ? monotonic_ms() : 0.0;
                                         barrier_->wait();
+                                        if (ar_profile) {
+                                            pre_barrier_ms = monotonic_ms() - t_barrier0;
+                                            global_state::ar_profile::counters().decode_pre_barrier_ms += pre_barrier_ms;
+                                        }
                                     }
+                                    const double t_graph0 = ar_profile ? monotonic_ms() : 0.0;
                                     graph->run();
+                                    if (ar_profile) {
+                                        graph_run_ms = monotonic_ms() - t_graph0;
+                                        global_state::ar_profile::counters().decode_graph_run_ms += graph_run_ms;
+                                    }
                                     global_state::run_deferred_allreduces(
                                         global_state::get_forward_context().post_graph_allreduces);
                                     global_state::get_forward_context().post_graph_allreduces.clear();
                                     if (rank_info_.tp_size > 1) {
-                                        barrier_->wait();
+                                        const double t_sync0 = ar_profile ? monotonic_ms() : 0.0;
+                                        infinicore::context::syncStream();
+                                        if (ar_profile) {
+                                            post_sync_ms = monotonic_ms() - t_sync0;
+                                            global_state::ar_profile::counters().decode_post_sync_ms += post_sync_ms;
+                                        }
+                                    }
+                                    if (ar_profile && rank_info_.tp_rank == 0) {
+                                        global_state::ar_profile::counters().decode_graph_steps++;
+                                        const auto &c = global_state::ar_profile::counters();
+                                        spdlog::info(
+                                            "ar_profile: decode_graph n_ar={} pre_barrier_ms={:.3f} "
+                                            "graph_run_ms={:.3f} post_sync_ms={:.3f} "
+                                            "cumulative_decode_steps={}",
+                                            n_ar,
+                                            pre_barrier_ms,
+                                            graph_run_ms,
+                                            post_sync_ms,
+                                            c.decode_graph_steps);
                                     }
                                     logits = output->logits;
                                     if (general_compiler != nullptr) {

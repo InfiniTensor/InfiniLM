@@ -1,4 +1,5 @@
 #include "linear.hpp"
+#include "../../global_state/ar_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
@@ -105,13 +106,7 @@ infinicore::Tensor RowParallelLinear::forward_matmul_only(infinicore::Tensor &in
 
 void RowParallelLinear::allreduce_output(infinicore::Tensor &output) const {
     if (needs_allreduce()) {
-        if (output->is_contiguous()) {
-            infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
-        } else {
-            auto contiguous = output->contiguous();
-            infinicore::op::distributed::allreduce_(contiguous, contiguous, INFINICCL_SUM, communicator_);
-            output->copy_from(contiguous);
-        }
+        infinilm::global_state::ar_profile::allreduce_tensor(output, communicator_);
     }
 }
 
