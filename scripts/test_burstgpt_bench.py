@@ -30,9 +30,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INFERENCE_SERVER = PROJECT_ROOT / "python" / "infinilm" / "server" / "inference_server.py"
 BENCH_SCRIPT = Path(__file__).resolve().parent / "pure_bench_serve.py"
-DEFAULT_MODEL = "/workspace/models/9g_8b_v2_thinking/9g_8b_thinking"
-DEFAULT_DATASET = "/workspace/datasets/burstgpt/BurstGPT_1.csv"
-DEFAULT_RESULT_DIR = "/workspace/bench_results"
+DEFAULT_MODEL = "/workspace/models/9g_8b_v2_thinking/9g_8b_thinking"    # 改成机器上对应的模型路径
+DEFAULT_DATASET = Path(__file__).resolve().parent / "datasets/BurstGPT/BurstGPT_1000.csv"
+DEFAULT_RESULT_DIR = Path(__file__).resolve().parent / "bench_results"
 USE_COLOR = False
 
 
@@ -632,7 +632,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--served-model-name", default="9g_8b_thinking")
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--ignore-eos", action="store_true")
-    parser.add_argument("--progress-interval", type=int, default=30, help="压测运行中的中文心跳提示间隔，单位秒；设为 0 可关闭。")
+    parser.add_argument("--progress-interval", type=int, default=10, help="压测运行中的中文心跳提示间隔，单位秒；设为 0 可关闭。")
     parser.add_argument("--show-vllm-output", action="store_true", help="显示 vLLM benchmark 的原始英文输出。")
     parser.add_argument("--show-server-output", action="store_true", help="直接显示 InfiniLM 服务端输出；默认隐藏且不保存日志。")
     parser.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="终端颜色输出。")
