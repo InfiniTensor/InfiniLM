@@ -110,6 +110,7 @@ class InferenceServer:
         enable_graph: bool = False,
         attn_backend: str = "default",
         ignore_eos: bool = False,
+        weight_load_mode: str = "async",
     ):
         """Initialize inference server.
 
@@ -152,6 +153,7 @@ class InferenceServer:
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
         self.ignore_eos = ignore_eos
+        self.weight_load_mode = weight_load_mode
 
         self.engine: AsyncLLMEngine = None
 
@@ -183,6 +185,7 @@ class InferenceServer:
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
                 attn_backend=self.attn_backend,
+                weight_load_mode=self.weight_load_mode,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -575,6 +578,7 @@ def main():
         enable_graph=cfg.enable_graph,
         attn_backend=cfg.attn,
         ignore_eos=cfg.ignore_eos,
+        weight_load_mode=cfg.weight_load_mode,
     )
     server.start()
 

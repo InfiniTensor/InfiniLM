@@ -55,6 +55,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_paged_attn=False,
         enable_graph=False,
         attn_backend="default",
+        weight_load_mode="async",
     ):
         import transformers
         import infinicore
@@ -119,6 +120,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             ),
             enable_graph_compiling=enable_graph,
             attention_backend=attn_backend,
+            weight_load_mode=weight_load_mode,
         )
 
         # Enable KV cache for generation
@@ -1126,6 +1128,7 @@ def main():
             cfg.enable_paged_attn,
             cfg.enable_graph,
             cfg.attn,
+            cfg.weight_load_mode,
         )
 
     # Step 3: Evaluate each subject

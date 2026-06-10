@@ -140,6 +140,8 @@ class BlockManager:
         """
         if block_table is None:
             block_table = []
+        if mm_token_index_mappings is None:
+            mm_token_index_mappings = []
 
         # Static args
         num_tokens = len(token_ids)
