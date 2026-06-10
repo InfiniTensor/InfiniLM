@@ -130,6 +130,12 @@ public:
 
     std::string info() const;
 
+    /// True after the worker thread hit a fatal error (``should_exit_``).
+    bool has_failed();
+
+    /// Request graceful stop (used by InferEngine to unblock peer ranks after NCCL abort).
+    void signal_should_exit();
+
 private:
     void thread_loop();
 

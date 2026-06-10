@@ -299,7 +299,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
         barrier_->wait();
         infinicore::context::startGraphRecording();
-        model_->native_piecewise_post_attn_layer(layer, graphs.input, hidden, residual);
+        model_->native_piecewise_post_attn_graph_layer(layer, graphs.input, hidden, residual);
         graphs.post_attn[layer] = infinicore::context::stopGraphRecording();
         barrier_->wait();
     }
@@ -487,14 +487,21 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     const double t_layers0 = profile ? monotonic_ms() : 0.0;
     for (size_t layer = 0; layer < num_layers; ++layer) {
         const double t_layer0 = profile ? monotonic_ms() : 0.0;
+        barrier_->wait();
         bucket_graphs.pre_attn[layer]->run();
         ++segment_replays_;
         const double t_pre_attn = profile ? monotonic_ms() : 0.0;
+        barrier_->wait();
         piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
         model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
         const double t_eager_attn = profile ? monotonic_ms() : 0.0;
+        barrier_->wait();
         bucket_graphs.post_attn[layer]->run();
         ++segment_replays_;
+        barrier_->wait();
+        model_->native_piecewise_post_attn_allreduce_layer(
+            layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+        barrier_->wait();
         if (profile) {
             spdlog::info(
                 "rank_worker_profile: piecewise layer={} pre_attn_ms={:.3f} eager_attn_ms={:.3f} "
@@ -511,8 +518,10 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     }
     if (InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         const double t_lm0 = profile ? monotonic_ms() : 0.0;
+        barrier_->wait();
         bucket_graphs.lm_head->run();
         ++segment_replays_;
+        barrier_->wait();
         if (profile) {
             spdlog::info(
                 "rank_worker_profile: piecewise lm_head_ms={:.3f}",

@@ -70,6 +70,9 @@ public:
                       infinicclComm_t communicator = nullptr);
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
+    infinicore::Tensor forward_matmul_only(infinicore::Tensor &input) const;
+    void allreduce_output(infinicore::Tensor &output) const;
+    bool needs_allreduce() const;
     std::string extra_repr() const;
 
 protected:

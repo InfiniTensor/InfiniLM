@@ -172,6 +172,34 @@ class SchedulerV1Test(unittest.TestCase):
         self.assertEqual(len(out.scheduled_requests), 2)
         self.assertEqual(len(out.rows), 2)
 
+    def test_can_accept_rejects_third_long_seq(self):
+        """3×65536-token requests with num_blocks=512 → third rejected."""
+        long_len = 65536
+        blocks_per_req = (long_len + 1 + 255) // 256  # max_tokens=1
+        self.assertGreater(blocks_per_req * 3, 512)
+
+        for i in range(2):
+            req = _req(f"long{i}", long_len, max_tokens=1)
+            _prime_kv(self.scheduler, req)
+            self.scheduler.running_queue.sync_q.put(req)
+
+        third = _req("long2", long_len, max_tokens=1)
+        self.assertFalse(self.scheduler.can_accept_request(third))
+
+    def test_can_accept_counts_allocated_blocks_not_remaining_decode(self):
+        """Running 65536-token decode reserves full KV; second long seq rejected."""
+        long_len = 65536
+        decode = _req("decode", long_len, max_tokens=512)
+        decode.is_prefill = False
+        decode.generated_token_ids = [1]
+        _prime_kv(self.scheduler, decode)
+        self.scheduler.running_queue.sync_q.put(decode)
+
+        second_long = _req("second", long_len, max_tokens=512)
+        blocks_per = (long_len + 512 + 255) // 256
+        self.assertGreater(blocks_per * 2, 512)
+        self.assertFalse(self.scheduler.can_accept_request(second_long))
+
 
 if __name__ == "__main__":
     unittest.main()

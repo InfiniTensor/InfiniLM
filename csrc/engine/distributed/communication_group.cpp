@@ -1,6 +1,22 @@
 #include "communication_group.hpp"
 #include "../../utils.hpp"
 
+#include <spdlog/spdlog.h>
+
+// Mirrors InfiniCore ``InfinicclComm`` (infiniccl_impl.h) — only ``comm`` is needed for abort.
+struct InfinicclCommLayout {
+    infiniDevice_t device_type;
+    int device_id;
+    void *comm;
+};
+
+#if defined(__has_include)
+#if __has_include(<nccl.h>)
+#include <nccl.h>
+#define INFINILM_HAS_NCCL_ABORT 1
+#endif
+#endif
+
 namespace infinilm::engine::distributed {
 
 CommunicationGroup::CommunicationGroup(const DistConfig &dist_config, infinicore::Device::Type device_type)
@@ -40,6 +56,29 @@ RankInfo CommunicationGroup::get_rank_info(int rank) const {
 
 int CommunicationGroup::get_world_size() const {
     return dist_config_.tp_device_ids.size();
+}
+
+void CommunicationGroup::abort_all() {
+    if (communicators_.size() <= 1) {
+        return;
+    }
+    for (auto comm_handle : communicators_) {
+        if (comm_handle == nullptr) {
+            continue;
+        }
+        auto *layout = reinterpret_cast<InfinicclCommLayout *>(comm_handle);
+        if (layout->comm == nullptr) {
+            continue;
+        }
+#ifdef INFINILM_HAS_NCCL_ABORT
+        auto result = ncclCommAbort(static_cast<ncclComm_t>(layout->comm));
+        if (result != ncclSuccess) {
+            spdlog::warn("CommunicationGroup::abort_all: ncclCommAbort failed (code={})", static_cast<int>(result));
+        }
+#else
+        spdlog::warn("CommunicationGroup::abort_all: nccl.h unavailable; skipping communicator abort");
+#endif
+    }
 }
 
 CommunicationGroup::~CommunicationGroup() {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../global_state/global_state.hpp"
 #include "../../global_state/piecewise_prefill_state.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
@@ -78,10 +79,29 @@ public:
     void piecewise_post_attn(infinicore::Tensor &hidden_states,
                              infinicore::Tensor &residual,
                              global_state::PiecewiseLayerStaging &staging) const {
-        self_attn_->forward_post_attn_piecewise_into(hidden_states, staging);
+        piecewise_post_attn_graph(hidden_states, residual, staging);
+        piecewise_post_attn_allreduce(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_graph(infinicore::Tensor &hidden_states,
+                                   infinicore::Tensor &residual,
+                                   global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_post_attn_piecewise_graph_into(hidden_states, staging);
         post_attention_layernorm_->forward_inplace(hidden_states, residual);
-        auto mlp_out = mlp_->forward(hidden_states);
+        auto mlp_out = mlp_->forward_matmul_only(hidden_states);
         hidden_states->copy_from(mlp_out);
+    }
+
+    void piecewise_post_attn_allreduce(infinicore::Tensor &hidden_states,
+                                       infinicore::Tensor &residual,
+                                       global_state::PiecewiseLayerStaging &staging) const {
+        (void)residual;
+        self_attn_->forward_post_attn_piecewise_allreduce_into(hidden_states, staging);
+        auto &piecewise = global_state::get_forward_context().piecewise;
+        const size_t bucket = hidden_states->size(1);
+        const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
+        auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+        mlp_->allreduce_output(hidden_narrow);
     }
 
 protected:

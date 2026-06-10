@@ -1,55 +1,17 @@
 #include "qwen3_attention.hpp"
 #include "../../global_state/global_state.hpp"
-#include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
 
 namespace infinilm::models::qwen3 {
 
 Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                size_t layer_idx,
-                               const infinicore::Device &device) {
-    layer_idx_ = layer_idx;
-    hidden_size_ = model_config->get<size_t>("hidden_size");
-    head_dim_ = model_config->get<size_t>("head_dim");
-
+                               const infinicore::Device &device)
+    : Attention(model_config, layer_idx, device) {
     const auto &dtype{model_config->get_dtype()};
-    size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
-    size_t total_num_kv_heads = model_config->get<size_t>("num_key_value_heads");
-    bool use_bias = model_config->get_or<bool>("attention_bias", true);
-    bool use_output_bias = model_config->get_or<bool>("attention_output_bias", false);
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
-
-    attention_backend_ = infinilm::global_state::get_infinilm_config().attention_backend;
-    const engine::distributed::RankInfo &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
-    int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-    int tp_size = infinilm::global_state::get_tensor_model_parallel_world_size();
-    if ((total_num_kv_heads < tp_size) || (0 != (total_num_kv_heads % tp_size))) {
-        throw std::runtime_error("infinilm::models::qwen3::Qwen3Attention: num_key_value_heads must be divisible by tp_size");
-    }
-
-    num_attention_heads_ = total_num_heads / tp_size;
-    num_key_value_heads_ = total_num_kv_heads / tp_size;
-
-    auto quantization_method = model_config->get_quantization_method();
-    auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
-    qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(
-        hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
-        "q_proj", "k_proj", "v_proj", register_fn,
-        quantization_method, use_bias, dtype, device, rank_info);
-    o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
-        "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
-        use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
-
-    rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
-
-    float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
-    attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
-                                                                          kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
-
     INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
-
-    infinilm::layers::attention::init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
 }
 
 infinicore::Tensor Qwen3Attention::forward(const infinicore::Tensor &positions,
@@ -63,24 +25,20 @@ infinicore::Tensor Qwen3Attention::forward(const infinicore::Tensor &positions,
 infinicore::Tensor Qwen3Attention::forward_static_(const infinicore::Tensor &position_ids,
                                                    const infinicore::Tensor &hidden_states) const {
 
-    // hidden_states shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();
     size_t batch_size = shape[0];
     size_t seq_len = shape[1];
 
-    // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
     q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
     k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
 
-    // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
 
-    // 3. Prepare position_ids for RoPE
     auto pos_shape = position_ids->shape();
     infinicore::Tensor pos_ids_for_rope = position_ids;
     if (pos_shape.size() == 2) {
@@ -92,42 +50,32 @@ infinicore::Tensor Qwen3Attention::forward_static_(const infinicore::Tensor &pos
         throw std::runtime_error("infinilm::models::qwen3::Qwen3Attention: Unexpected position_ids shape");
     }
 
-    // 4. Apply RoPE to QK
     auto q_rope = infinicore::Tensor::empty({batch_size, num_attention_heads_, seq_len, head_dim_}, q_reshaped->dtype(), q_reshaped->device())->permute({0, 2, 1, 3});
     rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope);
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
 
-    // 6. Attn Backend calculate
     auto attn_output = attn_->forward(q_rope, k_reshaped, v_reshaped);
-
-    // 7. Project output
-    auto output = o_proj_->forward(attn_output);
-    return output;
+    return o_proj_->forward(attn_output);
 }
 
 infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &position_ids,
                                                   const infinicore::Tensor &hidden_states) const {
 
-    // hidden_states shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();
     size_t batch_size = shape[0];
     size_t seq_len = shape[1];
 
-    // Only support batchsize==1, all requests should be flattened along seqlen dimension
     ASSERT_EQ(batch_size, 1);
 
-    // 1. Project Q, K, V
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
-    // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
     q_reshaped = q_norm_->forward(q_reshaped);
     k_reshaped = k_norm_->forward(k_reshaped);
 
-    // 3. Prepare position_ids for RoPE
     auto pos_shape = position_ids->shape();
     infinicore::Tensor pos_ids_for_rope = position_ids;
     if (pos_shape.size() == 2) {
@@ -139,14 +87,69 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
-    // 4. Apply RoPE to QK
     rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
 
-    // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
-
-    // 6. Project output
     return o_proj_->forward(attn_output);
 }
+
+void Qwen3Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_ids,
+                                                const infinicore::Tensor &hidden_states,
+                                                global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    auto hidden_states_mutable = hidden_states;
+    auto shape = hidden_states->shape();
+    size_t batch_size = shape[0];
+    size_t seq_len = shape[1];
+    ASSERT_EQ(batch_size, 1);
+
+    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+
+    auto q_heads = q->view({seq_len, num_attention_heads_, head_dim_});
+    auto k_heads = k->view({seq_len, num_key_value_heads_, head_dim_});
+    q_heads = q_norm_->forward(q_heads);
+    k_heads = k_norm_->forward(k_heads);
+
+    auto q_staged = q_heads->view({1, seq_len, num_attention_heads_, head_dim_});
+    auto k_staged = k_heads->view({1, seq_len, num_key_value_heads_, head_dim_});
+    auto v_heads = v->view({1, seq_len, num_key_value_heads_, head_dim_});
+
+    if (valid_len < seq_len) {
+        staging.q_rope->narrow({{1, 0, valid_len}})->copy_from(q_staged->narrow({{1, 0, valid_len}}));
+        staging.k_rope->narrow({{1, 0, valid_len}})->copy_from(k_staged->narrow({{1, 0, valid_len}}));
+        staging.v_rope->narrow({{1, 0, valid_len}})->copy_from(v_heads->narrow({{1, 0, valid_len}}));
+        auto q_tail = staging.q_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        auto k_tail = staging.k_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        auto v_tail = staging.v_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(q_tail);
+        set_zeros(k_tail);
+        set_zeros(v_tail);
+    } else {
+        staging.q_rope->copy_from(q_staged);
+        staging.k_rope->copy_from(k_staged);
+        staging.v_rope->copy_from(v_heads);
+    }
+
+    auto pos_shape = position_ids->shape();
+    infinicore::Tensor pos_ids_for_rope = position_ids;
+    if (pos_shape.size() == 2) {
+        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
+        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
+    } else if (pos_shape.size() == 1) {
+        pos_ids_for_rope = position_ids;
+    } else {
+        throw std::runtime_error("Unexpected position_ids shape");
+    }
+    if (pos_ids_for_rope->size(0) > valid_len) {
+        pos_ids_for_rope = pos_ids_for_rope->narrow({{0, 0, valid_len}});
+    }
+
+    auto q_rope = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    auto k_rope = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
+    rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
+}
+
 } // namespace infinilm::models::qwen3

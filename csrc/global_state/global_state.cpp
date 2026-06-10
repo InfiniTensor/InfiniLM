@@ -1,5 +1,6 @@
 #include "global_state.hpp"
 #include "../utils.hpp"
+#include "infinicore/ops/distributed/allreduce.hpp"
 #include <memory>
 #include <stdexcept>
 
@@ -25,6 +26,23 @@ void initialize_forward_context(ForwardContext &forward_context) {
 
 ForwardContext &get_forward_context() {
     return *_forward_context;
+}
+
+void run_deferred_allreduces(const std::vector<DeferredAllreduce> &ops) {
+    for (const auto &op : ops) {
+        if (op.comm != nullptr && op.tensor) {
+            infinicore::Tensor tensor = op.tensor;
+            if (tensor->is_contiguous()) {
+                infinicore::op::distributed::allreduce_(
+                    tensor, tensor, INFINICCL_SUM, op.comm);
+            } else {
+                auto contiguous = tensor->contiguous();
+                infinicore::op::distributed::allreduce_(
+                    contiguous, contiguous, INFINICCL_SUM, op.comm);
+                tensor->copy_from(contiguous);
+            }
+        }
+    }
 }
 
 } // namespace infinilm::global_state

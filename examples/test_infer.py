@@ -10,6 +10,7 @@ def test(
     max_new_tokens=100,
     device="cpu",
     tp=1,
+    dtype="float16",
     enable_paged_attn=False,
     enable_graph=False,
     top_k=1,
@@ -29,6 +30,7 @@ def test(
     model = LLM(
         model_path=model_path,
         device=device,
+        dtype=dtype,
         tensor_parallel_size=tp,
         cache_type="paged" if enable_paged_attn else "static",
         max_batch_size=len(prompts),
@@ -95,6 +97,7 @@ if __name__ == "__main__":
         max_new_tokens,
         device=device_str,
         tp=tp,
+        dtype=cfg.dtype,
         enable_paged_attn=enable_paged_attn,
         enable_graph=enable_graph,
         top_k=cfg.top_k,

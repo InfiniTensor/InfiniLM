@@ -86,6 +86,20 @@ std::string RankWorker::info() const {
     return ss.str();
 }
 
+bool RankWorker::has_failed() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return should_exit_;
+}
+
+void RankWorker::signal_should_exit() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        should_exit_ = true;
+        job_done_ = true;
+    }
+    cv_.notify_all();
+}
+
 //------------------------------------------------------
 // load_param -- synchronous (blocks until worker finishes loading)
 //------------------------------------------------------
@@ -480,7 +494,16 @@ void RankWorker::thread_loop() {
                             if (!logits && !piecewise_ran) {
                                 auto [graph, output] = compiler_->get_compiled(model_input);
                                 if (graph != nullptr && output != nullptr) {
+                                    if (rank_info_.tp_size > 1) {
+                                        barrier_->wait();
+                                    }
                                     graph->run();
+                                    global_state::run_deferred_allreduces(
+                                        global_state::get_forward_context().post_graph_allreduces);
+                                    global_state::get_forward_context().post_graph_allreduces.clear();
+                                    if (rank_info_.tp_size > 1) {
+                                        barrier_->wait();
+                                    }
                                     logits = output->logits;
                                     if (general_compiler != nullptr) {
                                         general_compiler->record_graph_hit(is_prefill);
@@ -531,7 +554,6 @@ void RankWorker::thread_loop() {
                                 if (sample_rows.size() > 0) {
                                     set_zeros(output_ids);
                                 }
-                                infinicore::context::syncStream();
                                 output_ = Output{output_ids, std::nullopt};
                             } else {
                             auto temperature{local_args.temperature};
@@ -564,14 +586,13 @@ void RankWorker::thread_loop() {
                                 optional_logits = logits->to(infinicore::Device::cpu());
                             }
 
-                            infinicore::context::syncStream();
-
                             auto out{Output{output_ids, optional_logits}};
 
                             output_ = std::move(out);
                             }
                         }
 
+                        infinicore::context::syncStream();
                         job_done_ = true;
                     }
                     cv_.notify_all();

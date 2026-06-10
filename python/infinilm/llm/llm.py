@@ -371,6 +371,24 @@ class LLMEngine:
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
 
+        expected_tokens = sum(
+            1
+            for row in rows
+            if not (row.is_prefill_row and not row.is_final_prefill_chunk)
+            and not row.request.is_aborted()
+        )
+        if len(sampled_tokens) != expected_tokens:
+            req_ids = [
+                row.request.request_id
+                for row in rows
+                if not (row.is_prefill_row and not row.is_final_prefill_chunk)
+                and not row.request.is_aborted()
+            ]
+            raise RuntimeError(
+                f"sampled token count mismatch: got {len(sampled_tokens)} "
+                f"expected {expected_tokens} for request_ids={req_ids}"
+            )
+
         for row in rows:
             req = row.request
             if row.is_prefill_row and not row.is_final_prefill_chunk:
@@ -391,13 +409,10 @@ class LLMEngine:
             try:
                 token_id = next(token_iter)
             except StopIteration:
-                logger.error(
-                    "Missing sampled token for row request=%s prefill=%s final=%s",
-                    req.request_id,
-                    row.is_prefill_row,
-                    row.is_final_prefill_chunk,
-                )
-                continue
+                raise RuntimeError(
+                    f"Missing sampled token for request_id={req.request_id} "
+                    f"prefill={row.is_prefill_row} final={row.is_final_prefill_chunk}"
+                ) from None
 
             if row.is_prefill_row:
                 req.chunk_prefill_offset = 0
@@ -510,17 +525,12 @@ class LLMEngine:
         if is_prefill and prefill_final_indices:
             pending: List[tuple] = []
             if len(sampled_tokens) != len(prefill_final_indices):
-                logger.error(
-                    "prefill token/sample mismatch: n_tokens=%s n_final=%s n_req=%s",
-                    len(sampled_tokens),
-                    len(prefill_final_indices),
-                    len(requests),
+                req_ids = [requests[i].request_id for i in prefill_final_indices]
+                raise RuntimeError(
+                    f"prefill token/sample mismatch: n_tokens={len(sampled_tokens)} "
+                    f"n_final={len(prefill_final_indices)} request_ids={req_ids}"
                 )
-            token_by_idx = (
-                dict(zip(prefill_final_indices, sampled_tokens))
-                if len(sampled_tokens) == len(prefill_final_indices)
-                else {}
-            )
+            token_by_idx = dict(zip(prefill_final_indices, sampled_tokens))
             prefill_final_set = set(prefill_final_indices)
             requests_for_complete: List[InferenceRequest] = []
             for i, req in enumerate(requests):
@@ -547,6 +557,12 @@ class LLMEngine:
             return pending
 
         pending = []
+        if len(sampled_tokens) != len(requests):
+            req_ids = [req.request_id for req in requests]
+            raise RuntimeError(
+                f"decode token/sample mismatch: n_tokens={len(sampled_tokens)} "
+                f"n_req={len(requests)} request_ids={req_ids}"
+            )
         for req, token_id in zip(requests, sampled_tokens):
             pending.extend(self._apply_sampled_token(req, token_id))
 

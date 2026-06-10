@@ -34,6 +34,14 @@ public:
     void forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
                                           global_state::PiecewiseLayerStaging &staging) const;
 
+    /// Piecewise graph segment: O-proj matmul only (allreduce deferred).
+    void forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidden_states,
+                                                global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Piecewise eager segment: O-proj allreduce after graph replay.
+    void forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &hidden_states,
+                                                    global_state::PiecewiseLayerStaging &staging) const;
+
     void process_fused_weights_after_loading() {
         qkv_proj_->process_weights_after_loading();
     }

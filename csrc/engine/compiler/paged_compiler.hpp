@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../global_state/forward_context.hpp"
 #include "graph_compiler.hpp"
 
 #include <unordered_map>
@@ -27,16 +28,19 @@ public:
     void record_graph_miss(bool is_prefill);
     GraphStats graph_stats() const;
 
+    struct CompiledResult {
+        InfinilmModel::Input input;
+        Compiled compiled;
+        std::shared_ptr<std::vector<global_state::DeferredAllreduce>> post_graph_allreduces;
+    };
+
 private:
+    CompiledResult capture_forward_graph_(InfinilmModel::Input input);
+
     std::vector<size_t> decode_batch_sizes_;
     std::vector<size_t> prefill_seq_buckets_{4096};
 
     infinicore::Tensor block_tables_holder_;
-
-    struct CompiledResult {
-        InfinilmModel::Input input;
-        Compiled compiled;
-    };
 
     std::unordered_map<
         size_t, // num_requests

@@ -42,6 +42,9 @@ public:
 
     int get_world_size() const;
 
+    /// Abort all TP communicators (unblocks ranks stuck in NCCL/HCCL collectives).
+    void abort_all();
+
     ~CommunicationGroup();
 
 protected:

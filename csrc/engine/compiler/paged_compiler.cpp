@@ -62,15 +62,7 @@ void PagedCompiler::compile() {
             };
 
             barrier_->wait();
-            infinicore::context::startGraphRecording();
-            auto output = model_->forward(input);
-            auto graph = infinicore::context::stopGraphRecording();
-            barrier_->wait();
-
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
-                new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
-
-            compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
+            compiled_map_decode_[b] = capture_forward_graph_(std::move(input));
         }
 
         // Prefill graphs: one capture per bucket (MVP: 4096 full prefill, batch_size == 1).
@@ -119,18 +111,37 @@ void PagedCompiler::compile() {
             };
 
             barrier_->wait();
-            infinicore::context::startGraphRecording();
-            auto output = model_->forward(input);
-            auto graph = infinicore::context::stopGraphRecording();
-            barrier_->wait();
-
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
-                new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
-
-            compiled_map_prefill_[seq_bucket] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
+            compiled_map_prefill_[seq_bucket] = capture_forward_graph_(std::move(input));
         }
         }
     }
+}
+
+PagedCompiler::CompiledResult PagedCompiler::capture_forward_graph_(InfinilmModel::Input input) {
+    auto &ctx = infinilm::global_state::get_forward_context();
+    ctx.defer_row_parallel_allreduce = true;
+    ctx.deferred_allreduces.clear();
+
+    barrier_->wait();
+    infinicore::context::startGraphRecording();
+    auto output = model_->forward(input);
+    auto graph = infinicore::context::stopGraphRecording();
+    barrier_->wait();
+
+    ctx.defer_row_parallel_allreduce = false;
+    auto post_graph_allreduces = std::make_shared<std::vector<global_state::DeferredAllreduce>>(
+        std::move(ctx.deferred_allreduces));
+    ctx.deferred_allreduces.clear();
+    global_state::run_deferred_allreduces(*post_graph_allreduces);
+
+    auto shared_output = std::shared_ptr<InfinilmModel::Output>(
+        new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
+
+    return CompiledResult{
+        std::move(input),
+        std::make_tuple(graph, shared_output),
+        std::move(post_graph_allreduces),
+    };
 }
 
 void PagedCompiler::record_graph_hit(bool is_prefill) {
@@ -172,18 +183,31 @@ static size_t compute_prefill_len(const InfinilmModel::Input &input) {
 }
 
 PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &input) {
+    auto &forward_ctx = infinilm::global_state::get_forward_context();
+    auto attach_post_graph_allreduces = [&forward_ctx](const CompiledResult &cr) {
+        if (cr.post_graph_allreduces) {
+            forward_ctx.post_graph_allreduces = *cr.post_graph_allreduces;
+        } else {
+            forward_ctx.post_graph_allreduces.clear();
+        }
+    };
+    auto miss = [&forward_ctx]() {
+        forward_ctx.post_graph_allreduces.clear();
+        return Compiled{nullptr, nullptr};
+    };
+
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
         size_t batch_size = input.block_tables.value()->size(0);
         size_t block_per_req = input.block_tables.value()->size(1);
 
         if (batch_size != input.input_ids.value()->size(1)) {
             if (skip_cpp_prefill_graph() || native_piecewise_prefill_enabled()) {
-                return {nullptr, nullptr};
+                return miss();
             }
             const size_t compute_len = compute_prefill_len(input);
             auto result = compiled_map_prefill_.find(compute_len);
             if (result == compiled_map_prefill_.end()) {
-                return {nullptr, nullptr};
+                return miss();
             }
 
             auto &graph_input = result->second.input;
@@ -199,7 +223,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
             const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
             if (block_per_req > compiled_block_per_req) {
-                return {nullptr, nullptr};
+                return miss();
             }
 
             auto &graph_block_tables = graph_input.block_tables.value();
@@ -209,12 +233,13 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
             auto graph = std::get<0>(result->second.compiled);
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            attach_post_graph_allreduces(result->second);
 
             return std::make_tuple(graph, shared_output);
         } else {
             auto result = compiled_map_decode_.find(batch_size);
             if (result == compiled_map_decode_.end()) {
-                return {nullptr, nullptr};
+                return miss();
             }
             auto &graph_input = result->second.input;
 
@@ -227,7 +252,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
             if (block_per_req > compiled_block_per_req) {
                 // Runtime width exceeds compiled graph slot; fall back to eager path.
-                return {nullptr, nullptr};
+                return miss();
             }
 
             // Initialize full padding to -1, then overwrite the narrowed logical region.
@@ -239,11 +264,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
             auto graph = std::get<0>(result->second.compiled);
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            attach_post_graph_allreduces(result->second);
 
             return std::make_tuple(graph, shared_output);
         }
     } else {
-        return {nullptr, nullptr};
+        return miss();
     }
 }
 

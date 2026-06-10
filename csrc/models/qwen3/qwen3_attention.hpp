@@ -1,9 +1,11 @@
 #pragma once
 
-#include "../../layers/common_modules.hpp"
+#include "../../layers/attention/attention.hpp"
+#include "infinicore/nn/rmsnorm.hpp"
 
 namespace infinilm::models::qwen3 {
-class Qwen3Attention : public infinicore::nn::Module {
+
+class Qwen3Attention : public infinilm::layers::attention::Attention {
 public:
     Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    size_t layer_idx,
@@ -12,11 +14,19 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
 
-    size_t layer_idx() const { return layer_idx_; }
-    size_t num_heads() const { return num_attention_heads_; }
-    size_t num_kv_heads() const { return num_key_value_heads_; }
-    size_t head_dim() const { return head_dim_; }
-    size_t hidden_size() const { return hidden_size_; }
+    void forward_pre_attn_piecewise(const infinicore::Tensor &positions,
+                                    const infinicore::Tensor &hidden_states,
+                                    global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_eager_attn_piecewise(const infinicore::Tensor &positions,
+                                      global_state::PiecewiseLayerStaging &staging) const {
+        Attention::forward_eager_attn_piecewise(positions, staging);
+    }
+
+    void forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
+                                          global_state::PiecewiseLayerStaging &staging) const {
+        Attention::forward_post_attn_piecewise_into(hidden_states, staging);
+    }
 
 private:
     infinicore::Tensor forward_static_(const infinicore::Tensor &positions,
@@ -25,23 +35,8 @@ private:
     infinicore::Tensor forward_paged_(const infinicore::Tensor &positions,
                                       const infinicore::Tensor &hidden_states) const;
 
-protected:
-    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
-    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
-
-    std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
-    ::infinilm::backends::AttentionBackend attention_backend_;
-    size_t layer_idx_;
-    size_t num_attention_heads_;
-    size_t num_key_value_heads_;
-    size_t hidden_size_;
-    size_t head_dim_;
-
-    // For off-line kv cache quantization
-    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
-    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 };
+
 } // namespace infinilm::models::qwen3

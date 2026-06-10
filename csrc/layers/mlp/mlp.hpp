@@ -35,6 +35,8 @@ public:
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinicore::Tensor forward_matmul_only(const infinicore::Tensor &hidden_states) const;
+    void allreduce_output(infinicore::Tensor &output) const;
 
     void process_fused_weights_after_loading() {
         gate_up_proj_->process_weights_after_loading();

@@ -2,7 +2,71 @@
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
 
+#include <chrono>
+#include <future>
+#include <vector>
+
 namespace infinilm::engine {
+
+namespace {
+
+void wait_all_workers(
+    std::vector<std::unique_ptr<RankWorker>> &workers,
+    distributed::CommunicationGroup &comm_group,
+    const char *op_name) {
+    std::vector<std::future<void>> waits;
+    waits.reserve(workers.size());
+    for (size_t i = 0; i < workers.size(); ++i) {
+        waits.push_back(std::async(std::launch::async, [&workers, i]() {
+            workers[i]->wait();
+        }));
+    }
+
+    int failed_rank = -1;
+    std::string failed_msg;
+    std::vector<bool> finished(workers.size(), false);
+    size_t completed = 0;
+
+    while (completed < workers.size()) {
+        for (size_t i = 0; i < workers.size(); ++i) {
+            if (finished[i]) {
+                continue;
+            }
+            if (waits[i].wait_for(std::chrono::milliseconds(10)) != std::future_status::ready) {
+                continue;
+            }
+            finished[i] = true;
+            ++completed;
+            try {
+                waits[i].get();
+            } catch (const std::exception &e) {
+                if (failed_rank < 0) {
+                    failed_rank = static_cast<int>(i);
+                    failed_msg = e.what();
+                    spdlog::error(
+                        "InferEngine {}: rank {} ({}) failed: {}",
+                        op_name,
+                        i,
+                        workers[i]->info(),
+                        e.what());
+                    comm_group.abort_all();
+                    for (auto &worker : workers) {
+                        worker->signal_should_exit();
+                    }
+                }
+            }
+        }
+    }
+
+    if (failed_rank >= 0) {
+        throw std::runtime_error(
+            std::string("InferEngine ") + op_name + " failed on tp_rank " +
+            std::to_string(failed_rank) + " (" + workers[failed_rank]->info() +
+            "): " + failed_msg);
+    }
+}
+
+} // namespace
 
 //------------------------------------------------------
 // Constructor
@@ -121,11 +185,7 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     for (auto &worker : workers_) {
         worker->run(input);
     }
-    // Wait for all workers
-    for (auto &worker : workers_) {
-        worker->wait();
-    }
-
+    wait_all_workers(workers_, communication_group_, "forward");
     return workers_[0]->get_output();
 }
 
@@ -133,10 +193,7 @@ void InferEngine::compile() {
     for (auto &worker : workers_) {
         worker->compile();
     }
-    // Wait for all workers
-    for (auto &worker : workers_) {
-        worker->wait();
-    }
+    wait_all_workers(workers_, communication_group_, "compile");
 }
 
 //------------------------------------------------------
@@ -160,9 +217,7 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     for (auto &worker : workers_) {
         worker->reset_cache(new_config);
     }
-    for (auto &worker : workers_) {
-        worker->wait();
-    }
+    wait_all_workers(workers_, communication_group_, "reset_cache");
     cache_config_ = new_config->unique_copy();
     this->compile();
 }

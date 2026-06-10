@@ -138,6 +138,10 @@ void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_id
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
+    if (pos_ids_for_rope->size(0) > valid_len) {
+        pos_ids_for_rope = pos_ids_for_rope->narrow({{0, 0, valid_len}});
+    }
+
     auto q_rope = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
     auto k_rope = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
     rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
@@ -166,18 +170,36 @@ void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
 
 void Attention::forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
                                                global_state::PiecewiseLayerStaging &staging) const {
+    forward_post_attn_piecewise_graph_into(hidden_states, staging);
+    forward_post_attn_piecewise_allreduce_into(hidden_states, staging);
+}
+
+void Attention::forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidden_states,
+                                                       global_state::PiecewiseLayerStaging &staging) const {
     auto &piecewise = global_state::get_forward_context().piecewise;
     const size_t seq_len = staging.attn_output->size(1);
     const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
 
     auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
     auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
-    auto projected = o_proj_->forward(attn_for_proj);
+    auto projected = o_proj_->forward_matmul_only(attn_for_proj);
     hidden_narrow->copy_from(projected);
     if (valid_len < seq_len) {
         auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
         set_zeros(hidden_tail);
     }
+}
+
+void Attention::forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &hidden_states,
+                                                           global_state::PiecewiseLayerStaging &staging) const {
+    if (!o_proj_->needs_allreduce()) {
+        return;
+    }
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.attn_output->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+    auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+    o_proj_->allreduce_output(hidden_narrow);
 }
 
 infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_ids,

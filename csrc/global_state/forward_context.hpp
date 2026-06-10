@@ -2,8 +2,17 @@
 
 #include "../models/infinilm_model.hpp"
 #include "piecewise_prefill_state.hpp"
+#include "infinicore/tensor.hpp"
+#include <infiniccl.h>
+#include <vector>
 
 namespace infinilm::global_state {
+
+/// Row-parallel allreduce deferred outside a captured CUDA graph (same tensor addrs at replay).
+struct DeferredAllreduce {
+    infinicore::Tensor tensor;
+    infinicclComm_t comm{nullptr};
+};
 
 struct AttentionMetadata {
     /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
@@ -45,7 +54,14 @@ struct ForwardContext {
     AttentionMetadata attn_metadata;
     std::vector<infinicore::Tensor> kv_cache_vec;
     PiecewisePrefillState piecewise;
+    /// When true, RowParallelLinear::forward records matmul only and queues allreduce here.
+    bool defer_row_parallel_allreduce{false};
+    std::vector<DeferredAllreduce> deferred_allreduces;
+    /// Allreduces to run after monolithic graph replay (set by PagedCompiler::get_compiled).
+    std::vector<DeferredAllreduce> post_graph_allreduces;
 };
+
+void run_deferred_allreduces(const std::vector<DeferredAllreduce> &ops);
 
 void initialize_forward_context(ForwardContext &forward_context);
 

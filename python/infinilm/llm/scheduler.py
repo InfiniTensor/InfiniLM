@@ -657,13 +657,17 @@ class Scheduler:
         running_queue_size = self.running_queue.sync_q.qsize()
         for _ in range(running_queue_size):
             req = self.running_queue.sync_q.get()
-            remaining_tokens = (
-                req.sampling_params.max_tokens - req.get_num_generated_tokens()
-            )
-            num_blocks_needed = (
-                remaining_tokens + self.block_size - 1
+            if req.block_table:
+                blocks_for_req = len(req.block_table)
+            else:
+                blocks_for_req = req.get_num_blocks_required(self.block_size)
+            total_at_completion = (
+                req.get_prompt_length()
+                + req.sampling_params.max_tokens
+                + self.block_size
+                - 1
             ) // self.block_size
-            total_required_blocks += num_blocks_needed
+            total_required_blocks += max(blocks_for_req, total_at_completion)
             self.running_queue.sync_q.put(req)
 
         total_length = request.get_prompt_length()
