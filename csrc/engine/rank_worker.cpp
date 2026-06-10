@@ -24,6 +24,17 @@ bool rank_worker_profile_enabled() {
     return cached == 1;
 }
 
+/// Skip redundant pre-graph RankBarrier on decode replay (default on).
+/// Opt out for bisect: INFINI_DECODE_KEEP_PRE_BARRIER=1
+bool decode_skip_pre_barrier() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *raw = std::getenv("INFINI_DECODE_KEEP_PRE_BARRIER");
+        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 0 : 1;
+    }
+    return cached == 1;
+}
+
 double monotonic_ms() {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
@@ -496,12 +507,16 @@ void RankWorker::thread_loop() {
                                 auto [graph, output] = compiler_->get_compiled(model_input);
                                 if (graph != nullptr && output != nullptr) {
                                     const bool ar_profile = global_state::ar_profile::enabled();
+                                    const size_t graph_batch_size =
+                                        model_input.block_tables.has_value()
+                                            ? model_input.block_tables.value()->size(0)
+                                            : 0;
                                     const size_t n_ar =
                                         global_state::get_forward_context().post_graph_allreduces.size();
                                     double pre_barrier_ms = 0.0;
                                     double graph_run_ms = 0.0;
                                     double post_sync_ms = 0.0;
-                                    if (rank_info_.tp_size > 1) {
+                                    if (rank_info_.tp_size > 1 && !decode_skip_pre_barrier()) {
                                         const double t_barrier0 = ar_profile ? monotonic_ms() : 0.0;
                                         barrier_->wait();
                                         if (ar_profile) {
@@ -530,9 +545,10 @@ void RankWorker::thread_loop() {
                                         global_state::ar_profile::counters().decode_graph_steps++;
                                         const auto &c = global_state::ar_profile::counters();
                                         spdlog::info(
-                                            "ar_profile: decode_graph n_ar={} pre_barrier_ms={:.3f} "
+                                            "ar_profile: decode_graph batch_size={} n_ar={} pre_barrier_ms={:.3f} "
                                             "graph_run_ms={:.3f} post_sync_ms={:.3f} "
                                             "cumulative_decode_steps={}",
+                                            graph_batch_size,
                                             n_ar,
                                             pre_barrier_ms,
                                             graph_run_ms,

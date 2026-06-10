@@ -23,6 +23,7 @@ public:
         infinicore::Tensor logits_holder;
         infinicore::Tensor hidden_states;
         infinicore::Tensor residual;
+        infinicore::Tensor ar_staging;
         std::vector<global_state::PiecewiseLayerStaging> layer_staging;
     };
 

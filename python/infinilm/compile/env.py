@@ -2,9 +2,12 @@
 """Environment flags for hybrid compiled prefill (Phases 3–6).
 
 Classification (for PR review):
-  PROD — master switches + ladder driver:
+  PROD — master switches + ladder driver (see docs/INFINI_FLAGS.md):
+    ``prefill_native_cg_enabled``, ``prefill_chunked_enabled``, ``prefill_chunk_size``,
     ``prefill_compile_enabled``, ``prefill_share_weights_enabled``, ``prefill_cudagraph_enabled``,
     ``compile_max_seq_len``, ``compile_buckets`` / ``compile_warmup_seq_lens``.
+  C++ code defaults (no env): decode pre-barrier skip, piecewise post-AR barrier trim
+    (opt-out: INFINI_DECODE_KEEP_PRE_BARRIER, INFINI_PIECEWISE_KEEP_BARRIERS).
   DEBUG — diagnostics / smoke baselines only:
     ``prefill_cg_debug_ptrs_enabled``, ``prefill_cg_baseline_none``,
     ``return_logits_enabled``, ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``).
@@ -99,7 +102,7 @@ def return_logits_enabled() -> bool:
     return _truthy("INFINI_RETURN_LOGITS", "0")
 
 
-def compile_max_seq_len(default: int = 8448) -> int:
+def compile_max_seq_len(default: int = 8192) -> int:
     raw = os.environ.get("INFINI_COMPILE_MAX_SEQ")
     return int(raw) if raw else default
 

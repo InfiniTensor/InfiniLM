@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../global_state/ar_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../global_state/piecewise_prefill_state.hpp"
 #include "infinicore/device.hpp"
@@ -100,8 +101,11 @@ public:
         auto &piecewise = global_state::get_forward_context().piecewise;
         const size_t bucket = hidden_states->size(1);
         const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
-        auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
-        mlp_->allreduce_output(hidden_narrow);
+        global_state::ar_profile::allreduce_hidden_valid_contiguous(
+            hidden_states,
+            valid_len,
+            piecewise.ar_staging,
+            [&](infinicore::Tensor &t) { mlp_->allreduce_output(t); });
     }
 
 protected:

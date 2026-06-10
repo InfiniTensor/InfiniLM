@@ -25,6 +25,17 @@ bool rank_worker_profile_enabled() {
     return cached == 1;
 }
 
+/// Trim redundant post-allreduce barrier (next layer's pre-graph barrier subsumes it).
+/// Default on; opt out for bisect: INFINI_PIECEWISE_KEEP_BARRIERS=1
+bool piecewise_trim_barriers() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *raw = std::getenv("INFINI_PIECEWISE_KEEP_BARRIERS");
+        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 0 : 1;
+    }
+    return cached == 1;
+}
+
 double monotonic_ms() {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
@@ -99,6 +110,9 @@ void clear_stale_bucket_tails_(global_state::PiecewisePrefillState &piecewise,
         zero_tensor_tail_seq_(staging.v_rope, valid_seq_len, bucket);
         zero_tensor_tail_seq_(staging.attn_output, valid_seq_len, bucket);
     }
+    if (piecewise.ar_staging) {
+        zero_tensor_tail_seq_(piecewise.ar_staging, valid_seq_len, bucket);
+    }
     if (logits_holder) {
         zero_tensor_tail_seq_(logits_holder, valid_seq_len, bucket);
     }
@@ -161,6 +175,7 @@ void PiecewisePrefillCompiler::allocate_layer_staging_(size_t bucket, size_t num
     }
     piecewise.hidden_states = infinicore::Tensor::empty({1, bucket, hidden}, dtype, device);
     piecewise.residual = infinicore::Tensor::empty({1, bucket, hidden}, dtype, device);
+    piecewise.ar_staging = infinicore::Tensor::empty({1, bucket, hidden}, dtype, device);
 }
 
 InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket, size_t nblocks, size_t n_req) const {
@@ -313,6 +328,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
     piecewise.phase = global_state::PiecewiseCapturePhase::None;
     graphs.hidden_states = piecewise.hidden_states;
     graphs.residual = piecewise.residual;
+    graphs.ar_staging = piecewise.ar_staging;
     graphs.layer_staging = piecewise.layer_staging;
     compiled_[bucket] = std::move(graphs);
     spdlog::info("native piecewise CG: captured bucket={} layers={} segments={}",
@@ -471,6 +487,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     piecewise.bucket_seq_len = padded;
     piecewise.hidden_states = bucket_graphs.hidden_states;
     piecewise.residual = bucket_graphs.residual;
+    piecewise.ar_staging = bucket_graphs.ar_staging;
     piecewise.layer_staging = bucket_graphs.layer_staging;
 
     // Fresh residual each replay (matches capture warmup); hidden prefix comes from embed.
@@ -499,7 +516,9 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         barrier_->wait();
         model_->native_piecewise_post_attn_allreduce_layer(
             layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
-        barrier_->wait();
+        if (!piecewise_trim_barriers()) {
+            barrier_->wait();
+        }
         if (profile) {
             spdlog::info(
                 "rank_worker_profile: piecewise layer={} pre_attn_ms={:.3f} eager_attn_ms={:.3f} "

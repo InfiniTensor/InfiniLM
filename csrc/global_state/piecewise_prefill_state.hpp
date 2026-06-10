@@ -32,6 +32,8 @@ struct PiecewisePrefillState {
     size_t bucket_seq_len{0};
     infinicore::Tensor hidden_states;
     infinicore::Tensor residual;
+    /// Shared contiguous buffer for sequential per-layer allreduce (one buffer per bucket).
+    infinicore::Tensor ar_staging;
     std::vector<PiecewiseLayerStaging> layer_staging;
 };
 

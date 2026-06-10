@@ -4,6 +4,7 @@
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
 #include <optional>
+#include <spdlog/spdlog.h>
 
 namespace infinilm::nn {
 
@@ -92,6 +93,11 @@ infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
     if (needs_allreduce()) {
         auto &ctx = infinilm::global_state::get_forward_context();
         if (ctx.defer_row_parallel_allreduce) {
+            if (infinilm::global_state::ar_profile::enabled() && !output->is_contiguous()) {
+                spdlog::warn(
+                    "ar_profile: decode deferred AR tensor non-contiguous nbytes={}",
+                    output->nbytes());
+            }
             ctx.deferred_allreduces.push_back({output, communicator_});
         } else {
             allreduce_output(output);

@@ -44,6 +44,29 @@ inline double monotonic_ms() {
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
 }
 
+/// Allreduce hidden_states[1,bucket,H] for the first valid_len tokens via contiguous staging.
+template <typename AllreduceFn>
+inline void allreduce_hidden_valid_contiguous(infinicore::Tensor &hidden_states,
+                                              size_t valid_len,
+                                              infinicore::Tensor &ar_staging,
+                                              AllreduceFn &&allreduce_fn) {
+    if (valid_len == 0) {
+        return;
+    }
+    const size_t bucket = hidden_states->size(1);
+    const size_t hidden_size = hidden_states->size(2);
+    if (valid_len == bucket && hidden_states->is_contiguous()) {
+        allreduce_fn(hidden_states);
+        return;
+    }
+    auto staging_rows = ar_staging->view({bucket, hidden_size})->narrow({{0, 0, valid_len}});
+    auto src_rows = hidden_states->view({bucket, hidden_size})->narrow({{0, 0, valid_len}});
+    staging_rows->copy_from(src_rows);
+    auto ar_view = staging_rows->view({1, valid_len, hidden_size});
+    allreduce_fn(ar_view);
+    src_rows->copy_from(staging_rows);
+}
+
 inline void allreduce_tensor(infinicore::Tensor tensor, infinicclComm_t comm) {
     const bool profile = enabled();
     const double t0 = profile ? monotonic_ms() : 0.0;

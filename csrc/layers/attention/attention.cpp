@@ -1,4 +1,5 @@
 #include "attention.hpp"
+#include "../../global_state/ar_profile.hpp"
 #include "../../utils.hpp"
 #include "../rotary_embedding/rotary_embedding.hpp"
 
@@ -198,8 +199,11 @@ void Attention::forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &h
     auto &piecewise = global_state::get_forward_context().piecewise;
     const size_t seq_len = staging.attn_output->size(1);
     const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
-    auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
-    o_proj_->allreduce_output(hidden_narrow);
+    global_state::ar_profile::allreduce_hidden_valid_contiguous(
+        hidden_states,
+        valid_len,
+        piecewise.ar_staging,
+        [&](infinicore::Tensor &t) { o_proj_->allreduce_output(t); });
 }
 
 infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_ids,
