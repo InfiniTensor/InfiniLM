@@ -53,21 +53,24 @@ infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
 }
 
 infinicore::Tensor MLP::_forward_with_inference_buffer(const infinicore::Tensor &hidden_states) const {
+
+    auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
+
     const auto shape = hidden_states->shape();
     const size_t bs = shape[0];
     const size_t seq_len = shape[1];
 
-    // 1. Project to gate and up
     auto hidden_states_mutable = hidden_states;
-    auto gate_up_output = max_gate_up_output_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, rank_gate_up_output_size_});
+    // 1. Project to gate and up
+    auto gate_up_output = workspace_manager.get_buffer("MLP_gate_up_output", {bs, seq_len, rank_gate_up_output_size_}, dtype_, device_);
     auto [gate, up] = gate_up_proj_->forward_split_(gate_up_output, hidden_states_mutable);
 
     // 2. Apply SwiGLU: silu(gate) * up
-    auto intermediate = max_intermediate_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, rank_intermediate_size_});
+    auto intermediate = workspace_manager.get_buffer("MLP_intermediate", {bs, seq_len, rank_intermediate_size_}, dtype_, device_);
     infinicore::op::swiglu_(intermediate, up, gate);
 
     // 3. Project down
-    auto down_output = max_down_output_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, hidden_size_});
+    auto down_output = workspace_manager.get_buffer("MLP_down_output", {bs, seq_len, hidden_size_}, dtype_, device_);
     down_proj_->forward_(down_output, intermediate);
     return down_output;
 }
@@ -87,7 +90,7 @@ void MLP::_register_inference_buffer() {
                                     + infinicore::toString(dtype_) + "_device_"
                                     + device_.toString();
 
-    auto align_up = [](size_t n, size_t alignment = 256) {
+    auto align_up = [](size_t n, size_t alignment = 512) {
         return (n + alignment - 1) & ~(alignment - 1);
     };
 
@@ -100,21 +103,7 @@ void MLP::_register_inference_buffer() {
         mlp_cache_key,
         mlp_buffer_shape,
         dtype_,
-        device_,
-        [this, max_num_batched_tokens, rank_gate_up_output_size_aligned, rank_intermediate_size_aligned,
-         max_output_size](const infinicore::Tensor &mlp_buffer) {
-            const auto buffer_shape = mlp_buffer->shape();
-            ASSERT(buffer_shape[0] == max_num_batched_tokens * max_output_size);
-
-            max_gate_up_output_ = mlp_buffer->narrow({{0, 0, max_num_batched_tokens * rank_gate_up_output_size_}})
-                                      ->view({max_num_batched_tokens, rank_gate_up_output_size_});
-            max_intermediate_ = mlp_buffer->narrow({{0, max_num_batched_tokens * rank_gate_up_output_size_aligned,
-                                                     max_num_batched_tokens * rank_intermediate_size_}})
-                                    ->view({max_num_batched_tokens, rank_intermediate_size_});
-            max_down_output_ = mlp_buffer->narrow({{0, max_num_batched_tokens * rank_intermediate_size_aligned,
-                                                    max_num_batched_tokens * hidden_size_}})
-                                   ->view({max_num_batched_tokens, hidden_size_});
-        });
+        device_);
 }
 
 } // namespace infinilm::layers::mlp

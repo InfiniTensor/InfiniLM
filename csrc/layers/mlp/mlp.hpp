@@ -63,10 +63,6 @@ private:
     bool enable_workspace_manager_{false};
     size_t rank_gate_up_output_size_{0};
     size_t rank_intermediate_size_{0};
-
-    infinicore::Tensor max_gate_up_output_; // inference buffer for MLP
-    infinicore::Tensor max_intermediate_;
-    infinicore::Tensor max_down_output_;
 };
 
 } // namespace infinilm::layers::mlp
