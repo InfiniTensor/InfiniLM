@@ -5,12 +5,6 @@ on:
     branches: ["main"]
     types: [opened, reopened]   # 只在 PR 创建/重新打开时自动跑
   workflow_dispatch:            # 支持在 Actions 页手动重跑
-    inputs:
-      ref:
-        description: "Branch or tag to run CI on"
-        required: false
-        default: "main"
-        type: string
 
 jobs:
   ci:
