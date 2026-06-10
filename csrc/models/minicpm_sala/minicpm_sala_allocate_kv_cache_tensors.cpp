@@ -8,8 +8,8 @@
 namespace infinilm::models::minicpm_sala {
 
 std::vector<infinicore::Tensor> minicpm_sala_allocate_kv_cache_tensors(const cache::CacheConfig *cache_config,
-                                                                                                       const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
-                                                                                                       const backends::AttentionBackend &attention_backend) {
+                                                                       const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
+                                                                       const backends::AttentionBackend &attention_backend) {
     if (nullptr == cache_config) {
         return {};
     }
@@ -58,6 +58,7 @@ std::vector<infinicore::Tensor> minicpm_sala_allocate_kv_cache_tensors(const cac
         }
         break;
     }
+    case backends::AttentionBackend::HYBRID_ATTN:
     case backends::AttentionBackend::PAGED_ATTN: {
         auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (nullptr == paged_kv_cache_config) {

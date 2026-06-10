@@ -76,10 +76,19 @@ class EngineConfig:
     skip_load: bool = False
 
 
+def _normalize_cache_type(attn_backend: str, cache_type: str) -> str:
+    if attn_backend == "hybrid-attn":
+        return "paged"
+    return cache_type
+
+
 class LLMEngine:
     """Low-level LLM engine that handles inference execution."""
 
     def __init__(self, config: EngineConfig):
+        config.cache_type = _normalize_cache_type(
+            config.attn_backend, config.cache_type
+        )
         self.config = config
 
         # Initialize device and dtype
@@ -709,13 +718,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert messages is not None, (
-                "Either messages or prompt/prompt_token_ids must be provided"
-            )
+            assert (
+                messages is not None
+            ), "Either messages or prompt/prompt_token_ids must be provided"
 
-            assert apply_chat_template, (
-                "apply_chat_template needs to be true for multi-role conversation"
-            )
+            assert (
+                apply_chat_template
+            ), "apply_chat_template needs to be true for multi-role conversation"
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt
