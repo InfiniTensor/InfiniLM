@@ -56,7 +56,11 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
 
             auto graph = std::get<0>(result->second.compiled);
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            // Reuse the GraphTensor output captured at compile time.
+            // Do not call resume_from_blob_() on workspace-backed logits:
+            // that registers a second deleter on the same GPU block and
+            // triggers double free in PinnableBlockAllocator.
+            auto shared_output = std::get<1>(result->second.compiled);
             return std::make_tuple(graph, shared_output);
         }
     } else {

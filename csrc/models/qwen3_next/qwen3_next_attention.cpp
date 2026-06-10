@@ -49,7 +49,7 @@ Qwen3NextAttention::Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelCo
 
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
-                                                                          kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
+                                                                          kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_, device);
 
     INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);

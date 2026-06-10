@@ -1,5 +1,6 @@
 #include "../../engine/infer_engine.hpp"
 #include "infinicore/tensor.hpp"
+#include <cassert>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -39,7 +40,8 @@ inline void bind_infer_engine(py::module &m) {
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
                           bool enable_graph_compiling,
                           const std::string &attention_backend,
-                          std::optional<infinicore::DataType> kv_cache_dtype) {
+                          std::optional<infinicore::DataType> kv_cache_dtype,
+                          size_t max_num_batched_tokens) {
                  return std::make_shared<InferEngine>(
                      model_path,
                      dist,
@@ -47,7 +49,8 @@ inline void bind_infer_engine(py::module &m) {
                      cache_cfg ? cache_cfg.get() : nullptr,
                      enable_graph_compiling,
                      infinilm::backends::parse_attention_backend(attention_backend),
-                     kv_cache_dtype);
+                     kv_cache_dtype,
+                     max_num_batched_tokens);
              }),
              py::arg("model_path") = "",
              py::arg("distributed_config") = distributed::DistConfig(),
@@ -55,7 +58,8 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("cache_config") = py::none(),
              py::arg("enable_graph_compiling") = false,
              py::arg("attention_backend") = "default",
-             py::arg("kv_cache_dtype") = py::none())
+             py::arg("kv_cache_dtype") = py::none(),
+             py::arg("max_num_batched_tokens") = 2048)
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")
@@ -76,6 +80,10 @@ inline void bind_infer_engine(py::module &m) {
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
         .def(
             "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
+                // IMPORTANT: Release the GIL before calling forward() to allow other Python threads
+                // to run concurrently during inference (which may block for a long time).
+                // Do NOT remove this — without it, the GIL is held throughout inference and will
+                // deadlock or stall any other Python thread (e.g., request handling, scheduling).
                 py::gil_scoped_release release;
                 return self.forward(input);
             },
@@ -83,8 +91,8 @@ inline void bind_infer_engine(py::module &m) {
         .def(
             "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
-            auto cfg = self.get_cache_config();
-            return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
+        auto cfg = self.get_cache_config();
+        return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
 
     py::class_<InferEngine::Input>(infer_engine, "Input")

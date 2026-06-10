@@ -16,7 +16,8 @@ public:
                        size_t head_size,
                        float scale,
                        size_t num_kv_heads,
-                       size_t layer_idx);
+                       size_t layer_idx,
+                       const infinicore::Device &device);
 
     /**
      * @brief Forward pass with FlashAttention.
@@ -43,6 +44,9 @@ public:
                                                                           const infinicore::Tensor slot_mapping) const;
 
 private:
+    void _register_inference_buffer();
+    bool enable_workspace_manager_{false};
+
     size_t num_heads_;
     size_t head_size_;
     float scale_;
@@ -50,5 +54,8 @@ private:
     size_t layer_idx_;
     size_t head_dim_; // Note: head_dim equals to head_size
     size_t max_position_embeddings_;
+    infinicore::Device device_;
+    infinicore::DataType dtype_;
 };
+
 } // namespace infinilm::layers::attention::backends

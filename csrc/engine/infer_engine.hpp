@@ -28,7 +28,8 @@ public:
         const cache::CacheConfig *cache_config = nullptr,
         bool enable_graph_compiling = false,
         backends::AttentionBackend attention_backend = backends::AttentionBackend::Default,
-        std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt);
+        std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt,
+        size_t max_num_batched_tokens = 2048);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);

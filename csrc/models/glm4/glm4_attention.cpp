@@ -57,7 +57,7 @@ Glm4Attention::Glm4Attention(std::shared_ptr<infinilm::config::ModelConfig> mode
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
         num_attention_heads_, head_dim_, scaling_,
         num_key_value_heads_, layer_idx_,
-        kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
+        kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_, device);
 
     // KV Cache quantization scale initialization
     infinilm::layers::attention::init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);

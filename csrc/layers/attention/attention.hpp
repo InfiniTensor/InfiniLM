@@ -37,6 +37,8 @@ private:
     infinicore::Tensor forward_paged_(const infinicore::Tensor &positions,
                                       const infinicore::Tensor &hidden_states) const;
 
+    void _register_inference_buffer();
+
 protected:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
@@ -49,13 +51,19 @@ protected:
     size_t num_key_value_heads_;
     size_t hidden_size_;
     size_t head_dim_;
+    infinicore::Device device_;
+    infinicore::DataType dtype_;
 
     // For off-line kv cache quantization
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+
+private:
+    bool enable_workspace_manager_{false};
+    size_t rank_qkv_output_size_{0};
 };
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
-                              const infinicore::Device &device,
-                              infinicore::nn::Parameter &kv_cache_k_scale,
-                              infinicore::nn::Parameter &kv_cache_v_scale);
+                                const infinicore::Device &device,
+                                infinicore::nn::Parameter &kv_cache_k_scale,
+                                infinicore::nn::Parameter &kv_cache_v_scale);
 } // namespace infinilm::layers::attention

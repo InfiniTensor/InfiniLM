@@ -3,6 +3,7 @@
 #include "../../config/model_config.hpp"
 #include "../linear/linear.hpp"
 #include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
 
 namespace infinilm::layers::mlp {
 
@@ -51,6 +52,17 @@ protected:
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
+    infinicore::Device device_;
+    infinicore::DataType dtype_;
+
+private:
+    infinicore::Tensor _forward_with_inference_buffer(const infinicore::Tensor &hidden_states) const;
+
+    void _register_inference_buffer();
+
+    bool enable_workspace_manager_{false};
+    size_t rank_gate_up_output_size_{0};
+    size_t rank_intermediate_size_{0};
 };
 
 } // namespace infinilm::layers::mlp

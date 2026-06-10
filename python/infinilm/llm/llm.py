@@ -6,6 +6,7 @@ This module provides:
 - AsyncLLM class for asynchronous streaming (server use)
 """
 
+import os
 import asyncio
 import time
 import uuid
@@ -74,6 +75,7 @@ class EngineConfig:
     enable_graph: bool = False
     attn_backend: str = "default"
     skip_load: bool = False
+    max_num_batched_tokens: int | None = None
 
 
 class LLMEngine:
@@ -92,7 +94,9 @@ class LLMEngine:
             distributed_config=DistConfig(config.tensor_parallel_size),
             enable_graph_compiling=config.enable_graph,
             attention_backend=config.attn_backend,
+            max_num_batched_tokens=config.max_num_batched_tokens,
         )
+        self.max_num_batched_tokens = self.model_engine.max_num_batched_tokens
 
         # Load model weights
         if not self.config.skip_load:
@@ -121,6 +125,7 @@ class LLMEngine:
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
+                max_num_batched_tokens=self.max_num_batched_tokens,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
         else:
