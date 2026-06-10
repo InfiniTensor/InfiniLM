@@ -1,0 +1,15 @@
+name: CI
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, reopened]   # 只在 PR 创建/重新打开时自动跑
+  workflow_dispatch:            # 支持在 Actions 页手动重跑
+
+jobs:
+  ci:
+    uses: InfiniTensor/ci/.github/workflows/infinilm-ci.yml@infiniCore_ci
+    with:
+      config_path: .github/ci_config.yaml
+      ci_ref: infiniCore_ci
+    secrets: inherit

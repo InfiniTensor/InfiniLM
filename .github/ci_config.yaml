@@ -1,0 +1,355 @@
+repo:
+  url: https://github.com/Vincent777/InfiniLM.git
+  branch: main
+
+github:
+  status_context_prefix: "ci/infinilm"
+
+platforms:
+  nvidia:
+    image:
+      dockerfile: images/nvidia/
+      build_args:
+        BASE_IMAGE: nvcr.io/nvidia/pytorch:25.12-py3
+        CUDA_ARCH: sm_80,sm_86,sm_89,sm_90
+        APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+        InfiniCore_BRANCH: main
+    docker_args:
+      - "--user=root"
+      - "--network=host"
+      - "--privileged"
+      - "--cap-add=ALL"
+      - "--pid=host"
+      - "--ipc=host"
+      - "--workdir=/workspace"
+    volumes:
+      - /data:/data
+      - /data-aisoft:/data-aisoft
+      - /data-aisoft/artifacts/CI_nvidia_test/__WORKSPACE__:/artifacts
+    setup: pip install .[dev] --no-build-isolation
+    jobs:
+      gpu_inferencetest:
+        type: inferencetest
+        resources:
+          ngpus: [1, 4]
+          gpu_style: nvidia
+          shm_size: 64g
+          timeout: 3600
+        stages:
+          - name: test
+            run: python InfiniLM/examples/test_infer.py --device nvidia --model=/data-aisoft/mechdancer/models/9g_8b_thinking/
+      gpu_benchtest:
+        type: benchtest
+        resources:
+          gpu_style: nvidia
+          shm_size: 64g
+          timeout: 3600
+        env:
+          TEST_PARAM: ['default', '--enable-paged-attn', '--enable-paged-attn --enable-graph', '--enable-paged-attn --enable-graph --attn=flash-attn']
+        stages:
+          - name: test
+            run: python InfiniLM/examples/bench.py --device nvidia --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --input-len=256,1024 --output-len=256,1024 --batch-size=8 <TEST_PARAM>
+      gpu_accuracytest:
+        type: accuracytest
+        resources:
+          gpu_style: nvidia
+          shm_size: 64g
+          timeout: 3600
+        env:
+          TEST_PARAM: ['--bench mmlu', '--bench ceval --enable-paged-attn --enable-graph']
+        stages:
+          - name: test
+            run: python InfiniLM/test/bench/test_benchmark.py --device nvidia --model /data-aisoft/mechdancer/models/9g_8b_thinking/ --bench mmlu --backend cpp --max-new-tokens 5 --cache-dir /data-aisoft/pepe/datasets/ --split=val <TEST_PARAM>
+      gpu_servicetest:
+        type: servicetest
+        resources:
+          shm_size: 64g
+        env:
+          MODEL_LIST: 9g_8b_thinking
+          ENGINE: InfiniLM
+          TEST_PARAM: ['default', '--enable-paged-attn --cache-type=paged', '--enable-paged-attn --cache-type=paged --enable-graph']
+        stages:
+          - name: test
+            run: python InfiniLM/scripts/test_perf.py --verbose
+
+  metax:
+    image:
+      dockerfile: images/metax/
+      build_args:
+        BASE_IMAGE: cr.metax-tech.com/public-ai-release/maca/vllm-metax:0.10.2-maca.ai3.2.1.7-torch2.6-py310-ubuntu22.04-amd64
+        APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+        InfiniCore_BRANCH: main
+    docker_args:
+      - "--user=root"
+      - "--network=host"
+      - "--privileged"
+      - "--cap-add=ALL"
+      - "--pid=host"
+      - "--ipc=host"
+      - "--workdir=/workspace"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    volumes:
+      - /data:/data
+      - /data-aisoft:/data-aisoft
+      - /data-aisoft/artifacts/CI_metax_test/__WORKSPACE__:/artifacts
+    setup: pip install .[dev] --no-build-isolation
+    jobs:
+      gpu_inferencetest:
+        type: inferencetest
+        resources:
+          ngpus: [1, 1, 2]
+          gpu_style: none
+          shm_size: 64g
+          timeout: 3600
+        env:
+          MODEL_LIST: 9g_8b_thinking
+          TEST_PARAM: ['--attn=default', '--attn=flash-attn --enable-graph --enable-paged-attn --cache-type=paged --block-size=256 --max-new-tokens=256', '--attn=flash-attn --enable-graph --enable-paged-attn --cache-type=paged --block-size=256 --max-new-tokens=256']
+        stages:
+          - name: test
+            run: python -u "InfiniLM/examples/test_infer.py" --device metax --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --backend cpp --prompt "Hello" <TEST_PARAM>
+
+  moore:
+    image:
+      dockerfile: images/moore/
+      build_args:
+        BASE_IMAGE: sh-harbor.mthreads.com/mcctest/vllm_musa:20251112_hygon
+        APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+        InfiniCore_BRANCH: main
+    docker_args:
+      - "--user=root"
+      - "--network=host"
+      - "--privileged"
+      - "--cap-add=ALL"
+      - "--pid=host"
+      - "--ipc=host"
+      - "--workdir=/workspace"
+    volumes:
+      - /data:/data
+      - /data-aisoft:/data-aisoft
+      - /data-aisoft/artifacts/CI_moore_test/__WORKSPACE__:/artifacts
+    setup: pip install .[dev] --no-build-isolation
+    jobs:
+      gpu_inferencetest:
+          type: inferencetest
+          resources:
+            ngpus: [1, 2]
+            gpu_style: none
+            shm_size: 64g
+            timeout: 3600
+          stages:
+            - name: test
+              run: python InfiniLM/examples/test_infer.py --device moore --model=/data-aisoft/mechdancer/models/9g_8b_thinking/
+      gpu_benchtest:
+        type: benchtest
+        resources:
+          gpu_style: none
+          shm_size: 64g
+          timeout: 3600
+        env:
+          TEST_PARAM: ['--batch-size=1', '--enable-paged-attn --batch-size=1', '--enable-paged-attn --enable-graph --batch-size=8']
+        stages:
+          - name: test
+            run: python InfiniLM/examples/bench.py --device moore --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --input-len=256,1024 --output-len=256,1024 <TEST_PARAM>
+      gpu_accuracytest:
+        type: accuracytest
+        resources:
+          gpu_style: none
+          shm_size: 64g
+          timeout: 18000
+        env:
+          TEST_PARAM: ['--bench ceval', '--bench mmlu']
+        stages:
+          - name: test
+            run: python InfiniLM/test/bench/test_benchmark.py --device moore --model /data-aisoft/zhushuang/models/9g_8b_thinking_llama/ --subject all --backend cpp --tp 1 --output_csv 8b_mmlu_paged_results.csv --split val --enable-paged-attn <TEST_PARAM>
+      gpu_servicetest:
+        type: servicetest
+        resources:
+          gpu_style: none
+          shm_size: 64g
+          timeout: 3600
+        env:
+          MODEL_LIST: 9g_8b_thinking
+          ENGINE: InfiniLM
+          TEST_PARAM: ['default', '--num-blocks=1024 --block-size=256', '--enable-graph --enable-paged-attn --num-blocks=1024 --block-size=256']
+        stages:
+          - name: test
+            run: python InfiniLM/scripts/test_perf.py --verbose
+
+  cambricon:
+    image:
+      dockerfile: images/cambricon/
+      build_args:
+        BASE_IMAGE: pepe_working:latest
+        APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+        InfiniCore_BRANCH: main
+    docker_args:
+      - "--user=root"
+      - "--network=host"
+      - "--privileged"
+      - "--cap-add=ALL"
+      - "--pid=host"
+      - "--ipc=host"
+      - "--workdir=/workspace"
+    volumes:
+      - /data:/data
+      - /data-aisoft:/data-aisoft
+      - /data-aisoft/artifacts/CI_cambricon_test/__WORKSPACE__:/artifacts
+    setup: pip install .[dev] --no-build-isolation
+    jobs:
+      gpu_inferencetest:
+        type: inferencetest
+        resources:
+          gpu_style: mlu
+          shm_size: 64g
+          timeout: 3600
+        stages:
+          - name: test
+            run: python InfiniLM/examples/test_infer.py --device cambricon --model=/data-aisoft/mechdancer/models/9g_8b_thinking/
+      gpu_benchtest:
+        type: benchtest
+        resources:
+          gpu_style: mlu
+          shm_size: 64g
+          timeout: 3600
+        stages:
+          - name: test
+            run: python InfiniLM/examples/bench.py --device cambricon --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --input-len=256,1024 --output-len=256,1024 --batch-size=8
+      gpu_accuracytest:
+        type: accuracytest
+        resources:
+          gpu_style: mlu
+          shm_size: 64g
+          timeout: 3600
+        env:
+          TEST_PARAM: ['--bench ceval --subject accountant', '--bench mmlu --subject abstract_algebra']
+        stages:
+          - name: test
+            run: python InfiniLM/test/bench/test_benchmark.py --device cambricon --model /data-aisoft/mechdancer/models/9g_8b_thinking/ --backend cpp --max-new-tokens 5 --cache-dir /data-aisoft/pepe/datasets/ --split=val <TEST_PARAM>
+      gpu_servicetest:
+        type: servicetest
+        resources:
+          gpu_style: mlu
+          shm_size: 64g
+          timeout: 3600
+        env:
+          MODEL_LIST: 9g_8b_thinking
+          ENGINE: InfiniLM
+          TEST_PARAM: ['default']
+        stages:
+          - name: test
+            run: python InfiniLM/scripts/test_perf.py --verbose
+
+  # ascend:
+  #   image:
+  #     dockerfile: images/ascend/
+  #     build_args:
+  #       BASE_IMAGE: quay.io/ascend/vllm-ascend:v0.18.0rc1-openeuler
+  #       PIP_INDEX_URL: https://pypi.org/simple
+  #   docker_args:
+  #     - "--runtime=runc"
+  #     - "--privileged"
+  #     - "--device=/dev/davinci0"
+  #     - "--device=/dev/davinci_manager"
+  #     - "--device=/dev/devmm_svm"
+  #     - "--device=/dev/hisi_hdc"
+  #   volumes:
+  #     - /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro
+  #     - /usr/local/dcmi:/usr/local/dcmi:ro
+  #     - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi:ro
+  #     - /data-aisoft/artifacts/CI_ascend_test/__WORKSPACE__:/artifacts
+  #   env:
+  #     ASCEND_HOME_PATH: /usr/local/Ascend/ascend-toolkit/latest
+  #   setup: pip install .[dev] --no-build-isolation
+  #   jobs:
+  #     npu:
+  #       type: unittest
+  #       resources:
+  #         ngpus: 1
+  #         gpu_style: none
+  #         memory: 32GB
+  #         shm_size: 16g
+  #         timeout: 3600
+  #       stages:
+  #         - name: test
+  #           run: pytest tests/ -n 1 --devices ascend -v --tb=short --junitxml=/workspace/results/test-results.xml
+
+  hygon:
+    image:
+      dockerfile: images/hygon/
+      build_args:
+        BASE_IMAGE: image.sourcefind.cn:5000/dcu/admin/base/pytorch:2.4.1-ubuntu22.04-dtk25.04.1-py3.10
+        APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+        InfiniCore_BRANCH: main
+    docker_args:
+      - "--user=root"
+      - "--network=host"
+      - "--privileged"
+      - "--cap-add=ALL"
+      - "--pid=host"
+      - "--ipc=host"
+      - "--workdir=/workspace"
+      - "--device=/dev/kfd"
+      - "--device=/dev/mkfd"
+      - "--device=/dev/dri"
+      - "--security-opt"
+      - "seccomp=unconfined"
+      - "--group-add=video"
+      - "--group-add=render"
+    volumes:
+      - /data:/data
+      - /data-aisoft:/data-aisoft
+      - /data-aisoft/artifacts/CI_hygon_test/__WORKSPACE__:/artifacts
+      - /opt/hyhal:/opt/hyhal
+    setup: pip install .[dev] --no-build-isolation
+    jobs:
+      gpu_inferencetest:
+          type: inferencetest
+          resources:
+            ngpus: [1, 2]
+            gpu_style: none
+            shm_size: 64g
+            timeout: 3600
+          stages:
+            - name: test
+              run: python InfiniLM/examples/test_infer.py --device hygon --model=/data-aisoft/mechdancer/models/9g_8b_thinking/
+      gpu_benchtest:
+        type: benchtest
+        resources:
+          gpu_style: none
+          shm_size: 64g
+          timeout: 3600
+        env:
+          TEST_PARAM: ['default']
+        stages:
+          - name: test
+            run: python InfiniLM/examples/bench.py --device hygon --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --input-len=256,1024 --output-len=256,1024 --batch-size=8 <TEST_PARAM>
+      gpu_accuracytest:
+        type: accuracytest
+        resources:
+          gpu_style: none
+          shm_size: 64g
+          timeout: 10800
+        env:
+          TEST_PARAM: ['--bench mmlu', '--bench ceval']
+        stages:
+          - name: test
+            run: python InfiniLM/test/bench/test_benchmark.py --device hygon --model /data-aisoft/mechdancer/models/9g_8b_thinking/ --backend cpp --max-new-tokens 5 --cache-dir /data-aisoft/pepe/datasets/ --split=val <TEST_PARAM>
+      gpu_servicetest:
+        type: servicetest
+        resources:
+          gpu_style: none
+          shm_size: 64g
+          timeout: 3600
+        env:
+          MODEL_LIST: 9g_8b_thinking
+          ENGINE: InfiniLM
+          TEST_PARAM: ['default']
+        stages:
+          - name: test
+            run: python InfiniLM/scripts/test_perf.py --verbose
