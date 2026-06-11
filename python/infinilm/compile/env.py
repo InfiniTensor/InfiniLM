@@ -74,7 +74,11 @@ def max_num_batched_tokens(default: int = 8192) -> int:
 def long_prefill_threshold(default: int = 4096) -> int:
     """Cap prefill tokens scheduled per row in one v1 step."""
     raw = os.environ.get("INFINI_LONG_PREFILL_THRESHOLD")
-    return int(raw) if raw else default
+    if raw:
+        return int(raw)
+    if prefill_chunked_enabled():
+        return prefill_chunk_size()
+    return default
 
 
 def prefill_cudagraph_enabled() -> bool:

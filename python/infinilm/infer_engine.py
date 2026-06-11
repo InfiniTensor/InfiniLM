@@ -535,15 +535,12 @@ class InferEngine(_infinilm.InferEngine):
             self._ensure_compiled_prefill_runner(block_size=paged_block_size)
         super().reset_cache(cache_config)
         if getattr(self, "_prefill_native_cg_enabled", False) and self.enable_paged_attn:
-            from infinilm.compile.env import (
-                compile_max_seq_len,
-                default_cudagraph_capture_buckets,
-            )
+            from infinilm.compile.env import compile_max_seq_len
 
-            buckets = default_cudagraph_capture_buckets(compile_max_seq_len())
+            buckets = list(self.native_capture_buckets())
             logger.info(
                 "native piecewise CG: C++ capture complete buckets=%s max_seq=%s",
-                list(buckets),
+                buckets,
                 compile_max_seq_len(),
             )
         else:

@@ -714,6 +714,15 @@ class Scheduler:
             else:
                 self.running_queue.sync_q.put(req)
 
+    def _remaining_generation_tokens(self, req: InferenceRequest) -> int:
+        max_tokens = req.sampling_params.max_tokens
+        if max_tokens is None:
+            return 0
+        return max(0, max_tokens - req.get_num_generated_tokens())
+
+    def _kv_completion_tokens(self, req: InferenceRequest) -> int:
+        return req.get_prompt_length() + self._remaining_generation_tokens(req)
+
     def can_accept_request(self, request: InferenceRequest) -> bool:
         total_required_blocks = 0
 
@@ -725,16 +734,12 @@ class Scheduler:
             else:
                 blocks_for_req = req.get_num_blocks_required(self.block_size)
             total_at_completion = (
-                req.get_prompt_length()
-                + req.sampling_params.max_tokens
-                + self.block_size
-                - 1
+                self._kv_completion_tokens(req) + self.block_size - 1
             ) // self.block_size
             total_required_blocks += max(blocks_for_req, total_at_completion)
             self.running_queue.sync_q.put(req)
 
-        total_length = request.get_prompt_length()
-        total_length += request.sampling_params.max_tokens
+        total_length = self._kv_completion_tokens(request)
         num_blocks_needed = (total_length + self.block_size - 1) // self.block_size
         total_required_blocks += num_blocks_needed
 

@@ -1,5 +1,6 @@
 #include "piecewise_prefill_compiler.hpp"
 
+#include "../../global_state/ar_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../global_state/hang_trace.hpp"
 #include "../compiled_prefill_flags.hpp"
@@ -554,6 +555,11 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
             "rank_worker_profile: piecewise run_prefill end layers_total_ms={:.3f} total_ms={:.3f}",
             layers_ms,
             monotonic_ms() - t_total0);
+    }
+    if (global_state::ar_profile::enabled()
+        && global_state::get_tensor_model_parallel_rank() == 0) {
+        global_state::ar_profile::log_barrier_chunk_summary(
+            "piecewise_replay", seq_len, runtime_n_req);
     }
     if (!InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         return std::nullopt;

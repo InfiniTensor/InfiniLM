@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import unittest
 
+from infinilm.compile.env import long_prefill_threshold
 from infinilm.llm.request import InferenceRequest, RequestStatus
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
@@ -199,6 +200,75 @@ class SchedulerV1Test(unittest.TestCase):
         blocks_per = (long_len + 512 + 255) // 256
         self.assertGreater(blocks_per * 2, 512)
         self.assertFalse(self.scheduler.can_accept_request(second_long))
+
+    def test_can_accept_small_max_tokens_long_prompt(self):
+        """16k prompt + max_tokens=512 admits more concurrent reqs than a 32768 cap."""
+        prompt_len = 16384
+        max_tokens = 512
+        block_size = self.scheduler.block_size
+        blocks_per = (prompt_len + max_tokens + block_size - 1) // block_size
+        max_concurrent = 512 // blocks_per
+
+        for i in range(max_concurrent):
+            req = _req(f"r{i}", prompt_len, max_tokens=max_tokens)
+            self.assertTrue(self.scheduler.can_accept_request(req))
+            _prime_kv(self.scheduler, req)
+            self.scheduler.running_queue.sync_q.put(req)
+
+        overflow = _req("overflow", prompt_len, max_tokens=max_tokens)
+        self.assertFalse(self.scheduler.can_accept_request(overflow))
+
+        inflated_blocks = (prompt_len + 32768 + block_size - 1) // block_size
+        self.assertGreater(max_concurrent, 512 // inflated_blocks)
+
+    def test_can_accept_running_decode_remaining_generation(self):
+        """Running decode reserves remaining generation budget, not full max_tokens."""
+        prompt_len = 8192
+        max_tokens = 600
+        block_size = self.scheduler.block_size
+
+        decode = _req("decode", prompt_len, max_tokens=max_tokens)
+        decode.is_prefill = False
+        decode.generated_token_ids = list(range(300))
+        _prime_kv(self.scheduler, decode)
+
+        blocks_current = (prompt_len + 300 + block_size - 1) // block_size
+        blocks_full_cap = (prompt_len + max_tokens + block_size - 1) // block_size
+        blocks_remaining_cap = (
+            prompt_len + (max_tokens - 300) + block_size - 1
+        ) // block_size
+        self.assertEqual(blocks_current, blocks_remaining_cap)
+        self.assertLess(blocks_remaining_cap, blocks_full_cap)
+
+        self.assertEqual(self.scheduler._remaining_generation_tokens(decode), 300)
+        self.assertEqual(
+            self.scheduler._kv_completion_tokens(decode),
+            prompt_len + 300,
+        )
+        reservation = max(blocks_current, blocks_remaining_cap)
+        self.assertLess(reservation, max(blocks_current, blocks_full_cap))
+
+
+class LongPrefillThresholdTest(unittest.TestCase):
+    def tearDown(self):
+        os.environ.pop("INFINI_LONG_PREFILL_THRESHOLD", None)
+        os.environ.pop("INFINI_PREFILL_CHUNKED", None)
+        os.environ.pop("INFINI_PREFILL_CHUNK_SIZE", None)
+
+    def test_defaults_to_chunk_size_when_chunked_prefill_enabled(self):
+        os.environ["INFINI_PREFILL_CHUNKED"] = "1"
+        os.environ["INFINI_PREFILL_CHUNK_SIZE"] = "8192"
+        self.assertEqual(long_prefill_threshold(), 8192)
+
+    def test_explicit_env_overrides_chunked_default(self):
+        os.environ["INFINI_PREFILL_CHUNKED"] = "1"
+        os.environ["INFINI_PREFILL_CHUNK_SIZE"] = "8192"
+        os.environ["INFINI_LONG_PREFILL_THRESHOLD"] = "4096"
+        self.assertEqual(long_prefill_threshold(), 4096)
+
+    def test_defaults_to_4096_when_chunked_prefill_disabled(self):
+        os.environ.pop("INFINI_PREFILL_CHUNKED", None)
+        self.assertEqual(long_prefill_threshold(), 4096)
 
 
 if __name__ == "__main__":

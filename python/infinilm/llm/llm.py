@@ -1193,6 +1193,8 @@ class AsyncLLMEngine:
 
                 ensure_hybrid_prefill_gpu_context()
                 self._flush_deferred_tokenize()
+                profile = _step_profile_enabled()
+                t_iter0 = time.perf_counter() if profile else 0.0
                 if _hang_trace_enabled():
                     now = time.monotonic()
                     if now - self._hang_trace_last_idle_log >= 30.0:
@@ -1223,12 +1225,35 @@ class AsyncLLMEngine:
                 requests, pending = self.engine.step()
                 self._hang_trace_forward_in_progress = False
                 self._hang_trace_last_step_end = time.monotonic()
+                forward_ms = (
+                    (time.perf_counter() - t_iter0) * 1000.0 if profile and requests else 0.0
+                )
                 if not requests:
-                    time.sleep(0.01)
+                    idle_sleep_ms = 10.0
+                    time.sleep(idle_sleep_ms / 1000.0)
+                    if profile:
+                        total_iter_ms = (time.perf_counter() - t_iter0) * 1000.0
+                        logger.info(
+                            "step_profile: iteration schedule_empty=1 forward_ms=0.000 "
+                            "idle_sleep_ms=%.3f total_iter_ms=%.3f",
+                            idle_sleep_ms,
+                            total_iter_ms,
+                        )
                 else:
                     if pending:
                         self._loop.call_soon_threadsafe(self._batch_put, pending)
-                    time.sleep(0.0005)
+                    idle_sleep_ms = 0.5
+                    time.sleep(idle_sleep_ms / 1000.0)
+                    if profile:
+                        total_iter_ms = (time.perf_counter() - t_iter0) * 1000.0
+                        logger.info(
+                            "step_profile: iteration schedule_empty=0 forward_ms=%.3f "
+                            "idle_sleep_ms=%.3f total_iter_ms=%.3f n_req=%d",
+                            forward_ms,
+                            idle_sleep_ms,
+                            total_iter_ms,
+                            len(requests),
+                        )
             except Exception as e:
                 self._hang_trace_forward_in_progress = False
                 logger.error(f"Error in step loop: {e}", exc_info=True)

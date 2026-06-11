@@ -592,6 +592,8 @@ void RankWorker::thread_loop() {
                                             graph_run_ms,
                                             post_sync_ms,
                                             c.decode_graph_steps);
+                                        global_state::ar_profile::log_barrier_chunk_summary(
+                                            "decode_step", std::nullopt, graph_batch_size);
                                     }
                                     logits = output->logits;
                                     if (general_compiler != nullptr) {

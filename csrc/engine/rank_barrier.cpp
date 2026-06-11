@@ -1,5 +1,6 @@
 #include "rank_barrier.hpp"
 
+#include "../global_state/ar_profile.hpp"
 #include "../global_state/hang_trace.hpp"
 
 #include <spdlog/spdlog.h>
@@ -9,7 +10,9 @@ RankBarrier::RankBarrier(size_t num_ranks) : thread_count_(num_ranks), generatio
 
 void RankBarrier::wait(const char *label, int tp_rank) {
     const bool trace = global_state::hang_trace::enabled();
-    const double t0 = trace ? global_state::hang_trace::monotonic_ms() : 0.0;
+    const bool ar_profile = global_state::ar_profile::enabled();
+    const bool timed = trace || ar_profile;
+    const double t0 = timed ? global_state::ar_profile::monotonic_ms() : 0.0;
     size_t arrived_before = 0;
     int gen_before = 0;
 
@@ -55,8 +58,12 @@ void RankBarrier::wait(const char *label, int tp_rank) {
         }
     }
 
-    if (trace) {
-        const double ms = global_state::hang_trace::monotonic_ms() - t0;
+    if (timed) {
+        const double ms = global_state::ar_profile::monotonic_ms() - t0;
+        if (ar_profile) {
+            global_state::ar_profile::record_barrier_wait(label, ms);
+        }
+        if (trace) {
         if (label != nullptr && label[0] != '\0') {
             if (tp_rank >= 0) {
                 spdlog::info(
@@ -88,6 +95,7 @@ void RankBarrier::wait(const char *label, int tp_rank) {
             } else {
                 spdlog::warn("hang_trace: STALL tag=barrier_wait ms={:.3f}", ms);
             }
+        }
         }
     }
 }

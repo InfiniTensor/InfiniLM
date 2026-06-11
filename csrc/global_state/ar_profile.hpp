@@ -2,12 +2,22 @@
 
 #include "forward_context.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <optional>
 #include <spdlog/spdlog.h>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace infinilm::global_state::ar_profile {
+
+struct BarrierLabelStats {
+    double wait_ms{0.0};
+    uint64_t count{0};
+};
 
 struct Counters {
     uint64_t fast_path{0};
@@ -20,6 +30,16 @@ struct Counters {
     double decode_post_sync_ms{0.0};
     double decode_graph_run_ms{0.0};
 };
+
+inline std::unordered_map<std::string, BarrierLabelStats> &barrier_cumulative_stats() {
+    static thread_local std::unordered_map<std::string, BarrierLabelStats> stats;
+    return stats;
+}
+
+inline std::unordered_map<std::string, BarrierLabelStats> &barrier_chunk_stats() {
+    static thread_local std::unordered_map<std::string, BarrierLabelStats> stats;
+    return stats;
+}
 
 inline bool enabled() {
     static int cached = -1;
@@ -37,6 +57,74 @@ inline Counters &counters() {
 
 inline void reset() {
     counters() = {};
+    barrier_cumulative_stats().clear();
+    barrier_chunk_stats().clear();
+}
+
+inline void record_barrier_wait(const char *label, double ms) {
+    if (!enabled() || label == nullptr || label[0] == '\0' || ms < 0.0) {
+        return;
+    }
+    const std::string key(label);
+    auto &cumulative = barrier_cumulative_stats()[key];
+    cumulative.wait_ms += ms;
+    cumulative.count++;
+    auto &chunk = barrier_chunk_stats()[key];
+    chunk.wait_ms += ms;
+    chunk.count++;
+}
+
+inline void log_barrier_chunk_summary(const char *tag,
+                                      std::optional<size_t> seq_len = std::nullopt,
+                                      std::optional<size_t> n_req = std::nullopt) {
+    if (!enabled() || tag == nullptr || tag[0] == '\0') {
+        return;
+    }
+    auto &chunk = barrier_chunk_stats();
+    if (chunk.empty()) {
+        return;
+    }
+    std::vector<std::pair<std::string, BarrierLabelStats>> ranked;
+    ranked.reserve(chunk.size());
+    double total_ms = 0.0;
+    for (const auto &[label, stats] : chunk) {
+        ranked.emplace_back(label, stats);
+        total_ms += stats.wait_ms;
+    }
+    std::sort(ranked.begin(), ranked.end(), [](const auto &a, const auto &b) {
+        return a.second.wait_ms > b.second.wait_ms;
+    });
+    std::string labels;
+    const size_t max_labels = 8;
+    for (size_t i = 0; i < ranked.size() && i < max_labels; ++i) {
+        if (i > 0) {
+            labels += ",";
+        }
+        labels += ranked[i].first + ":" + std::to_string(ranked[i].second.wait_ms);
+    }
+    if (seq_len.has_value() && n_req.has_value()) {
+        spdlog::info(
+            "ar_profile: barrier_chunk tag={} seq_len={} n_req={} total_ms={:.3f} labels={}",
+            tag,
+            *seq_len,
+            *n_req,
+            total_ms,
+            labels);
+    } else if (n_req.has_value()) {
+        spdlog::info(
+            "ar_profile: barrier_chunk tag={} n_req={} total_ms={:.3f} labels={}",
+            tag,
+            *n_req,
+            total_ms,
+            labels);
+    } else {
+        spdlog::info(
+            "ar_profile: barrier_chunk tag={} total_ms={:.3f} labels={}",
+            tag,
+            total_ms,
+            labels);
+    }
+    chunk.clear();
 }
 
 inline double monotonic_ms() {
