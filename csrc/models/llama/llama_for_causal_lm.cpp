@@ -14,7 +14,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_llama_model_config(std::sh
 
     if (!config_json.contains("head_dim")) {
         config_json["head_dim"] = model_config->get<size_t>("hidden_size")
-            / model_config->get<size_t>("num_attention_heads");
+                                / model_config->get<size_t>("num_attention_heads");
     }
 
     if (!config_json.contains("attention_bias")) {
@@ -28,13 +28,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_llama_model_config(std::sh
 
 namespace {
 
-#ifndef USE_CLASSIC_LLAMA
-
 INFINILM_REGISTER_CAUSAL_LM_MODEL(
     llama,
     infinilm::models::llama::LlamaForCausalLM,
     infinilm::models::llama::create_llama_model_config);
-
-#endif
 
 } // namespace

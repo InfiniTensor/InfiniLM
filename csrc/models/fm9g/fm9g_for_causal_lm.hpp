@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../layers/common_modules.hpp"
-#include "infinicore/nn/linear.hpp"
 #include <cmath>
 #include <memory>
 

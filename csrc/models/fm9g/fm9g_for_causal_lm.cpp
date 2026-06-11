@@ -16,8 +16,6 @@ std::shared_ptr<infinilm::config::ModelConfig> create_fm9g_model_config(std::sha
 
 namespace {
 
-#ifndef USE_CLASSIC_LLAMA
-
 INFINILM_REGISTER_CAUSAL_LM_MODEL(
     fm9g,
     infinilm::models::fm9g::FM9GForCausalLM,
@@ -32,7 +30,5 @@ INFINILM_REGISTER_CAUSAL_LM_MODEL(
     minicpm,
     infinilm::models::fm9g::FM9GForCausalLM,
     infinilm::models::fm9g::create_fm9g_model_config);
-
-#endif
 
 } // namespace

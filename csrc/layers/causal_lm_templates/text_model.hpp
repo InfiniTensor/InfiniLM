@@ -6,7 +6,6 @@
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
-#include <vector>
 
 namespace infinilm::layers::causal_lm_templates {
 
@@ -28,9 +27,7 @@ public:
         const auto &dtype{model_config->get_dtype()};
         size_t vocab_size = model_config->get<size_t>("vocab_size");
         size_t hidden_size = model_config->get<size_t>("hidden_size");
-        size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
         size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
-        double rope_theta = model_config->get<double>("rope_theta");
         double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
         embed_tokens_ = this->register_module<infinicore::nn::Embedding>("embed_tokens", vocab_size, hidden_size, std::nullopt, dtype, device);

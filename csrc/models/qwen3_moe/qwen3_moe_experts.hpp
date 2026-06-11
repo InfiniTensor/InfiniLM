@@ -1,5 +1,3 @@
-
-
 #pragma once
 #include "../../layers/common_modules.hpp"
 
