@@ -1,3 +1,4 @@
+import gc
 import os
 import json
 from typing import Dict, Union, Optional, List
@@ -219,6 +220,7 @@ def load_model_state_dict_by_file(
                 model_param_infini[key] = infinicore.from_torch(model_param[key])
             model.load_state_dict(model_param_infini, strict=False)
             infinicore.sync_device()
+            gc.collect()  # Help reduce peak host memory and fragmentation across shards.
         model.process_weights_after_loading()
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
@@ -302,6 +304,7 @@ def load_model_state_dict_by_tensor(
                     model.load_param(name, weight_infini)
                     already_loaded_keys.append(name)
                     infinicore.sync_stream()
+            gc.collect()  # Help reduce peak host memory and fragmentation across shards.
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
