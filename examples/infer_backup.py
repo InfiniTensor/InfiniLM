@@ -194,7 +194,7 @@ def test(
     #                        Generate
     # ---------------------------------------------------------------------------- #
     print(input_contents[0], end="", flush=True)
-    input_ids_infini = infinicore.from_list(input_ids_list)
+    input_ids_infini = infinicore.from_list(input_ids_list, dtype=infinicore.int64)
 
     # Process multimodal inputs if needed
     pixel_values_infini = None
@@ -207,9 +207,9 @@ def test(
 
             # 1. Pixel values
             all_pixel_values = []
-            assert (
-                len(pixel_values) == 1
-            ), "Only batch_size=1 is supported yet for image inputs."
+            assert len(pixel_values) == 1, (
+                "Only batch_size=1 is supported yet for image inputs."
+            )
             for pv in pixel_values:
                 all_pixel_values.extend(
                     [i.flatten(end_dim=1).permute(1, 0) for i in pv]

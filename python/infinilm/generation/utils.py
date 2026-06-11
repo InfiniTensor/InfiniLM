@@ -86,11 +86,16 @@ class GenerationMixin:
             bs, seq_len = current_position_ids.shape
             last_position = current_position_ids.narrow(1, seq_len - 1, 1)
 
-            one_value = infinicore.from_list(
-                [1] * bs,
-                dtype=last_position.dtype,
-                device=last_position.device,
-            ).view((bs, 1))
+            one_value = (
+                infinicore.from_list(
+                    [1] * bs,
+                    dtype=last_position.dtype,
+                )
+                .view((bs, 1))
+                .to(
+                    device=last_position.device,
+                )
+            )
 
             next_position = one_value + last_position
             model_inputs["position_ids"] = next_position
@@ -99,15 +104,14 @@ class GenerationMixin:
             ] + infinicore.from_list(
                 [seq_len],
                 dtype=last_position.dtype,
-                device=last_position.device,
-            )
+            ).to(device=last_position.device)
         # -------------------------------------------------------------------- #
         #                 所需的: token的input_ids
         # -------------------------------------------------------------------- #
         if kwargs.get("next_token_ids", None) is not None:
             next_token_ids = kwargs["next_token_ids"]
             model_inputs["input_ids"] = infinicore.from_list(
-                [[id_] for id_ in next_token_ids],
+                [[id_] for id_ in next_token_ids], dtype=infinicore.int64
             )
 
         # -------------------------------------------------------------------- #

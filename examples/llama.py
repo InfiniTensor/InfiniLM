@@ -85,7 +85,7 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        自回归生成
     # ---------------------------------------------------------------------------- #
-    input_ids_infini = infinicore.from_list(input_ids_list)
+    input_ids_infini = infinicore.from_list(input_ids_list, dtype=infinicore.int64)
 
     t1 = time.time()
     print("=================== start generate ====================")
