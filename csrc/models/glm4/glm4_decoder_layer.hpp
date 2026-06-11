@@ -3,12 +3,13 @@
 #include "../../backends/attention_backends.hpp"
 #include "../../config/model_config.hpp"
 #include "../../engine/distributed/distributed.hpp"
-#include "../../layers/mlp/mlp.hpp"
-#include "glm4_attention.hpp"
+#include "../../layers/common_modules.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 
 namespace infinilm::models::glm4 {
+
+using Glm4Attention = infinilm::layers::attention::Attention;
 
 class Glm4DecoderLayer : public infinicore::nn::Module {
 public:

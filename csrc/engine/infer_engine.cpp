@@ -1,6 +1,7 @@
 #include "infer_engine.hpp"
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
+#include <future>
 
 namespace infinilm::engine {
 
@@ -54,6 +55,20 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
         worker->load_param(name, param);
     }
 }
+
+void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
+    std::vector<std::future<void>> futures;
+    futures.reserve(workers_.size());
+    for (auto &worker : workers_) {
+        futures.emplace_back(std::async(std::launch::async, [&worker, &params] {
+            worker->load_params(params);
+        }));
+    }
+    for (auto &future : futures) {
+        future.get();
+    }
+}
+
 //------------------------------------------------------
 // load_param
 //------------------------------------------------------

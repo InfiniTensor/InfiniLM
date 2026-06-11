@@ -229,7 +229,7 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        自回归生成
         # ---------------------------------------------------------------------------- #
-        input_ids_infini = infinicore.from_list(input_ids_list)
+        input_ids_infini = infinicore.from_list(input_ids_list, dtype=infinicore.int64)
 
         t1 = time.time()
         print("=================== start generate ====================")
@@ -348,7 +348,7 @@ if __name__ == "__main__":
             for ids in test.input_ids_list
         ]
 
-        input_ids_infini = infinicore.from_list(warmup_ids)
+        input_ids_infini = infinicore.from_list(warmup_ids, dtype=infinicore.int64)
 
         print("=================== warmup start ===================")
 

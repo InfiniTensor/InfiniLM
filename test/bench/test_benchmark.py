@@ -175,7 +175,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         from infinilm.infer_engine import GenerationConfig
 
         input_ids_list = [tokens]
-        input_ids = infinicore.from_list(input_ids_list)
+        input_ids = infinicore.from_list(input_ids_list, dtype=infinicore.int64)
 
         start_time = time.perf_counter()
 
