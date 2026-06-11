@@ -5,9 +5,12 @@ Classification (for PR review):
   PROD — master switches + ladder driver (see docs/INFINI_FLAGS.md):
     ``prefill_native_cg_enabled``, ``prefill_chunked_enabled``, ``prefill_chunk_size``,
     ``prefill_compile_enabled``, ``prefill_share_weights_enabled``, ``prefill_cudagraph_enabled``,
-    ``compile_max_seq_len``, ``compile_buckets`` / ``compile_warmup_seq_lens``.
+    ``compile_max_seq_len``, ``compile_buckets`` / ``compile_warmup_seq_lens``,
+    ``v1_scheduler_enabled``, ``schedule_homogeneous_enabled``.
   C++ code defaults (no env): decode pre-barrier on, piecewise post-AR barrier trim
     (opt-out: INFINI_DECODE_SKIP_PRE_BARRIER, INFINI_PIECEWISE_KEEP_BARRIERS).
+  C++ production env (``infinilm_production_env.sh``): ``INFINI_DECODE_LIGHT_SYNC``,
+    ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` — not read in this module.
   DEBUG — diagnostics / smoke baselines only:
     ``prefill_cg_debug_ptrs_enabled``, ``prefill_cg_baseline_none``,
     ``return_logits_enabled``, ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``).
@@ -63,6 +66,11 @@ def prefill_chunk_size(default: int = 8192) -> int:
 def v1_scheduler_enabled() -> bool:
     """Master switch: vLLM 0.17 token-budget scheduler (default off)."""
     return _truthy("INFINI_V1_SCHEDULER", "0")
+
+
+def schedule_homogeneous_enabled() -> bool:
+    """Emit PREFILL-only or DECODE-only v1 steps (no MIXED) for native CG replay."""
+    return _truthy("INFINI_SCHEDULE_HOMOGENEOUS", "0")
 
 
 def max_num_batched_tokens(default: int = 8192) -> int:

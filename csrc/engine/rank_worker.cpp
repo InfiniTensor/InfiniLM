@@ -5,10 +5,12 @@
 #include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <mutex>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -34,6 +36,39 @@ bool decode_skip_pre_barrier() {
         cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
     }
     return cached == 1;
+}
+
+/// Event-based post-AR wait instead of full stream sync (default off).
+/// Bisect: INFINI_DECODE_LIGHT_SYNC=1
+bool decode_light_sync_enabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *raw = std::getenv("INFINI_DECODE_LIGHT_SYNC");
+        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+infinirtEvent_t decode_ar_done_event() {
+    static infinirtEvent_t event = nullptr;
+    static std::once_flag once;
+    std::call_once(once, []() {
+        event = infinicore::context::createEvent();
+    });
+    return event;
+}
+
+void decode_post_ar_sync(int tp_rank) {
+    if (decode_light_sync_enabled()) {
+        const auto event = decode_ar_done_event();
+        infinicore::context::recordEvent(event);
+        infinicore::context::streamWaitEvent(infinicore::context::getStream(), event);
+        if (tp_rank == 0) {
+            infinicore::context::synchronizeEvent(event);
+        }
+    } else {
+        infinicore::context::syncStream();
+    }
 }
 
 double monotonic_ms() {
@@ -573,7 +608,7 @@ void RankWorker::thread_loop() {
                                         global_state::hang_trace::ScopedBracket sync_bracket(
                                             "decode_post_sync", rank_info_.tp_rank);
                                         const double t_sync0 = ar_profile ? monotonic_ms() : 0.0;
-                                        infinicore::context::syncStream();
+                                        decode_post_ar_sync(rank_info_.tp_rank);
                                         if (ar_profile) {
                                             post_sync_ms = monotonic_ms() - t_sync0;
                                             global_state::ar_profile::counters().decode_post_sync_ms += post_sync_ms;

@@ -13,6 +13,8 @@ from typing import List, Optional
 from infinilm.compile.env import (
     long_prefill_threshold,
     max_num_batched_tokens,
+    prefill_native_cg_enabled,
+    schedule_homogeneous_enabled,
     v1_scheduler_enabled,
 )
 from infinilm.llm.request import RequestStatus, InferenceRequest
@@ -162,6 +164,7 @@ class Scheduler:
 
         self._waiting_yields_in_a_row: int = 0
         self.max_waiting_yields: int = max_waiting_yields
+        self._homogeneous_decode_yields_in_a_row: int = 0
         self._hang_trace_last_log_mono: float = 0.0
 
     def _hang_trace_should_log(self, interval_sec: float = 5.0) -> bool:
@@ -260,7 +263,32 @@ class Scheduler:
 
         return None
 
+    def _homogeneous_scheduling_active(self) -> bool:
+        return schedule_homogeneous_enabled() and prefill_native_cg_enabled()
+
+    def _waiting_has_admissible_prefill(self) -> bool:
+        """True if waiting queue has a request eligible for first-chunk prefill."""
+        waiting_size = self.waiting_queue.sync_q.qsize()
+        requeue: List[InferenceRequest] = []
+        found = False
+        for _ in range(waiting_size):
+            try:
+                req = self.waiting_queue.sync_q.get_nowait()
+            except queue.Empty:
+                break
+            requeue.append(req)
+            if not req.is_finished() and self.can_accept_request(req):
+                found = True
+        for req in requeue:
+            self.waiting_queue.sync_q.put(req)
+        return found
+
     def _schedule_v1(self) -> Optional[SchedulerOutput]:
+        if self._homogeneous_scheduling_active():
+            return self._schedule_v1_homogeneous()
+        return self._schedule_v1_mixed()
+
+    def _schedule_v1_mixed(self) -> Optional[SchedulerOutput]:
         budget = SchedulingBudget(
             max_num_batched_tokens(),
             self.max_batch_size,
@@ -405,6 +433,223 @@ class Scheduler:
         return SchedulerOutput(
             scheduled_requests=scheduled_requests,
             is_prefill=all(r.is_prefill_row for r in rows),
+            rows=rows,
+        )
+
+    def _schedule_v1_homogeneous(self) -> Optional[SchedulerOutput]:
+        budget = SchedulingBudget(
+            max_num_batched_tokens(),
+            self.max_batch_size,
+        )
+        running_snapshot = self._drain_running_queue()
+        deferred_running: List[InferenceRequest] = []
+        decode_pending: List[InferenceRequest] = []
+
+        for req in running_snapshot:
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+            if req.is_prefill and req.prefill_debt() > 0:
+                deferred_running.append(req)
+            elif not req.is_prefill:
+                decode_pending.append(req)
+            else:
+                deferred_running.append(req)
+
+        waiting_admissible = self._waiting_has_admissible_prefill()
+        force_prefill = (
+            waiting_admissible
+            and self._homogeneous_decode_yields_in_a_row >= self.max_waiting_yields
+        )
+        prefer_decode = (
+            decode_pending
+            and not force_prefill
+            and (
+                not waiting_admissible
+                or len(decode_pending) >= self.max_batch_size
+            )
+        )
+
+        if prefer_decode:
+            if waiting_admissible:
+                self._homogeneous_decode_yields_in_a_row += 1
+            else:
+                self._homogeneous_decode_yields_in_a_row = 0
+            out = self._schedule_v1_decode_rows(decode_pending, budget)
+            for req in deferred_running:
+                self.running_queue.sync_q.put(req)
+            return out
+
+        self._homogeneous_decode_yields_in_a_row = 0
+        out = self._schedule_v1_prefill_rows(
+            deferred_running, budget
+        )
+        for req in decode_pending:
+            self.running_queue.sync_q.put(req)
+        return out
+
+    def _schedule_v1_decode_rows(
+        self,
+        decode_pending: List[InferenceRequest],
+        budget: SchedulingBudget,
+    ) -> Optional[SchedulerOutput]:
+        rows: List[ScheduledRow] = []
+        scheduled_requests: List[InferenceRequest] = []
+        deferred: List[InferenceRequest] = []
+
+        for req in decode_pending:
+            if len(scheduled_requests) >= self.max_batch_size:
+                deferred.append(req)
+                continue
+            if not budget.can_add(req.request_id, 1):
+                deferred.append(req)
+                continue
+            try:
+                req.block_table, new_slot = self.cache_manager.append_slot(
+                    req.block_table,
+                    req.get_total_length(),
+                    req.get_all_token_ids(),
+                )
+                req.slot_mapping = [new_slot]
+                req.num_blocks = len(req.block_table)
+                req.num_cached_tokens = req.get_total_length() - 1
+            except RuntimeError:
+                deferred.append(req)
+                continue
+            rows.append(ScheduledRow(req, 1, False, False))
+            scheduled_requests.append(req)
+            budget.add(req.request_id, 1)
+
+        for req in deferred:
+            self.running_queue.sync_q.put(req)
+
+        if not scheduled_requests:
+            return None
+
+        self._log_v1_step(rows)
+        return SchedulerOutput(
+            scheduled_requests=scheduled_requests,
+            is_prefill=False,
+            rows=rows,
+        )
+
+    def _schedule_v1_prefill_rows(
+        self,
+        running_prefill: List[InferenceRequest],
+        budget: SchedulingBudget,
+    ) -> Optional[SchedulerOutput]:
+        rows: List[ScheduledRow] = []
+        scheduled_requests: List[InferenceRequest] = []
+        chunk_size_hint = 0
+        deferred_running: List[InferenceRequest] = []
+
+        for req in running_prefill:
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+            if not (req.is_prefill and req.prefill_debt() > 0):
+                deferred_running.append(req)
+                continue
+            q = self._next_prefill_chunk_len(req, budget)
+            if q <= 0 or not budget.can_add(req.request_id, q):
+                deferred_running.append(req)
+                continue
+            if rows and not self._can_add_v1_prefill_row(
+                rows, req, chunk_size_hint
+            ):
+                deferred_running.append(req)
+                continue
+            if not scheduled_requests and req.chunk_size > 0:
+                chunk_size_hint = req.chunk_size
+            rows.append(
+                ScheduledRow(
+                    req,
+                    q,
+                    True,
+                    self._is_final_prefill_chunk(req, q),
+                )
+            )
+            scheduled_requests.append(req)
+            budget.add(req.request_id, q)
+
+        prefill_batch_cap = min(
+            self.max_batch_size,
+            self.max_prefill_batch_size or self.max_batch_size,
+        )
+
+        while len(scheduled_requests) < prefill_batch_cap:
+            try:
+                req = self.waiting_queue.sync_q.get_nowait()
+            except queue.Empty:
+                break
+
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+
+            if not self.can_accept_request(req):
+                self.waiting_queue.sync_q.put(req)
+                break
+
+            req_tokens = req.get_input_tokens()
+            num_required_blocks = req.get_num_blocks_required(self.block_size)
+
+            if not self.cache_manager.can_allocate(num_required_blocks):
+                if not self.cache_manager.try_free_blocks(num_required_blocks):
+                    raise RuntimeError("No available cache blocks for new request")
+
+            if not req.block_table:
+                req.block_table, req.slot_mapping, req.num_cached_tokens = (
+                    self.cache_manager.allocate_blocks(req_tokens, req.block_table)
+                )
+
+            req.num_blocks = len(req.block_table)
+            req.status = RequestStatus.RUNNING
+
+            remaining = req.prompt_length - req.num_cached_tokens
+            if req.chunk_size > 0 and remaining > req.chunk_size:
+                req.chunk_prefill_offset = req.num_cached_tokens
+
+            q = self._next_prefill_chunk_len(req, budget)
+            if q <= 0 or not budget.can_add(req.request_id, q):
+                req.status = RequestStatus.WAITING
+                self.waiting_queue.sync_q.put(req)
+                break
+
+            if scheduled_requests:
+                if chunk_size_hint == 0:
+                    chunk_size_hint = req.chunk_size
+                if not self._can_add_v1_prefill_row(rows, req, chunk_size_hint):
+                    req.status = RequestStatus.WAITING
+                    self.waiting_queue.sync_q.put(req)
+                    break
+            elif req.chunk_size > 0:
+                chunk_size_hint = req.chunk_size
+
+            rows.append(
+                ScheduledRow(
+                    req,
+                    q,
+                    True,
+                    self._is_final_prefill_chunk(req, q),
+                )
+            )
+            scheduled_requests.append(req)
+            budget.add(req.request_id, q)
+
+        for req in deferred_running:
+            self.running_queue.sync_q.put(req)
+
+        if not scheduled_requests:
+            return None
+
+        prefill_rows = [r.request for r in rows if r.is_prefill_row]
+        self._log_prefill_pack(prefill_rows)
+        self._log_v1_step(rows)
+
+        return SchedulerOutput(
+            scheduled_requests=scheduled_requests,
+            is_prefill=True,
             rows=rows,
         )
 

@@ -42,6 +42,8 @@ class SchedulerV1Test(unittest.TestCase):
         os.environ["INFINI_V1_SCHEDULER"] = "1"
         os.environ["INFINI_MAX_NUM_BATCHED_TOKENS"] = "8192"
         os.environ.pop("INFINI_MAX_PREFILL_BATCH", None)
+        os.environ.pop("INFINI_SCHEDULE_HOMOGENEOUS", None)
+        os.environ.pop("INFINI_PREFILL_NATIVE_CG", None)
         self.scheduler = Scheduler(
             max_batch_size=4,
             num_blocks=512,
@@ -53,6 +55,12 @@ class SchedulerV1Test(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("INFINI_V1_SCHEDULER", None)
         os.environ.pop("INFINI_MAX_NUM_BATCHED_TOKENS", None)
+        os.environ.pop("INFINI_SCHEDULE_HOMOGENEOUS", None)
+        os.environ.pop("INFINI_PREFILL_NATIVE_CG", None)
+
+    def _enable_homogeneous(self) -> None:
+        os.environ["INFINI_SCHEDULE_HOMOGENEOUS"] = "1"
+        os.environ["INFINI_PREFILL_NATIVE_CG"] = "1"
 
     def test_mixed_prefill_4096_and_decode_one(self):
         """Running decode + new 4096 prefill → MIXED step, 4097 tokens."""
@@ -154,6 +162,81 @@ class SchedulerV1Test(unittest.TestCase):
         self.assertTrue(
             all(r.num_scheduled_tokens == chunk_size for r in out.rows)
         )
+
+    def test_homogeneous_prefill_then_decode_not_mixed(self):
+        """Homogeneous: 1 decode + 1 waiting prefill → PREFILL then DECODE."""
+        self._enable_homogeneous()
+
+        decode = _req("decode", 4096, chunk_size=4096)
+        decode.is_prefill = False
+        decode.generated_token_ids = [99]
+        _prime_kv(self.scheduler, decode)
+        self.scheduler.running_queue.sync_q.put(decode)
+
+        self.scheduler.add_request(_req("prefill", 4096, chunk_size=4096))
+
+        out1 = self.scheduler.schedule()
+        self.assertIsNotNone(out1)
+        assert out1 is not None
+        self.assertEqual(out1.scheduling_mode, "PREFILL")
+        self.assertEqual(out1.total_scheduled_tokens, 4096)
+        self.assertEqual(len(out1.rows), 1)
+
+        self.scheduler.requeue_running(out1.rows[0].request)
+
+        out2 = self.scheduler.schedule()
+        self.assertIsNotNone(out2)
+        assert out2 is not None
+        self.assertEqual(out2.scheduling_mode, "DECODE")
+        self.assertEqual(out2.total_scheduled_tokens, 1)
+
+    def test_homogeneous_four_decode_before_waiting_prefill(self):
+        """Homogeneous: 4 decode-ready + 1 waiting prefill → decode batch=4 first."""
+        self._enable_homogeneous()
+
+        for i in range(4):
+            decode = _req(f"decode{i}", 512, chunk_size=512)
+            decode.is_prefill = False
+            decode.generated_token_ids = [i + 1]
+            _prime_kv(self.scheduler, decode)
+            self.scheduler.running_queue.sync_q.put(decode)
+
+        self.scheduler.add_request(_req("prefill", 4096, chunk_size=4096))
+
+        out = self.scheduler.schedule()
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out.scheduling_mode, "DECODE")
+        self.assertEqual(len(out.rows), 4)
+        self.assertTrue(all(not r.is_prefill_row for r in out.rows))
+
+    def test_homogeneous_starvation_waiting_prefill_eventually_scheduled(self):
+        """Homogeneous: waiting prefill scheduled after decode-yield cap."""
+        self._enable_homogeneous()
+        self.scheduler.max_waiting_yields = 2
+
+        decode = _req("decode", 512, chunk_size=512)
+        decode.is_prefill = False
+        decode.generated_token_ids = [1]
+        _prime_kv(self.scheduler, decode)
+        self.scheduler.running_queue.sync_q.put(decode)
+
+        self.scheduler.add_request(_req("prefill", 4096, chunk_size=4096))
+
+        modes = []
+        for _ in range(4):
+            out = self.scheduler.schedule()
+            if out is None:
+                break
+            modes.append(out.scheduling_mode)
+            for row in out.rows:
+                if row.is_prefill_row:
+                    self.scheduler.complete_requests([row.request])
+                else:
+                    row.request.generated_token_ids.append(2)
+                    self.scheduler.requeue_running(row.request)
+
+        self.assertIn("PREFILL", modes)
 
     def test_dry_run_one_decode_one_prefill_shape(self):
         """Schedule-only: 1 decode + 1 prefill metadata shape."""
