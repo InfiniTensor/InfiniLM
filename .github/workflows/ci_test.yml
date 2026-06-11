@@ -5,6 +5,12 @@ on:
     branches: ["main"]
     types: [opened, reopened]   # 只在 PR 创建/重新打开时自动跑
   workflow_dispatch:            # 支持在 Actions 页手动重跑
+    inputs:
+      infinicore_branch:
+        description: "InfiniCore Branch Name"
+        required: false
+        default: "main"
+        type: string
 
 jobs:
   ci:
@@ -12,4 +18,5 @@ jobs:
     with:
       config_path: .github/ci_config.yaml
       ci_ref: infiniCore_ci
+      infinicore_branch: ${{ github.event.inputs.infinicore_branch || 'main' }}
     secrets: inherit

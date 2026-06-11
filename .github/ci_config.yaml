@@ -14,7 +14,7 @@ platforms:
         CUDA_ARCH: sm_80,sm_86,sm_89,sm_90
         APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
         PIP_INDEX_URL: https://pypi.org/simple
-        InfiniCore_BRANCH: main
+        InfiniCore_BRANCH: __Branch_Name__
     docker_args:
       - "--user=root"
       - "--network=host"
@@ -80,7 +80,7 @@ platforms:
         BASE_IMAGE: cr.metax-tech.com/public-ai-release/maca/vllm-metax:0.10.2-maca.ai3.2.1.7-torch2.6-py310-ubuntu22.04-amd64
         APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
         PIP_INDEX_URL: https://pypi.org/simple
-        InfiniCore_BRANCH: main
+        InfiniCore_BRANCH: __Branch_Name__
     docker_args:
       - "--user=root"
       - "--network=host"
@@ -118,7 +118,7 @@ platforms:
         BASE_IMAGE: sh-harbor.mthreads.com/mcctest/vllm_musa:20251112_hygon
         APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
         PIP_INDEX_URL: https://pypi.org/simple
-        InfiniCore_BRANCH: main
+        InfiniCore_BRANCH: __Branch_Name__
     docker_args:
       - "--user=root"
       - "--network=host"
@@ -186,7 +186,7 @@ platforms:
         BASE_IMAGE: pepe_working:latest
         APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
         PIP_INDEX_URL: https://pypi.org/simple
-        InfiniCore_BRANCH: main
+        InfiniCore_BRANCH: __Branch_Name__
     docker_args:
       - "--user=root"
       - "--network=host"
@@ -285,7 +285,7 @@ platforms:
         BASE_IMAGE: image.sourcefind.cn:5000/dcu/admin/base/pytorch:2.4.1-ubuntu22.04-dtk25.04.1-py3.10
         APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
         PIP_INDEX_URL: https://pypi.org/simple
-        InfiniCore_BRANCH: main
+        InfiniCore_BRANCH: __Branch_Name__
     docker_args:
       - "--user=root"
       - "--network=host"
