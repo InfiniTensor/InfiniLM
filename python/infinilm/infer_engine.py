@@ -30,6 +30,7 @@ def read_hf_config(model_path):
         )
     return config_dict
 
+
 # config.json (required) defines model architecture, while generation_config.json
 # (optional) defines generation behavior. They are kept as separate readers
 # because: 1) config.json must exist and requires model_type validation,
@@ -42,6 +43,7 @@ def read_hf_generation_config(model_path):
         with open(gen_config_path, "r") as f:
             return json.load(f)
     return {}
+
 
 @dataclass
 class GenerationConfig:
@@ -244,9 +246,10 @@ class InferEngine(_infinilm.InferEngine):
             ) // paged_block_size
 
             block_tables_list = [
-                range(i * max_blocks_per_batch, (i + 1) * max_blocks_per_batch)
+                list(range(i * max_blocks_per_batch, (i + 1) * max_blocks_per_batch))
                 for i in range(batch_size)
             ]
+
             block_tables = infinicore.from_list(
                 block_tables_list,
                 dtype=infinicore.int32,
@@ -375,10 +378,14 @@ class InferEngine(_infinilm.InferEngine):
         super().reset_cache(cache_config)
 
     def state_dict_keyname(self):
-        return sorted({name for state_dict in super().state_dict() for name in state_dict.keys()})
+        return sorted(
+            {name for state_dict in super().state_dict() for name in state_dict.keys()}
+        )
 
     def load_state_dict(self, state_dict, strict=None):
-        super().load_params({name: param._underlying for name, param in state_dict.items()})
+        super().load_params(
+            {name: param._underlying for name, param in state_dict.items()}
+        )
 
     def process_weights_after_loading(self):
         super().process_weights_after_loading()
