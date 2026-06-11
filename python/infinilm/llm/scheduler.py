@@ -4,6 +4,7 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 
 import os
 import queue
+import time
 import janus
 import logging
 from dataclasses import dataclass
@@ -21,6 +22,14 @@ logger = logging.getLogger(__name__)
 
 # Piecewise CG power-ladder cap (matches piecewise_bucket_policy.hpp).
 _PACK_BUCKET_CAP = 8192
+
+
+def _hang_trace_enabled() -> bool:
+    return os.environ.get("INFINI_HANG_TRACE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 
 def _padded_bucket(total_q: int) -> int:
@@ -153,6 +162,56 @@ class Scheduler:
 
         self._waiting_yields_in_a_row: int = 0
         self.max_waiting_yields: int = max_waiting_yields
+        self._hang_trace_last_log_mono: float = 0.0
+
+    def _hang_trace_should_log(self, interval_sec: float = 5.0) -> bool:
+        if not _hang_trace_enabled():
+            return False
+        now = time.monotonic()
+        if now - self._hang_trace_last_log_mono < interval_sec:
+            return False
+        self._hang_trace_last_log_mono = now
+        return True
+
+    def _maybe_log_schedule_empty(self) -> None:
+        waiting = self.waiting_queue.sync_q.qsize()
+        running = self.running_queue.sync_q.qsize()
+        chunking = self.chunking_queue.sync_q.qsize()
+        if waiting == 0 and running == 0 and chunking == 0:
+            return
+        if not self._hang_trace_should_log():
+            return
+        cache_stats = self.get_cache_stats()
+        logger.info(
+            "hang_trace: schedule_empty waiting=%d running=%d chunking=%d "
+            "free_blocks=%d used_blocks=%d",
+            waiting,
+            running,
+            chunking,
+            cache_stats["num_free_blocks"],
+            cache_stats["num_used_blocks"],
+        )
+
+    def _maybe_log_admission_reject(
+        self,
+        request: InferenceRequest,
+        total_required_blocks: int,
+        num_blocks_needed: int,
+    ) -> None:
+        if not self._hang_trace_should_log():
+            return
+        cache_stats = self.get_cache_stats()
+        logger.info(
+            "hang_trace: admission_reject req_id=%s req_blocks=%d total_needed=%d "
+            "usable_blocks=%d free_blocks=%d waiting=%d running=%d",
+            request.request_id[:16],
+            num_blocks_needed,
+            total_required_blocks,
+            self.cache_manager.get_total_usable_blocks(),
+            cache_stats["num_free_blocks"],
+            self.waiting_queue.sync_q.qsize(),
+            self.running_queue.sync_q.qsize(),
+        )
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
@@ -162,8 +221,12 @@ class Scheduler:
     def schedule(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute."""
         if v1_scheduler_enabled():
-            return self._schedule_v1()
-        return self._schedule_legacy()
+            out = self._schedule_v1()
+        else:
+            out = self._schedule_legacy()
+        if out is None:
+            self._maybe_log_schedule_empty()
+        return out
 
     def _schedule_legacy(self) -> Optional[SchedulerOutput]:
         if self._waiting_yields_in_a_row >= self.max_waiting_yields:
@@ -675,7 +738,12 @@ class Scheduler:
         num_blocks_needed = (total_length + self.block_size - 1) // self.block_size
         total_required_blocks += num_blocks_needed
 
-        return total_required_blocks <= self.cache_manager.get_total_usable_blocks()
+        accepted = total_required_blocks <= self.cache_manager.get_total_usable_blocks()
+        if not accepted and self.waiting_queue.sync_q.qsize() > 0:
+            self._maybe_log_admission_reject(
+                request, total_required_blocks, num_blocks_needed
+            )
+        return accepted
 
     def get_cache_stats(self) -> dict:
         """Get cache statistics."""

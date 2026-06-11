@@ -1,6 +1,7 @@
 #include "piecewise_prefill_compiler.hpp"
 
 #include "../../global_state/global_state.hpp"
+#include "../../global_state/hang_trace.hpp"
 #include "../compiled_prefill_flags.hpp"
 #include "../../utils.hpp"
 #include "piecewise_bucket_policy.hpp"
@@ -302,7 +303,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         piecewise.active_layer = layer;
         piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
 
-        barrier_->wait();
+        barrier_->wait("piecewise_capture_pre_attn");
         infinicore::context::startGraphRecording();
         model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
         graphs.pre_attn[layer] = infinicore::context::stopGraphRecording();
@@ -311,19 +312,19 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         model_->native_piecewise_eager_attn_layer(layer, graphs.input);
 
         piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
-        barrier_->wait();
+        barrier_->wait("piecewise_capture_post_attn");
         infinicore::context::startGraphRecording();
         model_->native_piecewise_post_attn_graph_layer(layer, graphs.input, hidden, residual);
         graphs.post_attn[layer] = infinicore::context::stopGraphRecording();
-        barrier_->wait();
+        barrier_->wait("piecewise_capture_post_attn_sync");
     }
 
     piecewise.phase = global_state::PiecewiseCapturePhase::LmHead;
-    barrier_->wait();
+    barrier_->wait("piecewise_capture_lm_head");
     infinicore::context::startGraphRecording();
     model_->native_piecewise_lm_head(graphs.input, hidden, residual, graphs.logits_holder);
     graphs.lm_head = infinicore::context::stopGraphRecording();
-    barrier_->wait();
+    barrier_->wait("piecewise_capture_lm_head_sync");
 
     piecewise.phase = global_state::PiecewiseCapturePhase::None;
     graphs.hidden_states = piecewise.hidden_states;
@@ -503,21 +504,21 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     const double t_layers0 = profile ? monotonic_ms() : 0.0;
     for (size_t layer = 0; layer < num_layers; ++layer) {
         const double t_layer0 = profile ? monotonic_ms() : 0.0;
-        barrier_->wait();
+        barrier_->wait("piecewise_replay_pre_attn");
         bucket_graphs.pre_attn[layer]->run();
         ++segment_replays_;
         const double t_pre_attn = profile ? monotonic_ms() : 0.0;
         piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
         model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
         const double t_eager_attn = profile ? monotonic_ms() : 0.0;
-        barrier_->wait();
+        barrier_->wait("piecewise_replay_post_attn");
         bucket_graphs.post_attn[layer]->run();
         ++segment_replays_;
-        barrier_->wait();
+        barrier_->wait("piecewise_replay_post_attn_sync");
         model_->native_piecewise_post_attn_allreduce_layer(
             layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
         if (!piecewise_trim_barriers()) {
-            barrier_->wait();
+            barrier_->wait("piecewise_replay_post_allreduce");
         }
         if (profile) {
             spdlog::info(
@@ -535,10 +536,10 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     }
     if (InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         const double t_lm0 = profile ? monotonic_ms() : 0.0;
-        barrier_->wait();
+        barrier_->wait("piecewise_replay_lm_head");
         bucket_graphs.lm_head->run();
         ++segment_replays_;
-        barrier_->wait();
+        barrier_->wait("piecewise_replay_lm_head_sync");
         if (profile) {
             spdlog::info(
                 "rank_worker_profile: piecewise lm_head_ms={:.3f}",

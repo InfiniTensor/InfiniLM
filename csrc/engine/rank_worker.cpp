@@ -1,6 +1,7 @@
 #include "rank_worker.hpp"
 
 #include "../global_state/ar_profile.hpp"
+#include "../global_state/hang_trace.hpp"
 #include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
@@ -24,13 +25,13 @@ bool rank_worker_profile_enabled() {
     return cached == 1;
 }
 
-/// Skip redundant pre-graph RankBarrier on decode replay (default on).
-/// Opt out for bisect: INFINI_DECODE_KEEP_PRE_BARRIER=1
+/// Keep pre-graph RankBarrier on decode replay (default on for TP rank sync).
+/// Opt out for perf bisect: INFINI_DECODE_SKIP_PRE_BARRIER=1
 bool decode_skip_pre_barrier() {
     static int cached = -1;
     if (cached < 0) {
-        const char *raw = std::getenv("INFINI_DECODE_KEEP_PRE_BARRIER");
-        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 0 : 1;
+        const char *raw = std::getenv("INFINI_DECODE_SKIP_PRE_BARRIER");
+        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
     }
     return cached == 1;
 }
@@ -422,6 +423,13 @@ void RankWorker::thread_loop() {
                 cv_.notify_all();
             } else if (local_cmd == Command::RUN) {
                 try {
+                    // TP ranks can begin processing RUN ms apart (thread scheduling);
+                    // sync before any compiler/graph work so collectives stay aligned.
+                    if (rank_info_.tp_size > 1) {
+                        barrier_->wait("run_job_tp_sync", rank_info_.tp_rank);
+                    }
+                    global_state::hang_trace::ScopedBracket run_job_bracket(
+                        "run_job", rank_info_.tp_rank);
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
 
@@ -430,24 +438,46 @@ void RankWorker::thread_loop() {
                         bool is_mixed = false;
                         bool skip_sampling = false;
                         bool piecewise_ran = false;
+                        size_t n_req = 1;
+                        size_t batch_size = 0;
+                        const char *mode_str = "unknown";
                         if (local_args.scheduling_mode.has_value()) {
                             switch (*local_args.scheduling_mode) {
                             case SchedulingMode::PREFILL:
                                 is_prefill = true;
+                                mode_str = "PREFILL";
                                 break;
                             case SchedulingMode::DECODE:
                                 is_prefill = false;
+                                mode_str = "DECODE";
                                 break;
                             case SchedulingMode::MIXED:
                                 is_mixed = true;
                                 is_prefill = false;
+                                mode_str = "MIXED";
                                 break;
                             }
                         } else if (local_args.block_tables.has_value()
                                    && local_args.input_ids.has_value()) {
-                            const size_t batch_size = local_args.block_tables.value()->size(0);
+                            const size_t bs = local_args.block_tables.value()->size(0);
+                            batch_size = bs;
                             const size_t input_width = local_args.input_ids.value()->size(1);
-                            is_prefill = batch_size != input_width;
+                            is_prefill = bs != input_width;
+                            mode_str = is_prefill ? "PREFILL" : "DECODE";
+                        }
+                        if (local_args.block_tables.has_value()) {
+                            batch_size = local_args.block_tables.value()->size(0);
+                        }
+                        if (local_args.input_offsets.has_value()) {
+                            n_req = local_args.input_offsets.value()->size(0) - 1;
+                        }
+                        if (global_state::hang_trace::enabled() && rank_info_.tp_rank == 0) {
+                            spdlog::info(
+                                "hang_trace: run_job_begin mode={} n_req={} batch_size={} is_mixed={}",
+                                mode_str,
+                                n_req,
+                                batch_size,
+                                is_mixed);
                         }
                         auto model_input = local_args.to_model_input(infinicore::Device::cpu());
                         if (compiler_ != nullptr && !is_mixed) {
@@ -456,6 +486,8 @@ void RankWorker::thread_loop() {
                                 && general_compiler->native_piecewise_enabled()) {
                                 const bool profile = rank_worker_profile_enabled();
                                 const double t_pw0 = profile ? monotonic_ms() : 0.0;
+                                global_state::hang_trace::ScopedBracket pw_bracket(
+                                    "native_piecewise", rank_info_.tp_rank);
                                 if (profile) {
                                     size_t n_req = 1;
                                     size_t input_width = 0;
@@ -518,22 +550,28 @@ void RankWorker::thread_loop() {
                                     double post_sync_ms = 0.0;
                                     if (rank_info_.tp_size > 1 && !decode_skip_pre_barrier()) {
                                         const double t_barrier0 = ar_profile ? monotonic_ms() : 0.0;
-                                        barrier_->wait();
+                                        barrier_->wait("decode_pre_barrier", rank_info_.tp_rank);
                                         if (ar_profile) {
                                             pre_barrier_ms = monotonic_ms() - t_barrier0;
                                             global_state::ar_profile::counters().decode_pre_barrier_ms += pre_barrier_ms;
                                         }
                                     }
-                                    const double t_graph0 = ar_profile ? monotonic_ms() : 0.0;
-                                    graph->run();
-                                    if (ar_profile) {
-                                        graph_run_ms = monotonic_ms() - t_graph0;
-                                        global_state::ar_profile::counters().decode_graph_run_ms += graph_run_ms;
+                                    {
+                                        global_state::hang_trace::ScopedBracket graph_bracket(
+                                            "decode_graph_run", rank_info_.tp_rank);
+                                        const double t_graph0 = ar_profile ? monotonic_ms() : 0.0;
+                                        graph->run();
+                                        if (ar_profile) {
+                                            graph_run_ms = monotonic_ms() - t_graph0;
+                                            global_state::ar_profile::counters().decode_graph_run_ms += graph_run_ms;
+                                        }
                                     }
                                     global_state::run_deferred_allreduces(
                                         global_state::get_forward_context().post_graph_allreduces);
                                     global_state::get_forward_context().post_graph_allreduces.clear();
                                     if (rank_info_.tp_size > 1) {
+                                        global_state::hang_trace::ScopedBracket sync_bracket(
+                                            "decode_post_sync", rank_info_.tp_rank);
                                         const double t_sync0 = ar_profile ? monotonic_ms() : 0.0;
                                         infinicore::context::syncStream();
                                         if (ar_profile) {
@@ -581,6 +619,8 @@ void RankWorker::thread_loop() {
                         }
                         // Fall back to eager mode
                         if (!logits && !piecewise_ran) {
+                            global_state::hang_trace::ScopedBracket eager_bracket(
+                                "eager_forward", rank_info_.tp_rank);
                             auto model_args = local_args.to_model_input(rank_info_.device);
                             logits = model_->forward(model_args).logits;
                         }

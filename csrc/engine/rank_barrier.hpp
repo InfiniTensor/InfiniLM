@@ -8,7 +8,7 @@ class RankBarrier {
 public:
     explicit RankBarrier(size_t nranks);
 
-    void wait();
+    void wait(const char *label = nullptr, int tp_rank = -1);
 
 private:
     const size_t thread_count_;

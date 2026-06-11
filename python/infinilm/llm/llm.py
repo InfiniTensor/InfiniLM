@@ -45,6 +45,14 @@ def _step_profile_enabled() -> bool:
     )
 
 
+def _hang_trace_enabled() -> bool:
+    return os.environ.get("INFINI_HANG_TRACE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 @dataclass
 class EngineConfig:
     """Configuration for LLM Engine.
@@ -229,6 +237,7 @@ class LLMEngine:
 
         ensure_hybrid_prefill_gpu_context()
         profile = _step_profile_enabled()
+        hang_trace = _hang_trace_enabled()
         t_step0 = time.perf_counter() if profile else 0.0
         # Schedule requests
         scheduler_output = self.scheduler.schedule()
@@ -287,24 +296,50 @@ class LLMEngine:
             if hybrid_tokens is not None:
                 sampled_tokens_list = hybrid_tokens
             else:
-                t_fwd0 = time.perf_counter() if profile else 0.0
+                t_fwd0 = time.perf_counter() if (profile or hang_trace) else 0.0
                 if profile:
                     logger.info("step_profile: forward begin")
+                if hang_trace:
+                    logger.info(
+                        "hang_trace: forward_begin mode=%s n_req=%d",
+                        scheduler_output.scheduling_mode
+                        if hasattr(scheduler_output, "scheduling_mode")
+                        else ("prefill" if scheduler_output.is_prefill else "decode"),
+                        len(scheduler_output.scheduled_requests),
+                    )
                 sampled_tokens = self.model_engine.forward(**cpp_model_input)
                 if profile:
                     logger.info(
                         "step_profile: forward end ms=%.3f",
                         (time.perf_counter() - t_fwd0) * 1000.0,
                     )
+                if hang_trace:
+                    logger.info(
+                        "hang_trace: forward_end ms=%.3f",
+                        (time.perf_counter() - t_fwd0) * 1000.0,
+                    )
                 sampled_tokens_list = sampled_tokens.to_numpy().tolist()
         else:
-            t_fwd0 = time.perf_counter() if profile else 0.0
+            t_fwd0 = time.perf_counter() if (profile or hang_trace) else 0.0
             if profile:
                 logger.info("step_profile: forward begin")
+            if hang_trace:
+                logger.info(
+                    "hang_trace: forward_begin mode=%s n_req=%d",
+                    scheduler_output.scheduling_mode
+                    if hasattr(scheduler_output, "scheduling_mode")
+                    else ("prefill" if scheduler_output.is_prefill else "decode"),
+                    len(scheduler_output.scheduled_requests),
+                )
             sampled_tokens = self.model_engine.forward(**cpp_model_input)
             if profile:
                 logger.info(
                     "step_profile: forward end ms=%.3f",
+                    (time.perf_counter() - t_fwd0) * 1000.0,
+                )
+            if hang_trace:
+                logger.info(
+                    "hang_trace: forward_end ms=%.3f",
                     (time.perf_counter() - t_fwd0) * 1000.0,
                 )
             sampled_tokens_list = sampled_tokens.to_numpy().tolist()
@@ -991,6 +1026,9 @@ class AsyncLLMEngine:
         self._serving_capture_ready = threading.Event()
         self._serving_capture_error: Optional[BaseException] = None
         self._deferred_tokenize_queue: queue.Queue[InferenceRequest] = queue.Queue()
+        self._hang_trace_forward_in_progress = False
+        self._hang_trace_last_step_end = time.monotonic()
+        self._hang_trace_last_idle_log = 0.0
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
@@ -1155,7 +1193,36 @@ class AsyncLLMEngine:
 
                 ensure_hybrid_prefill_gpu_context()
                 self._flush_deferred_tokenize()
+                if _hang_trace_enabled():
+                    now = time.monotonic()
+                    if now - self._hang_trace_last_idle_log >= 30.0:
+                        sched = self.engine.scheduler
+                        waiting = sched.waiting_queue.sync_q.qsize()
+                        running = sched.running_queue.sync_q.qsize()
+                        chunking = sched.chunking_queue.sync_q.qsize()
+                        cache_stats = sched.get_cache_stats()
+                        idle_sec = now - self._hang_trace_last_step_end
+                        if (
+                            waiting > 0
+                            or running > 0
+                            or chunking > 0
+                            or self._hang_trace_forward_in_progress
+                        ):
+                            logger.info(
+                                "hang_trace: idle waiting=%d running=%d chunking=%d "
+                                "free_blocks=%d forward_in_progress=%s idle_sec=%.1f",
+                                waiting,
+                                running,
+                                chunking,
+                                cache_stats["num_free_blocks"],
+                                self._hang_trace_forward_in_progress,
+                                idle_sec,
+                            )
+                            self._hang_trace_last_idle_log = now
+                self._hang_trace_forward_in_progress = True
                 requests, pending = self.engine.step()
+                self._hang_trace_forward_in_progress = False
+                self._hang_trace_last_step_end = time.monotonic()
                 if not requests:
                     time.sleep(0.01)
                 else:
@@ -1163,6 +1230,7 @@ class AsyncLLMEngine:
                         self._loop.call_soon_threadsafe(self._batch_put, pending)
                     time.sleep(0.0005)
             except Exception as e:
+                self._hang_trace_forward_in_progress = False
                 logger.error(f"Error in step loop: {e}", exc_info=True)
                 self._healthy = False
                 self._running = False

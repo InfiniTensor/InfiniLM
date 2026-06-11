@@ -6,8 +6,8 @@ Classification (for PR review):
     ``prefill_native_cg_enabled``, ``prefill_chunked_enabled``, ``prefill_chunk_size``,
     ``prefill_compile_enabled``, ``prefill_share_weights_enabled``, ``prefill_cudagraph_enabled``,
     ``compile_max_seq_len``, ``compile_buckets`` / ``compile_warmup_seq_lens``.
-  C++ code defaults (no env): decode pre-barrier skip, piecewise post-AR barrier trim
-    (opt-out: INFINI_DECODE_KEEP_PRE_BARRIER, INFINI_PIECEWISE_KEEP_BARRIERS).
+  C++ code defaults (no env): decode pre-barrier on, piecewise post-AR barrier trim
+    (opt-out: INFINI_DECODE_SKIP_PRE_BARRIER, INFINI_PIECEWISE_KEEP_BARRIERS).
   DEBUG — diagnostics / smoke baselines only:
     ``prefill_cg_debug_ptrs_enabled``, ``prefill_cg_baseline_none``,
     ``return_logits_enabled``, ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``).
