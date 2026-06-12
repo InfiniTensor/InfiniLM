@@ -1,7 +1,5 @@
 import argparse
 import json
-import os
-import sys
 import warnings
 
 
@@ -277,7 +275,7 @@ class BaseConfig:
             "nvidia": "cuda",
             "qy": "cuda",
             "cambricon": "mlu",
-            "ascend": "ascend",
+            "ascend": "npu",
             "metax": "cuda",
             "moore": "musa",
             "iluvatar": "cuda",
