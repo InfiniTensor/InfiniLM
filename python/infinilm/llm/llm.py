@@ -113,7 +113,7 @@ class LLMEngine:
             logger.info(
                 f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
             )
-        elif config.cache_type == "paged":
+        elif config.cache_type in ["paged", "flash-prefill", "flash-decode"]:
             cache_config = PagedKVCacheConfig(
                 num_blocks=config.num_blocks, block_size=config.block_size
             )

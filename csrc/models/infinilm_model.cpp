@@ -62,6 +62,27 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
     case backends::AttentionBackend::FLASH_ATTN: {
         ;
     }
+    case backends::AttentionBackend::FLASH_PREFILL:
+    case backends::AttentionBackend::FLASH_DECODE: {
+        auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+        if (nullptr == paged_kv_cache_config) {
+            throw std::runtime_error(
+                "infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid paged kv cache config type");
+        }
+        kv_cache_vec.reserve(num_hidden_layers);
+
+        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+            auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
+                head_dim,
+                head_dim,
+                num_key_value_heads,
+                num_key_value_heads,
+                dtype,
+                *paged_kv_cache_config);
+            kv_cache_vec.push_back(kv_cache);
+        }
+        break;
+    }
     case backends::AttentionBackend::PAGED_ATTN: {
         auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (nullptr == paged_kv_cache_config) {

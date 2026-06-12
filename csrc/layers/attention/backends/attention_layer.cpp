@@ -20,6 +20,12 @@ AttentionLayer::AttentionLayer(size_t num_heads,
     case ::infinilm::backends::AttentionBackend::FLASH_ATTN:
         attn_backend_impl_ = std::make_shared<backends::FlashAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
         break;
+    case ::infinilm::backends::AttentionBackend::FLASH_PREFILL:
+        attn_backend_impl_ = std::make_shared<backends::FlashPrefillAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        break;
+    case ::infinilm::backends::AttentionBackend::FLASH_DECODE:
+        attn_backend_impl_ = std::make_shared<backends::FlashDecodeAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        break;
     default:
         throw std::runtime_error("infinilm::layers::attention::AttentionLayer: unsupported attention backend");
     }
