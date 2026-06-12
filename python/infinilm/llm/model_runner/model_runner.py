@@ -9,7 +9,7 @@ from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.llm.engine_config import EngineConfig
+from infinilm.config.engine_config import EngineConfig
 from infinilm.kv_connector import (
     KVConnectorRole,
     KVConnectorFactory,
