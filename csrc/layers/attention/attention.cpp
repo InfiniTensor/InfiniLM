@@ -132,19 +132,25 @@ void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_id
     infinicore::Tensor pos_ids_for_rope = position_ids;
     if (pos_shape.size() == 2) {
         auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
-        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
+        pos_ids_for_rope = pos_narrowed->contiguous()->view({pos_shape[1]});
     } else if (pos_shape.size() == 1) {
-        pos_ids_for_rope = position_ids;
+        pos_ids_for_rope = position_ids->contiguous();
     } else {
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
     if (pos_ids_for_rope->size(0) > valid_len) {
-        pos_ids_for_rope = pos_ids_for_rope->narrow({{0, 0, valid_len}});
+        pos_ids_for_rope = pos_ids_for_rope->narrow({{0, 0, valid_len}})->contiguous();
     }
 
     auto q_rope = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
     auto k_rope = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    if (!q_rope->is_contiguous()) {
+        q_rope = q_rope->contiguous();
+    }
+    if (!k_rope->is_contiguous()) {
+        k_rope = k_rope->contiguous();
+    }
     rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
     rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
 }
@@ -158,6 +164,15 @@ void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
     auto q = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
     auto k = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
     auto v = staging.v_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    if (!q->is_contiguous()) {
+        q = q->contiguous();
+    }
+    if (!k->is_contiguous()) {
+        k = k->contiguous();
+    }
+    if (!v->is_contiguous()) {
+        v = v->contiguous();
+    }
 
     auto attn_output = attn_->forward(q, k, v);
     if (valid_len < seq_len) {
@@ -230,14 +245,23 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     infinicore::Tensor pos_ids_for_rope = position_ids;
     if (pos_shape.size() == 2) {
         auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
-        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
+        pos_ids_for_rope = pos_narrowed->contiguous()->view({pos_shape[1]});
     } else if (pos_shape.size() == 1) {
-        pos_ids_for_rope = position_ids;
+        pos_ids_for_rope = position_ids->contiguous();
     } else {
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
-    // 4. Apply RoPE to QK
+    // 4. Apply RoPE to QK (HPCC flash-attn / paged_caching require contiguous Q/K/V)
+    if (!q_reshaped->is_contiguous()) {
+        q_reshaped = q_reshaped->contiguous();
+    }
+    if (!k_reshaped->is_contiguous()) {
+        k_reshaped = k_reshaped->contiguous();
+    }
+    if (!v_reshaped->is_contiguous()) {
+        v_reshaped = v_reshaped->contiguous();
+    }
     rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
 

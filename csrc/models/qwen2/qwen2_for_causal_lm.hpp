@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../layers/causal_lm_templates/piecewise_text_causal_lm.hpp"
 #include "../../layers/common_modules.hpp"
 #include <memory>
 
@@ -13,7 +14,7 @@ using Qwen2DecoderLayer = infinilm::layers::causal_lm_templates::TextDecoderLaye
 
 using Qwen2Model = infinilm::layers::causal_lm_templates::TextModel<Qwen2DecoderLayer>;
 
-using Qwen2ForCausalLM = infinilm::layers::causal_lm_templates::TextCausalLM<Qwen2Model>;
+using Qwen2ForCausalLM = infinilm::layers::causal_lm_templates::PiecewiseTextCausalLM<Qwen2Model>;
 
 } // namespace infinilm::models::qwen2
 
