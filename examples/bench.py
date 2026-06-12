@@ -146,7 +146,12 @@ def get_test_cases(
     return case_dict
 
 
-with open("examples/bench_prompt.md", "r") as f:
+prompt_path = (
+    "examples/bench_prompt.md"
+    if os.path.isfile("examples/bench_prompt.md")
+    else "InfiniLM/examples/bench_prompt.md"
+)
+with open(prompt_path, "r") as f:
     prompt = f.read()
 
 
