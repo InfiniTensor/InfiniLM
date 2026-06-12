@@ -15,7 +15,6 @@ from infinilm.llm.llm import (
     LLM,
     LLMEngine,
     AsyncLLMEngine,
-    EngineConfig,
 )
 from infinilm.llm.scheduler import Scheduler, SchedulerOutput
 from infinilm.llm.static_scheduler import StaticScheduler, StaticSchedulerOutput
@@ -26,7 +25,6 @@ __all__ = [
     "LLM",
     "AsyncLLMEngine",
     "LLMEngine",
-    "EngineConfig",
     # Parameters
     "SamplingParams",
     # Request and Output

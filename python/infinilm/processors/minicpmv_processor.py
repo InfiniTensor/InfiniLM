@@ -131,7 +131,7 @@ class MiniCPMVProcessor(InfinilmProcessor):
         current_offset = 0
 
         for req_id, req in enumerate(scheduler_output.scheduled_requests):
-            num_cached = req.num_cached_tokens
+            num_cached = req.num_local_cached_tokens
             if scheduler_output.is_prefill:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()
@@ -231,7 +231,11 @@ class MiniCPMVProcessor(InfinilmProcessor):
             else:
                 # Decode phase
                 seq_len = req.get_total_length()
-                last_token = req.generated_token_ids[-1]
+                last_token = (
+                    req.generated_token_ids[-1]
+                    if req.generated_token_ids
+                    else req.prompt_token_ids[-1]
+                )
                 tokens.append(last_token)
                 seq_lens.append(seq_len)
 

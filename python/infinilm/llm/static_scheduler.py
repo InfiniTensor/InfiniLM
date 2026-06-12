@@ -33,6 +33,7 @@ class StaticSchedulerOutput:
         self.num_requests = len(scheduled_requests)
         self.is_prefill = is_prefill
         self.prefix_hit_len = prefix_hit_len
+        self.kv_connector_metadata = None
 
 
 class StaticScheduler:
