@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../../layers/common_modules.hpp"
 #include "../llama/llama_for_causal_lm.hpp"
 #include <memory>
 

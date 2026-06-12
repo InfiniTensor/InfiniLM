@@ -3,7 +3,6 @@
 #include "../backends/attention_backends.hpp"
 #include "../cache/cache.hpp"
 #include "../config/model_config.hpp"
-#include "../layers/linear/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 

@@ -7,9 +7,6 @@ namespace infinilm::config {
 std::shared_ptr<infinilm::config::ModelConfig> ConfigFactory::createConfig(const std::string &config_str) {
     const nlohmann::json config_json = nlohmann::json::parse(config_str);
     auto model_config = std::make_shared<infinilm::config::ModelConfig>(config_json);
-    if (nullptr == model_config) {
-        throw std::runtime_error("infinilm::config::ConfigFactory::createConfig: model_config is not initialized");
-    }
 
     const std::string model_type = model_config->get<std::string>("model_type");
     const auto &config_map = models::get_model_config_map();
@@ -17,11 +14,7 @@ std::shared_ptr<infinilm::config::ModelConfig> ConfigFactory::createConfig(const
     if (it != config_map.end()) {
         it->second(model_config);
     } else {
-        std::vector<std::string> classic_models = {"llama", "qwen2", "minicpm", "fm9g", "fm9g7b"};
-        const std::string &model_type = model_config->get<std::string>("model_type");
-        if (std::find(classic_models.begin(), classic_models.end(), model_type) == classic_models.end()) {
-            throw std::invalid_argument("infinilm::config::ConfigFactory::createConfig: Unsupported model config type: " + model_type);
-        }
+        throw std::invalid_argument("infinilm::config::ConfigFactory::createConfig: Unsupported model config type: " + model_type);
     }
 
     return model_config;

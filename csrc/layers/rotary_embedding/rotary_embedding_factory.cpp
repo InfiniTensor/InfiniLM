@@ -1,6 +1,5 @@
 #include "rotary_embedding_factory.hpp"
 #include "../../config/model_config.hpp"
-#include <stdexcept>
 
 namespace infinilm::layers::rotary_embedding {
 
