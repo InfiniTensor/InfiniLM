@@ -1,5 +1,6 @@
 import os
 import json
+import gc
 from typing import Dict, Union, Optional, List
 import time
 import torch
@@ -105,9 +106,85 @@ def load_state_dict(
             )
 
         for k in f.keys():
-            state_dict[k] = f.get_tensor(k).to(device=device)
+            state_dict[k] = f.get_tensor(k).to(device=device, dtype=dtype)
 
     return state_dict
+
+
+def iter_safetensors_tensors(
+    checkpoint_file: Union[str, os.PathLike],
+    dtype=torch.bfloat16,
+):
+    if not str(checkpoint_file).endswith(".safetensors"):
+        return
+
+    with safe_open(checkpoint_file, framework="pt", device="cpu") as f:
+        metadata = f.metadata()
+        if metadata is not None and metadata.get("format") not in [
+            "pt",
+            "tf",
+            "flax",
+            "mlx",
+        ]:
+            raise OSError(
+                f"The safetensors archive passed at {checkpoint_file} does not contain the valid metadata."
+            )
+
+        for k in f.keys():
+            yield k, f.get_tensor(k).to(dtype=dtype)
+
+
+def safetensors_has_key(file_list: List[str], key: str) -> bool:
+    for file_path in file_list:
+        with safe_open(file_path, framework="pt", device="cpu") as f:
+            if key in f.keys():
+                return True
+    return False
+
+
+def tensor_nbytes(tensor: torch.Tensor) -> int:
+    return tensor.numel() * tensor.element_size()
+
+
+def weight_load_verbose() -> bool:
+    return os.getenv("INFINILM_WEIGHT_LOAD_VERBOSE", "0") not in (
+        "",
+        "0",
+        "false",
+        "False",
+    )
+
+
+def describe_tensor_batch(tensors: Dict[str, torch.Tensor]) -> str:
+    total_bytes = sum(tensor_nbytes(tensor) for tensor in tensors.values())
+    entries = [
+        f"{name}{tuple(tensor.shape)}:{tensor_nbytes(tensor) / (1024**2):.1f}MiB"
+        for name, tensor in tensors.items()
+    ]
+    return f"{len(tensors)} tensors, {total_bytes / (1024**2):.1f}MiB, " + "; ".join(
+        entries
+    )
+
+
+def log_weight_batch(prefix: str, file_path: str, batch: Dict[str, torch.Tensor]):
+    if weight_load_verbose():
+        print(
+            f"{prefix} from {os.path.basename(file_path)}: {describe_tensor_batch(batch)}",
+            flush=True,
+        )
+
+
+def load_model_tensor_batch(
+    model: infinicore.nn.Module,
+    tensors: Dict[str, torch.Tensor],
+):
+    if not tensors:
+        return
+    model.load_state_dict(
+        {name: infinicore.from_torch(tensor) for name, tensor in tensors.items()},
+        strict=False,
+    )
+    infinicore.sync_device()
 
 
 def get_model_state_dict(
@@ -182,43 +259,113 @@ def load_model_state_dict_by_file(
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
 
-    file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
+    file_list = sorted(glob.glob(os.path.join(model_path, "*.safetensors")))
     if len(file_list) > 0:
+        has_lm_head_weight = safetensors_has_key(file_list, "lm_head.weight")
         for file_path in tqdm(file_list, desc="Processing files"):
             tqdm.write(f"Processing: {os.path.basename(file_path)}")
 
             # --------------------------------------------------------- #
             #          Load weights from *.safetensors file
             # --------------------------------------------------------- #
+            remapper = _WEIGHT_REMAPPER.get(model_type)
+            if remapper is None:
+                batch = {}
+                batch_nbytes = 0
+
+                def flush_batch():
+                    nonlocal batch, batch_nbytes
+                    if not batch:
+                        return
+                    log_weight_batch("Loading batch", file_path, batch)
+                    load_model_tensor_batch(model, batch)
+                    batch.clear()
+                    batch_nbytes = 0
+                    gc.collect()
+
+                for name, tensor in iter_safetensors_tensors(
+                    file_path, dtype=torch_dtype
+                ):
+                    already_loaded_keys.append(name)
+
+                    if name == "model.embed_tokens.weight":
+                        tensor_unscaled = tensor
+                        if scale_emb != 1.0:
+                            tensor = tensor_unscaled * float(scale_emb)
+
+                        tensor_bytes = tensor_nbytes(tensor)
+                        if batch and batch_nbytes + tensor_bytes > 512 * 1024 * 1024:
+                            flush_batch()
+                        batch[name] = tensor
+                        batch_nbytes += tensor_bytes
+
+                        if (
+                            "lm_head.weight" in model_keys
+                            and not has_lm_head_weight
+                            and "lm_head.weight" not in already_loaded_keys
+                        ):
+                            tied_tensor_bytes = tensor_nbytes(tensor_unscaled)
+                            if (
+                                batch
+                                and batch_nbytes + tied_tensor_bytes > 512 * 1024 * 1024
+                            ):
+                                flush_batch()
+                            batch["lm_head.weight"] = tensor_unscaled
+                            batch_nbytes += tied_tensor_bytes
+                            already_loaded_keys.append("lm_head.weight")
+                    else:
+                        tensor_bytes = tensor_nbytes(tensor)
+                        if batch and batch_nbytes + tensor_bytes > 512 * 1024 * 1024:
+                            flush_batch()
+                        batch[name] = tensor
+                        batch_nbytes += tensor_bytes
+
+                    if len(batch) >= 8 or batch_nbytes >= 512 * 1024 * 1024:
+                        flush_batch()
+
+                flush_batch()
+                continue
+
             model_param = load_state_dict(
                 file_path, device=torch_device, dtype=torch_dtype
             )
-
-            # Apply model-specific weight remapping
-            remapper = _WEIGHT_REMAPPER.get(model_type)
-            if remapper is not None:
-                model_param = remapper(model_param, config=model.hf_config)
-
-            already_loaded_keys.extend(model_param.keys())
+            model_param = remapper(model_param, config=model.hf_config)
 
             # --------------------------------------------------------- #
             #         Scale embed_tokens on torch side before converting
             # --------------------------------------------------------- #
-            if "model.embed_tokens.weight" in model_param:
-                embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
-                if scale_emb != 1.0:
-                    model_param["model.embed_tokens.weight"] = (
-                        embed_tokens_torch_unscaled * float(scale_emb)
-                    )
+            batch = {}
+            batch_nbytes = 0
+            for key, tensor in model_param.items():
+                already_loaded_keys.append(key)
 
-            # --------------------------------------------------------- #
-            #         model_param_infini references torch.Tensor
-            # --------------------------------------------------------- #
-            model_param_infini = {}
-            for key in model_param.keys():
-                model_param_infini[key] = infinicore.from_torch(model_param[key])
-            model.load_state_dict(model_param_infini, strict=False)
-            infinicore.sync_device()
+                if key == "model.embed_tokens.weight":
+                    embed_tokens_torch_unscaled = tensor
+                    if scale_emb != 1.0:
+                        tensor = embed_tokens_torch_unscaled * float(scale_emb)
+
+                tensor_bytes = tensor_nbytes(tensor)
+                if batch and batch_nbytes + tensor_bytes > 512 * 1024 * 1024:
+                    log_weight_batch("Loading remapped batch", file_path, batch)
+                    load_model_tensor_batch(model, batch)
+                    batch.clear()
+                    batch_nbytes = 0
+                    gc.collect()
+
+                batch[key] = tensor
+                batch_nbytes += tensor_bytes
+                if len(batch) >= 8 or batch_nbytes >= 512 * 1024 * 1024:
+                    log_weight_batch("Loading remapped batch", file_path, batch)
+                    load_model_tensor_batch(model, batch)
+                    batch.clear()
+                    batch_nbytes = 0
+                    gc.collect()
+
+            if batch:
+                log_weight_batch("Loading remapped batch", file_path, batch)
+            load_model_tensor_batch(model, batch)
+            del model_param
+            gc.collect()
         model.process_weights_after_loading()
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
@@ -332,9 +479,11 @@ def load_model_state_dict_by_tensor(
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 
+
 # ============================================================================
 # Common weight transformation utilities
 # ============================================================================
+
 
 def drop_keys(
     state_dict: Dict[str, torch.Tensor],
@@ -342,8 +491,7 @@ def drop_keys(
 ) -> Dict[str, torch.Tensor]:
     """Drop keys containing any of the given substrings."""
     return {
-        k: v for k, v in state_dict.items()
-        if not any(sub in k for sub in substrings)
+        k: v for k, v in state_dict.items() if not any(sub in k for sub in substrings)
     }
 
 
@@ -425,6 +573,7 @@ def split_fused_weight(
 
     return result
 
+
 def split_fused_weight_with_sizes(
     state_dict: Dict[str, torch.Tensor],
     fused_key: str,
@@ -464,6 +613,7 @@ def split_fused_weight_with_sizes(
             result[f"{base_key}.{name}.{suffix}"] = split_tensor
 
     return result
+
 
 # ============================================================================
 # Model-specific remap functions
@@ -511,17 +661,21 @@ def _remap_chatglm(state_dict, config=None):
     )
 
     # 4. Rename keys
-    state_dict = rename_keys(state_dict, {
-        "transformer.encoder.layers.": "model.layers.",
-        "transformer.embedding.word_embeddings": "model.embed_tokens",
-        "transformer.encoder.final_layernorm": "model.norm",
-        "transformer.output_layer": "lm_head",
-        "self_attention.": "self_attn.",
-        "self_attn.dense": "self_attn.o_proj",
-        "mlp.dense_4h_to_h": "mlp.down_proj",
-    })
+    state_dict = rename_keys(
+        state_dict,
+        {
+            "transformer.encoder.layers.": "model.layers.",
+            "transformer.embedding.word_embeddings": "model.embed_tokens",
+            "transformer.encoder.final_layernorm": "model.norm",
+            "transformer.output_layer": "lm_head",
+            "self_attention.": "self_attn.",
+            "self_attn.dense": "self_attn.o_proj",
+            "mlp.dense_4h_to_h": "mlp.down_proj",
+        },
+    )
 
     return state_dict
+
 
 def _is_baichuan2(config):
     """
@@ -534,6 +688,7 @@ def _is_baichuan2(config):
       - Baichuan2: vocab_size = 125696
     """
     return config.get("vocab_size") == 125696
+
 
 def _remap_baichuan(state_dict, config=None):
     """Split Baichuan fused W_pack into q_proj, k_proj, v_proj

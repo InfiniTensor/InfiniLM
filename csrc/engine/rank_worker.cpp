@@ -7,8 +7,38 @@
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <string>
 
 namespace infinilm::engine {
+
+namespace {
+
+infinicore::Tensor clone_tensor_for_weight_load(const infinicore::Tensor &tensor) {
+    auto cloned = infinicore::Tensor::empty(
+        tensor->shape(),
+        tensor->dtype(),
+        tensor->device(),
+        false);
+    cloned->copy_from(tensor);
+    return cloned;
+}
+
+std::unordered_map<std::string, infinicore::Tensor> clone_params_for_weight_load(
+    const std::unordered_map<std::string, infinicore::Tensor> &params,
+    bool clone_weights) {
+    if (!clone_weights) {
+        return params;
+    }
+
+    std::unordered_map<std::string, infinicore::Tensor> cloned_params;
+    cloned_params.reserve(params.size());
+    for (const auto &[name, tensor] : params) {
+        cloned_params.emplace(name, clone_tensor_for_weight_load(tensor));
+    }
+    return cloned_params;
+}
+
+} // namespace
 
 RankWorker::RankWorker(
     std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -91,19 +121,8 @@ void RankWorker::load_param(const std::string &name,
 //------------------------------------------------------
 // load_params -- synchronous batch load
 //------------------------------------------------------
-void RankWorker::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (should_exit_) {
-            throw std::runtime_error("RankWorker is closing; cannot load_params");
-        }
-
-        pending_params_ = params;
-        job_cmd_ = Command::LOAD_BATCH;
-        has_job_ = true;
-        job_done_ = false;
-    }
-    cv_.notify_all();
+void RankWorker::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params, bool clone_weights) {
+    load_params_async(params, clone_weights);
 
     std::unique_lock<std::mutex> lk(mutex_);
     cv_.wait(lk, [&] { return job_done_ || should_exit_; });
@@ -111,6 +130,28 @@ void RankWorker::load_params(const std::unordered_map<std::string, infinicore::T
     if (should_exit_) {
         throw std::runtime_error("RankWorker stopped while loading parameters");
     }
+}
+
+//------------------------------------------------------
+// load_params_async -- submit batch load without waiting
+//------------------------------------------------------
+void RankWorker::load_params_async(const std::unordered_map<std::string, infinicore::Tensor> &params, bool clone_weights) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (should_exit_) {
+            throw std::runtime_error("RankWorker is closing; cannot load_params_async");
+        }
+        if (has_job_ && !job_done_) {
+            throw std::runtime_error("RankWorker already has a pending job");
+        }
+
+        pending_params_ = params;
+        pending_weight_load_clone_ = clone_weights;
+        job_cmd_ = Command::LOAD_BATCH;
+        has_job_ = true;
+        job_done_ = false;
+    }
+    cv_.notify_all();
 }
 
 //------------------------------------------------------
@@ -292,6 +333,7 @@ void RankWorker::thread_loop() {
             std::string local_param_name;
             infinicore::Tensor local_param;
             std::unordered_map<std::string, infinicore::Tensor> local_params;
+            bool local_weight_load_clone = false;
             Input local_args;
             std::unique_ptr<cache::CacheConfig> local_cache_config;
 
@@ -311,6 +353,8 @@ void RankWorker::thread_loop() {
                     local_param = pending_param_;
                 } else if (local_cmd == Command::LOAD_BATCH) {
                     local_params = std::move(pending_params_);
+                    local_weight_load_clone = pending_weight_load_clone_;
+                    pending_weight_load_clone_ = false;
                     pending_params_.clear();
                 } else if (local_cmd == Command::PREPROCESS) {
 
@@ -350,7 +394,8 @@ void RankWorker::thread_loop() {
 
             } else if (local_cmd == Command::LOAD_BATCH) {
                 try {
-                    model_->load_parameters_no_sync(local_params);
+                    auto params_for_load = clone_params_for_weight_load(local_params, local_weight_load_clone);
+                    model_->load_parameters_no_sync(params_for_load);
                     infinicore::context::syncStream();
                 } catch (const std::exception &e) {
                     {

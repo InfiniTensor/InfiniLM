@@ -44,7 +44,6 @@ class BaseConfig:
     """InfiniLM Unified Config - Command line argument parser"""
 
     def __init__(self):
-
         self.parser = argparse.ArgumentParser(description="InfiniLM Unified Config")
         self._add_common_args()
         self.args, self.extra = self.parser.parse_known_args()
@@ -67,6 +66,7 @@ class BaseConfig:
         self.max_cache_len = self.args.max_cache_len
         self.kv_cache_dtype = self.args.kv_cache_dtype
         self.skip_load = self.args.skip_load
+        self.weight_load_mode = self.args.weight_load_mode
 
         self.batch_size = self.args.batch_size
         self.max_batch_size = self.args.max_batch_size
@@ -145,6 +145,13 @@ class BaseConfig:
         )
         self.parser.add_argument(
             "--skip-load", action="store_true", help="skip loading model weights"
+        )
+        self.parser.add_argument(
+            "--weight-load-mode",
+            type=str,
+            default="async",
+            choices=["async", "sync", "grouped", "grouped-clone"],
+            help="weight loading mode: async keeps old behavior; grouped-clone is the stable 103B option",
         )
 
         # --- Length and infer parameters ---

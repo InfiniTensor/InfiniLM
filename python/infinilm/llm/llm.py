@@ -56,6 +56,7 @@ class EngineConfig:
         enable_graph: Whether to enable graph compiling.
         attn_backend: Attention backend to use ('default', 'flash-attn').
         skip_load: Whether to skip loading model weights (for testing).
+        weight_load_mode: Weight loading mode across tensor-parallel ranks.
     """
 
     model_path: str
@@ -74,6 +75,7 @@ class EngineConfig:
     enable_graph: bool = False
     attn_backend: str = "default"
     skip_load: bool = False
+    weight_load_mode: str = "async"
 
 
 class LLMEngine:
@@ -92,6 +94,7 @@ class LLMEngine:
             distributed_config=DistConfig(config.tensor_parallel_size),
             enable_graph_compiling=config.enable_graph,
             attention_backend=config.attn_backend,
+            weight_load_mode=config.weight_load_mode,
         )
 
         # Load model weights
@@ -363,6 +366,7 @@ class LLM:
         enable_graph: bool = False,
         attn_backend: str = "default",
         skip_load: bool = False,
+        weight_load_mode: str = "async",
     ):
         """Initialize LLM.
 
@@ -400,6 +404,7 @@ class LLM:
             enable_graph=enable_graph,
             attn_backend=attn_backend,
             skip_load=skip_load,
+            weight_load_mode=weight_load_mode,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -553,6 +558,7 @@ class AsyncLLMEngine:
         top_k: int = 1,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        weight_load_mode: str = "async",
     ):
         """Initialize AsyncLLMEngine.
 
@@ -589,6 +595,7 @@ class AsyncLLMEngine:
             top_k=top_k,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            weight_load_mode=weight_load_mode,
         )
         self.engine = LLMEngine(config)
         self.config = config

@@ -9,6 +9,7 @@
 #include "rank_worker.hpp"
 
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -28,7 +29,8 @@ public:
         const cache::CacheConfig *cache_config = nullptr,
         bool enable_graph_compiling = false,
         backends::AttentionBackend attention_backend = backends::AttentionBackend::Default,
-        std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt);
+        std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt,
+        const std::string &weight_load_mode = "async");
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);
@@ -63,6 +65,9 @@ protected:
     std::unique_ptr<cache::CacheConfig> cache_config_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     backends::AttentionBackend attention_backend_ = backends::AttentionBackend::Default;
+    std::string weight_load_mode_ = "async";
+    size_t weight_load_group_size_ = 2;
+    bool weight_load_clone_ = false;
 };
 
 } // namespace infinilm::engine

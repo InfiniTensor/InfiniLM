@@ -1,7 +1,9 @@
 #include "infer_engine.hpp"
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
-#include <future>
+#include <algorithm>
+#include <stdexcept>
+#include <string>
 
 namespace infinilm::engine {
 
@@ -15,8 +17,16 @@ InferEngine::InferEngine(
     const cache::CacheConfig *cache_config,
     bool enable_graph_compiling,
     backends::AttentionBackend attention_backend,
-    std::optional<infinicore::DataType> kv_cache_dtype) // Changed parameter
-    : communication_group_(distributed_config, device_type), attention_backend_(attention_backend) {
+    std::optional<infinicore::DataType> kv_cache_dtype,
+    const std::string &weight_load_mode) // Changed parameter
+    : communication_group_(distributed_config, device_type),
+      attention_backend_(attention_backend),
+      weight_load_mode_(weight_load_mode),
+      weight_load_group_size_(2),
+      weight_load_clone_(weight_load_mode == "grouped-clone") {
+    if (weight_load_mode_ != "sync" && weight_load_mode_ != "async" && weight_load_mode_ != "grouped" && weight_load_mode_ != "grouped-clone") {
+        throw std::invalid_argument("weight_load_mode must be one of: sync, async, grouped, grouped-clone");
+    }
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
@@ -57,15 +67,32 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
 }
 
 void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
-    std::vector<std::future<void>> futures;
-    futures.reserve(workers_.size());
-    for (auto &worker : workers_) {
-        futures.emplace_back(std::async(std::launch::async, [&worker, &params] {
-            worker->load_params(params);
-        }));
+    if (workers_.size() <= 1 || weight_load_mode_ == "sync") {
+        for (auto &worker : workers_) {
+            worker->load_params(params, weight_load_clone_);
+        }
+        return;
     }
-    for (auto &future : futures) {
-        future.get();
+
+    if (weight_load_mode_ == "async") {
+        for (auto &worker : workers_) {
+            worker->load_params_async(params, weight_load_clone_);
+        }
+        for (auto &worker : workers_) {
+            worker->wait();
+        }
+        return;
+    }
+
+    const size_t group_size = std::max<size_t>(1, std::min(weight_load_group_size_, workers_.size()));
+    for (size_t group_start = 0; group_start < workers_.size(); group_start += group_size) {
+        const size_t group_end = std::min(group_start + group_size, workers_.size());
+        for (size_t i = group_start; i < group_end; ++i) {
+            workers_[i]->load_params_async(params, weight_load_clone_);
+        }
+        for (size_t i = group_start; i < group_end; ++i) {
+            workers_[i]->wait();
+        }
     }
 }
 
