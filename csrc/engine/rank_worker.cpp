@@ -49,28 +49,6 @@ bool decode_light_sync_enabled() {
     return cached == 1;
 }
 
-infinirtEvent_t decode_ar_done_event() {
-    static infinirtEvent_t event = nullptr;
-    static std::once_flag once;
-    std::call_once(once, []() {
-        event = infinicore::context::createEvent();
-    });
-    return event;
-}
-
-void decode_post_ar_sync(int tp_rank) {
-    if (decode_light_sync_enabled()) {
-        const auto event = decode_ar_done_event();
-        infinicore::context::recordEvent(event);
-        infinicore::context::streamWaitEvent(infinicore::context::getStream(), event);
-        if (tp_rank == 0) {
-            infinicore::context::synchronizeEvent(event);
-        }
-    } else {
-        infinicore::context::syncStream();
-    }
-}
-
 double monotonic_ms() {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
@@ -327,6 +305,18 @@ std::vector<size_t> RankWorker::native_capture_buckets() const {
     return {};
 }
 
+void RankWorker::decode_post_ar_sync() {
+    if (decode_light_sync_enabled()) {
+        infinicore::context::recordEvent(decode_ar_event_);
+        infinicore::context::streamWaitEvent(infinicore::context::getStream(), decode_ar_event_);
+        if (rank_info_.tp_rank == 0) {
+            infinicore::context::synchronizeEvent(decode_ar_event_);
+        }
+    } else {
+        infinicore::context::syncStream();
+    }
+}
+
 //------------------------------------------------------
 // thread_loop
 //------------------------------------------------------
@@ -337,6 +327,7 @@ void RankWorker::thread_loop() {
 
             // Initialize device & model outside of holding the main mutex to avoid blocking callers.
             infinicore::context::setDevice(rank_info_.device);
+            decode_ar_event_ = infinicore::context::createEvent();
 
             // Initialize global enviromnet.
             infinilm::global_state::initialize_model_parallel(rank_info_);
@@ -608,7 +599,7 @@ void RankWorker::thread_loop() {
                                         global_state::hang_trace::ScopedBracket sync_bracket(
                                             "decode_post_sync", rank_info_.tp_rank);
                                         const double t_sync0 = ar_profile ? monotonic_ms() : 0.0;
-                                        decode_post_ar_sync(rank_info_.tp_rank);
+                                        decode_post_ar_sync();
                                         if (ar_profile) {
                                             post_sync_ms = monotonic_ms() - t_sync0;
                                             global_state::ar_profile::counters().decode_post_sync_ms += post_sync_ms;
@@ -782,6 +773,10 @@ void RankWorker::thread_loop() {
             }
         } // while
         // Some clean up should be done before exiting the thread
+        if (decode_ar_event_) {
+            infinicore::context::destroyEvent(decode_ar_event_);
+            decode_ar_event_ = nullptr;
+        }
         compiler_.reset();
     } catch (const std::exception &e) {
         // Top-level exception: ensure any waiters are woken and the thread exits cleanly.

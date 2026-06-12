@@ -9,6 +9,8 @@
 #include "distributed/distributed.hpp"
 #include "rank_barrier.hpp"
 
+#include <infinirt.h>
+
 #include <any>
 #include <condition_variable>
 #include <mutex>
@@ -138,6 +140,7 @@ public:
 
 private:
     void thread_loop();
+    void decode_post_ar_sync();
 
 private:
     // Worker properties
@@ -184,6 +187,9 @@ private:
     RankBarrier *barrier_;
 
     std::vector<infinicore::Tensor> kv_cache_snapshot_;
+
+    /// Per-worker decode AR sync event (created on worker thread after setDevice).
+    infinirtEvent_t decode_ar_event_{nullptr};
 };
 
 } // namespace infinilm::engine
