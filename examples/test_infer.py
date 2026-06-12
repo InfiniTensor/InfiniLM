@@ -5,7 +5,7 @@ from infinilm.llm.llm import LLM
 
 
 def test(
-    prompts: list[str],
+    prompts: 'list[str]',
     model_path,
     max_new_tokens=100,
     device="cpu",

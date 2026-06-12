@@ -9,9 +9,9 @@ def _iter_exception_chain(
     e: BaseException, *, max_depth: int = 6
 ) -> Iterator[BaseException]:
     """Iterate through exception chain with depth limit."""
-    cur: BaseException | None = e
+    cur: 'BaseException | None' = e
     depth = 0
-    seen: set[int] = set()
+    seen: 'set[int]' = set()
     while cur is not None and depth < max_depth:
         cur_id = id(cur)
         if cur_id in seen:

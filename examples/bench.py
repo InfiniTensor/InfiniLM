@@ -90,9 +90,9 @@ def read_json_file(file_path):
 
 def get_test_cases(
     model_path: str,
-    batch_size_list: list[int],
-    input_len_list: list[int],
-    output_len_list: list[int],
+    batch_size_list: 'list[int]',
+    input_len_list: 'list[int]',
+    output_len_list: 'list[int]',
 ):
     model_path = os.path.expanduser(model_path)
 
@@ -155,7 +155,7 @@ with open(prompt_path, "r") as f:
     prompt = f.read()
 
 
-def repeat_prompt(input_ids: list[int], target_length: int):
+def repeat_prompt(input_ids: 'list[int]', target_length: int):
     num = len(input_ids)
     repeat_times = (target_length + num - 1) // num
     return (input_ids * repeat_times)[:target_length]
@@ -163,7 +163,7 @@ def repeat_prompt(input_ids: list[int], target_length: int):
 
 class TestModel:
     model: infinicore.nn.Module
-    input_ids_list: list[int]
+    input_ids_list: 'list[int]'
 
     def __init__(
         self,

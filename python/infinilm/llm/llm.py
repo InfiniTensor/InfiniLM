@@ -142,14 +142,15 @@ class LLMEngine:
 
     def _init_device(self):
         """Initialize infinicore device and dtype."""
-        supported_devices = ["cpu", "cuda", "mlu", "musa"]
+        supported_devices = ["cpu", "cuda", "mlu", "musa", "kunlun"]
         device_str = self.config.device
         if device_str not in supported_devices:
             raise ValueError(
                 f"Unsupported device: '{device_str}'. "
                 f"Supported devices: {supported_devices}"
             )
-        self.device = infinicore.device(device_str, 0)
+        infinicore_device_str = "cuda" if device_str == "kunlun" else device_str
+        self.device = infinicore.device(infinicore_device_str, 0)
 
         dtype_map = {
             "float32": infinicore.float32,
@@ -169,7 +170,7 @@ class LLMEngine:
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
-    def step(self) -> tuple[list[InferenceRequest], list[tuple]]:
+    def step(self) -> 'tuple[list[InferenceRequest], list[tuple]]':
         """Run one inference step.
 
         Returns:
@@ -211,13 +212,12 @@ class LLMEngine:
     ) -> List[tuple]:
         """Update request status after inference step."""
         if is_prefill:
-            match self.cache_type:
-                case "paged":
-                    self.scheduler.cache_manager.reset_req_blocks()
-                case "static":
-                    self.scheduler.update_cache()
-                case _:
-                    raise ValueError(f"Unsupported cache_type: {self.cache_type}")
+            if self.cache_type == "paged":
+                self.scheduler.cache_manager.reset_req_blocks()
+            elif self.cache_type == "static":
+                self.scheduler.update_cache()
+            else:
+                raise ValueError(f"Unsupported cache_type: {self.cache_type}")
         pending = []
         for req, token_id in zip(requests, sampled_tokens):
             if req.is_aborted():

@@ -47,13 +47,13 @@ def read_hf_generation_config(model_path):
 
 @dataclass
 class GenerationConfig:
-    max_new_tokens: int | None = None
+    max_new_tokens: 'int | None' = None
 
     temperature: float = 1.0
     top_k: int = 50
     top_p: float = 1.0
 
-    eos_token_id: list[int] | None = None
+    eos_token_id: 'list[int] | None' = None
     stop_on_eos: bool = True
 
 

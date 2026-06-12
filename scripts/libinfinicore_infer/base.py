@@ -57,7 +57,10 @@ def register_model(model_class):
 def register_lib_functions(lib):
     """Register all model functions with the library"""
     for model_class in _model_registry:
-        model_class.register_lib(lib)
+        try:
+            model_class.register_lib(lib)
+        except AttributeError as exc:
+            print(f"Skipping optional model wrapper {model_class.__name__}: {exc}")
 
 
 class BaseModel:

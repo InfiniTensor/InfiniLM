@@ -36,7 +36,7 @@ _PAGED_KV_BLOCK_SIZE = 256
 
 
 def test(
-    prompts: str | list[str],
+    prompts: 'str | list[str]',
     model_path,
     max_new_tokens=100,
     infini_device=infinicore.device("cpu", 0),

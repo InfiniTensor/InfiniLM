@@ -36,7 +36,6 @@ def parse_dtype(dtype_str: str):
     else:
         raise ValueError(f"Unknown dtype string: {dtype_str}")
 
-
 str_to_torch_dtype = {
     "BOOL": torch.bool,
     "U8": torch.uint8,
@@ -48,9 +47,11 @@ str_to_torch_dtype = {
     "F32": torch.float32,
     "F64": torch.float64,
     "I64": torch.int64,
-    "F8_E4M3": torch.float8_e4m3fn,
-    "F8_E5M2": torch.float8_e5m2,
 }
+if hasattr(torch, "float8_e4m3fn"):
+    str_to_torch_dtype["F8_E4M3"] = torch.float8_e4m3fn
+if hasattr(torch, "float8_e5m2"):
+    str_to_torch_dtype["F8_E5M2"] = torch.float8_e5m2
 
 
 def check_parameters(model_keys: list, already_loaded_keys: list):
@@ -60,7 +61,7 @@ def check_parameters(model_keys: list, already_loaded_keys: list):
 
     missing_keys = model_keys - intersection
     unexpected_keys = already_loaded_keys - intersection
-    error_msgs: list[str] = []
+    error_msgs: 'list[str]' = []
 
     if len(unexpected_keys) > 0:
         error_msgs.append(
@@ -567,6 +568,9 @@ def _remap_baichuan(state_dict, config=None):
     return state_dict
 
 
+def _remove_suffix(value: str, suffix: str) -> str:
+    return value[:-len(suffix)] if suffix and value.endswith(suffix) else value
+
 def _remap_gpt2(state_dict, config=None):
     """Remap HuggingFace GPT-2 weights to InfiniLM GPT-2 module names.
 
@@ -595,19 +599,19 @@ def _remap_gpt2(state_dict, config=None):
 
         new_key = new_key.replace(".attn.c_proj.", ".attn.o_proj.")
         if new_key.endswith(".attn.o_proj.bias"):
-            new_key = new_key.removesuffix(".attn.o_proj.bias") + ".attn.o_proj_bias"
+            new_key = _remove_suffix(new_key, ".attn.o_proj.bias") + ".attn.o_proj_bias"
         elif new_key.endswith(".mlp.c_proj.bias"):
-            new_key = new_key.removesuffix(".mlp.c_proj.bias") + ".mlp.c_proj_bias"
+            new_key = _remove_suffix(new_key, ".mlp.c_proj.bias") + ".mlp.c_proj_bias"
 
         if new_key.endswith(".attn.c_attn.weight"):
             q, k, v = tensor.t().contiguous().chunk(3, dim=0)
-            prefix = new_key.removesuffix(".attn.c_attn.weight")
+            prefix = _remove_suffix(new_key, ".attn.c_attn.weight")
             remapped[f"{prefix}.attn.q_proj.weight"] = q
             remapped[f"{prefix}.attn.k_proj.weight"] = k
             remapped[f"{prefix}.attn.v_proj.weight"] = v
         elif new_key.endswith(".attn.c_attn.bias"):
             q, k, v = tensor.chunk(3, dim=0)
-            prefix = new_key.removesuffix(".attn.c_attn.bias")
+            prefix = _remove_suffix(new_key, ".attn.c_attn.bias")
             remapped[f"{prefix}.attn.q_proj.bias"] = q
             remapped[f"{prefix}.attn.k_proj.bias"] = k
             remapped[f"{prefix}.attn.v_proj.bias"] = v

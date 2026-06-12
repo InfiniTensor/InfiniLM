@@ -10,6 +10,10 @@ from infinilm.llm.request import RequestStatus, InferenceRequest
 from infinilm.llm.cache_manager import BlockManager
 
 logger = logging.getLogger(__name__)
+class _SyncOnlyQueue:
+    def __init__(self):
+        self.sync_q = queue.Queue()
+
 
 
 class SchedulerOutput:
@@ -40,8 +44,8 @@ class Scheduler:
         num_blocks: int = 512,
         block_size: int = 256,
     ):
-        self.waiting_queue = janus.Queue()
-        self.running_queue = janus.Queue()
+        self.waiting_queue = _SyncOnlyQueue()
+        self.running_queue = _SyncOnlyQueue()
         self.max_batch_size = max_batch_size
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)

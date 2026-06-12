@@ -40,8 +40,8 @@ class CacheLayerMixin(ABC):
         self,
         key_states: infinicore.Tensor,
         value_states: infinicore.Tensor,
-        cache_kwargs: Optional[dict[str, Any]] = None,
-    ) -> tuple[infinicore.Tensor, infinicore.Tensor]: ...
+        cache_kwargs: 'Optional[dict[str, Any]]' = None,
+    ) -> 'tuple[infinicore.Tensor, infinicore.Tensor]': ...
 
 
 class DynamicLayer(CacheLayerMixin):
@@ -102,7 +102,7 @@ class DynamicLayer(CacheLayerMixin):
         self,
         key_states: infinicore.Tensor,
         value_states: infinicore.Tensor,
-        cache_kwargs: Optional[dict[str, Any]] = None,
+        cache_kwargs: 'Optional[dict[str, Any]]' = None,
     ):
         # Lazy initialization
         self.lazy_initialization(key_states)
@@ -130,7 +130,7 @@ class Cache:
 
     def __init__(
         self,
-        layers: Optional[list[CacheLayerMixin]] = None,
+        layers: 'Optional[list[CacheLayerMixin]]' = None,
     ):
         self.layers = layers if layers is not None else []
 
@@ -139,8 +139,8 @@ class Cache:
         key_states: infinicore.Tensor,
         value_states: infinicore.Tensor,
         layer_idx: int,
-        cache_kwargs: Optional[dict[str, Any]] = None,
-    ) -> tuple[infinicore.Tensor, infinicore.Tensor]:
+        cache_kwargs: 'Optional[dict[str, Any]]' = None,
+    ) -> 'tuple[infinicore.Tensor, infinicore.Tensor]':
         """
         Updates the cache with the new `key_states` and `value_states` for the layer `layer_idx`.
 

@@ -16,6 +16,10 @@ from infinilm.llm.request import (
 )
 
 logger = logging.getLogger(__name__)
+class _SyncOnlyQueue:
+    def __init__(self):
+        self.sync_q = queue.Queue()
+
 
 _BLOCK_SIZE = 16
 
@@ -46,7 +50,7 @@ class StaticScheduler:
     """
 
     def __init__(self, max_cache_len: int = 4096):
-        self.waiting_queue = janus.Queue()
+        self.waiting_queue = _SyncOnlyQueue()
         self.running_request: Optional[InferenceRequest] = None
         self.max_cache_len = max_cache_len
         self.cached_block_hashes: List[int] = []

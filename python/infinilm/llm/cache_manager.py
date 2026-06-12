@@ -128,7 +128,7 @@ class BlockManager:
         token_ids: List[int],
         block_table: List[int] = None,
         mm_token_index_mappings: List[dict] = None,
-    ) -> tuple[List[int], List[int], int]:
+    ) -> 'tuple[List[int], List[int], int]':
         """Allocate cache blocks for new request with prefix caching support.
 
         Args:
@@ -265,7 +265,7 @@ class BlockManager:
 
     def append_slot(
         self, block_table: List[int], num_tokens: int, total_token_ids: List[int] = None
-    ) -> tuple[List[int], int]:
+    ) -> 'tuple[List[int], int]':
         """Append slot for decode phase (generate one new token).
 
         Args:

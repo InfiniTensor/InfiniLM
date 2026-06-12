@@ -20,7 +20,7 @@ class PretrainedConfig:
     def __init__(*args, **kwargs):
         pass
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> 'dict[str, Any]':
         """
         Serializes this instance to a Python dictionary.
 
@@ -49,7 +49,7 @@ class PretrainedConfig:
     def is_encoder_decoder(self):
         return False
 
-    def dict_dtype_to_str(self, d: dict[str, Any]) -> None:
+    def dict_dtype_to_str(self, d: 'dict[str, Any]') -> None:
         """
         Checks whether the passed dictionary and its nested dicts have a *dtype* key and if it's not None,
         converts torch.dtype to a string of just the type. For example, `torch.float32` get converted into *"float32"*

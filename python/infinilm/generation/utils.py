@@ -53,7 +53,7 @@ class GenerationMixin:
         """Calculates `position_ids` for the pre-fill stage"""
         position_ids_list = [list(range(0, seq_length)) for i in range(bs)]
 
-        return infinicore.from_list(position_ids_list, dtype=infinicore.int64)
+        return infinicore.from_list(position_ids_list, dtype=infinicore.int32)
 
     def prepare_inputs_for_generation(
         self,
