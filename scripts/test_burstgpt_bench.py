@@ -30,11 +30,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INFERENCE_SERVER = PROJECT_ROOT / "python" / "infinilm" / "server" / "inference_server.py"
 BENCH_SCRIPT = Path(__file__).resolve().parent / "pure_bench_serve.py"
-DEFAULT_MODEL = "/workspace/models/9g_8b_v2_thinking/9g_8b_thinking"    # 改成机器上对应的模型路径
+DEFAULT_MODEL = "/data-aisoft/mechdancer/models/9g_8b_thinking/"    # 改成机器上对应的模型路径
 DEFAULT_DATASET = Path(__file__).resolve().parent / "datasets/BurstGPT/BurstGPT_1000.csv"
 DEFAULT_RESULT_DIR = Path(__file__).resolve().parent / "bench_results"
 USE_COLOR = False
-
 
 def paint(text: str, code: str) -> str:
     return f"\033[{code}m{text}\033[0m" if USE_COLOR else text
@@ -606,7 +605,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-request-tokens", type=int, default=1024)
     parser.add_argument("--max-response-tokens", type=int, default=256)
     parser.add_argument("--num-prompts", type=int, default=100)
-    parser.add_argument("--request-rate", type=parse_rate, default=2.0)
+    parser.add_argument("--request-rate", type=parse_rate, default=2.0) # 平均速率默认 2 req/s
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--burstiness", type=float, default=1.0)
     parser.add_argument("--max-concurrency", type=int, default=10)
@@ -615,8 +614,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-result-files", action="store_true", help="保留 vLLM JSON 结果文件；默认只在临时文件中读取结果，跑完不保留。")
     parser.add_argument("--save-detailed", action=argparse.BooleanOptionalAction, default=False)
 
-    parser.add_argument("--cuda-visible-devices", default=os.environ.get("CUDA_VISIBLE_DEVICES", "0"))
-    parser.add_argument("--device", default="nvidia")
+    parser.add_argument("--cuda-visible-devices", default=os.environ.get("CUDA_VISIBLE_DEVICES", "11"))
+    parser.add_argument("--device", default="iluvatar")  # 换成自己的设备类型
     parser.add_argument("--backend", default="cpp", choices=["cpp", "python", "torch", "vllm"])
     parser.add_argument("--server-host", default="127.0.0.1")
     parser.add_argument("--client-host", default="127.0.0.1")
@@ -633,7 +632,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--ignore-eos", action="store_true")
     parser.add_argument("--progress-interval", type=int, default=10, help="压测运行中的中文心跳提示间隔，单位秒；设为 0 可关闭。")
-    parser.add_argument("--show-vllm-output", action="store_true", help="显示 vLLM benchmark 的原始英文输出。")
+    parser.add_argument("--show-vllm-output", action="store_true", help="显示 benchmark 的原始英文输出。")
     parser.add_argument("--show-server-output", action="store_true", help="直接显示 InfiniLM 服务端输出；默认隐藏且不保存日志。")
     parser.add_argument("--color", choices=["auto", "always", "never"], default="auto", help="终端颜色输出。")
     return parser.parse_args()
@@ -663,7 +662,7 @@ def main() -> None:
     print_kv("GPU", args.cuda_visible_devices)
     print_kv("对比模式", " -> ".join(mode for mode, _ in modes))
     print_kv("文件保存", "保存 JSON 结果" if args.save_result_files else "不保存日志和结果文件")
-    print_kv("提示", "如果只是试通，可以加 --num-prompts 20 --request-rate inf --modes both")
+
 
     dataset_path = count_and_filter_dataset(args)
     results: list[dict] = []

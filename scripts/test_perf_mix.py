@@ -6,12 +6,12 @@ import random
 
 PROMPTS = [
 
-    # ~10000 tokens：极限长上下文，多文件代码重构
+    # ~5000 tokens：极限长上下文，多文件代码重构
     "下面给出 4 个相关文件，请重构以消除重复逻辑并提取公共抽象：\n\n"
-    + "# file: scheduler_v1.py\n" + "def schedule(reqs):\n    return sorted(reqs, key=lambda r: r.arrival)\n" * 100
-    + "\n# file: scheduler_v2.py\n" + "def schedule(reqs):\n    return sorted(reqs, key=lambda r: -r.priority)\n" * 100
-    + "\n# file: scheduler_v3.py\n" + "def schedule(reqs):\n    return sorted(reqs, key=lambda r: r.prompt_len)\n" * 100
-    + "\n# file: scheduler_v4.py\n" + "def schedule(reqs):\n    return sorted(reqs, key=lambda r: r.slo_deadline)\n" * 100,
+    + "# file: scheduler_v1.py\n" + "def schedule(reqs):\n    return sorted(reqs, key=lambda r: r.arrival)\n" * 50
+    + "\n# file: scheduler_v2.py\n" + "def schedule(reqs):\n    return sorted(reqs, key=lambda r: -r.priority)\n" * 50
+    + "\n# file: scheduler_v3.py\n" + "def schedule(reqs):\n    return sorted(reqs, key=lambda r: r.prompt_len)\n" * 50
+    + "\n# file: scheduler_v4.py\n" + "def schedule(reqs):\n    return sorted(reqs, key=lambda r: r.slo_deadline)\n" * 50,
 
     
 

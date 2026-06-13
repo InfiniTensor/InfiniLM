@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-一键对比 chunked prefill 开/关性能
+一键对比 prefill cuda graph  开/关性能
 
-该脚本会依次启动 launch_server.py (chunk-size=0/256)，运行 test_perf_mix.py 取结果，最后输出对比。
+该脚本会依次启动 launch_server.py (--enable-chunk-prefill-graph=True/False)，运行 test_perf_mix.py 取结果，最后输出对比。
 """
 
 import argparse
@@ -42,7 +42,7 @@ def wait_for_server(popen, host, port, model, timeout=300):
 
 def inference_server(chunk_size, device, port, batch_size, max_new_tokens, enable_paged_attn, enable_graph, enable_chunk_prefill_graph, model_path):
     print(INFERENCE_SERVER)
-    args = [f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '0')}", sys.executable, INFERENCE_SERVER,
+    args = [f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '5')}", sys.executable, INFERENCE_SERVER,
             f"--chunk-size {chunk_size}",
             f"--device {device}",
             f"--port {port}",
@@ -112,30 +112,30 @@ def parse_stats(output):
     }
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="比较 chunked prefill 开/关的 TTFT/E2E")
-    parser.add_argument("--device", type=str, default="nvidia", help="设备类型")
+    parser = argparse.ArgumentParser(description="比较 prefill cuda graph  开/关的 TTFT/E2E")
+    parser.add_argument("--device", type=str, default="iluvatar", help="设备类型")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--max-new-tokens", type=int, default=16)
     parser.add_argument("--enable-paged-attn", type=bool, default=True)
     parser.add_argument("--enable-graph", type=bool, default=True)
     parser.add_argument("--enable-chunk-prefill-graph", type=bool, default=True)
     parser.add_argument("--port", type=int, default=2333)
-    parser.add_argument("--model-path", type=str, default="/workspace/models/9g_8b_v2_thinking/9g_8b_thinking")
+    parser.add_argument("--model-path", type=str, default="/data-aisoft/mechdancer/models/9g_8b_thinking/ ")
 
     
     args = parser.parse_args()
 
     results = []
 
-    for chunk_size in (0, 256):
-        mode = "ON" if chunk_size > 0 else "OFF"
+    for enable_chunk_prefill_graph in (False, True):
+        mode = "ON" if enable_chunk_prefill_graph else "OFF"
         print("\n" + "="*78)
-        print(f"开始部署大模型推理服务，chunked prefill {mode} (chunk-size={chunk_size})，请等待服务启动完成...")
+        print(f"开始部署大模型推理服务，enable_chunk_prefill_graph {mode}，请等待服务启动完成...")
 
-        server = inference_server(chunk_size=chunk_size, device=args.device, port=args.port,
+        server = inference_server(chunk_size=256, device=args.device, port=args.port,
                                 batch_size=args.batch_size, max_new_tokens=args.max_new_tokens,
                                 enable_paged_attn=args.enable_paged_attn, enable_graph=args.enable_graph, 
-                                enable_chunk_prefill_graph=args.enable_chunk_prefill_graph,
+                                enable_chunk_prefill_graph=enable_chunk_prefill_graph,  # 用循环变量的值
                                 model_path=args.model_path)
         try:
             wait_for_server(server, "127.0.0.1", args.port, model="FM9G-7B", timeout=300)
@@ -147,7 +147,7 @@ if __name__ == "__main__":
                 raise SystemExit(1)
             
             stats = parse_stats(out)
-            stats.update({"chunk_size": chunk_size, "mode": mode})
+            stats.update({"chunk_size": 256, "mode": mode})
             results.append(stats)
             print(f"完成chunked prefill {mode}测试 -> {stats}")
 
@@ -156,7 +156,7 @@ if __name__ == "__main__":
             print("服务已停止")
 
     print("\n" + "#"*78)
-    print("最终对比（chunked prefill ON vs OFF）")
+    print("最终对比（prefill cuda graph ON vs OFF）")
     print("-"*78)
 
     def fmt(v, unit="", spec=".3f"):
