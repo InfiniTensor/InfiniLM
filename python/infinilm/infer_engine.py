@@ -26,6 +26,16 @@ def _apply_torch_dtype_defaults(config: dict) -> dict:
     return config
 
 
+def _get_config_dtype(config_dict):
+    dtype = config_dict.get("torch_dtype") or config_dict.get("dtype")
+    if dtype is not None:
+        return dtype
+    text_config = config_dict.get("text_config")
+    if isinstance(text_config, dict):
+        return text_config.get("dtype") or text_config.get("torch_dtype")
+    return None
+
+
 def _normalize_videonsa_config(config_dict):
     model_type = config_dict.get("model_type")
 
@@ -54,6 +64,11 @@ def read_hf_config(model_path):
     config_path = os.path.join(model_path, "config.json")
     with open(config_path, "r") as f:
         config_dict = json.load(f)
+
+    if config_dict.get("torch_dtype") is None and config_dict.get("dtype") is None:
+        dtype = _get_config_dtype(config_dict)
+        if dtype is not None:
+            config_dict["torch_dtype"] = dtype
 
     if "model_type" not in config_dict:
         raise ValueError(

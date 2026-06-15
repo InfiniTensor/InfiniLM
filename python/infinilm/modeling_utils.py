@@ -196,6 +196,7 @@ def load_model_state_dict_by_file(
 
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
+    qwen3_vl_embed_tokens_torch = None
     weights_processed = False
 
     remapper = _WEIGHT_REMAPPER.get(model_type)
@@ -241,6 +242,10 @@ def load_model_state_dict_by_file(
                     model_param["model.embed_tokens.weight"] = (
                         embed_tokens_torch_unscaled * float(scale_emb)
                     )
+            if "model.language_model.embed_tokens.weight" in model_param:
+                qwen3_vl_embed_tokens_torch = model_param[
+                    "model.language_model.embed_tokens.weight"
+                ]
 
             # --------------------------------------------------------- #
             #         model_param_infini references torch.Tensor
@@ -282,6 +287,10 @@ def load_model_state_dict_by_file(
                 model_params["model.embed_tokens.weight"] = (
                     embed_tokens_torch_unscaled * float(scale_emb)
                 )
+        if "model.language_model.embed_tokens.weight" in model_params:
+            qwen3_vl_embed_tokens_torch = model_params[
+                "model.language_model.embed_tokens.weight"
+            ].to(dtype=torch_dtype)
 
         model_param_infini = {}
         for key in model_params.keys():
@@ -301,12 +310,18 @@ def load_model_state_dict_by_file(
     # Handle tied weights: if lm_head.weight is missing, share embed_tokens.weight
     # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
     if "lm_head.weight" in model_keys and "lm_head.weight" not in already_loaded_keys:
-        if embed_tokens_torch_unscaled is not None:
-            lm_head_tensor = infinicore.from_torch(embed_tokens_torch_unscaled)
+        tied_weight = (
+            embed_tokens_torch_unscaled
+            if embed_tokens_torch_unscaled is not None
+            else qwen3_vl_embed_tokens_torch
+        )
+        if tied_weight is not None:
+            lm_head_tensor = infinicore.from_torch(tied_weight)
             model.load_state_dict({"lm_head.weight": lm_head_tensor}, strict=False)
             already_loaded_keys.append("lm_head.weight")
             del lm_head_tensor
             embed_tokens_torch_unscaled = None
+            qwen3_vl_embed_tokens_torch = None
             gc.collect()
 
     check_parameters(model_keys, already_loaded_keys)
