@@ -142,7 +142,7 @@ class LLMEngine:
 
     def _init_device(self):
         """Initialize infinicore device and dtype."""
-        supported_devices = ["cpu", "cuda", "mlu", "musa"]
+        supported_devices = ["cpu", "cuda", "mlu", "musa", "npu"]
         device_str = self.config.device
         if device_str not in supported_devices:
             raise ValueError(
@@ -709,13 +709,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert messages is not None, (
-                "Either messages or prompt/prompt_token_ids must be provided"
-            )
+            assert (
+                messages is not None
+            ), "Either messages or prompt/prompt_token_ids must be provided"
 
-            assert apply_chat_template, (
-                "apply_chat_template needs to be true for multi-role conversation"
-            )
+            assert (
+                apply_chat_template
+            ), "apply_chat_template needs to be true for multi-role conversation"
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt
