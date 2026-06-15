@@ -80,7 +80,7 @@ class BlockManager:
             f"free={len(self.free_block_ids)}, used={len(self.used_block_ids)})"
         )
 
-    # ── Private low-level operations ──────────────────────────────────────────
+    # Private low-level operations
 
     def _allocate_partial_block(self) -> Block:
         """Pop the first free block and add it to used blocks as a partial block."""
@@ -125,7 +125,7 @@ class BlockManager:
                 self.hash_to_block_id[block.hash] = block_id
         self.pending_block_ids.clear()
 
-    # ── Read-only state queries ────────────────────────────────────────────────
+    # Read-only state queries
 
     def can_allocate(self, num_required_blocks: int) -> bool:
         return len(self.free_block_ids) >= num_required_blocks
@@ -139,7 +139,7 @@ class BlockManager:
         )
         return len(self.free_block_ids) + freeable_used_blocks
 
-    # ── Core public operations ─────────────────────────────────────────────────
+    # Core public operations
 
     def get_computed_blocks(
         self,
@@ -389,7 +389,7 @@ class BlockManager:
 
         return block_table, slot_id
 
-    # ── Reference management ───────────────────────────────────────────────────
+    # Reference management
 
     def free_blocks(self, block_table: List[int]):
         """Decrease reference count for all blocks. Blocks with ref_count=0 are not
@@ -411,7 +411,7 @@ class BlockManager:
 
         return self.can_allocate(num_required)
 
-    # ── PD-disaggregation specific ─────────────────────────────────────────────
+    # PD-disaggregation specific
 
     def update_blocks_hash(self, block_table: List[int], num_local_cached_tokens: int):
         """Register hashes for blocks beyond the locally cached prefix into the lookup table.

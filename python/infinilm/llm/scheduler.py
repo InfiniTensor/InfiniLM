@@ -63,6 +63,24 @@ class Scheduler:
             request.status = RequestStatus.WAITING
             self.waiting_queue.sync_q.put(request)
 
+    def _exceeds_token_budget(
+        self,
+        current_num_batched_tokens: int,
+        num_tokens_this_step: int,
+        num_scheduled_requests: int,
+    ) -> bool:
+        """Return True when adding this request should be deferred for token budget.
+
+        A single request is always allowed to make progress, even if it is larger
+        than max_num_batched_tokens.
+        """
+        if num_scheduled_requests == 0:
+            return False
+        return (
+            current_num_batched_tokens + num_tokens_this_step
+            > self.max_num_batched_tokens
+        )
+
     def schedule(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute."""
         deferred_requests = []
@@ -115,12 +133,13 @@ class Scheduler:
                 # Early token budget check: skip can_accept_request and allocate_slots
                 # for requests that would exceed the per-schedule token budget.
                 if not load_kv_async:
-                    _num_tokens_this_step = (
+                    num_tokens_this_step = (
                         req.get_prompt_length() - num_local_computed_tokens
                     )
-                    if (
-                        current_num_batched_tokens + _num_tokens_this_step
-                        >= self.max_num_batched_tokens
+                    if self._exceeds_token_budget(
+                        current_num_batched_tokens,
+                        num_tokens_this_step,
+                        len(scheduled_requests),
                     ):
                         if num_local_computed_tokens > 0:
                             self.cache_manager.free_blocks(cached_block_table)
@@ -174,8 +193,20 @@ class Scheduler:
                         self.block_size,
                     )
             else:
-                num_external_computed_tokens = 0
                 load_kv_async = False
+                num_tokens_this_step = (
+                    req.get_prompt_length() - req.num_local_cached_tokens
+                )
+                if self._exceeds_token_budget(
+                    current_num_batched_tokens,
+                    num_tokens_this_step,
+                    len(scheduled_requests),
+                ):
+                    deferred_requests.append(req)
+                    break
+                self.cache_manager.update_blocks_hash(
+                    req.block_table, req.num_local_cached_tokens
+                )
 
             if load_kv_async:
                 req.status = RequestStatus.WAITING_FOR_REMOTE_KVS
@@ -286,8 +317,10 @@ class Scheduler:
         ) // self.block_size
         if request.request_id in self.failed_receiving_kv_req_ids:
             if request.num_computed_tokens:
+                valid_block_count = request.num_computed_tokens // self.block_size
                 self.cache_manager.update_blocks_hash(
-                    request.block_table, request.num_local_cached_tokens
+                    request.block_table[:valid_block_count],
+                    request.num_local_cached_tokens,
                 )
                 request.slot_mapping = self.cache_manager.update_blocks_slot(
                     request.block_table,
@@ -300,13 +333,13 @@ class Scheduler:
                 request.block_table = []
                 request.slot_mapping = []
                 request.num_local_cached_tokens = 0
-            self.failed_receiving_kv_req_ids.remove(request.request_id)
+            self.failed_receiving_kv_req_ids.discard(request.request_id)
         else:
             self.cache_manager.update_blocks_hash(
                 request.block_table, request.num_local_cached_tokens
             )
             request.num_local_cached_tokens = request.num_computed_tokens
-        self.finished_receiving_kv_req_ids.remove(request.request_id)
+        self.finished_receiving_kv_req_ids.discard(request.request_id)
 
     def complete_requests(self, requests: List[InferenceRequest]):
         """Handle completed requests and free their blocks."""
