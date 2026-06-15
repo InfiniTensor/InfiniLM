@@ -86,6 +86,11 @@ void PagedCompiler::compile() {
             // before every graph replay in get_compiled().
             model_->reset_runtime_state();
             infinicore::context::syncStream();
+
+            if (infinilm::global_state::get_infinilm_config().enable_workspace_manager) {
+                infinilm::global_state::get_forward_context().workspace_manager.reset_runtime_buffers();
+            }
+
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();

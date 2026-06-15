@@ -74,7 +74,8 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     // 1. Project Q, K, V
     infinicore::Tensor q, k, v;
     if (enable_workspace_manager_) {
-        auto qkv_output = max_qkv_output_->narrow({{0, 0, batch_size * seq_len}})->view({batch_size, seq_len, rank_qkv_output_size_});
+        auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
+        auto qkv_output = workspace_manager.get_buffer("Attention_qkv_output", {batch_size, seq_len, rank_qkv_output_size_}, dtype_, device_);
         std::tie(q, k, v) = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
     } else {
         std::tie(q, k, v) = qkv_proj_->forward_split(hidden_states_mutable);
@@ -107,7 +108,8 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
 
     // 6. Project output
     if (enable_workspace_manager_) {
-        auto o_output = max_o_output_->narrow({{0, 0, batch_size * seq_len}})->view({batch_size, seq_len, hidden_size_});
+        auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
+        auto o_output = workspace_manager.get_buffer("Attention_o_output", {batch_size, seq_len, hidden_size_}, dtype_, device_);
         o_proj_->forward_(o_output, attn_output);
         return o_output;
     }
@@ -128,7 +130,8 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     // 1. Project Q, K, V
     infinicore::Tensor q, k, v;
     if (enable_workspace_manager_) {
-        auto qkv_output = max_qkv_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, rank_qkv_output_size_});
+        auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
+        auto qkv_output = workspace_manager.get_buffer("Attention_qkv_output", {1, seq_len, rank_qkv_output_size_}, dtype_, device_);
         std::tie(q, k, v) = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
     } else {
         std::tie(q, k, v) = qkv_proj_->forward_split(hidden_states_mutable);
@@ -160,7 +163,8 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
 
     // 6. Project output
     if (enable_workspace_manager_) {
-        auto o_output = max_o_output_->narrow({{0, 0, seq_len}})->view({1, seq_len, hidden_size_});
+        auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
+        auto o_output = workspace_manager.get_buffer("Attention_o_output", {1, seq_len, hidden_size_}, dtype_, device_);
         o_proj_->forward_(o_output, attn_output);
         return o_output;
     }
@@ -187,16 +191,7 @@ void Attention::_register_inference_buffer() {
         attention_cache_key,
         attention_buffer_shape,
         dtype_,
-        device_,
-        [this, max_num_batched_tokens, max_output_size](const infinicore::Tensor &attention_buffer) {
-            const auto attention_buffer_shape = attention_buffer->shape();
-            ASSERT(attention_buffer_shape[0] == max_num_batched_tokens * max_output_size);
-
-            max_qkv_output_ = attention_buffer->narrow({{0, 0, max_num_batched_tokens * rank_qkv_output_size_}})
-                                  ->view({max_num_batched_tokens, rank_qkv_output_size_});
-            max_o_output_ = attention_buffer->narrow({{0, 0, max_num_batched_tokens * hidden_size_}})
-                                ->view({max_num_batched_tokens, hidden_size_});
-        });
+        device_);
 }
 
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,

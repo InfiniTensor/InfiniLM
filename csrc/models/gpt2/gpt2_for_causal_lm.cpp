@@ -97,7 +97,8 @@ GPT2Attention::GPT2Attention(std::shared_ptr<infinilm::config::ModelConfig> conf
         layer_idx_,
         kv_cache_k_scale_,
         kv_cache_v_scale_,
-        attention_backend_);
+        attention_backend_,
+        device);
 }
 
 infinicore::Tensor GPT2Attention::forward(const infinicore::Tensor &positions,

@@ -63,7 +63,8 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     infinicore::Tensor attn_output;
     if (is_prefill) {
         if (enable_workspace_manager_) {
-            attn_output = max_attn_output_->narrow({{0, 0, seq_len}});
+            auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
+            attn_output = workspace_manager.get_buffer("FlashAttention_attn_output", {seq_len, num_heads_, head_dim_}, dtype_, device_);
         } else {
             attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, dtype_, device_);
         }
@@ -133,11 +134,6 @@ void FlashAttentionImpl::_register_inference_buffer() {
         cache_key,
         flash_attn_buffer_shape,
         dtype_,
-        device_,
-        [this, max_num_batched_tokens](const infinicore::Tensor &flash_attention_impl_buffer) {
-            const auto buffer_shape = flash_attention_impl_buffer->shape();
-            ASSERT(buffer_shape[0] == max_num_batched_tokens && buffer_shape[1] == num_heads_ && buffer_shape[2] == head_dim_);
-            max_attn_output_ = flash_attention_impl_buffer;
-        });
+        device_);
 }
 } // namespace infinilm::layers::attention::backends

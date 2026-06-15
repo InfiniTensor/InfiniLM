@@ -46,7 +46,6 @@ public:
 private:
     void _register_inference_buffer();
     bool enable_workspace_manager_{false};
-    infinicore::Tensor max_attn_output_; // inference buffer for FlashAttentionImpl
 
     size_t num_heads_;
     size_t head_size_;

@@ -65,8 +65,6 @@ protected:
 private:
     bool enable_workspace_manager_{false};
     size_t rank_qkv_output_size_{0};
-    infinicore::Tensor max_qkv_output_; // inference buffer for Attention
-    infinicore::Tensor max_o_output_;   // inference buffer for Attention
 };
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
                                 const infinicore::Device &device,

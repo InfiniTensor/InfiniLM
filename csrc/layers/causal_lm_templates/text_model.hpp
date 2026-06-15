@@ -8,11 +8,8 @@
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
-<<<<<<< HEAD
-=======
 #include <string>
 #include <vector>
->>>>>>> 65d8ecf ( issue/407 - preallocated workspace)
 
 namespace infinilm::layers::causal_lm_templates {
 
@@ -30,19 +27,12 @@ template <typename DecoderLayer>
 class TextModel : public infinicore::nn::Module {
 public:
     TextModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-<<<<<<< HEAD
-              const infinicore::Device &device) {
-        const auto &dtype{model_config->get_dtype()};
-        size_t vocab_size = model_config->get<size_t>("vocab_size");
-        size_t hidden_size = model_config->get<size_t>("hidden_size");
-=======
               const infinicore::Device &device)
         : device_(device),
           dtype_(model_config->get_dtype()) {
         vocab_size_ = model_config->get<size_t>("vocab_size");
         hidden_size_ = model_config->get<size_t>("hidden_size");
         size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
->>>>>>> 65d8ecf ( issue/407 - preallocated workspace)
         size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
         double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
@@ -70,7 +60,8 @@ public:
             const auto shape = input_ids->shape();
             const size_t bs = shape[0];
             const size_t seq_len = shape[1];
-            hidden_states = max_hidden_states_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, hidden_size_});
+            auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
+            hidden_states = workspace_manager.get_buffer("TextModel_hidden_states", {bs, seq_len, hidden_size_}, dtype_, device_);
             embed_tokens_->forward_(hidden_states, input_ids);
         } else {
             hidden_states = embed_tokens_->forward(input_ids);
@@ -145,12 +136,7 @@ private:
             text_model_cache_key,
             hidden_states_shape,
             dtype_,
-            device_,
-            [this, max_num_batched_tokens](const infinicore::Tensor &hidden_states_buffer) {
-                const auto hidden_states_buffer_shape = hidden_states_buffer->shape();
-                ASSERT(hidden_states_buffer_shape[0] == max_num_batched_tokens && hidden_states_buffer_shape[1] == hidden_size_);
-                max_hidden_states_ = hidden_states_buffer;
-            });
+            device_);
     }
 
 protected:
@@ -165,7 +151,6 @@ protected:
 
 private:
     bool enable_workspace_manager_{false};
-    infinicore::Tensor max_hidden_states_; // inference buffer for TextModel
 };
 
 } // namespace infinilm::layers::causal_lm_templates

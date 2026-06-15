@@ -25,6 +25,7 @@ public:
             ASSERT(max_num_batched_tokens >= 512 && max_num_batched_tokens <= max_position_embeddings);
             enable_workspace_manager = true;
         }
+        enable_workspace_manager = false;
     }
 
 public:

@@ -285,7 +285,8 @@ void RankWorker::thread_loop() {
             infinicore::context::syncStream();
 
             if (infinilm_config_->enable_workspace_manager) {
-                forward_context_.workspace_manager.finalize_and_bind(rank_info_.device);
+                forward_context_.workspace_manager.finalize_and_bind();
+                // forward_context_.workspace_manager.log_registrations();
             }
             infinicore::context::syncStream();
 
@@ -407,6 +408,10 @@ void RankWorker::thread_loop() {
                 try {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
+
+                        if (infinilm::global_state::get_infinilm_config().enable_workspace_manager) {
+                            infinilm::global_state::get_forward_context().workspace_manager.reset_runtime_buffers();
+                        }
 
                         infinicore::Tensor logits;
                         // Try to get compiled graph

@@ -34,6 +34,10 @@ void StaticBatchingCompiler::compile() {
         auto graph = infinicore::context::stopGraphRecording();
         barrier_->wait();
 
+        if (infinilm::global_state::get_infinilm_config().enable_workspace_manager) {
+            infinilm::global_state::get_forward_context().workspace_manager.reset_runtime_buffers();
+        }
+
         auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
 
         compiled_map_[std::make_tuple(b, 1)] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};

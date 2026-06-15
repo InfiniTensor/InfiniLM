@@ -60,7 +60,8 @@ public:
             const auto shape = hidden_states->shape();
             const size_t bs = shape[0];
             const size_t seq_len = shape[1];
-            logits = max_logits_->narrow({{0, 0, bs * seq_len}})->view({bs, seq_len, vocab_size_});
+            auto &workspace_manager = infinilm::global_state::get_forward_context().workspace_manager;
+            logits = workspace_manager.get_buffer("TextCausalLM_logits", 0, {bs, seq_len, vocab_size_}, dtype_, device_);
             lm_head_->forward_(logits, hidden_states);
         } else {
             logits = lm_head_->forward(hidden_states);
@@ -102,16 +103,10 @@ private:
             0,
             logits_shape,
             dtype_,
-            device_,
-            [this, max_num_batched_tokens](const infinicore::Tensor &logits_buffer) {
-                const auto logits_buffer_shape = logits_buffer->shape();
-                ASSERT(logits_buffer_shape[0] == max_num_batched_tokens && logits_buffer_shape[1] == vocab_size_);
-                max_logits_ = logits_buffer;
-            });
+            device_);
     }
 
     bool enable_workspace_manager_{false};
-    infinicore::Tensor max_logits_; // inference buffer for TextCausalLM
 };
 
 } // namespace infinilm::layers::causal_lm_templates
