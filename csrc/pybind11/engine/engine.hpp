@@ -1,3 +1,4 @@
+#include "../../debug_utils/hooks.hpp"
 #include "../../engine/infer_engine.hpp"
 #include "infinicore/tensor.hpp"
 #include <pybind11/pybind11.h>
@@ -28,12 +29,37 @@ inline void bind_dist_config(py::module &m) {
 
 namespace infinilm::engine {
 
+inline void bind_hook_registry(py::module &m) {
+    using infinilm::models::debug_utils::HookRegistry;
+
+    // TODO: HookRegistry should be moved out from Llama-specific bindings to InfiniCore as common utils in future work
+    // Bind HookRegistry
+    py::class_<HookRegistry, std::shared_ptr<HookRegistry>>(m, "HookRegistry")
+        .def(py::init<>())
+        .def(
+            "register_hook", [](HookRegistry &self, const std::string &name, py::object callback) {
+                // Convert Python callable to C++ function
+                self.register_hook(name, [callback](const std::string &hook_name, const infinicore::Tensor &tensor, int layer_idx) {
+                    try {
+                        // Call Python callback with hook name, tensor, and layer index
+                        callback(hook_name, tensor, layer_idx);
+                    } catch (const py::error_already_set &e) {
+                        // Re-raise Python exception
+                        throw;
+                    }
+                });
+            },
+            py::arg("name"), py::arg("callback"))
+        .def("clear", &HookRegistry::clear)
+        .def("has_hooks", &HookRegistry::has_hooks);
+}
+
 inline void bind_infer_engine(py::module &m) {
     py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(m, "InferEngine");
 
     infer_engine
         .def(py::init([](
-                          const std::string &model_path,
+                          const std::string &config_str,
                           const distributed::DistConfig &dist,
                           infinicore::Device::Type dev,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
@@ -41,7 +67,7 @@ inline void bind_infer_engine(py::module &m) {
                           const std::string &attention_backend,
                           std::optional<infinicore::DataType> kv_cache_dtype) {
                  return std::make_shared<InferEngine>(
-                     model_path,
+                     config_str,
                      dist,
                      dev,
                      cache_cfg ? cache_cfg.get() : nullptr,
@@ -49,7 +75,7 @@ inline void bind_infer_engine(py::module &m) {
                      infinilm::backends::parse_attention_backend(attention_backend),
                      kv_cache_dtype);
              }),
-             py::arg("model_path") = "",
+             py::arg("config_str") = "",
              py::arg("distributed_config") = distributed::DistConfig(),
              py::arg("device_type") = infinicore::context::getDevice().getType(),
              py::arg("cache_config") = py::none(),

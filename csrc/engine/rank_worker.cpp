@@ -1,10 +1,6 @@
 #include "rank_worker.hpp"
-
-#include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
-#include "../models/models_registry.hpp"
 #include "infinicore/ops.hpp"
-#include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -254,30 +250,10 @@ void RankWorker::thread_loop() {
             infinilm::global_state::initialize_infinilm_config(infinilm_config_);
 
             // Create model using factory (may be expensive)
-            const std::string &model_type = model_config_->get<std::string>("model_type");
-            const auto &model_map = models::get_causal_lm_model_map();
-            auto it = model_map.find(model_type);
-            if (it != model_map.end()) {
-                model_ = InfinilmModelFactory::createModel(
-                    model_config_,
-                    rank_info_.device,
-                    pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
-            } else {
-                std::vector<std::string> classic_models = {"llama", "qwen2", "minicpm", "fm9g", "fm9g7b"};
-                if ((std::find(classic_models.begin(), classic_models.end(), model_type) != classic_models.end())) {
-                    model_ = InfinilmModelFactory::createModel(
-                        model_config_,
-                        rank_info_,
-                        pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
-                        attention_backend_);
-                } else {
-                    throw std::runtime_error("RankWorker::thread_loop(): Unsupported model config type: " + model_type);
-                }
-            }
-
-            if (!model_) {
-                throw std::runtime_error("Failed to create model");
-            }
+            model_ = InfinilmModelFactory::createModel(
+                model_config_,
+                rank_info_.device,
+                pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
             if (enable_graph_compiling_) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }

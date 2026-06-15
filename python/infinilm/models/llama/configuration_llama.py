@@ -17,12 +17,10 @@
 
 import infinicore
 
-from infinilm.lib import _infinilm
-
 from ...configuration_utils import PretrainedConfig
 
 
-class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
+class LlamaConfig(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`LlamaModel`]. It is used to instantiate an LLaMA
     model according to the specified arguments, defining the model architecture. Instantiating a configuration with the
@@ -140,6 +138,7 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
     ```"""
 
     model_type = "llama"
+
     keys_to_ignore_at_inference = ["past_key_values"]
     # Default tensor parallel plan for base model `LlamaModel`
     base_model_tp_plan = {
@@ -184,15 +183,7 @@ class LlamaConfig(PretrainedConfig, _infinilm.LlamaConfig):
         torch_dtype=None,
         **kwargs,
     ):
-        _infinilm.LlamaConfig.__init__(self)
-
-        original_model_type = kwargs.get("model_type", None)
-        if original_model_type == "qwen3":
-            self.qk_norm = True
-
-        # ---
         self.model_type = "llama"
-        self.name_or_path = ""
 
         self.pad_token_id = pad_token_id
         self.bos_token_id = bos_token_id
