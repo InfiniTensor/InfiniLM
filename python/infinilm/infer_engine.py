@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import infinicore
 
-from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
+from infinilm.cache import PagedKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
@@ -11,6 +11,16 @@ from .modeling_utils import parse_dtype
 from .exception_utils import handle_oom_and_exit
 import json
 import os
+
+
+def _get_config_dtype(config_dict):
+    dtype = config_dict.get("torch_dtype") or config_dict.get("dtype")
+    if dtype is not None:
+        return dtype
+    text_config = config_dict.get("text_config")
+    if isinstance(text_config, dict):
+        return text_config.get("dtype") or text_config.get("torch_dtype")
+    return None
 
 
 def read_hf_config(model_path):
@@ -24,6 +34,10 @@ def read_hf_config(model_path):
         and config_dict.get("dtype") is None
     ):
         config_dict["torch_dtype"] = "float32"
+    if config_dict.get("torch_dtype") is None and config_dict.get("dtype") is None:
+        dtype = _get_config_dtype(config_dict)
+        if dtype is not None:
+            config_dict["torch_dtype"] = dtype
     if "model_type" not in config_dict:
         raise ValueError(
             f"`model_type` is not specified in the config file `{config_path}`."
@@ -94,10 +108,7 @@ class InferEngine(_infinilm.InferEngine):
 
     @property
     def dtype(self):
-        torch_dtype = self.hf_config.get("torch_dtype")
-        if torch_dtype is None:
-            torch_dtype = self.hf_config.get("dtype")
-        return parse_dtype(torch_dtype)
+        return parse_dtype(_get_config_dtype(self.hf_config))
 
     @property
     def model_type(self):
