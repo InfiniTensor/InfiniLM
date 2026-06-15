@@ -11,7 +11,14 @@ enum class PiecewiseCapturePhase {
     PreAttn,
     EagerAttn,
     PostAttn,
+    PostAttnMlp,
     LmHead,
+};
+
+enum class PiecewisePostAttnReplayStep {
+    Full,
+    OProjAllreduce,
+    MlpAllreduce,
 };
 
 /// Per-layer staging tensors shared between captured pre-attn graphs and eager attn.
@@ -25,6 +32,7 @@ struct PiecewiseLayerStaging {
 /// Thread-local piecewise prefill state (capture + replay).
 struct PiecewisePrefillState {
     PiecewiseCapturePhase phase{PiecewiseCapturePhase::None};
+    PiecewisePostAttnReplayStep post_attn_replay_step{PiecewisePostAttnReplayStep::Full};
     size_t active_layer{0};
     /// Actual token count for this request (may be < bucket size).
     size_t valid_seq_len{0};
@@ -32,8 +40,10 @@ struct PiecewisePrefillState {
     size_t bucket_seq_len{0};
     infinicore::Tensor hidden_states;
     infinicore::Tensor residual;
-    /// Shared contiguous buffer for sequential per-layer allreduce (one buffer per bucket).
+    /// Contiguous staging for o_proj row-parallel allreduce (one buffer per bucket).
     infinicore::Tensor ar_staging;
+    /// Separate staging for MLP down_proj allreduce (must not reuse ar_staging).
+    infinicore::Tensor ar_staging_mlp;
     std::vector<PiecewiseLayerStaging> layer_staging;
 };
 

@@ -84,6 +84,10 @@ public:
                                                         const Input &input,
                                                         infinicore::Tensor &hidden_states,
                                                         infinicore::Tensor &residual) const;
+    virtual void native_piecewise_post_attn_mlp_graph_layer(size_t layer_idx,
+                                                            const Input &input,
+                                                            infinicore::Tensor &hidden_states,
+                                                            infinicore::Tensor &residual) const;
     virtual void native_piecewise_post_attn_allreduce_layer(size_t layer_idx,
                                                             const Input &input,
                                                             infinicore::Tensor &hidden_states,

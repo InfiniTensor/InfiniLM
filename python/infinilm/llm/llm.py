@@ -25,7 +25,7 @@ from infinilm.llm.request import (
     FinishReason,
 )
 from infinilm.llm.sampling_params import SamplingParams
-from infinilm.llm.scheduler import Scheduler, SchedulerOutput
+from infinilm.llm.scheduler import Scheduler, ScheduledRow, SchedulerOutput
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.processors import AutoInfinilmProcessor
 from infinilm.distributed import DistConfig
@@ -121,6 +121,8 @@ class LLMEngine:
 
         # Initialize processor/tokenizer
         self.processor = AutoInfinilmProcessor.from_pretrained(config.model_path)
+        if config.cache_type == "paged":
+            self.processor.num_blocks = config.num_blocks
         self.tokenizer = self.processor.get_tokenizer()
 
         # Initialize KV cache based on cache type
@@ -370,6 +372,18 @@ class LLMEngine:
             sampled_tokens,
         )
 
+    def _rows_needing_sampled_tokens(
+        self, scheduler_output: SchedulerOutput
+    ) -> List[ScheduledRow]:
+        """Rows that receive one sampled token from the forward pass (matches C++ sample_rows)."""
+        rows = scheduler_output.rows
+        return [
+            row
+            for row in rows
+            if not (row.is_prefill_row and not row.is_final_prefill_chunk)
+            and not row.request.is_aborted()
+        ]
+
     def _update_requests_from_rows(
         self,
         scheduler_output: SchedulerOutput,
@@ -406,19 +420,10 @@ class LLMEngine:
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
 
-        expected_tokens = sum(
-            1
-            for row in rows
-            if not (row.is_prefill_row and not row.is_final_prefill_chunk)
-            and not row.request.is_aborted()
-        )
+        sampling_rows = self._rows_needing_sampled_tokens(scheduler_output)
+        expected_tokens = len(sampling_rows)
         if len(sampled_tokens) != expected_tokens:
-            req_ids = [
-                row.request.request_id
-                for row in rows
-                if not (row.is_prefill_row and not row.is_final_prefill_chunk)
-                and not row.request.is_aborted()
-            ]
+            req_ids = [row.request.request_id for row in sampling_rows]
             raise RuntimeError(
                 f"sampled token count mismatch: got {len(sampled_tokens)} "
                 f"expected {expected_tokens} for request_ids={req_ids}"

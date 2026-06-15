@@ -505,7 +505,7 @@ void RankWorker::thread_loop() {
                                 batch_size,
                                 is_mixed);
                         }
-                        auto model_input = local_args.to_model_input(infinicore::Device::cpu());
+                        auto model_input = local_args.to_model_input(rank_info_.device);
                         if (compiler_ != nullptr && !is_mixed) {
                             auto *general_compiler = dynamic_cast<GeneralCompiler *>(compiler_.get());
                             if (is_prefill && general_compiler != nullptr
@@ -683,15 +683,27 @@ void RankWorker::thread_loop() {
                             const auto &vocab_size{logits_shape[2]};
                             const auto &total_len{logits_shape[1]};
                             const auto &batch_size{logits_shape[0]};
+                            const size_t flat_logits = batch_size * total_len;
 
-                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+                            auto offsets_cpu = local_args.input_offsets.value()->to(infinicore::Device::cpu());
+                            const int32_t *input_offsets =
+                                reinterpret_cast<const int32_t *>(offsets_cpu->data());
 
                             auto output_ids{infinicore::Tensor::empty(
                                 {sample_rows.size()}, infinicore::DataType::I64, rank_info_.device)};
 
                             for (size_t j = 0; j < sample_rows.size(); ++j) {
                                 const size_t i = sample_rows[j];
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
+                                const size_t logit_index = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                if (logit_index >= flat_logits) {
+                                    throw std::runtime_error(
+                                        "logits row index out of bounds: row=" + std::to_string(i) +
+                                        " logit_index=" + std::to_string(logit_index) +
+                                        " flat_logits=" + std::to_string(flat_logits) +
+                                        " n_req=" + std::to_string(n_req) +
+                                        " mode=" + mode_str);
+                                }
+                                auto score{logits->view({flat_logits, vocab_size})->narrow({{0, logit_index, 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, j, 1}})->view({})};
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(

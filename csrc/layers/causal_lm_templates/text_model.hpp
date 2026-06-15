@@ -146,6 +146,13 @@ public:
         layers_.at(layer_idx)->piecewise_post_attn_graph(hidden_states, residual, staging);
     }
 
+    void piecewise_post_attn_mlp_graph_layer(size_t layer_idx,
+                                             const infinilm::InfinilmModel::Input &,
+                                             infinicore::Tensor &hidden_states,
+                                             infinicore::Tensor &residual) const {
+        layers_.at(layer_idx)->piecewise_post_attn_mlp_graph(hidden_states, residual);
+    }
+
     void piecewise_post_attn_allreduce_layer(size_t layer_idx,
                                              const infinilm::InfinilmModel::Input &,
                                              infinicore::Tensor &hidden_states,
@@ -156,7 +163,16 @@ public:
 
     infinicore::Tensor piecewise_lm_head(infinicore::Tensor &hidden_states,
                                          infinicore::Tensor &residual) const {
-        norm_->forward_inplace(hidden_states, residual);
+        auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
+        const size_t bucket = hidden_states->size(1);
+        const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
+        if (valid_len < bucket) {
+            auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+            auto residual_narrow = residual->narrow({{1, 0, valid_len}});
+            norm_->forward_inplace(hidden_narrow, residual_narrow);
+        } else {
+            norm_->forward_inplace(hidden_states, residual);
+        }
         return hidden_states;
     }
 

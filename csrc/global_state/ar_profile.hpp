@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../utils.hpp"
 #include "forward_context.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
 #include <algorithm>
@@ -147,12 +148,17 @@ inline void allreduce_hidden_valid_contiguous(infinicore::Tensor &hidden_states,
         allreduce_fn(hidden_states);
         return;
     }
-    auto staging_rows = ar_staging->view({bucket, hidden_size})->narrow({{0, 0, valid_len}});
-    auto src_rows = hidden_states->view({bucket, hidden_size})->narrow({{0, 0, valid_len}});
-    staging_rows->copy_from(src_rows);
-    auto ar_view = staging_rows->view({1, valid_len, hidden_size});
+    if (ar_staging && valid_len < bucket) {
+        auto staging_tail = ar_staging->narrow({{1, valid_len, bucket - valid_len}});
+        infinicore::Tensor staging_tail_ref = staging_tail;
+        set_zeros(staging_tail_ref);
+    }
+    auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+    auto staging_narrow = ar_staging->narrow({{1, 0, valid_len}});
+    staging_narrow->copy_from(hidden_narrow);
+    auto ar_view = staging_narrow->view({1, valid_len, hidden_size});
     allreduce_fn(ar_view);
-    src_rows->copy_from(staging_rows);
+    hidden_narrow->copy_from(staging_narrow);
 }
 
 inline void allreduce_tensor(infinicore::Tensor tensor, infinicclComm_t comm) {

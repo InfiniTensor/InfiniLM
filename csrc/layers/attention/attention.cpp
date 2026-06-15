@@ -105,12 +105,19 @@ void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_id
     size_t seq_len = shape[1];
     ASSERT_EQ(batch_size, 1);
 
-    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
     const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
 
-    auto q_heads = q->view({1, seq_len, num_attention_heads_, head_dim_});
-    auto k_heads = k->view({1, seq_len, num_key_value_heads_, head_dim_});
-    auto v_heads = v->view({1, seq_len, num_key_value_heads_, head_dim_});
+    infinicore::Tensor hidden_for_qkv = hidden_states_mutable;
+    size_t qkv_seq_len = seq_len;
+    if (valid_len < seq_len) {
+        hidden_for_qkv = hidden_states_mutable->narrow({{1, 0, valid_len}});
+        qkv_seq_len = valid_len;
+    }
+    auto [q, k, v] = qkv_proj_->forward_split(hidden_for_qkv);
+
+    auto q_heads = q->view({1, qkv_seq_len, num_attention_heads_, head_dim_});
+    auto k_heads = k->view({1, qkv_seq_len, num_key_value_heads_, head_dim_});
+    auto v_heads = v->view({1, qkv_seq_len, num_key_value_heads_, head_dim_});
 
     if (valid_len < seq_len) {
         staging.q_rope->narrow({{1, 0, valid_len}})->copy_from(q_heads->narrow({{1, 0, valid_len}}));

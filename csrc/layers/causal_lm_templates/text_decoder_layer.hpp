@@ -4,6 +4,7 @@
 #include "../../global_state/ar_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../global_state/piecewise_prefill_state.hpp"
+#include "../../utils.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
@@ -68,7 +69,16 @@ public:
                             infinicore::Tensor &hidden_states,
                             infinicore::Tensor &residual,
                             global_state::PiecewiseLayerStaging &staging) const {
-        input_layernorm_->forward_inplace(hidden_states, residual);
+        auto &piecewise = global_state::get_forward_context().piecewise;
+        const size_t bucket = hidden_states->size(1);
+        const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
+        if (valid_len < bucket) {
+            auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+            auto residual_narrow = residual->narrow({{1, 0, valid_len}});
+            input_layernorm_->forward_inplace(hidden_narrow, residual_narrow);
+        } else {
+            input_layernorm_->forward_inplace(hidden_states, residual);
+        }
         self_attn_->forward_pre_attn_piecewise(positions, hidden_states, staging);
     }
 
@@ -87,25 +97,58 @@ public:
     void piecewise_post_attn_graph(infinicore::Tensor &hidden_states,
                                    infinicore::Tensor &residual,
                                    global_state::PiecewiseLayerStaging &staging) const {
+        (void)residual;
+        // Graph segment ends at row-parallel o_proj matmul; AR must run before post-attn norm/MLP.
         self_attn_->forward_post_attn_piecewise_graph_into(hidden_states, staging);
-        post_attention_layernorm_->forward_inplace(hidden_states, residual);
-        auto mlp_out = mlp_->forward_matmul_only(hidden_states);
-        hidden_states->copy_from(mlp_out);
+    }
+
+    void piecewise_post_attn_mlp_graph(infinicore::Tensor &hidden_states,
+                                       infinicore::Tensor &residual) const {
+        auto &piecewise = global_state::get_forward_context().piecewise;
+        const size_t bucket = hidden_states->size(1);
+        const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
+        if (valid_len < bucket) {
+            auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+            auto residual_narrow = residual->narrow({{1, 0, valid_len}});
+            post_attention_layernorm_->forward_inplace(hidden_narrow, residual_narrow);
+            auto mlp_out = mlp_->forward_matmul_only(hidden_narrow);
+            hidden_narrow->copy_from(mlp_out);
+            infinicore::Tensor hidden_tail = hidden_states->narrow({{1, valid_len, bucket - valid_len}});
+            infinicore::Tensor residual_tail = residual->narrow({{1, valid_len, bucket - valid_len}});
+            set_zeros(hidden_tail);
+            set_zeros(residual_tail);
+        } else {
+            post_attention_layernorm_->forward_inplace(hidden_states, residual);
+            auto mlp_out = mlp_->forward_matmul_only(hidden_states);
+            hidden_states->copy_from(mlp_out);
+        }
     }
 
     void piecewise_post_attn_allreduce(infinicore::Tensor &hidden_states,
                                        infinicore::Tensor &residual,
                                        global_state::PiecewiseLayerStaging &staging) const {
-        (void)residual;
-        self_attn_->forward_post_attn_piecewise_allreduce_into(hidden_states, staging);
         auto &piecewise = global_state::get_forward_context().piecewise;
         const size_t bucket = hidden_states->size(1);
         const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
-        global_state::ar_profile::allreduce_hidden_valid_contiguous(
-            hidden_states,
-            valid_len,
-            piecewise.ar_staging,
-            [&](infinicore::Tensor &t) { mlp_->allreduce_output(t); });
+        const auto step = piecewise.post_attn_replay_step;
+
+        if (step == global_state::PiecewisePostAttnReplayStep::Full
+            || step == global_state::PiecewisePostAttnReplayStep::OProjAllreduce) {
+            self_attn_->forward_post_attn_piecewise_allreduce_into(hidden_states, staging);
+        }
+
+        if (step == global_state::PiecewisePostAttnReplayStep::Full) {
+            piecewise_post_attn_mlp_graph(hidden_states, residual);
+        }
+
+        if (step == global_state::PiecewisePostAttnReplayStep::Full
+            || step == global_state::PiecewisePostAttnReplayStep::MlpAllreduce) {
+            global_state::ar_profile::allreduce_hidden_valid_contiguous(
+                hidden_states,
+                valid_len,
+                piecewise.ar_staging_mlp,
+                [&](infinicore::Tensor &t) { mlp_->allreduce_output(t); });
+        }
     }
 
 protected:

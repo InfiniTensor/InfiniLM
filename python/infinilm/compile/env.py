@@ -99,6 +99,11 @@ def prefill_cg_baseline_none() -> bool:
     return _truthy("INFINI_PREFILL_CG_BASELINE_NONE", "0")
 
 
+def native_cg_replay_none() -> bool:
+    """Bisect: skip native CG replay; call eager piecewise methods with same metadata/copy path."""
+    return _truthy("INFINI_NATIVE_CG_REPLAY_NONE", "0")
+
+
 def prefill_share_weights_enabled() -> bool:
     """Reuse C++ weight buffers for torch KV write in ``run_prefill_paged`` (opt-in)."""
     return _truthy("INFINI_PREFILL_SHARE_WEIGHTS", "0")

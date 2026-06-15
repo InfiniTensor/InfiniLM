@@ -19,11 +19,13 @@ public:
         InfinilmModel::Input input;
         std::vector<std::shared_ptr<infinicore::graph::Graph>> pre_attn;
         std::vector<std::shared_ptr<infinicore::graph::Graph>> post_attn;
+        std::vector<std::shared_ptr<infinicore::graph::Graph>> post_attn_mlp;
         std::shared_ptr<infinicore::graph::Graph> lm_head;
         infinicore::Tensor logits_holder;
         infinicore::Tensor hidden_states;
         infinicore::Tensor residual;
         infinicore::Tensor ar_staging;
+        infinicore::Tensor ar_staging_mlp;
         std::vector<global_state::PiecewiseLayerStaging> layer_staging;
     };
 

@@ -14,6 +14,30 @@ class BasicLLMProcessor(InfinilmProcessor):
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir_path, trust_remote_code=True
         )
+        # Paged KV cache block count; LLMEngine sets this for stable block_tables width.
+        self.num_blocks: int | None = None
+
+    @staticmethod
+    def _pad_block_table(block_table: list, target_width: int) -> list:
+        if target_width <= 0:
+            raise ValueError(f"block_tables width must be positive, got {target_width}")
+        if len(block_table) > target_width:
+            raise ValueError(
+                f"block_table length {len(block_table)} exceeds num_blocks {target_width}"
+            )
+        return block_table + [-1] * (target_width - len(block_table))
+
+    def _block_table_width(self, rows_or_requests) -> int:
+        """Pad block_tables to num_blocks so runtime width matches PagedCompiler capture."""
+        max_in_batch = max(len(req.block_table) for req in rows_or_requests)
+        num_blocks = getattr(self, "num_blocks", None)
+        if num_blocks is not None:
+            if max_in_batch > num_blocks:
+                raise ValueError(
+                    f"block_table length {max_in_batch} exceeds num_blocks {num_blocks}"
+                )
+            return num_blocks
+        return max_in_batch
 
     @staticmethod
     def _slot_mapping_for_hybrid_prefill(slot_mapping: list[int]):
@@ -219,7 +243,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         slot_mapping.extend(req.slot_mapping[slot_start:slot_end])
         cached_lens.append(start)
         position_ids.extend(range(start, end))
-        cu_seqlens.append(cu_seqlens[-1] + total_kv_len)
+        cu_seqlens.append(cu_seqlens[-1] + q)
         is_final_prefill_chunk.append(row.is_final_prefill_chunk)
 
     @staticmethod
@@ -284,8 +308,8 @@ class BasicLLMProcessor(InfinilmProcessor):
         cu_seqlens: list = [0]
         is_final_prefill_chunk: list = []
 
-        max_block_table_len = max(
-            len(row.request.block_table) for row in scheduler_output.rows
+        block_table_width = self._block_table_width(
+            [row.request for row in scheduler_output.rows]
         )
 
         for row in scheduler_output.rows:
@@ -314,10 +338,9 @@ class BasicLLMProcessor(InfinilmProcessor):
                     cu_seqlens=cu_seqlens,
                     is_final_prefill_chunk=is_final_prefill_chunk,
                 )
-            padded_block_table = req.block_table + [-1] * (
-                max_block_table_len - len(req.block_table)
+            block_tables.append(
+                self._pad_block_table(req.block_table, block_table_width)
             )
-            block_tables.append(padded_block_table)
 
         return self._finalize_batch_model_input(
             tokens=tokens,
@@ -353,8 +376,8 @@ class BasicLLMProcessor(InfinilmProcessor):
         cu_seqlens: list = [0]
         is_final_prefill_chunk: list = []
 
-        max_block_table_len = max(
-            len(req.block_table) for req in scheduler_output.scheduled_requests
+        block_table_width = self._block_table_width(
+            scheduler_output.scheduled_requests
         )
         current_offset = 0
 
@@ -378,7 +401,7 @@ class BasicLLMProcessor(InfinilmProcessor):
                     slot_mapping.extend(req.slot_mapping[slot_start:slot_end])
                     cached_lens.append(start)
                     position_ids.extend(range(start, end))
-                    cu_seqlens.append(cu_seqlens[-1] + total_kv_len)
+                    cu_seqlens.append(cu_seqlens[-1] + len(tokens_to_compute))
                 else:
                     tokens_to_compute = req_tokens[num_cached:]
                     tokens.extend(tokens_to_compute)
@@ -403,10 +426,9 @@ class BasicLLMProcessor(InfinilmProcessor):
                 position_ids.append(seq_len - 1)
                 cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
-            padded_block_table = req.block_table + [-1] * (
-                max_block_table_len - len(req.block_table)
+            block_tables.append(
+                self._pad_block_table(req.block_table, block_table_width)
             )
-            block_tables.append(padded_block_table)
 
         if scheduler_output.is_prefill:
             for req in scheduler_output.scheduled_requests:

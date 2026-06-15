@@ -7,6 +7,8 @@
 #include "../../utils.hpp"
 #include "piecewise_bucket_policy.hpp"
 
+#include <infinicore/context/context.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -70,23 +72,72 @@ void set_attn_metadata(const InfinilmModel::Input &input) {
     };
 }
 
-void set_attn_metadata_for_varlen_batch(const InfinilmModel::Input &compiled,
-                                        const InfinilmModel::Input &runtime) {
-    const size_t runtime_n_req = runtime.block_tables.value()->size(0);
-    const size_t block_per_req = runtime.block_tables.value()->size(1);
-    const size_t offset_len = runtime.input_offsets.value()->size(0);
-    const size_t cu_len = runtime.cu_seqlens.value()->size(0);
+// Graph tensors hold bucket-padded metadata after copy_runtime; flash/paged_caching
+// must see seq_len-sized slot_mapping (not bucket tail with -1).
+void set_attn_metadata_for_replay_(const InfinilmModel::Input &graph_input,
+                                   const InfinilmModel::Input &runtime) {
+    infinilm::global_state::get_forward_context().attn_metadata = {
+        graph_input.past_sequence_lengths,
+        graph_input.total_sequence_lengths,
+        graph_input.input_offsets,
+        graph_input.cu_seqlens,
+        graph_input.block_tables,
+        runtime.slot_mapping,
+    };
+}
 
-    auto &meta = infinilm::global_state::get_forward_context().attn_metadata;
-    meta.past_sequence_lengths = compiled.past_sequence_lengths.has_value()
-                                     ? std::optional<infinicore::Tensor>(
-                                           compiled.past_sequence_lengths.value()->narrow({{0, 0, runtime_n_req}}))
-                                     : std::nullopt;
-    meta.total_sequence_lengths = compiled.total_sequence_lengths.value()->narrow({{0, 0, runtime_n_req}});
-    meta.input_offsets = compiled.input_offsets.value()->narrow({{0, 0, offset_len}});
-    meta.cu_seqlens = compiled.cu_seqlens.value()->narrow({{0, 0, cu_len}});
-    meta.block_tables = compiled.block_tables.value()->narrow({{0, 0, runtime_n_req}, {1, 0, block_per_req}});
-    meta.slot_mapping = compiled.slot_mapping;
+void pad_bucket_graph_inputs_for_replay_(InfinilmModel::Input &graph_input,
+                                         size_t valid_seq_len,
+                                         size_t bucket) {
+    if (valid_seq_len >= bucket) {
+        return;
+    }
+    const size_t pad = bucket - valid_seq_len;
+    infinicore::Tensor ids_tail = graph_input.input_ids.value()->narrow({{1, valid_seq_len, pad}});
+    set_zeros(ids_tail);
+
+    std::vector<int64_t> pos_tail(pad);
+    for (size_t i = 0; i < pad; ++i) {
+        pos_tail[i] = static_cast<int64_t>(valid_seq_len + i);
+    }
+    infinicore::context::memcpyH2D(
+        graph_input.position_ids.value()->narrow({{0, valid_seq_len, pad}})->data(),
+        pos_tail.data(),
+        pad * sizeof(int64_t),
+        false);
+
+    auto slot_tail = graph_input.slot_mapping.value()->narrow({{0, valid_seq_len, pad}});
+    infinicore::Tensor slot_tail_ref = slot_tail;
+    set_minus_one(slot_tail_ref);
+}
+
+void scrub_stale_compiled_metadata_tail_(InfinilmModel::Input &graph_input,
+                                       size_t runtime_n_req,
+                                       size_t compiled_n_req) {
+    if (runtime_n_req < compiled_n_req) {
+        const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
+        auto stale_rows = graph_input.block_tables.value()->narrow(
+            {{0, runtime_n_req, compiled_n_req - runtime_n_req}, {1, 0, compiled_block_per_req}});
+        set_minus_one(stale_rows);
+        if (graph_input.past_sequence_lengths.has_value()) {
+            auto stale_past = graph_input.past_sequence_lengths.value()->narrow(
+                {{0, runtime_n_req, compiled_n_req - runtime_n_req}});
+            set_zeros(stale_past);
+        }
+        auto stale_total = graph_input.total_sequence_lengths.value()->narrow(
+            {{0, runtime_n_req, compiled_n_req - runtime_n_req}});
+        set_zeros(stale_total);
+        const size_t offset_len = graph_input.input_offsets.value()->size(0);
+        const size_t runtime_offset_len = runtime_n_req + 1;
+        if (offset_len > runtime_offset_len) {
+            auto stale_offsets = graph_input.input_offsets.value()->narrow(
+                {{0, runtime_offset_len, offset_len - runtime_offset_len}});
+            set_zeros(stale_offsets);
+            auto stale_cu = graph_input.cu_seqlens.value()->narrow(
+                {{0, runtime_offset_len, offset_len - runtime_offset_len}});
+            set_zeros(stale_cu);
+        }
+    }
 }
 
 void zero_tensor_tail_seq_(infinicore::Tensor &tensor, size_t valid_len, size_t bucket) {
@@ -114,6 +165,9 @@ void clear_stale_bucket_tails_(global_state::PiecewisePrefillState &piecewise,
     }
     if (piecewise.ar_staging) {
         zero_tensor_tail_seq_(piecewise.ar_staging, valid_seq_len, bucket);
+    }
+    if (piecewise.ar_staging_mlp) {
+        zero_tensor_tail_seq_(piecewise.ar_staging_mlp, valid_seq_len, bucket);
     }
     if (logits_holder) {
         zero_tensor_tail_seq_(logits_holder, valid_seq_len, bucket);
@@ -178,6 +232,7 @@ void PiecewisePrefillCompiler::allocate_layer_staging_(size_t bucket, size_t num
     piecewise.hidden_states = infinicore::Tensor::empty({1, bucket, hidden}, dtype, device);
     piecewise.residual = infinicore::Tensor::empty({1, bucket, hidden}, dtype, device);
     piecewise.ar_staging = infinicore::Tensor::empty({1, bucket, hidden}, dtype, device);
+    piecewise.ar_staging_mlp = infinicore::Tensor::empty({1, bucket, hidden}, dtype, device);
 }
 
 InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket, size_t nblocks, size_t n_req) const {
@@ -296,6 +351,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
     model_->native_piecewise_lm_head(graphs.input, hidden, residual, graphs.logits_holder);
     graphs.pre_attn.resize(capture_layers);
     graphs.post_attn.resize(capture_layers);
+    graphs.post_attn_mlp.resize(capture_layers);
 
     set_zeros(piecewise.residual);
     model_->native_piecewise_embed(graphs.input, hidden);
@@ -318,6 +374,13 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         model_->native_piecewise_post_attn_graph_layer(layer, graphs.input, hidden, residual);
         graphs.post_attn[layer] = infinicore::context::stopGraphRecording();
         barrier_->wait("piecewise_capture_post_attn_sync");
+
+        piecewise.phase = global_state::PiecewiseCapturePhase::PostAttnMlp;
+        barrier_->wait("piecewise_capture_post_attn_mlp");
+        infinicore::context::startGraphRecording();
+        model_->native_piecewise_post_attn_mlp_graph_layer(layer, graphs.input, hidden, residual);
+        graphs.post_attn_mlp[layer] = infinicore::context::stopGraphRecording();
+        barrier_->wait("piecewise_capture_post_attn_mlp_sync");
     }
 
     piecewise.phase = global_state::PiecewiseCapturePhase::LmHead;
@@ -331,10 +394,11 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
     graphs.hidden_states = piecewise.hidden_states;
     graphs.residual = piecewise.residual;
     graphs.ar_staging = piecewise.ar_staging;
+    graphs.ar_staging_mlp = piecewise.ar_staging_mlp;
     graphs.layer_staging = piecewise.layer_staging;
     compiled_[bucket] = std::move(graphs);
     spdlog::info("native piecewise CG: captured bucket={} layers={} segments={}",
-                 bucket, capture_layers, capture_layers * 2 + 1);
+                 bucket, capture_layers, capture_layers * 3 + 1);
 }
 
 void PiecewisePrefillCompiler::compile() {
@@ -352,9 +416,15 @@ void PiecewisePrefillCompiler::compile() {
     const auto *paged_config =
         dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
     const size_t nblocks = paged_config->num_blocks();
-    max_capture_req_ = std::max<size_t>(1, paged_config->max_batch_size());
+    // Capture geometry defaults to n_req=1 (staging smoke parity). Multi-req replay
+    // uses runtime varlen metadata; widen capture only when explicitly requested.
+    max_capture_req_ = 1;
     if (const char *raw = std::getenv("INFINI_MAX_PREFILL_BATCH")) {
         max_capture_req_ = std::max<size_t>(1, std::stoul(raw));
+    } else {
+        max_capture_req_ = std::min(
+            max_capture_req_,
+            std::max<size_t>(1, paged_config->max_batch_size()));
     }
     size_t max_bucket = capture_buckets_.empty() ? 0 : capture_buckets_.front();
     block_tables_holder_ = infinicore::Tensor::empty(
@@ -364,6 +434,20 @@ void PiecewisePrefillCompiler::compile() {
         "native piecewise CG: capture warmup n_req={} (metadata only, hidden [1,bucket])",
         max_capture_req_);
 
+    for (auto &kv : compiled_) {
+        auto &graphs = kv.second;
+        for (auto &gr : graphs.pre_attn) {
+            gr.reset();
+        }
+        for (auto &gr : graphs.post_attn) {
+            gr.reset();
+        }
+        for (auto &gr : graphs.post_attn_mlp) {
+            gr.reset();
+        }
+        graphs.lm_head.reset();
+    }
+    infinicore::context::syncDevice();
     compiled_.clear();
     for (size_t bucket : capture_buckets_) {
         capture_bucket_(bucket);
@@ -377,6 +461,11 @@ void PiecewisePrefillCompiler::compile() {
     }
     spdlog::info("native piecewise CG: capture_buckets=[{}] max_seq={}",
                  oss.str(), max_seq_len_);
+
+    auto &kv_cache_vec = infinilm::global_state::get_forward_context().kv_cache_vec;
+    for (auto &kv : kv_cache_vec) {
+        set_zeros(kv);
+    }
 }
 
 size_t PiecewisePrefillCompiler::padded_bucket_for(size_t seq_len) const {
@@ -438,14 +527,10 @@ void PiecewisePrefillCompiler::copy_runtime_into_bucket_(BucketGraphs &bucket_gr
     graph_input.slot_mapping.value()
         ->narrow({{0, 0, valid_seq_len}})
         ->copy_from(runtime.slot_mapping.value());
-    if (valid_seq_len < bucket) {
-        auto slot_tail = graph_input.slot_mapping.value()->narrow({{0, valid_seq_len, bucket - valid_seq_len}});
-        set_minus_one(slot_tail);
-        auto ids_tail = graph_input.input_ids.value()->narrow({{1, valid_seq_len, bucket - valid_seq_len}});
-        set_zeros(ids_tail);
-        auto pos_tail = graph_input.position_ids.value()->narrow({{0, valid_seq_len, bucket - valid_seq_len}});
-        set_zeros(pos_tail);
-    }
+
+    pad_bucket_graph_inputs_for_replay_(graph_input, valid_seq_len, bucket);
+
+    scrub_stale_compiled_metadata_tail_(graph_input, runtime_n_req, compiled_n_req);
 }
 
 std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const InfinilmModel::Input &input) {
@@ -477,7 +562,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     auto &bucket_graphs = compiled_.at(graph_bucket);
     const double t_copy0 = profile ? monotonic_ms() : 0.0;
     copy_runtime_into_bucket_(bucket_graphs, input, seq_len);
-    set_attn_metadata_for_varlen_batch(bucket_graphs.input, input);
+    set_attn_metadata_for_replay_(bucket_graphs.input, input);
     if (profile) {
         spdlog::info(
             "rank_worker_profile: piecewise copy_runtime+metadata_ms={:.3f}",
@@ -486,10 +571,11 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
 
     auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
     piecewise.valid_seq_len = seq_len;
-    piecewise.bucket_seq_len = padded;
+    piecewise.bucket_seq_len = graph_bucket;
     piecewise.hidden_states = bucket_graphs.hidden_states;
     piecewise.residual = bucket_graphs.residual;
     piecewise.ar_staging = bucket_graphs.ar_staging;
+    piecewise.ar_staging_mlp = bucket_graphs.ar_staging_mlp;
     piecewise.layer_staging = bucket_graphs.layer_staging;
 
     // Fresh residual each replay (matches capture warmup); hidden prefix comes from embed.
@@ -501,35 +587,70 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     model_->native_piecewise_embed(bucket_graphs.input, piecewise.hidden_states);
 
     const size_t num_layers = bucket_graphs.pre_attn.size();
+    const bool bucket_shortfall = seq_len < graph_bucket;
+    const bool use_cg_replay = !native_cg_replay_none() && !bucket_shortfall;
     double layers_ms = 0.0;
     const double t_layers0 = profile ? monotonic_ms() : 0.0;
     for (size_t layer = 0; layer < num_layers; ++layer) {
         const double t_layer0 = profile ? monotonic_ms() : 0.0;
-        barrier_->wait("piecewise_replay_pre_attn");
-        bucket_graphs.pre_attn[layer]->run();
-        ++segment_replays_;
-        const double t_pre_attn = profile ? monotonic_ms() : 0.0;
-        piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
-        model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
-        const double t_eager_attn = profile ? monotonic_ms() : 0.0;
-        barrier_->wait("piecewise_replay_post_attn");
-        bucket_graphs.post_attn[layer]->run();
-        ++segment_replays_;
-        barrier_->wait("piecewise_replay_post_attn_sync");
-        model_->native_piecewise_post_attn_allreduce_layer(
-            layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
-        if (!piecewise_trim_barriers()) {
-            barrier_->wait("piecewise_replay_post_allreduce");
-        }
-        if (profile) {
-            spdlog::info(
-                "rank_worker_profile: piecewise layer={} pre_attn_ms={:.3f} eager_attn_ms={:.3f} "
-                "post_attn_ms={:.3f} layer_total_ms={:.3f}",
-                layer,
-                t_pre_attn - t_layer0,
-                t_eager_attn - t_pre_attn,
-                monotonic_ms() - t_eager_attn,
-                monotonic_ms() - t_layer0);
+        if (!use_cg_replay) {
+            barrier_->wait("piecewise_replay_pre_attn");
+            model_->native_piecewise_pre_attn_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            const double t_pre_attn = profile ? monotonic_ms() : 0.0;
+            piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+            model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
+            const double t_eager_attn = profile ? monotonic_ms() : 0.0;
+            barrier_->wait("piecewise_replay_post_attn");
+            model_->native_piecewise_post_attn_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            if (profile) {
+                spdlog::info(
+                    "rank_worker_profile: piecewise eager_replay layer={} pre_attn_ms={:.3f} "
+                    "eager_attn_ms={:.3f} post_attn_ms={:.3f} layer_total_ms={:.3f} bucket_shortfall={}",
+                    layer,
+                    t_pre_attn - t_layer0,
+                    t_eager_attn - t_pre_attn,
+                    monotonic_ms() - t_eager_attn,
+                    monotonic_ms() - t_layer0,
+                    bucket_shortfall);
+            }
+        } else {
+            barrier_->wait("piecewise_replay_pre_attn");
+            bucket_graphs.pre_attn[layer]->run();
+            ++segment_replays_;
+            const double t_pre_attn = profile ? monotonic_ms() : 0.0;
+            piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+            model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
+            const double t_eager_attn = profile ? monotonic_ms() : 0.0;
+            barrier_->wait("piecewise_replay_post_attn");
+            bucket_graphs.post_attn[layer]->run();
+            ++segment_replays_;
+            barrier_->wait("piecewise_replay_post_attn_sync");
+            piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::OProjAllreduce;
+            model_->native_piecewise_post_attn_allreduce_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            barrier_->wait("piecewise_replay_post_attn_o_proj_ar");
+            bucket_graphs.post_attn_mlp[layer]->run();
+            ++segment_replays_;
+            barrier_->wait("piecewise_replay_post_attn_mlp_sync");
+            piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::MlpAllreduce;
+            model_->native_piecewise_post_attn_allreduce_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::Full;
+            if (!piecewise_trim_barriers()) {
+                barrier_->wait("piecewise_replay_post_allreduce");
+            }
+            if (profile) {
+                spdlog::info(
+                    "rank_worker_profile: piecewise layer={} pre_attn_ms={:.3f} eager_attn_ms={:.3f} "
+                    "post_attn_ms={:.3f} layer_total_ms={:.3f}",
+                    layer,
+                    t_pre_attn - t_layer0,
+                    t_eager_attn - t_pre_attn,
+                    monotonic_ms() - t_eager_attn,
+                    monotonic_ms() - t_layer0);
+            }
         }
     }
     if (profile) {
@@ -538,13 +659,19 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     if (InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         const double t_lm0 = profile ? monotonic_ms() : 0.0;
         barrier_->wait("piecewise_replay_lm_head");
-        bucket_graphs.lm_head->run();
-        ++segment_replays_;
+        if (!use_cg_replay) {
+            model_->native_piecewise_lm_head(
+                bucket_graphs.input, piecewise.hidden_states, piecewise.residual, bucket_graphs.logits_holder);
+        } else {
+            bucket_graphs.lm_head->run();
+            ++segment_replays_;
+        }
         barrier_->wait("piecewise_replay_lm_head_sync");
         if (profile) {
             spdlog::info(
-                "rank_worker_profile: piecewise lm_head_ms={:.3f}",
-                monotonic_ms() - t_lm0);
+                "rank_worker_profile: piecewise lm_head_ms={:.3f} use_cg_replay={}",
+                monotonic_ms() - t_lm0,
+                use_cg_replay);
         }
     }
 

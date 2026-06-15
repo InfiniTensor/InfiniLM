@@ -18,4 +18,10 @@ inline bool native_piecewise_prefill_enabled() {
     return v != nullptr && v[0] != '\0' && std::string(v) != "0";
 }
 
+/// When true, skip native CG replay and call eager piecewise methods (bisect vs CG capture).
+inline bool native_cg_replay_none() {
+    const char *v = std::getenv("INFINI_NATIVE_CG_REPLAY_NONE");
+    return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+}
+
 } // namespace infinilm::engine

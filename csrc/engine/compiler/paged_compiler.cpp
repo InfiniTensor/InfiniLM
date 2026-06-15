@@ -196,12 +196,16 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         return Compiled{nullptr, nullptr};
     };
 
-    if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
+        if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
         size_t batch_size = input.block_tables.value()->size(0);
         size_t block_per_req = input.block_tables.value()->size(1);
 
         if (batch_size != input.input_ids.value()->size(1)) {
             if (skip_cpp_prefill_graph() || native_piecewise_prefill_enabled()) {
+                return miss();
+            }
+            // C++ prefill graphs are captured with batch_size == 1 only.
+            if (batch_size > 1) {
                 return miss();
             }
             const size_t compute_len = compute_prefill_len(input);
@@ -245,6 +249,9 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
             graph_input.input_ids.value()->copy_from(input.input_ids.value());
             graph_input.position_ids.value()->copy_from(input.position_ids.value());
+            if (graph_input.past_sequence_lengths.has_value() && input.past_sequence_lengths.has_value()) {
+                graph_input.past_sequence_lengths.value()->copy_from(input.past_sequence_lengths.value());
+            }
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
             graph_input.input_offsets.value()->copy_from(input.input_offsets.value());
             graph_input.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
@@ -259,8 +266,17 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             // This matches scheduler padding semantics without risking -1 access during graph recording.
             auto &graph_block_tables = graph_input.block_tables.value();
             set_minus_one(graph_block_tables);
-            graph_input.block_tables.value()->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
+            graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
+
+            infinilm::global_state::get_forward_context().attn_metadata = {
+                graph_input.past_sequence_lengths,
+                graph_input.total_sequence_lengths,
+                graph_input.input_offsets,
+                graph_input.cu_seqlens,
+                graph_input.block_tables,
+                graph_input.slot_mapping,
+            };
 
             auto graph = std::get<0>(result->second.compiled);
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
