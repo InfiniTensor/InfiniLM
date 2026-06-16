@@ -1,6 +1,7 @@
 #include "gptq.hpp"
 #include "gptq_marlin.hpp"
 #include "gptq_qy.hpp"
+#include "marlin_support.hpp"
 #include "marlin_utils.hpp"
 
 namespace infinilm::quantization {
@@ -49,6 +50,7 @@ std::shared_ptr<BaseQuantization> GPTQ::process_weights_after_loading(
     }
 
     if (device.getType() == infinicore::Device::Type::NVIDIA) {
+#if INFINILM_ENABLE_MARLIN
         const int bits = get_or<int>("bits", get_or<int>("w_bit", 4));
         const bool is_sym = get_or<bool>("sym", true);
         if (bits == 4 && is_sym) {
@@ -91,6 +93,9 @@ std::shared_ptr<BaseQuantization> GPTQ::process_weights_after_loading(
                     is_k_full);
             }
         }
+#else
+        (void)split_dim;
+#endif
     }
     return std::const_pointer_cast<BaseQuantization>(shared_from_this());
 }

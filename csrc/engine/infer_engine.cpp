@@ -79,7 +79,7 @@ void InferEngine::process_weights_after_loading() {
     for (auto &worker : workers_) {
         worker->process_weights_after_loading();
     }
-    weights_processed_ = true;
+    weights_finalized_ = true;
     this->compile();
 }
 
@@ -170,7 +170,7 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
 }
 
 void InferEngine::compile() {
-    if (!weights_processed_) {
+    if (!weights_finalized_) {
         return;
     }
     for (auto &worker : workers_) {

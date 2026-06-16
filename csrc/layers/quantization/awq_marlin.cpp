@@ -1,4 +1,7 @@
 #include "awq_marlin.hpp"
+#include "marlin_support.hpp"
+
+#if INFINILM_ENABLE_MARLIN
 #include "marlin_utils.hpp"
 
 #include "../../utils.hpp"
@@ -94,3 +97,45 @@ std::vector<SplitParam> AWQMarlin::split_params(
 }
 
 } // namespace infinilm::quantization
+#else
+#include <stdexcept>
+
+namespace infinilm::quantization {
+
+std::vector<ParamDescriptor> AWQMarlin::get_param_layout(
+    size_t, size_t, int, int, int, int, const infinicore::DataType &, bool) const {
+    return {};
+}
+
+void AWQMarlin::reset_runtime_state() const {}
+
+infinicore::Tensor AWQMarlin::forward(
+    const ParamsMap &,
+    const infinicore::Tensor &,
+    bool,
+    float) const {
+    throw std::runtime_error("AWQ Marlin is not available because InfiniCore was built without Marlin GEMM headers.");
+}
+
+std::vector<SplitParam> AWQMarlin::split_params(
+    const std::unordered_map<std::string, infinicore::nn::Parameter> &,
+    const std::vector<SplitInfo> &,
+    int,
+    int, int, int) const {
+    return {};
+}
+
+infinicore::Tensor AWQMarlin::get_workspace(
+    infinicore::Tensor,
+    const infinicore::Tensor &,
+    const infinicore::Tensor &,
+    infinicore::Tensor &,
+    infinicore::Tensor &,
+    infinicore::Tensor &,
+    infinicore::Tensor &,
+    infinicore::Tensor &) const {
+    throw std::runtime_error("AWQ Marlin is not available because InfiniCore was built without Marlin GEMM headers.");
+}
+
+} // namespace infinilm::quantization
+#endif

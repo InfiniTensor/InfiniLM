@@ -1,6 +1,7 @@
 #include "awq.hpp"
 #include "awq_marlin.hpp"
 #include "infinicore/ops/linear_w4a16_awq.hpp"
+#include "marlin_support.hpp"
 #include "marlin_utils.hpp"
 #include <optional>
 
@@ -23,12 +24,9 @@ std::vector<ParamDescriptor> AWQ::get_param_layout(
     int packing_num = get_packing_num();
 
     std::vector<ParamDescriptor> descs;
-    descs.push_back({"qweight", {in_features, out_features / packing_num},
-                     infinicore::DataType::I32, awq_tp_dim, tp_rank, tp_size});
-    descs.push_back({"scales", {in_features / group_size, out_features},
-                     dtype, awq_tp_dim, tp_rank, tp_size});
-    descs.push_back({"qzeros", {in_features / group_size, out_features / packing_num},
-                     infinicore::DataType::I32, awq_tp_dim, tp_rank, tp_size});
+    descs.push_back({"qweight", {in_features, out_features / packing_num}, infinicore::DataType::I32, awq_tp_dim, tp_rank, tp_size});
+    descs.push_back({"scales", {in_features / group_size, out_features}, dtype, awq_tp_dim, tp_rank, tp_size});
+    descs.push_back({"qzeros", {in_features / group_size, out_features / packing_num}, infinicore::DataType::I32, awq_tp_dim, tp_rank, tp_size});
     if (bias) {
         descs.push_back({"bias", {out_features}, dtype, -1, 0, 1});
     }
@@ -62,6 +60,7 @@ std::shared_ptr<BaseQuantization> AWQ::process_weights_after_loading(
         return nullptr;
     }
 
+#if INFINILM_ENABLE_MARLIN
     const int bits = get_or<int>("bits", get_or<int>("w_bit", 4));
     if (bits != 4) {
         return nullptr;
@@ -96,6 +95,10 @@ std::shared_ptr<BaseQuantization> AWQ::process_weights_after_loading(
     params["global_scales"] = marlin::make_empty_i32(device);
 
     return std::make_shared<AWQMarlin>(get_config(), input_size_per_partition, output_size_per_partition);
+#else
+    (void)params;
+    return nullptr;
+#endif
 }
 
 std::vector<SplitParam> AWQ::split_params(

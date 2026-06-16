@@ -3,7 +3,6 @@
 #include "../../backends/attention_backends.hpp"
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
-#include "../fused_weights_processor.hpp"
 #include "../linear/linear.hpp"
 #include "backends/attention_layer.hpp"
 #include "infinicore/nn/module.hpp"
@@ -12,7 +11,7 @@
 #include <memory>
 
 namespace infinilm::layers::attention {
-class Attention : public infinicore::nn::Module, public infinilm::layers::FusedWeightsProcessor {
+class Attention : public infinicore::nn::Module {
 public:
     Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
               size_t layer_idx,
@@ -21,11 +20,11 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
 
-    void process_fused_weights_after_loading() override {
+    void process_weights_after_loading() override {
         qkv_proj_->process_weights_after_loading();
     }
 
-    void reset_fused_runtime_state() const override {
+    void reset_runtime_state() const override {
         qkv_proj_->reset_runtime_state();
     }
 
@@ -60,7 +59,7 @@ protected:
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 };
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
-                              const infinicore::Device &device,
-                              infinicore::nn::Parameter &kv_cache_k_scale,
-                              infinicore::nn::Parameter &kv_cache_v_scale);
+                                const infinicore::Device &device,
+                                infinicore::nn::Parameter &kv_cache_k_scale,
+                                infinicore::nn::Parameter &kv_cache_v_scale);
 } // namespace infinilm::layers::attention

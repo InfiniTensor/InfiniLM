@@ -70,7 +70,7 @@ protected:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 
 private:
-    static void process_weights_recursive_(infinicore::nn::Module *module, size_t &linear_count, size_t &fused_count);
-    static void reset_runtime_state_recursive_(const infinicore::nn::Module *module, size_t &linear_count);
+    static void process_weights_recursive_(infinicore::nn::Module *module);
+    static void reset_runtime_state_recursive_(const infinicore::nn::Module *module);
 };
 } // namespace infinilm
