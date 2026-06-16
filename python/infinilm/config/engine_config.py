@@ -43,3 +43,11 @@ class EngineConfig:
     attn_backend: str = "default"
     skip_load: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.kv_transfer_config is not None
+            and self.kv_transfer_config.kv_connector
+            and self.cache_type != "paged"
+        ):
+            raise ValueError("kv_transfer_config requires cache_type='paged'")

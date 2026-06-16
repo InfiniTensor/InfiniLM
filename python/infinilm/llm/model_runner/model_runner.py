@@ -86,7 +86,10 @@ class ModelRunner:
 
         # Initialize KV connector
         self.kv_connector = None
-        if self.kv_transfer_config is not None:
+        if (
+            self.kv_transfer_config is not None
+            and self.kv_transfer_config.kv_connector
+        ):
             connector_name = self.kv_transfer_config.kv_connector
             self.kv_connector = KVConnectorFactory.create_connector(
                 connector_name=connector_name,

@@ -223,6 +223,10 @@ class StaticScheduler:
             f"update_cache: cached_block_hashes now has {len(self.cached_block_hashes)} blocks"
         )
 
+    def update_from_output(self, model_output):
+        """Static cache has no scheduler-side connector state to update."""
+        return None
+
     def complete_requests(self, requests: List[InferenceRequest]):
         """Handle completed requests."""
         for req in requests:
