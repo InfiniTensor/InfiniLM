@@ -73,3 +73,8 @@ class InternLMProcessor(SentencePieceProcessor):
 @register_processor("mistral")
 class MistralProcessor(SentencePieceProcessor):
     pass
+
+
+@register_processor("deepseek_v2")
+class DeepSeekV2Processor(BasicLLMProcessor):
+    pass
