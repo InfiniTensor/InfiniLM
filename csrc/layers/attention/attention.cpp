@@ -1,4 +1,5 @@
 #include "attention.hpp"
+#include "../../engine/compiled_prefill_flags.hpp"
 #include "../../global_state/ar_profile.hpp"
 #include "../../utils.hpp"
 #include "../rotary_embedding/rotary_embedding.hpp"
@@ -207,6 +208,18 @@ void Attention::forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidde
     auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
     auto projected = o_proj_->forward_matmul_only(attn_for_proj);
     hidden_narrow->copy_from(projected);
+    const auto &ctx = global_state::get_forward_context();
+    if (ctx.defer_row_parallel_allreduce && o_proj_->needs_allreduce()) {
+        global_state::ar_profile::allreduce_hidden_valid_contiguous(
+            hidden_states,
+            valid_len,
+            piecewise.ar_staging,
+            [&](infinicore::Tensor &t) { o_proj_->allreduce_output(t); });
+    } else if (engine::piecewise_ar_in_graph()
+               && piecewise.phase == global_state::PiecewiseCapturePhase::PostAttn
+               && o_proj_->needs_allreduce()) {
+        o_proj_->allreduce_output(hidden_narrow);
+    }
     if (valid_len < seq_len) {
         auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
         set_zeros(hidden_tail);

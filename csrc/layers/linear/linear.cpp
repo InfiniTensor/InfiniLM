@@ -116,6 +116,14 @@ void RowParallelLinear::allreduce_output(infinicore::Tensor &output) const {
     }
 }
 
+void RowParallelLinear::defer_allreduce_on(infinicore::Tensor &output) const {
+    if (!needs_allreduce()) {
+        return;
+    }
+    auto &ctx = infinilm::global_state::get_forward_context();
+    ctx.deferred_allreduces.push_back({output, communicator_});
+}
+
 bool RowParallelLinear::needs_allreduce() const {
     return (tp_size_ > 1) && (communicator_ != nullptr);
 }

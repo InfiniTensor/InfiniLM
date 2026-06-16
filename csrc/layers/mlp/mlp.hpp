@@ -37,6 +37,8 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
     infinicore::Tensor forward_matmul_only(const infinicore::Tensor &hidden_states) const;
     void allreduce_output(infinicore::Tensor &output) const;
+    void defer_allreduce_on(infinicore::Tensor &output) const;
+    bool needs_allreduce() const { return down_proj_->needs_allreduce(); }
 
     void process_fused_weights_after_loading() {
         gate_up_proj_->process_weights_after_loading();

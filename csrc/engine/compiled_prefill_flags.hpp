@@ -24,4 +24,10 @@ inline bool native_cg_replay_none() {
     return v != nullptr && v[0] != '\0' && std::string(v) != "0";
 }
 
+/// When true, record row-parallel HCCL allreduce inside post-attn CG segments (vs legacy staging).
+inline bool piecewise_ar_in_graph() {
+    const char *v = std::getenv("INFINI_PIECEWISE_AR_IN_GRAPH");
+    return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+}
+
 } // namespace infinilm::engine

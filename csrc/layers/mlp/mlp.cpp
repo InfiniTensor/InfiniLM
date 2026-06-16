@@ -48,4 +48,8 @@ infinicore::Tensor MLP::forward_matmul_only(const infinicore::Tensor &hidden_sta
 void MLP::allreduce_output(infinicore::Tensor &output) const {
     down_proj_->allreduce_output(output);
 }
+
+void MLP::defer_allreduce_on(infinicore::Tensor &output) const {
+    down_proj_->defer_allreduce_on(output);
+}
 } // namespace infinilm::layers::mlp

@@ -602,8 +602,13 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
             model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
             const double t_eager_attn = profile ? monotonic_ms() : 0.0;
             barrier_->wait("piecewise_replay_post_attn");
-            model_->native_piecewise_post_attn_layer(
+            auto &ctx = infinilm::global_state::get_forward_context();
+            ctx.defer_row_parallel_allreduce = true;
+            model_->native_piecewise_post_attn_graph_layer(
                 layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            model_->native_piecewise_post_attn_mlp_graph_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            ctx.defer_row_parallel_allreduce = false;
             if (profile) {
                 spdlog::info(
                     "rank_worker_profile: piecewise eager_replay layer={} pre_attn_ms={:.3f} "
@@ -627,16 +632,20 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
             bucket_graphs.post_attn[layer]->run();
             ++segment_replays_;
             barrier_->wait("piecewise_replay_post_attn_sync");
-            piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::OProjAllreduce;
-            model_->native_piecewise_post_attn_allreduce_layer(
-                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
-            barrier_->wait("piecewise_replay_post_attn_o_proj_ar");
+            if (!piecewise_ar_in_graph()) {
+                piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::OProjAllreduce;
+                model_->native_piecewise_post_attn_allreduce_layer(
+                    layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+                barrier_->wait("piecewise_replay_post_attn_o_proj_ar");
+            }
             bucket_graphs.post_attn_mlp[layer]->run();
             ++segment_replays_;
             barrier_->wait("piecewise_replay_post_attn_mlp_sync");
-            piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::MlpAllreduce;
-            model_->native_piecewise_post_attn_allreduce_layer(
-                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            if (!piecewise_ar_in_graph()) {
+                piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::MlpAllreduce;
+                model_->native_piecewise_post_attn_allreduce_layer(
+                    layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            }
             piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::Full;
             if (!piecewise_trim_barriers()) {
                 barrier_->wait("piecewise_replay_post_allreduce");
