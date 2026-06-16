@@ -2,6 +2,7 @@
 #include "../../engine/compiled_prefill_flags.hpp"
 #include "../../global_state/ar_profile.hpp"
 #include "../../utils.hpp"
+#include "../../utils/layer_hidden_dump.hpp"
 #include "../rotary_embedding/rotary_embedding.hpp"
 
 namespace infinilm::layers::attention {
@@ -93,6 +94,14 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
 
     // 7. Project output
     auto output = o_proj_->forward(attn_output);
+    {
+        size_t valid_len = 0;
+        auto &piecewise = global_state::get_forward_context().piecewise;
+        if (piecewise.valid_seq_len > 0) {
+            valid_len = piecewise.valid_seq_len;
+        }
+        infinilm::utils::dump_layer_hidden(output, layer_idx_, valid_len, "post_o_proj");
+    }
     return output;
 }
 
@@ -190,6 +199,7 @@ void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
     } else {
         staging.attn_output->copy_from(attn_output);
     }
+    infinilm::utils::dump_layer_hidden(staging.attn_output, layer_idx_, valid_len, "post_attn");
 }
 
 void Attention::forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
@@ -205,20 +215,57 @@ void Attention::forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidde
     const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
 
     auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
-    auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
-    auto projected = o_proj_->forward_matmul_only(attn_for_proj);
-    hidden_narrow->copy_from(projected);
-    const auto &ctx = global_state::get_forward_context();
-    if (ctx.defer_row_parallel_allreduce && o_proj_->needs_allreduce()) {
-        global_state::ar_profile::allreduce_hidden_valid_contiguous(
-            hidden_states,
-            valid_len,
-            piecewise.ar_staging,
-            [&](infinicore::Tensor &t) { o_proj_->allreduce_output(t); });
-    } else if (engine::piecewise_ar_in_graph()
-               && piecewise.phase == global_state::PiecewiseCapturePhase::PostAttn
-               && o_proj_->needs_allreduce()) {
-        o_proj_->allreduce_output(hidden_narrow);
+
+    const bool in_post_attn_capture = piecewise.phase == global_state::PiecewiseCapturePhase::PostAttn
+        && infinicore::context::isGraphRecording();
+
+    infinicore::Tensor attn_mut = staging.attn_output;
+    if (valid_len < seq_len) {
+        attn_mut = attn_mut->narrow({{1, 0, valid_len}});
+        if (in_post_attn_capture && !attn_mut->is_contiguous()) {
+            attn_mut = attn_mut->contiguous();
+        }
+    }
+
+    if (in_post_attn_capture) {
+        auto projected = o_proj_->forward_matmul_only(attn_mut);
+        hidden_narrow->copy_from(projected);
+        if (o_proj_->needs_allreduce()) {
+            const auto &ctx = global_state::get_forward_context();
+            if (ctx.defer_row_parallel_allreduce) {
+                o_proj_->defer_allreduce_on(hidden_narrow);
+            } else if (engine::piecewise_ar_in_graph()) {
+                o_proj_->allreduce_output(hidden_narrow);
+            }
+        }
+    } else {
+        const auto &ctx = global_state::get_forward_context();
+        if (!attn_mut->is_contiguous()) {
+            attn_mut = attn_mut->contiguous();
+        }
+        auto projected = o_proj_->forward_matmul_only(attn_mut);
+        if (ctx.defer_row_parallel_allreduce && o_proj_->needs_allreduce()) {
+            hidden_narrow->copy_from(projected);
+            global_state::ar_profile::allreduce_hidden_valid_contiguous(
+                hidden_states,
+                valid_len,
+                piecewise.ar_staging,
+                [&](infinicore::Tensor &t) { o_proj_->allreduce_output(t); });
+            infinilm::utils::dump_layer_hidden(hidden_states, layer_idx_, valid_len, "post_o_proj");
+        } else if (o_proj_->needs_allreduce()) {
+            // Replay: matmul → AR on matmul output (matches EAGER o_proj_->forward semantics).
+            if (!projected->is_contiguous()) {
+                projected = projected->contiguous();
+            }
+            infinicore::context::syncStream();
+            o_proj_->allreduce_output(projected);
+            infinicore::context::syncStream();
+            hidden_narrow->copy_from(projected);
+            infinilm::utils::dump_layer_hidden(projected, layer_idx_, valid_len, "post_o_proj");
+        } else {
+            hidden_narrow->copy_from(projected);
+            infinilm::utils::dump_layer_hidden(projected, layer_idx_, valid_len, "post_o_proj");
+        }
     }
     if (valid_len < seq_len) {
         auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
@@ -290,6 +337,14 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
 
     // 6. Project output
     auto output = o_proj_->forward(attn_output);
+    {
+        size_t valid_len = 0;
+        auto &piecewise = global_state::get_forward_context().piecewise;
+        if (piecewise.valid_seq_len > 0) {
+            valid_len = piecewise.valid_seq_len;
+        }
+        infinilm::utils::dump_layer_hidden(output, layer_idx_, valid_len, "post_o_proj");
+    }
     return output;
 }
 

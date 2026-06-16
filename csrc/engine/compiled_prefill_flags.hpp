@@ -30,4 +30,33 @@ inline bool piecewise_ar_in_graph() {
     return v != nullptr && v[0] != '\0' && std::string(v) != "0";
 }
 
+/// When true with INFINI_NATIVE_CG_MAX_LAYERS=N, replay CG for layers 0..N-1 then eager tail N..L-1.
+inline bool piecewise_eager_tail() {
+    const char *v = std::getenv("INFINI_PIECEWISE_EAGER_TAIL");
+    return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+}
+
+/// Output directory for per-layer hidden-state dumps (unset = disabled).
+inline const char *dump_layer_hidden_dir() {
+    return std::getenv("INFINI_DUMP_LAYER_HIDDEN_DIR");
+}
+
+/// Row index for hidden-state dumps (default 511).
+inline size_t dump_layer_hidden_row() {
+    static size_t cached = static_cast<size_t>(-1);
+    if (cached == static_cast<size_t>(-1)) {
+        const char *v = std::getenv("INFINI_DUMP_LAYER_HIDDEN_ROW");
+        cached = (v != nullptr && v[0] != '\0')
+                     ? static_cast<size_t>(std::strtoul(v, nullptr, 10))
+                     : 511;
+    }
+    return cached;
+}
+
+/// Mode tag prefix for hidden-state dump filenames (e.g. PIECEWISE, GRAPH_DECODE).
+inline const char *dump_layer_hidden_tag() {
+    const char *v = std::getenv("INFINI_DUMP_LAYER_HIDDEN_TAG");
+    return (v != nullptr && v[0] != '\0') ? v : "unknown";
+}
+
 } // namespace infinilm::engine

@@ -454,6 +454,8 @@ void RankWorker::thread_loop() {
                     if (rank_info_.tp_size > 1) {
                         barrier_->wait("run_job_tp_sync", rank_info_.tp_rank);
                     }
+                    global_state::get_forward_context().layer_dump_barrier = barrier_;
+                    global_state::get_forward_context().layer_dump_tp_rank = rank_info_.tp_rank;
                     global_state::hang_trace::ScopedBracket run_job_bracket(
                         "run_job", rank_info_.tp_rank);
                     {
@@ -673,7 +675,11 @@ void RankWorker::thread_loop() {
                                 if (sample_rows.size() > 0) {
                                     set_zeros(output_ids);
                                 }
-                                output_ = Output{output_ids, std::nullopt};
+                                std::optional<infinicore::Tensor> optional_logits;
+                                if (local_args.return_logits && logits) {
+                                    optional_logits = logits->to(infinicore::Device::cpu());
+                                }
+                                output_ = Output{output_ids, optional_logits};
                             } else {
                             auto temperature{local_args.temperature};
                             auto top_p{local_args.top_p};
@@ -726,9 +732,13 @@ void RankWorker::thread_loop() {
                         infinicore::context::syncStream();
                         job_done_ = true;
                     }
+                    global_state::get_forward_context().layer_dump_barrier = nullptr;
+                    global_state::get_forward_context().layer_dump_tp_rank = -1;
                     cv_.notify_all();
 
                 } catch (const std::exception &e) {
+                    global_state::get_forward_context().layer_dump_barrier = nullptr;
+                    global_state::get_forward_context().layer_dump_tp_rank = -1;
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
                         should_exit_ = true;

@@ -6,6 +6,10 @@
 #include <infiniccl.h>
 #include <vector>
 
+namespace infinilm::engine {
+class RankBarrier;
+} // namespace infinilm::engine
+
 namespace infinilm::global_state {
 
 /// Row-parallel allreduce deferred outside a captured CUDA graph (same tensor addrs at replay).
@@ -59,6 +63,9 @@ struct ForwardContext {
     std::vector<DeferredAllreduce> deferred_allreduces;
     /// Allreduces to run after monolithic graph replay (set by PagedCompiler::get_compiled).
     std::vector<DeferredAllreduce> post_graph_allreduces;
+    /// TP thread barrier for per-layer hidden dumps (set by RankWorker during RUN).
+    engine::RankBarrier *layer_dump_barrier{nullptr};
+    int layer_dump_tp_rank{-1};
 };
 
 void run_deferred_allreduces(const std::vector<DeferredAllreduce> &ops);

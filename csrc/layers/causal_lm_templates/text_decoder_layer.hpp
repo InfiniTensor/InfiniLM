@@ -6,6 +6,7 @@
 #include "../../global_state/global_state.hpp"
 #include "../../global_state/piecewise_prefill_state.hpp"
 #include "../../utils.hpp"
+#include "../../utils/layer_hidden_dump.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
@@ -43,10 +44,19 @@ public:
     std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &positions,
                                                                infinicore::Tensor &hidden_states,
                                                                infinicore::Tensor &residual) {
+        size_t valid_len = 0;
+        const auto &piecewise = global_state::get_forward_context().piecewise;
+        if (piecewise.valid_seq_len > 0) {
+            valid_len = piecewise.valid_seq_len;
+        }
         input_layernorm_->forward_inplace(hidden_states, residual);
+        infinilm::utils::dump_layer_hidden(
+            hidden_states, layer_idx_, valid_len, "post_pre_attn");
         hidden_states = self_attn_->forward(positions, hidden_states);
         post_attention_layernorm_->forward_inplace(hidden_states, residual);
         hidden_states = mlp_->forward(hidden_states);
+        infinilm::utils::dump_layer_hidden(
+            hidden_states, layer_idx_, valid_len, "post_mlp");
         return std::make_tuple(hidden_states, residual);
     }
 
@@ -99,7 +109,7 @@ public:
                                    infinicore::Tensor &residual,
                                    global_state::PiecewiseLayerStaging &staging) const {
         (void)residual;
-        // Graph segment ends at row-parallel o_proj matmul; AR must run before post-attn norm/MLP.
+        // Graph segment: o_proj matmul (+ in-graph AR when INFINI_PIECEWISE_AR_IN_GRAPH=1).
         self_attn_->forward_post_attn_piecewise_graph_into(hidden_states, staging);
     }
 
@@ -114,8 +124,8 @@ public:
             auto residual_narrow = residual->narrow({{1, 0, valid_len}});
             post_attention_layernorm_->forward_inplace(hidden_narrow, residual_narrow);
             auto mlp_out = mlp_->forward_matmul_only(hidden_narrow);
-            hidden_narrow->copy_from(mlp_out);
             if (ctx.defer_row_parallel_allreduce && mlp_->needs_allreduce()) {
+                hidden_narrow->copy_from(mlp_out);
                 global_state::ar_profile::allreduce_hidden_valid_contiguous(
                     hidden_states,
                     valid_len,
@@ -124,7 +134,12 @@ public:
             } else if (engine::piecewise_ar_in_graph()
                        && piecewise.phase == global_state::PiecewiseCapturePhase::PostAttnMlp
                        && mlp_->needs_allreduce()) {
-                mlp_->allreduce_output(hidden_narrow);
+                auto staging_narrow = piecewise.ar_staging_mlp->narrow({{1, 0, valid_len}});
+                staging_narrow->copy_from(mlp_out);
+                mlp_->allreduce_output(staging_narrow);
+                hidden_narrow->copy_from(staging_narrow);
+            } else {
+                hidden_narrow->copy_from(mlp_out);
             }
             infinicore::Tensor hidden_tail = hidden_states->narrow({{1, valid_len, bucket - valid_len}});
             infinicore::Tensor residual_tail = residual->narrow({{1, valid_len, bucket - valid_len}});
@@ -133,8 +148,8 @@ public:
         } else {
             post_attention_layernorm_->forward_inplace(hidden_states, residual);
             auto mlp_out = mlp_->forward_matmul_only(hidden_states);
-            hidden_states->copy_from(mlp_out);
             if (ctx.defer_row_parallel_allreduce && mlp_->needs_allreduce()) {
+                hidden_states->copy_from(mlp_out);
                 global_state::ar_profile::allreduce_hidden_valid_contiguous(
                     hidden_states,
                     valid_len,
@@ -143,7 +158,12 @@ public:
             } else if (engine::piecewise_ar_in_graph()
                        && piecewise.phase == global_state::PiecewiseCapturePhase::PostAttnMlp
                        && mlp_->needs_allreduce()) {
-                mlp_->allreduce_output(hidden_states);
+                auto staging_narrow = piecewise.ar_staging_mlp->narrow({{1, 0, valid_len}});
+                staging_narrow->copy_from(mlp_out);
+                mlp_->allreduce_output(staging_narrow);
+                hidden_states->copy_from(staging_narrow);
+            } else {
+                hidden_states->copy_from(mlp_out);
             }
         }
     }
@@ -156,9 +176,7 @@ public:
         const size_t bucket = hidden_states->size(1);
         const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
         const auto step = piecewise.post_attn_replay_step;
-        const bool skip_staging_ar = ctx.defer_row_parallel_allreduce
-            || (engine::piecewise_ar_in_graph()
-                && step != global_state::PiecewisePostAttnReplayStep::Full);
+        const bool skip_staging_ar = ctx.defer_row_parallel_allreduce;
 
         if (!skip_staging_ar
             && (step == global_state::PiecewisePostAttnReplayStep::Full
@@ -171,6 +189,7 @@ public:
         }
 
         if (!skip_staging_ar
+            && !engine::piecewise_ar_in_graph()
             && (step == global_state::PiecewisePostAttnReplayStep::Full
                 || step == global_state::PiecewisePostAttnReplayStep::MlpAllreduce)) {
             global_state::ar_profile::allreduce_hidden_valid_contiguous(

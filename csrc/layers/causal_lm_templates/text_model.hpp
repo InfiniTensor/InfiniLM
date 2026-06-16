@@ -2,6 +2,7 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "../../utils/layer_hidden_dump.hpp"
 #include "../../config/model_config.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "infinicore/nn/embedding.hpp"
@@ -50,6 +51,14 @@ public:
         auto positions = input.position_ids.value();
         // 1. Embed tokens: input_ids -> [batch, seq_len, hidden_size]
         auto hidden_states = embed_tokens_->forward(input_ids);
+        {
+            size_t valid_len = 0;
+            const auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
+            if (piecewise.valid_seq_len > 0) {
+                valid_len = piecewise.valid_seq_len;
+            }
+            infinilm::utils::dump_layer_hidden(hidden_states, 0, valid_len, "embed");
+        }
 
         // 2. Process through all decoder layers
         size_t num_layers = layers_.size();
@@ -59,6 +68,12 @@ public:
                 positions,
                 hidden_states,
                 residual);
+            size_t valid_len = 0;
+            const auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
+            if (piecewise.valid_seq_len > 0) {
+                valid_len = piecewise.valid_seq_len;
+            }
+            infinilm::utils::dump_layer_hidden(hidden_states, i, valid_len);
         }
 
         norm_->forward_inplace(hidden_states, residual);

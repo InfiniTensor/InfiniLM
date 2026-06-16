@@ -1,6 +1,7 @@
 #include "qwen3_attention.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "../../utils/layer_hidden_dump.hpp"
 
 namespace infinilm::models::qwen3 {
 
@@ -91,7 +92,24 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
-    return o_proj_->forward(attn_output);
+    {
+        size_t valid_len = 0;
+        auto &piecewise = global_state::get_forward_context().piecewise;
+        if (piecewise.valid_seq_len > 0) {
+            valid_len = piecewise.valid_seq_len;
+        }
+        infinilm::utils::dump_layer_hidden(attn_output, layer_idx_, valid_len, "post_attn");
+    }
+    auto output = o_proj_->forward(attn_output);
+    {
+        size_t valid_len = 0;
+        auto &piecewise = global_state::get_forward_context().piecewise;
+        if (piecewise.valid_seq_len > 0) {
+            valid_len = piecewise.valid_seq_len;
+        }
+        infinilm::utils::dump_layer_hidden(output, layer_idx_, valid_len, "post_o_proj");
+    }
+    return output;
 }
 
 void Qwen3Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_ids,

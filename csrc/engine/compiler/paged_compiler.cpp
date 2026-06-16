@@ -235,6 +235,15 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
 
+            infinilm::global_state::get_forward_context().attn_metadata = {
+                graph_input.past_sequence_lengths,
+                graph_input.total_sequence_lengths,
+                graph_input.input_offsets,
+                graph_input.cu_seqlens,
+                graph_input.block_tables,
+                graph_input.slot_mapping,
+            };
+
             auto graph = std::get<0>(result->second.compiled);
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
             attach_post_graph_allreduces(result->second);
