@@ -15,6 +15,9 @@ public:
 
     size_t hidden_size() const { return hidden_size_; }
     size_t moe_intermediate_size() const { return moe_intermediate_size_; }
+    infinicore::Tensor gate_weight() const { return gate_proj_->weight(); }
+    infinicore::Tensor up_weight() const { return up_proj_->weight(); }
+    infinicore::Tensor down_weight() const { return down_proj_->weight(); }
     void set_alpha(float alpha) { down_proj_->set_alpha(alpha); }
 
 protected:
