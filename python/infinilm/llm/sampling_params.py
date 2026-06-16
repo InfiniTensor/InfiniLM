@@ -13,7 +13,7 @@ class SamplingParams:
     temperature: float = 1.0
     top_p: float = 0.8
     top_k: int = 1
-    max_tokens: Optional[int] = None
+    max_tokens: int = 512
     stop: Optional[List[str]] = None
     stop_token_ids: Optional[List[int]] = (
         None  # Placeholder for future usage, not currently handled

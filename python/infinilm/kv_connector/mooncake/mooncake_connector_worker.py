@@ -1,7 +1,7 @@
 try:
     from mooncake.engine import TransferEngine
 except ImportError as e:
-    raise ImportError("Please install mooncake") from e
+    raise ImportError("Please pip install mooncake-transfer-engine") from e
 
 import asyncio
 import logging
@@ -933,6 +933,7 @@ class MooncakeConnectorWorker:
 
         except zmq.ContextTerminated:
             logger.debug("ZMQ context terminated, exiting Mooncake receiver thread.")
+            # TODO: handle this error
         except Exception as e:
             logger.error("MooncakeXferMetadata transfer failed for %s: %s", req_ids, e)
             return

@@ -45,7 +45,7 @@ class ModelRunner:
     def __init__(self, config: EngineConfig):
         self.config = config
         self.kv_transfer_config = config.kv_transfer_config
-        print(f"kv_transfer_config: {self.kv_transfer_config}")
+        logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
         self._init_device()
 

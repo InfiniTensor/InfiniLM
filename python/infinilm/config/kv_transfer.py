@@ -41,14 +41,16 @@ class KVTransferConfig:
         if self.engine_id is None:
             self.engine_id = f"{self.kv_role}_" + str(uuid.uuid4())
 
-        if not self.kv_connector_extra_config:
-            self.kv_connector_extra_config = dict(self.kv_connector_extra_config or {})
-            self.kv_connector_extra_config.setdefault("mooncake_protocol", "rdma")
+        self.kv_connector_extra_config = dict(self.kv_connector_extra_config or {})
+        self.kv_connector_extra_config.setdefault("mooncake_protocol", "rdma")
 
-        assert all(
-            key in ["mooncake_protocol", "num_workers"]
-            for key in self.kv_connector_extra_config.keys()
-        )
+        allowed_extra_config_keys = frozenset({"mooncake_protocol", "num_workers"})
+        unknown_keys = set(self.kv_connector_extra_config.keys()) - allowed_extra_config_keys
+        if unknown_keys:
+            raise ValueError(
+                f"Unsupported kv_connector_extra_config keys: {sorted(unknown_keys)}. "
+                f"Supported keys are {sorted(allowed_extra_config_keys)}"
+            )
 
         mooncake_protocol = self.kv_connector_extra_config["mooncake_protocol"]
         if mooncake_protocol not in ["tcp", "rdma"]:

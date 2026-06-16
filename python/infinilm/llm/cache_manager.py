@@ -62,9 +62,9 @@ class BlockManager:
         return h.intdigest()
 
     def __init__(self, num_blocks: int, block_size: int):
-        assert (
-            num_blocks > 0 and block_size > 0
-        ), "num_blocks and block_size must be positive"
+        assert num_blocks > 0 and block_size > 0, (
+            "num_blocks and block_size must be positive"
+        )
         self.num_blocks = num_blocks
         self.block_size = block_size
 
@@ -105,9 +105,9 @@ class BlockManager:
     def _deallocate_block(self, block_id: int):
         """Deallocate a block and return it to free list."""
         block = self.blocks[block_id]
-        assert (
-            block.ref_count == 0
-        ), f"Block {block_id} ref_count not zero, cannot deallocate"
+        assert block.ref_count == 0, (
+            f"Block {block_id} ref_count not zero, cannot deallocate"
+        )
 
         if block.hash != -1 and self.hash_to_block_id.get(block.hash) == block_id:
             del self.hash_to_block_id[block.hash]
@@ -396,6 +396,7 @@ class BlockManager:
         immediately freed to allow reuse."""
         for block_id in reversed(block_table):
             block = self.blocks[block_id]
+            assert block.ref_count > 0, "block ref_count must be greater than 0"
             block.ref_count -= 1
 
     def try_free_blocks(self, num_required: int) -> bool:
@@ -425,9 +426,9 @@ class BlockManager:
             num_local_cached_tokens: Number of locally cached tokens (must be a multiple of
                 block_size).
         """
-        assert (
-            num_local_cached_tokens % self.block_size == 0
-        ), "num_local_cached_tokens must be multiple of block_size"
+        assert num_local_cached_tokens % self.block_size == 0, (
+            "num_local_cached_tokens must be multiple of block_size"
+        )
         for idx in range(num_local_cached_tokens // self.block_size, len(block_table)):
             block_id = block_table[idx]
             block = self.blocks[block_id]
