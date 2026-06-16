@@ -87,6 +87,7 @@ class Scheduler:
         scheduled_requests = []
         is_prefill = False
         current_num_batched_tokens = 0
+        current_prefill_extra_blocks = 0
 
         # Process Waiting queue (prefill phase)
         while (
@@ -149,6 +150,7 @@ class Scheduler:
                 if not self.can_accept_request(
                     req,
                     num_local_computed_tokens,
+                    current_prefill_extra_blocks,
                 ):
                     logger.warning(
                         "Insufficient KV cache blocks for request %s, deferring.",
@@ -216,6 +218,7 @@ class Scheduler:
                 ) // self.block_size
                 continue
 
+            current_prefill_extra_blocks += self._get_prefill_extra_blocks(req)
             scheduled_requests.append(req)
 
             num_tokens_this_step = req.get_prompt_length() - req.num_local_cached_tokens
@@ -388,7 +391,10 @@ class Scheduler:
                 self.running_queue.sync_q.put(req)
 
     def can_accept_request(
-        self, request: InferenceRequest, num_local_computed_tokens: int
+        self,
+        request: InferenceRequest,
+        num_local_computed_tokens: int,
+        current_prefill_extra_blocks: int = 0,
     ) -> bool:
         total_required_blocks = 0
 
@@ -415,8 +421,17 @@ class Scheduler:
         # hold prompt blocks but will also need decode blocks once promoted.
         total_required_blocks += self.pending_kv_decode_blocks
 
+        # Include decode headroom for requests accepted earlier in this batch.
+        total_required_blocks += current_prefill_extra_blocks
+
         # Compare with total usable blocks in cache manager
         return total_required_blocks <= self.cache_manager.get_total_usable_blocks()
+
+    def _get_prefill_extra_blocks(self, request: InferenceRequest) -> int:
+        total_length = request.get_prompt_length()
+        total_length += request.sampling_params.max_tokens
+        total_required_blocks = (total_length + self.block_size - 1) // self.block_size
+        return max(total_required_blocks - len(request.block_table), 0)
 
     def update_from_output(self, model_output):
         if self.connector is None or model_output.kv_connector_output is None:
