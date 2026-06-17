@@ -149,6 +149,17 @@ std::unordered_map<std::string, infinicore::nn::Parameter> RankWorker::state_dic
     return model_->state_dict();
 }
 
+std::vector<std::string> RankWorker::state_dict_keys() {
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return init_done_ || should_exit_; });
+
+    if (!model_) {
+        throw std::runtime_error("state_dict_keys called before model initialization");
+    }
+
+    return model_->state_dict_keys();
+}
+
 //------------------------------------------------------
 // run -- asynchronous
 //------------------------------------------------------
@@ -365,6 +376,8 @@ void RankWorker::thread_loop() {
                 // Handle preprocess command
                 try {
                     model_->process_weights_after_loading();
+                    infinicore::context::syncStream();
+                    infinicore::context::trimMemory();
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

@@ -1,5 +1,8 @@
 #include "awq.hpp"
+#include "awq_marlin.hpp"
 #include "infinicore/ops/linear_w4a16_awq.hpp"
+#include "marlin_support.hpp"
+#include "marlin_utils.hpp"
 #include <optional>
 
 namespace infinilm::quantization {
@@ -21,12 +24,9 @@ std::vector<ParamDescriptor> AWQ::get_param_layout(
     int packing_num = get_packing_num();
 
     std::vector<ParamDescriptor> descs;
-    descs.push_back({"qweight", {in_features, out_features / packing_num},
-                     infinicore::DataType::I32, awq_tp_dim, tp_rank, tp_size});
-    descs.push_back({"scales", {in_features / group_size, out_features},
-                     dtype, awq_tp_dim, tp_rank, tp_size});
-    descs.push_back({"qzeros", {in_features / group_size, out_features / packing_num},
-                     infinicore::DataType::I32, awq_tp_dim, tp_rank, tp_size});
+    descs.push_back({"qweight", {in_features, out_features / packing_num}, infinicore::DataType::I32, awq_tp_dim, tp_rank, tp_size});
+    descs.push_back({"scales", {in_features / group_size, out_features}, dtype, awq_tp_dim, tp_rank, tp_size});
+    descs.push_back({"qzeros", {in_features / group_size, out_features / packing_num}, infinicore::DataType::I32, awq_tp_dim, tp_rank, tp_size});
     if (bias) {
         descs.push_back({"bias", {out_features}, dtype, -1, 0, 1});
     }
@@ -50,6 +50,55 @@ infinicore::Tensor AWQ::forward(
     }
 
     return infinicore::op::linear_w4a16_awq(input_contiguous->contiguous(), qweight, scales, qzeros, bias_opt);
+}
+
+std::shared_ptr<BaseQuantization> AWQ::process_weights_after_loading(
+    ParamsMap &params,
+    const infinicore::Device &device,
+    int /*split_dim*/) const {
+    if (device.getType() != infinicore::Device::Type::NVIDIA) {
+        return nullptr;
+    }
+
+#if INFINILM_ENABLE_MARLIN
+    const int bits = get_or<int>("bits", get_or<int>("w_bit", 4));
+    if (bits != 4) {
+        return nullptr;
+    }
+
+    auto qweight = params.at("qweight");
+    const size_t input_size_per_partition = qweight->size(0);
+    const size_t output_size_per_partition = qweight->size(1) * get_packing_num();
+    const int group_size = get_group_size();
+    if (!marlin::supports_shape(input_size_per_partition, output_size_per_partition, group_size)) {
+        return nullptr;
+    }
+
+    params["qweight"] = marlin::awq_marlin_repack(
+        qweight,
+        input_size_per_partition,
+        output_size_per_partition,
+        bits);
+    params["scales"] = marlin::permute_scales(
+        params.at("scales"),
+        input_size_per_partition,
+        output_size_per_partition,
+        group_size);
+    params["qzeros"] = marlin::awq_to_marlin_zero_points(
+        params.at("qzeros"),
+        input_size_per_partition / static_cast<size_t>(group_size == -1 ? input_size_per_partition : group_size),
+        output_size_per_partition,
+        bits);
+    params["g_idx"] = marlin::make_empty_i32(device);
+    params["perm"] = marlin::make_empty_i32(device);
+    params["a_scales"] = marlin::make_empty_i32(device);
+    params["global_scales"] = marlin::make_empty_i32(device);
+
+    return std::make_shared<AWQMarlin>(get_config(), input_size_per_partition, output_size_per_partition);
+#else
+    (void)params;
+    return nullptr;
+#endif
 }
 
 std::vector<SplitParam> AWQ::split_params(

@@ -59,20 +59,20 @@ void BaseLinear::process_weights_after_loading() {
         params[name] = static_cast<const infinicore::Tensor &>(param);
     }
 
-    auto new_quant = quantization_->process_weights_after_loading(params, device_);
+    auto new_quant = quantization_->process_weights_after_loading(params, device_, split_dim_);
     if (!new_quant) return;
 
-    for (auto &[name, param] : parameters_) {
-        param = infinicore::nn::Parameter();
-    }
-
+    parameters_.clear();
     for (const auto &[name, tensor] : params) {
-        auto it = parameters_.find(name);
-        if (it == parameters_.end()) continue;
-        it->second = infinicore::nn::Parameter(tensor);
+        parameters_.emplace(name, infinicore::nn::Parameter(tensor));
     }
+    params.clear();
 
     quantization_ = std::move(new_quant);
+}
+
+void BaseLinear::reset_runtime_state() const {
+    quantization_->reset_runtime_state();
 }
 
 // Backward compatible accessors

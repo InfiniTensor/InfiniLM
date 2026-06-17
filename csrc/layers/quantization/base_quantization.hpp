@@ -85,11 +85,20 @@ public:
     // or nullptr if no replacement is needed.
     virtual std::shared_ptr<BaseQuantization> process_weights_after_loading(
         ParamsMap &params,
-        const infinicore::Device &device) const {
+        const infinicore::Device &device,
+        int split_dim = -1) const {
         (void)params;
         (void)device;
+        (void)split_dim;
         return nullptr;
     }
+
+    // Reset transient buffers whose contents affect the next kernel launch.
+    // Marlin currently uses a zero-initialized lock/workspace region; stale
+    // lock values from warmup, graph capture, or a previous graph replay can
+    // make the next launch wait forever. Quantization schemes without such
+    // runtime state can keep the default no-op implementation.
+    virtual void reset_runtime_state() const {}
 
     template <typename T>
     T get(const std::string &key) const {

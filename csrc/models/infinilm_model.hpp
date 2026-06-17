@@ -58,6 +58,7 @@ public:
     }
 
     void process_weights_after_loading();
+    void reset_runtime_state() const;
 
 protected:
     std::vector<infinicore::Tensor> default_allocate_kv_cache_tensors(
@@ -70,5 +71,6 @@ protected:
 
 private:
     static void process_weights_recursive_(infinicore::nn::Module *module);
+    static void reset_runtime_state_recursive_(const infinicore::nn::Module *module);
 };
 } // namespace infinilm

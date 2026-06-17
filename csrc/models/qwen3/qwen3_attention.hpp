@@ -12,6 +12,14 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
 
+    void process_weights_after_loading() override {
+        qkv_proj_->process_weights_after_loading();
+    }
+
+    void reset_runtime_state() const override {
+        qkv_proj_->reset_runtime_state();
+    }
+
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }
     size_t num_kv_heads() const { return num_key_value_heads_; }

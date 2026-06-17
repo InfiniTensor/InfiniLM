@@ -12,11 +12,11 @@ public:
     };
 
     int get_packing_num() const {
-        return 32 / get_or<int>("bits", 4);
+        return 32 / get_or<int>("bits", get_or<int>("w_bit", 4));
     }
 
     int get_group_size() const {
-        return get_or<int>("group_size", 128);
+        return get_or<int>("group_size", get_or<int>("q_group_size", 128));
     }
 
     std::vector<ParamDescriptor> get_param_layout(
@@ -43,6 +43,11 @@ public:
         const std::vector<SplitInfo> &splits,
         int narrow_dim,
         int tp_rank, int tp_size, int tp_num_heads) const override;
+
+    std::shared_ptr<BaseQuantization> process_weights_after_loading(
+        ParamsMap &params,
+        const infinicore::Device &device,
+        int split_dim = -1) const override;
 };
 
 } // namespace infinilm::quantization

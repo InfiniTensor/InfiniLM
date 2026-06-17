@@ -42,8 +42,10 @@ InferEngine::InferEngine(
             enable_graph_compiling,
             attention_backend_));
     }
-    // Compile the model on all workers
-    this->compile();
+    // Graphs must be compiled after weights are loaded and post-processed.
+    // Quantized models may replace their linear implementations during
+    // process_weights_after_loading(), so compiling here would capture stale
+    // fallback operators.
 }
 
 //------------------------------------------------------
@@ -77,6 +79,8 @@ void InferEngine::process_weights_after_loading() {
     for (auto &worker : workers_) {
         worker->process_weights_after_loading();
     }
+    weights_finalized_ = true;
+    this->compile();
 }
 
 //------------------------------------------------------
@@ -92,6 +96,13 @@ std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> InferEng
         results.push_back(worker->state_dict());
     }
     return results;
+}
+
+std::vector<std::string> InferEngine::state_dict_keys() {
+    if (0 == workers_.size()) {
+        throw std::runtime_error(" Model object not found. ");
+    }
+    return workers_.front()->state_dict_keys();
 }
 
 //------------------------------------------------------
@@ -159,6 +170,9 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
 }
 
 void InferEngine::compile() {
+    if (!weights_finalized_) {
+        return;
+    }
     for (auto &worker : workers_) {
         worker->compile();
     }

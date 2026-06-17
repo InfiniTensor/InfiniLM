@@ -1,8 +1,6 @@
 #include "infinilm_model.hpp"
 #include "../cache/kv_cache.hpp"
 #include "../global_state/global_state.hpp"
-#include "../layers/attention/attention.hpp"
-#include "../layers/mlp/mlp.hpp"
 #include <stdexcept>
 
 namespace infinilm {
@@ -88,24 +86,29 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
 }
 
 void InfinilmModel::process_weights_after_loading() {
-    process_weights_recursive_(this);
+    for (const auto &[_, sub] : children()) {
+        process_weights_recursive_(sub.get());
+    }
+}
+
+void InfinilmModel::reset_runtime_state() const {
+    for (const auto &[_, sub] : children()) {
+        reset_runtime_state_recursive_(sub.get());
+    }
 }
 
 void InfinilmModel::process_weights_recursive_(infinicore::nn::Module *module) {
-    for (const auto &[name, sub] : module->children()) {
+    for (const auto &[_, sub] : module->children()) {
         process_weights_recursive_(sub.get());
     }
-    // Process BaseLinear (o_proj, down_proj, lm_head, etc.)
-    if (auto *linear = dynamic_cast<infinilm::nn::BaseLinear *>(module)) {
-        linear->process_weights_after_loading();
+    module->process_weights_after_loading();
+}
+
+void InfinilmModel::reset_runtime_state_recursive_(const infinicore::nn::Module *module) {
+    for (const auto &[_, sub] : module->children()) {
+        reset_runtime_state_recursive_(sub.get());
     }
-    // Process fused linear held by Attention/MLP as non-registered members
-    if (auto *attn = dynamic_cast<infinilm::layers::attention::Attention *>(module)) {
-        attn->process_fused_weights_after_loading();
-    }
-    if (auto *mlp = dynamic_cast<infinilm::layers::mlp::MLP *>(module)) {
-        mlp->process_fused_weights_after_loading();
-    }
+    module->reset_runtime_state();
 }
 
 } // namespace infinilm

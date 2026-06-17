@@ -20,8 +20,12 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
 
-    void process_fused_weights_after_loading() {
+    void process_weights_after_loading() override {
         qkv_proj_->process_weights_after_loading();
+    }
+
+    void reset_runtime_state() const override {
+        qkv_proj_->reset_runtime_state();
     }
 
     size_t layer_idx() const { return layer_idx_; }
@@ -55,7 +59,7 @@ protected:
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 };
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
-                              const infinicore::Device &device,
-                              infinicore::nn::Parameter &kv_cache_k_scale,
-                              infinicore::nn::Parameter &kv_cache_v_scale);
+                                const infinicore::Device &device,
+                                infinicore::nn::Parameter &kv_cache_k_scale,
+                                infinicore::nn::Parameter &kv_cache_v_scale);
 } // namespace infinilm::layers::attention

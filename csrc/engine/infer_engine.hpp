@@ -42,6 +42,8 @@ public:
     // return the parameters (i.e. weights and biases).
     std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> state_dict();
 
+    std::vector<std::string> state_dict_keys();
+
     // Run a single forward pass on all workers and return the outputs from all ranks
     Output forward(const Input &input);
 
@@ -65,6 +67,7 @@ protected:
     std::unique_ptr<cache::CacheConfig> cache_config_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     backends::AttentionBackend attention_backend_ = backends::AttentionBackend::Default;
+    bool weights_finalized_ = false;
 };
 
 } // namespace infinilm::engine
