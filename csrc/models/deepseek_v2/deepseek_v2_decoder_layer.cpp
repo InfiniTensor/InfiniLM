@@ -1,5 +1,7 @@
 #include "deepseek_v2_decoder_layer.hpp"
 
+#include "../../global_state/global_state.hpp"
+
 namespace infinilm::models::deepseek_v2 {
 
 DeepseekV2DecoderLayer::DeepseekV2DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -10,7 +12,11 @@ DeepseekV2DecoderLayer::DeepseekV2DecoderLayer(std::shared_ptr<infinilm::config:
     const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
     INFINICORE_NN_MODULE_INIT(input_layernorm, hidden_size, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(post_attention_layernorm, hidden_size, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(self_attn, model_config, layer_idx, device);
+    if (infinilm::global_state::get_infinilm_config().use_mla) {
+        self_attn_ = std::make_shared<DeepseekV2SelfAttention>(this->register_module<DeepseekV2MLAAttention>("self_attn", model_config, layer_idx, device));
+    } else {
+        self_attn_ = std::make_shared<DeepseekV2SelfAttention>(this->register_module<DeepseekV2Attention>("self_attn", model_config, layer_idx, device));
+    }
 
     const size_t first_k_dense_replace = model_config->get_or<size_t>("first_k_dense_replace", 0);
     const size_t moe_layer_freq = model_config->get_or<size_t>("moe_layer_freq", 1);
@@ -29,7 +35,8 @@ DeepseekV2DecoderLayer::forward(const infinicore::Tensor &positions,
                                 infinicore::Tensor &hidden_states,
                                 infinicore::Tensor &residual) const {
     input_layernorm_->forward_inplace(hidden_states, residual);
-    hidden_states = self_attn_->forward(positions, hidden_states);
+    hidden_states = std::visit(
+        [&](auto &attn_ptr) { return attn_ptr->forward(positions, hidden_states); }, *self_attn_);
     post_attention_layernorm_->forward_inplace(hidden_states, residual);
     hidden_states = use_moe_ ? moe_mlp_->forward(hidden_states) : dense_mlp_->forward(hidden_states);
     return {hidden_states, residual};

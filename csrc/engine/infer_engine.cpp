@@ -15,15 +15,16 @@ InferEngine::InferEngine(
     const cache::CacheConfig *cache_config,
     bool enable_graph_compiling,
     backends::AttentionBackend attention_backend,
-    std::optional<infinicore::DataType> kv_cache_dtype) // Changed parameter
-    : communication_group_(distributed_config, device_type), attention_backend_(attention_backend) {
+    std::optional<infinicore::DataType> kv_cache_dtype,
+    bool use_mla)
+    : communication_group_(distributed_config, device_type), attention_backend_(attention_backend), use_mla_(use_mla) {
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
-    auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(attention_backend, this->model_config_);
+    auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(attention_backend, this->model_config_, use_mla);
 
     // Only support offline int8 kv cache quantization in this version
     if (kv_cache_dtype.has_value()) {

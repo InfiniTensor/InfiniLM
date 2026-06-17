@@ -73,6 +73,7 @@ class ModelRunner:
             cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
             attention_backend=config.attn_backend,
+            use_mla=config.use_mla,
         )
 
         # Load model weights

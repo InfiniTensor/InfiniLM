@@ -79,7 +79,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
 
         //  Compute attention
         size_t ngroup = num_heads_ / num_kv_heads_;
-        auto Q = q_reshaped->view({batch_size * num_kv_heads_, ngroup * seq_len, head_dim_});
+        auto Q = q_reshaped->contiguous()->view({batch_size * num_kv_heads_, ngroup * seq_len, head_dim_});
         auto K = k_total->view({batch_size * num_kv_heads_, total_seq_len, head_dim_});
         auto V = v_total->view({batch_size * num_kv_heads_, total_seq_len, head_dim_});
 

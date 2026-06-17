@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import infinicore
 
-from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
+from infinilm.cache import PagedKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
@@ -67,6 +67,7 @@ class InferEngine(_infinilm.InferEngine):
         enable_graph_compiling=False,
         attention_backend="default",
         kv_cache_dtype=None,
+        use_mla=False,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
@@ -87,6 +88,7 @@ class InferEngine(_infinilm.InferEngine):
                 if kv_cache_dtype is not None
                 else None
             ),
+            use_mla,
         )
         self.use_cache = False
 

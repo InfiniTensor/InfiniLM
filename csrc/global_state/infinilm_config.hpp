@@ -14,12 +14,15 @@ struct InfinilmConfig {
 public:
     InfinilmConfig() = default;
     InfinilmConfig(const infinilm::backends::AttentionBackend &backend,
-                   const std::shared_ptr<infinilm::config::ModelConfig> &model_config)
+                   const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
+                   bool use_mla = false)
         : attention_backend(backend),
+          use_mla(use_mla),
           model_config(model_config) {}
 
 public:
     infinilm::backends::AttentionBackend attention_backend;
+    bool use_mla{false};
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
 };
 
