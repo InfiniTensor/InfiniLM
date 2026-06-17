@@ -104,7 +104,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         Decode phase:
             - input_ids: Only the last generated token [1, 1]
             - position_ids: [current_position] (position in full sequence)
-            - past_kv_lengths: [num_cached_tokens]
+            - past_kv_lengths: [num_local_cached_tokens]
             - total_kv_lengths: [total_tokens]
         """
         import infinicore
@@ -124,7 +124,11 @@ class BasicLLMProcessor(InfinilmProcessor):
             input_offsets = [0, len(input_tokens)]
         else:
             # Decode: send only the last generated token
-            last_token = req.generated_token_ids[-1]
+            last_token = (
+                req.generated_token_ids[-1]
+                if req.generated_token_ids
+                else req.prompt_token_ids[-1]
+            )
             current_position = req.get_total_length() - 1
             input_ids = [[last_token]]
             position_ids = [[current_position]]
@@ -199,7 +203,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         current_offset = 0
 
         for req in scheduler_output.scheduled_requests:
-            num_cached = req.num_cached_tokens
+            num_cached = req.num_local_cached_tokens
             if scheduler_output.is_prefill:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()
@@ -220,7 +224,11 @@ class BasicLLMProcessor(InfinilmProcessor):
             else:
                 # Decode phase
                 seq_len = req.get_total_length()
-                last_token = req.generated_token_ids[-1]
+                last_token = (
+                    req.generated_token_ids[-1]
+                    if req.generated_token_ids
+                    else req.prompt_token_ids[-1]
+                )
                 tokens.append(last_token)
                 seq_lens.append(seq_len)
 
