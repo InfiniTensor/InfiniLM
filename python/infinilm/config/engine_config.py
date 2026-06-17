@@ -23,6 +23,7 @@ class EngineConfig:
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
         attn_backend: Attention backend to use ('default', 'flash-attn').
+        use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         skip_load: Whether to skip loading model weights (for testing).
     """
 
@@ -41,6 +42,7 @@ class EngineConfig:
     top_k: int = 1
     enable_graph: bool = False
     attn_backend: str = "default"
+    use_mla: bool = False
     skip_load: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
 

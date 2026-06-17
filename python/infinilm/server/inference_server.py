@@ -7,7 +7,6 @@ import sys
 import time
 import json
 import uuid
-import argparse
 import uvicorn
 import logging
 import os
@@ -111,6 +110,7 @@ class InferenceServer:
         port: int = 8000,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        use_mla: bool = False,
         ignore_eos: bool = False,
         kv_transfer_config: Optional[KVTransferConfig] = None,
     ):
@@ -134,6 +134,7 @@ class InferenceServer:
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             ignore_eos: Whether to ignore EOS tokens during generation.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
         """
@@ -156,6 +157,7 @@ class InferenceServer:
         self.port = port
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
+        self.use_mla = use_mla
         self.ignore_eos = ignore_eos
         self.kv_transfer_config = kv_transfer_config
 
@@ -189,6 +191,7 @@ class InferenceServer:
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
                 attn_backend=self.attn_backend,
+                use_mla=self.use_mla,
                 kv_transfer_config=self.kv_transfer_config,
             )
             self.engine.start()
@@ -591,6 +594,7 @@ def main():
         port=cfg.port,
         enable_graph=cfg.enable_graph,
         attn_backend=cfg.attn,
+        use_mla=cfg.use_mla,
         ignore_eos=cfg.ignore_eos,
         kv_transfer_config=kv_transfer_config,
     )

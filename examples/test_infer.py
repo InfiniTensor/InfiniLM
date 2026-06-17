@@ -16,6 +16,7 @@ def test(
     top_p=1.0,
     temperature=1.0,
     attn_backend="default",
+    use_mla=False,
     image_path=None,
     skip_load=False,
 ):
@@ -38,6 +39,7 @@ def test(
         top_p=top_p,
         enable_graph=enable_graph,
         attn_backend=attn_backend,
+        use_mla=use_mla,
         skip_load=skip_load,
     )
 
@@ -101,6 +103,7 @@ if __name__ == "__main__":
         top_p=cfg.top_p,
         temperature=cfg.temperature,
         attn_backend=cfg.attn,
+        use_mla=cfg.use_mla,
         image_path=cfg.image,
         skip_load=cfg.skip_load,
     )

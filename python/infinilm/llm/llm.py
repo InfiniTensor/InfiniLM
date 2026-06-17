@@ -301,6 +301,7 @@ class LLM:
         top_k: int = 1,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        use_mla: bool = False,
         skip_load: bool = False,
     ):
         """Initialize LLM.
@@ -321,6 +322,7 @@ class LLM:
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -338,6 +340,7 @@ class LLM:
             top_k=top_k,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            use_mla=use_mla,
             skip_load=skip_load,
         )
         self.engine = LLMEngine(config)
@@ -493,6 +496,7 @@ class AsyncLLMEngine:
         enable_graph: bool = False,
         attn_backend: str = "default",
         kv_transfer_config: Optional[KVTransferConfig] = None,
+        use_mla: bool = False,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -515,6 +519,7 @@ class AsyncLLMEngine:
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
             kv_connector_extra_config: Extra config dict for KV connector.
+            use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -533,6 +538,7 @@ class AsyncLLMEngine:
             enable_graph=enable_graph,
             attn_backend=attn_backend,
             kv_transfer_config=kv_transfer_config,
+            use_mla=use_mla,
         )
         self.engine = LLMEngine(config)
         self.config = config
