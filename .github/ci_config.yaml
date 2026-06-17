@@ -106,7 +106,7 @@ platforms:
           timeout: 3600
         env:
           MODEL_LIST: 9g_8b_thinking
-          TEST_PARAM: ['--attn=default', '--attn=page --enable-paged-attn --cache-type=paged --block-size=256 --max-new-tokens=256', '--attn=page --enable-paged-attn --cache-type=paged --block-size=256 --max-new-tokens=256']
+          TEST_PARAM: ['--attn=default', '--attn=paged-attn --enable-paged-attn --cache-type=paged --block-size=256 --max-new-tokens=256', '--attn=paged-attn --enable-paged-attn --cache-type=paged --block-size=256 --max-new-tokens=256']
         stages:
           - name: test
             run: python -u "InfiniLM/examples/test_infer.py" --device metax --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --backend cpp --prompt "Hello" <TEST_PARAM>
