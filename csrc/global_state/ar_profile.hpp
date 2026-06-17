@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../utils.hpp"
+#include "../engine/rank_barrier.hpp"
 #include "forward_context.hpp"
+#include "parallel_state.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
 #include <algorithm>
 #include <chrono>

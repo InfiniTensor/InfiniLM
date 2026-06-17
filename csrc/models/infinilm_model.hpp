@@ -74,6 +74,18 @@ public:
                                                  const Input &input,
                                                  infinicore::Tensor &hidden_states,
                                                  infinicore::Tensor &residual) const;
+    virtual void native_piecewise_pre_attn_layernorm_layer(size_t layer_idx,
+                                                           const Input &input,
+                                                           infinicore::Tensor &hidden_states,
+                                                           infinicore::Tensor &residual) const;
+    virtual void native_piecewise_pre_attn_rope_layer(size_t layer_idx,
+                                                      const Input &input,
+                                                      infinicore::Tensor &hidden_states,
+                                                      infinicore::Tensor &residual) const;
+    virtual void native_piecewise_pre_attn_staging_layer(size_t layer_idx,
+                                                         const Input &input,
+                                                         infinicore::Tensor &hidden_states,
+                                                         infinicore::Tensor &residual) const;
     virtual void native_piecewise_eager_attn_layer(size_t layer_idx,
                                                      const Input &input) const;
     virtual void native_piecewise_post_attn_layer(size_t layer_idx,
@@ -92,6 +104,10 @@ public:
                                                             const Input &input,
                                                             infinicore::Tensor &hidden_states,
                                                             infinicore::Tensor &residual) const;
+    virtual void native_piecewise_o_proj_staging_layer(size_t layer_idx,
+                                                       const Input &input,
+                                                       infinicore::Tensor &hidden_states,
+                                                       infinicore::Tensor &residual) const;
     virtual void native_piecewise_lm_head(const Input &input,
                                           infinicore::Tensor &hidden_states,
                                           infinicore::Tensor &residual,

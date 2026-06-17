@@ -57,7 +57,21 @@ public:
             if (piecewise.valid_seq_len > 0) {
                 valid_len = piecewise.valid_seq_len;
             }
-            infinilm::utils::dump_layer_hidden(hidden_states, 0, valid_len, "embed");
+            if (infinilm::utils::layer_hidden_dump_enabled()
+                && infinilm::utils::layer_hidden_dump_all_ranks()
+                && infinilm::utils::layer_hidden_dump_this_rank_writes()) {
+                infinicore::context::setDevice(hidden_states->device());
+                infinicore::context::syncStream();
+                auto dump_hidden = infinicore::Tensor::empty(
+                    hidden_states->shape(), hidden_states->dtype(), hidden_states->device());
+                dump_hidden->copy_from(hidden_states);
+                infinicore::context::syncStream();
+                infinilm::utils::eager_dump_barrier("eager_dump_embed");
+                infinilm::utils::dump_layer_hidden(dump_hidden, 0, valid_len, "embed");
+            } else {
+                infinilm::utils::eager_dump_barrier("eager_dump_embed");
+                infinilm::utils::dump_layer_hidden(hidden_states, 0, valid_len, "embed");
+            }
         }
 
         // 2. Process through all decoder layers
@@ -73,6 +87,7 @@ public:
             if (piecewise.valid_seq_len > 0) {
                 valid_len = piecewise.valid_seq_len;
             }
+            infinilm::utils::eager_dump_barrier("eager_dump_layer_full");
             infinilm::utils::dump_layer_hidden(hidden_states, i, valid_len);
         }
 
@@ -139,6 +154,29 @@ public:
             input.position_ids.value(), hidden_states, residual, staging);
     }
 
+    void piecewise_pre_attn_layernorm_layer(size_t layer_idx,
+                                            const infinilm::InfinilmModel::Input &,
+                                            infinicore::Tensor &hidden_states,
+                                            infinicore::Tensor &residual) const {
+        layers_.at(layer_idx)->piecewise_pre_attn_layernorm(hidden_states, residual);
+    }
+
+    void piecewise_pre_attn_rope_layer(size_t layer_idx,
+                                       const infinilm::InfinilmModel::Input &input,
+                                       infinicore::Tensor &,
+                                       infinicore::Tensor &) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_pre_attn_rope(input.position_ids.value(), staging);
+    }
+
+    void piecewise_pre_attn_staging_layer(size_t layer_idx,
+                                          const infinilm::InfinilmModel::Input &,
+                                          infinicore::Tensor &hidden_states,
+                                          infinicore::Tensor &) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_pre_attn_staging(hidden_states, staging);
+    }
+
     void piecewise_eager_attn_layer(size_t layer_idx,
                                     const infinilm::InfinilmModel::Input &input) const {
         auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
@@ -174,6 +212,14 @@ public:
                                              infinicore::Tensor &residual) const {
         auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
         layers_.at(layer_idx)->piecewise_post_attn_allreduce(hidden_states, residual, staging);
+    }
+
+    void piecewise_o_proj_staging_layer(size_t layer_idx,
+                                        const infinilm::InfinilmModel::Input &,
+                                        infinicore::Tensor &hidden_states,
+                                        infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_o_proj_staging(hidden_states, staging);
     }
 
     infinicore::Tensor piecewise_lm_head(infinicore::Tensor &hidden_states,

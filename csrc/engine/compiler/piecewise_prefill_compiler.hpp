@@ -19,8 +19,6 @@ public:
         InfinilmModel::Input input;
         std::vector<std::shared_ptr<infinicore::graph::Graph>> pre_attn;
         std::vector<std::shared_ptr<infinicore::graph::Graph>> post_attn;
-        /// Per-layer deferred o_proj AR ops (GRAPH_DECODE pattern: matmul in graph, AR after replay).
-        std::vector<std::vector<global_state::DeferredAllreduce>> post_attn_deferred_ar;
         std::vector<std::shared_ptr<infinicore::graph::Graph>> post_attn_mlp;
         std::shared_ptr<infinicore::graph::Graph> lm_head;
         infinicore::Tensor logits_holder;

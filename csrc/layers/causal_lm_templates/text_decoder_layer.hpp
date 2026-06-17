@@ -50,11 +50,13 @@ public:
             valid_len = piecewise.valid_seq_len;
         }
         input_layernorm_->forward_inplace(hidden_states, residual);
+        infinilm::utils::eager_dump_barrier("eager_dump_post_pre_attn");
         infinilm::utils::dump_layer_hidden(
             hidden_states, layer_idx_, valid_len, "post_pre_attn");
         hidden_states = self_attn_->forward(positions, hidden_states);
         post_attention_layernorm_->forward_inplace(hidden_states, residual);
         hidden_states = mlp_->forward(hidden_states);
+        infinilm::utils::eager_dump_barrier("eager_dump_post_mlp");
         infinilm::utils::dump_layer_hidden(
             hidden_states, layer_idx_, valid_len, "post_mlp");
         return std::make_tuple(hidden_states, residual);
@@ -76,10 +78,8 @@ public:
 
     size_t layer_idx() const { return layer_idx_; }
 
-    void piecewise_pre_attn(const infinicore::Tensor &positions,
-                            infinicore::Tensor &hidden_states,
-                            infinicore::Tensor &residual,
-                            global_state::PiecewiseLayerStaging &staging) const {
+    void piecewise_pre_attn_layernorm(infinicore::Tensor &hidden_states,
+                                      infinicore::Tensor &residual) const {
         auto &piecewise = global_state::get_forward_context().piecewise;
         const size_t bucket = hidden_states->size(1);
         const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
@@ -90,7 +90,24 @@ public:
         } else {
             input_layernorm_->forward_inplace(hidden_states, residual);
         }
+    }
+
+    void piecewise_pre_attn(const infinicore::Tensor &positions,
+                            infinicore::Tensor &hidden_states,
+                            infinicore::Tensor &residual,
+                            global_state::PiecewiseLayerStaging &staging) const {
+        piecewise_pre_attn_layernorm(hidden_states, residual);
         self_attn_->forward_pre_attn_piecewise(positions, hidden_states, staging);
+    }
+
+    void piecewise_pre_attn_rope(const infinicore::Tensor &positions,
+                                 global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_pre_attn_piecewise_apply_rope(positions, staging);
+    }
+
+    void piecewise_pre_attn_staging(infinicore::Tensor &hidden_states,
+                                    global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_pre_attn_piecewise_fill_staging(hidden_states, staging);
     }
 
     void piecewise_eager_attn(const infinicore::Tensor &positions,
@@ -111,6 +128,11 @@ public:
         (void)residual;
         // Graph segment: o_proj matmul (+ in-graph AR when INFINI_PIECEWISE_AR_IN_GRAPH=1).
         self_attn_->forward_post_attn_piecewise_graph_into(hidden_states, staging);
+    }
+
+    void piecewise_o_proj_staging(infinicore::Tensor &hidden_states,
+                                  global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_post_attn_piecewise_matmul_staging(hidden_states, staging);
     }
 
     void piecewise_post_attn_mlp_graph(infinicore::Tensor &hidden_states,

@@ -31,6 +31,27 @@ public:
         this->model_->piecewise_pre_attn_layer(layer_idx, input, hidden_states, residual);
     }
 
+    void native_piecewise_pre_attn_layernorm_layer(size_t layer_idx,
+                                                   const InfinilmModel::Input &input,
+                                                   infinicore::Tensor &hidden_states,
+                                                   infinicore::Tensor &residual) const override {
+        this->model_->piecewise_pre_attn_layernorm_layer(layer_idx, input, hidden_states, residual);
+    }
+
+    void native_piecewise_pre_attn_rope_layer(size_t layer_idx,
+                                              const InfinilmModel::Input &input,
+                                              infinicore::Tensor &hidden_states,
+                                              infinicore::Tensor &residual) const override {
+        this->model_->piecewise_pre_attn_rope_layer(layer_idx, input, hidden_states, residual);
+    }
+
+    void native_piecewise_pre_attn_staging_layer(size_t layer_idx,
+                                                 const InfinilmModel::Input &input,
+                                                 infinicore::Tensor &hidden_states,
+                                                 infinicore::Tensor &residual) const override {
+        this->model_->piecewise_pre_attn_staging_layer(layer_idx, input, hidden_states, residual);
+    }
+
     void native_piecewise_eager_attn_layer(size_t layer_idx,
                                            const InfinilmModel::Input &input) const override {
         this->model_->piecewise_eager_attn_layer(layer_idx, input);
@@ -62,6 +83,13 @@ public:
                                                     infinicore::Tensor &hidden_states,
                                                     infinicore::Tensor &residual) const override {
         this->model_->piecewise_post_attn_allreduce_layer(layer_idx, input, hidden_states, residual);
+    }
+
+    void native_piecewise_o_proj_staging_layer(size_t layer_idx,
+                                               const InfinilmModel::Input &input,
+                                               infinicore::Tensor &hidden_states,
+                                               infinicore::Tensor &residual) const override {
+        this->model_->piecewise_o_proj_staging_layer(layer_idx, input, hidden_states, residual);
     }
 
     void native_piecewise_lm_head(const InfinilmModel::Input &,

@@ -108,6 +108,12 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
 void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_ids,
                                            const infinicore::Tensor &hidden_states,
                                            global_state::PiecewiseLayerStaging &staging) const {
+    (void)position_ids;
+    forward_pre_attn_piecewise_fill_staging(hidden_states, staging);
+}
+
+void Attention::forward_pre_attn_piecewise_fill_staging(const infinicore::Tensor &hidden_states,
+                                                        global_state::PiecewiseLayerStaging &staging) const {
     auto &piecewise = global_state::get_forward_context().piecewise;
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();
@@ -144,6 +150,13 @@ void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_id
         staging.k_rope->copy_from(k_heads);
         staging.v_rope->copy_from(v_heads);
     }
+}
+
+void Attention::forward_pre_attn_piecewise_apply_rope(const infinicore::Tensor &position_ids,
+                                                      global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.q_rope->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
 
     auto pos_shape = position_ids->shape();
     infinicore::Tensor pos_ids_for_rope = position_ids;
@@ -155,21 +168,30 @@ void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_id
     } else {
         throw std::runtime_error("Unexpected position_ids shape");
     }
-
     if (pos_ids_for_rope->size(0) > valid_len) {
         pos_ids_for_rope = pos_ids_for_rope->narrow({{0, 0, valid_len}})->contiguous();
     }
 
-    auto q_rope = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
-    auto k_rope = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
-    if (!q_rope->is_contiguous()) {
-        q_rope = q_rope->contiguous();
-    }
-    if (!k_rope->is_contiguous()) {
-        k_rope = k_rope->contiguous();
-    }
-    rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
-    rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
+    auto q_staging_narrow = staging.q_rope->narrow({{1, 0, valid_len}});
+    auto k_staging_narrow = staging.k_rope->narrow({{1, 0, valid_len}});
+    auto q_view = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    auto k_view = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+
+    auto apply_rope_inplace_or_copyback = [&](infinicore::Tensor view, infinicore::Tensor staging_narrow) {
+        infinicore::Tensor rope_in = view;
+        if (!rope_in->is_contiguous()) {
+            rope_in = rope_in->contiguous();
+        }
+        rotary_emb_->forward(rope_in, pos_ids_for_rope, true);
+        if (!view->is_contiguous()) {
+            staging_narrow->copy_from(rope_in->view(staging_narrow->shape()));
+        }
+    };
+    apply_rope_inplace_or_copyback(q_view, q_staging_narrow);
+    apply_rope_inplace_or_copyback(k_view, k_staging_narrow);
+
+    infinilm::utils::dump_staging_heads_row(staging.q_rope, layer_idx_, valid_len, "post_rope_q");
+    infinilm::utils::dump_staging_heads_row(staging.k_rope, layer_idx_, valid_len, "post_rope_k");
 }
 
 void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
@@ -229,44 +251,59 @@ void Attention::forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidde
 
     if (in_post_attn_capture) {
         auto projected = o_proj_->forward_matmul_only(attn_mut);
-        hidden_narrow->copy_from(projected);
-        if (o_proj_->needs_allreduce()) {
-            const auto &ctx = global_state::get_forward_context();
-            if (ctx.defer_row_parallel_allreduce) {
-                o_proj_->defer_allreduce_on(hidden_narrow);
-            } else if (engine::piecewise_ar_in_graph()) {
-                o_proj_->allreduce_output(hidden_narrow);
-            }
+        if (!projected->is_contiguous()) {
+            projected = projected->contiguous();
         }
+        auto staging_narrow = piecewise.ar_staging->narrow({{1, 0, valid_len}});
+        staging_narrow->copy_from(projected);
+        hidden_narrow->copy_from(projected);
     } else {
-        const auto &ctx = global_state::get_forward_context();
         if (!attn_mut->is_contiguous()) {
             attn_mut = attn_mut->contiguous();
         }
         auto projected = o_proj_->forward_matmul_only(attn_mut);
-        if (ctx.defer_row_parallel_allreduce && o_proj_->needs_allreduce()) {
-            hidden_narrow->copy_from(projected);
-            global_state::ar_profile::allreduce_hidden_valid_contiguous(
-                hidden_states,
-                valid_len,
-                piecewise.ar_staging,
-                [&](infinicore::Tensor &t) { o_proj_->allreduce_output(t); });
-            infinilm::utils::dump_layer_hidden(hidden_states, layer_idx_, valid_len, "post_o_proj");
-        } else if (o_proj_->needs_allreduce()) {
-            // Replay: matmul → AR on matmul output (matches EAGER o_proj_->forward semantics).
+        infinilm::utils::dump_layer_hidden(projected, layer_idx_, valid_len, "post_o_proj_pre_ar");
+        if (o_proj_->needs_allreduce()) {
             if (!projected->is_contiguous()) {
                 projected = projected->contiguous();
             }
             infinicore::context::syncStream();
             o_proj_->allreduce_output(projected);
             infinicore::context::syncStream();
-            hidden_narrow->copy_from(projected);
-            infinilm::utils::dump_layer_hidden(projected, layer_idx_, valid_len, "post_o_proj");
-        } else {
-            hidden_narrow->copy_from(projected);
-            infinilm::utils::dump_layer_hidden(projected, layer_idx_, valid_len, "post_o_proj");
         }
+        hidden_narrow->copy_from(projected);
+        infinilm::utils::dump_layer_hidden(projected, layer_idx_, valid_len, "post_o_proj");
     }
+    if (valid_len < seq_len) {
+        auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(hidden_tail);
+    }
+}
+
+void Attention::forward_post_attn_piecewise_matmul_staging(infinicore::Tensor &hidden_states,
+                                                           global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.attn_output->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+    auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+
+    infinicore::Tensor attn_mut = staging.attn_output;
+    if (valid_len < seq_len) {
+        attn_mut = attn_mut->narrow({{1, 0, valid_len}});
+        if (!attn_mut->is_contiguous()) {
+            attn_mut = attn_mut->contiguous();
+        }
+    } else if (!attn_mut->is_contiguous()) {
+        attn_mut = attn_mut->contiguous();
+    }
+
+    auto projected = o_proj_->forward_matmul_only(attn_mut);
+    if (!projected->is_contiguous()) {
+        projected = projected->contiguous();
+    }
+    auto staging_narrow = piecewise.ar_staging->narrow({{1, 0, valid_len}});
+    staging_narrow->copy_from(projected);
+    hidden_narrow->copy_from(projected);
     if (valid_len < seq_len) {
         auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
         set_zeros(hidden_tail);
@@ -279,13 +316,35 @@ void Attention::forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &h
         return;
     }
     auto &piecewise = global_state::get_forward_context().piecewise;
-    const size_t seq_len = staging.attn_output->size(1);
-    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
-    global_state::ar_profile::allreduce_hidden_valid_contiguous(
-        hidden_states,
-        valid_len,
-        piecewise.ar_staging,
-        [&](infinicore::Tensor &t) { o_proj_->allreduce_output(t); });
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : staging.attn_output->size(1);
+    const size_t bucket = hidden_states->size(1);
+    auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+    auto staging_narrow = piecewise.ar_staging->narrow({{1, 0, valid_len}});
+    if (valid_len < bucket) {
+        auto staging_tail = piecewise.ar_staging->narrow({{1, valid_len, bucket - valid_len}});
+        infinicore::Tensor staging_tail_ref = staging_tail;
+        set_zeros(staging_tail_ref);
+    }
+
+    // AR the post-graph staging buffer (filled by matmul_staging); matches T8/T9 UT pattern.
+    const size_t hidden_size = hidden_states->size(2);
+    infinicore::context::syncStream();
+    auto &ctx = global_state::get_forward_context();
+    if (ctx.layer_dump_barrier != nullptr && ctx.layer_dump_tp_rank >= 0) {
+        ctx.layer_dump_barrier->wait("tp_o_proj_ar", ctx.layer_dump_tp_rank);
+    }
+    infinicore::Tensor ar_view = staging_narrow->view({1, valid_len, hidden_size});
+    const bool ar_on_copy = !ar_view->is_contiguous();
+    if (ar_on_copy) {
+        ar_view = ar_view->contiguous();
+    }
+    o_proj_->allreduce_output(ar_view);
+    infinicore::context::syncStream();
+    if (ar_on_copy) {
+        staging_narrow->copy_from(ar_view);
+    }
+    hidden_narrow->copy_from(staging_narrow);
+    infinicore::context::syncStream();
 }
 
 infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_ids,

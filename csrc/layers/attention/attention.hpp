@@ -21,10 +21,18 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
 
-    /// Piecewise prefill: QKV + RoPE, writes Q/K/V staging tensors.
+    /// Piecewise prefill: QKV + copy to staging (RoPE applied eagerly via apply_rope).
     void forward_pre_attn_piecewise(const infinicore::Tensor &positions,
                                     const infinicore::Tensor &hidden_states,
                                     global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Piecewise eager segment: refresh Q/K/V staging after pre_attn graph replay.
+    void forward_pre_attn_piecewise_fill_staging(const infinicore::Tensor &hidden_states,
+                                                global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Piecewise prefill: eager RoPE on staging Q/K (outside pre_attn graph).
+    void forward_pre_attn_piecewise_apply_rope(const infinicore::Tensor &position_ids,
+                                               global_state::PiecewiseLayerStaging &staging) const;
 
     /// Piecewise prefill: KV cache + varlen attention (eager, outside graph).
     void forward_eager_attn_piecewise(const infinicore::Tensor &positions,
@@ -34,12 +42,16 @@ public:
     void forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
                                           global_state::PiecewiseLayerStaging &staging) const;
 
-    /// Piecewise graph segment: O-proj matmul only (allreduce deferred).
+    /// Piecewise graph segment: O-proj matmul + in-graph allreduce (vLLM order).
     void forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidden_states,
                                                 global_state::PiecewiseLayerStaging &staging) const;
 
     /// Piecewise eager segment: O-proj allreduce after graph replay.
     void forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &hidden_states,
+                                                    global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Recompute O-proj matmul into ``ar_staging`` from ``staging.attn_output`` (post-graph refresh).
+    void forward_post_attn_piecewise_matmul_staging(infinicore::Tensor &hidden_states,
                                                     global_state::PiecewiseLayerStaging &staging) const;
 
     void process_fused_weights_after_loading() {

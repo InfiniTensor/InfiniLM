@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <iomanip>
 #include <numeric>
 #include <sstream>
 #include <spdlog/spdlog.h>
@@ -39,6 +40,28 @@ bool piecewise_trim_barriers() {
         cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 0 : 1;
     }
     return cached == 1;
+}
+
+void dump_post_pre_rope_staging_(size_t layer,
+                                 size_t valid_seq_len,
+                                 global_state::PiecewiseLayerStaging &staging) {
+    if (!infinilm::utils::layer_hidden_dump_enabled()) {
+        return;
+    }
+    infinicore::context::syncStream();
+    std::ostringstream site_q;
+    site_q << "layer_hidden_dump_L" << std::setfill('0') << std::setw(2) << layer
+           << "_post_pre_rope_q";
+    infinilm::utils::layer_hidden_dump_tp_sync(site_q.str().c_str());
+    infinilm::utils::dump_staging_heads_row(
+        staging.q_rope, layer, valid_seq_len, "post_pre_rope_q");
+    infinicore::context::syncStream();
+    std::ostringstream site_k;
+    site_k << "layer_hidden_dump_L" << std::setfill('0') << std::setw(2) << layer
+           << "_post_pre_rope_k";
+    infinilm::utils::layer_hidden_dump_tp_sync(site_k.str().c_str());
+    infinilm::utils::dump_staging_heads_row(
+        staging.k_rope, layer, valid_seq_len, "post_pre_rope_k");
 }
 
 double monotonic_ms() {
@@ -346,13 +369,13 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
     model_->native_piecewise_embed(graphs.input, hidden);
     for (size_t layer = 0; layer < capture_layers; ++layer) {
         model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
+        model_->native_piecewise_pre_attn_rope_layer(layer, graphs.input, hidden, residual);
         model_->native_piecewise_eager_attn_layer(layer, graphs.input);
         model_->native_piecewise_post_attn_layer(layer, graphs.input, hidden, residual);
     }
     model_->native_piecewise_lm_head(graphs.input, hidden, residual, graphs.logits_holder);
     graphs.pre_attn.resize(capture_layers);
     graphs.post_attn.resize(capture_layers);
-    graphs.post_attn_deferred_ar.resize(capture_layers);
     graphs.post_attn_mlp.resize(capture_layers);
 
     set_zeros(piecewise.residual);
@@ -363,25 +386,23 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
 
         barrier_->wait("piecewise_capture_pre_attn");
+        model_->native_piecewise_pre_attn_layernorm_layer(layer, graphs.input, hidden, residual);
+        infinicore::context::syncStream();
+        barrier_->wait("piecewise_capture_pre_attn_ln_sync");
+        piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
         infinicore::context::startGraphRecording();
-        model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
+        model_->native_piecewise_pre_attn_staging_layer(layer, graphs.input, hidden, residual);
         graphs.pre_attn[layer] = infinicore::context::stopGraphRecording();
 
         piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+        model_->native_piecewise_pre_attn_rope_layer(layer, graphs.input, hidden, residual);
         model_->native_piecewise_eager_attn_layer(layer, graphs.input);
 
         piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
         barrier_->wait("piecewise_capture_post_attn");
-        auto &capture_ctx = infinilm::global_state::get_forward_context();
-        capture_ctx.defer_row_parallel_allreduce = true;
-        capture_ctx.deferred_allreduces.clear();
         infinicore::context::startGraphRecording();
         model_->native_piecewise_post_attn_graph_layer(layer, graphs.input, hidden, residual);
         graphs.post_attn[layer] = infinicore::context::stopGraphRecording();
-        capture_ctx.defer_row_parallel_allreduce = false;
-        graphs.post_attn_deferred_ar[layer] = std::move(capture_ctx.deferred_allreduces);
-        capture_ctx.deferred_allreduces.clear();
-        infinilm::global_state::run_deferred_allreduces(graphs.post_attn_deferred_ar[layer]);
         barrier_->wait("piecewise_capture_post_attn_sync");
 
         piecewise.phase = global_state::PiecewiseCapturePhase::PostAttnMlp;
@@ -594,6 +615,10 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     }
 
     model_->native_piecewise_embed(bucket_graphs.input, piecewise.hidden_states);
+    infinicore::context::syncStream();
+    if (global_state::get_tensor_model_parallel_world_size() > 1) {
+        barrier_->wait("piecewise_replay_embed_sync");
+    }
     infinilm::utils::dump_layer_hidden(
         piecewise.hidden_states, 0, piecewise.valid_seq_len, "embed");
 
@@ -610,12 +635,21 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         };
         if (!use_cg_replay) {
             barrier_->wait("piecewise_replay_pre_attn");
+            if (global_state::get_tensor_model_parallel_world_size() > 1) {
+                barrier_->wait("piecewise_replay_pre_attn_input_sync");
+            }
             model_->native_piecewise_pre_attn_layer(
                 layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
             dump_segment("post_pre_attn");
+            dump_post_pre_rope_staging_(layer, piecewise.valid_seq_len, piecewise.layer_staging.at(layer));
             const double t_pre_attn = profile ? monotonic_ms() : 0.0;
             piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+            model_->native_piecewise_pre_attn_rope_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            infinicore::context::syncStream();
             model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
+            infinicore::context::syncStream();
+            barrier_->wait("piecewise_replay_eager_attn_sync");
             const double t_eager_attn = profile ? monotonic_ms() : 0.0;
             barrier_->wait("piecewise_replay_post_attn");
             auto &ctx = infinilm::global_state::get_forward_context();
@@ -639,22 +673,57 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
             }
         } else {
             barrier_->wait("piecewise_replay_pre_attn");
-            bucket_graphs.pre_attn[layer]->run();
-            ++segment_replays_;
+            if (global_state::get_tensor_model_parallel_world_size() > 1) {
+                barrier_->wait("piecewise_replay_pre_attn_input_sync");
+            }
+            piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
+            // Eager LN + qkv staging: in-graph LN/copy diverges on TP ranks 1–3 at replay.
+            model_->native_piecewise_pre_attn_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            infinicore::context::syncStream();
+            barrier_->wait("piecewise_replay_pre_attn_sync");
             dump_segment("post_pre_attn");
+            dump_post_pre_rope_staging_(layer, piecewise.valid_seq_len, piecewise.layer_staging.at(layer));
             const double t_pre_attn = profile ? monotonic_ms() : 0.0;
             piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+            model_->native_piecewise_pre_attn_rope_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+            infinicore::context::syncStream();
+            if (global_state::get_tensor_model_parallel_world_size() > 1) {
+                barrier_->wait("piecewise_replay_pre_attn_rope_sync");
+            }
             model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
+            infinicore::context::syncStream();
+            barrier_->wait("piecewise_replay_eager_attn_sync");
             const double t_eager_attn = profile ? monotonic_ms() : 0.0;
             barrier_->wait("piecewise_replay_post_attn");
             bucket_graphs.post_attn[layer]->run();
             ++segment_replays_;
-            infinilm::global_state::run_deferred_allreduces(
-                bucket_graphs.post_attn_deferred_ar[layer]);
             infinicore::context::syncStream();
+            barrier_->wait("piecewise_replay_post_attn_sync");
+            if (global_state::get_tensor_model_parallel_world_size() > 1) {
+                piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
+                model_->native_piecewise_o_proj_staging_layer(
+                    layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+                infinicore::context::syncStream();
+                barrier_->wait("piecewise_replay_o_proj_staging_sync");
+            }
+            if (infinilm::utils::layer_hidden_dump_enabled()) {
+                infinilm::utils::dump_layer_hidden(
+                    piecewise.ar_staging, layer, piecewise.valid_seq_len, "post_o_proj_pre_ar");
+            }
+            if (global_state::get_tensor_model_parallel_world_size() > 1) {
+                barrier_->wait("piecewise_replay_pre_o_proj_ar");
+            }
+            if (global_state::get_tensor_model_parallel_world_size() > 1) {
+                piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::OProjAllreduce;
+                model_->native_piecewise_post_attn_allreduce_layer(
+                    layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
+                piecewise.post_attn_replay_step = global_state::PiecewisePostAttnReplayStep::Full;
+                infinicore::context::syncStream();
+            }
             infinilm::utils::dump_layer_hidden(
                 piecewise.hidden_states, layer, piecewise.valid_seq_len, "post_o_proj");
-            barrier_->wait("piecewise_replay_post_attn_sync");
             bucket_graphs.post_attn_mlp[layer]->run();
             ++segment_replays_;
             dump_segment("post_mlp");
@@ -691,6 +760,8 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
             model_->native_piecewise_pre_attn_layer(
                 layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
             piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+            model_->native_piecewise_pre_attn_rope_layer(
+                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
             model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
             barrier_->wait("piecewise_replay_post_attn");
             model_->native_piecewise_post_attn_graph_layer(

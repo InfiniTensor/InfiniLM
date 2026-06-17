@@ -6,7 +6,14 @@
 #include <spdlog/spdlog.h>
 
 namespace infinilm::engine {
-RankBarrier::RankBarrier(size_t num_ranks) : thread_count_(num_ranks), generation_(0), arrived_(0) {}
+RankBarrier::RankBarrier(size_t num_ranks) : thread_count_(num_ranks) {}
+
+RankBarrier::SubBarrier &RankBarrier::sub_for_(const char *label) {
+    if (label == nullptr || label[0] == '\0') {
+        return default_;
+    }
+    return keyed_[label];
+}
 
 void RankBarrier::wait(const char *label, int tp_rank) {
     const bool trace = global_state::hang_trace::enabled();
@@ -18,8 +25,9 @@ void RankBarrier::wait(const char *label, int tp_rank) {
 
     {
         std::unique_lock<std::mutex> lock(mutex_);
-        gen_before = static_cast<int>(generation_);
-        arrived_before = arrived_;
+        SubBarrier &sub = sub_for_(label);
+        gen_before = static_cast<int>(sub.generation);
+        arrived_before = sub.arrived;
         if (trace) {
             if (label != nullptr && label[0] != '\0') {
                 if (tp_rank >= 0) {
@@ -47,14 +55,14 @@ void RankBarrier::wait(const char *label, int tp_rank) {
             }
         }
 
-        int gen = generation_;
+        const size_t gen = sub.generation;
 
-        if (++arrived_ == thread_count_) {
-            generation_++;
-            arrived_ = 0;
+        if (++sub.arrived == thread_count_) {
+            sub.generation++;
+            sub.arrived = 0;
             cv_.notify_all();
         } else {
-            cv_.wait(lock, [&] { return gen != generation_; });
+            cv_.wait(lock, [&] { return gen != sub.generation; });
         }
     }
 
@@ -64,38 +72,38 @@ void RankBarrier::wait(const char *label, int tp_rank) {
             global_state::ar_profile::record_barrier_wait(label, ms);
         }
         if (trace) {
-        if (label != nullptr && label[0] != '\0') {
-            if (tp_rank >= 0) {
-                spdlog::info(
-                    "hang_trace: barrier_wait_exit label={} tp_rank={} ms={:.3f}",
-                    label,
-                    tp_rank,
-                    ms);
+            if (label != nullptr && label[0] != '\0') {
+                if (tp_rank >= 0) {
+                    spdlog::info(
+                        "hang_trace: barrier_wait_exit label={} tp_rank={} ms={:.3f}",
+                        label,
+                        tp_rank,
+                        ms);
+                } else {
+                    spdlog::info(
+                        "hang_trace: barrier_wait_exit label={} ms={:.3f}",
+                        label,
+                        ms);
+                }
             } else {
-                spdlog::info(
-                    "hang_trace: barrier_wait_exit label={} ms={:.3f}",
-                    label,
-                    ms);
+                spdlog::info("hang_trace: barrier_wait_exit ms={:.3f}", ms);
             }
-        } else {
-            spdlog::info("hang_trace: barrier_wait_exit ms={:.3f}", ms);
-        }
-        if (ms >= global_state::hang_trace::slow_ms()) {
-            if (label != nullptr && label[0] != '\0' && tp_rank >= 0) {
-                spdlog::warn(
-                    "hang_trace: STALL tag=barrier_wait label={} tp_rank={} ms={:.3f}",
-                    label,
-                    tp_rank,
-                    ms);
-            } else if (label != nullptr && label[0] != '\0') {
-                spdlog::warn(
-                    "hang_trace: STALL tag=barrier_wait label={} ms={:.3f}",
-                    label,
-                    ms);
-            } else {
-                spdlog::warn("hang_trace: STALL tag=barrier_wait ms={:.3f}", ms);
+            if (ms >= global_state::hang_trace::slow_ms()) {
+                if (label != nullptr && label[0] != '\0' && tp_rank >= 0) {
+                    spdlog::warn(
+                        "hang_trace: STALL tag=barrier_wait label={} tp_rank={} ms={:.3f}",
+                        label,
+                        tp_rank,
+                        ms);
+                } else if (label != nullptr && label[0] != '\0') {
+                    spdlog::warn(
+                        "hang_trace: STALL tag=barrier_wait label={} ms={:.3f}",
+                        label,
+                        ms);
+                } else {
+                    spdlog::warn("hang_trace: STALL tag=barrier_wait ms={:.3f}", ms);
+                }
             }
-        }
         }
     }
 }

@@ -18,10 +18,11 @@ public:
                                     const infinicore::Tensor &hidden_states,
                                     global_state::PiecewiseLayerStaging &staging) const;
 
-    void forward_eager_attn_piecewise(const infinicore::Tensor &positions,
-                                      global_state::PiecewiseLayerStaging &staging) const {
-        Attention::forward_eager_attn_piecewise(positions, staging);
-    }
+    void forward_pre_attn_piecewise_fill_staging(const infinicore::Tensor &hidden_states,
+                                                 global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_pre_attn_piecewise_apply_rope(const infinicore::Tensor &position_ids,
+                                               global_state::PiecewiseLayerStaging &staging) const;
 
     void forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
                                           global_state::PiecewiseLayerStaging &staging) const {
