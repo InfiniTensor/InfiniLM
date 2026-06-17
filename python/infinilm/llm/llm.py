@@ -6,15 +6,14 @@ This module provides:
 - AsyncLLM class for asynchronous streaming (server use)
 """
 
+import os
 import asyncio
 import time
 import uuid
 import logging
+import janus
 import threading
 from typing import List, Optional, Union, AsyncIterator
-from dataclasses import dataclass
-
-import infinicore
 
 from infinilm.llm.request import (
     InferenceRequest,
@@ -22,58 +21,17 @@ from infinilm.llm.request import (
     TokenOutput,
     FinishReason,
 )
+
+from infinilm.llm.model_runner.model_runner import ModelRunner
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
-from infinilm.processors import AutoInfinilmProcessor
-from infinilm.distributed import DistConfig
-from infinilm.infer_engine import InferEngine
-from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
-from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
+from infinilm.config.kv_transfer import KVTransferConfig
+from infinilm.config.engine_config import EngineConfig
+from infinilm.kv_connector import KVConnectorRole, KVConnectorFactory
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class EngineConfig:
-    """Configuration for LLM Engine.
-
-    Attributes:
-        model_path: Path to the model directory.
-        device: Device type string ('cpu', 'cuda', 'mlu', etc.).
-        dtype: Data type string ('float16', 'bfloat16', 'float32').
-        tensor_parallel_size: Number of devices for tensor parallelism.
-        cache_type: Cache type ('paged' or 'static').
-        max_batch_size: Maximum batch size for inference (only for paged cache).
-        max_tokens: Default maximum tokens to generate.
-        num_blocks: Number of KV cache blocks (only for paged cache).
-        block_size: Size of each KV cache block (only for paged cache).
-        max_cache_len: Maximum sequence length (only for static cache).
-        temperature: Default sampling temperature.
-        top_p: Default top-p sampling parameter.
-        top_k: Default top-k sampling parameter.
-        enable_graph: Whether to enable graph compiling.
-        attn_backend: Attention backend to use ('default', 'flash-attn').
-        skip_load: Whether to skip loading model weights (for testing).
-    """
-
-    model_path: str
-    device: str = "cuda"
-    dtype: str = "float16"
-    tensor_parallel_size: int = 1
-    cache_type: str = "paged"  # "paged" or "static"
-    max_batch_size: int = 16
-    max_tokens: int = 4096
-    num_blocks: int = 512
-    block_size: int = 256
-    max_cache_len: int = 4096
-    temperature: float = 1.0
-    top_p: float = 0.8
-    top_k: int = 1
-    enable_graph: bool = False
-    attn_backend: str = "default"
-    skip_load: bool = False
 
 
 class LLMEngine:
@@ -82,117 +40,88 @@ class LLMEngine:
     def __init__(self, config: EngineConfig):
         self.config = config
 
-        # Initialize device and dtype
-        self._init_device()
+        self.model_runner = ModelRunner(config)
 
-        # Initialize model engine
-        self.model_engine = InferEngine(
-            model_path=config.model_path,
-            device=self.device,
-            distributed_config=DistConfig(config.tensor_parallel_size),
-            enable_graph_compiling=config.enable_graph,
-            attention_backend=config.attn_backend,
-        )
+        self.device = self.model_runner.device
+        self.dtype = self.model_runner.dtype
 
-        # Load model weights
-        if not self.config.skip_load:
-            load_model_state_dict_by_file(
-                self.model_engine, config.model_path, dtype=self.model_engine.dtype
-            )
-
-        # Initialize processor/tokenizer
-        self.processor = AutoInfinilmProcessor.from_pretrained(config.model_path)
+        # Initialize processor
+        self.processor = self.model_runner.processor
         self.tokenizer = self.processor.get_tokenizer()
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
-            cache_config = StaticKVCacheConfig(
-                max_batch_size=1, max_cache_len=config.max_cache_len
-            )
             self.scheduler = StaticScheduler(max_cache_len=config.max_cache_len)
             logger.info(
                 f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
             )
         elif config.cache_type == "paged":
-            cache_config = PagedKVCacheConfig(
-                num_blocks=config.num_blocks, block_size=config.block_size
+            connector = None
+            if config.kv_transfer_config and config.kv_transfer_config.kv_connector:
+                connector = KVConnectorFactory.create_connector(
+                    connector_name=config.kv_transfer_config.kv_connector,
+                    role=KVConnectorRole.SCHEDULER,
+                    kv_transfer_config=config.kv_transfer_config,
+                )
+                logger.info(
+                    f"KV Connector created: {config.kv_transfer_config.kv_connector} "
+                    f"(role={config.kv_transfer_config.kv_role})"
+                )
+
+            max_position_embeddings = self.model_runner.model_engine.hf_config[
+                "max_position_embeddings"
+            ]
+            max_num_batched_tokens = int(
+                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
             )
+            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
+
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
+                max_num_batched_tokens=max_num_batched_tokens,
+                connector=connector,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
-        self.model_engine.reset_cache(cache_config)
         self.cache_type = config.cache_type
 
         # Get EOS token IDs from model config
-        self.eos_token_ids = self.model_engine.eos_token_id or []
+        self.eos_token_ids = self.model_runner.eos_token_id or []
         if isinstance(self.eos_token_ids, int):
             self.eos_token_ids = [self.eos_token_ids]
 
         logger.info(
             f"LLMEngine initialized with model at {config.model_path} "
-            f"on device {config.device}"
+            f"on device {config.device}, "
             f"enable_graph={config.enable_graph}"
         )
-
-    def _init_device(self):
-        """Initialize infinicore device and dtype."""
-        supported_devices = ["cpu", "cuda", "mlu", "musa", "npu"]
-        device_str = self.config.device
-        if device_str not in supported_devices:
-            raise ValueError(
-                f"Unsupported device: '{device_str}'. "
-                f"Supported devices: {supported_devices}"
-            )
-        self.device = infinicore.device(device_str, 0)
-
-        dtype_map = {
-            "float32": infinicore.float32,
-            "float16": infinicore.float16,
-            "bfloat16": infinicore.bfloat16,
-        }
-
-        if self.config.dtype not in dtype_map:
-            raise ValueError(
-                f"Unsupported dtype: '{self.config.dtype}'. "
-                f"Supported dtypes: {list(dtype_map.keys())}"
-            )
-
-        self.dtype = dtype_map[self.config.dtype]
 
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
-    def step(self) -> tuple[list[InferenceRequest], list[tuple]]:
+    def step(self) -> tuple[bool, list[tuple]]:
         """Run one inference step.
 
         Returns:
             A tuple of:
-            - scheduled_requests: Requests that were scheduled and processed in this step.
+            - did_work
             - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
         """
-        # Schedule requests
+        # Schedule the next unit of work, which may be model execution,
+        # connector control metadata, or both.
         scheduler_output = self.scheduler.schedule()
-        if scheduler_output is None or not scheduler_output.scheduled_requests:
-            return [], []
+        if scheduler_output is None:
+            return False, []
 
-        # Build model inputs
-        model_input = self.processor.build_model_inputs(
-            scheduler_output,
-            self.config.temperature,
-            self.config.top_p,
-            self.config.top_k,
-        )
-
-        # Run inference
-        sampled_tokens = self.model_engine.forward(**model_input)
-        sampled_tokens_list = sampled_tokens.to_numpy().tolist()
+        # Execute model
+        runner_output = self.model_runner.execute_model(scheduler_output)
+        sampled_tokens_list = runner_output.sampled_token_ids
+        self.scheduler.update_from_output(runner_output)
 
         # Update request status
         pending = self._update_requests(
@@ -201,7 +130,18 @@ class LLMEngine:
             sampled_tokens_list,
         )
 
-        return scheduler_output.scheduled_requests, pending
+        # Return False (no immediate work) only when no requests were scheduled
+        # and no KV transfers completed in this step.
+        if not scheduler_output.scheduled_requests:
+            if not runner_output.kv_connector_output or (
+                not getattr(runner_output.kv_connector_output, "finished_sending", None)
+                and not getattr(
+                    runner_output.kv_connector_output, "finished_recving", None
+                )
+            ):
+                return False, pending
+
+        return True, pending
 
     def _update_requests(
         self,
@@ -213,7 +153,7 @@ class LLMEngine:
         if is_prefill:
             match self.cache_type:
                 case "paged":
-                    self.scheduler.cache_manager.reset_req_blocks()
+                    pass
                 case "static":
                     self.scheduler.update_cache()
                 case _:
@@ -224,13 +164,14 @@ class LLMEngine:
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
                 )
+                # close() may have set _aborted=True without setting a terminal status
+                # (status still RUNNING).
+                if not req.is_finished():
+                    req.mark_canceled()
                 continue
 
-            if req.is_prefill:
-                req.is_prefill = False
-
             req.generated_token_ids.append(token_id)
-            pending_tokens = req.generated_token_ids[req._pending_token_offset :]
+            pending_tokens = req.generated_token_ids[req._token_decode_offset :]
             delta = self.tokenizer.decode(pending_tokens)
             holds_back = bool(delta) and delta.endswith("\ufffd")
 
@@ -238,7 +179,7 @@ class LLMEngine:
 
             if not holds_back:
                 req.generated_text = last_committed_text + delta
-                req._pending_token_offset = len(req.generated_token_ids)
+                req._token_decode_offset = len(req.generated_token_ids)
 
             is_finished = self._check_request_finished(req, token_id)
 
@@ -259,11 +200,9 @@ class LLMEngine:
                     ):
                         token_text = ""
                     else:
-                        token_text = req.generated_text[
-                            req._stream_last_yielded_length :
-                        ]
+                        token_text = req.generated_text[req._text_output_offset :]
                         if token_text:
-                            req._stream_last_yielded_length = len(req.generated_text)
+                            req._text_output_offset = len(req.generated_text)
 
                     if is_finished:
                         req.mark_finished(req.finish_reason)
@@ -553,6 +492,7 @@ class AsyncLLMEngine:
         top_k: int = 1,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        kv_transfer_config: Optional[KVTransferConfig] = None,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -572,6 +512,9 @@ class AsyncLLMEngine:
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            kv_connector: KV connector type ('MooncakeConnector').
+            kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
+            kv_connector_extra_config: Extra config dict for KV connector.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -589,6 +532,7 @@ class AsyncLLMEngine:
             top_k=top_k,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            kv_transfer_config=kv_transfer_config,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -597,6 +541,7 @@ class AsyncLLMEngine:
         self._step_thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
+        self._abort_queue: Optional[janus.Queue] = None
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
@@ -608,6 +553,7 @@ class AsyncLLMEngine:
             return
 
         self._loop = asyncio.get_running_loop()
+        self._abort_queue = janus.Queue()
         self._running = True
         self._step_thread = threading.Thread(
             target=self._step_loop, daemon=True, name="AsyncLLMEngineStepThread"
@@ -626,13 +572,69 @@ class AsyncLLMEngine:
             self._step_thread.join(timeout=5)
         logger.info("AsyncLLMEngine stopped")
 
+    def add_aborted_req(
+        self,
+        req: InferenceRequest,
+        reason: FinishReason = FinishReason.CANCELED,
+    ):
+        """Submit an abort request from async side to the step thread.
+
+        The step thread processes this in _drain_abort_queue() before each schedule().
+        """
+        if self._abort_queue is not None:
+            self._abort_queue.sync_q.put((req, reason))
+
+    def _drain_abort_queue(self):
+        """Process all pending abort requests before each schedule() call.
+
+        Runs in the step thread (sync context). Guarantees mark_*() is called
+        before schedule() so is_finished() checks in waiting/running queue loops
+        work correctly. Puts a final TokenOutput into the output queue to unblock
+        stream_request when _stream_chat is still alive after abort.
+        """
+        if self._abort_queue is None:
+            return
+        while True:
+            try:
+                req, reason = self._abort_queue.sync_q.get_nowait()
+            except Exception:
+                break
+
+            if req.is_finished():
+                continue
+
+            if reason == FinishReason.CANCELED:
+                req.mark_canceled()
+            elif reason == FinishReason.TIMEOUT:
+                req.mark_timeout()
+            else:
+                req.mark_failed(reason)
+
+            # Put a final token to unblock stream_request.
+            # If Starlette already cancelled _stream_chat, aclose() may have closed
+            # the queue; put_nowait will raise and we silently ignore it.
+            if req._output_queue is not None:
+                final = TokenOutput(
+                    request_id=req.request_id,
+                    token_id=-1,
+                    token_text="",
+                    finished=True,
+                    finish_reason=req.finish_reason,
+                    generated_text=req.generated_text,
+                )
+                try:
+                    req.output_queue.sync_q.put_nowait(final)
+                except Exception:
+                    pass
+
     def _step_loop(self):
         """Background loop that runs inference steps."""
         while self._running:
             try:
-                requests, pending = self.engine.step()
-                if not requests:
-                    time.sleep(0.01)
+                self._drain_abort_queue()
+                did_work, pending = self.engine.step()
+                if not did_work:
+                    time.sleep(0.003)
                 elif pending:
                     self._loop.call_soon_threadsafe(self._batch_put, pending)
             except Exception as e:
@@ -663,7 +665,6 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         # For server use
         request_data: Optional[dict] = None,
-        http_request: Optional[any] = None,
     ) -> InferenceRequest:
         """Add a request to the engine.
 
@@ -693,7 +694,6 @@ class AsyncLLMEngine:
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict (for server use).
-            http_request: Optional HTTP request object (for server use).
 
         Returns:
             The created InferenceRequest object.
@@ -709,13 +709,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert (
-                messages is not None
-            ), "Either messages or prompt/prompt_token_ids must be provided"
+            assert messages is not None, (
+                "Either messages or prompt/prompt_token_ids must be provided"
+            )
 
-            assert (
-                apply_chat_template
-            ), "apply_chat_template needs to be true for multi-role conversation"
+            assert apply_chat_template, (
+                "apply_chat_template needs to be true for multi-role conversation"
+            )
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt
@@ -754,8 +754,11 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,
-            http_request=http_request,
         )
+
+        if request_data and "kv_transfer_params" in request_data:
+            kv_params = request_data["kv_transfer_params"]
+            request.kv_transfer_params = kv_params
 
         # Initialize output queue for streaming
         _ = request.output_queue
@@ -769,7 +772,6 @@ class AsyncLLMEngine:
         sampling_params: Optional[SamplingParams] = None,
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
-        http_request: Optional[any] = None,
         add_generation_prompt: bool = True,
         **kwargs,
     ) -> InferenceRequest:
@@ -780,7 +782,6 @@ class AsyncLLMEngine:
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict.
-            http_request: Optional HTTP request object.
 
         Returns:
             The created InferenceRequest object.
@@ -793,7 +794,6 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
-            http_request=http_request,
         )
 
     async def stream_request(
@@ -814,53 +814,54 @@ class AsyncLLMEngine:
         import asyncio
 
         start = time.time()
-        while True:
-            try:
-                if request_timeout and time.time() - start > float(request_timeout):
-                    request.mark_timeout()
-                    yield TokenOutput(
-                        request_id=request.request_id,
-                        token_id=-1,
-                        token_text="",
-                        finished=True,
-                        finish_reason=FinishReason.TIMEOUT,
-                        generated_text=request.generated_text,
+        try:
+            while True:
+                try:
+                    if request_timeout and time.time() - start > float(request_timeout):
+                        logger.warning(
+                            f"Request {request.request_id} exceeded request timeout of {request_timeout} seconds"
+                        )
+                        self.add_aborted_req(request, FinishReason.TIMEOUT)
+
+                    token_output = await asyncio.wait_for(
+                        request.output_queue.async_q.get(), timeout=timeout
+                    )
+
+                    request.output_queue.async_q.task_done()
+
+                    yield token_output
+
+                    if token_output.finished:
+                        break
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"Timeout while waiting for token from request {request.request_id}"
+                    )
+                    if request.is_aborted():
+                        while not request.output_queue.async_q.empty():
+                            try:
+                                token_output = request.output_queue.async_q.get_nowait()
+                                request.output_queue.async_q.task_done()
+                                yield token_output
+                            except asyncio.QueueEmpty:
+                                break
+
+                        yield TokenOutput(
+                            request_id=request.request_id,
+                            token_id=-1,
+                            token_text="",
+                            finished=True,
+                            finish_reason=request.finish_reason,
+                            generated_text=request.generated_text,
+                        )
+                        break
+                    continue
+                except Exception as e:
+                    logger.error(
+                        f"Error while streaming request {request.request_id}: {e}"
                     )
                     break
-
-                token_output = await asyncio.wait_for(
-                    request.output_queue.async_q.get(), timeout=timeout
-                )
-
-                request.output_queue.async_q.task_done()
-
-                yield token_output
-
-                if token_output.finished:
-                    break
-            except asyncio.TimeoutError:
-                logger.warning(
-                    f"Timeout while waiting for token from request {request.request_id}"
-                )
-                if request.is_aborted():
-                    while not request.output_queue.async_q.empty():
-                        try:
-                            token_output = request.output_queue.async_q.get_nowait()
-                            request.output_queue.async_q.task_done()
-                            yield token_output
-                        except asyncio.QueueEmpty:
-                            break
-
-                    yield TokenOutput(
-                        request_id=request.request_id,
-                        token_id=-1,
-                        token_text="",
-                        finished=True,
-                        finish_reason=request.finish_reason,
-                        generated_text=request.generated_text,
-                    )
-                    break
-                continue
-            except Exception as e:
-                logger.error(f"Error while streaming request {request.request_id}: {e}")
-                break
+        finally:
+            # Unified cleanup point: runs whether the loop exits normally,
+            # via exception, or via aclose() (GeneratorExit from Starlette).
+            await request.close()
