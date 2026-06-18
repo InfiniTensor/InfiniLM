@@ -8,6 +8,7 @@ from safetensors import safe_open
 import glob
 from tqdm import tqdm
 import infinicore
+from concurrent.futures import ThreadPoolExecutor
 
 
 def _get_scale_emb(model_path: str) -> float:
@@ -54,12 +55,22 @@ str_to_torch_dtype = {
 }
 
 
+def _is_internal_moe_packed_weight(key: str) -> bool:
+    return key.endswith(".mlp.experts.w13_weight") or key.endswith(
+        ".mlp.experts.w2_weight"
+    )
+
+
 def check_parameters(model_keys: list, already_loaded_keys: list):
     model_keys = set(model_keys)
     already_loaded_keys = set(already_loaded_keys)
     intersection = model_keys & already_loaded_keys
 
-    missing_keys = model_keys - intersection
+    missing_keys = {
+        key
+        for key in model_keys - intersection
+        if not _is_internal_moe_packed_weight(key)
+    }
     unexpected_keys = already_loaded_keys - intersection
     error_msgs: list[str] = []
 
@@ -109,6 +120,166 @@ def load_state_dict(
             state_dict[k] = f.get_tensor(k).to(device=device)
 
     return state_dict
+
+
+def load_filtered_safetensors_by_rank(
+    checkpoint_file: Union[str, os.PathLike],
+    key_sets_by_rank: list[set[str]],
+    keys_by_rank: Optional[list[set[str]]] = None,
+    device="cpu",
+    dtype=torch.bfloat16,
+) -> tuple[list[Dict[str, torch.Tensor]], list[str]]:
+    """
+    Read only tensors needed by at least one rank and bucket them by local rank.
+    """
+
+    if not str(checkpoint_file).endswith(".safetensors"):
+        return [{} for _ in key_sets_by_rank], []
+
+    state_dict_by_rank: list[Dict[str, torch.Tensor]] = [{} for _ in key_sets_by_rank]
+    loaded_keys: list[str] = []
+    should_scan_file_keys = keys_by_rank is None
+    if keys_by_rank is None:
+        keys_by_rank = key_sets_by_rank
+    needed_keys = set().union(*keys_by_rank) if keys_by_rank else set()
+
+    with safe_open(checkpoint_file, framework="pt") as f:
+        metadata = f.metadata()
+        if metadata is not None and metadata.get("format") not in [
+            "pt",
+            "tf",
+            "flax",
+            "mlx",
+        ]:
+            raise OSError(
+                f"The safetensors archive passed at {checkpoint_file} does not contain the valid metadata."
+            )
+
+        candidate_keys = f.keys() if should_scan_file_keys else sorted(needed_keys)
+        for key in candidate_keys:
+            if should_scan_file_keys and key not in needed_keys:
+                continue
+            tensor = f.get_tensor(key).to(device=device)
+            loaded_keys.append(key)
+            for rank, key_set in enumerate(keys_by_rank):
+                if key in key_set:
+                    state_dict_by_rank[rank][key] = tensor
+
+    return state_dict_by_rank, loaded_keys
+
+
+def _weight_load_io_workers(file_count: int) -> int:
+    return min(2, max(1, file_count))
+
+
+def _build_safetensors_load_plan(
+    model_path: str,
+    file_list: list[str],
+    key_sets_by_rank: list[set[str]],
+) -> list[dict]:
+    key_to_ranks: dict[str, list[int]] = {}
+    for rank, key_set in enumerate(key_sets_by_rank):
+        for key in key_set:
+            key_to_ranks.setdefault(key, []).append(rank)
+
+    index_path = os.path.join(model_path, "model.safetensors.index.json")
+    if os.path.exists(index_path):
+        with open(index_path, "r") as f:
+            weight_map = json.load(f).get("weight_map", {})
+
+        keys_by_file: dict[str, list[str]] = {}
+        for key, filename in weight_map.items():
+            if key in key_to_ranks:
+                keys_by_file.setdefault(filename, []).append(key)
+
+        plan = []
+        for file_path in sorted(file_list):
+            filename = os.path.basename(file_path)
+            keys = sorted(keys_by_file.get(filename, []))
+            if not keys:
+                continue
+            keys_by_rank = [set() for _ in key_sets_by_rank]
+            for key in keys:
+                for rank in key_to_ranks[key]:
+                    keys_by_rank[rank].add(key)
+            plan.append(
+                {
+                    "file_path": file_path,
+                    "filename": filename,
+                    "keys_by_rank": keys_by_rank,
+                    "num_keys": len(keys),
+                }
+            )
+        return plan
+
+    plan = []
+    for file_path in sorted(file_list):
+        plan.append(
+            {
+                "file_path": file_path,
+                "filename": os.path.basename(file_path),
+                "keys_by_rank": None,
+                "num_keys": None,
+            }
+        )
+    return plan
+
+
+def _read_safetensors_plan_item(
+    plan_item: dict,
+    key_sets_by_rank: list[set[str]],
+    torch_device: str,
+    torch_dtype,
+) -> dict:
+    model_param_by_rank, loaded_keys = load_filtered_safetensors_by_rank(
+        plan_item["file_path"],
+        key_sets_by_rank,
+        keys_by_rank=plan_item["keys_by_rank"],
+        device=torch_device,
+        dtype=torch_dtype,
+    )
+    return {
+        "plan_item": plan_item,
+        "model_param_by_rank": model_param_by_rank,
+        "loaded_keys": loaded_keys,
+    }
+
+
+def _load_rank_bucketed_state_dict(
+    model,
+    model_param_by_rank: list[Dict[str, torch.Tensor]],
+    scale_emb: float,
+) -> tuple[list[str], Optional[torch.Tensor]]:
+    embed_tokens_torch_unscaled = None
+
+    for model_param in model_param_by_rank:
+        if "model.embed_tokens.weight" in model_param:
+            embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
+            if scale_emb != 1.0:
+                model_param["model.embed_tokens.weight"] = (
+                    embed_tokens_torch_unscaled * float(scale_emb)
+                )
+
+    tensor_cache = {}
+    model_param_infini_by_rank = []
+    for model_param in model_param_by_rank:
+        model_param_infini = {}
+        for key, tensor in model_param.items():
+            if key not in tensor_cache:
+                tensor_cache[key] = infinicore.from_torch(tensor)
+            model_param_infini[key] = tensor_cache[key]
+        model_param_infini_by_rank.append(model_param_infini)
+
+    model.load_state_dict_by_rank(model_param_infini_by_rank, strict=False)
+    infinicore.sync_device()
+
+    loaded_keys = sorted(
+        {key for model_param in model_param_by_rank for key in model_param.keys()}
+    )
+    return (
+        loaded_keys,
+        embed_tokens_torch_unscaled,
+    )
 
 
 def get_model_state_dict(
@@ -178,52 +349,89 @@ def load_model_state_dict_by_file(
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
+    model_key_sets_by_rank = model.state_dict_keynames_by_rank()
     scale_emb = _get_scale_emb(model_path)
 
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
 
-    file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
+    remapper = _WEIGHT_REMAPPER.get(model_type)
+    file_list = sorted(glob.glob(os.path.join(model_path, "*.safetensors")))
     if len(file_list) > 0:
-        for file_path in tqdm(file_list, desc="Processing files"):
-            tqdm.write(f"Processing: {os.path.basename(file_path)}")
+        if remapper is not None:
+            for file_path in tqdm(file_list, desc="Processing files"):
+                tqdm.write(f"Processing: {os.path.basename(file_path)}")
 
-            # --------------------------------------------------------- #
-            #          Load weights from *.safetensors file
-            # --------------------------------------------------------- #
-            model_param = load_state_dict(
-                file_path, device=torch_device, dtype=torch_dtype
-            )
-
-            # Apply model-specific weight remapping
-            remapper = _WEIGHT_REMAPPER.get(model_type)
-            if remapper is not None:
+                model_param = load_state_dict(
+                    file_path, device=torch_device, dtype=torch_dtype
+                )
                 model_param = remapper(model_param, config=model.hf_config)
+                already_loaded_keys.extend(model_param.keys())
 
-            already_loaded_keys.extend(model_param.keys())
+                if "model.embed_tokens.weight" in model_param:
+                    embed_tokens_torch_unscaled = model_param[
+                        "model.embed_tokens.weight"
+                    ]
+                    if scale_emb != 1.0:
+                        model_param["model.embed_tokens.weight"] = (
+                            embed_tokens_torch_unscaled * float(scale_emb)
+                        )
 
-            # --------------------------------------------------------- #
-            #         Scale embed_tokens on torch side before converting
-            # --------------------------------------------------------- #
-            if "model.embed_tokens.weight" in model_param:
-                embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
-                if scale_emb != 1.0:
-                    model_param["model.embed_tokens.weight"] = (
-                        embed_tokens_torch_unscaled * float(scale_emb)
-                    )
+                model_param_infini = {}
+                for key in model_param.keys():
+                    model_param_infini[key] = infinicore.from_torch(model_param[key])
+                model.load_state_dict(model_param_infini, strict=False)
+                infinicore.sync_device()
+        else:
+            load_plan = _build_safetensors_load_plan(
+                model_path, file_list, model_key_sets_by_rank
+            )
+            io_workers = _weight_load_io_workers(len(load_plan))
 
-            # --------------------------------------------------------- #
-            #         model_param_infini references torch.Tensor
-            # --------------------------------------------------------- #
-            model_param_infini = {}
-            for key in model_param.keys():
-                model_param_infini[key] = infinicore.from_torch(model_param[key])
-            model.load_state_dict(model_param_infini, strict=False)
-            infinicore.sync_device()
-            del model_param_infini
-            del model_param
-            gc.collect()
+            def submit(executor, item):
+                return executor.submit(
+                    _read_safetensors_plan_item,
+                    item,
+                    model_key_sets_by_rank,
+                    torch_device,
+                    torch_dtype,
+                )
 
+            with ThreadPoolExecutor(max_workers=io_workers) as executor:
+                pending = []
+                plan_iter = iter(load_plan)
+                for _ in range(io_workers):
+                    item = next(plan_iter, None)
+                    if item is None:
+                        break
+                    pending.append(submit(executor, item))
+
+                progress = tqdm(total=len(load_plan), desc="Processing files")
+                try:
+                    while pending:
+                        future = pending.pop(0)
+                        read_result = future.result()
+
+                        next_item = next(plan_iter, None)
+                        if next_item is not None:
+                            pending.append(submit(executor, next_item))
+
+                        plan_item = read_result["plan_item"]
+                        progress.write(f"Processing: {plan_item['filename']}")
+                        (
+                            loaded_keys,
+                            maybe_embed_unscaled,
+                        ) = _load_rank_bucketed_state_dict(
+                            model,
+                            read_result["model_param_by_rank"],
+                            scale_emb,
+                        )
+                        if maybe_embed_unscaled is not None:
+                            embed_tokens_torch_unscaled = maybe_embed_unscaled
+                        already_loaded_keys.extend(loaded_keys)
+                        progress.update(1)
+                finally:
+                    progress.close()
         if not (
             "lm_head.weight" in model_keys
             and "lm_head.weight" not in already_loaded_keys
@@ -351,9 +559,11 @@ def load_model_state_dict_by_tensor(
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 
+
 # ============================================================================
 # Common weight transformation utilities
 # ============================================================================
+
 
 def drop_keys(
     state_dict: Dict[str, torch.Tensor],
@@ -361,8 +571,7 @@ def drop_keys(
 ) -> Dict[str, torch.Tensor]:
     """Drop keys containing any of the given substrings."""
     return {
-        k: v for k, v in state_dict.items()
-        if not any(sub in k for sub in substrings)
+        k: v for k, v in state_dict.items() if not any(sub in k for sub in substrings)
     }
 
 
@@ -444,6 +653,7 @@ def split_fused_weight(
 
     return result
 
+
 def split_fused_weight_with_sizes(
     state_dict: Dict[str, torch.Tensor],
     fused_key: str,
@@ -483,6 +693,7 @@ def split_fused_weight_with_sizes(
             result[f"{base_key}.{name}.{suffix}"] = split_tensor
 
     return result
+
 
 # ============================================================================
 # Model-specific remap functions
@@ -530,17 +741,21 @@ def _remap_chatglm(state_dict, config=None):
     )
 
     # 4. Rename keys
-    state_dict = rename_keys(state_dict, {
-        "transformer.encoder.layers.": "model.layers.",
-        "transformer.embedding.word_embeddings": "model.embed_tokens",
-        "transformer.encoder.final_layernorm": "model.norm",
-        "transformer.output_layer": "lm_head",
-        "self_attention.": "self_attn.",
-        "self_attn.dense": "self_attn.o_proj",
-        "mlp.dense_4h_to_h": "mlp.down_proj",
-    })
+    state_dict = rename_keys(
+        state_dict,
+        {
+            "transformer.encoder.layers.": "model.layers.",
+            "transformer.embedding.word_embeddings": "model.embed_tokens",
+            "transformer.encoder.final_layernorm": "model.norm",
+            "transformer.output_layer": "lm_head",
+            "self_attention.": "self_attn.",
+            "self_attn.dense": "self_attn.o_proj",
+            "mlp.dense_4h_to_h": "mlp.down_proj",
+        },
+    )
 
     return state_dict
+
 
 def _is_baichuan2(config):
     """
@@ -553,6 +768,7 @@ def _is_baichuan2(config):
       - Baichuan2: vocab_size = 125696
     """
     return config.get("vocab_size") == 125696
+
 
 def _remap_baichuan(state_dict, config=None):
     """Split Baichuan fused W_pack into q_proj, k_proj, v_proj

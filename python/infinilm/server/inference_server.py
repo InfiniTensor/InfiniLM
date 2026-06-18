@@ -25,6 +25,85 @@ DEFAULT_STREAM_TIMEOUT = 100.0
 DEFAULT_REQUEST_TIMEOUT = 1000.0
 
 
+def _normalize_moe_ep_backend(backend: str) -> str:
+    backend = (backend or "auto").strip().lower()
+    aliases = {
+        "": "auto",
+        "none": "disabled",
+        "off": "disabled",
+        "standard": "disabled",
+        "0": "disabled",
+        "naive": "allgather_reducescatter",
+        "ag_rs": "allgather_reducescatter",
+        "all_gather_reduce_scatter": "allgather_reducescatter",
+        "local_all_reduce": "local_allreduce",
+        "tp_ep": "local_allreduce",
+        "vllm_tp": "local_allreduce",
+        "dp1": "local_allreduce",
+        "deep_ep": "deepep",
+    }
+    return aliases.get(backend, backend)
+
+
+def _is_moe_model(model_path: str) -> bool:
+    config_path = os.path.join(model_path, "config.json")
+    if not os.path.exists(config_path):
+        return False
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    model_type = str(config.get("model_type", "")).lower()
+    return "moe" in model_type or "num_experts" in config
+
+
+def configure_moe_ep_backend(
+    tp: int,
+    dp: int,
+    ep: Optional[int],
+    backend: str,
+    model_path: str,
+) -> tuple[str, int]:
+    if tp < 1:
+        raise ValueError("--tp must be greater than 0")
+    if dp < 1:
+        raise ValueError("--dp must be greater than 0")
+    if not _is_moe_model(model_path):
+        return "disabled", 1
+
+    if ep is None:
+        ep = tp
+    if ep < 1:
+        raise ValueError("--ep must be greater than 0")
+
+    backend = _normalize_moe_ep_backend(backend)
+    if backend == "auto":
+        if dp == 1:
+            backend = "disabled" if ep == 1 else "local_allreduce"
+        else:
+            backend = "allgather_reducescatter"
+
+    if backend not in {
+        "disabled",
+        "local_allreduce",
+        "allgather_reducescatter",
+        "deepep",
+    }:
+        raise ValueError(f"Unsupported --moe-ep-backend: {backend}")
+
+    if dp != 1 and backend != "disabled":
+        raise NotImplementedError(
+            "InfiniLM server currently has only a TP communication group. "
+            "True DP>1 MoE EP needs DP rank/group support before selecting "
+            f"{backend}."
+        )
+    if backend != "disabled" and ep != tp:
+        raise NotImplementedError(
+            "InfiniLM MoE EP currently reuses the TP communication group, "
+            f"so EP size must equal TP size. Got EP={ep}, TP={tp}."
+        )
+
+    return backend, ep
+
+
 def chunk_json(
     id_, content=None, role=None, finish_reason=None, model: str = "unknown"
 ):
@@ -97,6 +176,8 @@ class InferenceServer:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        moe_ep_backend: str = "disabled",
+        moe_ep_size: int = 1,
         cache_type: str = "paged",
         max_tokens: int = 4096,
         max_batch_size: int = 16,
@@ -121,6 +202,8 @@ class InferenceServer:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            moe_ep_backend: MoE expert-parallel backend.
+            moe_ep_size: MoE expert-parallel size.
             cache_type: Cache type ('paged' or 'static').
             max_tokens: Default maximum tokens to generate.
             max_batch_size: Maximum batch size for inference (only for paged cache).
@@ -144,6 +227,8 @@ class InferenceServer:
         self.device = device
         self.dtype = dtype
         self.tensor_parallel_size = tensor_parallel_size
+        self.moe_ep_backend = moe_ep_backend
+        self.moe_ep_size = moe_ep_size
         self.cache_type = cache_type
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
@@ -180,6 +265,8 @@ class InferenceServer:
                 device=self.device,
                 dtype=self.dtype,
                 tensor_parallel_size=self.tensor_parallel_size,
+                moe_ep_backend=self.moe_ep_backend,
+                moe_ep_size=self.moe_ep_size,
                 cache_type=self.cache_type,
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
@@ -576,11 +663,24 @@ def main():
     if cfg.kv_transfer_config:
         kv_transfer_config = parse_kv_transfer_config(cfg.kv_transfer_config)
 
+    moe_ep_backend, ep = configure_moe_ep_backend(
+        cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
+    )
+    logger.info(
+        "MoE EP backend: %s  TP=%s  DP=%s  EP=%s",
+        moe_ep_backend,
+        cfg.tp,
+        cfg.dp,
+        ep,
+    )
+
     server = InferenceServer(
         model_path=cfg.model,
         device=device,
         dtype=cfg.dtype,
         tensor_parallel_size=cfg.tp,
+        moe_ep_backend=moe_ep_backend,
+        moe_ep_size=ep,
         cache_type="paged" if cfg.enable_paged_attn else "static",
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,

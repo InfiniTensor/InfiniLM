@@ -85,7 +85,7 @@ public:
     void load_param(const std::string &name,
                     const infinicore::Tensor &param);
 
-    void load_params(const std::unordered_map<std::string, infinicore::Tensor> &params);
+    void load_params(const std::unordered_map<std::string, infinicore::Tensor> &params, bool strict = true);
 
     void process_weights_after_loading();
 
@@ -148,6 +148,7 @@ private:
     std::string pending_param_name_;
     infinicore::Tensor pending_param_;
     std::unordered_map<std::string, infinicore::Tensor> pending_params_;
+    bool pending_params_strict_ = true;
     Input pending_args_;
     std::unique_ptr<cache::CacheConfig> pending_cache_config_;
 

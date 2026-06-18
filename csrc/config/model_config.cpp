@@ -38,6 +38,10 @@ infinicore::DataType ModelConfig::get_dtype() const {
     return parse_dtype(dtype_str);
 }
 
+bool ModelConfig::contains_non_null(const std::string &key) const {
+    return config_json.contains(key) && !config_json.at(key).is_null();
+}
+
 size_t ModelConfig::get_rotary_dim() const {
     size_t head_dim = get_head_dim();
     double partial_rotary_factor = get_or<double>("partial_rotary_factor", 1.0);

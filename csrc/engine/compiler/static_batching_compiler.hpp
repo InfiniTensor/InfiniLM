@@ -25,6 +25,7 @@ private:
     struct CompiledResult {
         InfinilmModel::Input input;
         Compiled compiled;
+        std::shared_ptr<InfinilmModel::Output> replay_output;
     };
 
     std::unordered_map<

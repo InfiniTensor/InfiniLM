@@ -161,6 +161,86 @@ def repeat_prompt(input_ids: list[int], target_length: int):
     return (input_ids * repeat_times)[:target_length]
 
 
+def _normalize_moe_ep_backend(backend: str) -> str:
+    backend = (backend or "auto").strip().lower()
+    aliases = {
+        "": "auto",
+        "none": "disabled",
+        "off": "disabled",
+        "standard": "disabled",
+        "0": "disabled",
+        "naive": "allgather_reducescatter",
+        "ag_rs": "allgather_reducescatter",
+        "all_gather_reduce_scatter": "allgather_reducescatter",
+        "local_all_reduce": "local_allreduce",
+        "tp_ep": "local_allreduce",
+        "vllm_tp": "local_allreduce",
+        "dp1": "local_allreduce",
+        "deep_ep": "deepep",
+    }
+    return aliases.get(backend, backend)
+
+
+def _is_moe_model(model_path: str) -> bool:
+    config_path = os.path.join(model_path, "config.json")
+    if not os.path.exists(config_path):
+        return False
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    model_type = str(config.get("model_type", "")).lower()
+    return "moe" in model_type or "num_experts" in config
+
+
+def configure_moe_ep_backend(
+    tp: int,
+    dp: int,
+    ep: int | None,
+    backend: str,
+    model_path: str,
+) -> tuple[str, int]:
+    if tp < 1:
+        raise ValueError("--tp must be greater than 0")
+    if dp < 1:
+        raise ValueError("--dp must be greater than 0")
+    if not _is_moe_model(model_path):
+        return "disabled", 1
+
+    if ep is None:
+        ep = tp
+    if ep < 1:
+        raise ValueError("--ep must be greater than 0")
+
+    backend = _normalize_moe_ep_backend(backend)
+
+    if backend == "auto":
+        if dp == 1:
+            backend = "disabled" if ep == 1 else "local_allreduce"
+        else:
+            backend = "allgather_reducescatter"
+
+    if backend not in {
+        "disabled",
+        "local_allreduce",
+        "allgather_reducescatter",
+        "deepep",
+    }:
+        raise ValueError(f"Unsupported --moe-ep-backend: {backend}")
+
+    if dp != 1 and backend != "disabled":
+        raise NotImplementedError(
+            "InfiniLM bench currently has only a TP communication group. "
+            "True DP>1 MoE EP needs DP rank/group support before selecting "
+            f"{backend}."
+        )
+    if backend != "disabled" and ep != tp:
+        raise NotImplementedError(
+            "InfiniLM MoE EP currently reuses the TP communication group, "
+            f"so EP size must equal TP size. Got EP={ep}, TP={tp}."
+        )
+
+    return backend, ep
+
+
 class TestModel:
     model: infinicore.nn.Module
     input_ids_list: list[int]
@@ -174,6 +254,8 @@ class TestModel:
         cache_config=None,
         enable_graph=False,
         attn_backend="default",
+        moe_ep_backend="disabled",
+        moe_ep_size=1,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -187,6 +269,8 @@ class TestModel:
             enable_graph_compiling=enable_graph,
             attention_backend=attn_backend,
             kv_cache_dtype=cfg.kv_cache_dtype,
+            moe_ep_backend=moe_ep_backend,
+            moe_ep_size=moe_ep_size,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -277,6 +361,11 @@ if __name__ == "__main__":
     infini_device = infinicore.device(device_str, 0)
 
     tp = cfg.tp
+    dp = cfg.dp
+    moe_ep_backend, ep = configure_moe_ep_backend(
+        tp, dp, cfg.ep, cfg.moe_ep_backend, model_path
+    )
+    print(f"MoE EP backend: {moe_ep_backend}  TP={tp}  DP={dp}  EP={ep}")
 
     skip_load = cfg.skip_load
 
@@ -327,6 +416,8 @@ if __name__ == "__main__":
         cache_config=cache_config,
         enable_graph=enable_graph,
         attn_backend=attn_backend,
+        moe_ep_backend=moe_ep_backend,
+        moe_ep_size=ep,
     )
 
     # ---------------------------------------------------------------------------- #

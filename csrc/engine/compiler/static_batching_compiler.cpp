@@ -29,14 +29,20 @@ void StaticBatchingCompiler::compile() {
         };
 
         barrier_->wait();
+        (void)model_->forward(input);
+        infinicore::context::syncStream();
+        barrier_->wait();
+
+        barrier_->wait();
         infinicore::context::startGraphRecording();
         auto output = model_->forward(input);
         auto graph = infinicore::context::stopGraphRecording();
         barrier_->wait();
 
         auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
+        auto replay_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{shared_output->logits->resume_from_blob_()});
 
-        compiled_map_[std::make_tuple(b, 1)] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
+        compiled_map_[std::make_tuple(b, 1)] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output), replay_output};
     }
 }
 
@@ -56,7 +62,7 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
 
             auto graph = std::get<0>(result->second.compiled);
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            auto shared_output = result->second.replay_output;
             return std::make_tuple(graph, shared_output);
         }
     } else {

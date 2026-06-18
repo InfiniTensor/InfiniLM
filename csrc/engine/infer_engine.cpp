@@ -2,6 +2,7 @@
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
 #include <future>
+#include <unordered_set>
 
 namespace infinilm::engine {
 
@@ -59,12 +60,31 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
     }
 }
 
-void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
+void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params, bool strict) {
     std::vector<std::future<void>> futures;
     futures.reserve(workers_.size());
     for (auto &worker : workers_) {
-        futures.emplace_back(std::async(std::launch::async, [&worker, &params] {
-            worker->load_params(params);
+        futures.emplace_back(std::async(std::launch::async, [&worker, &params, strict] {
+            worker->load_params(params, strict);
+        }));
+    }
+    for (auto &future : futures) {
+        future.get();
+    }
+}
+
+void InferEngine::load_params_by_worker(const std::vector<std::unordered_map<std::string, infinicore::Tensor>> &params_by_worker,
+                                        bool strict) {
+    if (params_by_worker.size() != workers_.size()) {
+        throw std::runtime_error("InferEngine::load_params_by_worker: params_by_worker size must match worker size");
+    }
+
+    std::vector<std::future<void>> futures;
+    futures.reserve(workers_.size());
+    for (size_t worker_idx = 0; worker_idx < workers_.size(); ++worker_idx) {
+        auto &worker = workers_[worker_idx];
+        futures.emplace_back(std::async(std::launch::async, [&worker, &params_by_worker, worker_idx, strict] {
+            worker->load_params(params_by_worker[worker_idx], strict);
         }));
     }
     for (auto &future : futures) {
@@ -103,7 +123,29 @@ std::vector<std::string> InferEngine::state_dict_keys() {
     if (0 == workers_.size()) {
         throw std::runtime_error(" Model object not found. ");
     }
-    return workers_.front()->state_dict_keys();
+    std::vector<std::string> keys;
+    std::unordered_set<std::string> seen;
+    for (auto &worker : workers_) {
+        for (const auto &key : worker->state_dict_keys()) {
+            if (seen.emplace(key).second) {
+                keys.push_back(key);
+            }
+        }
+    }
+    return keys;
+}
+
+std::vector<std::vector<std::string>> InferEngine::state_dict_keys_by_worker() {
+    if (0 == workers_.size()) {
+        throw std::runtime_error(" Model object not found. ");
+    }
+
+    std::vector<std::vector<std::string>> results;
+    results.reserve(workers_.size());
+    for (auto &worker : workers_) {
+        results.push_back(worker->state_dict_keys());
+    }
+    return results;
 }
 
 //------------------------------------------------------

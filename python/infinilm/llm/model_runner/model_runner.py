@@ -74,6 +74,8 @@ class ModelRunner:
             enable_graph_compiling=config.enable_graph,
             attention_backend=config.attn_backend,
             use_mla=config.use_mla,
+            moe_ep_backend=config.moe_ep_backend,
+            moe_ep_size=config.moe_ep_size,
         )
 
         # Load model weights

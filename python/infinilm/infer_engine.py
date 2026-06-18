@@ -68,9 +68,13 @@ class InferEngine(_infinilm.InferEngine):
         attention_backend="default",
         kv_cache_dtype=None,
         use_mla=False,
+        moe_ep_backend="disabled",
+        moe_ep_size=1,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
+        self.hf_config["moe_ep_backend"] = moe_ep_backend
+        self.hf_config["moe_ep_size"] = moe_ep_size
 
         if device is None:
             device = infinicore.device()
@@ -382,9 +386,22 @@ class InferEngine(_infinilm.InferEngine):
     def state_dict_keyname(self):
         return list(super().state_dict_keyname())
 
+    def state_dict_keynames_by_rank(self):
+        return [set(keys) for keys in super().state_dict_keynames_by_rank()]
+
     def load_state_dict(self, state_dict, strict=None):
         super().load_params(
-            {name: param._underlying for name, param in state_dict.items()}
+            {name: param._underlying for name, param in state_dict.items()},
+            strict=True if strict is None else strict,
+        )
+
+    def load_state_dict_by_rank(self, state_dict_by_rank, strict=None):
+        super().load_params_by_worker(
+            [
+                {name: param._underlying for name, param in state_dict.items()}
+                for state_dict in state_dict_by_rank
+            ],
+            strict=True if strict is None else strict,
         )
 
     def process_weights_after_loading(self):

@@ -35,7 +35,11 @@ public:
     void load_param(const std::string &name, const infinicore::Tensor &param);
 
     // Load a batch of parameters to all workers, syncing each worker once after the batch.
-    void load_params(const std::unordered_map<std::string, infinicore::Tensor> &params);
+    void load_params(const std::unordered_map<std::string, infinicore::Tensor> &params, bool strict = true);
+
+    // Load per-worker parameter batches. params_by_worker must match worker order.
+    void load_params_by_worker(const std::vector<std::unordered_map<std::string, infinicore::Tensor>> &params_by_worker,
+                               bool strict = true);
 
     // process the weights after loading on all workers (e.g., for quantization)
     void process_weights_after_loading();
@@ -44,6 +48,8 @@ public:
     std::vector<std::unordered_map<std::string, infinicore::nn::Parameter>> state_dict();
 
     std::vector<std::string> state_dict_keys();
+
+    std::vector<std::vector<std::string>> state_dict_keys_by_worker();
 
     // Run a single forward pass on all workers and return the outputs from all ranks
     Output forward(const Input &input);

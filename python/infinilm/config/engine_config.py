@@ -12,6 +12,8 @@ class EngineConfig:
         device: Device type string ('cpu', 'cuda', 'mlu', etc.).
         dtype: Data type string ('float16', 'bfloat16', 'float32').
         tensor_parallel_size: Number of devices for tensor parallelism.
+        moe_ep_backend: MoE expert-parallel backend.
+        moe_ep_size: MoE expert-parallel size.
         cache_type: Cache type ('paged' or 'static').
         max_batch_size: Maximum batch size for inference (only for paged cache).
         max_tokens: Default maximum tokens to generate.
@@ -31,6 +33,8 @@ class EngineConfig:
     device: str = "cuda"
     dtype: str = "float16"
     tensor_parallel_size: int = 1
+    moe_ep_backend: str = "disabled"
+    moe_ep_size: int = 1
     cache_type: str = "paged"  # "paged" or "static"
     max_batch_size: int = 16
     max_tokens: int = 4096

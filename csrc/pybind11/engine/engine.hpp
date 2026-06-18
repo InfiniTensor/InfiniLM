@@ -89,9 +89,13 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")
         .def("load_params", &InferEngine::load_params,
-             py::arg("params"),
+             py::arg("params"), py::arg("strict") = true,
              "Load a batch of parameter tensors into all workers, syncing once per worker")
+        .def("load_params_by_worker", &InferEngine::load_params_by_worker,
+             py::arg("params_by_worker"), py::arg("strict") = true,
+             "Load per-worker parameter batches, syncing once per worker")
         .def("state_dict_keyname", &InferEngine::state_dict_keys)
+        .def("state_dict_keynames_by_rank", &InferEngine::state_dict_keys_by_worker)
         .def("state_dict", [](InferEngine &self) {
             py::list state_dict_tp_all;
             for (const auto &state_dict_tp : self.state_dict()) {

@@ -28,12 +28,10 @@ Qwen3NextAttention::Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelCo
     int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
     int tp_size = infinilm::global_state::get_tensor_model_parallel_world_size();
 
-    if ((total_num_kv_heads < tp_size) || (0 != (total_num_kv_heads % tp_size))) {
-        throw std::runtime_error("infinilm::models::qwen3::Qwen3NextAttention: num_key_value_heads must be divisible by tp_size");
-    }
-
     num_attention_heads_ = total_num_heads / tp_size;
-    num_key_value_heads_ = total_num_kv_heads / tp_size;
+    num_key_value_heads_ = total_num_kv_heads < static_cast<size_t>(tp_size)
+        ? 1
+        : total_num_kv_heads / tp_size;
 
     auto quantization_method = model_config->get_quantization_method();
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };

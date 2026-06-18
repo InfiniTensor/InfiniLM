@@ -48,6 +48,20 @@ public:
             return default_value;
         }
     }
+
+    bool contains_non_null(const std::string &key) const;
+
+    template <typename T>
+    T get_or_alias(const std::string &key, const std::string &alias, const T &default_value) const {
+        if (!key.empty() && config_json.contains(key) && !config_json.at(key).is_null()) {
+            return config_json.at(key).get<T>();
+        }
+        if (!alias.empty() && config_json.contains(alias) && !config_json.at(alias).is_null()) {
+            return config_json.at(alias).get<T>();
+        }
+        return default_value;
+    }
+
     size_t get_kv_dim() const {
         return get<size_t>("hidden_size") * get<size_t>("num_key_value_heads") / get<size_t>("num_attention_heads");
     }
