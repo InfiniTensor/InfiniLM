@@ -87,10 +87,7 @@ class ModelRunner:
 
         # Initialize KV connector
         self.kv_connector = None
-        if (
-            self.kv_transfer_config is not None
-            and self.kv_transfer_config.kv_connector
-        ):
+        if self.kv_transfer_config is not None and self.kv_transfer_config.kv_connector:
             connector_name = self.kv_transfer_config.kv_connector
             self.kv_connector = KVConnectorFactory.create_connector(
                 connector_name=connector_name,
@@ -170,6 +167,10 @@ class ModelRunner:
         )
 
     def _model_forward(self, scheduler_output):
+        self.processor.prepare_model_forward(
+            scheduler_output, self.model_engine, self.config
+        )
+
         # Build model inputs
         model_input = self.processor.build_model_inputs(
             scheduler_output,

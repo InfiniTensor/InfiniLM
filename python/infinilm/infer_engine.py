@@ -24,6 +24,12 @@ def read_hf_config(model_path):
         and config_dict.get("dtype") is None
     ):
         config_dict["torch_dtype"] = "float32"
+    if config_dict.get("model_type") == "rwkv5":
+        if config_dict.get("torch_dtype") is None and config_dict.get("dtype") is None:
+            config_dict["torch_dtype"] = "bfloat16"
+        config_dict.setdefault(
+            "max_position_embeddings", config_dict.get("context_length", 4096)
+        )
     if "model_type" not in config_dict:
         raise ValueError(
             f"`model_type` is not specified in the config file `{config_path}`."
@@ -239,6 +245,10 @@ class InferEngine(_infinilm.InferEngine):
         if _measure_and_log_time:
             time_measurements = []
 
+        is_rwkv = self.model_type == "rwkv5"
+        if is_rwkv:
+            self.reset_cache(self.get_cache_config())
+
         block_tables = None
         max_blocks_per_batch = 0
         if self.enable_paged_attn:
@@ -263,7 +273,7 @@ class InferEngine(_infinilm.InferEngine):
 
             batch_size, seq_len = input_ids.shape[:2]
 
-            if self.enable_paged_attn:
+            if self.enable_paged_attn and not is_rwkv:
                 input_ids = input_ids.view([1, batch_size * seq_len])
                 position_ids = infinicore.from_list(
                     list(range(past_seq_len, past_seq_len + seq_len)) * batch_size,
