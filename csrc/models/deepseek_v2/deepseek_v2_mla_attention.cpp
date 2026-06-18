@@ -4,13 +4,27 @@
 #include "../../utils.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/cat.hpp"
+#include "infinicore/ops/mha_varlen.hpp"
 #include "infinicore/ops/pad.hpp"
+#include "infinicore/ops/paged_attention.hpp"
+#include "infinicore/ops/paged_attention_prefill.hpp"
+#include "infinicore/ops/paged_caching.hpp"
 
+#include <atomic>
 #include <cmath>
 #include <stdexcept>
+#include <string>
 
 namespace infinilm::models::deepseek_v2 {
 namespace {
+
+std::atomic<int> g_dense_mla_prefill_state{0}; // 0 unknown, 1 available, 2 unavailable
+
+bool is_dense_mla_prefill_unavailable(const std::runtime_error &err) {
+    const std::string msg = err.what();
+    return msg.find("ATen is not enabled") != std::string::npos
+        || msg.find("FlashAttention is not enabled") != std::string::npos;
+}
 
 float yarn_get_mscale(float scale, float mscale) {
     if (scale <= 1.0f) {
@@ -111,9 +125,16 @@ infinicore::Tensor DeepseekV2MLAAttention::project_latent_to_value_(const infini
                                                                     size_t batch_size,
                                                                     size_t seq_len) const {
     const size_t ntokens = batch_size * seq_len;
-    auto latent = attn_output->view({ntokens, num_attention_heads_, mla_head_dim_})
-                      ->narrow({{2, 0, kv_lora_rank_}})
-                      ->contiguous();
+    const auto out_shape = attn_output->shape();
+    const size_t out_head_dim = out_shape.back();
+    infinicore::Tensor latent;
+    if (out_head_dim == kv_lora_rank_) {
+        latent = attn_output->view({ntokens, num_attention_heads_, kv_lora_rank_});
+    } else {
+        latent = attn_output->view({ntokens, num_attention_heads_, mla_head_dim_})
+                     ->narrow({{2, 0, kv_lora_rank_}})
+                     ->contiguous();
+    }
     auto latent_by_head = latent->permute({1, 0, 2})->contiguous();
     auto w_uv = kv_b_weight_3d_()
                     ->narrow({{1, qk_nope_head_dim_, v_head_dim_}})
@@ -190,10 +211,80 @@ infinicore::Tensor DeepseekV2MLAAttention::forward_paged_(const infinicore::Tens
     auto q_latent = project_q_nope_to_latent_(q_nope);
     auto query_states = infinicore::op::cat({q_latent, q_pe}, 2);
     auto key_states = infinicore::op::cat({kv_norm->view({seq_len, 1, kv_lora_rank_}), k_pe_rope}, 2);
-    auto value_states = infinicore::op::pad(kv_norm->view({seq_len, 1, kv_lora_rank_}),
-                                            {0, static_cast<int>(qk_rope_head_dim_)}, "constant", 0.0);
+    auto value_states = kv_norm->view({seq_len, 1, kv_lora_rank_});
 
-    auto attn_output = latent_attn_->forward(query_states, key_states, value_states);
+    auto &forward_context = infinilm::global_state::get_forward_context();
+    auto &attn_metadata = forward_context.attn_metadata;
+    auto &kv_cache = forward_context.kv_cache_vec[layer_idx_];
+
+    auto block_tables = attn_metadata.block_tables;
+    auto slot_mapping = attn_metadata.slot_mapping;
+    auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
+    auto input_offsets = attn_metadata.input_offsets;
+    auto cu_seqlens = attn_metadata.cu_seqlens;
+    ASSERT(block_tables.has_value());
+    ASSERT(slot_mapping.has_value());
+    ASSERT(total_sequence_lengths.has_value());
+
+    auto k_cache_layer = kv_cache->narrow({{3, 0, mla_head_dim_}});
+    auto v_cache_layer = kv_cache->narrow({{3, mla_head_dim_, kv_lora_rank_}});
+    infinicore::op::paged_caching_(k_cache_layer, v_cache_layer, key_states, value_states, slot_mapping.value());
+
+    auto attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, kv_lora_rank_}, query_states->dtype(), query_states->device());
+    const bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
+    if (is_prefill) {
+        ASSERT(input_offsets.has_value());
+        ASSERT(cu_seqlens.has_value());
+        const size_t num_reqs = total_sequence_lengths.value()->shape()[0];
+        const bool dense_equal_length_prefill = (num_reqs > 0) && (seq_len % num_reqs == 0);
+        bool used_dense_prefill = false;
+        if (dense_equal_length_prefill && g_dense_mla_prefill_state.load(std::memory_order_relaxed) != 2) {
+            const int max_seqlen = static_cast<int>(seq_len / num_reqs);
+            try {
+                infinicore::op::mha_varlen_(
+                    attn_output,
+                    query_states,
+                    key_states,
+                    value_states,
+                    input_offsets.value(),
+                    cu_seqlens.value(),
+                    std::nullopt,
+                    max_seqlen,
+                    max_seqlen,
+                    std::nullopt,
+                    softmax_scale_);
+                g_dense_mla_prefill_state.store(1, std::memory_order_relaxed);
+                used_dense_prefill = true;
+            } catch (const std::runtime_error &err) {
+                if (!is_dense_mla_prefill_unavailable(err)) {
+                    throw;
+                }
+                g_dense_mla_prefill_state.store(2, std::memory_order_relaxed);
+            }
+        }
+        if (!used_dense_prefill) {
+            infinicore::op::paged_attention_prefill_(
+                attn_output,
+                query_states,
+                k_cache_layer,
+                v_cache_layer,
+                block_tables.value(),
+                total_sequence_lengths.value(),
+                input_offsets.value(),
+                std::nullopt,
+                softmax_scale_);
+        }
+    } else {
+        infinicore::op::paged_attention_(
+            attn_output,
+            query_states,
+            k_cache_layer,
+            v_cache_layer,
+            block_tables.value(),
+            total_sequence_lengths.value(),
+            std::nullopt,
+            softmax_scale_);
+    }
     return project_latent_to_value_(attn_output, batch_size, seq_len);
 }
 

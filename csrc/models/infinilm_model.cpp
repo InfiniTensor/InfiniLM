@@ -1,6 +1,7 @@
 #include "infinilm_model.hpp"
 #include "../cache/kv_cache.hpp"
 #include "../global_state/global_state.hpp"
+#include "../utils.hpp"
 #include <stdexcept>
 
 namespace infinilm {
@@ -30,12 +31,6 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
     }
     size_t head_dim = text_config->get<size_t>("head_dim");
     size_t num_key_value_heads = text_config->get<size_t>("num_key_value_heads");
-    const bool use_deepseek_mla = infinilm::global_state::get_infinilm_config().use_mla
-                               && text_config->get_or<std::string>("model_type", "") == "deepseek_v2";
-    if (use_deepseek_mla) {
-        head_dim = text_config->get<size_t>("kv_lora_rank") + text_config->get<size_t>("qk_rope_head_dim");
-        num_key_value_heads = 1;
-    }
     size_t max_position_embeddings = text_config->get<size_t>("max_position_embeddings");
     const auto &dtype = model_config_->get_kv_cache_dtype();
     const size_t num_hidden_layers = text_config->get<size_t>("num_hidden_layers");

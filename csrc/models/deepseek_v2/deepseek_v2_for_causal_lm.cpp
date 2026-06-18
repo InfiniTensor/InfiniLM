@@ -1,5 +1,6 @@
 #include "deepseek_v2_for_causal_lm.hpp"
 
+#include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
 #include "infinicore/ops.hpp"
 
@@ -51,6 +52,21 @@ infinilm::InfinilmModel::Output DeepseekV2ForCausalLM::forward(const infinilm::I
     auto hidden_states = model_->forward(input);
     auto logits = lm_head_->forward(hidden_states);
     return {logits};
+}
+
+void DeepseekV2ForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
+    const auto &infinilm_config = infinilm::global_state::get_infinilm_config();
+    if (!infinilm_config.use_mla || cache_config == nullptr) {
+        InfinilmModel::reset_cache(cache_config);
+        return;
+    }
+
+    cache_config_ = cache_config->unique_copy();
+
+    auto &kv_cache_vec = infinilm::global_state::get_forward_context().kv_cache_vec;
+    kv_cache_vec.clear();
+    auto new_kv_cache_vec = deepseek_v2_allocate_kv_cache_tensors(cache_config, model_config_, infinilm_config.attention_backend);
+    kv_cache_vec = std::move(new_kv_cache_vec);
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {

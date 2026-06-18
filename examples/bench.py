@@ -93,6 +93,7 @@ def get_test_cases(
     batch_size_list: list[int],
     input_len_list: list[int],
     output_len_list: list[int],
+    use_mla: bool = False,
 ):
     model_path = os.path.expanduser(model_path)
 
@@ -104,8 +105,13 @@ def get_test_cases(
     head_dim = config.get(
         "head_dim", config.get("hidden_size") // config.get("num_attention_heads")
     )
-    # KV heads and layers drive cache size
-    num_key_value_heads = config.get("num_key_value_heads")
+    # KV heads and layers drive cache size. DeepSeek MLA stores a single KV head
+    # with latent K and V dimensions instead of the regular per-head K/V cache.
+    if use_mla and model_type == "deepseek_v2":
+        num_key_value_heads = 1
+        head_dim = config["kv_lora_rank"] * 2 + config["qk_rope_head_dim"]
+    else:
+        num_key_value_heads = config.get("num_key_value_heads")
     num_hidden_layers = config.get("num_hidden_layers")
 
     # Enumerate all batch/input/output combinations and compute KV cache size
@@ -174,6 +180,7 @@ class TestModel:
         cache_config=None,
         enable_graph=False,
         attn_backend="default",
+        use_mla=False,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -187,6 +194,7 @@ class TestModel:
             enable_graph_compiling=enable_graph,
             attention_backend=attn_backend,
             kv_cache_dtype=cfg.kv_cache_dtype,
+            use_mla=use_mla,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -296,7 +304,9 @@ if __name__ == "__main__":
     if isinstance(output_len, int):
         output_len = [output_len]
 
-    cases_dict = get_test_cases(model_path, batch_size, input_len, output_len)
+    cases_dict = get_test_cases(
+        model_path, batch_size, input_len, output_len, use_mla=cfg.use_mla
+    )
     # -------------------------------------------------------- #
     #             测试
     # -------------------------------------------------------- #
@@ -327,6 +337,7 @@ if __name__ == "__main__":
         cache_config=cache_config,
         enable_graph=enable_graph,
         attn_backend=attn_backend,
+        use_mla=cfg.use_mla,
     )
 
     # ---------------------------------------------------------------------------- #
