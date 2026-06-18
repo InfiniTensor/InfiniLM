@@ -197,6 +197,7 @@ class InferenceServer:
             self.temperature = self.engine.config.temperature
             self.top_p = self.engine.config.top_p
             self.top_k = self.engine.config.top_k
+            self.cache_type = self.engine.config.cache_type
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
             logger.info(f"  enable_graph: {self.enable_graph}")

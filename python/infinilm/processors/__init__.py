@@ -23,6 +23,12 @@ class AutoInfinilmProcessor:
     """Factory class to instantiate the appropriate model processor."""
 
     @classmethod
+    def get_processor_class(cls, model_dir_path: str):
+        config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
+        model_type = config.model_type.lower()
+        return get_processor_class(model_type)
+
+    @classmethod
     def from_pretrained(cls, model_dir_path: str, **kwargs) -> InfinilmProcessor:
         """Instantiate a processor based on the model's configuration.
 
@@ -30,8 +36,5 @@ class AutoInfinilmProcessor:
         registered Processor. Falls back to the registered default processor
         for unregistered or standard architectures.
         """
-        config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
-        model_type = config.model_type.lower()
-
-        processor_cls = get_processor_class(model_type)
+        processor_cls = cls.get_processor_class(model_dir_path)
         return processor_cls(model_dir_path)

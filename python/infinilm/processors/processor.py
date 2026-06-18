@@ -29,6 +29,19 @@ class InfinilmProcessor:
         """Build batched infinilm model inputs from the scheduler output."""
         raise NotImplementedError("build_model_inputs is not implemented yet")
 
+    @classmethod
+    def resolve_cache_type(cls, cache_type: str) -> str:
+        """Return the cache type this processor supports for LLM scheduling."""
+        return cache_type
+
+    def prepare_model_forward(self, scheduler_output, model_engine, engine_config):
+        """Adjust scheduler/model state before a model forward pass."""
+        return None
+
+    def default_stop_strings(self) -> list[str]:
+        """Return model-specific stop strings for chat generation."""
+        return []
+
     def get_tokenizer(self):
         """Return the text tokenizer associated with this processor."""
         raise NotImplementedError("get_tokenizer is not implemented yet")

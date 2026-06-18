@@ -38,6 +38,10 @@ _CONFIG_KEY_MAP = {
         "num_key_value_heads": "num_attention_heads",
         "head_dim": lambda cfg: cfg["hidden_size"] // cfg["num_attention_heads"],
     },
+    "rwkv5": {
+        "num_key_value_heads": "num_attention_heads",
+        "head_dim": "head_size",
+    },
 }
 
 
