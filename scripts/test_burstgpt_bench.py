@@ -408,7 +408,7 @@ def run_benchmark(
         "--backend",
         "openai-chat",
         "--base-url",
-        f"http://{args.client_host}:{args.port}",
+        f"http://{args.client_host}:{args.port}",  # 传给客户端发请求的 port 和 start_server 里一致
         "--endpoint",
         "/v1/chat/completions",
         "--model",
@@ -604,7 +604,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--use-full-dataset", action="store_true")
     parser.add_argument("--max-request-tokens", type=int, default=1024)
     parser.add_argument("--max-response-tokens", type=int, default=256)
-    parser.add_argument("--num-prompts", type=int, default=100)
+    parser.add_argument("--num-prompts", type=int, default=50)
     parser.add_argument("--request-rate", type=parse_rate, default=2.0) # 平均速率默认 2 req/s
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--burstiness", type=float, default=1.0)
@@ -614,7 +614,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-result-files", action="store_true", help="保留 vLLM JSON 结果文件；默认只在临时文件中读取结果，跑完不保留。")
     parser.add_argument("--save-detailed", action=argparse.BooleanOptionalAction, default=False)
 
-    parser.add_argument("--cuda-visible-devices", default=os.environ.get("CUDA_VISIBLE_DEVICES", "11"))
+    parser.add_argument("--cuda-visible-devices", default=os.environ.get("CUDA_VISIBLE_DEVICES", "10"))
     parser.add_argument("--device", default="iluvatar")  # 换成自己的设备类型
     parser.add_argument("--backend", default="cpp", choices=["cpp", "python", "torch", "vllm"])
     parser.add_argument("--server-host", default="127.0.0.1")

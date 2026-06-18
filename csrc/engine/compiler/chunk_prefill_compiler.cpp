@@ -1,15 +1,6 @@
 #include "chunk_prefill_compiler.hpp"
 #include "../../global_state/global_state.hpp"
 #include "infinicore/context/context.hpp"
-
-
-namespace {
-inline void set_zeros(infinicore::Tensor &tensor) {
-    std::vector<uint8_t> zeros(tensor->nbytes(), 0);
-    infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
-}
-} // namespace
-
 namespace infinilm::engine {
 
 ChunkPrefillCompiler::ChunkPrefillCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)

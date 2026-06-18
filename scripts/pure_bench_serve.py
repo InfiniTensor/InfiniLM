@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""纯 Python 版 BurstGPT 在线压测客户端，可无缝替换 `vllm bench serve`(shim)。
+"""纯 Python 版 BurstGPT 在线压测客户端，可无缝替换 `vllm bench serve`。
 
 设计目标：
-  * 接收与 InfiniLM 测试脚本传给 vllm_bench_serve_shim.py 完全相同的命令行参数；
   * 复刻 vLLM benchmark serve 的行为(BurstGPT 采样、gamma/泊松到达、并发上限、
     流式 TTFT/ITL/TPOT 统计);
   * 写出与 vLLM 完全相同字段的结果 JSON(供测试脚本 load_result 读取)。
 
 只依赖标准库 + numpy + pandas + transformers，不需要 aiohttp / vllm。
-用法上把测试脚本的 `--shim-path` 指向本文件即可，其余参数原样透传。
 """
 from __future__ import annotations
 
