@@ -37,9 +37,9 @@ class EngineConfig:
     num_blocks: int = 512
     block_size: int = 256
     max_cache_len: int = 4096
-    temperature: float = 1.0
-    top_p: float = 0.8
-    top_k: int = 1
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
     enable_graph: bool = False
     attn_backend: str = "default"
     use_mla: bool = False
