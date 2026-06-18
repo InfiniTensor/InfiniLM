@@ -1,7 +1,7 @@
 import subprocess
 from pathlib import Path
 
-from setuptools import setup
+from setuptools import find_packages, setup
 from setuptools.command.build import build
 from setuptools.command.develop import develop
 from setuptools.command.egg_info import egg_info
@@ -37,7 +37,7 @@ setup(
     version="0.1.0",
     description="InfiniLM model implementations",
     package_dir={"": "python"},
-    packages=["infinilm", "infinilm.models", "infinilm.lib", "infinilm.distributed"],
+    packages=find_packages(where="python"),
     cmdclass={
         "build": Build,
         "develop": Develop,

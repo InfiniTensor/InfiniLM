@@ -21,6 +21,20 @@ def _get_scale_emb(model_path: str) -> float:
     return config.get("scale_emb", 1.0)
 
 
+def _load_adapted_hf_config(model_path: str) -> Dict:
+    config_path = os.path.join(model_path, "config.json")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"config.json not found at {config_path}")
+
+    with open(config_path, "r") as f:
+        config = json.load(f)
+
+    from infinilm.plugins import adapt_config, load_plugins
+
+    load_plugins()
+    return adapt_config(config)
+
+
 def parse_dtype(dtype_str: str):
     if dtype_str == "float32":
         return infinicore.float32
@@ -135,6 +149,15 @@ def get_model_state_dict(
             load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
         )
 
+    hf_config = _load_adapted_hf_config(model_path)
+    model_type, backend_model_type = _weight_model_types(hf_config)
+    model_param = _apply_model_weight_remapping(
+        model_param,
+        hf_config,
+        model_type,
+        backend_model_type,
+    )
+
     # Apply scale_emb for fm9g models (embed_tokens uses lookup, not GEMM)
     scale_emb = _get_scale_emb(model_path)
     embed_tokens_unscaled = None
@@ -173,7 +196,7 @@ def load_model_state_dict_by_file(
     print(" load weights ......")
     t1 = time.time()
 
-    model_type = model.hf_config.get("model_type", "")
+    model_type, backend_model_type = _weight_model_types(model.hf_config)
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
@@ -195,10 +218,12 @@ def load_model_state_dict_by_file(
                 file_path, device=torch_device, dtype=torch_dtype
             )
 
-            # Apply model-specific weight remapping
-            remapper = _WEIGHT_REMAPPER.get(model_type)
-            if remapper is not None:
-                model_param = remapper(model_param, config=model.hf_config)
+            model_param = _apply_model_weight_remapping(
+                model_param,
+                model.hf_config,
+                model_type,
+                backend_model_type,
+            )
 
             already_loaded_keys.extend(model_param.keys())
 
@@ -238,10 +263,12 @@ def load_model_state_dict_by_file(
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
 
-        # Apply model-specific weight remapping
-        remapper = _WEIGHT_REMAPPER.get(model_type)
-        if remapper is not None:
-            model_params = remapper(model_params, config=model.hf_config)
+        model_params = _apply_model_weight_remapping(
+            model_params,
+            model.hf_config,
+            model_type,
+            backend_model_type,
+        )
 
         # Scale embed_tokens on torch side before converting
         if "model.embed_tokens.weight" in model_params:
@@ -285,6 +312,34 @@ def load_model_state_dict_by_file(
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 
 
+def _weight_model_types(config):
+    original = config.get("_infinilm_original_model_type") or config.get("model_type", "")
+    backend = config.get("_infinilm_backend_model_type") or config.get("model_type", "")
+    return str(original).lower(), str(backend).lower()
+
+
+def _apply_model_weight_remapping(
+    state_dict,
+    config,
+    model_type,
+    backend_model_type,
+):
+    from infinilm.plugins import apply_weight_remapping, get_model_spec, load_plugins
+
+    load_plugins()
+    spec = get_model_spec(model_type)
+    state_dict = apply_weight_remapping(model_type, state_dict, config)
+    if spec is not None and not spec.use_builtin_weight_remapper:
+        return state_dict
+
+    remapper = _WEIGHT_REMAPPER.get(model_type) or _WEIGHT_REMAPPER.get(
+        backend_model_type
+    )
+    if remapper is not None:
+        state_dict = remapper(state_dict, config=config)
+    return state_dict
+
+
 def load_model_state_dict_by_tensor(
     model: infinicore.nn.Module,
     model_path: str,
@@ -297,6 +352,7 @@ def load_model_state_dict_by_tensor(
     print(" load weights ......")
     t1 = time.time()
 
+    model_type, backend_model_type = _weight_model_types(model.hf_config)
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
     scale_emb = _get_scale_emb(model_path)
@@ -308,23 +364,38 @@ def load_model_state_dict_by_tensor(
         for file_path in tqdm(file_list, desc="Processing files"):
             tqdm.write(f"Processing: {os.path.basename(file_path)}")
 
-            with safe_open(file_path, "pt", "cpu") as f:
-                for name in f.keys():
-                    tensor = f.get_tensor(name).to(dtype=torch_dtype)
+            model_param = load_state_dict(file_path, device="cpu", dtype=torch_dtype)
+            model_param = _apply_model_weight_remapping(
+                model_param,
+                model.hf_config,
+                model_type,
+                backend_model_type,
+            )
 
-                    if name == "model.embed_tokens.weight":
-                        embed_tokens_torch_unscaled = tensor
-                        if scale_emb != 1.0:
-                            tensor = tensor * float(scale_emb)
+            for name, tensor in model_param.items():
+                tensor = tensor.to(dtype=torch_dtype)
 
-                    weight_infini = infinicore.from_torch(tensor)
-                    model.load_param(name, weight_infini)
-                    already_loaded_keys.append(name)
-                    infinicore.sync_stream()
+                if name == "model.embed_tokens.weight":
+                    embed_tokens_torch_unscaled = tensor
+                    if scale_emb != 1.0:
+                        tensor = tensor * float(scale_emb)
+
+                weight_infini = infinicore.from_torch(tensor)
+                model.load_param(name, weight_infini)
+                already_loaded_keys.append(name)
+                infinicore.sync_stream()
+
+            del model_param
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+        model_params = _apply_model_weight_remapping(
+            model_params,
+            model.hf_config,
+            model_type,
+            backend_model_type,
+        )
 
         for key in model_params.keys():
             tensor = model_params[key].to(dtype=torch_dtype)
