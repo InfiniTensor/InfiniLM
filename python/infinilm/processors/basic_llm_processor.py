@@ -24,8 +24,6 @@ class BasicLLMProcessor(InfinilmProcessor):
         if return_tensors is None:
             return self.tokenizer(prompt, add_special_tokens=False)
         elif return_tensors == "infini":
-            import infinicore
-
             result = {}
             for key, tensor in self.tokenizer(
                 prompt, return_tensors="pt", add_special_tokens=False
@@ -44,26 +42,49 @@ class BasicLLMProcessor(InfinilmProcessor):
         tokenize: bool = True,
         **kwargs,
     ):
-        normalized_conversation = []
-        for message in conversation:
-            if isinstance(message["content"], list):
-                assert len(message["content"]) == 1, (
-                    "Only one content item supported in list"
-                )
-                content_item = message["content"][0]
-                assert "type" in content_item and "text" in content_item, (
-                    "Content dict must have 'type' and 'text' keys"
-                )
-                normalized_conversation.append(
-                    {"role": message["role"], "content": content_item["text"]}
-                )
-            else:
-                normalized_conversation.append(message)
+        normalized_conversation = self._normalize_conversation(conversation)
+        if self.tokenizer.chat_template is None:
+            prompt = self._messages_to_prompt(normalized_conversation)
+            if not tokenize:
+                return prompt
+            return self.tokenizer(prompt, add_special_tokens=False, **kwargs)[
+                "input_ids"
+            ]
+
         return self.tokenizer.apply_chat_template(
             conversation=normalized_conversation,
             add_generation_prompt=add_generation_prompt,
             tokenize=tokenize,
             **kwargs,
+        )
+
+    @classmethod
+    def _normalize_conversation(cls, conversation):
+        normalized_conversation = []
+        for message in conversation:
+            normalized_conversation.append(
+                {**message, "content": cls._content_to_text(message.get("content", ""))}
+            )
+        return normalized_conversation
+
+    @staticmethod
+    def _content_to_text(content) -> str:
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    parts.append(str(item.get("text", "")))
+                elif isinstance(item, str):
+                    parts.append(item)
+            return "".join(parts)
+        return str(content)
+
+    @staticmethod
+    def _messages_to_prompt(conversation) -> str:
+        return "\n".join(
+            str(message.get("content", ""))
+            for message in conversation
+            if message.get("content", "")
         )
 
     @override

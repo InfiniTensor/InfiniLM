@@ -42,6 +42,10 @@ _CONFIG_KEY_MAP = {
         "num_key_value_heads": "num_attention_heads",
         "head_dim": lambda cfg: cfg["hidden_size"] // cfg["num_attention_heads"],
     },
+    "rwkv5": {
+        "num_key_value_heads": "num_attention_heads",
+        "head_dim": "head_size",
+    },
 }
 
 
@@ -167,13 +171,18 @@ def get_test_cases(
     return case_dict
 
 
-prompt_path = (
-    "examples/bench_prompt.md"
-    if os.path.isfile("examples/bench_prompt.md")
-    else "InfiniLM/examples/bench_prompt.md"
-)
-with open(prompt_path, "r") as f:
-    prompt = f.read()
+def read_bench_prompt():
+    prompt_path = (
+        "examples/bench_prompt.md"
+        if os.path.isfile("examples/bench_prompt.md")
+        else "InfiniLM/examples/bench_prompt.md"
+    )
+    with open(prompt_path, "r") as f:
+        return f.read()
+
+
+def has_prompt_override():
+    return any(arg == "--prompt" or arg.startswith("--prompt=") for arg in sys.argv[1:])
 
 
 def repeat_prompt(input_ids: list[int], target_length: int):
@@ -195,8 +204,10 @@ class TestModel:
         cache_config=None,
         enable_graph=False,
         attn_backend="default",
+        prompt=None,
     ) -> None:
         model_path = os.path.expanduser(model_path)
+        prompt = read_bench_prompt() if prompt is None else prompt
         # ---------------------------------------------------------------------------- #
         #                        创建模型,
         # ---------------------------------------------------------------------------- #
@@ -343,6 +354,8 @@ if __name__ == "__main__":
     if enable_paged_attn and attn_backend == "default":
         attn_backend = "paged-attn"
 
+    prompt = cfg.prompt if has_prompt_override() else read_bench_prompt()
+
     test = TestModel(
         model_path,
         infini_device=infini_device,
@@ -351,6 +364,7 @@ if __name__ == "__main__":
         cache_config=cache_config,
         enable_graph=enable_graph,
         attn_backend=attn_backend,
+        prompt=prompt,
     )
 
     # ---------------------------------------------------------------------------- #
