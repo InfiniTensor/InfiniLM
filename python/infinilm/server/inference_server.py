@@ -103,9 +103,9 @@ class InferenceServer:
         num_blocks: int = 512,
         block_size: int = 256,
         max_cache_len: int = 4096,
-        temperature: float = 1.0,
-        top_p: float = 0.8,
-        top_k: int = 1,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
         host: str = "0.0.0.0",
         port: int = 8000,
         enable_graph: bool = False,
@@ -194,6 +194,9 @@ class InferenceServer:
                 use_mla=self.use_mla,
                 kv_transfer_config=self.kv_transfer_config,
             )
+            self.temperature = self.engine.config.temperature
+            self.top_p = self.engine.config.top_p
+            self.top_k = self.engine.config.top_k
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
             logger.info(f"  enable_graph: {self.enable_graph}")
@@ -337,10 +340,14 @@ class InferenceServer:
         if isinstance(stop, str):
             stop = [stop]
 
+        temperature = pick("temperature", self.temperature)
+        top_p = pick("top_p", self.top_p)
+        top_k = pick("top_k", self.top_k)
+
         return SamplingParams(
-            temperature=float(pick("temperature", self.temperature)),
-            top_p=float(pick("top_p", self.top_p)),
-            top_k=int(pick("top_k", self.top_k)),
+            temperature=float(1.0 if temperature is None else temperature),
+            top_p=float(1.0 if top_p is None else top_p),
+            top_k=int(1 if top_k is None else top_k),
             max_tokens=int(max_tokens) if max_tokens is not None else None,
             stop=stop,
             ignore_eos=self.ignore_eos,

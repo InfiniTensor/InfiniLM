@@ -1,7 +1,11 @@
 import infinicore
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
+from infinilm.infer_engine import (
+    GenerationConfig,
+    InferEngine,
+    read_hf_generation_config,
+)
 from infinilm.base_config import BaseConfig
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 from infinilm.processors import AutoInfinilmProcessor
@@ -86,6 +90,23 @@ def read_json_file(file_path):
     """Load and return JSON content from file_path."""
     with open(file_path, "r") as file:
         return json.load(file)
+
+
+def resolve_generation_defaults(model_path, top_k, top_p, temperature):
+    generation_config = read_hf_generation_config(model_path)
+
+    def resolve(value, name, fallback, cast):
+        if value is None:
+            value = generation_config.get(name)
+        if value is None:
+            value = fallback
+        return cast(value)
+
+    return (
+        resolve(top_k, "top_k", 1, int),
+        resolve(top_p, "top_p", 1.0, float),
+        resolve(temperature, "temperature", 1.0, float),
+    )
 
 
 def get_test_cases(
@@ -286,6 +307,9 @@ if __name__ == "__main__":
     enable_paged_attn = cfg.enable_paged_attn
     enable_graph = cfg.enable_graph
     attn_backend = cfg.attn
+    cfg.top_k, cfg.top_p, cfg.temperature = resolve_generation_defaults(
+        model_path, cfg.top_k, cfg.top_p, cfg.temperature
+    )
 
     if isinstance(batch_size, int):
         batch_size = [batch_size]
