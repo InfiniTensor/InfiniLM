@@ -32,7 +32,7 @@ public:
     infinilm::backends::AttentionBackend attention_backend;
     bool use_mla{false};
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
-    size_t max_num_batched_tokens = 0;
+    size_t max_num_batched_tokens = 8192;
     bool enable_workspace_manager{false};
 };
 

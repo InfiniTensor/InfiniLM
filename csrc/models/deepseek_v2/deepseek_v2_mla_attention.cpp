@@ -78,7 +78,7 @@ DeepseekV2MLAAttention::DeepseekV2MLAAttention(std::shared_ptr<infinilm::config:
 
     latent_attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
         num_attention_heads_, mla_head_dim_, softmax_scale_, 1, layer_idx_,
-        kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
+        kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_, device);
     infinilm::layers::attention::init_kv_cache_quant_params(
         [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
         device, kv_cache_k_scale_, kv_cache_v_scale_);

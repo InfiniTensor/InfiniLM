@@ -88,6 +88,50 @@ infinicore::Tensor AWQMarlin::forward(
     return output->view(out_shape);
 }
 
+void AWQMarlin::forward_(
+    infinicore::Tensor &output,
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float /*alpha*/) const {
+    auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
+    const auto &shape = input_contiguous->shape();
+    const size_t k = shape.back();
+    const size_t m = input_contiguous->numel() / k;
+    auto flat_input = input_contiguous->view({m, k});
+    auto flat_output = output->view({m, output_size_per_partition_});
+
+    auto qweight = params.at("qweight");
+    auto scales = params.at("scales");
+    auto qzeros = params.at("qzeros");
+    auto g_idx = params.at("g_idx");
+    auto perm = params.at("perm");
+    auto global_scales = params.at("global_scales");
+
+    auto workspace = get_workspace(flat_output, flat_input, qweight, scales, global_scales, qzeros, g_idx, perm);
+
+    infinicore::op::gptq_marlin_gemm_with_workspace_(
+        workspace,
+        flat_output,
+        flat_input,
+        qweight,
+        scales,
+        global_scales,
+        qzeros,
+        g_idx,
+        perm,
+        marlin::UINT4_ID,
+        true,
+        false,
+        true,
+        false);
+
+    if (has_bias) {
+        auto bias = params.at("bias");
+        infinicore::op::add_(output, output, bias->as_strided(output->shape(), {0, 1}));
+    }
+}
+
 std::vector<SplitParam> AWQMarlin::split_params(
     const std::unordered_map<std::string, infinicore::nn::Parameter> &,
     const std::vector<SplitInfo> &,
@@ -110,6 +154,15 @@ std::vector<ParamDescriptor> AWQMarlin::get_param_layout(
 void AWQMarlin::reset_runtime_state() const {}
 
 infinicore::Tensor AWQMarlin::forward(
+    const ParamsMap &,
+    const infinicore::Tensor &,
+    bool,
+    float) const {
+    throw std::runtime_error("AWQ Marlin is not available because InfiniCore was built without Marlin GEMM headers.");
+}
+
+void AWQMarlin::forward_(
+    infinicore::Tensor &,
     const ParamsMap &,
     const infinicore::Tensor &,
     bool,

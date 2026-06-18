@@ -75,12 +75,6 @@ class InferEngine(_infinilm.InferEngine):
         if device is None:
             device = infinicore.device()
 
-        max_position_embeddings = self.hf_config["max_position_embeddings"]
-        if max_num_batched_tokens is None:
-            max_num_batched_tokens = max_position_embeddings
-        assert 512 <= max_num_batched_tokens <= max_position_embeddings
-        self.max_num_batched_tokens = max_num_batched_tokens
-
         hf_config_str = json.dumps(self.hf_config)
         super().__init__(
             hf_config_str,
