@@ -31,11 +31,19 @@ public:
 
     Output forward(const Input &input) const override;
 
+    void reset_cache(const cache::CacheConfig *cache_config) override;
+
 private:
     INFINICORE_NN_MODULE(DeepseekV2Model, model);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
 };
 
 std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config);
+
+/** Implemented in `deepseek_v2_allocate_kv_cache_tensors.cpp`. */
+std::vector<infinicore::Tensor> deepseek_v2_allocate_kv_cache_tensors(
+    const cache::CacheConfig *cache_config,
+    const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
+    const backends::AttentionBackend &attention_backend);
 
 } // namespace infinilm::models::deepseek_v2
