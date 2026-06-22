@@ -2,6 +2,7 @@
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
 #include <future>
+#include <stdexcept>
 
 namespace infinilm::engine {
 
@@ -16,8 +17,15 @@ InferEngine::InferEngine(
     bool enable_graph_compiling,
     backends::AttentionBackend attention_backend,
     std::optional<infinicore::DataType> kv_cache_dtype,
-    bool use_mla)
-    : communication_group_(distributed_config, device_type), attention_backend_(attention_backend), use_mla_(use_mla) {
+    bool use_mla,
+    const std::string &weight_load_mode)
+    : communication_group_(distributed_config, device_type),
+      attention_backend_(attention_backend),
+      weight_load_mode_(weight_load_mode),
+      use_mla_(use_mla) {
+    if (weight_load_mode_ != "async" && weight_load_mode_ != "sync") {
+        throw std::invalid_argument("weight_load_mode must be either 'async' or 'sync'");
+    }
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
@@ -60,6 +68,13 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
 }
 
 void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
+    if (workers_.size() <= 1 || weight_load_mode_ == "sync") {
+        for (auto &worker : workers_) {
+            worker->load_params(params);
+        }
+        return;
+    }
+
     std::vector<std::future<void>> futures;
     futures.reserve(workers_.size());
     for (auto &worker : workers_) {

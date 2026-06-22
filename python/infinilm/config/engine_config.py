@@ -24,6 +24,7 @@ class EngineConfig:
         enable_graph: Whether to enable graph compiling.
         attn_backend: Attention backend to use ('default', 'flash-attn').
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
+        weight_load_mode: Weight loading mode across tensor-parallel workers.
         skip_load: Whether to skip loading model weights (for testing).
     """
 
@@ -43,10 +44,14 @@ class EngineConfig:
     enable_graph: bool = False
     attn_backend: str = "default"
     use_mla: bool = False
+    weight_load_mode: str = "async"
     skip_load: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
 
     def __post_init__(self) -> None:
+        if self.weight_load_mode not in {"async", "sync"}:
+            raise ValueError("weight_load_mode must be either 'async' or 'sync'")
+
         if (
             self.kv_transfer_config is not None
             and self.kv_transfer_config.kv_connector
