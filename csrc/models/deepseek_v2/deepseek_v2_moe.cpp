@@ -5,9 +5,27 @@
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
 
+#include "spdlog/spdlog.h"
 #include <stdexcept>
 
 namespace infinilm::models::deepseek_v2 {
+namespace {
+
+bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
+    switch (device_type) {
+    case infinicore::Device::Type::NVIDIA:
+    case infinicore::Device::Type::ALI:
+    case infinicore::Device::Type::HYGON:
+    case infinicore::Device::Type::ILUVATAR:
+    case infinicore::Device::Type::METAX:
+    case infinicore::Device::Type::MOORE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace
 
 DeepseekV2TopKRouter::DeepseekV2TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                            const infinicore::Device &device) {
@@ -93,14 +111,21 @@ infinicore::Tensor DeepseekV2Experts::forward(const infinicore::Tensor &hidden_s
                                               const infinicore::Tensor &top_k_index,
                                               const infinicore::Tensor &top_k_weights) const {
     ASSERT(hidden_states->ndim() == 2);
-    if (hidden_states->device().getType() == infinicore::Device::Type::NVIDIA && (hidden_states->dtype() == infinicore::DataType::BF16 || hidden_states->dtype() == infinicore::DataType::F16)) {
-        auto output = infinicore::op::deepseek_moe(hidden_states, top_k_index, top_k_weights,
-                                                   gate_weights_, up_weights_, down_weights_,
-                                                   local_moe_intermediate_size_, num_experts_);
-        if (tp_size_ > 1 && communicator_ != nullptr) {
-            infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
+    if (supports_fused_deepseek_moe(hidden_states->device().getType())
+        && (hidden_states->dtype() == infinicore::DataType::BF16
+            || hidden_states->dtype() == infinicore::DataType::F16)) {
+        try {
+            auto output = infinicore::op::deepseek_moe(hidden_states, top_k_index, top_k_weights,
+                                                       gate_weights_, up_weights_, down_weights_,
+                                                       local_moe_intermediate_size_, num_experts_);
+            if (tp_size_ > 1 && communicator_ != nullptr) {
+                infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
+            }
+            return output;
+        } catch (const std::exception &e) {
+            spdlog::warn("DeepseekV2Experts: deepseek_moe unavailable on {}, falling back to CPU-routed experts: {}",
+                         static_cast<int>(hidden_states->device().getType()), e.what());
         }
-        return output;
     }
     return forward_cpu_routed_(hidden_states, top_k_index, top_k_weights);
 }
