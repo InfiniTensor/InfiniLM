@@ -66,7 +66,8 @@ inline void bind_infer_engine(py::module &m) {
                           bool enable_graph_compiling,
                           const std::string &attention_backend,
                           std::optional<infinicore::DataType> kv_cache_dtype,
-                          bool use_mla) {
+                          bool use_mla,
+                          const std::string &weight_load_mode) {
                  return std::make_shared<InferEngine>(
                      config_str,
                      dist,
@@ -75,7 +76,8 @@ inline void bind_infer_engine(py::module &m) {
                      enable_graph_compiling,
                      infinilm::backends::parse_attention_backend(attention_backend),
                      kv_cache_dtype,
-                     use_mla);
+                     use_mla,
+                     weight_load_mode);
              }),
              py::arg("config_str") = "",
              py::arg("distributed_config") = distributed::DistConfig(),
@@ -84,7 +86,8 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("enable_graph_compiling") = false,
              py::arg("attention_backend") = "default",
              py::arg("kv_cache_dtype") = py::none(),
-             py::arg("use_mla") = false)
+             py::arg("use_mla") = false,
+             py::arg("weight_load_mode") = "async")
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")

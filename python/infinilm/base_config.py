@@ -66,6 +66,7 @@ class BaseConfig:
         self.max_cache_len = self.args.max_cache_len
         self.kv_cache_dtype = self.args.kv_cache_dtype
         self.skip_load = self.args.skip_load
+        self.weight_load_mode = self.args.weight_load_mode
 
         self.batch_size = self.args.batch_size
         self.max_batch_size = self.args.max_batch_size
@@ -151,6 +152,14 @@ class BaseConfig:
         )
         self.parser.add_argument(
             "--skip-load", action="store_true", help="skip loading model weights"
+        )
+        self.parser.add_argument(
+            "--weight-load",
+            dest="weight_load_mode",
+            type=str,
+            default="async",
+            choices=["async", "sync"],
+            help="weight loading mode across tensor-parallel workers",
         )
 
         # --- Length and infer parameters ---

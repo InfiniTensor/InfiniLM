@@ -302,6 +302,7 @@ class LLM:
         enable_graph: bool = False,
         attn_backend: str = "default",
         use_mla: bool = False,
+        weight_load_mode: str = "async",
         skip_load: bool = False,
     ):
         """Initialize LLM.
@@ -323,6 +324,7 @@ class LLM:
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
+            weight_load_mode: Weight loading mode across tensor-parallel workers.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -341,6 +343,7 @@ class LLM:
             enable_graph=enable_graph,
             attn_backend=attn_backend,
             use_mla=use_mla,
+            weight_load_mode=weight_load_mode,
             skip_load=skip_load,
         )
         self.engine = LLMEngine(config)
@@ -497,6 +500,7 @@ class AsyncLLMEngine:
         attn_backend: str = "default",
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
+        weight_load_mode: str = "async",
     ):
         """Initialize AsyncLLMEngine.
 
@@ -520,6 +524,7 @@ class AsyncLLMEngine:
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
             kv_connector_extra_config: Extra config dict for KV connector.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
+            weight_load_mode: Weight loading mode across tensor-parallel workers.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -539,6 +544,7 @@ class AsyncLLMEngine:
             attn_backend=attn_backend,
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,
+            weight_load_mode=weight_load_mode,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -715,13 +721,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert messages is not None, (
-                "Either messages or prompt/prompt_token_ids must be provided"
-            )
+            assert (
+                messages is not None
+            ), "Either messages or prompt/prompt_token_ids must be provided"
 
-            assert apply_chat_template, (
-                "apply_chat_template needs to be true for multi-role conversation"
-            )
+            assert (
+                apply_chat_template
+            ), "apply_chat_template needs to be true for multi-role conversation"
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt

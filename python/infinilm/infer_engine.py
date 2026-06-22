@@ -68,6 +68,7 @@ class InferEngine(_infinilm.InferEngine):
         attention_backend="default",
         kv_cache_dtype=None,
         use_mla=False,
+        weight_load_mode="async",
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
@@ -89,6 +90,7 @@ class InferEngine(_infinilm.InferEngine):
                 else None
             ),
             use_mla,
+            weight_load_mode,
         )
         self.use_cache = False
 

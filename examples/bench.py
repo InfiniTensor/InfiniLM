@@ -181,6 +181,7 @@ class TestModel:
         enable_graph=False,
         attn_backend="default",
         use_mla=False,
+        weight_load_mode="async",
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -195,6 +196,7 @@ class TestModel:
             attention_backend=attn_backend,
             kv_cache_dtype=cfg.kv_cache_dtype,
             use_mla=use_mla,
+            weight_load_mode=weight_load_mode,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -338,6 +340,7 @@ if __name__ == "__main__":
         enable_graph=enable_graph,
         attn_backend=attn_backend,
         use_mla=cfg.use_mla,
+        weight_load_mode=cfg.weight_load_mode,
     )
 
     # ---------------------------------------------------------------------------- #

@@ -19,6 +19,7 @@ def test(
     use_mla=False,
     image_path=None,
     skip_load=False,
+    weight_load_mode="async",
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -41,6 +42,7 @@ def test(
         attn_backend=attn_backend,
         use_mla=use_mla,
         skip_load=skip_load,
+        weight_load_mode=weight_load_mode,
     )
 
     conversations = [
@@ -106,4 +108,5 @@ if __name__ == "__main__":
         use_mla=cfg.use_mla,
         image_path=cfg.image,
         skip_load=cfg.skip_load,
+        weight_load_mode=cfg.weight_load_mode,
     )
