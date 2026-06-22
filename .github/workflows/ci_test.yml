@@ -3,8 +3,8 @@ name: CI
 on:
   pull_request:
     branches: ["main"]
-    types: [opened, reopened]   # 只在 PR 创建/重新打开时自动跑
-  workflow_dispatch:            # 支持在 Actions 页手动重跑
+    types: [opened, reopened, ready_for_review]
+  workflow_dispatch:
     inputs:
       infinicore_branch:
         description: "InfiniCore Branch Name"

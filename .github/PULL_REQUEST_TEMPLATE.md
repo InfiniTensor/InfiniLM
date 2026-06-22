@@ -77,6 +77,13 @@ Anything reviewers should focus on: subtle invariants, known trade-offs,
 follow-up work intentionally left out of scope, etc.
 -->
 
+## CI / ChatOps
+
+<!--
+the repository pull requests run CI automatically on open, reopen and ready_for_review.
+Maintainers can comment `/retest` to rerun CI for the current commit.
+-->
+
 ---
 
 ## Checklist
@@ -140,6 +147,7 @@ follow-up work intentionally left out of scope, etc.
 ### Build, CI, and Tooling
 
 - [ ] The project builds cleanly from a fresh directory on at least one affected platform.
+- [ ] CI has been triggered automatically, or `/retest` was requested if a rerun is needed.
 
 ### Documentation
 
