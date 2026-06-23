@@ -1,5 +1,8 @@
 import argparse
+import importlib
 import json
+import os
+import shutil
 import warnings
 
 
@@ -113,7 +116,16 @@ class BaseConfig:
     def _add_common_args(self):
         # --- base configuration ---
         self.parser.add_argument("--model", type=str, required=True)
-        self.parser.add_argument("--device", type=str, default="cpu")
+        self.parser.add_argument(
+            "--device",
+            type=str,
+            default="auto",
+            help=(
+                "device platform: auto, cpu, nvidia, qy, metax, moore, iluvatar, "
+                "ali, cambricon, ascend, kunlun, hygon, or backend name "
+                "(cuda/mlu/musa/npu)"
+            ),
+        )
         self.parser.add_argument("--tp", "--tensor-parallel-size", type=int, default=1)
 
         # --- Infer backend optimization ---
@@ -298,10 +310,81 @@ class BaseConfig:
             ),
         )
 
+    def _torch_device_available(self, device_type):
+        module_name = {
+            "cuda": None,
+            "mlu": "torch_mlu",
+            "musa": "torch_musa",
+            "npu": "torch_npu",
+        }.get(device_type)
+
+        try:
+            if module_name is not None:
+                importlib.import_module(module_name)
+            torch = importlib.import_module("torch")
+        except Exception:
+            return False
+
+        device_module = getattr(torch, device_type, None)
+        if device_module is None:
+            return False
+
+        is_available = getattr(device_module, "is_available", None)
+        if not callable(is_available):
+            return False
+
+        try:
+            return bool(is_available())
+        except Exception:
+            return False
+
+    def detect_device(self):
+        """Detect the local accelerator platform, falling back to CPU."""
+        torch_checks = [
+            ("cambricon", "mlu"),
+            ("ascend", "npu"),
+            ("moore", "musa"),
+        ]
+        for device_name, device_type in torch_checks:
+            if self._torch_device_available(device_type):
+                return device_name
+
+        env_checks = [
+            ("metax", ["MACA_PATH", "MACA_HOME", "MACA_ROOT"]),
+            ("hygon", ["DTK_HOME", "DTK_PATH"]),
+            ("ali", ["PPU_VISIBLE_DEVICES"]),
+        ]
+        for device_name, env_names in env_checks:
+            if any(os.getenv(env_name) for env_name in env_names):
+                return device_name
+
+        command_checks = [
+            ("cambricon", ["cnmon"]),
+            ("ascend", ["npu-smi"]),
+            ("moore", ["mthreads-gmi"]),
+            ("metax", ["mx-smi", "ht-smi"]),
+            ("hygon", ["hy-smi"]),
+            ("ali", ["ppu-smi"]),
+            ("iluvatar", ["ixsmi"]),
+            ("nvidia", ["nvidia-smi"]),
+        ]
+        for device_name, commands in command_checks:
+            if any(shutil.which(command) for command in commands):
+                return device_name
+
+        if self._torch_device_available("cuda"):
+            return "nvidia"
+
+        return "cpu"
+
     def get_device_str(self, device):
         """Convert device name to backend string (cuda/cpu/musa/mlu)"""
         DEVICE_STR_MAP = {
             "cpu": "cpu",
+            "cuda": "cuda",
+            "mlu": "mlu",
+            "musa": "musa",
+            "npu": "npu",
             "nvidia": "cuda",
             "qy": "cuda",
             "cambricon": "mlu",
@@ -313,7 +396,11 @@ class BaseConfig:
             "hygon": "cuda",
             "ali": "cuda",
         }
-        return DEVICE_STR_MAP.get(device.lower(), "cpu")
+        device = device.lower()
+        if device == "auto":
+            device = self.detect_device()
+            print(f"Auto-detected device platform: {device}")
+        return DEVICE_STR_MAP.get(device, "cpu")
 
     def __repr__(self):
         """String representation of configuration"""
