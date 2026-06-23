@@ -72,6 +72,7 @@ class InferEngine(_infinilm.InferEngine):
         if device is None:
             device = infinicore.device()
         self._infini_device = device
+        self._tp_size = max(1, len(distributed_config.tp_device_ids))
 
         hf_config_str = json.dumps(self.hf_config)
         super().__init__(
@@ -517,8 +518,16 @@ class InferEngine(_infinilm.InferEngine):
 
         return output_ids
 
+    def _skip_main_thread_device_sync(self) -> bool:
+        """TP workers sync per-rank after compile; main-thread sync hits lazy GPU0 only."""
+        return (
+            getattr(self, "_prefill_native_cg_enabled", False)
+            and getattr(self, "_tp_size", 1) > 1
+        )
+
     def reset_cache(self, cache_config):
-        infinicore.sync_device()
+        if not self._skip_main_thread_device_sync():
+            infinicore.sync_device()
         self._paged_kv_layers_cache = None
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
         paged_block_size = (

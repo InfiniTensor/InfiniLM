@@ -1,8 +1,26 @@
 #include "general_compiler.hpp"
 
 #include "../compiled_prefill_flags.hpp"
+#include "../../global_state/global_state.hpp"
+#include "../../utils.hpp"
+#include "../../utils/agent_debug.hpp"
+#include "infinicore/context/context.hpp"
 
 namespace infinilm::engine {
+
+namespace {
+
+void zero_kv_caches_after_compile_() {
+    auto &kv_cache_vec = infinilm::global_state::get_forward_context().kv_cache_vec;
+    for (auto &kv : kv_cache_vec) {
+        if (kv) {
+            set_zeros(kv);
+        }
+    }
+    infinicore::context::syncStream();
+}
+
+} // namespace
 GeneralCompiler::GeneralCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier) : GraphCompiler(model, barrier) {
     static_batching_compiler_ = std::make_unique<StaticBatchingCompiler>(model_, barrier);
     paged_compiler_ = std::make_unique<PagedCompiler>(model_, barrier);
@@ -12,11 +30,45 @@ GeneralCompiler::GeneralCompiler(const std::shared_ptr<InfinilmModel> &model, Ra
 }
 
 void GeneralCompiler::compile() {
+    // #region agent log
+    {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "general_compiler.cpp:compile",
+            "compile_begin",
+            "H2",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + "}",
+            "g3b-debug");
+    }
+    // #endregion
     static_batching_compiler_->compile();
     paged_compiler_->compile();
     if (piecewise_prefill_compiler_ != nullptr) {
         piecewise_prefill_compiler_->compile();
     }
+    // #region agent log
+    {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "general_compiler.cpp:compile",
+            "piecewise_done_pre_zero_kv",
+            "H2",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + "}",
+            "g3b-debug");
+    }
+    // #endregion
+    zero_kv_caches_after_compile_();
+    // #region agent log
+    {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "general_compiler.cpp:compile",
+            "compile_complete",
+            "H2",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + "}",
+            "g3b-debug");
+    }
+    // #endregion
 }
 
 GeneralCompiler::Compiled GeneralCompiler::get_compiled(const InfinilmModel::Input &input) {

@@ -1,6 +1,9 @@
 #include "flash_attn.hpp"
 
+#include "../../../global_state/global_state.hpp"
 #include "../../../utils.hpp"
+#include "../../../utils/agent_debug.hpp"
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/mha_kvcache.hpp"
 #include "infinicore/ops/mha_varlen.hpp"
@@ -40,6 +43,20 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
 
     ASSERT(block_tables.has_value());
     ASSERT(slot_mapping.has_value());
+
+    // #region agent log
+    if (layer_idx_ == 0) {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "flash_attn.cpp:forward",
+            "fa_paged_caching_inputs",
+            "U1",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
+                ",\"key_len\":" + std::to_string(key->shape()[0]) +
+                ",\"slot_len\":" + std::to_string(slot_mapping.value()->shape()[0]) + "}",
+            "post-fix");
+    }
+    // #endregion
 
     // 1. update paged kv cache
     auto [k_total, v_total] = do_kv_cache_update(layer, key, value, kv_cache, slot_mapping.value());

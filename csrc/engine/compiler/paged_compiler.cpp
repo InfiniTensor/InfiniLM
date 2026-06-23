@@ -6,18 +6,13 @@
 namespace infinilm::engine {
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {
-    for (size_t b = 1; b < 64; ++b) {
+    // Reduced ladder for debug/smoke (was 76 sizes up to 512). Decode graphs are not
+    // replayed under TP>1 (see get_compiled); smaller ladder saves compile VRAM on TP=1.
+    for (size_t b = 1; b <= 16; ++b) {
         decode_batch_sizes_.push_back(b);
     }
-    for (size_t b = 64; b < 128; b += 16) {
-        decode_batch_sizes_.push_back(b);
-    }
-    for (size_t b = 128; b < 256; b += 32) {
-        decode_batch_sizes_.push_back(b);
-    }
-    for (size_t b = 256; b <= 512; b += 64) {
-        decode_batch_sizes_.push_back(b);
-    }
+    decode_batch_sizes_.push_back(32);
+    decode_batch_sizes_.push_back(64);
 }
 
 void PagedCompiler::compile() {
@@ -28,6 +23,12 @@ void PagedCompiler::compile() {
         block_tables_holder_ = infinicore::Tensor::empty(
             {nblocks * max_batch_size}, infinicore::DataType::I32, infinicore::context::getDevice());
         set_zeros(block_tables_holder_);
+        const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+        if (rank_info.tp_size > 1) {
+            spdlog::info(
+                "paged decode CG: skip capture (tp_size={} > 1; decode graphs are eager-only under TP)",
+                rank_info.tp_size);
+        } else {
         for (size_t b : decode_batch_sizes_) {
             InfinilmModel::Input input;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
@@ -63,6 +64,7 @@ void PagedCompiler::compile() {
 
             barrier_->wait();
             compiled_map_decode_[b] = capture_forward_graph_(std::move(input));
+        }
         }
 
         // Prefill graphs: one capture per bucket (MVP: 4096 full prefill, batch_size == 1).
@@ -237,6 +239,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
             return std::make_tuple(graph, shared_output);
         } else {
+            const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+            if (rank_info.tp_size > 1) {
+                // Decode CUDAGraph replay is not yet correct under tensor parallel;
+                // fall back to eager decode (prefill piecewise graphs unaffected).
+                return miss();
+            }
             auto result = compiled_map_decode_.find(batch_size);
             if (result == compiled_map_decode_.end()) {
                 return miss();

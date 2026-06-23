@@ -21,6 +21,21 @@ def _get_scale_emb(model_path: str) -> float:
     return config.get("scale_emb", 1.0)
 
 
+def _skip_main_thread_device_sync(model) -> bool:
+    """Skip lazy-runtime sync on main thread when TP rank workers own device context."""
+    tp_size = getattr(model, "_tp_size", 1)
+    if getattr(model, "_prefill_native_cg_enabled", False) and tp_size > 1:
+        return True
+    try:
+        from infinilm.compile.env import prefill_native_cg_enabled
+
+        if prefill_native_cg_enabled() and tp_size > 1:
+            return True
+    except ImportError:
+        pass
+    return False
+
+
 def parse_dtype(dtype_str: str):
     if dtype_str == "float32":
         return infinicore.float32
@@ -219,7 +234,8 @@ def load_model_state_dict_by_file(
             for key in model_param.keys():
                 model_param_infini[key] = infinicore.from_torch(model_param[key])
             model.load_state_dict(model_param_infini, strict=False)
-            infinicore.sync_device()
+            if not _skip_main_thread_device_sync(model):
+                infinicore.sync_device()
             gc.collect()  # Help reduce peak host memory and fragmentation across shards.
         model.process_weights_after_loading()
 
@@ -250,7 +266,8 @@ def load_model_state_dict_by_file(
             already_loaded_keys.append(key)
 
         model.load_state_dict(model_param_infini, strict=True)
-        infinicore.sync_device()
+        if not _skip_main_thread_device_sync(model):
+            infinicore.sync_device()
     else:
         raise KeyError("Weight file not found.")
 

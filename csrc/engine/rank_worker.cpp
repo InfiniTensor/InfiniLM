@@ -808,9 +808,27 @@ void RankWorker::thread_loop() {
                 }
             } else if (local_cmd == Command::COMPILE) {
                 try {
+                    // #region agent log
+                    infinilm::agent_debug::log(
+                        "rank_worker.cpp:COMPILE",
+                        "compile_job_begin",
+                        "H3",
+                        std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) + "}",
+                        "g3b-debug");
+                    // #endregion
                     if (compiler_ != nullptr) {
                         compiler_->compile();
                     }
+                    infinicore::context::syncDevice();
+                    infinicore::context::flushDeferredPinnedHostFrees();
+                    // #region agent log
+                    infinilm::agent_debug::log(
+                        "rank_worker.cpp:COMPILE",
+                        "compile_job_done",
+                        "H3",
+                        std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) + "}",
+                        "g3b-debug");
+                    // #endregion
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
                         job_done_ = true;
@@ -818,6 +836,15 @@ void RankWorker::thread_loop() {
                     cv_.notify_all();
 
                 } catch (const std::exception &e) {
+                    // #region agent log
+                    infinilm::agent_debug::log(
+                        "rank_worker.cpp:COMPILE",
+                        "compile_job_exception",
+                        "H3",
+                        std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) +
+                            ",\"what\":\"" + std::string(e.what()) + "\"}",
+                        "g3b-debug");
+                    // #endregion
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
                         should_exit_ = true;
