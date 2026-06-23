@@ -113,6 +113,30 @@ class BaseConfig:
         if self.enable_paged_attn and self.attn == "default":
             self.attn = "paged-attn"
 
+        # Force sync weight loading for Metax devices
+        self._force_sync_for_metax()
+
+    def _force_sync_for_metax(self):
+        """Force weight_load_mode to 'sync' for Metax devices."""
+        # Check if device is explicitly set to Metax
+        if self.device.lower() == "metax":
+            self.weight_load_mode = "sync"
+            warnings.warn(
+                "Metax device detected: forcing weight_load_mode to 'sync'",
+                UserWarning,
+            )
+            return
+
+        # Check if auto-detected device is Metax
+        if self.device.lower() == "auto":
+            detected_device = self.detect_device()
+            if detected_device.lower() == "metax":
+                self.weight_load_mode = "sync"
+                warnings.warn(
+                    "Auto-detected Metax device: forcing weight_load_mode to 'sync'",
+                    UserWarning,
+                )
+
     def _add_common_args(self):
         # --- base configuration ---
         self.parser.add_argument("--model", type=str, required=True)
