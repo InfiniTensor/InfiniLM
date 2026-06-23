@@ -106,7 +106,7 @@ class BaseConfig:
         self.image = self.args.image
 
         if self.enable_paged_attn and self.attn == "default":
-            self.attn = "paged-attn"
+            self.attn = "flash-attn"
 
     def _add_common_args(self):
         # --- base configuration ---

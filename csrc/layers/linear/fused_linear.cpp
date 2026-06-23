@@ -1,5 +1,6 @@
 #include "fused_linear.hpp"
 
+#include "../../utils/agent_debug.hpp"
 #include <spdlog/spdlog.h>
 
 namespace infinilm::layers::linear {
@@ -98,10 +99,52 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
 }
 
 void QKVParallelLinear::process_weights_after_loading() {
-    BaseLinear::process_weights_after_loading();
+    // #region agent log
+    static thread_local bool qkv_pw_logged = false;
+    // #endregion
+    infinilm::quantization::ParamsMap params;
+    for (const auto &[name, param] : parameters_) {
+        params[name] = static_cast<const infinicore::Tensor &>(param);
+    }
+
+    auto new_quant = quantization_->process_weights_after_loading(params, device_);
+    // #region agent log
+    if (!qkv_pw_logged) {
+        infinilm::agent_debug::log(
+            "fused_linear.cpp:QKVParallelLinear::process_weights_after_loading",
+            "qkv_process_weights",
+            "F",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank_) +
+                ",\"tp_size\":" + std::to_string(tp_size_) +
+                ",\"repacked\":" + (new_quant ? "true" : "false") + "}",
+            "post-fix");
+        qkv_pw_logged = true;
+    }
+    // #endregion
+    if (!new_quant) {
+        // Fused q/k/v were registered at construction and loaded directly from
+        // checkpoint; re-splitting from the unused fused `weight` buffer would
+        // clobber TP-sharded q_proj/k_proj/v_proj (tp>4 paged eager regression).
+        return;
+    }
+
+    for (auto &[name, param] : parameters_) {
+        param = infinicore::nn::Parameter();
+    }
+
+    for (const auto &[name, tensor] : params) {
+        auto it = parameters_.find(name);
+        if (it == parameters_.end()) {
+            continue;
+        }
+        it->second = infinicore::nn::Parameter(tensor);
+    }
+
+    quantization_ = std::move(new_quant);
+
     if (register_fn_ && !split_infos_.empty()) {
-        auto params = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
-        for (auto &sp : params) {
+        auto split = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
+        for (auto &sp : split) {
             register_fn_(sp.full_name, std::move(sp.param));
         }
     }
@@ -162,10 +205,33 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
 }
 
 void GateUpParallelLinear::process_weights_after_loading() {
-    BaseLinear::process_weights_after_loading();
+    infinilm::quantization::ParamsMap params;
+    for (const auto &[name, param] : parameters_) {
+        params[name] = static_cast<const infinicore::Tensor &>(param);
+    }
+
+    auto new_quant = quantization_->process_weights_after_loading(params, device_);
+    if (!new_quant) {
+        return;
+    }
+
+    for (auto &[name, param] : parameters_) {
+        param = infinicore::nn::Parameter();
+    }
+
+    for (const auto &[name, tensor] : params) {
+        auto it = parameters_.find(name);
+        if (it == parameters_.end()) {
+            continue;
+        }
+        it->second = infinicore::nn::Parameter(tensor);
+    }
+
+    quantization_ = std::move(new_quant);
+
     if (register_fn_ && !split_infos_.empty()) {
-        auto params = this->split_params(split_infos_, tp_rank_, tp_size_, -1);
-        for (auto &sp : params) {
+        auto split = this->split_params(split_infos_, tp_rank_, tp_size_, -1);
+        for (auto &sp : split) {
             register_fn_(sp.full_name, std::move(sp.param));
         }
     }

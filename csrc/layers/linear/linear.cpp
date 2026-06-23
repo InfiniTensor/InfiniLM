@@ -1,6 +1,7 @@
 #include "linear.hpp"
 #include "../../global_state/ar_profile.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../utils/agent_debug.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
 #include <optional>
@@ -92,6 +93,22 @@ infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
 
     if (needs_allreduce()) {
         auto &ctx = infinilm::global_state::get_forward_context();
+        // #region agent log
+        static thread_local int ar_log_count = 0;
+        if (ar_log_count < 6) {
+            infinilm::agent_debug::log(
+                "linear.cpp:RowParallelLinear::forward",
+                "row_parallel_ar_decision",
+                "A",
+                std::string("{\"tp_rank\":") + std::to_string(tp_rank_) +
+                    ",\"tp_size\":" + std::to_string(tp_size_) +
+                    ",\"defer\":" + (ctx.defer_row_parallel_allreduce ? "true" : "false") +
+                    ",\"comm_null\":" + (communicator_ == nullptr ? "true" : "false") +
+                    ",\"in_features\":" + std::to_string(in_features_) +
+                    ",\"out_features\":" + std::to_string(out_features_) + "}");
+            ++ar_log_count;
+        }
+        // #endregion
         if (ctx.defer_row_parallel_allreduce) {
             if (infinilm::global_state::ar_profile::enabled() && !output->is_contiguous()) {
                 spdlog::warn(

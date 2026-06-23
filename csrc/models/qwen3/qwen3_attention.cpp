@@ -1,6 +1,8 @@
 #include "qwen3_attention.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "../../utils/agent_debug.hpp"
+#include "infinicore/context/context.hpp"
 
 namespace infinilm::models::qwen3 {
 
@@ -68,6 +70,22 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
 
     ASSERT_EQ(batch_size, 1);
 
+    // #region agent log
+    if (layer_idx_ == 0) {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "qwen3_attention.cpp:forward_paged_",
+            "qwen3_paged_attn_entry",
+            "C",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
+                ",\"seq_len\":" + std::to_string(seq_len) +
+                ",\"num_attn_heads\":" + std::to_string(num_attention_heads_) +
+                ",\"num_kv_heads\":" + std::to_string(num_key_value_heads_) +
+                ",\"pos_rank\":" + std::to_string(position_ids->shape().size()) +
+                ",\"pos_dim0\":" + std::to_string(position_ids->size(0)) + "}");
+    }
+    // #endregion
+
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
@@ -80,18 +98,105 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     infinicore::Tensor pos_ids_for_rope = position_ids;
     if (pos_shape.size() == 2) {
         auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
-        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
+        pos_ids_for_rope = pos_narrowed->contiguous()->view({pos_shape[1]});
     } else if (pos_shape.size() == 1) {
-        pos_ids_for_rope = position_ids;
+        pos_ids_for_rope = position_ids->contiguous();
     } else {
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
-    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
-    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+    if (!q_reshaped->is_contiguous()) {
+        q_reshaped = q_reshaped->contiguous();
+    }
+    if (!k_reshaped->is_contiguous()) {
+        k_reshaped = k_reshaped->contiguous();
+    }
+    if (!v_reshaped->is_contiguous()) {
+        v_reshaped = v_reshaped->contiguous();
+    }
+
+    // #region agent log
+    if (layer_idx_ == 0) {
+        infinilm::agent_debug::log(
+            "qwen3_attention.cpp:forward_paged_",
+            "rope_inputs",
+            "R",
+            std::string("{\"q_shape\":\"") + std::to_string(q_reshaped->size(0)) + "," +
+                std::to_string(q_reshaped->size(1)) + "," + std::to_string(q_reshaped->size(2)) +
+                "\",\"q_stride2\":" + std::to_string(q_reshaped->stride(2)) + ",\"pos_len\":" +
+                std::to_string(pos_ids_for_rope->size(0)) + "}",
+            "post-fix");
+    }
+    // #endregion
+
+    auto q_rope_out = infinicore::Tensor::empty(
+        {seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
+    auto k_rope_out = infinicore::Tensor::empty(
+        {seq_len, num_key_value_heads_, head_dim_}, k_reshaped->dtype(), k_reshaped->device());
+    rotary_emb_->forward(q_rope_out, q_reshaped, pos_ids_for_rope);
+    infinicore::context::syncStream();
+    // #region agent log
+    if (layer_idx_ <= 1) {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "qwen3_attention.cpp:forward_paged_",
+            "q_rope_done",
+            "R",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
+                ",\"layer\":" + std::to_string(layer_idx_) + "}",
+            "post-fix");
+    }
+    // #endregion
+    rotary_emb_->forward(k_rope_out, k_reshaped, pos_ids_for_rope);
+    infinicore::context::syncStream();
+    // #region agent log
+    if (layer_idx_ <= 1) {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "qwen3_attention.cpp:forward_paged_",
+            "k_rope_done",
+            "R",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
+                ",\"layer\":" + std::to_string(layer_idx_) + "}",
+            "post-fix");
+    }
+    // #endregion
+
+    q_reshaped = q_rope_out;
+    k_reshaped = k_rope_out;
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
-    return o_proj_->forward(attn_output);
+    infinicore::context::syncStream();
+    // #region agent log
+    if (layer_idx_ <= 1) {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "qwen3_attention.cpp:forward_paged_",
+            "paged_attn_done",
+            "P",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
+                ",\"layer\":" + std::to_string(layer_idx_) + "}",
+            "post-fix");
+    }
+    // #endregion
+
+    auto output = o_proj_->forward(attn_output);
+    infinicore::context::syncStream();
+
+    // #region agent log
+    if (layer_idx_ <= 1) {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "qwen3_attention.cpp:forward_paged_",
+            "o_proj_done",
+            "O",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
+                ",\"layer\":" + std::to_string(layer_idx_) + "}",
+            "post-fix");
+    }
+    // #endregion
+
+    return output;
 }
 
 void Qwen3Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_ids,
@@ -138,16 +243,22 @@ void Qwen3Attention::forward_pre_attn_piecewise(const infinicore::Tensor &positi
         auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
         pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
     } else if (pos_shape.size() == 1) {
-        pos_ids_for_rope = position_ids;
+        pos_ids_for_rope = position_ids->contiguous();
     } else {
         throw std::runtime_error("Unexpected position_ids shape");
     }
     if (pos_ids_for_rope->size(0) > valid_len) {
-        pos_ids_for_rope = pos_ids_for_rope->narrow({{0, 0, valid_len}});
+        pos_ids_for_rope = pos_ids_for_rope->narrow({{0, 0, valid_len}})->contiguous();
     }
 
     auto q_rope = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
     auto k_rope = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    if (!q_rope->is_contiguous()) {
+        q_rope = q_rope->contiguous();
+    }
+    if (!k_rope->is_contiguous()) {
+        k_rope = k_rope->contiguous();
+    }
     rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
     rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
 }

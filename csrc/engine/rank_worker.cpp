@@ -3,6 +3,7 @@
 #include "../global_state/ar_profile.hpp"
 #include "../global_state/hang_trace.hpp"
 #include "../global_state/global_state.hpp"
+#include "../utils/agent_debug.hpp"
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
 #include "infinicore/context/context.hpp"
@@ -408,6 +409,38 @@ void RankWorker::thread_loop() {
             if (local_cmd == Command::LOAD) {
                 try {
                     model_->load_parameter(local_param_name, local_param);
+                    // #region agent log
+                    if (local_param_name.find("self_attn.q_proj.weight") != std::string::npos
+                        && local_param_name.find("layers.0.") != std::string::npos) {
+                        const auto &sd = model_->state_dict();
+                        auto it = sd.find(local_param_name);
+                        if (it != sd.end()) {
+                            const auto &stored = it->second;
+                            const auto shape = stored->shape();
+                            auto cpu = stored->to(infinicore::Device::cpu());
+                            const auto *data = reinterpret_cast<const uint16_t *>(cpu->data());
+                            std::string shape_str = "[";
+                            for (size_t i = 0; i < shape.size(); ++i) {
+                                if (i > 0) {
+                                    shape_str += ",";
+                                }
+                                shape_str += std::to_string(shape[i]);
+                            }
+                            shape_str += "]";
+                            infinilm::agent_debug::log(
+                                "rank_worker.cpp:LOAD",
+                                "q_proj_layer0_stored_param",
+                                "M",
+                                std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) +
+                                    ",\"tp_size\":" + std::to_string(rank_info_.tp_size) +
+                                    ",\"input_numel\":" + std::to_string(local_param->numel()) +
+                                    ",\"stored_numel\":" + std::to_string(stored->numel()) +
+                                    ",\"stored_shape\":\"" + shape_str + "\"" +
+                                    ",\"first_fp16_bits\":" + std::to_string(data[0]) + "}",
+                                "post-fix");
+                        }
+                    }
+                    // #endregion
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -650,7 +683,34 @@ void RankWorker::thread_loop() {
                             global_state::hang_trace::ScopedBracket eager_bracket(
                                 "eager_forward", rank_info_.tp_rank);
                             auto model_args = local_args.to_model_input(rank_info_.device);
+                            // #region agent log
+                            if (rank_info_.tp_rank == 0) {
+                                auto &ctx = global_state::get_forward_context();
+                                infinilm::agent_debug::log(
+                                    "rank_worker.cpp:eager_forward",
+                                    "eager_forward_begin",
+                                    "A",
+                                    std::string("{\"tp_size\":") + std::to_string(rank_info_.tp_size) +
+                                        ",\"defer\":" +
+                                        (ctx.defer_row_parallel_allreduce ? "true" : "false") +
+                                        ",\"deferred_n\":" +
+                                        std::to_string(ctx.deferred_allreduces.size()) + "}");
+                            }
+                            // #endregion
                             logits = model_->forward(model_args).logits;
+                            // #region agent log
+                            if (rank_info_.tp_rank == 0) {
+                                auto &ctx = global_state::get_forward_context();
+                                infinilm::agent_debug::log(
+                                    "rank_worker.cpp:eager_forward",
+                                    "eager_forward_end",
+                                    "A",
+                                    std::string("{\"defer\":") +
+                                        (ctx.defer_row_parallel_allreduce ? "true" : "false") +
+                                        ",\"deferred_n\":" +
+                                        std::to_string(ctx.deferred_allreduces.size()) + "}");
+                            }
+                            // #endregion
                         }
 
                         // Random sampling (rank 0 only)

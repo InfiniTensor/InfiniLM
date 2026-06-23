@@ -476,6 +476,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             model_input["input_offsets"] = self._gpu_infinicore_int32(seq_offsets)
             model_input["cu_seqlens"] = self._gpu_infinicore_int32(cu_seqlens)
             model_input["block_tables"] = self._gpu_infinicore_int32(block_tables)
+            slot_mapping_tensor = self._slot_mapping_for_hybrid_prefill(slot_mapping)
         else:
             model_input["position_ids"] = infinicore.from_list(
                 position_ids, dtype=infinicore.int64
@@ -495,9 +496,12 @@ class BasicLLMProcessor(InfinilmProcessor):
             model_input["block_tables"] = infinicore.from_list(
                 block_tables, dtype=infinicore.int32
             )
+            slot_mapping_tensor = infinicore.from_list(
+                slot_mapping, dtype=infinicore.int64
+            )
         model_input.update(
             {
-                "slot_mapping": self._slot_mapping_for_hybrid_prefill(slot_mapping),
+                "slot_mapping": slot_mapping_tensor,
                 "temperature": temperature,
                 "top_k": top_k,
                 "top_p": top_p,
@@ -535,6 +539,44 @@ class BasicLLMProcessor(InfinilmProcessor):
                 len(slot_mapping),
                 scheduling_mode,
             )
+        # #region agent log
+        try:
+            import json
+            import time
+
+            with open(
+                "/workspace/.cursor/debug-8a7b5d.log", "a", encoding="utf-8"
+            ) as _dbg_f:
+                _dbg_f.write(
+                    json.dumps(
+                        {
+                            "sessionId": "8a7b5d",
+                            "runId": "post-fix",
+                            "hypothesisId": "S",
+                            "location": "basic_llm_processor.py:_finalize_batch_model_input",
+                            "message": "processor_metadata",
+                            "data": {
+                                "n_req": n_req,
+                                "total_compute_len": total_compute_len,
+                                "position_ids": position_ids[:16],
+                                "slot_mapping": slot_mapping[:16],
+                                "scheduling_mode": scheduling_mode,
+                                "homogeneous_prefill": homogeneous_prefill,
+                                "hybrid_gpu_metadata": hybrid_gpu_metadata,
+                                "slot_mapping_path": (
+                                    "cuda0_torch"
+                                    if hybrid_gpu_metadata
+                                    else "from_list"
+                                ),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except OSError:
+            pass
+        # #endregion
         return model_input
 
     def get_tokenizer(self):

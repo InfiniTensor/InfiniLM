@@ -244,12 +244,12 @@ class LLMEngine:
         if scheduler_output is None or not scheduler_output.scheduled_requests:
             return [], []
         if profile:
-            rows = scheduler_output.rows or []
+            rows = getattr(scheduler_output, "rows", None) or []
             logger.info(
                 "step_profile: scheduled n_rows=%d total_tokens=%d mode=%s debt_ms=%.3f",
                 len(rows),
-                scheduler_output.total_scheduled_tokens,
-                scheduler_output.scheduling_mode,
+                getattr(scheduler_output, "total_scheduled_tokens", 0),
+                getattr(scheduler_output, "scheduling_mode", "static"),
                 (time.perf_counter() - t_step0) * 1000.0,
             )
 
@@ -264,11 +264,12 @@ class LLMEngine:
         cpp_model_input = {
             k: v for k, v in model_input.items() if k != "input_ids_torch"
         }
+        rows = getattr(scheduler_output, "rows", None)
         use_hybrid_prefill = (
-            scheduler_output.rows
+            rows
             and scheduler_output.is_homogeneous_prefill()
         ) or (
-            not scheduler_output.rows and scheduler_output.is_prefill
+            not rows and getattr(scheduler_output, "is_prefill", False)
         )
 
         if use_hybrid_prefill:
@@ -362,7 +363,8 @@ class LLMEngine:
         sampled_tokens: List[int],
     ) -> List[tuple]:
         """Update request status after inference step."""
-        if scheduler_output.rows:
+        rows = getattr(scheduler_output, "rows", None)
+        if rows:
             return self._update_requests_from_rows(scheduler_output, sampled_tokens)
         return self._update_requests_legacy_phase(
             scheduler_output.is_prefill,
