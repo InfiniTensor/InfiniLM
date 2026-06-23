@@ -70,9 +70,11 @@ infinicore::Tensor MLP::_forward_with_inference_buffer(const infinicore::Tensor 
     infinicore::op::swiglu_(intermediate, up, gate);
 
     // 3. Project down
-    auto down_output = workspace_manager.get_buffer("MLP_down_output", {bs, seq_len, hidden_size_}, dtype_, device_);
-    down_proj_->forward_(down_output, intermediate);
-    return down_output;
+    // auto down_output = workspace_manager.get_buffer("MLP_down_output", {bs, seq_len, hidden_size_}, dtype_, device_);
+    // down_proj_->forward_(down_output, intermediate);
+    // return down_output;
+    auto output = down_proj_->forward(intermediate);
+    return output;
 }
 
 void MLP::_register_inference_buffer() {
@@ -96,7 +98,7 @@ void MLP::_register_inference_buffer() {
 
     const size_t rank_gate_up_output_size_aligned = align_up(rank_gate_up_output_size_);
     const size_t rank_intermediate_size_aligned = align_up(rank_gate_up_output_size_aligned + rank_intermediate_size_);
-    const size_t max_output_size = rank_intermediate_size_aligned + hidden_size_;
+    const size_t max_output_size = align_up(rank_intermediate_size_aligned + hidden_size_);
 
     const infinicore::Shape mlp_buffer_shape = {max_num_batched_tokens * max_output_size};
     workspace_manager.register_buffer(

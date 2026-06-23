@@ -6,16 +6,20 @@ namespace infinilm::engine {
 
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {
-    for (size_t b = 1; b < 64; ++b) {
-        decode_batch_sizes_.push_back(b);
-    }
-    for (size_t b = 64; b < 128; b += 16) {
-        decode_batch_sizes_.push_back(b);
-    }
-    for (size_t b = 128; b < 256; b += 32) {
-        decode_batch_sizes_.push_back(b);
-    }
-    for (size_t b = 256; b <= 512; b += 64) {
+    // for (size_t b = 1; b < 64; ++b) {
+    //     decode_batch_sizes_.push_back(b);
+    // }
+    // for (size_t b = 64; b < 128; b += 16) {
+    //     decode_batch_sizes_.push_back(b);
+    // }
+    // for (size_t b = 128; b < 256; b += 32) {
+    //     decode_batch_sizes_.push_back(b);
+    // }
+    // for (size_t b = 256; b <= 512; b += 64) {
+    //     decode_batch_sizes_.push_back(b);
+    // }
+
+    for (size_t b = 128; b > 0; --b) {
         decode_batch_sizes_.push_back(b);
     }
 }
