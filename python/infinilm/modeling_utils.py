@@ -182,6 +182,7 @@ def load_model_state_dict_by_file(
 
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
+    qwen3_vl_embed_tokens_torch = None
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
     if len(file_list) > 0:
@@ -211,6 +212,10 @@ def load_model_state_dict_by_file(
                     model_param["model.embed_tokens.weight"] = (
                         embed_tokens_torch_unscaled * float(scale_emb)
                     )
+            if "model.language_model.embed_tokens.weight" in model_param:
+                qwen3_vl_embed_tokens_torch = model_param[
+                    "model.language_model.embed_tokens.weight"
+                ]
 
             # --------------------------------------------------------- #
             #         model_param_infini references torch.Tensor
@@ -271,8 +276,13 @@ def load_model_state_dict_by_file(
     # Handle tied weights: if lm_head.weight is missing, share embed_tokens.weight
     # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
     if "lm_head.weight" in model_keys and "lm_head.weight" not in already_loaded_keys:
-        if embed_tokens_torch_unscaled is not None:
-            lm_head_tensor = infinicore.from_torch(embed_tokens_torch_unscaled)
+        tied_weight = (
+            embed_tokens_torch_unscaled
+            if embed_tokens_torch_unscaled is not None
+            else qwen3_vl_embed_tokens_torch
+        )
+        if tied_weight is not None:
+            lm_head_tensor = infinicore.from_torch(tied_weight)
             model.load_state_dict({"lm_head.weight": lm_head_tensor}, strict=False)
             already_loaded_keys.append("lm_head.weight")
             del lm_head_tensor
@@ -351,9 +361,11 @@ def load_model_state_dict_by_tensor(
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 
+
 # ============================================================================
 # Common weight transformation utilities
 # ============================================================================
+
 
 def drop_keys(
     state_dict: Dict[str, torch.Tensor],
@@ -361,8 +373,7 @@ def drop_keys(
 ) -> Dict[str, torch.Tensor]:
     """Drop keys containing any of the given substrings."""
     return {
-        k: v for k, v in state_dict.items()
-        if not any(sub in k for sub in substrings)
+        k: v for k, v in state_dict.items() if not any(sub in k for sub in substrings)
     }
 
 
@@ -444,6 +455,7 @@ def split_fused_weight(
 
     return result
 
+
 def split_fused_weight_with_sizes(
     state_dict: Dict[str, torch.Tensor],
     fused_key: str,
@@ -483,6 +495,7 @@ def split_fused_weight_with_sizes(
             result[f"{base_key}.{name}.{suffix}"] = split_tensor
 
     return result
+
 
 # ============================================================================
 # Model-specific remap functions
@@ -530,17 +543,21 @@ def _remap_chatglm(state_dict, config=None):
     )
 
     # 4. Rename keys
-    state_dict = rename_keys(state_dict, {
-        "transformer.encoder.layers.": "model.layers.",
-        "transformer.embedding.word_embeddings": "model.embed_tokens",
-        "transformer.encoder.final_layernorm": "model.norm",
-        "transformer.output_layer": "lm_head",
-        "self_attention.": "self_attn.",
-        "self_attn.dense": "self_attn.o_proj",
-        "mlp.dense_4h_to_h": "mlp.down_proj",
-    })
+    state_dict = rename_keys(
+        state_dict,
+        {
+            "transformer.encoder.layers.": "model.layers.",
+            "transformer.embedding.word_embeddings": "model.embed_tokens",
+            "transformer.encoder.final_layernorm": "model.norm",
+            "transformer.output_layer": "lm_head",
+            "self_attention.": "self_attn.",
+            "self_attn.dense": "self_attn.o_proj",
+            "mlp.dense_4h_to_h": "mlp.down_proj",
+        },
+    )
 
     return state_dict
+
 
 def _is_baichuan2(config):
     """
@@ -554,6 +571,7 @@ def _is_baichuan2(config):
     """
     return config.get("vocab_size") == 125696
 
+
 def _remap_baichuan(state_dict, config=None):
     """Split Baichuan fused W_pack into q_proj, k_proj, v_proj
     and apply Baichuan2-specific fixes."""
@@ -562,7 +580,7 @@ def _remap_baichuan(state_dict, config=None):
     hf_config = config or {}
     hidden_size = hf_config.get("hidden_size", 4096)
     num_heads = hf_config.get("num_attention_heads", 32)
-    vocab_size = hf_config.get("vocab_size", 125696)
+    # vocab_size = hf_config.get("vocab_size", 125696)
     per_head_dim = num_heads * (hidden_size // num_heads)
 
     # 1. Split W_pack → q_proj, k_proj, v_proj

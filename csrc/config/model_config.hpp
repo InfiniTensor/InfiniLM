@@ -6,10 +6,16 @@
 #include "quant_config.hpp"
 #include <fstream>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
 namespace infinilm::config {
+
+inline size_t json_size(const nlohmann::json &config, const char *key, size_t fallback = 0) {
+    return config.contains(key) ? config.at(key).get<size_t>() : fallback;
+}
+
 class ModelConfig {
     // Model config is implemented using nlohmann/json and is primarily used for advanced configuration
     // beyond the standard model config. It is initialized via ModelConfig(const std::string& path)
