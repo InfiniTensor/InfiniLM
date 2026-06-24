@@ -5,15 +5,25 @@
 #include "infinicore/dtype.hpp"
 #include "infinicore/tensor.hpp"
 
+#include "../global_state/piecewise_prefill_state.hpp"
+#include "../global_state/global_state.hpp"
+
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <string>
 
 namespace infinilm::agent_debug {
 
 inline bool skip_tensor_peek() {
-    return infinicore::context::isGraphRecording();
+    if (infinicore::context::isGraphRecording()) {
+        return true;
+    }
+    if (infinilm::global_state::get_forward_context().piecewise.compile_capture_active) {
+        return true;
+    }
+    return false;
 }
 
 inline uint16_t first_elem_bits(const infinicore::Tensor &t) {
@@ -71,6 +81,23 @@ inline void log(const char *location, const char *message, const char *hypothesi
     f << "{\"runId\":\"" << run_id << "\",\"hypothesisId\":\"" << hypothesis_id
       << "\",\"location\":\"" << location << "\",\"message\":\"" << message << "\",\"data\":"
       << data_json << ",\"timestamp\":" << ts << "}\n";
+}
+
+inline void session_log(const char *location, const char *message, const char *hypothesis_id,
+                        const std::string &data_json, const char *run_id = "cg-capture") {
+    const char *path = std::getenv("INFINI_DEBUG_SESSION_LOG");
+    const std::string log_path =
+        (path != nullptr && path[0] != '\0') ? path : "/workspace/.cursor/debug-1e6005.log";
+    std::ofstream f(log_path, std::ios::app);
+    if (!f) {
+        return;
+    }
+    const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    f << "{\"sessionId\":\"1e6005\",\"runId\":\"" << run_id << "\",\"hypothesisId\":\""
+      << hypothesis_id << "\",\"location\":\"" << location << "\",\"message\":\"" << message
+      << "\",\"data\":" << data_json << ",\"timestamp\":" << ts << "}\n";
 }
 
 } // namespace infinilm::agent_debug

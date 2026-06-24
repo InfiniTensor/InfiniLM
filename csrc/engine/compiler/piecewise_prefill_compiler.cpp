@@ -297,11 +297,19 @@ InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket,
 }
 
 void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
+    auto &piecewise_flag = infinilm::global_state::get_forward_context().piecewise;
+    struct CaptureGuard {
+        infinilm::global_state::PiecewisePrefillState &pw;
+        explicit CaptureGuard(infinilm::global_state::PiecewisePrefillState &p) : pw(p) { pw.compile_capture_active = true; }
+        ~CaptureGuard() { pw.compile_capture_active = false; }
+    } capture_guard(piecewise_flag);
+
     const size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
     const size_t num_layers = model_->native_piecewise_num_layers();
     // #region agent log
     {
         const auto dev = infinicore::context::getDevice().toString();
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
         infinilm::agent_debug::log(
             "piecewise_prefill_compiler.cpp:capture_bucket_",
             "capture_begin",
@@ -310,6 +318,14 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
                 std::to_string(max_capture_req_) + ",\"nblocks\":" + std::to_string(nblocks) +
                 ",\"device\":\"" + dev + "\"}",
             "repro");
+        infinilm::agent_debug::session_log(
+            "piecewise_prefill_compiler.cpp:capture_bucket_",
+            "capture_begin",
+            "H3",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
+                std::to_string(bucket) + ",\"max_capture_req\":" +
+                std::to_string(max_capture_req_) + ",\"max_seq\":" +
+                std::to_string(max_seq_len_) + "}");
     }
     // #endregion
     allocate_layer_staging_(bucket, num_layers);
@@ -356,6 +372,17 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
 
         barrier_->wait("piecewise_capture_pre_attn");
+        // #region agent log
+        if (layer == 0) {
+            const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+            infinilm::agent_debug::session_log(
+                "piecewise_prefill_compiler.cpp:capture_bucket_",
+                "graph_record_pre_attn",
+                "H5",
+                std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
+                    std::to_string(bucket) + ",\"layer\":0}");
+        }
+        // #endregion
         infinicore::context::startGraphRecording();
         model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
         graphs.pre_attn[layer] = infinicore::context::stopGraphRecording();
@@ -393,6 +420,15 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         "A",
         "{\"bucket\":" + std::to_string(bucket) + ",\"layers\":" + std::to_string(capture_layers) + "}",
         "repro");
+    {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::session_log(
+            "piecewise_prefill_compiler.cpp:capture_bucket_",
+            "capture_done",
+            "H5",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
+                std::to_string(bucket) + ",\"layers\":" + std::to_string(capture_layers) + "}");
+    }
     // #endregion
 }
 
@@ -426,6 +462,7 @@ void PiecewisePrefillCompiler::compile() {
     compiled_.clear();
     for (size_t bucket : capture_buckets_) {
         capture_bucket_(bucket);
+        infinicore::context::syncDevice();
     }
     std::ostringstream oss;
     for (size_t i = 0; i < capture_buckets_.size(); ++i) {

@@ -105,6 +105,28 @@ class BaseConfig:
         # Multimodal parameters
         self.image = self.args.image
 
+        # LLM engine bench / ATU repro
+        self.target_tokens = self.args.target_tokens
+        self.num_iters = self.args.num_iters
+        self.atu_repro = self.args.atu_repro
+        self.bisect = self.args.bisect
+        self.expect_atu = self.args.expect_atu
+        self.min_completed_iters = self.args.min_completed_iters
+
+        if self.atu_repro:
+            self.target_tokens = 36864
+            self.max_new_tokens = 512
+            self.num_iters = 10
+            self.enable_graph = True
+            self.enable_paged_attn = True
+            self.num_blocks = max(self.num_blocks, 1024)
+
+        if self.bisect and "--num-iters" not in sys.argv:
+            self.num_iters = 3
+
+        if self.min_completed_iters is None:
+            self.min_completed_iters = self.num_iters
+
         if self.enable_paged_attn and self.attn == "default":
             self.attn = "flash-attn"
 
@@ -268,6 +290,41 @@ class BaseConfig:
             type=str,
             default=None,
             help="image path for multimodal models",
+        )
+
+        # --- LLM engine bench / ATU repro ---
+        self.parser.add_argument(
+            "--target-tokens",
+            type=int,
+            default=36864,
+            help="chat-template prefill token count for llm_engine_bench",
+        )
+        self.parser.add_argument(
+            "--num-iters",
+            type=int,
+            default=10,
+            help="sequential LLM.chat iterations for llm_engine_bench",
+        )
+        self.parser.add_argument(
+            "--atu-repro",
+            action="store_true",
+            help="preset ATU repro: 36864 prefill, 512 decode, 10 iters",
+        )
+        self.parser.add_argument(
+            "--bisect",
+            action="store_true",
+            help="run bisect ladder 8192,16384,32768,36864,40960 x num-iters",
+        )
+        self.parser.add_argument(
+            "--expect-atu",
+            action="store_true",
+            help="exit 0 when ATU signature found (repro CI gate only)",
+        )
+        self.parser.add_argument(
+            "--min-completed-iters",
+            type=int,
+            default=None,
+            help="fail if fewer iterations complete (default: num-iters)",
         )
 
     def get_device_str(self, device):

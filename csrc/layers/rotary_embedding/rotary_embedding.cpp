@@ -1,4 +1,6 @@
 #include "rotary_embedding.hpp"
+#include "../../engine/compiler/piecewise_bucket_policy.hpp"
+#include "../../utils/agent_debug.hpp"
 #include <algorithm> // std::clamp
 #include <cmath>     // std::llround
 #include <string>
@@ -7,6 +9,14 @@
 namespace infinilm::layers::rotary_embedding {
 namespace {
 thread_local std::unordered_map<std::string, std::shared_ptr<infinicore::nn::RoPE>> _ROPE_DICT;
+
+size_t rope_decode_headroom_from_env(size_t default_headroom = 512) {
+    const char *raw = std::getenv("INFINI_ROPE_DECODE_HEADROOM");
+    if (raw == nullptr || raw[0] == '\0') {
+        return default_headroom;
+    }
+    return static_cast<size_t>(std::stoul(raw));
+}
 } // namespace
 
 size_t get_rotary_dim(size_t head_dim, double partial_rotary_factor) {
@@ -37,19 +47,36 @@ std::shared_ptr<infinicore::nn::RoPE> get_rope(const std::shared_ptr<infinilm::c
     // 3. Compute the actual rotary dimension
     size_t rotary_dim = get_rotary_dim(head_dim, partial_rotary_factor);
 
-    // 4. Cache key must include rotary_dim to avoid reusing the same RoPE instance
-    //    across models with different partial_rotary_factor values
+    // 4. Cache key must include rotary_dim and effective max seq to avoid stale reuse
     const std::string scaling_type = "default";
-    std::string cache_key = scaling_type + "_rope_dim_" + std::to_string(rotary_dim);
+
+    const auto &dtype = model_config->get_dtype();
+    size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
+    const size_t compile_max_seq =
+        infinilm::engine::compile_max_seq_from_env(max_position_embeddings);
+    const size_t decode_headroom = rope_decode_headroom_from_env();
+    const size_t runtime_max_seq = compile_max_seq + decode_headroom;
+    const size_t rope_cache_seq_len = std::max(max_position_embeddings, runtime_max_seq);
+    double rope_theta = model_config->get<double>("rope_theta");
+
+    infinilm::agent_debug::log(
+        "rotary_embedding.cpp:get_rope",
+        "rope_cache_sizing",
+        "H-rope-oob",
+        std::string("{\"max_position_embeddings\":") + std::to_string(max_position_embeddings) +
+            ",\"compile_max_seq\":" + std::to_string(compile_max_seq) +
+            ",\"decode_headroom\":" + std::to_string(decode_headroom) +
+            ",\"rope_cache_seq_len\":" + std::to_string(rope_cache_seq_len) + "}",
+        "llm-engine-bench");
+
+    std::string cache_key = scaling_type + "_rope_dim_" + std::to_string(rotary_dim) +
+                            "_maxseq_" + std::to_string(rope_cache_seq_len);
     auto it = _ROPE_DICT.find(cache_key);
     if (it != _ROPE_DICT.end()) {
         return it->second;
     }
 
-    const auto &dtype = model_config->get_dtype();
-    size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
-    double rope_theta = model_config->get<double>("rope_theta");
-    auto rope = std::make_shared<infinicore::nn::RoPE>(rotary_dim, max_position_embeddings, rope_theta,
+    auto rope = std::make_shared<infinicore::nn::RoPE>(rotary_dim, rope_cache_seq_len, rope_theta,
                                                        algo, dtype, device,
                                                        model_config->get_rope_scaling());
 

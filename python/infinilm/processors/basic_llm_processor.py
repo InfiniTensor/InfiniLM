@@ -1,4 +1,7 @@
 import logging
+import json
+import os
+import time
 
 from .processor import InfinilmProcessor, register_processor
 from transformers import AutoTokenizer
@@ -6,6 +9,28 @@ from ..llm.static_scheduler import StaticSchedulerOutput
 from ..llm.scheduler import ScheduledRow, SchedulerOutput
 
 logger = logging.getLogger(__name__)
+
+
+def _agent_debug_log(location: str, message: str, hypothesis_id: str, data: dict) -> None:
+    if os.environ.get("INFINI_AGENT_DEBUG", "").strip().lower() in ("", "0", "false"):
+        return
+    log_path = os.environ.get(
+        "INFINI_AGENT_DEBUG_LOG", "/workspace/.cursor/debug-073e37.log"
+    )
+    try:
+        payload = {
+            "sessionId": "073e37",
+            "runId": "llm-engine-bench",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 @register_processor("default")
@@ -247,6 +272,20 @@ class BasicLLMProcessor(InfinilmProcessor):
         position_ids.append(seq_len - 1)
         cu_seqlens.append(cu_seqlens[-1] + seq_len)
         is_final_prefill_chunk.append(True)
+        slot_id = req.slot_mapping[-1] if req.slot_mapping else -1
+        _agent_debug_log(
+            "basic_llm_processor.py:_append_decode_row_metadata",
+            "decode_row",
+            "H-rope-oob",
+            {
+                "req_id": getattr(req, "request_id", None),
+                "position_id": seq_len - 1,
+                "slot_id": slot_id,
+                "block_table_len": len(req.block_table),
+                "seq_len": seq_len,
+                "num_cached": num_cached,
+            },
+        )
 
     def _build_model_input_from_batch_scheduler_output(
         self, scheduler_output: SchedulerOutput, temperature, top_p, top_k

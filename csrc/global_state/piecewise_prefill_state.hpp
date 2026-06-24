@@ -35,6 +35,8 @@ struct PiecewisePrefillState {
     /// Shared contiguous buffer for sequential per-layer allreduce (one buffer per bucket).
     infinicore::Tensor ar_staging;
     std::vector<PiecewiseLayerStaging> layer_staging;
+    /// True while native piecewise CG bucket capture is running (compile path).
+    bool compile_capture_active{false};
 };
 
 } // namespace infinilm::global_state
