@@ -248,7 +248,7 @@ infinicore::Tensor DeepseekV2MLAAttention::forward_paged_(const infinicore::Tens
                     value_states,
                     input_offsets.value(),
                     cu_seqlens.value(),
-                    std::nullopt,
+                    block_tables.value(),
                     max_seqlen,
                     max_seqlen,
                     std::nullopt,
