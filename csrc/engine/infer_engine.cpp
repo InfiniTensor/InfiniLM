@@ -1,6 +1,5 @@
 #include "infer_engine.hpp"
 #include "../config/config_factory.hpp"
-#include "../utils/agent_debug.hpp"
 #include "spdlog/spdlog.h"
 
 #include <chrono>
@@ -193,26 +192,10 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
 }
 
 void InferEngine::compile() {
-    // #region agent log
-    infinilm::agent_debug::log(
-        "infer_engine.cpp:compile",
-        "compile_dispatch",
-        "H4",
-        std::string("{\"n_workers\":") + std::to_string(workers_.size()) + "}",
-        "g3b-debug");
-    // #endregion
     for (auto &worker : workers_) {
         worker->compile();
     }
     wait_all_workers(workers_, communication_group_, "compile");
-    // #region agent log
-    infinilm::agent_debug::log(
-        "infer_engine.cpp:compile",
-        "compile_wait_all_ok",
-        "H4",
-        "{}",
-        "g3b-debug");
-    // #endregion
 }
 
 //------------------------------------------------------

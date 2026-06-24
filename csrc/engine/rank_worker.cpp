@@ -530,6 +530,25 @@ void RankWorker::thread_loop() {
                         if (local_args.input_offsets.has_value()) {
                             n_req = local_args.input_offsets.value()->size(0) - 1;
                         }
+                        // #region agent log
+                        if (rank_info_.tp_rank == 0) {
+                            size_t prefill_tokens = 0;
+                            if (local_args.input_ids.has_value()) {
+                                prefill_tokens = local_args.input_ids.value()->size(1);
+                            }
+                            infinilm::agent_debug::log(
+                                "rank_worker.cpp:RUN",
+                                "forward_begin",
+                                "H3",
+                                std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) +
+                                    ",\"n_req\":" + std::to_string(n_req) +
+                                    ",\"batch_size\":" + std::to_string(batch_size) +
+                                    ",\"is_mixed\":" + (is_mixed ? "true" : "false") +
+                                    ",\"mode\":\"" + mode_str + "\"" +
+                                    ",\"prefill_tokens\":" + std::to_string(prefill_tokens) + "}",
+                                "timeout-repro");
+                        }
+                        // #endregion
                         if (global_state::hang_trace::enabled() && rank_info_.tp_rank == 0) {
                             spdlog::info(
                                 "hang_trace: run_job_begin mode={} n_req={} batch_size={} is_mixed={}",
@@ -808,27 +827,11 @@ void RankWorker::thread_loop() {
                 }
             } else if (local_cmd == Command::COMPILE) {
                 try {
-                    // #region agent log
-                    infinilm::agent_debug::log(
-                        "rank_worker.cpp:COMPILE",
-                        "compile_job_begin",
-                        "H3",
-                        std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) + "}",
-                        "g3b-debug");
-                    // #endregion
                     if (compiler_ != nullptr) {
                         compiler_->compile();
                     }
                     infinicore::context::syncDevice();
                     infinicore::context::flushDeferredPinnedHostFrees();
-                    // #region agent log
-                    infinilm::agent_debug::log(
-                        "rank_worker.cpp:COMPILE",
-                        "compile_job_done",
-                        "H3",
-                        std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) + "}",
-                        "g3b-debug");
-                    // #endregion
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
                         job_done_ = true;
@@ -836,15 +839,6 @@ void RankWorker::thread_loop() {
                     cv_.notify_all();
 
                 } catch (const std::exception &e) {
-                    // #region agent log
-                    infinilm::agent_debug::log(
-                        "rank_worker.cpp:COMPILE",
-                        "compile_job_exception",
-                        "H3",
-                        std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) +
-                            ",\"what\":\"" + std::string(e.what()) + "\"}",
-                        "g3b-debug");
-                    // #endregion
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
                         should_exit_ = true;

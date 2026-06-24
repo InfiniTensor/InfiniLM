@@ -48,20 +48,29 @@ inline int32_t last_int32(const infinicore::Tensor &t) {
     return reinterpret_cast<const int32_t *>(on_cpu->data())[n - 1];
 }
 
+inline bool debug_enabled() {
+    const char *v = std::getenv("INFINI_AGENT_DEBUG");
+    return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+}
+
 inline void log(const char *location, const char *message, const char *hypothesis_id,
                 const std::string &data_json, const char *run_id = "pre-fix") {
-    // #region agent log
-    std::ofstream f("/workspace/.cursor/debug-073e37.log", std::ios::app);
+    if (!debug_enabled()) {
+        return;
+    }
+    const char *path = std::getenv("INFINI_AGENT_DEBUG_LOG");
+    const std::string log_path =
+        (path != nullptr && path[0] != '\0') ? path : "/workspace/.cursor/agent_debug.log";
+    std::ofstream f(log_path, std::ios::app);
     if (!f) {
         return;
     }
     const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
-    f << "{\"sessionId\":\"073e37\",\"runId\":\"" << run_id << "\",\"hypothesisId\":\""
-      << hypothesis_id << "\",\"location\":\"" << location << "\",\"message\":\"" << message
-      << "\",\"data\":" << data_json << ",\"timestamp\":" << ts << "}\n";
-    // #endregion
+    f << "{\"runId\":\"" << run_id << "\",\"hypothesisId\":\"" << hypothesis_id
+      << "\",\"location\":\"" << location << "\",\"message\":\"" << message << "\",\"data\":"
+      << data_json << ",\"timestamp\":" << ts << "}\n";
 }
 
 } // namespace infinilm::agent_debug
