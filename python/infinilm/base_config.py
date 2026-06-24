@@ -68,7 +68,6 @@ class BaseConfig:
 
         self.batch_size = self.args.batch_size
         self.max_batch_size = self.args.max_batch_size
-        self.max_num_batched_tokens = self.args.max_num_batched_tokens
         self.input_len = self.args.input_len
         self.output_len = self.args.output_len
         self.max_new_tokens = self.args.max_new_tokens
@@ -160,12 +159,6 @@ class BaseConfig:
             type=int,
             default=8,
             help="maximum batch size for server",
-        )
-        self.parser.add_argument(
-            "--max-num-batched-tokens",
-            type=int,
-            default=None,
-            help="maximum number of batched tokens for paged attention",
         )
         self.parser.add_argument(
             "--input-len", type=parse_list, default=10, help="input sequence length"

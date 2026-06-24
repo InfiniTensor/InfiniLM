@@ -22,10 +22,8 @@ public:
 
         if (max_num_batched_tokens > 0) {
             const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
-            ASSERT(max_num_batched_tokens >= 512 && max_num_batched_tokens <= max_position_embeddings);
+            max_num_batched_tokens = std::min(max_position_embeddings,(size_t)65536);
             enable_workspace_manager = true;
-            max_num_batched_tokens = max_position_embeddings;
-
             printf("max_num_batched_tokens: %zu\n", max_num_batched_tokens);
         }
     }

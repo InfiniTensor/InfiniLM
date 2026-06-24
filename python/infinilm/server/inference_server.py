@@ -21,8 +21,8 @@ from infinilm.config import KVTransferConfig
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STREAM_TIMEOUT = 100.0
-DEFAULT_REQUEST_TIMEOUT = 1000.0
+DEFAULT_STREAM_TIMEOUT = 100.0*10000
+DEFAULT_REQUEST_TIMEOUT = 1000.0*10000
 
 
 def chunk_json(

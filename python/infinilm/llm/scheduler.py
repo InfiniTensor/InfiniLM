@@ -58,8 +58,6 @@ class Scheduler:
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
 
-        self.max_num_batched_tokens = max_num_batched_tokens
-
     def add_request(self, request: InferenceRequest):
         if request is not None:
             request.status = RequestStatus.WAITING

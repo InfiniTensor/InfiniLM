@@ -74,7 +74,9 @@ class LLMEngine:
             max_num_batched_tokens = int(
                 os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
             )
-            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
+            assert 512 <= max_num_batched_tokens <= max_position_embeddings
+            max_num_batched_tokens = min(max_position_embeddings,65536)
+
 
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
