@@ -68,9 +68,9 @@ class LLMEngine:
                     f"(role={config.kv_transfer_config.kv_role})"
                 )
 
-            max_position_embeddings = self.model_runner.model_engine.hf_config[
-                "max_position_embeddings"
-            ]
+            max_position_embeddings = self.model_runner.model_engine.hf_config.get(
+                "max_position_embeddings", config.max_cache_len
+            )
             max_num_batched_tokens = int(
                 os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
             )

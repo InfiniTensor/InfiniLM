@@ -102,9 +102,13 @@ def get_test_cases(
     config = read_json_file(os.path.join(model_path, "config.json"))
     model_type = config.get("model_type", "")
     config = _normalize_config(config, model_type)
-    head_dim = config.get(
-        "head_dim", config.get("hidden_size") // config.get("num_attention_heads")
-    )
+    if model_type == "mamba":
+        config.setdefault("num_hidden_layers", config.get("n_layer", 1))
+        config.setdefault("num_key_value_heads", 1)
+        config.setdefault("head_dim", config.get("state_size", 16))
+    head_dim = config.get("head_dim")
+    if head_dim is None:
+        head_dim = config.get("hidden_size") // config.get("num_attention_heads")
     # KV heads and layers drive cache size. DeepSeek MLA stores a single KV head
     # with latent K and V dimensions instead of the regular per-head K/V cache.
     if use_mla and model_type == "deepseek_v2":

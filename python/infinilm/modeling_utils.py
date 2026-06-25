@@ -351,9 +351,11 @@ def load_model_state_dict_by_tensor(
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 
+
 # ============================================================================
 # Common weight transformation utilities
 # ============================================================================
+
 
 def drop_keys(
     state_dict: Dict[str, torch.Tensor],
@@ -361,8 +363,7 @@ def drop_keys(
 ) -> Dict[str, torch.Tensor]:
     """Drop keys containing any of the given substrings."""
     return {
-        k: v for k, v in state_dict.items()
-        if not any(sub in k for sub in substrings)
+        k: v for k, v in state_dict.items() if not any(sub in k for sub in substrings)
     }
 
 
@@ -444,6 +445,7 @@ def split_fused_weight(
 
     return result
 
+
 def split_fused_weight_with_sizes(
     state_dict: Dict[str, torch.Tensor],
     fused_key: str,
@@ -483,6 +485,7 @@ def split_fused_weight_with_sizes(
             result[f"{base_key}.{name}.{suffix}"] = split_tensor
 
     return result
+
 
 # ============================================================================
 # Model-specific remap functions
@@ -530,17 +533,21 @@ def _remap_chatglm(state_dict, config=None):
     )
 
     # 4. Rename keys
-    state_dict = rename_keys(state_dict, {
-        "transformer.encoder.layers.": "model.layers.",
-        "transformer.embedding.word_embeddings": "model.embed_tokens",
-        "transformer.encoder.final_layernorm": "model.norm",
-        "transformer.output_layer": "lm_head",
-        "self_attention.": "self_attn.",
-        "self_attn.dense": "self_attn.o_proj",
-        "mlp.dense_4h_to_h": "mlp.down_proj",
-    })
+    state_dict = rename_keys(
+        state_dict,
+        {
+            "transformer.encoder.layers.": "model.layers.",
+            "transformer.embedding.word_embeddings": "model.embed_tokens",
+            "transformer.encoder.final_layernorm": "model.norm",
+            "transformer.output_layer": "lm_head",
+            "self_attention.": "self_attn.",
+            "self_attn.dense": "self_attn.o_proj",
+            "mlp.dense_4h_to_h": "mlp.down_proj",
+        },
+    )
 
     return state_dict
+
 
 def _is_baichuan2(config):
     """
@@ -553,6 +560,7 @@ def _is_baichuan2(config):
       - Baichuan2: vocab_size = 125696
     """
     return config.get("vocab_size") == 125696
+
 
 def _remap_baichuan(state_dict, config=None):
     """Split Baichuan fused W_pack into q_proj, k_proj, v_proj
@@ -639,10 +647,24 @@ def _remap_gpt2(state_dict, config=None):
     return remapped
 
 
+def _remap_mamba(state_dict, config=None):
+    """Remap HuggingFace Mamba weights to InfiniLM native names."""
+    remapped = {}
+    for key, tensor in state_dict.items():
+        new_key = key
+        new_key = new_key.replace(".mixer.conv1d.weight", ".mixer.conv1d_weight")
+        new_key = new_key.replace(".mixer.conv1d.bias", ".mixer.conv1d_bias")
+        remapped[new_key] = tensor
+    if "lm_head.weight" not in remapped and "backbone.embeddings.weight" in remapped:
+        remapped["lm_head.weight"] = remapped["backbone.embeddings.weight"]
+    return remapped
+
+
 # Model type → remap function mapping
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
     "baichuan": _remap_baichuan,
     "gpt2": _remap_gpt2,
+    "mamba": _remap_mamba,
 }
