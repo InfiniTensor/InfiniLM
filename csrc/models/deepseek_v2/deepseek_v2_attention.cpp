@@ -1,26 +1,18 @@
 #include "deepseek_v2_attention.hpp"
 
 #include "../../global_state/global_state.hpp"
+#include "../../layers/attention/attention.hpp"
+#include "../../layers/rotary_embedding/rotary_embedding.hpp"
 #include "../../utils.hpp"
+#include "deepseek_v2_utils.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/broadcast_to.hpp"
 #include "infinicore/ops/cat.hpp"
 #include "infinicore/ops/pad.hpp"
 
-#include <cmath>
 #include <stdexcept>
 
 namespace infinilm::models::deepseek_v2 {
-namespace {
-
-float yarn_get_mscale(float scale, float mscale) {
-    if (scale <= 1.0f) {
-        return 1.0f;
-    }
-    return 0.1f * mscale * std::log(scale) + 1.0f;
-}
-
-} // namespace
 
 DeepseekV2Attention::DeepseekV2Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                          size_t layer_idx,
@@ -54,23 +46,8 @@ DeepseekV2Attention::DeepseekV2Attention(std::shared_ptr<infinilm::config::Model
     INFINICORE_NN_MODULE_INIT(kv_b_proj, kv_lora_rank, total_num_heads * (qk_nope_head_dim_ + v_head_dim_), quantization_method, false, dtype, device, tp_rank, tp_size);
     INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * v_head_dim_, hidden_size_, quantization_method, attention_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
 
-    const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
-    const double rope_theta = model_config->get<double>("rope_theta");
-    rotary_emb_ = std::make_shared<infinicore::nn::RoPE>(
-        qk_rope_head_dim_, qk_rope_head_dim_, max_position_embeddings, rope_theta,
-        infinicore::nn::RoPE::Algo::GPT_J, dtype, device, nullptr);
-
-    softmax_scale_ = 1.0f / std::sqrt(static_cast<float>(q_head_dim_));
-    auto &config_json = model_config->get_config_json();
-    if (config_json.contains("rope_scaling") && config_json["rope_scaling"].is_object()) {
-        const auto &rope_scaling = config_json["rope_scaling"];
-        const float mscale_all_dim = rope_scaling.value("mscale_all_dim", 0.0f);
-        if (mscale_all_dim != 0.0f) {
-            const float scaling_factor = rope_scaling.value("factor", 1.0f);
-            const float mscale = yarn_get_mscale(scaling_factor, mscale_all_dim);
-            softmax_scale_ *= mscale * mscale;
-        }
-    }
+    rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
+    softmax_scale_ = deepseek_v2_attention_softmax_scale(model_config, static_cast<float>(q_head_dim_));
 
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
         num_attention_heads_, q_head_dim_, softmax_scale_, num_attention_heads_, layer_idx_,
