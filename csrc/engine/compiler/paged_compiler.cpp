@@ -2,6 +2,7 @@
 #include "../../global_state/global_state.hpp"
 #include "../compiled_prefill_flags.hpp"
 #include "../../utils.hpp"
+#include "attn_metadata_utils.hpp"
 
 namespace infinilm::engine {
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
@@ -127,8 +128,17 @@ void PagedCompiler::compile() {
 
 PagedCompiler::CompiledResult PagedCompiler::capture_forward_graph_(InfinilmModel::Input input) {
     auto &ctx = infinilm::global_state::get_forward_context();
-    ctx.defer_row_parallel_allreduce = true;
     ctx.deferred_allreduces.clear();
+
+    const size_t batch_size = input.block_tables.value()->size(0);
+    const size_t input_width = input.input_ids.value()->size(1);
+    const bool is_decode_capture = (batch_size == input_width);
+    const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+    // RC-3: under TP, deferred row-parallel AR runs after graph->run(), but lm_head already
+    // consumed non-allreduced hidden states inside the graph. Keep AR inline for decode CG.
+    const bool defer_ar =
+        !(is_decode_capture && rank_info.tp_size > 1 && decode_cg_tp_enabled());
+    ctx.defer_row_parallel_allreduce = defer_ar;
 
     barrier_->wait();
     infinicore::context::startGraphRecording();
@@ -140,7 +150,9 @@ PagedCompiler::CompiledResult PagedCompiler::capture_forward_graph_(InfinilmMode
     auto post_graph_allreduces = std::make_shared<std::vector<global_state::DeferredAllreduce>>(
         std::move(ctx.deferred_allreduces));
     ctx.deferred_allreduces.clear();
-    global_state::run_deferred_allreduces(*post_graph_allreduces);
+    if (!post_graph_allreduces->empty()) {
+        global_state::run_deferred_allreduces(*post_graph_allreduces);
+    }
 
     auto shared_output = std::shared_ptr<InfinilmModel::Output>(
         new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
@@ -274,6 +286,9 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             set_minus_one(graph_block_tables);
             graph_input.block_tables.value()->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
+
+            // RC-2 analog: refresh attn_metadata from graph_input narrowed to runtime shapes.
+            attn_metadata_utils::set_attn_metadata_for_decode_batch(graph_input, input);
 
             auto graph = std::get<0>(result->second.compiled);
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});

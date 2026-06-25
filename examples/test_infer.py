@@ -65,12 +65,16 @@ def test(
     )
     t2 = time.time()
 
+    log_tokens = os.environ.get("INFINI_LOG_DECODE_TOKENS", "0") == "1"
     for i, output in enumerate(outputs):
         print(f"Resquest {i}:")
         print("===Query===")
         print(output.prompt)
         print("===Response===")
         print(output.outputs[0].text)
+        if log_tokens:
+            print(f"===TokenIds_{i}===")
+            print(",".join(str(t) for t in output.outputs[0].token_ids))
         print("")
 
     print(
