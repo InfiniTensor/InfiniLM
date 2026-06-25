@@ -38,6 +38,10 @@ public:
     void forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidden_states,
                                                 global_state::PiecewiseLayerStaging &staging) const;
 
+    /// Piecewise CG segment: O-proj with inline row-parallel allreduce (RC-7A).
+    void forward_post_attn_piecewise_cg_into(infinicore::Tensor &hidden_states,
+                                             global_state::PiecewiseLayerStaging &staging) const;
+
     /// Piecewise eager segment: O-proj allreduce after graph replay.
     void forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &hidden_states,
                                                     global_state::PiecewiseLayerStaging &staging) const;

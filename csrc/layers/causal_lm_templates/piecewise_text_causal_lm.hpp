@@ -40,6 +40,13 @@ public:
         this->model_->piecewise_post_attn_layer(layer_idx, input, hidden_states, residual);
     }
 
+    void native_piecewise_post_attn_cg_layer(size_t layer_idx,
+                                             const InfinilmModel::Input &input,
+                                             infinicore::Tensor &hidden_states,
+                                             infinicore::Tensor &residual) const override {
+        this->model_->piecewise_post_attn_cg_layer(layer_idx, input, hidden_states, residual);
+    }
+
     void native_piecewise_post_attn_graph_layer(size_t layer_idx,
                                                 const InfinilmModel::Input &input,
                                                 infinicore::Tensor &hidden_states,

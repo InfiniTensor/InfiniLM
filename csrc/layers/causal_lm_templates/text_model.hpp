@@ -138,6 +138,14 @@ public:
         layers_.at(layer_idx)->piecewise_post_attn(hidden_states, residual, staging);
     }
 
+    void piecewise_post_attn_cg_layer(size_t layer_idx,
+                                      const infinilm::InfinilmModel::Input &,
+                                      infinicore::Tensor &hidden_states,
+                                      infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
     void piecewise_post_attn_graph_layer(size_t layer_idx,
                                          const infinilm::InfinilmModel::Input &,
                                          infinicore::Tensor &hidden_states,

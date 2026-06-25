@@ -247,6 +247,25 @@ void Attention::forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidde
     }
 }
 
+void Attention::forward_post_attn_piecewise_cg_into(infinicore::Tensor &hidden_states,
+                                                  global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.attn_output->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+
+    auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+    auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
+    auto projected = o_proj_->forward(attn_for_proj);
+    hidden_narrow->copy_from(projected);
+    // #region agent log
+    log_piecewise_stage(layer_idx_, "pw_o_proj_post_ar", "T4", hidden_narrow);
+    // #endregion
+    if (valid_len < seq_len) {
+        auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(hidden_tail);
+    }
+}
+
 void Attention::forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &hidden_states,
                                                            global_state::PiecewiseLayerStaging &staging) const {
     if (!o_proj_->needs_allreduce()) {

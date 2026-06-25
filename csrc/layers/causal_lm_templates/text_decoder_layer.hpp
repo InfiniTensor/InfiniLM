@@ -80,8 +80,17 @@ public:
     void piecewise_post_attn(infinicore::Tensor &hidden_states,
                              infinicore::Tensor &residual,
                              global_state::PiecewiseLayerStaging &staging) const {
-        piecewise_post_attn_graph(hidden_states, residual, staging);
-        piecewise_post_attn_allreduce(hidden_states, residual, staging);
+        piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    /// RC-7A: full post segment with inline row-parallel AR (matches eager op order).
+    void piecewise_post_attn_cg(infinicore::Tensor &hidden_states,
+                                infinicore::Tensor &residual,
+                                global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_post_attn_piecewise_cg_into(hidden_states, staging);
+        post_attention_layernorm_->forward_inplace(hidden_states, residual);
+        auto mlp_out = mlp_->forward(hidden_states);
+        hidden_states->copy_from(mlp_out);
     }
 
     void piecewise_post_attn_graph(infinicore::Tensor &hidden_states,

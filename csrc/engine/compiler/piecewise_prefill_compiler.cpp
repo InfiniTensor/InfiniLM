@@ -358,7 +358,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
     for (size_t layer = 0; layer < capture_layers; ++layer) {
         model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
         model_->native_piecewise_eager_attn_layer(layer, graphs.input);
-        model_->native_piecewise_post_attn_layer(layer, graphs.input, hidden, residual);
+        model_->native_piecewise_post_attn_cg_layer(layer, graphs.input, hidden, residual);
     }
     model_->native_piecewise_lm_head(graphs.input, hidden, residual, graphs.logits_holder);
     graphs.pre_attn.resize(capture_layers);
@@ -393,7 +393,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
         barrier_->wait("piecewise_capture_post_attn");
         infinicore::context::startGraphRecording();
-        model_->native_piecewise_post_attn_graph_layer(layer, graphs.input, hidden, residual);
+        model_->native_piecewise_post_attn_cg_layer(layer, graphs.input, hidden, residual);
         graphs.post_attn[layer] = infinicore::context::stopGraphRecording();
         barrier_->wait("piecewise_capture_post_attn_sync");
     }
@@ -654,13 +654,29 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     model_->native_piecewise_embed(bucket_graphs.input, piecewise.hidden_states);
 
     const size_t num_layers = bucket_graphs.pre_attn.size();
-    const bool use_eager_segments = seq_len < graph_bucket;
+    const bool use_eager_post = seq_len < graph_bucket;
+    const bool use_eager_lm_head = seq_len < graph_bucket;
+    // #region agent log
+    if (infinilm::agent_debug::debug_enabled()) {
+        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
+        infinilm::agent_debug::log(
+            "piecewise_prefill_compiler.cpp:run_prefill",
+            "pw_replay_mode",
+            "Z5",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"seq_len\":" +
+                std::to_string(seq_len) + ",\"graph_bucket\":" + std::to_string(graph_bucket) +
+                ",\"use_eager_post\":" + (use_eager_post ? "true" : "false") +
+                ",\"use_eager_lm_head\":" + (use_eager_lm_head ? "true" : "false") +
+                ",\"segment_replays\":" + std::to_string(segment_replays_) + "}",
+            "rc7");
+    }
+    // #endregion
     double layers_ms = 0.0;
     const double t_layers0 = profile ? monotonic_ms() : 0.0;
     for (size_t layer = 0; layer < num_layers; ++layer) {
         const double t_layer0 = profile ? monotonic_ms() : 0.0;
         barrier_->wait("piecewise_replay_pre_attn");
-        if (use_eager_segments) {
+        if (use_eager_post) {
             model_->native_piecewise_pre_attn_layer(
                 layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
         } else {
@@ -672,19 +688,14 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
         const double t_eager_attn = profile ? monotonic_ms() : 0.0;
         barrier_->wait("piecewise_replay_post_attn");
-        if (use_eager_segments) {
-            model_->native_piecewise_post_attn_layer(
+        if (use_eager_post) {
+            model_->native_piecewise_post_attn_cg_layer(
                 layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
             barrier_->wait("piecewise_replay_post_attn_sync");
         } else {
             bucket_graphs.post_attn[layer]->run();
             ++segment_replays_;
             barrier_->wait("piecewise_replay_post_attn_sync");
-            model_->native_piecewise_post_attn_allreduce_layer(
-                layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
-        }
-        if (!use_eager_segments && !piecewise_trim_barriers()) {
-            barrier_->wait("piecewise_replay_post_allreduce");
         }
         // #region agent log
         if (layer <= 1) {
@@ -694,12 +705,12 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
                 "pw_hidden_after_layer",
                 "Y2",
                 std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" +
-                    std::to_string(layer) + ",\"use_eager\":" + (use_eager_segments ? "true" : "false") +
+                    std::to_string(layer) + ",\"use_eager_post\":" + (use_eager_post ? "true" : "false") +
                     ",\"first_bits\":" +
                     std::to_string(infinilm::agent_debug::first_elem_bits(
                         piecewise.hidden_states->narrow({{1, 0, seq_len}}))) +
                     "}",
-                "post-fix");
+                "rc7");
         }
         // #endregion
         if (profile) {
@@ -719,7 +730,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     if (InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         const double t_lm0 = profile ? monotonic_ms() : 0.0;
         barrier_->wait("piecewise_replay_lm_head");
-        if (use_eager_segments) {
+        if (use_eager_lm_head) {
             model_->native_piecewise_lm_head(
                 bucket_graphs.input, piecewise.hidden_states, piecewise.residual, bucket_graphs.logits_holder);
         } else {
