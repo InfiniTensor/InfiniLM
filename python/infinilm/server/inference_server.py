@@ -241,6 +241,10 @@ class InferenceServer:
             self.engine.start()
         logger.info(f"Engine initialized with model at {self.model_path}")
         logger.info(f"  enable_graph: {self.enable_graph}")
+        logger.info(
+            "  max_model_len: %s",
+            getattr(self.engine.engine, "max_model_len", "unknown"),
+        )
 
     async def _serve(self) -> None:
         """Run engine + uvicorn on one asyncio loop (matches embedded/runtime smokes)."""
@@ -507,6 +511,19 @@ class InferenceServer:
                 req.mark_canceled()
             raise
 
+        except ValueError as e:
+            logger.warning(f"Bad request for {request_id}: {e}")
+            error_chunk = json.dumps(
+                chunk_json(
+                    request_id,
+                    content=f"[Error: {str(e)}]",
+                    finish_reason="error",
+                    model=self.model_id,
+                ),
+                ensure_ascii=False,
+            )
+            yield f"data: {error_chunk}\n\n"
+
         except Exception as e:
             logger.error(f"Stream error for {request_id}: {e}", exc_info=True)
             if req:
@@ -596,6 +613,10 @@ class InferenceServer:
             if req:
                 req.mark_canceled()
             raise
+
+        except ValueError as e:
+            logger.warning(f"Bad request for {request_id}: {e}")
+            return JSONResponse(content={"error": str(e)}, status_code=400)
 
         except Exception as e:
             logger.error(f"Chat error for {request_id}: {e}", exc_info=True)

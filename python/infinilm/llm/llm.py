@@ -26,6 +26,12 @@ from infinilm.llm.request import (
     FinishReason,
 )
 from infinilm.llm.sampling_params import SamplingParams
+from infinilm.llm.context_limit import (
+    cap_max_tokens,
+    effective_max_model_len,
+    truncate_prompt_token_ids,
+    validate_prompt_length,
+)
 from infinilm.llm.scheduler import Scheduler, SchedulerOutput
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.processors import AutoInfinilmProcessor
@@ -166,14 +172,18 @@ class LLMEngine:
         self.processor = AutoInfinilmProcessor.from_pretrained(config.model_path)
         self.tokenizer = self.processor.get_tokenizer()
 
+        self.max_model_len = effective_max_model_len(self.model_engine.hf_config)
+        logger.info("Using max_model_len=%s", self.max_model_len)
+
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
+            static_cache_len = min(config.max_cache_len, self.max_model_len)
             cache_config = StaticKVCacheConfig(
-                max_batch_size=1, max_cache_len=config.max_cache_len
+                max_batch_size=1, max_cache_len=static_cache_len
             )
-            self.scheduler = StaticScheduler(max_cache_len=config.max_cache_len)
+            self.scheduler = StaticScheduler(max_cache_len=static_cache_len)
             logger.info(
-                f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
+                f"Using Static KV Cache with max_cache_len={static_cache_len}"
             )
         elif config.cache_type == "paged":
             cache_config = PagedKVCacheConfig(
@@ -190,6 +200,7 @@ class LLMEngine:
                 block_size=config.block_size,
                 max_prefill_batch_size=config.max_batch_size,
                 enable_prefix_cache=not disable_prefix_cache,
+                max_model_len=self.max_model_len,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
             if disable_prefix_cache:
@@ -262,8 +273,41 @@ class LLMEngine:
 
         self.dtype = dtype_map[self.config.dtype]
 
+    def _admit_request(self, request: InferenceRequest) -> None:
+        """Validate prompt length and cap output budget (vLLM-style admission)."""
+        truncate_prompt_tokens = None
+        if request.request_data:
+            truncate_prompt_tokens = request.request_data.get(
+                "truncate_prompt_tokens"
+            )
+
+        prompt_token_ids = truncate_prompt_token_ids(
+            request.prompt_token_ids,
+            truncate_prompt_tokens=truncate_prompt_tokens,
+            max_model_len=self.max_model_len,
+        )
+        if prompt_token_ids is not request.prompt_token_ids:
+            request.prompt_token_ids = prompt_token_ids
+            request.prompt_length = len(prompt_token_ids)
+            if request.prompt:
+                request.prompt = self.detokenize(prompt_token_ids)
+
+        validate_prompt_length(request.prompt_length, self.max_model_len)
+
+        capped = cap_max_tokens(
+            request.sampling_params.max_tokens,
+            request.prompt_length,
+            self.max_model_len,
+            default_max_tokens=self.config.max_tokens,
+        )
+        if capped != request.sampling_params.max_tokens:
+            request.sampling_params = request.sampling_params.clone()
+            request.sampling_params.max_tokens = capped
+
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
+        if request.prompt_token_ids:
+            self._admit_request(request)
         if self.cache_type == "paged" and self.config.chunk_size > 0:
             request.chunk_size = self.config.chunk_size
         self.scheduler.add_request(request)
@@ -722,6 +766,10 @@ class LLMEngine:
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
         """Check if request generation is finished."""
+        if req.get_total_length() >= self.max_model_len:
+            req.finish_reason = FinishReason.LENGTH
+            return True
+
         max_tokens = req.sampling_params.max_tokens
         if max_tokens and req.get_num_generated_tokens() >= max_tokens:
             req.finish_reason = FinishReason.LENGTH

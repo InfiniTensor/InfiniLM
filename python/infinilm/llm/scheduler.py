@@ -17,7 +17,7 @@ from infinilm.compile.env import (
     schedule_homogeneous_enabled,
     v1_scheduler_enabled,
 )
-from infinilm.llm.request import RequestStatus, InferenceRequest
+from infinilm.llm.request import RequestStatus, InferenceRequest, FinishReason, TokenOutput
 from infinilm.llm.cache_manager import BlockManager
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,15 @@ _PACK_BUCKET_CAP = 8192
 
 def _hang_trace_enabled() -> bool:
     return os.environ.get("INFINI_HANG_TRACE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _scheduler_step_log_enabled() -> bool:
+    """Opt-in per-step schedule log (off by default; decode steps flood server logs)."""
+    return os.environ.get("INFINI_SCHEDULER_STEP_LOG", "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -144,6 +153,7 @@ class Scheduler:
         max_prefill_batch_size: Optional[int] = None,
         enable_prefix_cache: bool = True,
         max_waiting_yields: int = 4,
+        max_model_len: Optional[int] = None,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
@@ -161,6 +171,7 @@ class Scheduler:
             enable_prefix_cache=enable_prefix_cache,
         )
         self.block_size = block_size
+        self.max_model_len = max_model_len
 
         self._waiting_yields_in_a_row: int = 0
         self.max_waiting_yields: int = max_waiting_yields
@@ -216,8 +227,39 @@ class Scheduler:
             self.running_queue.sync_q.qsize(),
         )
 
+    def _reject_overlength_request(self, request: InferenceRequest) -> None:
+        logger.warning(
+            "Request %s prompt length %s exceeds max_model_len=%s; rejecting",
+            request.request_id,
+            request.get_prompt_length(),
+            self.max_model_len,
+        )
+        request.mark_failed(FinishReason.LENGTH)
+        output = TokenOutput(
+            request_id=request.request_id,
+            token_id=-1,
+            token_text="",
+            finished=True,
+            finish_reason=FinishReason.LENGTH,
+            generated_text="",
+        )
+        try:
+            request.output_queue.sync_q.put(output)
+        except Exception as exc:
+            logger.warning(
+                "Failed to enqueue overlength rejection for %s: %s",
+                request.request_id,
+                exc,
+            )
+
     def add_request(self, request: InferenceRequest):
         if request is not None:
+            if (
+                self.max_model_len is not None
+                and request.get_prompt_length() > self.max_model_len
+            ):
+                self._reject_overlength_request(request)
+                return
             request.status = RequestStatus.WAITING
             self.waiting_queue.sync_q.put(request)
 
@@ -699,6 +741,8 @@ class Scheduler:
         return True
 
     def _log_v1_step(self, rows: List[ScheduledRow]) -> None:
+        if not _scheduler_step_log_enabled():
+            return
         n_prefill = sum(1 for r in rows if r.is_prefill_row)
         n_decode = len(rows) - n_prefill
         total = sum(r.num_scheduled_tokens for r in rows)
@@ -969,6 +1013,12 @@ class Scheduler:
         return req.get_prompt_length() + self._remaining_generation_tokens(req)
 
     def can_accept_request(self, request: InferenceRequest) -> bool:
+        if (
+            self.max_model_len is not None
+            and request.get_prompt_length() > self.max_model_len
+        ):
+            return False
+
         total_required_blocks = 0
 
         running_queue_size = self.running_queue.sync_q.qsize()

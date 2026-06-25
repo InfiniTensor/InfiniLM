@@ -18,4 +18,10 @@ inline bool native_piecewise_prefill_enabled() {
     return v != nullptr && v[0] != '\0' && std::string(v) != "0";
 }
 
+/// When true, allow paged decode CUDAGraph capture/replay under tensor parallel (tp>1).
+inline bool decode_cg_tp_enabled() {
+    const char *v = std::getenv("INFINI_DECODE_CG_TP");
+    return v != nullptr && v[0] == '1' && v[1] == '\0';
+}
+
 } // namespace infinilm::engine

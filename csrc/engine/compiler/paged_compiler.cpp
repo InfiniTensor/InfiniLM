@@ -24,11 +24,17 @@ void PagedCompiler::compile() {
             {nblocks * max_batch_size}, infinicore::DataType::I32, infinicore::context::getDevice());
         set_zeros(block_tables_holder_);
         const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
-        if (rank_info.tp_size > 1) {
+        if (rank_info.tp_size > 1 && !decode_cg_tp_enabled()) {
             spdlog::info(
-                "paged decode CG: skip capture (tp_size={} > 1; decode graphs are eager-only under TP)",
+                "paged decode CG: skip capture (tp_size={} > 1; decode graphs are eager-only under TP; "
+                "set INFINI_DECODE_CG_TP=1 to opt in)",
                 rank_info.tp_size);
         } else {
+            if (rank_info.tp_size > 1) {
+                spdlog::info(
+                    "paged decode CG: capturing under TP (tp_size={}, INFINI_DECODE_CG_TP=1)",
+                    rank_info.tp_size);
+            }
         for (size_t b : decode_batch_sizes_) {
             InfinilmModel::Input input;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
@@ -240,9 +246,8 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             return std::make_tuple(graph, shared_output);
         } else {
             const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
-            if (rank_info.tp_size > 1) {
-                // Decode CUDAGraph replay is not yet correct under tensor parallel;
-                // fall back to eager decode (prefill piecewise graphs unaffected).
+            if (rank_info.tp_size > 1 && !decode_cg_tp_enabled()) {
+                // Decode CUDAGraph replay under TP requires INFINI_DECODE_CG_TP=1.
                 return miss();
             }
             auto result = compiled_map_decode_.find(batch_size);
