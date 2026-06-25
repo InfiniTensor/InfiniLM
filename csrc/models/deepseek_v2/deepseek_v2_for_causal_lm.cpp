@@ -2,7 +2,6 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
-#include "infinicore/ops.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -78,6 +77,10 @@ std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(s
     auto &config_json = model_config->get_config_json();
     const size_t q_head_dim = config_json.at("qk_nope_head_dim").get<size_t>() + config_json.at("qk_rope_head_dim").get<size_t>();
     config_json["head_dim"] = q_head_dim;
+    
+    const size_t qk_rope_head_dim = config_json.at("qk_rope_head_dim").get<size_t>();
+    config_json["partial_rotary_factor"] = static_cast<double>(qk_rope_head_dim) / static_cast<double>(q_head_dim);
+    
     config_json["num_experts"] = config_json.value("n_routed_experts", 0);
     config_json["mlp_bias"] = false;
     if (!config_json.contains("attention_output_bias")) {
@@ -86,6 +89,10 @@ std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(s
     if (!config_json.contains("dtype") && config_json.contains("torch_dtype")) {
         config_json["dtype"] = config_json["torch_dtype"];
     }
+
+    // Use GPT-J style for DeepseekV2
+    model_config->set_rope_algo(infinicore::nn::RoPE::Algo::GPT_J);
+
     return model_config;
 }
 
