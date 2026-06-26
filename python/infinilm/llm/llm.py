@@ -29,15 +29,33 @@ from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.config.engine_config import EngineConfig
+from infinilm.infer_engine import read_hf_generation_config
 from infinilm.kv_connector import KVConnectorRole, KVConnectorFactory
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_generation_defaults(config: EngineConfig) -> None:
+    generation_config = read_hf_generation_config(config.model_path)
+
+    def resolve(name: str, fallback, cast):
+        value = getattr(config, name)
+        if value is None:
+            value = generation_config.get(name)
+        if value is None:
+            value = fallback
+        setattr(config, name, cast(value))
+
+    resolve("top_k", 1, int)
+    resolve("top_p", 1.0, float)
+    resolve("temperature", 1.0, float)
 
 
 class LLMEngine:
     """Low-level LLM engine that handles inference execution."""
 
     def __init__(self, config: EngineConfig):
+        _resolve_generation_defaults(config)
         self.config = config
 
         self.model_runner = ModelRunner(config)
@@ -296,9 +314,9 @@ class LLM:
         num_blocks: int = 512,
         block_size: int = 256,
         max_cache_len: int = 4096,
-        temperature: float = 1.0,
-        top_p: float = 0.8,
-        top_k: int = 1,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
         enable_graph: bool = False,
         attn_backend: str = "default",
         use_mla: bool = False,
@@ -493,9 +511,9 @@ class AsyncLLMEngine:
         num_blocks: int = 512,
         block_size: int = 256,
         max_cache_len: int = 4096,
-        temperature: float = 1.0,
-        top_p: float = 0.8,
-        top_k: int = 1,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
         enable_graph: bool = False,
         attn_backend: str = "default",
         kv_transfer_config: Optional[KVTransferConfig] = None,
