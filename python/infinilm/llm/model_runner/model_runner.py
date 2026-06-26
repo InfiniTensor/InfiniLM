@@ -1,4 +1,6 @@
 import logging
+import os
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generator
@@ -45,6 +47,18 @@ class ModelRunner:
     def __init__(self, config: EngineConfig):
         self.config = config
         self.kv_transfer_config = config.kv_transfer_config
+        self.profile_enabled = os.getenv("INFINILM_PROFILE_STEPS", "0") not in ("", "0", "false", "False")
+        self.profile_sync = os.getenv("INFINILM_PROFILE_SYNC", "0") not in ("", "0", "false", "False")
+        self.profile = {
+            "build_inputs_ms": 0.0,
+            "forward_ms": 0.0,
+            "to_list_ms": 0.0,
+            "calls": 0,
+            "prefill_forward_ms": 0.0,
+            "decode_forward_ms": 0.0,
+            "prefill_calls": 0,
+            "decode_calls": 0,
+        }
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
         self._init_device()
@@ -167,18 +181,45 @@ class ModelRunner:
             kv_connector_output=kv_connector_output,
         )
 
+    def reset_profile(self):
+        for key in self.profile:
+            self.profile[key] = 0 if key.endswith("calls") else 0.0
+
+    def _sync_for_profile(self):
+        if self.profile_sync:
+            infinicore.sync_device()
+
     def _model_forward(self, scheduler_output):
-        # Build model inputs
+        t0 = time.perf_counter() if self.profile_enabled else None
         model_input = self.processor.build_model_inputs(
             scheduler_output,
             self.config.temperature,
             self.config.top_p,
             self.config.top_k,
         )
+        if self.profile_enabled:
+            t1 = time.perf_counter()
+            self.profile["build_inputs_ms"] += (t1 - t0) * 1000
+        else:
+            t1 = None
 
-        # Run inference
         sampled_tokens = self.model_engine.forward(**model_input)
+        if self.profile_enabled:
+            self._sync_for_profile()
+            t2 = time.perf_counter()
+            forward_ms = (t2 - t1) * 1000
+            self.profile["forward_ms"] += forward_ms
+            phase = "prefill" if scheduler_output.is_prefill else "decode"
+            self.profile[f"{phase}_forward_ms"] += forward_ms
+            self.profile[f"{phase}_calls"] += 1
+        else:
+            t2 = None
+
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
+        if self.profile_enabled:
+            t3 = time.perf_counter()
+            self.profile["to_list_ms"] += (t3 - t2) * 1000
+            self.profile["calls"] += 1
 
         return sampled_tokens_list
 

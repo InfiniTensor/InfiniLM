@@ -88,6 +88,18 @@ class LLMEngine:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
         self.cache_type = config.cache_type
+        self.profile_enabled = os.getenv("INFINILM_PROFILE_STEPS", "0") not in ("", "0", "false", "False")
+        self.profile = {
+            "schedule_ms": 0.0,
+            "execute_ms": 0.0,
+            "scheduler_update_ms": 0.0,
+            "request_update_ms": 0.0,
+            "steps": 0,
+            "prefill_steps": 0,
+            "decode_steps": 0,
+            "scheduled_tokens": 0,
+            "scheduled_requests": 0,
+        }
 
         # Get EOS token IDs from model config
         self.eos_token_ids = self.model_runner.eos_token_id or []
@@ -112,23 +124,47 @@ class LLMEngine:
             - did_work
             - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
         """
-        # Schedule the next unit of work, which may be model execution,
-        # connector control metadata, or both.
+        t0 = time.perf_counter() if self.profile_enabled else None
         scheduler_output = self.scheduler.schedule()
         if scheduler_output is None:
             return False, []
+        if self.profile_enabled:
+            t1 = time.perf_counter()
+            self.profile["schedule_ms"] += (t1 - t0) * 1000
+        else:
+            t1 = None
 
-        # Execute model
         runner_output = self.model_runner.execute_model(scheduler_output)
         sampled_tokens_list = runner_output.sampled_token_ids
-        self.scheduler.update_from_output(runner_output)
+        if self.profile_enabled:
+            t2 = time.perf_counter()
+            self.profile["execute_ms"] += (t2 - t1) * 1000
+        else:
+            t2 = None
 
-        # Update request status
+        self.scheduler.update_from_output(runner_output)
+        if self.profile_enabled:
+            t3 = time.perf_counter()
+            self.profile["scheduler_update_ms"] += (t3 - t2) * 1000
+        else:
+            t3 = None
+
         pending = self._update_requests(
             scheduler_output.is_prefill,
             scheduler_output.scheduled_requests,
             sampled_tokens_list,
         )
+        if self.profile_enabled:
+            t4 = time.perf_counter()
+            self.profile["request_update_ms"] += (t4 - t3) * 1000
+            self.profile["steps"] += 1
+            self.profile["prefill_steps"] += int(scheduler_output.is_prefill)
+            self.profile["decode_steps"] += int(not scheduler_output.is_prefill)
+            self.profile["scheduled_requests"] += len(scheduler_output.scheduled_requests)
+            self.profile["scheduled_tokens"] += sum(
+                req.get_total_length() if scheduler_output.is_prefill else 1
+                for req in scheduler_output.scheduled_requests
+            )
 
         # Return False (no immediate work) only when no requests were scheduled
         # and no KV transfers completed in this step.
@@ -259,6 +295,52 @@ class LLMEngine:
         """Detokenize token IDs to text."""
         return self.tokenizer.decode(token_ids)
 
+    def reset_profile(self):
+        if hasattr(self.model_runner, "reset_profile"):
+            self.model_runner.reset_profile()
+        for key in self.profile:
+            self.profile[key] = 0 if key in (
+                "steps",
+                "prefill_steps",
+                "decode_steps",
+                "scheduled_tokens",
+                "scheduled_requests",
+            ) else 0.0
+
+    def format_profile_summary(self) -> str:
+        runner_profile = getattr(self.model_runner, "profile", {})
+        total_ms = (
+            self.profile["schedule_ms"]
+            + self.profile["execute_ms"]
+            + self.profile["scheduler_update_ms"]
+            + self.profile["request_update_ms"]
+        )
+        lines = [
+            "infinilm_profile "
+            f"steps={self.profile['steps']} "
+            f"prefill_steps={self.profile['prefill_steps']} "
+            f"decode_steps={self.profile['decode_steps']} "
+            f"scheduled_requests={self.profile['scheduled_requests']} "
+            f"scheduled_tokens={self.profile['scheduled_tokens']} "
+            f"total_ms={total_ms:.2f}",
+            "infinilm_profile_engine "
+            f"schedule_ms={self.profile['schedule_ms']:.2f} "
+            f"execute_ms={self.profile['execute_ms']:.2f} "
+            f"scheduler_update_ms={self.profile['scheduler_update_ms']:.2f} "
+            f"request_update_ms={self.profile['request_update_ms']:.2f}",
+            "infinilm_profile_runner "
+            f"calls={runner_profile.get('calls', 0)} "
+            f"build_inputs_ms={runner_profile.get('build_inputs_ms', 0.0):.2f} "
+            f"forward_ms={runner_profile.get('forward_ms', 0.0):.2f} "
+            f"prefill_forward_ms={runner_profile.get('prefill_forward_ms', 0.0):.2f} "
+            f"decode_forward_ms={runner_profile.get('decode_forward_ms', 0.0):.2f} "
+            f"prefill_calls={runner_profile.get('prefill_calls', 0)} "
+            f"decode_calls={runner_profile.get('decode_calls', 0)} "
+            f"to_list_ms={runner_profile.get('to_list_ms', 0.0):.2f}",
+        ]
+        return "\n".join(lines)
+
+
     def process(self, prompt, images, videos, audios, **kwargs) -> dict:
         """Process the input prompt and media into final model inputs."""
         return self.processor(
@@ -383,6 +465,9 @@ class LLM:
             sampling_params = sampling_params.clone()
             sampling_params.max_tokens = self.config.max_tokens
 
+        if self.engine.profile_enabled:
+            self.engine.reset_profile()
+
         requests = []
         for content in contents:
             request_id = f"cmpl-{uuid.uuid4().hex}"
@@ -449,6 +534,9 @@ class LLM:
 
         if pbar:
             pbar.close()
+
+        if self.engine.profile_enabled:
+            print(self.engine.format_profile_summary())
 
         outputs = [req.to_request_output() for req in requests]
         return outputs
