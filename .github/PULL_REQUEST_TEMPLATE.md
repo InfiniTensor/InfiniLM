@@ -80,8 +80,9 @@ follow-up work intentionally left out of scope, etc.
 ## CI / ChatOps
 
 <!--
-the repository pull requests run CI automatically on open, reopen and ready_for_review.
-Maintainers can comment `/retest` to rerun CI for the current commit.
+CI does not run automatically on pull requests. Trigger it manually from the
+Actions tab (workflow: **CI**, branch: this PR's head branch), or ask a
+maintainer to comment `/retest` or `/test` on this PR.
 -->
 
 ---
@@ -147,7 +148,7 @@ Maintainers can comment `/retest` to rerun CI for the current commit.
 ### Build, CI, and Tooling
 
 - [ ] The project builds cleanly from a fresh directory on at least one affected platform.
-- [ ] CI has been triggered automatically, or `/retest` was requested if a rerun is needed.
+- [ ] CI has been triggered manually (Actions → **CI** on this branch), or `/retest` was requested.
 
 ### Documentation
 
