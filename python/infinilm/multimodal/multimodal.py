@@ -1,6 +1,5 @@
-from typing import List, Optional, Union
+from typing import List, Union
 from PIL import Image
-import xxhash
 
 
 def has_multimodal_inputs(messages: Union[List[dict], dict]) -> bool:
@@ -44,9 +43,17 @@ def resolve_multimodal_inputs(messages: Union[List[dict], dict]):
                 # TODO support other image url formats
                 images.append(Image.open(item["image_url"]["url"]))
                 image_urls.append(item["image_url"]["url"])
-
-            else:  # TODO support video/audio
-                raise NotImplementedError("Only image input is supported for now")
+            elif item.get("type") == "video_url":
+                video = item["video_url"]["url"]
+                videos.append(video)
+                if isinstance(video, str):
+                    video_urls.append(video)
+                else:
+                    video_urls.append(
+                        f"predecoded_video:{len(video_urls)}:{len(video)}"
+                    )
+            else:  # TODO support audio
+                raise NotImplementedError("Only image/video input is supported for now")
 
     return {
         "images": images,

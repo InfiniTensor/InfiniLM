@@ -13,6 +13,30 @@ import json
 import os
 
 
+def normalize_hf_config_for_infinilm(config_dict):
+    model_type = config_dict.get("model_type")
+
+    if model_type == "qwen2_5_vl" and config_dict.get("architectures") == [
+        "VideoNSAForConditionalGeneration"
+    ]:
+        normalized = dict(config_dict)
+        normalized["model_type"] = "videonsa"
+        normalized["original_model_type"] = model_type
+        if "text_config" in normalized:
+            text_config = dict(normalized["text_config"])
+            text_config["model_type"] = "videonsa"
+            text_config.setdefault("torch_dtype", normalized.get("torch_dtype"))
+            text_config.setdefault(
+                "head_dim",
+                text_config["hidden_size"] // text_config["num_attention_heads"],
+            )
+            text_config.setdefault("attention_bias", True)
+            normalized["text_config"] = text_config
+        return normalized
+
+    return config_dict
+
+
 def read_hf_config(model_path):
     config_path = os.path.join(model_path, "config.json")
     with open(config_path, "r") as f:
@@ -28,7 +52,7 @@ def read_hf_config(model_path):
         raise ValueError(
             f"`model_type` is not specified in the config file `{config_path}`."
         )
-    return config_dict
+    return normalize_hf_config_for_infinilm(config_dict)
 
 
 # config.json (required) defines model architecture, while generation_config.json
@@ -148,6 +172,7 @@ class InferEngine(_infinilm.InferEngine):
         image_bound=None,
         tgt_sizes=None,
         image_req_ids=None,
+        visual_token_ranges=None,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -204,6 +229,7 @@ class InferEngine(_infinilm.InferEngine):
                         image_bound=image_bound,
                         tgt_sizes=tgt_sizes,
                         image_req_ids=image_req_ids,
+                        visual_token_ranges=visual_token_ranges,
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,

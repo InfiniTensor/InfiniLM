@@ -42,6 +42,8 @@ struct AttentionMetadata {
 
 struct MultiModalMetadata {
     std::optional<std::vector<size_t>> image_req_ids;
+    // Flattened [start, end) token ranges in the current packed language sequence.
+    std::optional<std::vector<size_t>> visual_token_ranges;
 };
 
 struct ForwardContext {

@@ -156,6 +156,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(pixel_values),
         to_device_vec(image_bound),
         to_device_vec(tgt_sizes),
+        visual_token_ranges,
     };
 
     infinilm::global_state::get_forward_context().attn_metadata = {
@@ -167,7 +168,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         input.slot_mapping};
 
     global_state::get_forward_context().mm_metadata = {
-        image_req_ids};
+        image_req_ids,
+        visual_token_ranges};
 
     return input;
 }
