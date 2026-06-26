@@ -72,9 +72,9 @@ jobs:
         run: |
           json=$(gh api "repos/$REPO/pulls/$ISSUE")
           head_sha=$(echo "$json" | jq -r '.head.sha')
-          is_draft=$(echo "$json" | jq -r '.draft')
+          head_ref=$(echo "$json" | jq -r '.head.ref')
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
-          echo "is_draft=$is_draft" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
 
       - name: React to command
         if: steps.cmd.outputs.command != '' && steps.auth.outputs.trusted == 'true'
@@ -93,13 +93,13 @@ jobs:
           REPO: ${{ github.repository }}
           ISSUE: ${{ github.event.issue.number }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          IS_DRAFT: ${{ steps.pr.outputs.is_draft }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
           COMMAND: ${{ steps.cmd.outputs.command }}
         run: |
           set -euo pipefail
 
-          run_id=$(gh api "repos/$REPO/actions/workflows/ci_test.yml/runs?head_sha=$HEAD_SHA&per_page=5" \
-            | jq -r '[.workflow_runs[] | select(.event == "pull_request" or .event == "workflow_dispatch")][0].id // empty')
+          run_id=$(gh api "repos/$REPO/actions/workflows/ci_test.yml/runs?head_sha=$HEAD_SHA&event=workflow_dispatch&per_page=5" \
+            | jq -r '.workflow_runs[0].id // empty')
 
           if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
             gh api -X POST "repos/$REPO/actions/runs/$run_id/rerun" >/dev/null
@@ -107,25 +107,19 @@ jobs:
               -f body="🔁 Re-running CI workflow run [$run_id](https://github.com/$REPO/actions/runs/$run_id) for commit \`${HEAD_SHA:0:7}\` (triggered by \`/$COMMAND\`)." \
               >/dev/null
           else
-            # GITHUB_TOKEN cannot dispatch other workflows; toggle draft to fire ready_for_review.
-            if [ "$IS_DRAFT" = "true" ]; then
-              gh api -X PATCH "repos/$REPO/pulls/$ISSUE" -F draft=false >/dev/null
-            else
-              gh api -X PATCH "repos/$REPO/pulls/$ISSUE" -F draft=true >/dev/null
-              gh api -X PATCH "repos/$REPO/pulls/$ISSUE" -F draft=false >/dev/null
-            fi
+            gh workflow run ci_test.yml --ref "$HEAD_REF" -f infinicore_branch=main
 
             sleep 8
-            run_id=$(gh api "repos/$REPO/actions/workflows/ci_test.yml/runs?head_sha=$HEAD_SHA&per_page=3" \
-              | jq -r '[.workflow_runs[] | select(.event == "pull_request")][0].id // empty')
+            run_id=$(gh api "repos/$REPO/actions/workflows/ci_test.yml/runs?head_sha=$HEAD_SHA&event=workflow_dispatch&per_page=3" \
+              | jq -r '.workflow_runs[0].id // empty')
 
             if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
               gh api -X POST "repos/$REPO/issues/$ISSUE/comments" \
-                -f body="✅ No previous CI run found. Started CI workflow run [$run_id](https://github.com/$REPO/actions/runs/$run_id) for commit \`${HEAD_SHA:0:7}\` (triggered by \`/$COMMAND\`)." \
+                -f body="✅ Started CI workflow run [$run_id](https://github.com/$REPO/actions/runs/$run_id) for commit \`${HEAD_SHA:0:7}\` on branch \`$HEAD_REF\` (triggered by \`/$COMMAND\`)." \
                 >/dev/null
             else
               gh api -X POST "repos/$REPO/issues/$ISSUE/comments" \
-                -f body="✅ No previous CI run found. Triggered CI via \`ready_for_review\` for commit \`${HEAD_SHA:0:7}\` (via \`/$COMMAND\`). The workflow run should appear in Checks shortly." \
+                -f body="✅ Dispatched CI via \`workflow_dispatch\` for branch \`$HEAD_REF\` (commit \`${HEAD_SHA:0:7}\`, via \`/$COMMAND\`). The workflow run should appear in Checks shortly." \
                 >/dev/null
             fi
           fi
