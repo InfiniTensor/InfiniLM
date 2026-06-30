@@ -495,19 +495,14 @@ class LLMEngine:
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
 
-        expected_tokens = sum(
-            1
+        rows_needing_sample = [
+            row
             for row in rows
             if not (row.is_prefill_row and not row.is_final_prefill_chunk)
-            and not row.request.is_aborted()
-        )
+        ]
+        expected_tokens = len(rows_needing_sample)
         if len(sampled_tokens) != expected_tokens:
-            req_ids = [
-                row.request.request_id
-                for row in rows
-                if not (row.is_prefill_row and not row.is_final_prefill_chunk)
-                and not row.request.is_aborted()
-            ]
+            req_ids = [row.request.request_id for row in rows_needing_sample]
             raise RuntimeError(
                 f"sampled token count mismatch: got {len(sampled_tokens)} "
                 f"expected {expected_tokens} for request_ids={req_ids}"
@@ -525,6 +520,7 @@ class LLMEngine:
                 continue
 
             if req.is_aborted():
+                next(token_iter, None)
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
                 )
@@ -1356,7 +1352,7 @@ class AsyncLLMEngine:
                     "step_loop_exception",
                     "H2",
                     {
-                        "error": str(e),
+                        "error": err_msg,
                         **_scheduler_queue_stats(self.engine),
                     },
                 )
