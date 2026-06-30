@@ -300,6 +300,15 @@ class BlockManager:
             block = self.blocks[block_id]
             block.ref_count -= 1
 
+    def reclaim_unused_blocks(self) -> int:
+        """Deallocate all blocks in used_block_ids with ref_count=0."""
+        to_free = [
+            bid for bid in self.used_block_ids if self.blocks[bid].ref_count == 0
+        ]
+        for block_id in to_free:
+            self._deallocate_block(block_id)
+        return len(to_free)
+
     def try_free_blocks(self, num_required: int) -> bool:
         """Try to free blocks with ref_count=0."""
         to_free = [

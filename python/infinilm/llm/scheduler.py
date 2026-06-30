@@ -1003,6 +1003,16 @@ class Scheduler:
             else:
                 self.running_queue.sync_q.put(req)
 
+        reclaimed = self.cache_manager.reclaim_unused_blocks()
+        if reclaimed > 0:
+            stats = self.get_cache_stats()
+            logger.info(
+                "complete_requests: reclaimed %d blocks used=%d free=%d",
+                reclaimed,
+                stats["num_used_blocks"],
+                stats["num_free_blocks"],
+            )
+
     def _remaining_generation_tokens(self, req: InferenceRequest) -> int:
         max_tokens = req.sampling_params.max_tokens
         if max_tokens is None:
