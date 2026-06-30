@@ -107,7 +107,7 @@ jobs:
               -f body="🔁 Re-running CI workflow run [$run_id](https://github.com/$REPO/actions/runs/$run_id) for commit \`${HEAD_SHA:0:7}\` (triggered by \`/$COMMAND\`)." \
               >/dev/null
           else
-            gh workflow run ci_test.yml --ref "$HEAD_REF" -f infinicore_branch=main
+            gh workflow run ci_test.yml --ref "$HEAD_REF" -R "$REPO" -f infinicore_branch=main
 
             sleep 8
             run_id=$(gh api "repos/$REPO/actions/workflows/ci_test.yml/runs?head_sha=$HEAD_SHA&event=workflow_dispatch&per_page=3" \
