@@ -376,7 +376,6 @@ class BaseConfig:
         env_checks = [
             ("metax", ["MACA_PATH", "MACA_HOME", "MACA_ROOT"]),
             ("hygon", ["DTK_HOME", "DTK_PATH"]),
-            ("ali", ["PPU_VISIBLE_DEVICES"]),
         ]
         for device_name, env_names in env_checks:
             if any(os.getenv(env_name) for env_name in env_names):
