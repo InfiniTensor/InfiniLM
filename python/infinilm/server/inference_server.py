@@ -13,12 +13,17 @@ import uvicorn
 import logging
 import os
 import asyncio
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
 from infinilm.base_config import BaseConfig
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, Request, Query
+from fastapi.responses import JSONResponse, StreamingResponse, PlainTextResponse
 
 from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
 from infinilm.llm.llm import normalize_chat_messages, _should_defer_tokenize_to_step_thread
+from infinilm.llm.request import RequestStatus
+from infinilm.server.metrics import MetricsRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +38,37 @@ DEFAULT_REQUEST_TIMEOUT = _env_float("INFINI_REQUEST_TIMEOUT_S", 1000.0)
 DEFAULT_STREAM_TIMEOUT = _env_float(
     "INFINI_STREAM_TIMEOUT_S", DEFAULT_REQUEST_TIMEOUT
 )
+
+_RUNTIME_ENV_KEYS = (
+    "INFINI_PREFILL_NATIVE_CG",
+    "INFINI_COMPILE_MAX_SEQ",
+    "INFINI_PREFILL_COMPILE",
+    "INFINI_V1_SCHEDULER",
+    "HPCC_VISIBLE_DEVICES",
+    "CUDA_VISIBLE_DEVICES",
+    "MACA_VISIBLE_DEVICES",
+    "IMAGE_TAG",
+    "INFINI_BUILD_SHA",
+)
+
+
+def _default_artifact_root() -> str:
+    if os.path.isdir("/app/logs"):
+        return "/app/logs/servers"
+    return str(Path.cwd() / "logs" / "servers")
+
+
+def _collect_runtime_env() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key in _RUNTIME_ENV_KEYS:
+        val = os.environ.get(key)
+        if val is not None and str(val).strip() != "":
+            out[key] = val
+    return out
+
+
+def _iso_utc(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def chunk_json(
@@ -164,6 +200,15 @@ class InferenceServer:
         self.attn_backend = attn_backend
         self.ignore_eos = ignore_eos
 
+        self.server_id = str(uuid.uuid4())
+        self.started_at = time.time()
+        self.artifact_root = os.environ.get(
+            "INFINI_SERVER_ARTIFACT_ROOT", _default_artifact_root()
+        )
+        self.artifact_dir = os.path.join(self.artifact_root, self.server_id)
+        self.metrics = MetricsRegistry(self.server_id)
+        self._artifacts_written = False
+
         self.engine: AsyncLLMEngine = None
 
     @staticmethod
@@ -244,6 +289,92 @@ class InferenceServer:
         logger.info(
             "  max_model_len: %s",
             getattr(self.engine.engine, "max_model_len", "unknown"),
+        )
+        self._write_startup_artifacts()
+
+    def _startup_args_snapshot(self) -> dict[str, Any]:
+        return {
+            "model_path": self.model_path,
+            "model_id": self.model_id,
+            "device": self.device,
+            "dtype": self.dtype,
+            "tensor_parallel_size": self.tensor_parallel_size,
+            "cache_type": self.cache_type,
+            "max_tokens": self.max_tokens,
+            "max_batch_size": self.max_batch_size,
+            "num_blocks": self.num_blocks,
+            "block_size": self.block_size,
+            "max_cache_len": self.max_cache_len,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "enable_graph": self.enable_graph,
+            "attn_backend": self.attn_backend,
+            "ignore_eos": self.ignore_eos,
+            "host": self.host,
+            "port": self.port,
+        }
+
+    def metadata_payload(self) -> dict[str, Any]:
+        return {
+            "server_id": self.server_id,
+            "started_at": _iso_utc(self.started_at),
+            "model_id": self.model_id,
+            "model_path": self.model_path,
+            "host": self.host,
+            "port": self.port,
+            "startup_args": self._startup_args_snapshot(),
+            "runtime_env": _collect_runtime_env(),
+            "artifact_dir": self.artifact_dir,
+        }
+
+    def _write_startup_artifacts(self) -> None:
+        if self._artifacts_written:
+            return
+        os.makedirs(self.artifact_dir, exist_ok=True)
+        payload = self.metadata_payload()
+        meta_path = os.path.join(self.artifact_dir, "metadata.json")
+        with open(meta_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+            fh.write("\n")
+        if os.environ.get("INFINI_SERVER_FILE_LOG", "1") not in ("0", "false", "False"):
+            log_path = os.path.join(self.artifact_dir, "server.log")
+            handler = logging.FileHandler(log_path, encoding="utf-8")
+            handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                )
+            )
+            logging.getLogger().addHandler(handler)
+        self._artifacts_written = True
+        logger.info("Server artifacts: server_id=%s dir=%s", self.server_id, self.artifact_dir)
+
+    def _record_first_token(self, req) -> None:
+        if req is not None and req.first_token_time is None:
+            req.first_token_time = time.time()
+
+    def _request_status_label(self, req) -> str:
+        if req is None:
+            return "error"
+        if req.status == RequestStatus.FINISHED:
+            return "ok"
+        if req.status == RequestStatus.CANCELED:
+            return "canceled"
+        if req.status == RequestStatus.TIMEOUT:
+            return "timeout"
+        return "error"
+
+    def _record_request_metrics(self, req) -> None:
+        if req is None:
+            return
+        self.metrics.record_request_finish(
+            status=self._request_status_label(req),
+            arrival_time=req.arrival_time,
+            finished_time=req.finished_time,
+            first_token_time=req.first_token_time,
+            prompt_tokens=req.get_prompt_length(),
+            completion_tokens=req.get_num_generated_tokens(),
         )
 
     async def _serve(self) -> None:
@@ -382,6 +513,23 @@ class InferenceServer:
         async def list_models_legacy():
             return _models_payload()
 
+        def _metadata_handler():
+            return self.metadata_payload()
+
+        @app.get("/metadata")
+        @app.get("/v1/metadata")
+        async def metadata():
+            return _metadata_handler()
+
+        @app.get("/metrics")
+        async def metrics(format: Optional[str] = Query(default=None)):
+            if format == "json":
+                return self.metrics.json_snapshot(self.engine)
+            return PlainTextResponse(
+                content=self.metrics.prometheus_text(self.engine),
+                media_type="text/plain; version=0.0.4; charset=utf-8",
+            )
+
     def _normalize_messages(self, messages: list) -> list:
         """Normalize messages to handle multimodal content (list format)."""
         return normalize_chat_messages(messages)
@@ -481,6 +629,7 @@ class InferenceServer:
                 )
 
                 if not is_eos_token and token_output.token_text:
+                    self._record_first_token(req)
                     # Send token
                     chunk = json.dumps(
                         chunk_json(
@@ -542,6 +691,7 @@ class InferenceServer:
         finally:
             if req and not req.is_finished():
                 req.mark_canceled()
+            self._record_request_metrics(req)
             if req:
                 await req.close()
             yield "data: [DONE]\n\n"
@@ -588,6 +738,7 @@ class InferenceServer:
                 is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
 
                 if not is_eos_token and token_output.token_text:
+                    self._record_first_token(req)
                     output_text += token_output.token_text
 
                 if token_output.finished:
@@ -627,6 +778,7 @@ class InferenceServer:
         finally:
             if req and not req.is_finished():
                 req.mark_canceled()
+            self._record_request_metrics(req)
             if req:
                 await req.close()
 
