@@ -37,7 +37,13 @@ get_rope(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
         }
     }
 
-    std::string cache_key = scaling_type_str + "_rope_dim_" + std::to_string(rotary_dim)
+    const double rope_theta = model_config->get<double>("rope_theta");
+    const auto algo = model_config->get_rope_algo();
+    std::string algo_str = (algo == infinicore::nn::RoPE::Algo::GPT_J) ? "gpt_j" : "gpt_neox";
+    std::string cache_key = scaling_type_str + "_algo_" + algo_str
+                          + "_head_dim_" + std::to_string(head_dim)
+                          + "_rope_dim_" + std::to_string(rotary_dim)
+                          + "_theta_" + std::to_string(rope_theta)
                           + "_dev_" + device.toString();
     auto it = _ROPE_DICT.find(cache_key);
     if (it != _ROPE_DICT.end()) {
@@ -46,9 +52,6 @@ get_rope(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
 
     const auto &dtype = model_config->get_dtype();
     size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
-    double rope_theta = model_config->get<double>("rope_theta");
-
-    infinicore::nn::RoPE::Algo algo = model_config->get_rope_algo();
     auto rope = std::make_shared<infinicore::nn::RoPE>(head_dim, rotary_dim, max_position_embeddings, rope_theta,
                                                        algo, dtype, device, scaling);
 

@@ -1,10 +1,82 @@
 #include "rank_worker.hpp"
 #include "../models/model_factory.hpp"
+#include "../utils.hpp"
 #include "infinicore/ops.hpp"
 #include <spdlog/spdlog.h>
+#include <cmath>
+#include <cstring>
+#include <limits>
 #include <stdexcept>
 
 namespace infinilm::engine {
+namespace {
+
+infinicore::Tensor logits_to_cpu_f32(const infinicore::Tensor &logits) {
+    auto cpu = logits->contiguous()->to(infinicore::Device::cpu());
+    auto out = infinicore::Tensor::empty(cpu->shape(), infinicore::DataType::F32, infinicore::Device::cpu());
+    auto *dst = reinterpret_cast<float *>(out->data());
+    const size_t count = cpu->numel();
+    switch (cpu->dtype()) {
+    case infinicore::DataType::F32:
+        std::memcpy(dst, cpu->data(), count * sizeof(float));
+        break;
+    case infinicore::DataType::F16: {
+        const auto *src = reinterpret_cast<const uint16_t *>(cpu->data());
+        for (size_t i = 0; i < count; ++i) {
+            dst[i] = f16_to_f32(src[i]);
+        }
+        break;
+    }
+    case infinicore::DataType::BF16: {
+        const auto *src = reinterpret_cast<const uint16_t *>(cpu->data());
+        for (size_t i = 0; i < count; ++i) {
+            dst[i] = bf16_to_f32(src[i]);
+        }
+        break;
+    }
+    default:
+        throw std::runtime_error("RankWorker: unsupported logits dtype for debug output");
+    }
+    return out;
+}
+
+infinicore::Tensor greedy_sample_to_cpu_i64(const infinicore::Tensor &logits,
+                                            const infinicore::Tensor &input_offsets) {
+    auto logits_cpu = logits_to_cpu_f32(logits);
+    const auto &shape = logits_cpu->shape();
+    const size_t vocab_size = shape[2];
+    const size_t total_len = shape[1];
+    const size_t batch_size = shape[0];
+    auto offsets_cpu = input_offsets->contiguous()->to(infinicore::Device::cpu());
+    const size_t n_req = offsets_cpu->size(0) - 1;
+    const auto *offsets = reinterpret_cast<const int32_t *>(offsets_cpu->data());
+    auto output_ids = infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, infinicore::Device::cpu());
+    auto *out = reinterpret_cast<int64_t *>(output_ids->data());
+    const auto *values = reinterpret_cast<const float *>(logits_cpu->data());
+    for (size_t i = 0; i < n_req; ++i) {
+        const size_t row = static_cast<size_t>(offsets[i + 1] - 1);
+        if (row >= batch_size * total_len) {
+            throw std::runtime_error("RankWorker: input_offsets out of logits range");
+        }
+        const float *score = values + row * vocab_size;
+        size_t best = 0;
+        float best_value = std::isfinite(score[0]) ? score[0] : -std::numeric_limits<float>::infinity();
+        for (size_t token = 1; token < vocab_size; ++token) {
+            const float value = score[token];
+            if (std::isfinite(value) && value > best_value) {
+                best = token;
+                best_value = value;
+            }
+        }
+        if (!std::isfinite(best_value)) {
+            best = 0;
+        }
+        out[i] = static_cast<int64_t>(best);
+    }
+    return output_ids;
+}
+
+} // namespace
 
 RankWorker::RankWorker(
     std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -429,21 +501,25 @@ void RankWorker::thread_loop() {
                             auto n_req = local_args.input_offsets.value()->size(0) - 1;
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
-                            auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
-
-                            for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
+                            infinicore::Tensor output_ids;
+                            const bool greedy = top_k == 1 || temperature == 0.0f || top_p == 0.0f;
+                            if (greedy) {
+                                output_ids = greedy_sample_to_cpu_i64(logits, local_args.input_offsets.value());
+                            } else {
+                                output_ids = infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device);
+                                for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
+                                    auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
+                                    auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                    float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                    infinicore::op::random_sample_(
+                                        out, score, random_val, top_p, top_k, temperature);
+                                }
+                                output_ids = output_ids->to(infinicore::Device::cpu());
                             }
-
-                            output_ids = output_ids->to(infinicore::Device::cpu());
 
                             infinicore::context::syncStream();
 
-                            auto out{Output{output_ids}};
+                            auto out{Output{output_ids, logits_to_cpu_f32(logits)}};
 
                             output_ = std::move(out);
                         }

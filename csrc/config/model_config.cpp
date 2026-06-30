@@ -1,8 +1,23 @@
 #include "model_config.hpp"
 
 namespace infinilm::config {
+
+namespace {
+const nlohmann::json &select_quantization_config(const nlohmann::json &config_json) {
+    static const nlohmann::json empty_quant_config = nullptr;
+
+    if (config_json.contains("quantization_config")) {
+        return config_json.at("quantization_config");
+    }
+    if (config_json.contains("compression_config")) {
+        return config_json.at("compression_config");
+    }
+    return empty_quant_config;
+}
+} // namespace
+
 ModelConfig::ModelConfig(const nlohmann::json &json) : config_json(json) {
-    this->quant_config = QuantConfig(config_json["quantization_config"]);
+    this->quant_config = QuantConfig(select_quantization_config(config_json));
 };
 
 ModelConfig::ModelConfig(const std::string &path) {
@@ -13,7 +28,7 @@ ModelConfig::ModelConfig(const std::string &path) {
     } else {
         throw std::runtime_error("Could not open config file: " + path);
     }
-    this->quant_config = QuantConfig(config_json["quantization_config"]);
+    this->quant_config = QuantConfig(select_quantization_config(config_json));
 }
 
 infinilm::quantization::QuantScheme

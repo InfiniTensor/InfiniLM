@@ -72,6 +72,7 @@ public:
 
     struct Output {
         infinicore::Tensor output_ids;
+        infinicore::Tensor logits;
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,

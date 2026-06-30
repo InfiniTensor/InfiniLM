@@ -1,4 +1,5 @@
 import importlib
+import json
 import pkgutil
 from pathlib import Path
 from transformers import AutoConfig
@@ -30,8 +31,15 @@ class AutoInfinilmProcessor:
         registered Processor. Falls back to the registered default processor
         for unregistered or standard architectures.
         """
-        config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
-        model_type = config.model_type.lower()
+        config_path = Path(model_dir_path) / "config.json"
+        model_type = None
+        if config_path.exists():
+            with config_path.open("r") as f:
+                model_type = json.load(f).get("model_type")
 
-        processor_cls = get_processor_class(model_type)
+        if model_type is None:
+            config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
+            model_type = config.model_type
+
+        processor_cls = get_processor_class(model_type.lower())
         return processor_cls(model_dir_path)
