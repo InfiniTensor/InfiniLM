@@ -62,6 +62,37 @@ def _is_internal_moe_packed_weight(key: str) -> bool:
     return key.endswith(".mlp.experts.w13_weight") or key.endswith(
         ".mlp.experts.w2_weight"
     )
+def _should_skip_weight(key: str) -> bool:
+    return key.startswith("mtp.")
+
+
+def _filter_unsupported_weights(
+    state_dict: Dict[str, torch.Tensor],
+) -> Dict[str, torch.Tensor]:
+    return {key: tensor for key, tensor in state_dict.items() if not _should_skip_weight(key)}
+
+
+def _prepare_weight_tensor(
+    key: str, tensor: torch.Tensor, default_dtype: torch.dtype
+) -> torch.Tensor:
+    """Prepare a checkpoint tensor before converting to infinicore.
+
+    W8A8 checkpoints may store per-channel scales as bfloat16, while InfiniLM
+    registers scale and hash-compression auxiliary tensors as float32.
+    """
+    if tensor.is_floating_point() and (
+        key.endswith("weight_scale")
+        or key.endswith(".scale")
+        or key.endswith("_scale")
+        or key.endswith("_base")
+        or key.endswith("_fn")
+        or key.endswith("attn_sink")
+        or key.endswith("ffn.gate.bias")
+    ):
+        return tensor.float()
+    if tensor.dtype in (torch.int8, torch.int32, torch.int64, torch.uint8):
+        return tensor
+    return tensor.to(dtype=default_dtype)
 
 
 def check_parameters(model_keys: list, already_loaded_keys: list):
@@ -120,6 +151,8 @@ def load_state_dict(
             )
 
         for k in f.keys():
+            if _should_skip_weight(k):
+                continue
             state_dict[k] = f.get_tensor(k).to(device=device)
 
     return state_dict
@@ -169,7 +202,9 @@ def get_model_state_dict(
     # --------------------------------------------------------- #
     model_param_infini = {}
     for key in model_param.keys():
-        model_param_infini[key] = infinicore.from_torch(model_param[key])
+        model_param_infini[key] = infinicore.from_torch(
+            _prepare_weight_tensor(key, model_param[key], torch_dtype)
+        )
 
     t2 = time.time()
     print(f" read weights over! {(t2 - t1) * 1000} ms \n")
@@ -247,7 +282,9 @@ def load_model_state_dict_by_file(
             # --------------------------------------------------------- #
             model_param_infini = {}
             for key in model_param.keys():
-                model_param_infini[key] = infinicore.from_torch(model_param[key])
+                model_param_infini[key] = infinicore.from_torch(
+                    _prepare_weight_tensor(key, model_param[key], torch_dtype)
+                )
             model.load_state_dict(model_param_infini, strict=False)
             infinicore.sync_device()
             del model_param_infini
@@ -267,6 +304,7 @@ def load_model_state_dict_by_file(
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+        model_params = _filter_unsupported_weights(model_params)
 
         # Apply model-specific weight remapping
         remapper = _WEIGHT_REMAPPER.get(model_type)
@@ -286,7 +324,7 @@ def load_model_state_dict_by_file(
         model_param_infini = {}
         for key in model_params.keys():
             model_param_infini[key] = infinicore.from_torch(
-                model_params[key].to(dtype=torch_dtype)
+                _prepare_weight_tensor(key, model_params[key], torch_dtype)
             )
             already_loaded_keys.append(key)
 
@@ -343,13 +381,19 @@ def load_model_state_dict_by_tensor(
 
             with safe_open(file_path, "pt", "cpu") as f:
                 for name in f.keys():
-                    tensor = f.get_tensor(name).to(dtype=torch_dtype)
+                    if _should_skip_weight(name):
+                        continue
+                    tensor = _prepare_weight_tensor(
+                        name, f.get_tensor(name), torch_dtype
+                    )
 
                     if name == "model.embed_tokens.weight":
                         embed_tokens_torch_unscaled = tensor
                         if scale_emb != 1.0:
                             tensor = tensor * float(scale_emb)
 
+                    if model.hf_config.get("model_type", "") == "deepseek_v4" and name.endswith(".scale"):
+                        name = name.removesuffix(".scale") + ".weight_scale"
                     weight_infini = infinicore.from_torch(tensor)
                     model.load_param(name, weight_infini)
                     already_loaded_keys.append(name)
@@ -358,13 +402,16 @@ def load_model_state_dict_by_tensor(
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+        model_params = _filter_unsupported_weights(model_params)
 
         for key in model_params.keys():
-            tensor = model_params[key].to(dtype=torch_dtype)
+            tensor = _prepare_weight_tensor(key, model_params[key], torch_dtype)
             if key == "model.embed_tokens.weight":
                 embed_tokens_torch_unscaled = tensor
                 if scale_emb != 1.0:
                     tensor = tensor * float(scale_emb)
+            if model.hf_config.get("model_type", "") == "deepseek_v4" and key.endswith(".scale"):
+                key = key.removesuffix(".scale") + ".weight_scale"
             weight_infini = infinicore.from_torch(tensor)
             model.load_param(key, weight_infini)
             already_loaded_keys.append(key)
@@ -679,6 +726,17 @@ def _remap_gpt2(state_dict, config=None):
     return remapped
 
 
+def _remap_deepseek_v4(state_dict, config=None):
+    """Remap DeepSeek V4 checkpoint names to InfiniLM generic linear names."""
+    remapped = {}
+    for key, tensor in state_dict.items():
+        new_key = key
+        if new_key.endswith(".scale"):
+            new_key = new_key.removesuffix(".scale") + ".weight_scale"
+        remapped[new_key] = tensor
+    return remapped
+
+
 def _remap_mamba(state_dict, config=None):
     """Remap HuggingFace Mamba weights to InfiniLM native names."""
     remapped = {}
@@ -751,4 +809,5 @@ _WEIGHT_REMAPPER = {
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
+    "deepseek_v4": _remap_deepseek_v4,
 }

@@ -46,5 +46,9 @@ class AutoInfinilmProcessor:
         ):
             model_type = "videonsa"
 
-        processor_cls = get_processor_class(model_type)
+        if model_type is None:
+            config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
+            model_type = config.model_type
+
+        processor_cls = get_processor_class(model_type.lower())
         return processor_cls(model_dir_path)
