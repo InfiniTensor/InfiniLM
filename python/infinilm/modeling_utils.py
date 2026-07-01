@@ -570,7 +570,6 @@ def _remap_baichuan(state_dict, config=None):
     hf_config = config or {}
     hidden_size = hf_config.get("hidden_size", 4096)
     num_heads = hf_config.get("num_attention_heads", 32)
-    vocab_size = hf_config.get("vocab_size", 125696)
     per_head_dim = num_heads * (hidden_size // num_heads)
 
     # 1. Split W_pack → q_proj, k_proj, v_proj
@@ -660,6 +659,19 @@ def _remap_mamba(state_dict, config=None):
     return remapped
 
 
+def _remap_videonsa(state_dict, config=None):
+    """Adapt VideoNSA/Qwen2.5-VL weights to the InfiniLM C++ module layout."""
+    key = "visual.patch_embed.proj.weight"
+    if key in state_dict:
+        state_dict = dict(state_dict)
+        if state_dict[key].ndim == 5:
+            state_dict[key] = (
+                state_dict[key].reshape(state_dict[key].shape[0], -1).contiguous()
+            )
+        state_dict["visual.patch_embed.proj_weight"] = state_dict[key]
+    return state_dict
+
+
 # Model type → remap function mapping
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
@@ -667,4 +679,5 @@ _WEIGHT_REMAPPER = {
     "baichuan": _remap_baichuan,
     "gpt2": _remap_gpt2,
     "mamba": _remap_mamba,
+    "videonsa": _remap_videonsa,
 }

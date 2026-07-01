@@ -1,4 +1,5 @@
 import importlib
+import json
 import pkgutil
 from pathlib import Path
 from transformers import AutoConfig
@@ -32,6 +33,16 @@ class AutoInfinilmProcessor:
         """
         config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
         model_type = config.model_type.lower()
+        raw_config_path = Path(model_dir_path) / "config.json"
+        architectures = []
+        if raw_config_path.exists():
+            with raw_config_path.open("r") as f:
+                architectures = json.load(f).get("architectures", []) or []
+        if (
+            model_type == "qwen2_5_vl"
+            and "VideoNSAForConditionalGeneration" in architectures
+        ):
+            model_type = "videonsa"
 
         processor_cls = get_processor_class(model_type)
         return processor_cls(model_dir_path)

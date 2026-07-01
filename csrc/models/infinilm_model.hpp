@@ -43,6 +43,8 @@ public:
         /// Target patch sizes for each image (MiniCPM-V).
         /// Vector of tensors shape: [n_path, 2] if pre-flattened.
         std::optional<std::vector<infinicore::Tensor>> tgt_sizes;
+        /// Flattened [start, end) visual token ranges in the packed language sequence.
+        std::optional<std::vector<size_t>> visual_token_ranges;
     };
 
     struct Output {

@@ -60,6 +60,8 @@ public:
         std::optional<std::vector<infinicore::Tensor>> tgt_sizes;
         /// req_id for each pixel_values among a batch
         std::optional<std::vector<size_t>> image_req_ids;
+        /// Flattened [start, end) visual token ranges in the packed language sequence.
+        std::optional<std::vector<size_t>> visual_token_ranges;
 
         float temperature{1};
 

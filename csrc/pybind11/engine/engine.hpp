@@ -140,6 +140,7 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<std::vector<infinicore::Tensor>> image_bound,
                          std::optional<std::vector<infinicore::Tensor>> tgt_sizes,
                          std::optional<std::vector<size_t>> image_req_ids,
+                         std::optional<std::vector<size_t>> visual_token_ranges,
                          py::kwargs kwargs) {
                 InferEngine::Input input{
                     std::move(input_ids),
@@ -154,6 +155,7 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(image_bound),
                     std::move(tgt_sizes),
                     std::move(image_req_ids),
+                    std::move(visual_token_ranges),
                 };
 
                 // Explicit defaults
@@ -198,7 +200,8 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("pixel_values") = std::nullopt,
             py::arg("image_bound") = std::nullopt,
             py::arg("tgt_sizes") = std::nullopt,
-            py::arg("image_req_ids") = std::nullopt)
+            py::arg("image_req_ids") = std::nullopt,
+            py::arg("visual_token_ranges") = std::nullopt)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
         .def_readwrite("position_ids", &InferEngine::Input::position_ids)
         .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
@@ -211,6 +214,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("image_bound", &InferEngine::Input::image_bound)
         .def_readwrite("tgt_sizes", &InferEngine::Input::tgt_sizes)
         .def_readwrite("image_req_ids", &InferEngine::Input::image_req_ids)
+        .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p);
