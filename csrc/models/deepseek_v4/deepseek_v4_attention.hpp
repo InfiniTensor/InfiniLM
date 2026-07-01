@@ -60,11 +60,13 @@ private:
     infinilm::backends::AttentionBackend attention_backend_;
     size_t layer_idx_{0};
     size_t hidden_size_{0};
+    size_t global_num_attention_heads_{0};
     size_t num_attention_heads_{0};
     size_t num_key_value_heads_{1};
     size_t head_dim_{0};
     size_t q_lora_rank_{0};
     size_t o_lora_rank_{0};
+    size_t global_o_groups_{0};
     size_t o_groups_{0};
     size_t o_a_input_size_{0};
     size_t o_a_output_size_{0};
