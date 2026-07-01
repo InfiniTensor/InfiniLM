@@ -63,6 +63,10 @@ class InferenceServerObservabilityTest(unittest.TestCase):
         meta = r1.json()
         self.assertEqual(meta["server_id"], self.server.server_id)
         self.assertIn("startup_args", meta)
+        self.assertIn("config", meta)
+        self.assertIn("build_info", meta)
+        self.assertIn("runtime_env", meta)
+        self.assertEqual(meta["config"]["startup"], meta["startup_args"])
         self.assertIn("artifact_dir", meta)
         self.assertEqual(meta["model_id"], "test_model_dir")
 

@@ -23,6 +23,11 @@ from fastapi.responses import JSONResponse, StreamingResponse, PlainTextResponse
 from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
 from infinilm.llm.llm import normalize_chat_messages, _should_defer_tokenize_to_step_thread
 from infinilm.llm.request import RequestStatus
+from infinilm.server.metadata_collectors import (
+    collect_build_info,
+    collect_config,
+    collect_runtime_env,
+)
 from infinilm.server.metrics import MetricsRegistry
 from infinilm.server.openai_compat import resolve_chat_template_kwargs
 from infinilm.server.reasoning_parser import ReasoningStreamSplitter, split_thinking_content
@@ -41,32 +46,11 @@ DEFAULT_STREAM_TIMEOUT = _env_float(
     "INFINI_STREAM_TIMEOUT_S", DEFAULT_REQUEST_TIMEOUT
 )
 
-_RUNTIME_ENV_KEYS = (
-    "INFINI_PREFILL_NATIVE_CG",
-    "INFINI_COMPILE_MAX_SEQ",
-    "INFINI_PREFILL_COMPILE",
-    "INFINI_V1_SCHEDULER",
-    "HPCC_VISIBLE_DEVICES",
-    "CUDA_VISIBLE_DEVICES",
-    "MACA_VISIBLE_DEVICES",
-    "IMAGE_TAG",
-    "INFINI_BUILD_SHA",
-)
-
 
 def _default_artifact_root() -> str:
     if os.path.isdir("/app/logs"):
         return "/app/logs/servers"
     return str(Path.cwd() / "logs" / "servers")
-
-
-def _collect_runtime_env() -> dict[str, str]:
-    out: dict[str, str] = {}
-    for key in _RUNTIME_ENV_KEYS:
-        val = os.environ.get(key)
-        if val is not None and str(val).strip() != "":
-            out[key] = val
-    return out
 
 
 def _iso_utc(ts: float) -> str:
@@ -324,6 +308,7 @@ class InferenceServer:
         }
 
     def metadata_payload(self) -> dict[str, Any]:
+        startup = self._startup_args_snapshot()
         return {
             "server_id": self.server_id,
             "started_at": _iso_utc(self.started_at),
@@ -331,8 +316,10 @@ class InferenceServer:
             "model_path": self.model_path,
             "host": self.host,
             "port": self.port,
-            "startup_args": self._startup_args_snapshot(),
-            "runtime_env": _collect_runtime_env(),
+            "build_info": collect_build_info(),
+            "runtime_env": collect_runtime_env(),
+            "config": collect_config(startup),
+            "startup_args": startup,
             "artifact_dir": self.artifact_dir,
         }
 
