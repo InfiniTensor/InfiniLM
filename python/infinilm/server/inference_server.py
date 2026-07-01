@@ -25,6 +25,7 @@ from infinilm.llm.llm import normalize_chat_messages, _should_defer_tokenize_to_
 from infinilm.llm.request import RequestStatus
 from infinilm.server.metrics import MetricsRegistry
 from infinilm.server.openai_compat import resolve_chat_template_kwargs
+from infinilm.server.reasoning_parser import ReasoningStreamSplitter, split_thinking_content
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +74,14 @@ def _iso_utc(ts: float) -> str:
 
 
 def chunk_json(
-    id_, content=None, role=None, finish_reason=None, model: str = "unknown"
+    id_, content=None, role=None, finish_reason=None, model: str = "unknown", reasoning=None
 ):
     """Generate JSON chunk for streaming response."""
     delta = {}
     if content:
         delta["content"] = content
+    if reasoning:
+        delta["reasoning"] = reasoning
     if role:
         delta["role"] = role
     return {
@@ -108,8 +111,15 @@ def completion_json(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     total_tokens: int = 0,
+    reasoning: Optional[str] = None,
 ):
     """Generate JSON response for non-streaming completion."""
+    message = {
+        "role": role,
+        "content": content,
+    }
+    if reasoning:
+        message["reasoning"] = reasoning
     return {
         "id": id_,
         "object": "chat.completion",
@@ -119,10 +129,7 @@ def completion_json(
         "choices": [
             {
                 "index": 0,
-                "message": {
-                    "role": role,
-                    "content": content,
-                },
+                "message": message,
                 "logprobs": None,
                 "finish_reason": finish_reason,
             }
@@ -603,6 +610,8 @@ class InferenceServer:
                 chat_template_kwargs=resolve_chat_template_kwargs(data),
             )
 
+            stream_splitter = ReasoningStreamSplitter()
+
             async for token_output in self.engine.stream_request(
                 req,
                 timeout=DEFAULT_STREAM_TIMEOUT,
@@ -642,11 +651,14 @@ class InferenceServer:
 
                 if not is_eos_token and token_output.token_text:
                     self._record_token_latency(req)
+                    visible = stream_splitter.feed(token_output.token_text)
+                    if not visible:
+                        continue
                     # Send token
                     chunk = json.dumps(
                         chunk_json(
                             request_id,
-                            content=token_output.token_text,
+                            content=visible,
                             model=self.model_id,
                         ),
                         ensure_ascii=False,
@@ -757,17 +769,19 @@ class InferenceServer:
                     break
 
             output_text = output_text.strip()
+            reasoning, visible_content = split_thinking_content(output_text)
             finish_reason = self._convert_finish_reason(req.finish_reason)
 
             response = completion_json(
                 request_id,
-                content=output_text,
+                content=visible_content,
                 role="assistant",
                 finish_reason=finish_reason or "stop",
                 model=self.model_id,
                 prompt_tokens=req.get_prompt_length(),
                 completion_tokens=req.get_num_generated_tokens(),
                 total_tokens=req.get_total_length(),
+                reasoning=reasoning or None,
             )
             return response
 

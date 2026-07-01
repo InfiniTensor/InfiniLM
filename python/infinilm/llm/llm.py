@@ -1536,7 +1536,9 @@ class AsyncLLMEngine:
             )
 
             prompt = self.engine.apply_chat_template(
-                messages, add_generation_prompt=add_generation_prompt
+                messages,
+                add_generation_prompt=add_generation_prompt,
+                chat_template_kwargs=chat_template_kwargs or {},
             )
 
             images, videos, audios = resolve_multimodal_inputs(messages)
