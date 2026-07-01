@@ -16,7 +16,7 @@ def _get_scale_emb(model_path: str) -> float:
         raise FileNotFoundError(f"config.json not found at {config_path}")
     with open(config_path, "r") as f:
         config = json.load(f)
-    if config.get("model_type") != "fm9g":
+    if config.get("model_type") not in ("fm9g", "minicpm"):
         return 1.0
     return config.get("scale_emb", 1.0)
 
@@ -182,6 +182,7 @@ def load_model_state_dict_by_file(
 
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
+    weights_processed = False
 
     file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
     if len(file_list) > 0:
@@ -233,6 +234,7 @@ def load_model_state_dict_by_file(
             gc.collect()
 
         model.process_weights_after_loading()
+        weights_processed = True
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
@@ -280,6 +282,9 @@ def load_model_state_dict_by_file(
             gc.collect()
 
     check_parameters(model_keys, already_loaded_keys)
+
+    if not weights_processed:
+        model.process_weights_after_loading()
 
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")

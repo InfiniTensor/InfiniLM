@@ -159,7 +159,7 @@ class LLMEngine:
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
         pending = []
-        for req, token_id in zip(requests, sampled_tokens):
+        for req, token_ids in zip(requests, sampled_tokens):
             if req.is_aborted():
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
@@ -170,57 +170,63 @@ class LLMEngine:
                     req.mark_canceled()
                 continue
 
-            req.generated_token_ids.append(token_id)
-            pending_tokens = req.generated_token_ids[req._token_decode_offset :]
-            delta = self.tokenizer.decode(pending_tokens)
-            holds_back = bool(delta) and delta.endswith("\ufffd")
+            if not isinstance(token_ids, list):
+                token_ids = [token_ids]
 
-            last_committed_text = req.generated_text
+            for token_id in token_ids:
+                if req.is_finished():
+                    break
+                req.generated_token_ids.append(token_id)
+                pending_tokens = req.generated_token_ids[req._token_decode_offset :]
+                delta = self.tokenizer.decode(pending_tokens)
+                holds_back = bool(delta) and delta.endswith("\ufffd")
 
-            if not holds_back:
-                req.generated_text = last_committed_text + delta
-                req._token_decode_offset = len(req.generated_token_ids)
+                last_committed_text = req.generated_text
 
-            is_finished = self._check_request_finished(req, token_id)
+                if not holds_back:
+                    req.generated_text = last_committed_text + delta
+                    req._token_decode_offset = len(req.generated_token_ids)
 
-            # vLLM-style replacement character handling is primarily relevant for streaming.
-            # For offline generation (no output queue), keep the fast incremental path.
-            if req._output_queue is None:
-                if is_finished:
-                    req.mark_finished(req.finish_reason)
+                is_finished = self._check_request_finished(req, token_id)
 
-            else:
-                if holds_back and not is_finished:
-                    token_text = ""
-                else:
-                    if is_finished and req.finish_reason in (
-                        FinishReason.EOS_TOKEN,
-                        FinishReason.LENGTH,
-                        FinishReason.STOP_STRING,
-                    ):
-                        token_text = ""
-                    else:
-                        token_text = req.generated_text[req._text_output_offset :]
-                        if token_text:
-                            req._text_output_offset = len(req.generated_text)
-
+                # vLLM-style replacement character handling is primarily relevant for streaming.
+                # For offline generation (no output queue), keep the fast incremental path.
+                if req._output_queue is None:
                     if is_finished:
                         req.mark_finished(req.finish_reason)
 
-                output = TokenOutput(
-                    request_id=req.request_id,
-                    token_id=token_id,
-                    token_text=token_text,
-                    finished=is_finished,
-                    finish_reason=req.finish_reason if is_finished else None,
-                    generated_text=req.generated_text,
-                )
-                if req.is_aborted():
-                    logger.info(
-                        f"Request {req.request_id} aborted before putting token"
+                else:
+                    if holds_back and not is_finished:
+                        token_text = ""
+                    else:
+                        if is_finished and req.finish_reason in (
+                            FinishReason.EOS_TOKEN,
+                            FinishReason.LENGTH,
+                            FinishReason.STOP_STRING,
+                        ):
+                            token_text = ""
+                        else:
+                            token_text = req.generated_text[req._text_output_offset :]
+                            if token_text:
+                                req._text_output_offset = len(req.generated_text)
+
+                        if is_finished:
+                            req.mark_finished(req.finish_reason)
+
+                    output = TokenOutput(
+                        request_id=req.request_id,
+                        token_id=token_id,
+                        token_text=token_text,
+                        finished=is_finished,
+                        finish_reason=req.finish_reason if is_finished else None,
+                        generated_text=req.generated_text,
                     )
-                    continue
-                pending.append((req.output_queue.async_q, output))
+                    if req.is_aborted():
+                        logger.info(
+                            f"Request {req.request_id} aborted before putting token"
+                        )
+                        continue
+                    pending.append((req.output_queue.async_q, output))
 
         self.scheduler.complete_requests(requests)
         return pending
@@ -287,6 +293,8 @@ class LLM:
     def __init__(
         self,
         model_path: str,
+        draft_model_path: Optional[str] = None,
+        num_draft_tokens: int = 4,
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
@@ -328,6 +336,8 @@ class LLM:
         """
         config = EngineConfig(
             model_path=model_path,
+            draft_model_path=draft_model_path,
+            num_draft_tokens=num_draft_tokens,
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
@@ -484,6 +494,8 @@ class AsyncLLMEngine:
     def __init__(
         self,
         model_path: str,
+        draft_model_path: Optional[str] = None,
+        num_draft_tokens: int = 4,
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
@@ -528,6 +540,8 @@ class AsyncLLMEngine:
         """
         config = EngineConfig(
             model_path=model_path,
+            draft_model_path=draft_model_path,
+            num_draft_tokens=num_draft_tokens,
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,

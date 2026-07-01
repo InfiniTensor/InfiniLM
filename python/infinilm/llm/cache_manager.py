@@ -62,9 +62,9 @@ class BlockManager:
         return h.intdigest()
 
     def __init__(self, num_blocks: int, block_size: int):
-        assert num_blocks > 0 and block_size > 0, (
-            "num_blocks and block_size must be positive"
-        )
+        assert (
+            num_blocks > 0 and block_size > 0
+        ), "num_blocks and block_size must be positive"
         self.num_blocks = num_blocks
         self.block_size = block_size
 
@@ -105,9 +105,9 @@ class BlockManager:
     def _deallocate_block(self, block_id: int):
         """Deallocate a block and return it to free list."""
         block = self.blocks[block_id]
-        assert block.ref_count == 0, (
-            f"Block {block_id} ref_count not zero, cannot deallocate"
-        )
+        assert (
+            block.ref_count == 0
+        ), f"Block {block_id} ref_count not zero, cannot deallocate"
 
         if block.hash != -1 and self.hash_to_block_id.get(block.hash) == block_id:
             del self.hash_to_block_id[block.hash]
@@ -172,7 +172,9 @@ class BlockManager:
         cache_miss = False
         mm_start_counter = 0
         mm_caching_queue = deque()
-        blocks_blueprint = []  # [{"prefix_hash": int or -1 if not a full block, "block_id": int or -1 if not cached}, ...]
+        blocks_blueprint = (
+            []
+        )  # [{"prefix_hash": int or -1 if not a full block, "block_id": int or -1 if not cached}, ...]
         max_blocks_to_reuse = num_full_blocks
 
         for block_idx in range(num_blocks):
@@ -337,8 +339,87 @@ class BlockManager:
 
         return block_table, slot_mapping
 
+    def append_slots(
+        self,
+        block_table: List[int],
+        start_num_tokens: int,
+        num_slots: int,
+        total_token_ids: List[int] = None,
+        update_hash: bool = True,
+    ) -> tuple[List[int], List[int]]:
+        """Append multiple decode slots for speculative target verification."""
+        slots = []
+        for offset in range(num_slots):
+            block_table, slot = self.append_slot(
+                block_table,
+                start_num_tokens + offset,
+                total_token_ids,
+                update_hash=update_hash,
+            )
+            slots.append(slot)
+        return block_table, slots
+
+    def truncate_blocks(
+        self, block_table: List[int], keep_num_tokens: int
+    ) -> List[int]:
+        """Trim block_table to the logical token length after speculative verify.
+
+        KV tensors are not physically cleared; future attention only sees slots reachable
+        from the returned block table and sequence lengths. Any newly allocated blocks
+        past keep_num_tokens are dereferenced, and hash metadata for the partial tail is
+        invalidated so rejected draft tokens are never reused as a prefix hit.
+        """
+        assert keep_num_tokens > 0, "keep_num_tokens must be greater than 0"
+        keep_blocks = (keep_num_tokens + self.block_size - 1) // self.block_size
+        keep_blocks = min(keep_blocks, len(block_table))
+
+        removed = block_table[keep_blocks:]
+        for block_id in removed:
+            block = self.blocks[block_id]
+            block.ref_count = 0
+            self._deallocate_block(block_id)
+
+        truncated = block_table[:keep_blocks]
+        if truncated and keep_num_tokens % self.block_size != 0:
+            tail_id = truncated[-1]
+            tail = self.blocks[tail_id]
+            if tail.hash != -1 and self.hash_to_block_id.get(tail.hash) == tail_id:
+                del self.hash_to_block_id[tail.hash]
+            tail.hash = -1
+            tail.token_ids = []
+
+        return truncated
+
+    def commit_blocks_hash(
+        self, block_table: List[int], token_ids: List[int], num_tokens: int
+    ) -> None:
+        """Register hashes for full blocks whose tokens are finalized."""
+        assert num_tokens <= len(token_ids), "num_tokens exceeds token_ids length"
+        num_full_blocks = min(num_tokens // self.block_size, len(block_table))
+        prefix_hash = -1
+        for block_idx in range(num_full_blocks):
+            block_id = block_table[block_idx]
+            block = self.blocks[block_id]
+            block_start = block_idx * self.block_size
+            block_end = block_start + self.block_size
+            block_tokens = token_ids[block_start:block_end]
+            current_hash = self.compute_hash(block_tokens, prefix_hash)
+
+            if block.hash != -1 and block.hash != current_hash:
+                if self.hash_to_block_id.get(block.hash) == block_id:
+                    del self.hash_to_block_id[block.hash]
+
+            if block.hash != current_hash or block.token_ids != block_tokens:
+                block.update(current_hash, block_tokens)
+            self.hash_to_block_id[current_hash] = block_id
+            prefix_hash = current_hash
+
     def append_slot(
-        self, block_table: List[int], num_tokens: int, total_token_ids: List[int] = None
+        self,
+        block_table: List[int],
+        num_tokens: int,
+        total_token_ids: List[int] = None,
+        update_hash: bool = True,
     ) -> tuple[List[int], int]:
         """Append slot for decode phase (generate one new token).
 
@@ -354,26 +435,27 @@ class BlockManager:
         assert num_tokens > 0, "num_tokens must be greater than 0"
 
         if num_tokens % self.block_size == 1:
-            # Previous block is full, update its hash for future prefix caching
-            last_block_id = block_table[-1]
-            last_block = self.blocks[last_block_id]
+            if update_hash:
+                # Previous block is full, update its hash for future prefix caching.
+                last_block_id = block_table[-1]
+                last_block = self.blocks[last_block_id]
 
-            # Only update if block's token_ids is empty (avoid duplicate updates)
-            if len(last_block.token_ids) == 0:
-                block_start_idx = num_tokens - self.block_size - 1
-                block_end_idx = num_tokens - 1
-                block_tokens = total_token_ids[block_start_idx:block_end_idx]
+                # Only update if block's token_ids is empty (avoid duplicate updates)
+                if len(last_block.token_ids) == 0:
+                    block_start_idx = num_tokens - self.block_size - 1
+                    block_end_idx = num_tokens - 1
+                    block_tokens = total_token_ids[block_start_idx:block_end_idx]
 
-                # Compute prefix_hash using previous block's hash if available
-                if len(block_table) > 1:
-                    prev_block = self.blocks[block_table[-2]]
-                    prefix_hash = prev_block.hash
-                else:
-                    prefix_hash = -1
+                    # Compute prefix_hash using previous block's hash if available
+                    if len(block_table) > 1:
+                        prev_block = self.blocks[block_table[-2]]
+                        prefix_hash = prev_block.hash
+                    else:
+                        prefix_hash = -1
 
-                current_hash = self.compute_hash(block_tokens, prefix_hash)
-                last_block.update(current_hash, block_tokens)
-                self.hash_to_block_id[current_hash] = last_block_id
+                    current_hash = self.compute_hash(block_tokens, prefix_hash)
+                    last_block.update(current_hash, block_tokens)
+                    self.hash_to_block_id[current_hash] = last_block_id
 
             # Need new block
             if not self.free_block_ids:
@@ -426,9 +508,9 @@ class BlockManager:
             num_local_cached_tokens: Number of locally cached tokens (must be a multiple of
                 block_size).
         """
-        assert num_local_cached_tokens % self.block_size == 0, (
-            "num_local_cached_tokens must be multiple of block_size"
-        )
+        assert (
+            num_local_cached_tokens % self.block_size == 0
+        ), "num_local_cached_tokens must be multiple of block_size"
         for idx in range(num_local_cached_tokens // self.block_size, len(block_table)):
             block_id = block_table[idx]
             block = self.blocks[block_id]

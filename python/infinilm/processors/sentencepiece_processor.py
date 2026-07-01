@@ -75,6 +75,12 @@ class MistralProcessor(SentencePieceProcessor):
     pass
 
 
+@register_processor("minicpm")
+@register_processor("minicpm4")
+class MiniCPMProcessor(SentencePieceProcessor):
+    pass
+
+
 @register_processor("deepseek_v2")
 class DeepSeekV2Processor(BasicLLMProcessor):
     pass
