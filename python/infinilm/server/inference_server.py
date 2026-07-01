@@ -24,6 +24,7 @@ from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
 from infinilm.llm.llm import normalize_chat_messages, _should_defer_tokenize_to_step_thread
 from infinilm.llm.request import RequestStatus
 from infinilm.server.metrics import MetricsRegistry
+from infinilm.server.openai_compat import resolve_chat_template_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -599,7 +600,7 @@ class InferenceServer:
                 request_data=data,
                 http_request=http_request,
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
-                chat_template_kwargs=data.get("chat_template_kwargs") or {},
+                chat_template_kwargs=resolve_chat_template_kwargs(data),
             )
 
             async for token_output in self.engine.stream_request(
@@ -722,7 +723,7 @@ class InferenceServer:
                 request_data=data,
                 http_request=http_request,
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
-                chat_template_kwargs=data.get("chat_template_kwargs") or {},
+                chat_template_kwargs=resolve_chat_template_kwargs(data),
             )
 
             # Collect all generated tokens
