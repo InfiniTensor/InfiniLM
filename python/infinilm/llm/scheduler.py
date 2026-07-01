@@ -14,6 +14,36 @@ from infinilm.llm.request import InferenceRequest, RequestStatus
 logger = logging.getLogger(__name__)
 
 
+class SpeculativeCacheOps:
+    """Limited cache operations needed by speculative verification."""
+
+    def __init__(self, cache_manager: BlockManager):
+        self._cache_manager = cache_manager
+
+    def append_verify_slots(
+        self,
+        block_table: List[int],
+        start_length: int,
+        num_slots: int,
+        token_ids: List[int],
+    ):
+        return self._cache_manager.append_slots(
+            block_table,
+            start_length,
+            num_slots,
+            token_ids,
+            update_hash=False,
+        )
+
+    def rollback_to_length(self, block_table: List[int], keep_tokens: int):
+        return self._cache_manager.truncate_blocks(block_table, keep_tokens)
+
+    def commit_accepted_tokens(
+        self, block_table: List[int], token_ids: List[int], num_tokens: int
+    ) -> None:
+        self._cache_manager.commit_blocks_hash(block_table, token_ids, num_tokens)
+
+
 class SchedulerOutput:
     """Scheduler output containing scheduled requests and execution phase info."""
 
@@ -21,10 +51,12 @@ class SchedulerOutput:
         self,
         scheduled_requests: List[InferenceRequest],
         is_prefill: bool = False,
+        speculative_cache_ops: Optional[SpeculativeCacheOps] = None,
     ):
         self.scheduled_requests = scheduled_requests
         self.num_requests = len(scheduled_requests)
         self.is_prefill = is_prefill
+        self.speculative_cache_ops = speculative_cache_ops
         self.kv_connector_metadata = None
 
 
@@ -64,6 +96,7 @@ class Scheduler:
             if has_mamba_cache
             else None
         )
+        self.speculative_cache_ops = SpeculativeCacheOps(self.cache_manager)
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
@@ -264,6 +297,7 @@ class Scheduler:
             scheduler_output = SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,
+                speculative_cache_ops=self.speculative_cache_ops,
             )
             if self.connector is not None:
                 meta = self.connector.build_connector_meta()
@@ -326,6 +360,7 @@ class Scheduler:
             scheduler_output = SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,
+                speculative_cache_ops=self.speculative_cache_ops,
             )
 
             if self.connector is not None:
@@ -334,7 +369,10 @@ class Scheduler:
             return scheduler_output
 
         if self.connector is not None:
-            scheduler_output = SchedulerOutput(scheduled_requests=[])
+            scheduler_output = SchedulerOutput(
+                scheduled_requests=[],
+                speculative_cache_ops=self.speculative_cache_ops,
+            )
             meta = self.connector.build_connector_meta()
             scheduler_output.kv_connector_metadata = meta
             return scheduler_output

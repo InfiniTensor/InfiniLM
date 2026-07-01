@@ -174,10 +174,10 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(pixel_values),
         to_device_vec(image_bound),
         to_device_vec(tgt_sizes),
-        visual_token_ranges,
         to_device_vec(image_grid_thw),
         image_req_ids,
-    };
+        visual_token_ranges,
+        to_device(target_hidden_states)};
 
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,

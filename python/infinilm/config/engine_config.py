@@ -10,6 +10,8 @@ class EngineConfig:
 
     Attributes:
         model_path: Path to the model directory.
+        draft_model_path: Optional Eagle/MTP draft model directory.
+        num_draft_tokens: Number of Eagle draft tokens to verify per step.
         device: Device type string ('cpu', 'cuda', 'mlu', etc.).
         dtype: Data type string ('float16', 'bfloat16', 'float32').
         tensor_parallel_size: Number of devices for tensor parallelism.
@@ -33,6 +35,8 @@ class EngineConfig:
     """
 
     model_path: str
+    draft_model_path: Optional[str] = None
+    num_draft_tokens: int = 4
     device: str = "cuda"
     dtype: str = "float16"
     tensor_parallel_size: int = 1
@@ -56,6 +60,9 @@ class EngineConfig:
     kv_transfer_config: Optional[KVTransferConfig] = None
 
     def __post_init__(self) -> None:
+        if self.num_draft_tokens < 1:
+            raise ValueError("num_draft_tokens must be >= 1")
+
         if self.weight_load_mode not in {"async", "sync"}:
             raise ValueError("weight_load_mode must be either 'async' or 'sync'")
 

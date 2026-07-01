@@ -12,6 +12,7 @@ from infinilm.kv_connector import (
     KVConnectorFactory,
     KVConnectorRole,
 )
+from infinilm.llm.model_runner.speculative_runner import SpeculativeRunner
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.processors import AutoInfinilmProcessor
 
@@ -36,7 +37,7 @@ class KVConnectorOutput:
 class ModelRunnerOutput:
     # [num_reqs]
     req_ids: list[str] = field(default_factory=list)
-    sampled_token_ids: list[int] = field(default_factory=list)
+    sampled_token_ids: list[int | list[int]] = field(default_factory=list)
     kv_connector_output: KVConnectorOutput | None = None
 
 
@@ -81,10 +82,23 @@ class ModelRunner:
             skip_legacy_moe=config.skip_legacy_moe,
         )
 
+        if self.model_engine.model_type == "minicpm_eagle":
+            raise RuntimeError(
+                "MiniCPM4 Eagle-vLLM is a speculative draft head, not a standalone "
+                "causal LM. Use the MiniCPM4-8B base model as --model and pass "
+                "this checkpoint through --draft-model for Eagle speculative decoding."
+            )
+
         # Load model weights
         if not self.config.skip_load:
             load_model_state_dict_by_file(
                 self.model_engine, config.model_path, dtype=self.model_engine.dtype
+            )
+
+        self.speculative_runner = None
+        if config.draft_model_path is not None:
+            self.speculative_runner = SpeculativeRunner(
+                config, self.model_engine, self.device
             )
 
         # Initialize processor
@@ -180,11 +194,17 @@ class ModelRunner:
             self.config.top_k,
         )
 
+        if self.speculative_runner is not None:
+            return self._model_forward_with_speculative(scheduler_output, model_input)
+
         # Run inference
         sampled_tokens = self.model_engine.forward(**model_input)
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
         return sampled_tokens_list
+
+    def _model_forward_with_speculative(self, scheduler_output, model_input):
+        return self.speculative_runner.forward(scheduler_output, model_input)
 
     @contextmanager
     def maybe_get_kv_connector_output(
