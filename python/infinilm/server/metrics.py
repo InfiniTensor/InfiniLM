@@ -217,6 +217,10 @@ class MetricsRegistry:
             "infinilm_request_e2e_seconds",
             "End-to-end request latency in seconds",
         )
+        self.request_itl_seconds = _Histogram(
+            "infinilm_request_itl_seconds",
+            "Inter-token latency in seconds",
+        )
         self.request_tokens_total = _Counter(
             "infinilm_request_tokens_total",
             "Token counts by kind",
@@ -258,6 +262,10 @@ class MetricsRegistry:
         if finished_time is not None:
             self.request_e2e_seconds.observe(max(0.0, finished_time - arrival_time))
 
+    def record_inter_token_latency(self, itl_seconds: float) -> None:
+        if itl_seconds > 0.0:
+            self.request_itl_seconds.observe(itl_seconds)
+
     def refresh_engine_gauges(self, engine: Any) -> None:
         """Best-effort read of scheduler cache/queue stats."""
         if engine is None:
@@ -288,6 +296,7 @@ class MetricsRegistry:
             self.requests_total,
             self.request_ttft_seconds,
             self.request_e2e_seconds,
+            self.request_itl_seconds,
             self.request_tokens_total,
             self.engine_step_seconds,
             self.engine_queue_size,
@@ -330,6 +339,7 @@ class MetricsRegistry:
             "histograms": {
                 "request_ttft_seconds": self.request_ttft_seconds.snapshot(),
                 "request_e2e_seconds": self.request_e2e_seconds.snapshot(),
+                "request_itl_seconds": self.request_itl_seconds.snapshot(),
             },
             "gauges": gauges,
         }

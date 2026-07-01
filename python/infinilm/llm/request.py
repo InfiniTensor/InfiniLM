@@ -116,6 +116,7 @@ class InferenceRequest:
         self.arrival_time: float = arrival_time or time.time()
         self.finished_time: Optional[float] = None
         self.first_token_time: Optional[float] = None
+        self.last_token_time: Optional[float] = None
 
         # Request metadata
         self.request_id: str = request_id

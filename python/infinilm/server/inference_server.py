@@ -350,9 +350,20 @@ class InferenceServer:
         self._artifacts_written = True
         logger.info("Server artifacts: server_id=%s dir=%s", self.server_id, self.artifact_dir)
 
-    def _record_first_token(self, req) -> None:
-        if req is not None and req.first_token_time is None:
-            req.first_token_time = time.time()
+    def _record_token_latency(self, req) -> None:
+        """Record TTFT on first token and ITL on subsequent tokens."""
+        if req is None:
+            return
+        now = time.time()
+        if req.first_token_time is None:
+            req.first_token_time = now
+            req.last_token_time = now
+            return
+        if req.last_token_time is not None:
+            itl = now - req.last_token_time
+            if itl > 0.0:
+                self.metrics.record_inter_token_latency(itl)
+        req.last_token_time = now
 
     def _request_status_label(self, req) -> str:
         if req is None:
@@ -629,7 +640,7 @@ class InferenceServer:
                 )
 
                 if not is_eos_token and token_output.token_text:
-                    self._record_first_token(req)
+                    self._record_token_latency(req)
                     # Send token
                     chunk = json.dumps(
                         chunk_json(
@@ -738,7 +749,7 @@ class InferenceServer:
                 is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
 
                 if not is_eos_token and token_output.token_text:
-                    self._record_first_token(req)
+                    self._record_token_latency(req)
                     output_text += token_output.token_text
 
                 if token_output.finished:
