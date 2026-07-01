@@ -7,6 +7,7 @@
 #include "infinicore/tensor.hpp"
 
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 namespace infinilm {
@@ -57,6 +58,8 @@ public:
         return cache_config_.get();
     }
 
+    void load_parameters_no_sync(
+        const std::unordered_map<std::string, infinicore::Tensor> &params);
     void process_weights_after_loading();
     void reset_runtime_state() const;
 

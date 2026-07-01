@@ -19,6 +19,13 @@ void InfinilmModel::reset_cache(const cache::CacheConfig *cache_config) {
     kv_cache_vec = std::move(default_allocate_kv_cache_tensors(cache_config, model_config_, attention_backend));
 }
 
+void InfinilmModel::load_parameters_no_sync(
+    const std::unordered_map<std::string, infinicore::Tensor> &params) {
+    for (const auto &[name, param] : params) {
+        load_parameter(name, param);
+    }
+}
+
 std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors(
     const cache::CacheConfig *cache_config,
     const std::shared_ptr<infinilm::config::ModelConfig> &text_config,

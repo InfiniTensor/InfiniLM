@@ -3,9 +3,11 @@ from dataclasses import dataclass
 
 import infinicore
 
-from infinilm.cache import PagedKVCacheConfig
+from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
+from infinilm.backend_plugins import load_backend_plugins
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
+from infinilm.plugins import adapt_config, load_plugins
 
 from .modeling_utils import parse_dtype
 from .exception_utils import handle_oom_and_exit
@@ -67,11 +69,15 @@ class InferEngine(_infinilm.InferEngine):
         enable_graph_compiling=False,
         attention_backend="default",
         kv_cache_dtype=None,
+        backend_plugins=None,
         use_mla=False,
         weight_load_mode="async",
     ):
-        self.hf_config = read_hf_config(model_path)
+        load_plugins()
+        self.hf_config = adapt_config(read_hf_config(model_path))
         self.hf_generation_config = read_hf_generation_config(model_path)
+        load_backend_plugins(self.hf_config.get("_infinilm_backend_plugins"))
+        load_backend_plugins(backend_plugins)
 
         if device is None:
             device = infinicore.device()
