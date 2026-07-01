@@ -86,14 +86,16 @@ DeepseekV4Attention::DeepseekV4Attention(std::shared_ptr<infinilm::config::Model
                                          const infinicore::Device &device)
     : layer_idx_(layer_idx),
       hidden_size_(model_config->get<size_t>("hidden_size")),
-      num_attention_heads_(model_config->get<size_t>("num_attention_heads")),
+      global_num_attention_heads_(model_config->get<size_t>("num_attention_heads")),
+      num_attention_heads_(global_num_attention_heads_),
       num_key_value_heads_(model_config->get_or<size_t>("num_key_value_heads", 1)),
       head_dim_(model_config->get<size_t>("head_dim")),
       q_lora_rank_(model_config->get<size_t>("q_lora_rank")),
       o_lora_rank_(model_config->get<size_t>("o_lora_rank")),
-      o_groups_(model_config->get<size_t>("o_groups")),
-      o_a_input_size_(num_attention_heads_ * head_dim_ / o_groups_),
-      o_a_output_size_(o_lora_rank_ * o_groups_),
+      global_o_groups_(model_config->get<size_t>("o_groups")),
+      o_groups_(global_o_groups_),
+      o_a_input_size_(global_num_attention_heads_ * head_dim_ / global_o_groups_),
+      o_a_output_size_(o_lora_rank_ * global_o_groups_),
       qk_rope_head_dim_(model_config->get_or<size_t>("qk_rope_head_dim", 0)),
       sliding_window_(model_config->get_or<size_t>("sliding_window", 0)),
       rms_norm_eps_(model_config->get<double>("rms_norm_eps")),
@@ -113,7 +115,6 @@ DeepseekV4Attention::DeepseekV4Attention(std::shared_ptr<infinilm::config::Model
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     auto quantization_method = deepseek_v4_linear_quantization(model_config, true);
     auto none_quantization = deepseek_v4_linear_quantization(model_config, false);
-    INFINICORE_NN_PARAMETER_INIT(attn_sink, ({num_attention_heads_}, infinicore::DataType::F32, device));
     INFINICORE_NN_MODULE_INIT(q_norm, q_lora_rank_, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(kv_norm, head_dim_, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(wq_a, hidden_size_, q_lora_rank_, quantization_method, false, dtype, device);
@@ -133,12 +134,23 @@ DeepseekV4Attention::DeepseekV4Attention(std::shared_ptr<infinilm::config::Model
     if (num_attention_heads_ % static_cast<size_t>(tp_size) != 0) {
         throw std::runtime_error("DeepseekV4Attention: num_attention_heads must be divisible by tp_size");
     }
+    if (global_o_groups_ % static_cast<size_t>(tp_size) != 0) {
+        throw std::runtime_error("DeepseekV4Attention: o_groups must be divisible by tp_size");
+    }
     num_attention_heads_ /= static_cast<size_t>(tp_size);
+    o_groups_ = global_o_groups_ / static_cast<size_t>(tp_size);
+    o_a_output_size_ = o_lora_rank_ * o_groups_;
     if (num_key_value_heads_ >= static_cast<size_t>(tp_size)) {
         num_key_value_heads_ /= static_cast<size_t>(tp_size);
     } else {
         num_key_value_heads_ = 1;
     }
+    if (num_attention_heads_ % o_groups_ != 0) {
+        throw std::runtime_error("DeepseekV4Attention: local num_attention_heads must be divisible by local o_groups");
+    }
+
+    INFINICORE_NN_PARAMETER_INIT(attn_sink, ({global_num_attention_heads_}, infinicore::DataType::F32, device,
+                                             0, rank_info.tp_rank, rank_info.tp_size));
 
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
     attention_backend_ = infinilm::global_state::get_infinilm_config().attention_backend;
