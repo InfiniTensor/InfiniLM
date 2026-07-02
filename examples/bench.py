@@ -51,6 +51,9 @@ def _normalize_config(config, model_type):
     """
     normalized = dict(config)
 
+    if "text_config" in normalized:
+        normalized = normalized["text_config"]
+
     key_map = _CONFIG_KEY_MAP.get(model_type)
 
     if not key_map:

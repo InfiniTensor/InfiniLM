@@ -119,6 +119,13 @@ class InferEngine(_infinilm.InferEngine):
         self.use_cache = False
 
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
+        llm_config = self.hf_config.get("text_config", self.hf_config)
+        layer_types = llm_config.get("layer_types") or []
+        self.has_mamba_cache = "linear_attention" in layer_types or (
+            "linear_conv_kernel_dim" in llm_config
+            and "linear_num_key_heads" in llm_config
+            and "linear_num_value_heads" in llm_config
+        )
 
     @property
     def dtype(self):
@@ -287,6 +294,20 @@ class InferEngine(_infinilm.InferEngine):
 
         block_tables = None
         max_blocks_per_batch = 0
+        mamba_state_indices = None
+        if self.has_mamba_cache:
+            if not self.enable_paged_attn:
+                raise RuntimeError(
+                    "Low-level generate for mamba-cache models currently requires paged attention"
+                )
+            mamba_pool_size = max(2, self.get_cache_config().num_blocks() // 4)
+            if batch_size > mamba_pool_size - 1:
+                raise RuntimeError(
+                    f"Batch size {batch_size} exceeds available mamba cache rows "
+                    f"{mamba_pool_size - 1}"
+                )
+            mamba_state_indices = list(range(1, batch_size + 1))
+
         if self.enable_paged_attn:
             paged_block_size = self.get_cache_config().block_size()
             max_blocks_per_batch = (
@@ -366,6 +387,18 @@ class InferEngine(_infinilm.InferEngine):
                 [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
             )
 
+            mamba_init_state_indices = None
+            mamba_final_state_indices = None
+            if mamba_state_indices is not None:
+                mamba_init_state_indices = infinicore.from_list(
+                    [0] * batch_size if iter == 0 else mamba_state_indices,
+                    dtype=infinicore.int32,
+                )
+                mamba_final_state_indices = infinicore.from_list(
+                    mamba_state_indices,
+                    dtype=infinicore.int32,
+                )
+
             output_id = self(
                 input_ids=input_ids,
                 pixel_values=pixel_values if iter == 0 else None,
@@ -376,6 +409,8 @@ class InferEngine(_infinilm.InferEngine):
                 cu_seqlens=cu_seqlens,
                 block_tables=block_tables,
                 slot_mapping=slot_mapping,
+                mamba_init_state_indices=mamba_init_state_indices,
+                mamba_final_state_indices=mamba_final_state_indices,
                 image_bound=image_bound if iter == 0 else None,
                 tgt_sizes=tgt_sizes if iter == 0 else None,
                 temperature=generation_config.temperature,
