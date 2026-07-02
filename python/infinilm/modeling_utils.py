@@ -673,9 +673,11 @@ def _remap_videonsa(state_dict, config=None):
 
 
 # Model type → remap function mapping
-def _remap_qwen3_5(state_dict, config=None):
+def _remap_qwen3_5(state_dict, config):
     """Apply Qwen3.5-specific load-time weight fixes."""
     state_dict = drop_keys(state_dict, ["mtp."])
+    llm_config = config["text_config"]
+    key_dim = llm_config["linear_key_head_dim"] * llm_config["linear_num_key_heads"]
 
     norm_weight_suffixes = (
         "input_layernorm.weight",
@@ -684,9 +686,26 @@ def _remap_qwen3_5(state_dict, config=None):
         "self_attn.k_norm.weight",
     )
 
+    to_drop = []
+    to_add = {}
     for key, tensor in state_dict.items():
         if key == "model.norm.weight" or key.endswith(norm_weight_suffixes):
             state_dict[key] = tensor + torch.ones_like(tensor)
+        elif key.endswith("linear_attn.in_proj_qkv.weight"):
+            prefix = key[: -len("in_proj_qkv.weight")]
+            to_add[prefix + "in_proj_q.weight"] = state_dict[key][
+                :key_dim, :
+            ].contiguous()
+            to_add[prefix + "in_proj_k.weight"] = state_dict[key][
+                key_dim : key_dim * 2, :
+            ].contiguous()
+            to_add[prefix + "in_proj_v.weight"] = state_dict[key][
+                key_dim * 2 :, :
+            ].contiguous()
+            to_drop.append(key)
+
+    state_dict = drop_keys(state_dict, to_drop)
+    state_dict.update(to_add)
 
     return state_dict
 
