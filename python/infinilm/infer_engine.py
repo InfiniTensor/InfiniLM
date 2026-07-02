@@ -125,6 +125,10 @@ class InferEngine(_infinilm.InferEngine):
         torch_dtype = self.hf_config.get("torch_dtype")
         if torch_dtype is None:
             torch_dtype = self.hf_config.get("dtype")
+        if torch_dtype is None:
+            text_config = self.hf_config.get("text_config")
+            if isinstance(text_config, dict):
+                torch_dtype = text_config.get("torch_dtype") or text_config.get("dtype")
         return parse_dtype(torch_dtype)
 
     @property
@@ -168,6 +172,8 @@ class InferEngine(_infinilm.InferEngine):
         cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
+        mamba_init_state_indices=None,
+        mamba_final_state_indices=None,
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
@@ -199,6 +205,16 @@ class InferEngine(_infinilm.InferEngine):
             slot_mapping = (
                 slot_mapping._underlying if slot_mapping is not None else None
             )
+            mamba_init_state_indices = (
+                mamba_init_state_indices._underlying
+                if mamba_init_state_indices is not None
+                else None
+            )
+            mamba_final_state_indices = (
+                mamba_final_state_indices._underlying
+                if mamba_final_state_indices is not None
+                else None
+            )
 
             def convert_tensor_list(tensor_list_):
                 if tensor_list_ is None:
@@ -225,6 +241,8 @@ class InferEngine(_infinilm.InferEngine):
                         cu_seqlens=cu_seqlens,
                         block_tables=block_tables,
                         slot_mapping=slot_mapping,
+                        mamba_init_state_indices=mamba_init_state_indices,
+                        mamba_final_state_indices=mamba_final_state_indices,
                         pixel_values=pixel_values,
                         image_bound=image_bound,
                         tgt_sizes=tgt_sizes,

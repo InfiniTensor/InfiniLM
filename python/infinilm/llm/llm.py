@@ -67,10 +67,14 @@ class LLMEngine:
                     f"KV Connector created: {config.kv_transfer_config.kv_connector} "
                     f"(role={config.kv_transfer_config.kv_role})"
                 )
+            llm_config = self.model_runner.model_engine.hf_config
+            if "text_config" in llm_config:
+                llm_config = llm_config["text_config"]
 
-            max_position_embeddings = self.model_runner.model_engine.hf_config.get(
+            max_position_embeddings = llm_config.get(
                 "max_position_embeddings", config.max_cache_len
             )
+
             max_num_batched_tokens = int(
                 os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
             )
@@ -721,13 +725,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert (
-                messages is not None
-            ), "Either messages or prompt/prompt_token_ids must be provided"
+            assert messages is not None, (
+                "Either messages or prompt/prompt_token_ids must be provided"
+            )
 
-            assert (
-                apply_chat_template
-            ), "apply_chat_template needs to be true for multi-role conversation"
+            assert apply_chat_template, (
+                "apply_chat_template needs to be true for multi-role conversation"
+            )
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt
