@@ -86,19 +86,33 @@ class InferEngine(_infinilm.InferEngine):
         self,
         model_path,
         device=None,
-        distributed_config=DistConfig(1),
+        distributed_config=None,
         cache_config=None,
         enable_graph_compiling=False,
         attention_backend="default",
         kv_cache_dtype=None,
         use_mla=False,
         weight_load_mode="async",
+        moe_ep_backend="disabled",
+        moe_ep_size=1,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
 
         if device is None:
             device = infinicore.device()
+        if distributed_config is None:
+            distributed_config = DistConfig(1)
+        if (
+            moe_ep_backend != "disabled"
+            or moe_ep_size != 1
+            or (
+                distributed_config.moe_ep_backend == "disabled"
+                and distributed_config.moe_ep_size == 1
+            )
+        ):
+            distributed_config.moe_ep_backend = moe_ep_backend
+            distributed_config.moe_ep_size = moe_ep_size
 
         hf_config_str = json.dumps(self.hf_config)
         super().__init__(
@@ -411,8 +425,11 @@ class InferEngine(_infinilm.InferEngine):
         return list(super().state_dict_keyname())
 
     def load_state_dict(self, state_dict, strict=None):
+        # MoE/quantized paths may register internal packed tensors that are not
+        # present in the HF checkpoint, so callers can request non-strict loads.
         super().load_params(
-            {name: param._underlying for name, param in state_dict.items()}
+            {name: param._underlying for name, param in state_dict.items()},
+            strict=True if strict is None else strict,
         )
 
     def process_weights_after_loading(self):

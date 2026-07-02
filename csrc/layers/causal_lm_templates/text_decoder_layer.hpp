@@ -7,6 +7,7 @@
 #include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
+#include <type_traits>
 #include <tuple>
 namespace infinilm::layers::causal_lm_templates {
 
@@ -32,7 +33,7 @@ public:
         post_attention_layernorm_ = this->register_module<infinicore::nn::RMSNorm>("post_attention_layernorm", hidden_size, rms_norm_eps, dtype, device);
 
         self_attn_ = this->register_module<Attention>("self_attn", model_config, layer_idx, device);
-        mlp_ = this->register_module<MLP>("mlp", model_config, device);
+        mlp_ = register_mlp(model_config, layer_idx, device);
     }
 
     std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &positions,
@@ -68,6 +69,20 @@ protected:
     INFINICORE_NN_MODULE(MLP, mlp);
 
     size_t layer_idx_;
+
+private:
+    std::shared_ptr<MLP> register_mlp(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                      size_t layer_idx,
+                                      const infinicore::Device &device) {
+        if constexpr (std::is_constructible_v<MLP,
+                                              std::shared_ptr<infinilm::config::ModelConfig>,
+                                              size_t,
+                                              const infinicore::Device &>) {
+            return this->register_module<MLP>("mlp", model_config, layer_idx, device);
+        } else {
+            return this->register_module<MLP>("mlp", model_config, device);
+        }
+    }
 };
 
 } // namespace infinilm::layers::causal_lm_templates

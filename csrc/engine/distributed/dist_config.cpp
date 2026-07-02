@@ -22,7 +22,7 @@ DistConfig::operator std::string() const {
             repr += ", ";
         }
     }
-    repr += "])";
+    repr += "], moe_ep_backend=" + moe_ep_backend + ", moe_ep_size=" + std::to_string(moe_ep_size) + ")";
     return repr;
 }
 

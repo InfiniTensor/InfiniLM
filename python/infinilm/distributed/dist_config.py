@@ -3,7 +3,13 @@ class DistConfig:
     Distributed Model Configuration.
     """
 
-    def __init__(self, tp_size=None, tp_device_ids=None):
+    def __init__(
+        self,
+        tp_size=None,
+        tp_device_ids=None,
+        moe_ep_backend="disabled",
+        moe_ep_size=1,
+    ):
         from infinilm.lib import _infinilm
 
         if tp_size is not None and tp_device_ids is not None:
@@ -15,6 +21,8 @@ class DistConfig:
             self._underlying = _infinilm.DistConfig(tp_device_ids)
         else:
             self._underlying = _infinilm.DistConfig()
+        self.moe_ep_backend = moe_ep_backend
+        self.moe_ep_size = moe_ep_size
 
     @property
     def tp_device_ids(self):
@@ -23,6 +31,22 @@ class DistConfig:
     @tp_device_ids.setter
     def tp_device_ids(self, value):
         self._underlying.tp_device_ids = list(value)
+
+    @property
+    def moe_ep_backend(self):
+        return self._underlying.moe_ep_backend
+
+    @moe_ep_backend.setter
+    def moe_ep_backend(self, value):
+        self._underlying.moe_ep_backend = str(value)
+
+    @property
+    def moe_ep_size(self):
+        return self._underlying.moe_ep_size
+
+    @moe_ep_size.setter
+    def moe_ep_size(self, value):
+        self._underlying.moe_ep_size = int(value)
 
     def __repr__(self):
         return repr(self._underlying)

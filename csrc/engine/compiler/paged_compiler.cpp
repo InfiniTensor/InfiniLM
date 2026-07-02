@@ -80,12 +80,15 @@ void PagedCompiler::compile() {
             auto input = make_decode_input(b);
 
             barrier_->wait();
+            (void)model_->forward(input);
+            infinicore::context::syncStream();
             // Capture must not start with stale Marlin locks from previous
             // warmup/capture attempts. This reset is intentionally outside
             // graph capture; the current implementation still pays a memset
             // before every graph replay in get_compiled().
             model_->reset_runtime_state();
             infinicore::context::syncStream();
+
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();
@@ -93,8 +96,10 @@ void PagedCompiler::compile() {
 
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(
                 new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
+            auto replay_output = std::shared_ptr<InfinilmModel::Output>(
+                new InfinilmModel::Output{shared_output->logits->resume_from_blob_()});
 
-            compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
+            compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output), replay_output};
         }
     }
 }
@@ -141,7 +146,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             model_->reset_runtime_state();
 
             auto graph = std::get<0>(result->second.compiled);
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            auto shared_output = result->second.replay_output;
 
             return std::make_tuple(graph, shared_output);
         }

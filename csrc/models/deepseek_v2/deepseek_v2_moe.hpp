@@ -4,6 +4,7 @@
 #include "../../layers/common_modules.hpp"
 #include "../../layers/linear/linear.hpp"
 #include "../../layers/mlp/mlp.hpp"
+#include "../../layers/moe/legacy/moe_mlp.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
@@ -16,7 +17,7 @@
 namespace infinilm::models::deepseek_v2 {
 
 using DeepseekV2MLP = infinilm::layers::mlp::MLP;
-using DeepseekV2ExpertMLP = infinilm::layers::MoeMLP;
+using DeepseekV2ExpertMLP = infinilm::layers::moe::legacy::MoeMLP;
 
 class DeepseekV2TopKRouter : public infinicore::nn::Module {
 public:
