@@ -148,9 +148,7 @@ class InferenceRequest:
 
         # Generation state
         self.generated_token_ids: List[int] = []
-        self.generated_text: str = (
-            ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
-        )
+        self.generated_text: str = ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
         self.status: RequestStatus = RequestStatus.WAITING
         self.finish_reason: Optional[FinishReason] = None
 
@@ -162,6 +160,9 @@ class InferenceRequest:
         )
         self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
         self.num_blocks: int = 0
+
+        # Mamba cache management. None means no mamba cache row is currently owned.
+        self.mamba_cache_index: Optional[int] = None
 
         # PD disaggregation support
         self.kv_transfer_params: Optional[dict] = (

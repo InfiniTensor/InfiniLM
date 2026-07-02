@@ -24,9 +24,4 @@ protected:
 
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config);
 
-/** Implemented in `qwen3_next_allocate_kv_cache_tensors.cpp`. */
-std::vector<infinicore::Tensor> qwen3_next_allocate_kv_cache_tensors(
-    const cache::CacheConfig *cache_config,
-    const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
-    const backends::AttentionBackend &attention_backend);
 } // namespace infinilm::models::qwen3_next

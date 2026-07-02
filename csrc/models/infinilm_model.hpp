@@ -34,6 +34,10 @@ public:
         std::optional<infinicore::Tensor> block_tables;
         /// Slot ids for each token `[seq]`. Used for paged cache.
         std::optional<infinicore::Tensor> slot_mapping;
+        /// Mamba state cache indices read at the start of each request forward, of shape `[num_requests]`.
+        std::optional<infinicore::Tensor> mamba_init_state_indices;
+        /// Mamba state cache indices written with the final state of each request forward, of shape `[num_requests]`.
+        std::optional<infinicore::Tensor> mamba_final_state_indices;
         /// Image pixel values for multi-modal models.
         /// Vector of tensors. Shape is model-specific (e.g. LLaVA: [batch, 3, H, W], MiniCPM-V: [n_patch, 3, filter_H, H * W / filter_H]).
         std::optional<std::vector<infinicore::Tensor>> pixel_values;
