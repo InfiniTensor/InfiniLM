@@ -12,8 +12,20 @@ from .exception_utils import handle_oom_and_exit
 import json
 import os
 
+_MODEL_DEFAULTS = {
+    "gpt2": {"torch_dtype": "float32"},
+    "mistral": {"torch_dtype": "bfloat16"},
+}
 
-def normalize_hf_config_for_infinilm(config_dict):
+def _apply_torch_dtype_defaults(config: dict) -> dict:
+    if config.get("torch_dtype") is None:
+        config["torch_dtype"] = (
+            config.get("dtype") or
+            _MODEL_DEFAULTS.get(config.get("model_type"), {}).get("torch_dtype")
+        )
+    return config
+
+def _normalize_videonsa_config(config_dict):
     model_type = config_dict.get("model_type")
 
     if model_type == "qwen2_5_vl" and config_dict.get("architectures") == [
@@ -36,24 +48,20 @@ def normalize_hf_config_for_infinilm(config_dict):
 
     return config_dict
 
-
 def read_hf_config(model_path):
     config_path = os.path.join(model_path, "config.json")
     with open(config_path, "r") as f:
         config_dict = json.load(f)
 
-    if (
-        config_dict.get("model_type") == "gpt2"
-        and config_dict.get("torch_dtype") is None
-        and config_dict.get("dtype") is None
-    ):
-        config_dict["torch_dtype"] = "float32"
     if "model_type" not in config_dict:
         raise ValueError(
             f"`model_type` is not specified in the config file `{config_path}`."
         )
-    return normalize_hf_config_for_infinilm(config_dict)
 
+    config_dict = _apply_torch_dtype_defaults(config_dict)
+    config_dict = _normalize_videonsa_config(config_dict)
+
+    return config_dict
 
 # config.json (required) defines model architecture, while generation_config.json
 # (optional) defines generation behavior. They are kept as separate readers
