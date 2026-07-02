@@ -350,7 +350,7 @@ infinicore::Tensor mhc_post(const infinicore::Tensor &new_x,
             for (size_t d = 0; d < hidden_size; ++d) {
                 float value = post * new_values[token * hidden_size + d];
                 for (size_t j = 0; j < hc_mult; ++j) {
-                    value += params.comb[(token * hc_mult + i) * hc_mult + j]
+                    value += params.comb[(token * hc_mult + j) * hc_mult + i]
                            * residual_values[(token * hc_mult + j) * hidden_size + d];
                 }
                 out[(token * hc_mult + i) * hidden_size + d] = value;

@@ -7,7 +7,6 @@
 #include "deepseek_v4_indexer.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
-#include "infinicore/nn/rope.hpp"
 #include "infinicore/tensor.hpp"
 
 #include <cstddef>
@@ -52,7 +51,6 @@ private:
     INFINICORE_NN_MODULE(DeepseekV4Compressor, compressor);
     INFINICORE_NN_MODULE(DeepseekV4Indexer, indexer);
 
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
@@ -76,6 +74,11 @@ private:
     double rms_norm_eps_{1e-6};
     double rope_theta_{10000.0};
     double compress_rope_theta_{10000.0};
+    double rope_scaling_factor_{1.0};
+    size_t rope_original_max_position_embeddings_{0};
+    int rope_beta_fast_{32};
+    int rope_beta_slow_{1};
+    double rope_extrapolation_factor_{1.0};
     float softmax_scale_{1.0f};
 };
 
