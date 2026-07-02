@@ -7,7 +7,7 @@ import janus
 import logging
 from typing import List, Optional
 from infinilm.llm.request import RequestStatus, InferenceRequest
-from infinilm.llm.cache_manager import BlockManager
+from infinilm.llm.cache_manager import BlockManager, MambaCacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,8 @@ class Scheduler:
         block_size: int = 256,
         max_num_batched_tokens: int = 1024,
         connector=None,
+        has_mamba_cache: bool = False,
+        num_mamba_cache_blocks: int | None = None,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
@@ -54,6 +56,12 @@ class Scheduler:
         self.remote_kv_requests: dict[str, InferenceRequest] = {}
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
+        self.has_mamba_cache = has_mamba_cache
+        self.mamba_cache_manager = (
+            MambaCacheManager(num_mamba_cache_blocks or max(2, num_blocks // 4))
+            if has_mamba_cache
+            else None
+        )
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
@@ -106,23 +114,30 @@ class Scheduler:
             req_tokens = req.get_input_tokens()
 
             if req.num_computed_tokens == 0:
-                (
-                    cached_block_table,
-                    num_local_computed_tokens,
-                    blocks_blueprint,
-                ) = self.cache_manager.get_computed_blocks(
-                    req_tokens, req.get_mm_token_index_mappings()
-                )
-                if self.connector is not None:
-                    ext_tokens, load_kv_async = (
-                        self.connector.get_num_new_matched_tokens(
-                            req, num_local_computed_tokens
-                        )
-                    )
-                    num_external_computed_tokens = ext_tokens
-                else:
+                if self.has_mamba_cache:
+                    cached_block_table = []
+                    num_local_computed_tokens = 0
+                    blocks_blueprint = []
                     load_kv_async = False
                     num_external_computed_tokens = 0
+                else:
+                    (
+                        cached_block_table,
+                        num_local_computed_tokens,
+                        blocks_blueprint,
+                    ) = self.cache_manager.get_computed_blocks(
+                        req_tokens, req.get_mm_token_index_mappings()
+                    )
+                    if self.connector is not None:
+                        ext_tokens, load_kv_async = (
+                            self.connector.get_num_new_matched_tokens(
+                                req, num_local_computed_tokens
+                            )
+                        )
+                        num_external_computed_tokens = ext_tokens
+                    else:
+                        load_kv_async = False
+                        num_external_computed_tokens = 0
 
                 num_computed_tokens = (
                     num_local_computed_tokens + num_external_computed_tokens
@@ -180,6 +195,17 @@ class Scheduler:
                         self.cache_manager.free_blocks(cached_block_table)
                     deferred_requests.append(req)
                     break
+
+                if self.has_mamba_cache and req.mamba_cache_index is None:
+                    req.mamba_cache_index = self.mamba_cache_manager.allocate()
+                    if req.mamba_cache_index is None:
+                        self.cache_manager.free_blocks(req_blocks)
+                        logger.warning(
+                            "Insufficient mamba cache rows for request %s, deferring.",
+                            req.request_id,
+                        )
+                        deferred_requests.append(req)
+                        break
 
                 req.block_table = req_blocks
                 req.slot_mapping = slot_mapping
@@ -373,6 +399,9 @@ class Scheduler:
                     self.cache_manager.free_blocks(req.block_table)
                 elif req.block_table and delay_free_blocks:
                     self.pending_free_blocks[req.request_id] = list(req.block_table)
+                if self.mamba_cache_manager is not None:
+                    self.mamba_cache_manager.free(req.mamba_cache_index)
+                    req.mamba_cache_index = None
 
                 if req.status == RequestStatus.CANCELED:
                     logger.info(
@@ -396,6 +425,13 @@ class Scheduler:
         num_local_computed_tokens: int,
         current_prefill_extra_blocks: int = 0,
     ) -> bool:
+        if (
+            self.mamba_cache_manager is not None
+            and request.mamba_cache_index is None
+            and not self.mamba_cache_manager.can_allocate()
+        ):
+            return False
+
         total_required_blocks = 0
 
         # Calculate blocks needed for running requests
@@ -484,7 +520,7 @@ class Scheduler:
 
     def get_cache_stats(self) -> dict:
         """Get cache statistics."""
-        return {
+        stats = {
             "num_blocks": self.cache_manager.num_blocks,
             "block_size": self.cache_manager.block_size,
             "num_free_blocks": self.cache_manager.get_num_free_blocks(),
@@ -492,3 +528,14 @@ class Scheduler:
             "num_pending_blocks": len(self.cache_manager.pending_block_ids),
             "num_used_blocks": len(self.cache_manager.used_block_ids),
         }
+        if self.mamba_cache_manager is not None:
+            stats.update(
+                {
+                    "num_mamba_cache_blocks": self.mamba_cache_manager.num_blocks,
+                    "num_free_mamba_cache_blocks": self.mamba_cache_manager.get_num_free_blocks(),
+                    "num_used_mamba_cache_blocks": len(
+                        self.mamba_cache_manager.used_block_ids
+                    ),
+                }
+            )
+        return stats

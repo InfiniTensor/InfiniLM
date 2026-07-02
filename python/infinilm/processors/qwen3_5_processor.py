@@ -22,8 +22,6 @@ class Qwen35Processor(BasicLLMProcessor):
                 model_dir_path, trust_remote_code=True
             )
 
-
-
     @override
     def __call__(
         self,
@@ -69,19 +67,25 @@ class Qwen35Processor(BasicLLMProcessor):
             for item in content:
                 item_type = item.get("type")
                 if item_type == "text":
-                    normalized_content.append({"type": "text", "text": item.get("text", "")})
+                    normalized_content.append(
+                        {"type": "text", "text": item.get("text", "")}
+                    )
                 elif item_type == "image_url":
                     normalized_content.append({"type": "image"})
                 elif item_type == "video_url":
                     normalized_content.append({"type": "video"})
                 else:
-                    raise NotImplementedError(f"Unsupported Qwen3.5 content type: {item_type}")
+                    raise NotImplementedError(
+                        f"Unsupported Qwen3.5 content type: {item_type}"
+                    )
 
             normalized_conversation.append(
                 {"role": message.get("role", "user"), "content": normalized_content}
             )
 
-        template_owner = self.processor if self.processor is not None else self.tokenizer
+        template_owner = (
+            self.processor if self.processor is not None else self.tokenizer
+        )
         return template_owner.apply_chat_template(
             conversation=normalized_conversation,
             add_generation_prompt=add_generation_prompt,
@@ -112,12 +116,18 @@ class Qwen35Processor(BasicLLMProcessor):
                 "scheduler_output must be an instance of SchedulerOutput or StaticSchedulerOutput"
             )
 
-        # TODO(qwen3_5): The scheduler should own stable mamba cache ids. For now
-        # use a per-forward arange so the C++ model input and mamba metadata path
-        # can be exercised without encoding cache policy in the processor.
-        num_requests = len(scheduler_output.scheduled_requests)
-        init_indices = list(range(num_requests))
-        final_indices = list(range(num_requests))
+        init_indices = []
+        final_indices = []
+        for req in scheduler_output.scheduled_requests:
+            if req.mamba_cache_index is None:
+                raise RuntimeError(
+                    f"Request {req.request_id} has no assigned mamba cache index"
+                )
+            if scheduler_output.is_prefill:
+                init_indices.append(0)
+            else:
+                init_indices.append(req.mamba_cache_index)
+            final_indices.append(req.mamba_cache_index)
 
         import infinicore
 
@@ -155,7 +165,9 @@ class Qwen35Processor(BasicLLMProcessor):
 
         if pixel_values:
             pixel_values = [
-                infinicore.from_torch(t if isinstance(t, torch.Tensor) else torch.as_tensor(t))
+                infinicore.from_torch(
+                    t if isinstance(t, torch.Tensor) else torch.as_tensor(t)
+                )
                 for t in pixel_values
             ]
             model_inputs["pixel_values"] = pixel_values
@@ -166,6 +178,5 @@ class Qwen35Processor(BasicLLMProcessor):
         self, prompt_token_ids, image_ids=None, video_ids=None, audio_ids=None, **kwargs
     ):
         mm_token_index_list = []
-        
 
         return mm_token_index_list

@@ -74,6 +74,13 @@ class LLMEngine:
             max_position_embeddings = llm_config.get(
                 "max_position_embeddings", config.max_cache_len
             )
+            layer_types = llm_config.get("layer_types") or []
+            has_mamba_cache = "linear_attention" in layer_types or (
+                "linear_conv_kernel_dim" in llm_config
+                and "linear_num_key_heads" in llm_config
+                and "linear_num_value_heads" in llm_config
+            )
+            num_mamba_cache_blocks = max(2, config.num_blocks // 4)
 
             max_num_batched_tokens = int(
                 os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
@@ -86,8 +93,15 @@ class LLMEngine:
                 block_size=config.block_size,
                 max_num_batched_tokens=max_num_batched_tokens,
                 connector=connector,
+                has_mamba_cache=has_mamba_cache,
+                num_mamba_cache_blocks=num_mamba_cache_blocks,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
+            if has_mamba_cache:
+                logger.info(
+                    "Using Mamba cache with num_blocks=%s, zero_state_index=0",
+                    num_mamba_cache_blocks,
+                )
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 

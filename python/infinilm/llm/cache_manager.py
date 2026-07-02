@@ -35,6 +35,44 @@ class Block:
         self.token_ids = []
 
 
+class MambaCacheManager:
+    """Manages request ownership of mamba state cache rows.
+
+    Row 0 is reserved as the permanent zero state. Request-owned rows are
+    allocated from [1, num_blocks).
+    """
+
+    ZERO_STATE_INDEX = 0
+
+    def __init__(self, num_blocks: int):
+        if num_blocks < 2:
+            raise ValueError("mamba cache pool size must be at least 2")
+        self.num_blocks = num_blocks
+        self.free_block_ids: deque = deque(range(1, num_blocks))
+        self.used_block_ids: Set[int] = set()
+
+    def can_allocate(self) -> bool:
+        return bool(self.free_block_ids)
+
+    def allocate(self) -> int | None:
+        if not self.free_block_ids:
+            return None
+        block_id = self.free_block_ids.popleft()
+        self.used_block_ids.add(block_id)
+        return block_id
+
+    def free(self, block_id: int | None) -> None:
+        if block_id is None or block_id == self.ZERO_STATE_INDEX:
+            return
+        if block_id not in self.used_block_ids:
+            return
+        self.used_block_ids.remove(block_id)
+        self.free_block_ids.append(block_id)
+
+    def get_num_free_blocks(self) -> int:
+        return len(self.free_block_ids)
+
+
 class BlockManager:
     """Manages Paged KV Cache allocation with prefix caching support.
 
