@@ -32,6 +32,7 @@ def test(
     skip_load=False,
     weight_load_mode="async",
     skip_legacy_moe=False,
+    max_cache_len=4096,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -53,6 +54,7 @@ def test(
         max_tokens=max_new_tokens,
         num_blocks=num_blocks,
         block_size=block_size,
+        max_cache_len=max_cache_len,
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
@@ -150,4 +152,5 @@ if __name__ == "__main__":
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,
         skip_legacy_moe=cfg.skip_legacy_moe,
+        max_cache_len=cfg.max_cache_len,
     )

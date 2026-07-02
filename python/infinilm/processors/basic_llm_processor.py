@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from transformers import AutoTokenizer
 from typing_extensions import override
 
@@ -12,6 +14,13 @@ class BasicLLMProcessor(InfinilmProcessor):
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir_path, trust_remote_code=True
         )
+        if self.tokenizer.chat_template is None:
+            # Some local model snapshots keep the chat template as a separate file.
+            chat_template_path = Path(model_dir_path) / "chat_template.jinja"
+            if chat_template_path.is_file():
+                self.tokenizer.chat_template = chat_template_path.read_text(
+                    encoding="utf-8"
+                )
 
     @override
     def __call__(self, prompt: str, return_tensors: str = None, **kwargs) -> dict:
