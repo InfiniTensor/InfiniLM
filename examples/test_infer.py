@@ -20,6 +20,9 @@ def test(
     image_path=None,
     skip_load=False,
     weight_load_mode="async",
+    num_blocks=512,
+    block_size=256,
+    max_cache_len=4096,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -35,6 +38,9 @@ def test(
         cache_type="paged" if enable_paged_attn else "static",
         max_batch_size=len(prompts),
         max_tokens=max_new_tokens,
+        num_blocks=num_blocks,
+        block_size=block_size,
+        max_cache_len=max_cache_len,
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
@@ -109,4 +115,7 @@ if __name__ == "__main__":
         image_path=cfg.image,
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,
+        num_blocks=cfg.num_blocks,
+        block_size=cfg.block_size,
+        max_cache_len=cfg.max_cache_len,
     )
