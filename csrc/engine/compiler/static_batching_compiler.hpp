@@ -25,6 +25,9 @@ private:
     struct CompiledResult {
         InfinilmModel::Input input;
         Compiled compiled;
+        // Graph capture stores a GraphTensor in compiled. Replay returns a
+        // normal output handle restored from the same graph output blob.
+        std::shared_ptr<InfinilmModel::Output> replay_output;
     };
 
     std::unordered_map<

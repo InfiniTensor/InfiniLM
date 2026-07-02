@@ -5,8 +5,10 @@
 #include "infinicore/ops.hpp"
 #include "quant_config.hpp"
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace infinilm::config {
@@ -38,16 +40,33 @@ public:
 
     template <typename T>
     T get_or(const std::string &key, const T &default_value) const {
-        if (!config_json.contains(key) || config_json.at(key).is_null()) {
-            return default_value;
-        }
-        try {
-            return config_json.at(key).get<T>();
-        } catch (const nlohmann::json::type_error &) {
-            // If type conversion fails, return default value
-            return default_value;
-        }
+        return get_or<T>({std::string_view(key)}, default_value);
     }
+
+    template <typename T>
+    T get_or(std::initializer_list<std::string_view> keys, const T &default_value) const {
+        for (std::string_view key : keys) {
+            if (key.empty()) {
+                continue;
+            }
+            auto it = config_json.find(std::string(key));
+            if (it == config_json.end() || it->is_null()) {
+                continue;
+            }
+            try {
+                return it->get<T>();
+            } catch (const nlohmann::json::type_error &) {
+                return default_value;
+            }
+        }
+        return default_value;
+    }
+
+    template <typename T>
+    T get_or_alias(const std::string &key, const std::string &alias, const T &default_value) const {
+        return get_or<T>({key, alias}, default_value);
+    }
+
     size_t get_kv_dim() const {
         return get<size_t>("hidden_size") * get<size_t>("num_key_value_heads") / get<size_t>("num_attention_heads");
     }

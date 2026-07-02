@@ -87,7 +87,7 @@ void RankWorker::load_param(const std::string &name,
 //------------------------------------------------------
 // load_params -- synchronous batch load
 //------------------------------------------------------
-void RankWorker::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
+void RankWorker::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params, bool strict) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (should_exit_) {
@@ -95,6 +95,7 @@ void RankWorker::load_params(const std::unordered_map<std::string, infinicore::T
         }
 
         pending_params_ = params;
+        pending_params_strict_ = strict;
         job_cmd_ = Command::LOAD_BATCH;
         has_job_ = true;
         job_done_ = false;
@@ -295,6 +296,7 @@ void RankWorker::thread_loop() {
             std::string local_param_name;
             infinicore::Tensor local_param;
             std::unordered_map<std::string, infinicore::Tensor> local_params;
+            bool local_params_strict = true;
             Input local_args;
             std::unique_ptr<cache::CacheConfig> local_cache_config;
 
@@ -314,6 +316,10 @@ void RankWorker::thread_loop() {
                     local_param = pending_param_;
                 } else if (local_cmd == Command::LOAD_BATCH) {
                     local_params = std::move(pending_params_);
+                    // strict is copied with the batch because loading runs on
+                    // the worker thread after the caller releases the mutex.
+                    local_params_strict = pending_params_strict_;
+                    pending_params_strict_ = true;
                     pending_params_.clear();
                 } else if (local_cmd == Command::PREPROCESS) {
 
@@ -353,7 +359,7 @@ void RankWorker::thread_loop() {
 
             } else if (local_cmd == Command::LOAD_BATCH) {
                 try {
-                    model_->load_parameters_no_sync(local_params);
+                    model_->load_parameters_no_sync(local_params, local_params_strict);
                     infinicore::context::syncStream();
                 } catch (const std::exception &e) {
                     {

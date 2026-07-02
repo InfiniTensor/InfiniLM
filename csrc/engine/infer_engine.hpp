@@ -8,6 +8,7 @@
 #include "rank_barrier.hpp"
 #include "rank_worker.hpp"
 
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -37,7 +38,7 @@ public:
     void load_param(const std::string &name, const infinicore::Tensor &param);
 
     // Load a batch of parameters to all workers, syncing each worker once after the batch.
-    void load_params(const std::unordered_map<std::string, infinicore::Tensor> &params);
+    void load_params(const std::unordered_map<std::string, infinicore::Tensor> &params, bool strict = true);
 
     // process the weights after loading on all workers (e.g., for quantization)
     void process_weights_after_loading();

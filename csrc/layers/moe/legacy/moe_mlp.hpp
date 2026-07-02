@@ -1,10 +1,10 @@
 #pragma once
 
-#include "../../config/model_config.hpp"
-#include "../linear/linear.hpp"
+#include "../../../config/model_config.hpp"
+#include "../../linear/linear.hpp"
 #include "infinicore/nn/module.hpp"
 
-namespace infinilm::layers::moe_mlp {
+namespace infinilm::layers::moe::legacy {
 
 class MoeMLP : public infinicore::nn::Module {
 public:
@@ -30,4 +30,4 @@ protected:
     bool use_bias_;
 };
 
-} // namespace infinilm::layers::moe_mlp
+} // namespace infinilm::layers::moe::legacy

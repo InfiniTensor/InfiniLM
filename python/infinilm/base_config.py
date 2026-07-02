@@ -5,6 +5,8 @@ import os
 import shutil
 import warnings
 
+from infinilm.moe_config import MOE_EP_BACKEND_HELP
+
 
 def parse_list(value: str):
     """Parse parse_list argument: can be a single int or a list of ints.
@@ -59,6 +61,9 @@ class BaseConfig:
         self.model = self.args.model
         self.device = self.args.device
         self.tp = self.args.tp
+        self.dp = self.args.dp
+        self.ep = self.args.ep
+        self.moe_ep_backend = self.args.moe_ep_backend
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
@@ -179,6 +184,16 @@ class BaseConfig:
             ),
         )
         self.parser.add_argument("--tp", "--tensor-parallel-size", type=int, default=1)
+        self.parser.add_argument("--dp", "--data-parallel-size", type=int, default=1)
+        self.parser.add_argument(
+            "--ep", "--expert-parallel-size", type=int, default=None
+        )
+        self.parser.add_argument(
+            "--moe-ep-backend",
+            type=str,
+            default="auto",
+            help=MOE_EP_BACKEND_HELP,
+        )
 
         # --- Infer backend optimization ---
         self.parser.add_argument(

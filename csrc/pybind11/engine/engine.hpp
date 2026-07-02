@@ -17,6 +17,10 @@ inline void bind_dist_config(py::module &m) {
              "Constructor with explicit device IDs")
         .def_readwrite("tp_device_ids", &DistConfig::tp_device_ids,
                        "List of device IDs used in tensor parallelism")
+        .def_readwrite("moe_ep_backend", &DistConfig::moe_ep_backend,
+                       "MoE expert-parallel backend")
+        .def_readwrite("moe_ep_size", &DistConfig::moe_ep_size,
+                       "MoE expert-parallel size")
         .def("__repr__", [](const DistConfig &cfg) {
             return std::string(cfg);
         })
@@ -92,7 +96,7 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")
         .def("load_params", &InferEngine::load_params,
-             py::arg("params"),
+             py::arg("params"), py::arg("strict") = true,
              "Load a batch of parameter tensors into all workers, syncing once per worker")
         .def("state_dict_keyname", &InferEngine::state_dict_keys)
         .def("state_dict", [](InferEngine &self) {
