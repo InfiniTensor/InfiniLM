@@ -45,11 +45,15 @@ public:
         std::optional<std::vector<infinicore::Tensor>> tgt_sizes;
         /// Flattened [start, end) visual token ranges in the packed language sequence.
         std::optional<std::vector<size_t>> visual_token_ranges;
+        /// Target model hidden states consumed by draft/MTP models.
+        std::optional<infinicore::Tensor> target_hidden_states;
     };
 
     struct Output {
         /// Logits.
         infinicore::Tensor logits;
+        /// Optional final hidden states, used by MTP/Eagle draft models.
+        infinicore::Tensor hidden_states;
     };
 
     virtual ~InfinilmModel() = default;

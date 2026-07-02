@@ -52,6 +52,19 @@ def read_hf_config(model_path):
         raise ValueError(
             f"`model_type` is not specified in the config file `{config_path}`."
         )
+    if config_dict.get("model_type") == "minicpm":
+        model_dir_name = os.path.basename(os.path.normpath(model_path)).lower()
+        if "eagle" in model_dir_name:
+            config_dict["model_type"] = "minicpm_eagle"
+        else:
+            config_dict["model_type"] = "minicpm4"
+        config_dict.setdefault("rope_theta", 10000.0)
+        if "bias" in config_dict:
+            config_dict["attention_bias"] = config_dict["bias"]
+            config_dict["mlp_bias"] = config_dict["bias"]
+        config_dict.setdefault("attention_bias", False)
+        config_dict.setdefault("mlp_bias", False)
+        config_dict.setdefault("attention_output_bias", False)
     return normalize_hf_config_for_infinilm(config_dict)
 
 
@@ -157,6 +170,85 @@ class InferEngine(_infinilm.InferEngine):
     def __call__(self, *args, **kwargs):
         return self.forward(*args, **kwargs)
 
+    def _build_input(
+        self,
+        input_ids,
+        *,
+        position_ids=None,
+        past_kv_lengths=None,
+        total_kv_lengths=None,
+        input_offsets=None,
+        cu_seqlens=None,
+        block_tables=None,
+        slot_mapping=None,
+        pixel_values=None,
+        image_bound=None,
+        tgt_sizes=None,
+        image_req_ids=None,
+        visual_token_ranges=None,
+        target_hidden_states=None,
+        sample_all_positions=False,
+        temperature=None,
+        top_k=None,
+        top_p=None,
+    ):
+        # TODO: Remove `_underlying` and simplify the corresponding code.
+        input_ids = input_ids._underlying if input_ids is not None else None
+        position_ids = position_ids._underlying if position_ids is not None else None
+        past_kv_lengths = (
+            past_kv_lengths._underlying if past_kv_lengths is not None else None
+        )
+        total_kv_lengths = (
+            total_kv_lengths._underlying if total_kv_lengths is not None else None
+        )
+        input_offsets = input_offsets._underlying if input_offsets is not None else None
+        block_tables = block_tables._underlying if block_tables is not None else None
+        cu_seqlens = cu_seqlens._underlying if cu_seqlens is not None else None
+        slot_mapping = slot_mapping._underlying if slot_mapping is not None else None
+        target_hidden_states = (
+            target_hidden_states._underlying
+            if target_hidden_states is not None
+            else None
+        )
+
+        def convert_tensor_list(tensor_list_):
+            if tensor_list_ is None:
+                return None
+            if not isinstance(tensor_list_, list):
+                tensor_list_ = [tensor_list_]
+            if len(tensor_list_) == 0:
+                return None
+            return [tensor._underlying for tensor in tensor_list_]
+
+        pixel_values = convert_tensor_list(pixel_values)
+        image_bound = convert_tensor_list(image_bound)
+        tgt_sizes = convert_tensor_list(tgt_sizes)
+
+        temperature = 1.0 if temperature is None else temperature
+        top_k = 1 if top_k is None else top_k
+        top_p = 1.0 if top_p is None else top_p
+
+        return super().Input(
+            input_ids,
+            position_ids=position_ids,
+            past_sequence_lengths=past_kv_lengths,
+            total_sequence_lengths=total_kv_lengths,
+            input_offsets=input_offsets,
+            cu_seqlens=cu_seqlens,
+            block_tables=block_tables,
+            slot_mapping=slot_mapping,
+            pixel_values=pixel_values,
+            image_bound=image_bound,
+            tgt_sizes=tgt_sizes,
+            image_req_ids=image_req_ids,
+            visual_token_ranges=visual_token_ranges,
+            target_hidden_states=target_hidden_states,
+            sample_all_positions=sample_all_positions,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+        )
+
     def forward(
         self,
         input_ids,
@@ -173,54 +265,20 @@ class InferEngine(_infinilm.InferEngine):
         tgt_sizes=None,
         image_req_ids=None,
         visual_token_ranges=None,
+        target_hidden_states=None,
         temperature=None,
         top_k=None,
         top_p=None,
     ):
         try:
-            # TODO: Remove `_underlying` and simplify the corresponding code.
-            input_ids = input_ids._underlying if input_ids is not None else None
-            position_ids = (
-                position_ids._underlying if position_ids is not None else None
-            )
-            past_kv_lengths = (
-                past_kv_lengths._underlying if past_kv_lengths is not None else None
-            )
-            total_kv_lengths = (
-                total_kv_lengths._underlying if total_kv_lengths is not None else None
-            )
-            input_offsets = (
-                input_offsets._underlying if input_offsets is not None else None
-            )
-            block_tables = (
-                block_tables._underlying if block_tables is not None else None
-            )
-            cu_seqlens = cu_seqlens._underlying if cu_seqlens is not None else None
-            slot_mapping = (
-                slot_mapping._underlying if slot_mapping is not None else None
-            )
-
-            def convert_tensor_list(tensor_list_):
-                if tensor_list_ is None:
-                    return None
-                if not isinstance(tensor_list_, list):
-                    tensor_list_ = [tensor_list_]
-                if len(tensor_list_) == 0:
-                    return None
-                return [tensor._underlying for tensor in tensor_list_]
-
-            pixel_values = convert_tensor_list(pixel_values)
-            image_bound = convert_tensor_list(image_bound)
-            tgt_sizes = convert_tensor_list(tgt_sizes)
-
             return infinicore.Tensor(
                 super()
                 .forward(
-                    super().Input(
+                    self._build_input(
                         input_ids,
                         position_ids=position_ids,
-                        past_sequence_lengths=past_kv_lengths,
-                        total_sequence_lengths=total_kv_lengths,
+                        past_kv_lengths=past_kv_lengths,
+                        total_kv_lengths=total_kv_lengths,
                         input_offsets=input_offsets,
                         cu_seqlens=cu_seqlens,
                         block_tables=block_tables,
@@ -230,6 +288,7 @@ class InferEngine(_infinilm.InferEngine):
                         tgt_sizes=tgt_sizes,
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
+                        target_hidden_states=target_hidden_states,
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
@@ -237,6 +296,60 @@ class InferEngine(_infinilm.InferEngine):
                 )
                 .output_ids
             )
+        except BaseException as e:
+            handle_oom_and_exit(e)
+            raise
+
+    def forward_raw(
+        self,
+        input_ids,
+        *,
+        position_ids=None,
+        past_kv_lengths=None,
+        total_kv_lengths=None,
+        input_offsets=None,
+        cu_seqlens=None,
+        block_tables=None,
+        slot_mapping=None,
+        pixel_values=None,
+        image_bound=None,
+        tgt_sizes=None,
+        image_req_ids=None,
+        visual_token_ranges=None,
+        target_hidden_states=None,
+        sample_all_positions=True,
+        temperature=None,
+        top_k=None,
+        top_p=None,
+    ):
+        try:
+            output = super().forward(
+                self._build_input(
+                    input_ids,
+                    position_ids=position_ids,
+                    past_kv_lengths=past_kv_lengths,
+                    total_kv_lengths=total_kv_lengths,
+                    input_offsets=input_offsets,
+                    cu_seqlens=cu_seqlens,
+                    block_tables=block_tables,
+                    slot_mapping=slot_mapping,
+                    pixel_values=pixel_values,
+                    image_bound=image_bound,
+                    tgt_sizes=tgt_sizes,
+                    image_req_ids=image_req_ids,
+                    visual_token_ranges=visual_token_ranges,
+                    target_hidden_states=target_hidden_states,
+                    sample_all_positions=sample_all_positions,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                )
+            )
+            return {
+                "output_ids": infinicore.Tensor(output.output_ids),
+                "logits": infinicore.Tensor(output.logits),
+                "hidden_states": infinicore.Tensor(output.hidden_states),
+            }
         except BaseException as e:
             handle_oom_and_exit(e)
             raise

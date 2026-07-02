@@ -47,7 +47,7 @@ public:
 
     std::vector<std::string> state_dict_keys();
 
-    // Run a single forward pass on all workers and return the outputs from all ranks
+    // Run a single forward pass on all workers and return sampled token IDs.
     Output forward(const Input &input);
 
     void compile();

@@ -8,6 +8,8 @@ from infinilm.processors.videonsa_processor import decode_video_frames
 def test(
     prompts: list[str],
     model_path,
+    draft_model_path=None,
+    num_draft_tokens=4,
     max_new_tokens=100,
     device="cpu",
     tp=1,
@@ -33,6 +35,8 @@ def test(
 
     model = LLM(
         model_path=model_path,
+        draft_model_path=draft_model_path,
+        num_draft_tokens=num_draft_tokens,
         device=device,
         tensor_parallel_size=tp,
         cache_type="paged" if enable_paged_attn else "static",
@@ -105,7 +109,9 @@ if __name__ == "__main__":
     test(
         prompts,
         model_path,
-        max_new_tokens,
+        draft_model_path=cfg.draft_model,
+        num_draft_tokens=cfg.num_draft_tokens,
+        max_new_tokens=max_new_tokens,
         device=device_str,
         tp=tp,
         enable_paged_attn=enable_paged_attn,

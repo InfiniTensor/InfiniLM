@@ -401,8 +401,10 @@ void RankWorker::thread_loop() {
                         std::lock_guard<std::mutex> lk(mutex_);
 
                         infinicore::Tensor logits;
-                        // Try to get compiled graph
-                        if (compiler_ != nullptr) {
+                        infinicore::Tensor hidden_states;
+                        // All-position speculative/MTP runs need eager mode because
+                        // hidden states are not part of compiled graph outputs.
+                        if (!local_args.sample_all_positions && compiler_ != nullptr) {
                             auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
@@ -412,7 +414,9 @@ void RankWorker::thread_loop() {
                         // Fall back to eager mode
                         if (!logits) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
-                            logits = model_->forward(model_args).logits;
+                            auto model_output = model_->forward(model_args);
+                            logits = model_output.logits;
+                            hidden_states = model_output.hidden_states;
                         }
 
                         // Random sampling (rank 0 only)
@@ -429,10 +433,16 @@ void RankWorker::thread_loop() {
                             auto n_req = local_args.input_offsets.value()->size(0) - 1;
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
-                            auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
+                            const bool sample_all_positions = local_args.sample_all_positions;
+                            const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
+                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
 
-                            for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
+                            for (size_t i{0}; i < n_out; ++i) {
+                                size_t score_idx = i;
+                                if (!sample_all_positions) {
+                                    score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                }
+                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
@@ -443,7 +453,7 @@ void RankWorker::thread_loop() {
 
                             infinicore::context::syncStream();
 
-                            auto out{Output{output_ids}};
+                            auto out{Output{output_ids, logits, hidden_states}};
 
                             output_ = std::move(out);
                         }

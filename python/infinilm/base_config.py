@@ -57,6 +57,8 @@ class BaseConfig:
             )
 
         self.model = self.args.model
+        self.draft_model = self.args.draft_model
+        self.num_draft_tokens = self.args.num_draft_tokens
         self.device = self.args.device
         self.tp = self.args.tp
 
@@ -168,6 +170,18 @@ class BaseConfig:
     def _add_common_args(self):
         # --- base configuration ---
         self.parser.add_argument("--model", type=str, required=True)
+        self.parser.add_argument(
+            "--draft-model",
+            type=str,
+            default=None,
+            help="optional Eagle/MTP draft model directory",
+        )
+        self.parser.add_argument(
+            "--num-draft-tokens",
+            type=int,
+            default=4,
+            help="number of Eagle draft tokens to verify per target step",
+        )
         self.parser.add_argument(
             "--device",
             type=str,
