@@ -4,16 +4,15 @@ from dataclasses import dataclass, field
 from typing import Any, Generator
 
 import infinicore
-
+from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
+from infinilm.config.engine_config import EngineConfig
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
-from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
-from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.config.engine_config import EngineConfig
 from infinilm.kv_connector import (
-    KVConnectorRole,
     KVConnectorFactory,
+    KVConnectorRole,
 )
+from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.processors import AutoInfinilmProcessor
 
 logger = logging.getLogger(__name__)
@@ -69,12 +68,17 @@ class ModelRunner:
         self.model_engine = InferEngine(
             model_path=config.model_path,
             device=self.device,
-            distributed_config=DistConfig(config.tensor_parallel_size),
+            distributed_config=DistConfig(
+                config.tensor_parallel_size,
+                moe_ep_backend=config.moe_ep_backend,
+                moe_ep_size=config.moe_ep_size,
+            ),
             cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
             attention_backend=config.attn_backend,
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,
+            skip_legacy_moe=config.skip_legacy_moe,
         )
 
         # Load model weights

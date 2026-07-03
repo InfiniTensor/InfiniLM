@@ -6,30 +6,30 @@ This module provides:
 - AsyncLLM class for asynchronous streaming (server use)
 """
 
-import os
 import asyncio
+import logging
+import os
+import threading
 import time
 import uuid
-import logging
-import janus
-import threading
-from typing import List, Optional, Union, AsyncIterator
+from typing import AsyncIterator, List, Optional, Union
 
+import janus
+
+from infinilm.config.engine_config import EngineConfig
+from infinilm.config.kv_transfer import KVTransferConfig
+from infinilm.kv_connector import KVConnectorFactory, KVConnectorRole
+from infinilm.llm.model_runner.model_runner import ModelRunner
 from infinilm.llm.request import (
+    FinishReason,
     InferenceRequest,
     RequestOutput,
     TokenOutput,
-    FinishReason,
 )
-
-from infinilm.llm.model_runner.model_runner import ModelRunner
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
-from infinilm.config.kv_transfer import KVTransferConfig
-from infinilm.config.engine_config import EngineConfig
-from infinilm.kv_connector import KVConnectorRole, KVConnectorFactory
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +290,8 @@ class LLM:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        moe_ep_backend: str = "disabled",
+        moe_ep_size: int = 1,
         cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 4096,
@@ -304,6 +306,7 @@ class LLM:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         skip_load: bool = False,
+        skip_legacy_moe: bool = False,
     ):
         """Initialize LLM.
 
@@ -331,6 +334,8 @@ class LLM:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            moe_ep_backend=moe_ep_backend,
+            moe_ep_size=moe_ep_size,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
@@ -345,6 +350,7 @@ class LLM:
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
             skip_load=skip_load,
+            skip_legacy_moe=skip_legacy_moe,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -487,6 +493,8 @@ class AsyncLLMEngine:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        moe_ep_backend: str = "disabled",
+        moe_ep_size: int = 1,
         cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 512,
@@ -501,6 +509,7 @@ class AsyncLLMEngine:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
         weight_load_mode: str = "async",
+        skip_legacy_moe: bool = False,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -531,6 +540,8 @@ class AsyncLLMEngine:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            moe_ep_backend=moe_ep_backend,
+            moe_ep_size=moe_ep_size,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
@@ -545,6 +556,7 @@ class AsyncLLMEngine:
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
+            skip_legacy_moe=skip_legacy_moe,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -721,13 +733,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert (
-                messages is not None
-            ), "Either messages or prompt/prompt_token_ids must be provided"
+            assert messages is not None, (
+                "Either messages or prompt/prompt_token_ids must be provided"
+            )
 
-            assert (
-                apply_chat_template
-            ), "apply_chat_template needs to be true for multi-role conversation"
+            assert apply_chat_template, (
+                "apply_chat_template needs to be true for multi-role conversation"
+            )
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt

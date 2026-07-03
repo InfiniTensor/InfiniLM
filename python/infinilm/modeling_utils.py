@@ -1,13 +1,14 @@
-import os
-import json
 import gc
-from typing import Dict, Union, Optional, List
+import glob
+import json
+import os
 import time
+from typing import Dict, List, Optional, Union
+
+import infinicore
 import torch
 from safetensors import safe_open
-import glob
 from tqdm import tqdm
-import infinicore
 
 
 def _get_scale_emb(model_path: str) -> float:
@@ -54,12 +55,25 @@ str_to_torch_dtype = {
 }
 
 
+def _is_internal_moe_packed_weight(key: str) -> bool:
+    # InfiniLM registers packed MoE parameters internally. HF checkpoints
+    # provide per-expert gate/up/down weights instead, so these packed tensors
+    # are expected missing keys during non-strict checkpoint loading.
+    return key.endswith(".mlp.experts.w13_weight") or key.endswith(
+        ".mlp.experts.w2_weight"
+    )
+
+
 def check_parameters(model_keys: list, already_loaded_keys: list):
     model_keys = set(model_keys)
     already_loaded_keys = set(already_loaded_keys)
     intersection = model_keys & already_loaded_keys
 
-    missing_keys = model_keys - intersection
+    missing_keys = {
+        key
+        for key in model_keys - intersection
+        if not _is_internal_moe_packed_weight(key)
+    }
     unexpected_keys = already_loaded_keys - intersection
     error_msgs: list[str] = []
 
@@ -183,6 +197,8 @@ def load_model_state_dict_by_file(
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
 
+    remapper = _WEIGHT_REMAPPER.get(model_type)
+
     index_file_path = os.path.join(model_path, "model.safetensors.index.json")
     if os.path.exists(index_file_path):
         # Priority 1: If the index file exists, strictly load exactly what it maps to.
@@ -196,7 +212,7 @@ def load_model_state_dict_by_file(
     else:
         # Priority 2: If no index file, scan all safetensors files.
         print("No index file found. Scanning all safetensors files...")
-        file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
+        file_list = sorted(glob.glob(os.path.join(model_path, "*.safetensors")))
 
     if len(file_list) > 0:
         for file_path in tqdm(file_list, desc="Processing files"):
@@ -210,7 +226,6 @@ def load_model_state_dict_by_file(
             )
 
             # Apply model-specific weight remapping
-            remapper = _WEIGHT_REMAPPER.get(model_type)
             if remapper is not None:
                 model_param = remapper(model_param, config=model.hf_config)
 
@@ -237,7 +252,6 @@ def load_model_state_dict_by_file(
             del model_param_infini
             del model_param
             gc.collect()
-
         if not (
             "lm_head.weight" in model_keys
             and "lm_head.weight" not in already_loaded_keys

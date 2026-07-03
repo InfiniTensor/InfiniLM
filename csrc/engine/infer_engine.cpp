@@ -3,6 +3,7 @@
 #include "spdlog/spdlog.h"
 #include <future>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace infinilm::engine {
 
@@ -32,7 +33,12 @@ InferEngine::InferEngine(
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
-    auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(attention_backend, this->model_config_, use_mla);
+    auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(
+        attention_backend,
+        this->model_config_,
+        use_mla,
+        distributed_config.moe_ep_backend,
+        distributed_config.moe_ep_size);
 
     // Only support offline int8 kv cache quantization in this version
     if (kv_cache_dtype.has_value()) {
@@ -67,10 +73,10 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
     }
 }
 
-void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params) {
+void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params, bool strict) {
     if (workers_.size() <= 1 || weight_load_mode_ == "sync") {
         for (auto &worker : workers_) {
-            worker->load_params(params);
+            worker->load_params(params, strict);
         }
         return;
     }
@@ -78,8 +84,8 @@ void InferEngine::load_params(const std::unordered_map<std::string, infinicore::
     std::vector<std::future<void>> futures;
     futures.reserve(workers_.size());
     for (auto &worker : workers_) {
-        futures.emplace_back(std::async(std::launch::async, [&worker, &params] {
-            worker->load_params(params);
+        futures.emplace_back(std::async(std::launch::async, [&worker, &params, strict] {
+            worker->load_params(params, strict);
         }));
     }
     for (auto &future : futures) {
@@ -118,7 +124,17 @@ std::vector<std::string> InferEngine::state_dict_keys() {
     if (0 == workers_.size()) {
         throw std::runtime_error(" Model object not found. ");
     }
-    return workers_.front()->state_dict_keys();
+    std::vector<std::string> ordered_keys;
+    std::unordered_set<std::string> seen_keys;
+    for (auto &worker : workers_) {
+        for (const auto &key : worker->state_dict_keys()) {
+            // Preserve first-seen worker order while removing duplicate TP keys.
+            if (seen_keys.emplace(key).second) {
+                ordered_keys.push_back(key);
+            }
+        }
+    }
+    return ordered_keys;
 }
 
 //------------------------------------------------------

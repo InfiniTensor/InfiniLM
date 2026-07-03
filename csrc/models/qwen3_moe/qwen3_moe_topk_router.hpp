@@ -1,5 +1,9 @@
 #pragma once
-#include "../../layers/common_modules.hpp"
+
+#include "../../config/model_config.hpp"
+#include "infinicore/device.hpp"
+#include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
 
 #include <memory>
 #include <tuple>

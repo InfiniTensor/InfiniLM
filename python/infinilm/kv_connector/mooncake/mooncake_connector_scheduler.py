@@ -1,10 +1,10 @@
 import logging
 from typing import Any, Optional
 
+from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.kv_connector import (
     KVConnectorMetadata,
 )
-from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.llm import InferenceRequest, RequestStatus
 
 logger = logging.getLogger(__name__)
@@ -104,14 +104,14 @@ class MooncakeConnectorScheduler:
                 # send_notif in _read_blocks to free the memory on the P.
                 # remote_block_ids = block_ids if num_external_tokens > 0 else []
                 if num_external_tokens > 0:
-                    assert (
-                        block_size is not None
-                    ), "block_size must be provided when num_external_tokens > 0"
+                    assert block_size is not None, (
+                        "block_size must be provided when num_external_tokens > 0"
+                    )
                     prompt_len = request.get_prompt_length()
                     local_computed_tokens = prompt_len - num_external_tokens
-                    assert (
-                        local_computed_tokens % block_size == 0
-                    ), "local_computed_tokens must be divisible by block_size"
+                    assert local_computed_tokens % block_size == 0, (
+                        "local_computed_tokens must be divisible by block_size"
+                    )
                     start_idx = local_computed_tokens // block_size
                     remote_block_ids = block_ids[start_idx:]
                 else:
@@ -216,9 +216,9 @@ class MooncakeConnectorScheduler:
 
         delay_free_blocks = len(block_ids) > 0
         if delay_free_blocks:
-            assert (
-                block_size is not None
-            ), "block_size must be provided when delay_free_blocks is True"
+            assert block_size is not None, (
+                "block_size must be provided when delay_free_blocks is True"
+            )
             self._reqs_need_send[request.request_id] = (
                 request,
                 block_ids,

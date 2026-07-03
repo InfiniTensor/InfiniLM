@@ -1,6 +1,11 @@
 #include "qwen3_moe_experts.hpp"
 
+#include "infinicore/ops.hpp"
+
+#include <string>
+
 namespace infinilm::models::qwen3_moe {
+
 Qwen3MoeExperts::Qwen3MoeExperts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                  const infinicore::Device &device) {
 
@@ -22,8 +27,8 @@ infinicore::Tensor Qwen3MoeExperts::forward(const infinicore::Tensor &hidden_sta
     auto top_k_weights_cpu = top_k_weights->to(infinicore::Device::Type::CPU);
     auto top_k_index_cpu = top_k_index->to(infinicore::Device::Type::CPU);
 
-    int *top_k_index_ptr = (int *)top_k_index_cpu->data();
-    float *top_k_weights_ptr = (float *)top_k_weights_cpu->data();
+    int *top_k_index_ptr = reinterpret_cast<int *>(top_k_index_cpu->data());
+    float *top_k_weights_ptr = reinterpret_cast<float *>(top_k_weights_cpu->data());
 
     size_t ntoken = hidden_states->shape()[0];
     int index;
@@ -39,7 +44,7 @@ infinicore::Tensor Qwen3MoeExperts::forward(const infinicore::Tensor &hidden_sta
             index = top_k_index_ptr[route_row + k];
             score = top_k_weights_ptr[route_row + k];
 
-            ASSERT(index >= 0 && index < num_experts_);
+            ASSERT(index >= 0 && static_cast<size_t>(index) < num_experts_);
 
             experts_[index]->set_alpha(score);
             auto expert_out = experts_[index]->forward(hidden_states_i);

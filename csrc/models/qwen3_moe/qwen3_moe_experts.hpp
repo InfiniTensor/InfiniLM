@@ -1,11 +1,15 @@
 #pragma once
-#include "../../layers/common_modules.hpp"
 
+#include "../../layers/moe/legacy/moe_mlp.hpp"
+#include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
+
+#include <cstddef>
 #include <memory>
 
 namespace infinilm::models::qwen3_moe {
 
-using Qwen3MoeMLP = infinilm::layers::MoeMLP;
+using Qwen3MoeMLP = infinilm::layers::moe::legacy::MoeMLP;
 
 class Qwen3MoeExperts : public infinicore::nn::Module {
 public:

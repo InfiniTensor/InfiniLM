@@ -1,16 +1,18 @@
-import infinicore
-from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.distributed import DistConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
-from infinilm.base_config import BaseConfig
-from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
-from infinilm.processors import AutoInfinilmProcessor
+import json
+import os
 import sys
 import time
-import os
-import json
 from collections import OrderedDict
+
+import infinicore
 import numpy as np
+from infinilm.base_config import BaseConfig
+from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
+from infinilm.distributed import DistConfig
+from infinilm.infer_engine import GenerationConfig, InferEngine
+from infinilm.modeling_utils import load_model_state_dict_by_file
+from infinilm.moe_config import configure_moe_ep_backend
+from infinilm.processors import AutoInfinilmProcessor
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
@@ -186,6 +188,8 @@ class TestModel:
         attn_backend="default",
         use_mla=False,
         weight_load_mode="async",
+        moe_ep_backend="disabled",
+        moe_ep_size=1,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         # ---------------------------------------------------------------------------- #
@@ -194,7 +198,11 @@ class TestModel:
         model = InferEngine(
             model_path,
             device=infini_device,
-            distributed_config=DistConfig(tp),
+            distributed_config=DistConfig(
+                tp,
+                moe_ep_backend=moe_ep_backend,
+                moe_ep_size=moe_ep_size,
+            ),
             cache_config=cache_config,
             enable_graph_compiling=enable_graph,
             attention_backend=attn_backend,
@@ -291,6 +299,11 @@ if __name__ == "__main__":
     infini_device = infinicore.device(device_str, 0)
 
     tp = cfg.tp
+    dp = cfg.dp
+    moe_ep_backend, ep = configure_moe_ep_backend(
+        tp, dp, cfg.ep, cfg.moe_ep_backend, model_path
+    )
+    print(f"MoE EP backend: {moe_ep_backend}  TP={tp}  DP={dp}  EP={ep}")
 
     skip_load = cfg.skip_load
 
@@ -345,6 +358,8 @@ if __name__ == "__main__":
         attn_backend=attn_backend,
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,
+        moe_ep_backend=moe_ep_backend,
+        moe_ep_size=ep,
     )
 
     # ---------------------------------------------------------------------------- #

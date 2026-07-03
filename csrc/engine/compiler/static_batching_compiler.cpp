@@ -29,6 +29,9 @@ void StaticBatchingCompiler::compile() {
         };
 
         barrier_->wait();
+        (void)model_->forward(input);
+        infinicore::context::syncStream();
+
         infinicore::context::startGraphRecording();
         auto output = model_->forward(input);
         auto graph = infinicore::context::stopGraphRecording();

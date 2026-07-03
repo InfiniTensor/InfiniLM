@@ -2,13 +2,14 @@
 Request and Output - Data structures for inference requests and outputs.
 """
 
-from enum import Enum
-from dataclasses import dataclass, field
-from typing import List, Optional, Any
-import time
-import janus
 import asyncio
 import logging
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import List, Optional
+
+import janus
 
 from infinilm.llm.sampling_params import SamplingParams
 
@@ -148,9 +149,7 @@ class InferenceRequest:
 
         # Generation state
         self.generated_token_ids: List[int] = []
-        self.generated_text: str = (
-            ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
-        )
+        self.generated_text: str = ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
         self.status: RequestStatus = RequestStatus.WAITING
         self.finish_reason: Optional[FinishReason] = None
 

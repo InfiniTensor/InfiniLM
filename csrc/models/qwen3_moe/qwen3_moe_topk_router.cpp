@@ -23,12 +23,12 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> Qwen3MoeTopKRouter::forward(c
     ASSERT(hidden_states->ndim() == 2);
 
     size_t ntoken = hidden_states->shape()[0];
-    auto router_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
+    auto router_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt);
 
     auto router_scores = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::F32, hidden_states->device());
     auto router_indices = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::I32, hidden_states->device());
 
-    infinicore::op::topksoftmax(router_scores, router_indices, router_logits, num_experts_per_tok_, norm_topk_prob_);
+    infinicore::op::moe_topk_softmax_(router_scores, router_indices, router_logits, infinicore::Tensor(), norm_topk_prob_, 0.0f);
 
     return std::make_tuple(router_scores, router_indices);
 }
