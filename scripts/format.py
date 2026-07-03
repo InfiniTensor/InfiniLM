@@ -1,7 +1,8 @@
 import argparse
-import subprocess
 import os
+import subprocess
 from pathlib import Path
+
 from colorama import Fore, Style
 
 # Supported file types and their corresponding formatter categories
@@ -77,8 +78,9 @@ def format_file(file: Path, check: bool, formatter) -> bool:
                     check=True,
                 )
                 print(f"{Fore.CYAN}Formatted: {file}{Style.RESET_ALL}")
-
+        elif formatter == "ruff":
             ruff_cmd = ["ruff", "check", file]
+            ruff_format_cmd = ["ruff", "format", file]
             try:
                 if check:
                     process = subprocess.run(
@@ -91,6 +93,22 @@ def format_file(file: Path, check: bool, formatter) -> bool:
                         print(f"{Fore.YELLOW}{file} has ruff issues.{Style.RESET_ALL}")
                         print(
                             f"Use {Fore.CYAN}ruff check --fix {file}{Style.RESET_ALL} to fix it."
+                        )
+                        formatted = False
+
+                    ruff_format_cmd.insert(2, "--check")
+                    process = subprocess.run(
+                        ruff_format_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if process.returncode != 0:
+                        print(
+                            f"{Fore.YELLOW}{file} is not ruff-formatted.{Style.RESET_ALL}"
+                        )
+                        print(
+                            f"Use {Fore.CYAN}ruff format {file}{Style.RESET_ALL} to format it."
                         )
                         formatted = False
                 else:
@@ -110,6 +128,24 @@ def format_file(file: Path, check: bool, formatter) -> bool:
                         formatted = False
                     else:
                         print(f"{Fore.CYAN}Ruff fixed: {file}{Style.RESET_ALL}")
+
+                    process = subprocess.run(
+                        ruff_format_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if process.returncode != 0:
+                        print(
+                            f"{Fore.RED}Ruff format failed for {file}.{Style.RESET_ALL}"
+                        )
+                        if process.stdout:
+                            print(process.stdout, end="")
+                        if process.stderr:
+                            print(process.stderr, end="")
+                        formatted = False
+                    else:
+                        print(f"{Fore.CYAN}Ruff formatted: {file}{Style.RESET_ALL}")
             except FileNotFoundError:
                 print(
                     f"{Fore.RED}Formatter ruff not found, {file} skipped.{Style.RESET_ALL}"
@@ -216,9 +252,7 @@ def main():
     parser.add_argument(
         "--c", default="clang-format-16", help="C formatter (default: clang-format-16)"
     )
-    parser.add_argument(
-        "--py", default="black", help="Python formatter (default: black)"
-    )
+    parser.add_argument("--py", default="ruff", help="Python formatter (default: ruff)")
     args = parser.parse_args()
 
     if args.ref is None and args.path is None:

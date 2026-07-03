@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-format-16
-          pip install black ruff colorama
+          pip install black ruff==0.15.20 colorama
 
       - name: Check Format
         run: |
