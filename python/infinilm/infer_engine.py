@@ -152,6 +152,11 @@ class InferEngine(_infinilm.InferEngine):
         top_k=None,
         top_p=None,
     ):
+        if os.getenv("INFINILM_DEBUG_FORWARD") == "1":
+            print("=================== forward ====================")
+            print(f"input_ids: {input_ids}")
+            print(f"position_ids: {position_ids}")
+
         try:
             # TODO: Remove `_underlying` and simplify the corresponding code.
             input_ids = input_ids._underlying if input_ids is not None else None

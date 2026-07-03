@@ -91,9 +91,17 @@ void InferEngine::load_params(const std::unordered_map<std::string, infinicore::
 // load_param
 //------------------------------------------------------
 void InferEngine::process_weights_after_loading() {
-    // Process the weights after loading on all workers
+    // Weight post-processing may include tensor-parallel collectives, so submit it
+    // to all workers before waiting for completion.
+    std::vector<std::future<void>> futures;
+    futures.reserve(workers_.size());
     for (auto &worker : workers_) {
-        worker->process_weights_after_loading();
+        futures.emplace_back(std::async(std::launch::async, [&worker] {
+            worker->process_weights_after_loading();
+        }));
+    }
+    for (auto &future : futures) {
+        future.get();
     }
     weights_finalized_ = true;
     this->compile();

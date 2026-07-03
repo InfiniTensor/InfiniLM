@@ -2,6 +2,7 @@
 /deepseek_v4_transformers
 /deepseek_v4_sglang
 .clangd
+*.cpp.bak_*
 
 # Xmake cache
 .xmake/
@@ -39,3 +40,4 @@ __pycache__/
 *.http
 
 *.nsys-rep
+.gitignore

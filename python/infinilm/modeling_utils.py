@@ -352,6 +352,12 @@ def load_model_state_dict_by_tensor(
                 for name in f.keys():
                     if _should_skip_weight(name):
                         continue
+                    if (
+                        model.hf_config.get("model_type", "") == "deepseek_v4"
+                        and ".attn.wo_a." in name
+                        and name.endswith(".scale")
+                    ):
+                        continue
                     tensor = _prepare_weight_tensor(
                         name, f.get_tensor(name), torch_dtype
                     )
@@ -374,6 +380,12 @@ def load_model_state_dict_by_tensor(
         model_params = _filter_unsupported_weights(model_params)
 
         for key in model_params.keys():
+            if (
+                model.hf_config.get("model_type", "") == "deepseek_v4"
+                and ".attn.wo_a." in key
+                and key.endswith(".scale")
+            ):
+                continue
             tensor = _prepare_weight_tensor(key, model_params[key], torch_dtype)
             if key == "model.embed_tokens.weight":
                 embed_tokens_torch_unscaled = tensor
@@ -700,6 +712,8 @@ def _remap_deepseek_v4(state_dict, config=None):
     """Remap DeepSeek V4 checkpoint names to InfiniLM generic linear names."""
     remapped = {}
     for key, tensor in state_dict.items():
+        if ".attn.wo_a." in key and key.endswith(".scale"):
+            continue
         new_key = key
         if new_key.endswith(".scale"):
             new_key = new_key.removesuffix(".scale") + ".weight_scale"

@@ -6,13 +6,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <cstdlib>
 #include <functional>
 #include <limits>
 #include <numeric>
 #include <stdexcept>
-#include <string>
-#include <spdlog/spdlog.h>
 
 namespace infinilm::models::deepseek_v4 {
 namespace {
@@ -115,44 +112,6 @@ std::vector<int64_t> tensor_to_int64_vector(const infinicore::Tensor &tensor) {
     }
     return out;
 }
-
-bool debug_trace_enabled() {
-    const char *value = std::getenv("DEEPSEEK_V4_DEBUG_TRACE");
-    return value != nullptr && value[0] != '\0' && std::string(value) != "0";
-}
-
-void debug_trace_tensor(const std::string &name, const infinicore::Tensor &tensor) {
-    if (!debug_trace_enabled()) {
-        return;
-    }
-    const auto values = tensor_to_float_vector(tensor);
-    if (values.empty()) {
-        spdlog::info("DSV4_TRACE {} shape=[] mean=0 rms=0 max_abs=0 first=0 last=0", name);
-        return;
-    }
-    double sum = 0.0;
-    double sum_sq = 0.0;
-    float max_abs = 0.0f;
-    for (float value : values) {
-        sum += value;
-        sum_sq += static_cast<double>(value) * value;
-        max_abs = std::max(max_abs, std::abs(value));
-    }
-    std::string shape = "[";
-    const auto &dims = tensor->shape();
-    for (size_t i = 0; i < dims.size(); ++i) {
-        if (i > 0) {
-            shape += ",";
-        }
-        shape += std::to_string(dims[i]);
-    }
-    shape += "]";
-    spdlog::info("DSV4_TRACE {} shape={} mean={:.9g} rms={:.9g} max_abs={:.9g} first={:.9g} last={:.9g}",
-                 name, shape, sum / static_cast<double>(values.size()),
-                 std::sqrt(sum_sq / static_cast<double>(values.size())),
-                 max_abs, values.front(), values.back());
-}
-
 infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
                                           const infinicore::Shape &shape,
                                           infinicore::DataType dtype,
@@ -186,25 +145,6 @@ infinicore::Tensor int64_vector_to_tensor(const std::vector<int64_t> &values,
     }
     return out;
 }
-
-infinicore::Tensor clamped_swiglu(const infinicore::Tensor &up,
-                                  const infinicore::Tensor &gate,
-                                  double limit) {
-    auto up_values = tensor_to_float_vector(up);
-    auto gate_values = tensor_to_float_vector(gate);
-    if (up_values.size() != gate_values.size()) {
-        throw std::runtime_error("DeepseekV4MLP: up/gate shape mismatch");
-    }
-    const float lim = static_cast<float>(limit);
-    std::vector<float> out(up_values.size());
-    for (size_t i = 0; i < out.size(); ++i) {
-        const float u = std::max(-lim, std::min(lim, up_values[i]));
-        const float g = std::min(gate_values[i], lim);
-        out[i] = silu(g) * u;
-    }
-    return float_vector_to_tensor(out, up->shape(), up->dtype(), up->device());
-}
-
 DeepseekV4MHCParams build_mhc_params(const infinicore::Tensor &x,
                                      const infinicore::Tensor &base,
                                      const infinicore::Tensor &fn,

@@ -11,6 +11,7 @@
 #include "infinicore/tensor.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 
 namespace infinilm::models::deepseek_v4 {
@@ -76,6 +77,10 @@ private:
     double rms_norm_eps_{1e-6};
     double rope_theta_{10000.0};
     double compress_rope_theta_{10000.0};
+    double rope_factor_{1.0};
+    double rope_beta_fast_{32.0};
+    double rope_beta_slow_{1.0};
+    int64_t rope_original_max_position_embeddings_{0};
     float softmax_scale_{1.0f};
 };
 

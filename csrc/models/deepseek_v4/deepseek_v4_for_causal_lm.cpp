@@ -87,6 +87,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v4_model_config(
         config_json["partial_rotary_factor"] = static_cast<double>(qk_rope_head_dim) / static_cast<double>(head_dim);
     }
 
+    // SGLang/vLLM DeepSeek-V4 uses GPT-J/interleaved RoPE (is_neox_style=false).
+    model_config->set_rope_algo(infinicore::nn::RoPE::Algo::GPT_J);
+
     return model_config;
 }
 
