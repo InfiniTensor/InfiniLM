@@ -44,7 +44,7 @@ setup(
         "infinilm.distributed",
         "infinilm.server",
     ],
-    install_requires=["infinimetadata>=0.3.0"],
+    install_requires=["infinimetadata>=0.1.0"],
     cmdclass={
         "build": Build,
         "develop": Develop,

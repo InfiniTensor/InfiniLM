@@ -96,16 +96,11 @@ class InferEngine(_infinilm.InferEngine):
         self._compiled_prefill_ready = False
         self._paged_kv_layers_cache = None
         try:
-            from infinilm.compile.env import (
-                prefill_compile_enabled,
-                prefill_native_cg_enabled,
-            )
+            from infinilm.compile.env import prefill_native_cg_enabled
 
             self._prefill_native_cg_enabled = prefill_native_cg_enabled()
-            self._prefill_compile_enabled = prefill_compile_enabled()
         except ImportError:
             self._prefill_native_cg_enabled = False
-            self._prefill_compile_enabled = False
 
         if not self._prefill_native_cg_enabled:
             self._maybe_bootstrap_compiled_subgraphs()
@@ -131,72 +126,13 @@ class InferEngine(_infinilm.InferEngine):
         )
 
     def _hybrid_prefill_ready(self) -> bool:
-        from infinilm.compile.hybrid_prefill import hybrid_prefill_ready
-
-        return hybrid_prefill_ready(self)
+        return False
 
     def _compiled_prefill_supported(self) -> bool:
-        from infinilm.compile.hybrid_prefill import compiled_prefill_supported
-
-        return compiled_prefill_supported(self)
-
-    def _get_paged_kv_layers(self):
-        from infinilm.compile.hybrid_prefill import get_paged_kv_layers
-
-        return get_paged_kv_layers(self)
-
-    def _ensure_compiled_prefill_runner(self, *, block_size: int = 256):
-        from infinilm.compile.hybrid_prefill import ensure_compiled_prefill_runner
-
-        ensure_compiled_prefill_runner(self, block_size=block_size)
-
-    @staticmethod
-    def _sample_token_id_from_logits(
-        logits_1d: torch.Tensor,
-        generation_config: GenerationConfig,
-    ) -> int:
-        from infinilm.compile.hybrid_prefill import sample_token_id_from_logits
-
-        return sample_token_id_from_logits(logits_1d, generation_config)
-
-    @staticmethod
-    def _infinicore_input_ids_to_torch(input_ids) -> torch.Tensor:
-        from infinilm.compile.hybrid_prefill import infinicore_input_ids_to_torch
-
-        return infinicore_input_ids_to_torch(input_ids)
+        return False
 
     def try_hybrid_prefill_forward(self, **model_input) -> Optional[List[int]]:
-        from infinilm.compile.hybrid_prefill import try_hybrid_prefill_forward
-
-        return try_hybrid_prefill_forward(self, **model_input)
-
-    def _hybrid_compiled_prefill_step(
-        self,
-        input_ids,
-        *,
-        input_ids_torch: Optional[torch.Tensor] = None,
-        temperature: float,
-        top_k: int,
-        top_p: float,
-        block_tables,
-        slot_mapping,
-        paged_block_size: int,
-        cpp_prefill_kwargs: dict,
-    ):
-        from infinilm.compile.hybrid_prefill import hybrid_compiled_prefill_step
-
-        return hybrid_compiled_prefill_step(
-            self,
-            input_ids,
-            input_ids_torch=input_ids_torch,
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-            block_tables=block_tables,
-            slot_mapping=slot_mapping,
-            paged_block_size=paged_block_size,
-            cpp_prefill_kwargs=cpp_prefill_kwargs,
-        )
+        return None
 
     @property
     def dtype(self):
@@ -348,9 +284,6 @@ class InferEngine(_infinilm.InferEngine):
 
         # Init compiled torch backbone before paged-attn slot/block tensors are
         # allocated (extra GPU allocations during meta-init have caused MACA segfaults).
-        if self._compiled_prefill_supported() and self.enable_paged_attn:
-            self._ensure_compiled_prefill_runner()
-
         block_tables = None
         max_blocks_per_batch = 0
         if self.enable_paged_attn:
@@ -431,55 +364,22 @@ class InferEngine(_infinilm.InferEngine):
                 [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
             )
 
-            if (
-                iter == 0
-                and self._compiled_prefill_supported()
-                and self.enable_paged_attn
-            ):
-                cpp_prefill_kwargs = dict(
-                    input_ids=input_ids,
-                    pixel_values=pixel_values,
-                    position_ids=position_ids,
-                    past_kv_lengths=past_kv_lengths,
-                    total_kv_lengths=total_kv_lengths,
-                    input_offsets=input_offsets,
-                    cu_seqlens=cu_seqlens,
-                    block_tables=block_tables,
-                    slot_mapping=slot_mapping,
-                    image_bound=image_bound,
-                    tgt_sizes=tgt_sizes,
-                    temperature=generation_config.temperature,
-                    top_k=generation_config.top_k,
-                    top_p=generation_config.top_p,
-                )
-                token_id = self._hybrid_compiled_prefill_step(
-                    input_ids,
-                    temperature=generation_config.temperature,
-                    top_k=generation_config.top_k,
-                    top_p=generation_config.top_p,
-                    block_tables=block_tables,
-                    slot_mapping=slot_mapping,
-                    paged_block_size=paged_block_size,
-                    cpp_prefill_kwargs=cpp_prefill_kwargs,
-                )
-                output_id = infinicore.from_list([token_id], dtype=infinicore.int64)
-            else:
-                output_id = self(
-                    input_ids=input_ids,
-                    pixel_values=pixel_values if iter == 0 else None,
-                    position_ids=position_ids,
-                    past_kv_lengths=past_kv_lengths,
-                    total_kv_lengths=total_kv_lengths,
-                    input_offsets=input_offsets,
-                    cu_seqlens=cu_seqlens,
-                    block_tables=block_tables,
-                    slot_mapping=slot_mapping,
-                    image_bound=image_bound if iter == 0 else None,
-                    tgt_sizes=tgt_sizes if iter == 0 else None,
-                    temperature=generation_config.temperature,
-                    top_k=generation_config.top_k,
-                    top_p=generation_config.top_p,
-                )
+            output_id = self(
+                input_ids=input_ids,
+                pixel_values=pixel_values if iter == 0 else None,
+                position_ids=position_ids,
+                past_kv_lengths=past_kv_lengths,
+                total_kv_lengths=total_kv_lengths,
+                input_offsets=input_offsets,
+                cu_seqlens=cu_seqlens,
+                block_tables=block_tables,
+                slot_mapping=slot_mapping,
+                image_bound=image_bound if iter == 0 else None,
+                tgt_sizes=tgt_sizes if iter == 0 else None,
+                temperature=generation_config.temperature,
+                top_k=generation_config.top_k,
+                top_p=generation_config.top_p,
+            )
 
             output_ids.append(output_id)
 
@@ -530,18 +430,6 @@ class InferEngine(_infinilm.InferEngine):
             infinicore.sync_device()
         self._paged_kv_layers_cache = None
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
-        paged_block_size = (
-            cache_config.block_size()
-            if isinstance(cache_config, PagedKVCacheConfig)
-            else 256
-        )
-        # Bootstrap compiled backbone before C++ paged KV allocation (MACA segfault workaround).
-        if (
-            not getattr(self, "_prefill_native_cg_enabled", False)
-            and self._compiled_prefill_supported()
-            and self.enable_paged_attn
-        ):
-            self._ensure_compiled_prefill_runner(block_size=paged_block_size)
         super().reset_cache(cache_config)
         if getattr(self, "_prefill_native_cg_enabled", False) and self.enable_paged_attn:
             from infinilm.compile.env import compile_max_seq_len
@@ -552,12 +440,6 @@ class InferEngine(_infinilm.InferEngine):
                 buckets,
                 compile_max_seq_len(),
             )
-        else:
-            from infinilm.compile.hybrid_prefill import (
-                finish_cudagraph_capture_after_reset_cache,
-            )
-
-            finish_cudagraph_capture_after_reset_cache(self)
 
     def state_dict_keyname(self):
         return super().state_dict_keys()[0]

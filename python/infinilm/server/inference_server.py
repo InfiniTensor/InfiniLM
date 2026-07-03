@@ -216,31 +216,8 @@ class InferenceServer:
 
     @staticmethod
     def _preflight_vllm_platform() -> None:
-        """Touch vLLM platform/datasets before engine init (matches ASGI smoke order)."""
-        try:
-            from infinilm.compile.env import (
-                prefill_compile_enabled,
-                prefill_cudagraph_enabled,
-                prefill_native_cg_enabled,
-            )
-
-            if prefill_native_cg_enabled():
-                return
-            if not (prefill_compile_enabled() and prefill_cudagraph_enabled()):
-                return
-        except ImportError:
-            return
-        try:
-            from vllm.benchmarks.datasets import RandomDataset  # noqa: F401
-
-            from vllm.platforms import current_platform
-
-            logger.debug(
-                "compiled prefill: vLLM preflight platform=%s",
-                type(current_platform).__name__,
-            )
-        except ImportError as exc:
-            logger.warning("compiled prefill: vLLM preflight skipped: %s", exc)
+        """No-op: InfiniLM runtime no longer depends on vLLM."""
+        return
 
     async def _bootstrap_engine(self) -> None:
         """Initialize engine on the asyncio loop that will serve HTTP requests."""
@@ -262,31 +239,7 @@ class InferenceServer:
             enable_graph=self.enable_graph,
             attn_backend=self.attn_backend,
         )
-        me = self.engine.engine.model_engine
-        if getattr(me, "_compiled_prefill_supported", lambda: False)():
-            deadline = time.monotonic() + float(
-                os.environ.get("INFINI_PREFILL_CAPTURE_WAIT_S", "900")
-            )
-            while not me._hybrid_prefill_ready():
-                if time.monotonic() > deadline:
-                    raise RuntimeError(
-                        "Compiled prefill did not finish before server ready deadline"
-                    )
-                await asyncio.sleep(2)
-            self.engine.start()
-            if not self.engine.wait_for_serving_capture(
-                timeout=max(0.0, deadline - time.monotonic())
-            ):
-                raise RuntimeError(
-                    "CUDAGraph capture did not finish on serving thread "
-                    "before server ready deadline"
-                )
-            logger.info(
-                "compiled prefill: server ready "
-                "(serving-thread CUDAGraph capture done)"
-            )
-        else:
-            self.engine.start()
+        self.engine.start()
         logger.info(f"Engine initialized with model at {self.model_path}")
         logger.info(f"  enable_graph: {self.enable_graph}")
         logger.info(
@@ -468,9 +421,6 @@ class InferenceServer:
             stream = data.get("stream", False)
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
-            from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
-
-            ensure_hybrid_prefill_gpu_context()
             if stream:
                 return StreamingResponse(
                     self._stream_chat(request_id, data, request),

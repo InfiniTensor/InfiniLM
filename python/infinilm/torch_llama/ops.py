@@ -174,20 +174,7 @@ def register_stage_paged_kv_op() -> None:
         value: torch.Tensor,
         layer_idx: int,
     ) -> None:
-        from infinilm.compile.cudagraph_pools import active_kv_staging_context
-
-        ctx = active_kv_staging_context()
-        if ctx is None:
-            return
-        valid_seq_len = None
-        from infinilm.compile.cudagraph_pools import active_valid_seq_len_tensor
-
-        vsl = active_valid_seq_len_tensor()
-        if vsl is not None:
-            valid_seq_len = int(vsl.reshape(-1)[0].item())
-        ctx.pool.stage_layer(
-            ctx.bucket, int(layer_idx), key, value, valid_seq_len=valid_seq_len
-        )
+        return
 
     @torch.library.impl("infinilm::stage_paged_kv", "CUDA")
     def _stage_cuda(key, value, layer_idx):

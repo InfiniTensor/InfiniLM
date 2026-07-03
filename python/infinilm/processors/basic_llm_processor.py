@@ -495,49 +495,28 @@ class BasicLLMProcessor(InfinilmProcessor):
     ) -> dict:
         import infinicore
 
-        hybrid_gpu_metadata = False
-        total_compute_len = len(tokens)
-        if homogeneous_prefill:
-            try:
-                from infinilm.compile.env import prefill_compile_enabled
-
-                hybrid_gpu_metadata = (
-                    prefill_compile_enabled() and total_compute_len > 0
-                )
-            except ImportError:
-                hybrid_gpu_metadata = False
-
         model_input: dict = {}
-        if hybrid_gpu_metadata:
-            model_input["position_ids"] = self._gpu_infinicore_int64(position_ids)
-            model_input["past_kv_lengths"] = self._gpu_infinicore_int32(cached_lens)
-            model_input["total_kv_lengths"] = self._gpu_infinicore_int32(seq_lens)
-            model_input["input_offsets"] = self._gpu_infinicore_int32(seq_offsets)
-            model_input["cu_seqlens"] = self._gpu_infinicore_int32(cu_seqlens)
-            model_input["block_tables"] = self._gpu_infinicore_int32(block_tables)
-            slot_mapping_tensor = self._slot_mapping_for_hybrid_prefill(slot_mapping)
-        else:
-            model_input["position_ids"] = infinicore.from_list(
-                position_ids, dtype=infinicore.int64
-            )
-            model_input["past_kv_lengths"] = infinicore.from_list(
-                cached_lens, dtype=infinicore.int32
-            )
-            model_input["total_kv_lengths"] = infinicore.from_list(
-                seq_lens, dtype=infinicore.int32
-            )
-            model_input["input_offsets"] = infinicore.from_list(
-                seq_offsets, dtype=infinicore.int32
-            )
-            model_input["cu_seqlens"] = infinicore.from_list(
-                cu_seqlens, dtype=infinicore.int32
-            )
-            model_input["block_tables"] = infinicore.from_list(
-                block_tables, dtype=infinicore.int32
-            )
-            slot_mapping_tensor = infinicore.from_list(
-                slot_mapping, dtype=infinicore.int64
-            )
+        model_input["position_ids"] = infinicore.from_list(
+            position_ids, dtype=infinicore.int64
+        )
+        model_input["past_kv_lengths"] = infinicore.from_list(
+            cached_lens, dtype=infinicore.int32
+        )
+        model_input["total_kv_lengths"] = infinicore.from_list(
+            seq_lens, dtype=infinicore.int32
+        )
+        model_input["input_offsets"] = infinicore.from_list(
+            seq_offsets, dtype=infinicore.int32
+        )
+        model_input["cu_seqlens"] = infinicore.from_list(
+            cu_seqlens, dtype=infinicore.int32
+        )
+        model_input["block_tables"] = infinicore.from_list(
+            block_tables, dtype=infinicore.int32
+        )
+        slot_mapping_tensor = infinicore.from_list(
+            slot_mapping, dtype=infinicore.int64
+        )
         model_input.update(
             {
                 "slot_mapping": slot_mapping_tensor,
@@ -548,35 +527,9 @@ class BasicLLMProcessor(InfinilmProcessor):
                 "scheduling_mode": scheduling_mode,
             }
         )
-        if homogeneous_prefill and hybrid_gpu_metadata:
-            try:
-                import torch
-
-                input_ids_torch = torch.tensor(
-                    tokens,
-                    dtype=torch.long,
-                    device=torch.device("cuda", 0),
-                ).view(1, -1)
-                model_input["input_ids_torch"] = input_ids_torch
-                model_input["input_ids"] = infinicore.from_torch(
-                    input_ids_torch.contiguous()
-                )
-            except ImportError:
-                pass
         if "input_ids" not in model_input:
             model_input["input_ids"] = infinicore.from_list(
                 [tokens], dtype=infinicore.int64
-            )
-        if homogeneous_prefill and hybrid_gpu_metadata:
-            n_final = sum(is_final_prefill_chunk)
-            logger.info(
-                "compiled prefill: build_model_inputs prefill "
-                "n_req=%s total_compute_len=%s n_final=%s slot_mapping_len=%s mode=%s",
-                n_req,
-                total_compute_len,
-                n_final,
-                len(slot_mapping),
-                scheduling_mode,
             )
         # #region agent log
         try:
@@ -596,17 +549,12 @@ class BasicLLMProcessor(InfinilmProcessor):
                             "message": "processor_metadata",
                             "data": {
                                 "n_req": n_req,
-                                "total_compute_len": total_compute_len,
+                                "total_compute_len": len(tokens),
                                 "position_ids": position_ids[:16],
                                 "slot_mapping": slot_mapping[:16],
                                 "scheduling_mode": scheduling_mode,
                                 "homogeneous_prefill": homogeneous_prefill,
-                                "hybrid_gpu_metadata": hybrid_gpu_metadata,
-                                "slot_mapping_path": (
-                                    "cuda0_torch"
-                                    if hybrid_gpu_metadata
-                                    else "from_list"
-                                ),
+                                "slot_mapping_path": "from_list",
                             },
                             "timestamp": int(time.time() * 1000),
                         }

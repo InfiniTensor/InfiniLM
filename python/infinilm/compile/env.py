@@ -23,8 +23,13 @@ and vLLM garbage-tail staging are hardcoded in the compile path when CG is enabl
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+_PREFILL_COMPILE_WARNED = False
 
 # Power-mode overflow buckets (+256 past anchor).
 COMPILE_OVERFLOW_BUCKET_1024 = 1280
@@ -42,8 +47,16 @@ def _truthy(name: str, default: str = "0") -> bool:
 
 
 def prefill_compile_enabled() -> bool:
-    """Master switch: torch compiled prefill + C++ decode (default off)."""
-    return _truthy("INFINI_PREFILL_COMPILE", "0")
+    """Deprecated PRD-02 torch.compile prefill path (removed). Use INFINI_PREFILL_NATIVE_CG=1."""
+    global _PREFILL_COMPILE_WARNED
+    if _truthy("INFINI_PREFILL_COMPILE", "0"):
+        if not _PREFILL_COMPILE_WARNED:
+            logger.warning(
+                "INFINI_PREFILL_COMPILE is deprecated and ignored; "
+                "use INFINI_PREFILL_NATIVE_CG=1 for native C++ piecewise CG"
+            )
+            _PREFILL_COMPILE_WARNED = True
+    return False
 
 
 def prefill_native_cg_enabled() -> bool:

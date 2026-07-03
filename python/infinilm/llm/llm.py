@@ -320,9 +320,6 @@ class LLMEngine:
             - scheduled_requests: Requests that were scheduled and processed in this step.
             - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
         """
-        from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
-
-        ensure_hybrid_prefill_gpu_context()
         profile = _step_profile_enabled()
         hang_trace = _hang_trace_enabled()
         t_step0 = time.perf_counter() if profile else 0.0
@@ -351,86 +348,30 @@ class LLMEngine:
         cpp_model_input = {
             k: v for k, v in model_input.items() if k != "input_ids_torch"
         }
-        rows = getattr(scheduler_output, "rows", None)
-        use_hybrid_prefill = (
-            rows
-            and scheduler_output.is_homogeneous_prefill()
-        ) or (
-            not rows and getattr(scheduler_output, "is_prefill", False)
-        )
 
-        if use_hybrid_prefill:
-            skip_hybrid = False
-            compute_len = 0
-            for req in scheduler_output.scheduled_requests:
-                if req.is_chunking():
-                    start = req.chunk_prefill_offset
-                    end = min(start + req.chunk_size, len(req.get_input_tokens()))
-                    req_compute = end - start
-                    slot_start = start - req.num_cached_tokens
-                    slot_end = end - req.num_cached_tokens
-                    non_cached_slots = req.slot_mapping[slot_start:slot_end]
-                else:
-                    req_compute = len(req.get_input_tokens()) - req.num_cached_tokens
-                    non_cached_slots = req.slot_mapping
-                compute_len += req_compute
-                if req_compute == 0 or len(non_cached_slots) == 0:
-                    skip_hybrid = True
-            hybrid_tokens = (
-                None
-                if skip_hybrid
-                else self.model_engine.try_hybrid_prefill_forward(**model_input)
+        t_fwd0 = time.perf_counter() if (profile or hang_trace) else 0.0
+        if profile:
+            logger.info("step_profile: forward begin")
+        if hang_trace:
+            logger.info(
+                "hang_trace: forward_begin mode=%s n_req=%d",
+                scheduler_output.scheduling_mode
+                if hasattr(scheduler_output, "scheduling_mode")
+                else ("prefill" if scheduler_output.is_prefill else "decode"),
+                len(scheduler_output.scheduled_requests),
             )
-            if hybrid_tokens is not None:
-                sampled_tokens_list = hybrid_tokens
-            else:
-                t_fwd0 = time.perf_counter() if (profile or hang_trace) else 0.0
-                if profile:
-                    logger.info("step_profile: forward begin")
-                if hang_trace:
-                    logger.info(
-                        "hang_trace: forward_begin mode=%s n_req=%d",
-                        scheduler_output.scheduling_mode
-                        if hasattr(scheduler_output, "scheduling_mode")
-                        else ("prefill" if scheduler_output.is_prefill else "decode"),
-                        len(scheduler_output.scheduled_requests),
-                    )
-                sampled_tokens = self.model_engine.forward(**cpp_model_input)
-                if profile:
-                    logger.info(
-                        "step_profile: forward end ms=%.3f",
-                        (time.perf_counter() - t_fwd0) * 1000.0,
-                    )
-                if hang_trace:
-                    logger.info(
-                        "hang_trace: forward_end ms=%.3f",
-                        (time.perf_counter() - t_fwd0) * 1000.0,
-                    )
-                sampled_tokens_list = sampled_tokens.to_numpy().tolist()
-        else:
-            t_fwd0 = time.perf_counter() if (profile or hang_trace) else 0.0
-            if profile:
-                logger.info("step_profile: forward begin")
-            if hang_trace:
-                logger.info(
-                    "hang_trace: forward_begin mode=%s n_req=%d",
-                    scheduler_output.scheduling_mode
-                    if hasattr(scheduler_output, "scheduling_mode")
-                    else ("prefill" if scheduler_output.is_prefill else "decode"),
-                    len(scheduler_output.scheduled_requests),
-                )
-            sampled_tokens = self.model_engine.forward(**cpp_model_input)
-            if profile:
-                logger.info(
-                    "step_profile: forward end ms=%.3f",
-                    (time.perf_counter() - t_fwd0) * 1000.0,
-                )
-            if hang_trace:
-                logger.info(
-                    "hang_trace: forward_end ms=%.3f",
-                    (time.perf_counter() - t_fwd0) * 1000.0,
-                )
-            sampled_tokens_list = sampled_tokens.to_numpy().tolist()
+        sampled_tokens = self.model_engine.forward(**cpp_model_input)
+        if profile:
+            logger.info(
+                "step_profile: forward end ms=%.3f",
+                (time.perf_counter() - t_fwd0) * 1000.0,
+            )
+        if hang_trace:
+            logger.info(
+                "hang_trace: forward_end ms=%.3f",
+                (time.perf_counter() - t_fwd0) * 1000.0,
+            )
+        sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
         t_up0 = time.perf_counter() if profile else 0.0
         pending = self._update_requests(scheduler_output, sampled_tokens_list)
@@ -1004,22 +945,12 @@ def _serving_warmup_http_fidelity() -> bool:
     explicit = os.environ.get("INFINI_PREFILL_SERVING_WARMUP_HTTP_FIDELITY")
     if explicit is not None:
         return explicit.strip() == "1"
-    try:
-        from infinilm.compile.env import prefill_compile_enabled, prefill_cudagraph_enabled
-
-        return prefill_compile_enabled() and prefill_cudagraph_enabled()
-    except ImportError:
-        return False
+    return False
 
 
 def _should_defer_tokenize_to_step_thread() -> bool:
     """Defer message normalize + tokenize to the step thread for compiled CUDAGraph prefill."""
-    try:
-        from infinilm.compile.env import prefill_compile_enabled, prefill_cudagraph_enabled
-
-        return prefill_compile_enabled() and prefill_cudagraph_enabled()
-    except ImportError:
-        return False
+    return False
 
 
 def normalize_chat_messages(messages: list) -> list:
@@ -1160,127 +1091,14 @@ class AsyncLLMEngine:
         logger.info("AsyncLLMEngine stopped")
 
     def _warmup_serving_bench_prefill(self) -> None:
-        """Run one vLLM-bench-shaped partial prefill on the step thread before HTTP."""
-        from infinilm.compile.env import prefill_compile_enabled, prefill_cudagraph_enabled
-
-        if not prefill_compile_enabled() or not prefill_cudagraph_enabled():
-            return
-        skip_warmup = os.environ.get("INFINI_PREFILL_SKIP_SERVING_WARMUP", "1").strip() or "1"
-        if skip_warmup == "1":
-            return
-        try:
-            from vllm.benchmarks.datasets import RandomDataset
-        except ImportError:
-            logger.warning(
-                "compiled prefill: skip serving warmup (vllm benchmarks unavailable)"
-            )
-            return
-
-        seed_raw = os.environ.get("INFINI_PREFILL_SERVING_WARMUP_SEED", "0").strip()
-        input_len_raw = os.environ.get(
-            "INFINI_PREFILL_SERVING_WARMUP_INPUT_LEN", "512"
-        ).strip()
-        seed = int(seed_raw or "0")
-        input_len = int(input_len_raw or "512")
-        http_fidelity = _serving_warmup_http_fidelity()
-        ds = RandomDataset(random_seed=seed)
-        sample_kwargs = dict(
-            input_len=input_len,
-            output_len=1,
-            prefix_len=0,
-        )
-        if not http_fidelity:
-            sample_kwargs["range_ratio"] = 0.0
-        bench_tokenizer = self.engine.tokenizer
-        if http_fidelity:
-            from transformers import AutoTokenizer
-
-            bench_tokenizer = AutoTokenizer.from_pretrained(
-                self.config.model_path, trust_remote_code=True
-            )
-        prompt = ds.sample(bench_tokenizer, 1, **sample_kwargs)[0].prompt
-        messages = (
-            [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
-            if http_fidelity
-            else normalize_chat_messages(
-                [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
-            )
-        )
-        sampling_params = SamplingParams(
-            max_tokens=1, temperature=1.0, top_p=1.0, top_k=1
-        )
-        if http_fidelity and _should_defer_tokenize_to_step_thread():
-            request = InferenceRequest(
-                request_id="__serving_warmup__",
-                prompt=None,
-                prompt_token_ids=[],
-                processed_inputs=None,
-                sampling_params=sampling_params,
-                eos_token_ids=self.engine.eos_token_ids,
-            )
-            request._deferred_tokenize = {
-                "messages": messages,
-                "prompt": None,
-                "apply_chat_template": True,
-                "add_generation_prompt": True,
-                "chat_template_kwargs": {},
-            }
-            self._finalize_deferred_tokenize(request)
-            self.engine.add_request(request)
-            prompt_len = len(request.prompt_token_ids)
-        else:
-            prompt_text = self.engine.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
-            )
-            token_ids = self.engine.tokenize(prompt_text)
-            self.engine.add_request(
-                InferenceRequest(
-                    request_id="__serving_warmup__",
-                    prompt=prompt_text,
-                    prompt_token_ids=token_ids,
-                    sampling_params=sampling_params,
-                )
-            )
-            prompt_len = len(token_ids)
-        scheduled, _pending = self.engine.step()
-        if not scheduled:
-            raise RuntimeError("serving warmup produced no scheduled requests")
-        logger.info(
-            "compiled prefill: serving-thread bench warmup OK (prompt_len=%s)",
-            prompt_len,
-        )
+        """No-op: PRD-02 vLLM serving warmup removed (native CG only)."""
+        return
 
     def _step_loop(self):
         """Background loop that runs inference steps."""
-        from infinilm.compile.hybrid_prefill import ensure_serving_thread_cudagraph_capture
-
-        try:
-            ensure_serving_thread_cudagraph_capture(self.engine.model_engine)
-            import torch
-            from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
-
-            ensure_hybrid_prefill_gpu_context()
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            self._warmup_serving_bench_prefill()
-        except Exception as e:
-            logger.error(
-                "Failed to prepare CUDAGraph capture on serving thread: %s",
-                e,
-                exc_info=True,
-            )
-            self._serving_capture_error = e
-            self._healthy = False
-            self._running = False
-            self._serving_capture_ready.set()
-            return
         self._serving_capture_ready.set()
         while self._running:
             try:
-                from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
-
-                ensure_hybrid_prefill_gpu_context()
                 self._flush_deferred_tokenize()
                 profile = _step_profile_enabled()
                 t_iter0 = time.perf_counter() if profile else 0.0
@@ -1374,9 +1192,6 @@ class AsyncLLMEngine:
 
     def _flush_deferred_tokenize(self) -> None:
         """Tokenize pending HTTP/async requests on the serving step thread."""
-        from infinilm.torch_llama.kv_paged import ensure_hybrid_prefill_gpu_context
-
-        ensure_hybrid_prefill_gpu_context()
         while True:
             try:
                 request = self._deferred_tokenize_queue.get_nowait()

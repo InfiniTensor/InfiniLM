@@ -1,23 +1,56 @@
 # Copyright (c) 2025, InfiniCore
-"""vLLM-style torch.compile prefill backbone (dynamic seq 1..max_seq_len)."""
+"""PRD-03 prefill env flags (native C++ piecewise CG). No vLLM compile-prefill stack."""
 
-from .config import CompiledPrefillConfig
 from .env import (
+    compile_bucket_ceiling,
+    compile_buckets,
     compile_max_seq_len,
+    compile_overflow_tail_bucket,
+    compile_warmup_seq_lens,
+    default_cudagraph_capture_buckets,
+    graph_replay_bucket_for_seq_len,
+    long_prefill_threshold,
+    max_num_batched_tokens,
+    min_cudagraph_piecewise_bucket,
+    native_piecewise_capture_buckets,
+    padded_bucket_for_seq_len,
+    prefill_chunk_size,
+    prefill_chunked_enabled,
+    prefill_cg_baseline_none,
+    prefill_cg_debug_ptrs_enabled,
     prefill_compile_enabled,
     prefill_cudagraph_enabled,
     prefill_native_cg_enabled,
     prefill_share_weights_enabled,
+    return_logits_enabled,
+    schedule_homogeneous_enabled,
+    v1_scheduler_enabled,
+    vllm_unified_power_ladder,
 )
-from .runner import CompiledPrefillRunner, min_compiled_prefill_seq_len
 
 __all__ = [
-    "CompiledPrefillConfig",
-    "CompiledPrefillRunner",
+    "compile_bucket_ceiling",
+    "compile_buckets",
     "compile_max_seq_len",
-    "min_compiled_prefill_seq_len",
+    "compile_overflow_tail_bucket",
+    "compile_warmup_seq_lens",
+    "default_cudagraph_capture_buckets",
+    "graph_replay_bucket_for_seq_len",
+    "long_prefill_threshold",
+    "max_num_batched_tokens",
+    "min_cudagraph_piecewise_bucket",
+    "native_piecewise_capture_buckets",
+    "padded_bucket_for_seq_len",
+    "prefill_chunk_size",
+    "prefill_chunked_enabled",
+    "prefill_cg_baseline_none",
+    "prefill_cg_debug_ptrs_enabled",
     "prefill_compile_enabled",
     "prefill_cudagraph_enabled",
     "prefill_native_cg_enabled",
     "prefill_share_weights_enabled",
+    "return_logits_enabled",
+    "schedule_homogeneous_enabled",
+    "v1_scheduler_enabled",
+    "vllm_unified_power_ladder",
 ]
