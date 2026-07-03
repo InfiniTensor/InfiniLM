@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from infinilm.llm.request import InferenceRequest, RequestStatus
 from infinilm.server.inference_server import InferenceServer
-from infinilm.server.metrics import MetricsRegistry
+from infinimetadata.metrics import MetricsRegistry
 
 
 class MetricsRegistryTest(unittest.TestCase):
@@ -73,18 +73,12 @@ class InferenceServerObservabilityTest(unittest.TestCase):
         r2 = self.client.get("/v1/metadata")
         self.assertEqual(r2.json()["server_id"], self.server.server_id)
 
-    def test_metrics_prometheus_and_json(self):
+    def test_metrics_prometheus_only(self):
         r_prom = self.client.get("/metrics")
         self.assertEqual(r_prom.status_code, 200)
         self.assertIn("text/plain", r_prom.headers.get("content-type", ""))
         self.assertIn("infinilm_requests_total", r_prom.text)
-
-        r_json = self.client.get("/metrics", params={"format": "json"})
-        self.assertEqual(r_json.status_code, 200)
-        body = r_json.json()
-        self.assertEqual(body["server_id"], self.server.server_id)
-        self.assertIn("histograms", body)
-        self.assertIn("request_ttft_seconds", body["histograms"])
+        self.assertIn("infinilm_request_ttft_seconds_p50", r_prom.text)
 
     def test_metadata_json_on_disk(self):
         meta_path = os.path.join(self.server.artifact_dir, "metadata.json")
@@ -103,9 +97,10 @@ class InferenceServerObservabilityTest(unittest.TestCase):
         req.first_token_time = 1000.05
         req.status = RequestStatus.FINISHED
         req.finished_time = 1000.2
-        self.server._record_request_metrics(req)
+        self.server.obs.on_request_finish(req)
 
-        snap = self.server.metrics.json_snapshot()
+        assert self.server.obs is not None
+        snap = self.server.obs.json_snapshot()
         self.assertEqual(snap["counters"]["requests_total_ok"], 1.0)
         self.assertEqual(snap["histograms"]["request_ttft_seconds"]["count"], 1.0)
 

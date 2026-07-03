@@ -17,18 +17,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from infinilm.base_config import BaseConfig
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse, PlainTextResponse
 
 from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
 from infinilm.llm.llm import normalize_chat_messages, _should_defer_tokenize_to_step_thread
-from infinilm.llm.request import RequestStatus
-from infinilm.server.metadata_collectors import (
-    collect_build_info,
-    collect_config,
-    collect_runtime_env,
-)
-from infinilm.server.metrics import MetricsRegistry
+
+create_server_observability = None
+
+try:
+    from infinimetadata.server_hooks import (
+        create_server_observability as _create_server_observability,
+    )
+
+    create_server_observability = _create_server_observability
+except ImportError:
+    pass
+
 from infinilm.server.openai_compat import resolve_chat_template_kwargs
 from infinilm.server.reasoning_parser import ReasoningStreamSplitter, split_thinking_content
 
@@ -198,7 +203,13 @@ class InferenceServer:
             "INFINI_SERVER_ARTIFACT_ROOT", _default_artifact_root()
         )
         self.artifact_dir = os.path.join(self.artifact_root, self.server_id)
-        self.metrics = MetricsRegistry(self.server_id)
+        self.obs = (
+            create_server_observability(
+                self.server_id, gauge_provider=self._engine_gauge_provider
+            )
+            if create_server_observability is not None
+            else None
+        )
         self._artifacts_written = False
 
         self.engine: AsyncLLMEngine = None
@@ -307,31 +318,54 @@ class InferenceServer:
             "port": self.port,
         }
 
-    def metadata_payload(self) -> dict[str, Any]:
-        startup = self._startup_args_snapshot()
-        return {
-            "server_id": self.server_id,
-            "started_at": _iso_utc(self.started_at),
-            "model_id": self.model_id,
-            "model_path": self.model_path,
-            "host": self.host,
-            "port": self.port,
-            "build_info": collect_build_info(),
-            "runtime_env": collect_runtime_env(),
-            "config": collect_config(startup),
-            "startup_args": startup,
-            "artifact_dir": self.artifact_dir,
-        }
+    def _build_obs_metadata_payload(self) -> dict[str, Any]:
+        if self.obs is None:
+            raise RuntimeError("InfiniMetadata is not available")
+        return self.obs.build_metadata_payload(
+            started_at=_iso_utc(self.started_at),
+            model_id=self.model_id,
+            model_path=self.model_path,
+            host=self.host,
+            port=self.port,
+            artifact_dir=self.artifact_dir,
+            startup_args=self._startup_args_snapshot(),
+        )
+
+    def _engine_gauge_provider(self) -> dict[str, float]:
+        """InfiniLM-specific scheduler/cache gauge probe for MetricsRegistry."""
+        engine = self.engine
+        if engine is None:
+            return {}
+        out: dict[str, float] = {}
+        try:
+            inner = getattr(engine, "engine", engine)
+            sched = getattr(inner, "scheduler", None)
+            if sched is None:
+                return {}
+            if hasattr(sched, "get_cache_stats"):
+                stats = sched.get_cache_stats()
+                out["engine_free_blocks"] = float(stats.get("num_free_blocks", 0))
+                out["engine_used_blocks"] = float(stats.get("num_used_blocks", 0))
+            waiting = getattr(getattr(sched, "waiting_queue", None), "sync_q", None)
+            running = getattr(getattr(sched, "running_queue", None), "sync_q", None)
+            if waiting is not None:
+                out["engine_queue_waiting"] = float(waiting.qsize())
+            if running is not None:
+                out["engine_queue_running"] = float(running.qsize())
+        except Exception:
+            return {}
+        return out
 
     def _write_startup_artifacts(self) -> None:
         if self._artifacts_written:
             return
         os.makedirs(self.artifact_dir, exist_ok=True)
-        payload = self.metadata_payload()
-        meta_path = os.path.join(self.artifact_dir, "metadata.json")
-        with open(meta_path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)
-            fh.write("\n")
+        if self.obs is not None:
+            payload = self._build_obs_metadata_payload()
+            meta_path = os.path.join(self.artifact_dir, "metadata.json")
+            with open(meta_path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2)
+                fh.write("\n")
         if os.environ.get("INFINI_SERVER_FILE_LOG", "1") not in ("0", "false", "False"):
             log_path = os.path.join(self.artifact_dir, "server.log")
             handler = logging.FileHandler(log_path, encoding="utf-8")
@@ -344,44 +378,6 @@ class InferenceServer:
             logging.getLogger().addHandler(handler)
         self._artifacts_written = True
         logger.info("Server artifacts: server_id=%s dir=%s", self.server_id, self.artifact_dir)
-
-    def _record_token_latency(self, req) -> None:
-        """Record TTFT on first token and ITL on subsequent tokens."""
-        if req is None:
-            return
-        now = time.time()
-        if req.first_token_time is None:
-            req.first_token_time = now
-            req.last_token_time = now
-            return
-        if req.last_token_time is not None:
-            itl = now - req.last_token_time
-            if itl > 0.0:
-                self.metrics.record_inter_token_latency(itl)
-        req.last_token_time = now
-
-    def _request_status_label(self, req) -> str:
-        if req is None:
-            return "error"
-        if req.status == RequestStatus.FINISHED:
-            return "ok"
-        if req.status == RequestStatus.CANCELED:
-            return "canceled"
-        if req.status == RequestStatus.TIMEOUT:
-            return "timeout"
-        return "error"
-
-    def _record_request_metrics(self, req) -> None:
-        if req is None:
-            return
-        self.metrics.record_request_finish(
-            status=self._request_status_label(req),
-            arrival_time=req.arrival_time,
-            finished_time=req.finished_time,
-            first_token_time=req.first_token_time,
-            prompt_tokens=req.get_prompt_length(),
-            completion_tokens=req.get_num_generated_tokens(),
-        )
 
     async def _serve(self) -> None:
         """Run engine + uvicorn on one asyncio loop (matches embedded/runtime smokes)."""
@@ -520,7 +516,12 @@ class InferenceServer:
             return _models_payload()
 
         def _metadata_handler():
-            return self.metadata_payload()
+            if self.obs is None:
+                return JSONResponse(
+                    content={"error": "InfiniMetadata is not available"},
+                    status_code=503,
+                )
+            return self._build_obs_metadata_payload()
 
         @app.get("/metadata")
         @app.get("/v1/metadata")
@@ -528,11 +529,15 @@ class InferenceServer:
             return _metadata_handler()
 
         @app.get("/metrics")
-        async def metrics(format: Optional[str] = Query(default=None)):
-            if format == "json":
-                return self.metrics.json_snapshot(self.engine)
+        async def metrics():
+            if self.obs is None:
+                return PlainTextResponse(
+                    content="# InfiniMetadata is not available\n",
+                    status_code=503,
+                    media_type="text/plain; version=0.0.4; charset=utf-8",
+                )
             return PlainTextResponse(
-                content=self.metrics.prometheus_text(self.engine),
+                content=self.obs.prometheus_text(),
                 media_type="text/plain; version=0.0.4; charset=utf-8",
             )
 
@@ -637,7 +642,8 @@ class InferenceServer:
                 )
 
                 if not is_eos_token and token_output.token_text:
-                    self._record_token_latency(req)
+                    if self.obs is not None:
+                        self.obs.on_request_token(req, now=time.time())
                     visible = stream_splitter.feed(token_output.token_text)
                     if not visible:
                         continue
@@ -702,7 +708,8 @@ class InferenceServer:
         finally:
             if req and not req.is_finished():
                 req.mark_canceled()
-            self._record_request_metrics(req)
+            if self.obs is not None:
+                self.obs.on_request_finish(req)
             if req:
                 await req.close()
             yield "data: [DONE]\n\n"
@@ -749,7 +756,8 @@ class InferenceServer:
                 is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
 
                 if not is_eos_token and token_output.token_text:
-                    self._record_token_latency(req)
+                    if self.obs is not None:
+                        self.obs.on_request_token(req, now=time.time())
                     output_text += token_output.token_text
 
                 if token_output.finished:
@@ -791,7 +799,8 @@ class InferenceServer:
         finally:
             if req and not req.is_finished():
                 req.mark_canceled()
-            self._record_request_metrics(req)
+            if self.obs is not None:
+                self.obs.on_request_finish(req)
             if req:
                 await req.close()
 
