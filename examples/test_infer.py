@@ -1,7 +1,9 @@
-import time
 import os
+import time
+
 from infinilm.base_config import BaseConfig
 from infinilm.llm.llm import LLM
+from infinilm.moe_config import configure_moe_ep_backend
 from infinilm.processors.videonsa_processor import decode_video_frames
 
 
@@ -11,6 +13,8 @@ def test(
     max_new_tokens=100,
     device="cpu",
     tp=1,
+    moe_ep_backend="disabled",
+    ep=1,
     enable_paged_attn=False,
     enable_graph=False,
     top_k=1,
@@ -23,6 +27,7 @@ def test(
     video_num_frames=None,
     skip_load=False,
     weight_load_mode="async",
+    skip_legacy_moe=False,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -35,6 +40,8 @@ def test(
         model_path=model_path,
         device=device,
         tensor_parallel_size=tp,
+        moe_ep_backend=moe_ep_backend,
+        moe_ep_size=ep,
         cache_type="paged" if enable_paged_attn else "static",
         max_batch_size=len(prompts),
         max_tokens=max_new_tokens,
@@ -46,6 +53,7 @@ def test(
         use_mla=use_mla,
         skip_load=skip_load,
         weight_load_mode=weight_load_mode,
+        skip_legacy_moe=skip_legacy_moe,
     )
 
     conversations = [
@@ -102,12 +110,21 @@ if __name__ == "__main__":
 
     enable_graph = cfg.enable_graph
 
+    if cfg.skip_legacy_moe:
+        moe_ep_backend, ep = configure_moe_ep_backend(
+            cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
+        )
+    else:
+        moe_ep_backend, ep = "disabled", 1
+
     test(
         prompts,
         model_path,
         max_new_tokens,
         device=device_str,
         tp=tp,
+        moe_ep_backend=moe_ep_backend,
+        ep=ep,
         enable_paged_attn=enable_paged_attn,
         enable_graph=enable_graph,
         top_k=cfg.top_k,
@@ -120,4 +137,5 @@ if __name__ == "__main__":
         video_num_frames=cfg.video_num_frames,
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,
+        skip_legacy_moe=cfg.skip_legacy_moe,
     )

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "base_dispatcher.hpp"
 #include "../common/moe_types.hpp"
+#include "base_dispatcher.hpp"
 
 #include <infiniccl.h>
 

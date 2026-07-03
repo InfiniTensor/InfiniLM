@@ -11,18 +11,14 @@ namespace infinilm::layers::moe {
 namespace {
 
 bool same_device(const infinicore::Tensor &tensor, const infinicore::Device &device) {
-    return tensor &&
-           tensor->device().getType() == device.getType() &&
-           tensor->device().getIndex() == device.getIndex();
+    return tensor && tensor->device().getType() == device.getType() && tensor->device().getIndex() == device.getIndex();
 }
 
 void ensure_tensor(infinicore::Tensor &tensor,
                    const infinicore::Shape &shape,
                    infinicore::DataType dtype,
                    const infinicore::Device &device) {
-    if (!same_device(tensor, device) ||
-        tensor->dtype() != dtype ||
-        tensor->shape() != shape) {
+    if (!same_device(tensor, device) || tensor->dtype() != dtype || tensor->shape() != shape) {
         if (infinicore::context::isGraphRecording()) {
             throw std::runtime_error("MoE AG/RS workspace tensor was not initialized before graph capture");
         }
@@ -141,8 +137,7 @@ infinicore::Tensor AllGatherReduceScatterDispatcher::combine(
     if (config_.ep_size == 1) {
         return combine_input.hidden_states;
     }
-    if (!combine_input.hidden_states || combine_input.hidden_states->ndim() == 0 ||
-        combine_input.hidden_states->shape()[0] % config_.ep_size != 0) {
+    if (!combine_input.hidden_states || combine_input.hidden_states->ndim() == 0 || combine_input.hidden_states->shape()[0] % config_.ep_size != 0) {
         throw std::runtime_error("MoE AG/RS combine expects hidden_states dim 0 to be divisible by ep_size");
     }
 

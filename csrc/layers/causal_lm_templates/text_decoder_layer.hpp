@@ -7,8 +7,8 @@
 #include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
-#include <type_traits>
 #include <tuple>
+#include <type_traits>
 namespace infinilm::layers::causal_lm_templates {
 
 /**

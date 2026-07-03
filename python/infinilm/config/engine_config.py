@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
+
 from infinilm.config.kv_transfer import KVTransferConfig
 
 
@@ -28,6 +29,7 @@ class EngineConfig:
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         weight_load_mode: Weight loading mode across tensor-parallel workers.
         skip_load: Whether to skip loading model weights (for testing).
+        skip_legacy_moe: Whether to use the new fused MoE implementation for Qwen3 MoE.
     """
 
     model_path: str
@@ -50,6 +52,7 @@ class EngineConfig:
     use_mla: bool = False
     weight_load_mode: str = "async"
     skip_load: bool = False
+    skip_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
 
     def __post_init__(self) -> None:

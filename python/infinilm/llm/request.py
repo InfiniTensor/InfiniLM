@@ -2,13 +2,14 @@
 Request and Output - Data structures for inference requests and outputs.
 """
 
-from enum import Enum
-from dataclasses import dataclass, field
-from typing import List, Optional, Any
-import time
-import janus
 import asyncio
 import logging
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import List, Optional
+
+import janus
 
 from infinilm.llm.sampling_params import SamplingParams
 

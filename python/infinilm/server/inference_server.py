@@ -2,22 +2,22 @@
 Inference Server - HTTP API server for LLM inference.
 """
 
-from contextlib import asynccontextmanager
-import sys
-import time
+import asyncio
 import json
-import uuid
-import uvicorn
 import logging
 import os
-import asyncio
+import sys
+import time
+import uuid
+from contextlib import asynccontextmanager
 from typing import Optional
-from infinilm.base_config import BaseConfig
+
+import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-
-from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
+from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
+from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
 from infinilm.moe_config import configure_moe_ep_backend
 
 logger = logging.getLogger(__name__)

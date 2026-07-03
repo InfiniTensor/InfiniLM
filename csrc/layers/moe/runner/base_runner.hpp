@@ -10,7 +10,8 @@ public:
 
     virtual CombineInput run(const DispatchOutput &dispatch_output,
                              const MoeWeights &weights,
-                             MoeWorkspace &workspace) const = 0;
+                             MoeWorkspace &workspace) const
+        = 0;
 };
 
 } // namespace infinilm::layers::moe

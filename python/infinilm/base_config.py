@@ -64,6 +64,7 @@ class BaseConfig:
         self.dp = self.args.dp
         self.ep = self.args.ep
         self.moe_ep_backend = self.args.moe_ep_backend
+        self.skip_legacy_moe = self.args.skip_legacy_moe
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
@@ -193,6 +194,11 @@ class BaseConfig:
             type=str,
             default="auto",
             help=MOE_EP_BACKEND_HELP,
+        )
+        self.parser.add_argument(
+            "--skip-legacy-moe",
+            action="store_true",
+            help="use the new fused MoE implementation instead of the legacy Qwen3 MoE MLP",
         )
 
         # --- Infer backend optimization ---

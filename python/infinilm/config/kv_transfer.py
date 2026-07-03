@@ -45,9 +45,7 @@ class KVTransferConfig:
         self.kv_connector_extra_config.setdefault("mooncake_protocol", "rdma")
 
         allowed_extra_config_keys = frozenset({"mooncake_protocol", "num_workers"})
-        unknown_keys = (
-            set(self.kv_connector_extra_config.keys()) - allowed_extra_config_keys
-        )
+        unknown_keys = set(self.kv_connector_extra_config.keys()) - allowed_extra_config_keys
         if unknown_keys:
             raise ValueError(
                 f"Unsupported kv_connector_extra_config keys: {sorted(unknown_keys)}. "

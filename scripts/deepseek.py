@@ -342,6 +342,7 @@ def load_deepseek_weights(
     for i in tqdm(
         range(meta.n_sparse_layer + meta.n_dense_layer), desc="Loading layers"
     ):
+
         # Attention norms + projections
         attn_norm = load_specific_tensor(model_path, names.attn_norm(i))
         weight_loader.contents.load_attn_norm(weights, attn_norm.data_ptr(), i)

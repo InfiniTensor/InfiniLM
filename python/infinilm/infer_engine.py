@@ -1,3 +1,5 @@
+import json
+import os
 import time
 from dataclasses import dataclass
 
@@ -7,10 +9,8 @@ from infinilm.cache import PagedKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
-from .modeling_utils import parse_dtype
 from .exception_utils import handle_oom_and_exit
-import json
-import os
+from .modeling_utils import parse_dtype
 
 _MODEL_DEFAULTS = {
     "gpt2": {"torch_dtype": "float32"},
@@ -106,9 +106,11 @@ class InferEngine(_infinilm.InferEngine):
         weight_load_mode="async",
         moe_ep_backend="disabled",
         moe_ep_size=1,
+        skip_legacy_moe=False,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
+        self.hf_config["skip_legacy_moe"] = bool(skip_legacy_moe)
 
         if device is None:
             device = infinicore.device()

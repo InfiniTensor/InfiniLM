@@ -288,17 +288,15 @@ async def chat(id_, request_data, request: Request):
 @App.post("/chat/completions")
 async def chat_completions(request: Request):
     data = await request.json()
-    print("-----------------------------------------")
+    print('-----------------------------------------')
     print(data)
-    print("-----------------------------------------")
+    print('-----------------------------------------')
 
     if not data.get("messages"):
         if not data.get("prompt"):
-            return JSONResponse(
-                content={"error": "No message provided"}, status_code=400
-            )
+            return JSONResponse(content={"error": "No message provided"}, status_code=400)
         else:
-            data["messages"] = [{"role": "user", "content": data.get("prompt")}]
+            data['messages'] = [{"role": "user", "content": data.get("prompt")}]
 
     stream = data.get("stream", False)
     id_ = f"cmpl-{uuid.uuid4().hex}"

@@ -1,17 +1,18 @@
-import infinicore
-from infinilm.modeling_utils import load_model_state_dict_by_file
-from infinilm.distributed import DistConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
-from infinilm.base_config import BaseConfig
-from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
-from infinilm.moe_config import configure_moe_ep_backend
-from infinilm.processors import AutoInfinilmProcessor
+import json
+import os
 import sys
 import time
-import os
-import json
 from collections import OrderedDict
+
+import infinicore
 import numpy as np
+from infinilm.base_config import BaseConfig
+from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
+from infinilm.distributed import DistConfig
+from infinilm.infer_engine import GenerationConfig, InferEngine
+from infinilm.modeling_utils import load_model_state_dict_by_file
+from infinilm.moe_config import configure_moe_ep_backend
+from infinilm.processors import AutoInfinilmProcessor
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))

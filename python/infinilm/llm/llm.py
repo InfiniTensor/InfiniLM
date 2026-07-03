@@ -6,30 +6,30 @@ This module provides:
 - AsyncLLM class for asynchronous streaming (server use)
 """
 
-import os
 import asyncio
+import logging
+import os
+import threading
 import time
 import uuid
-import logging
-import janus
-import threading
-from typing import List, Optional, Union, AsyncIterator
+from typing import AsyncIterator, List, Optional, Union
 
+import janus
+
+from infinilm.config.engine_config import EngineConfig
+from infinilm.config.kv_transfer import KVTransferConfig
+from infinilm.kv_connector import KVConnectorFactory, KVConnectorRole
+from infinilm.llm.model_runner.model_runner import ModelRunner
 from infinilm.llm.request import (
+    FinishReason,
     InferenceRequest,
     RequestOutput,
     TokenOutput,
-    FinishReason,
 )
-
-from infinilm.llm.model_runner.model_runner import ModelRunner
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
-from infinilm.config.kv_transfer import KVTransferConfig
-from infinilm.config.engine_config import EngineConfig
-from infinilm.kv_connector import KVConnectorRole, KVConnectorFactory
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +306,7 @@ class LLM:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         skip_load: bool = False,
+        skip_legacy_moe: bool = False,
     ):
         """Initialize LLM.
 
@@ -349,6 +350,7 @@ class LLM:
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
             skip_load=skip_load,
+            skip_legacy_moe=skip_legacy_moe,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -507,6 +509,7 @@ class AsyncLLMEngine:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
         weight_load_mode: str = "async",
+        skip_legacy_moe: bool = False,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -553,6 +556,7 @@ class AsyncLLMEngine:
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
+            skip_legacy_moe=skip_legacy_moe,
         )
         self.engine = LLMEngine(config)
         self.config = config

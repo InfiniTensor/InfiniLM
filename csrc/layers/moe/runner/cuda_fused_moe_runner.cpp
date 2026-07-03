@@ -1,8 +1,8 @@
 #include "cuda_fused_moe_runner.hpp"
 
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops/moe_align.hpp"
 #include "infinicore/ops/moe_fused_dense.hpp"
-#include "infinicore/context/context.hpp"
 
 #include <sstream>
 #include <stdexcept>
@@ -23,18 +23,14 @@ CudaFusedMoeRunner::CudaFusedMoeRunner(size_t num_local_experts,
 namespace {
 
 bool same_device(const infinicore::Tensor &tensor, const infinicore::Device &device) {
-    return tensor &&
-           tensor->device().getType() == device.getType() &&
-           tensor->device().getIndex() == device.getIndex();
+    return tensor && tensor->device().getType() == device.getType() && tensor->device().getIndex() == device.getIndex();
 }
 
 void ensure_tensor(infinicore::Tensor &tensor,
                    const infinicore::Shape &shape,
                    infinicore::DataType dtype,
                    const infinicore::Device &device) {
-    if (!same_device(tensor, device) ||
-        tensor->dtype() != dtype ||
-        tensor->shape() != shape) {
+    if (!same_device(tensor, device) || tensor->dtype() != dtype || tensor->shape() != shape) {
         if (infinicore::context::isGraphRecording()) {
             throw std::runtime_error("MoE runner workspace tensor was not initialized before graph capture");
         }
@@ -71,9 +67,7 @@ void check_packed_weight_tensor(const infinicore::Tensor &tensor,
     }
     if (tensor->shape() != shape) {
         throw std::runtime_error(
-            "MoE fused dense core packed weight shape mismatch for " + name +
-            ": expected " + shape_to_string(shape) +
-            ", got " + shape_to_string(tensor->shape()));
+            "MoE fused dense core packed weight shape mismatch for " + name + ": expected " + shape_to_string(shape) + ", got " + shape_to_string(tensor->shape()));
     }
 }
 
@@ -106,10 +100,9 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
     const size_t num_pairs = topk_shape[0] * topk_shape[1];
     const size_t block_size = align_block_size_;
     const size_t align_num_experts = num_local_experts_ + 1;
-    const size_t max_num_tokens_padded =
-        num_pairs < align_num_experts
-            ? num_pairs * block_size
-            : num_pairs + align_num_experts * (block_size - 1);
+    const size_t max_num_tokens_padded = num_pairs < align_num_experts
+                                           ? num_pairs * block_size
+                                           : num_pairs + align_num_experts * (block_size - 1);
     const size_t sorted_token_ids_capacity = ((max_num_tokens_padded + 3) / 4) * 4;
     const size_t max_num_blocks = (max_num_tokens_padded + block_size - 1) / block_size;
     const auto device = topk_ids->device();

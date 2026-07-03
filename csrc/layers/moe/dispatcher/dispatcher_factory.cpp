@@ -1,9 +1,9 @@
 #include "dispatcher_factory.hpp"
 
-#include "standard_dispatcher.hpp"
 #include "../ep/allgather_reduce_scatter_dispatcher.hpp"
 #include "../ep/deepep_dispatcher.hpp"
 #include "../ep/local_allreduce_dispatcher.hpp"
+#include "standard_dispatcher.hpp"
 
 #include <stdexcept>
 

@@ -1,10 +1,10 @@
 import logging
 from typing import Any, Optional
 
+from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.kv_connector import (
     KVConnectorMetadata,
 )
-from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.llm import InferenceRequest, RequestStatus
 
 logger = logging.getLogger(__name__)

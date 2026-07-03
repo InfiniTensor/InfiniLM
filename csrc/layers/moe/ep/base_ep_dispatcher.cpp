@@ -12,8 +12,7 @@ BaseEPDispatcher::BaseEPDispatcher(EPConfig ep_config, size_t num_experts)
     : config_(std::move(ep_config)),
       num_experts_(num_experts) {
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
-    if (config_.ep_size != static_cast<size_t>(rank_info.tp_size) ||
-        config_.ep_rank != static_cast<size_t>(rank_info.tp_rank)) {
+    if (config_.ep_size != static_cast<size_t>(rank_info.tp_size) || config_.ep_rank != static_cast<size_t>(rank_info.tp_rank)) {
         throw std::runtime_error(
             "MoE EP currently reuses the tensor parallel communication group, "
             "so EP size/rank must match TP size/rank");
@@ -42,8 +41,7 @@ infinicore::Tensor BaseEPDispatcher::expert_map(const infinicore::Device &device
     if (config_.ep_size == 1) {
         return infinicore::Tensor();
     }
-    if (expert_map_ && expert_map_->device().getType() == device.getType() &&
-        expert_map_->device().getIndex() == device.getIndex()) {
+    if (expert_map_ && expert_map_->device().getType() == device.getType() && expert_map_->device().getIndex() == device.getIndex()) {
         return expert_map_;
     }
 

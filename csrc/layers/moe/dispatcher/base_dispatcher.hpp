@@ -18,10 +18,12 @@ public:
 
     virtual DispatchOutput dispatch(const infinicore::Tensor &hidden_states,
                                     const TopKOutput &topk_output,
-                                    MoeWorkspace &workspace) const = 0;
+                                    MoeWorkspace &workspace) const
+        = 0;
 
     virtual infinicore::Tensor combine(const CombineInput &combine_input,
-                                       MoeWorkspace &workspace) const = 0;
+                                       MoeWorkspace &workspace) const
+        = 0;
 };
 
 } // namespace infinilm::layers::moe
