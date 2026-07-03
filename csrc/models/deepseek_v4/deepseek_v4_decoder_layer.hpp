@@ -3,6 +3,7 @@
 #include "../../config/model_config.hpp"
 #include "deepseek_v4_attention.hpp"
 #include "deepseek_v4_moe.hpp"
+#include "deepseek_v4_utils.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
@@ -47,6 +48,9 @@ private:
     size_t hc_sinkhorn_iters_{0};
     double hc_eps_{0.0};
     double hc_post_alpha_{2.0};
+
+    mutable DeepseekV4MHCCoeffs hc_attn_coeffs_;
+    mutable DeepseekV4MHCCoeffs hc_ffn_coeffs_;
 };
 
 } // namespace infinilm::models::deepseek_v4

@@ -126,7 +126,7 @@ RankWorker::RankWorker(
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
     }
-    // start the thread
+    // Start the thread; InferEngine waits on all workers via wait_init() so ranks init in parallel.
     thread_ = std::thread(&RankWorker::thread_loop, this);
 }
 
