@@ -1,6 +1,11 @@
 name: CI
 
 on:
+  pull_request:
+  push:
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
   workflow_dispatch:
     inputs:
       infinicore_branch:
@@ -10,7 +15,34 @@ on:
         type: string
 
 jobs:
+  check-format:
+    name: Check Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install format dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-16
+          pip install black ruff colorama
+
+      - name: Check Format
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python3 scripts/format.py --ref "origin/${{ github.base_ref }}" --check
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            python3 scripts/format.py --ref "${{ github.event.before }}" --check
+          else
+            python3 scripts/format.py --ref origin/main --check
+          fi
+
   ci:
+    if: github.event_name == 'workflow_dispatch'
+    needs: check-format
     uses: InfiniTensor/ci/.github/workflows/infinilm-ci.yml@infiniCore_ci
     with:
       config_path: .github/ci_config.yaml

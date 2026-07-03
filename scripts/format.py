@@ -26,6 +26,7 @@ def format_file(file: Path, check: bool, formatter) -> bool:
     if not formatter:
         return True  # Unsupported file type, skip
 
+    formatted = True
     try:
         cmd = []
         if formatter.startswith("clang-format"):
@@ -43,7 +44,7 @@ def format_file(file: Path, check: bool, formatter) -> bool:
                     print(
                         f"Use {Fore.CYAN}{formatter} -style=file -i {file}{Style.RESET_ALL} to format it."
                     )
-                    return False
+                    formatted = False
             else:
                 subprocess.run(
                     cmd,
@@ -60,14 +61,14 @@ def format_file(file: Path, check: bool, formatter) -> bool:
                     cmd,
                     capture_output=True,
                     text=True,
-                    check=True,
+                    check=False,
                 )
                 if process.returncode != 0:
                     print(f"{Fore.YELLOW}{file} is not formatted.{Style.RESET_ALL}")
                     print(
                         f"Use {Fore.CYAN}{formatter} {file}{Style.RESET_ALL} to format it."
                     )
-                    return False
+                    formatted = False
             else:
                 subprocess.run(
                     cmd,
@@ -76,13 +77,74 @@ def format_file(file: Path, check: bool, formatter) -> bool:
                     check=True,
                 )
                 print(f"{Fore.CYAN}Formatted: {file}{Style.RESET_ALL}")
+
+            ruff_cmd = ["ruff", "check", file]
+            try:
+                if check:
+                    process = subprocess.run(
+                        ruff_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if process.returncode != 0:
+                        print(f"{Fore.YELLOW}{file} has ruff issues.{Style.RESET_ALL}")
+                        print(
+                            f"Use {Fore.CYAN}ruff check --fix {file}{Style.RESET_ALL} to fix it."
+                        )
+                        formatted = False
+                else:
+                    ruff_cmd.insert(2, "--fix")
+                    process = subprocess.run(
+                        ruff_cmd,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if process.returncode != 0:
+                        print(f"{Fore.RED}Ruff failed for {file}.{Style.RESET_ALL}")
+                        if process.stdout:
+                            print(process.stdout, end="")
+                        if process.stderr:
+                            print(process.stderr, end="")
+                        formatted = False
+                    else:
+                        print(f"{Fore.CYAN}Ruff fixed: {file}{Style.RESET_ALL}")
+            except FileNotFoundError:
+                print(
+                    f"{Fore.RED}Formatter ruff not found, {file} skipped.{Style.RESET_ALL}"
+                )
+                formatted = False
     except FileNotFoundError:
         print(
             f"{Fore.RED}Formatter {formatter} not found, {file} skipped.{Style.RESET_ALL}"
         )
+        formatted = False
     except subprocess.CalledProcessError as e:
         print(f"{Fore.RED}Formatter {formatter} failed: {e}{Style.RESET_ALL}")
+        formatted = False
 
+    if not ensure_single_trailing_newline(file, check):
+        formatted = False
+
+    return formatted
+
+
+def ensure_single_trailing_newline(file: Path, check: bool) -> bool:
+    """Ensure the file ends with exactly one LF byte."""
+    content = file.read_bytes()
+    fixed = content.rstrip(b"\r\n") + b"\n"
+    if content == fixed:
+        return True
+
+    if check:
+        print(
+            f"{Fore.YELLOW}{file} does not end with exactly one newline.{Style.RESET_ALL}"
+        )
+        return False
+
+    file.write_bytes(fixed)
+    print(f"{Fore.CYAN}Fixed trailing newline: {file}{Style.RESET_ALL}")
     return True
 
 
@@ -119,7 +181,6 @@ def git_modified_since_ref(ref):
 
 def list_files(paths):
     """Recursively get all files under the specified paths"""
-    files = []
     for path in paths:
         if path.is_file():
             yield path
