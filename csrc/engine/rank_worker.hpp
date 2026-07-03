@@ -55,8 +55,13 @@ public:
         /// Image pixel values for multi-modal models.
         std::optional<std::vector<infinicore::Tensor>> pixel_values;
         /// Image placeholder bounds for MiniCPM-V style replacement.
+        /// Vector of tensors shape: [1, n_patch, 2].
         std::optional<std::vector<infinicore::Tensor>> image_bound;
+        /// Source embedding bounds for partial multimodal prefill replacement.
+        /// Vector of tensors shape: [1, n_patch, 2].
+        std::optional<std::vector<infinicore::Tensor>> image_embed_bound;
         /// Target patch sizes for each image (MiniCPM-V).
+        /// Vector of tensors shape is model-specific (MiniCPM-V: [n_patch, 2], VideoNSA: [n_media, 3]).
         std::optional<std::vector<infinicore::Tensor>> tgt_sizes;
         /// req_id for each pixel_values among a batch
         std::optional<std::vector<size_t>> image_req_ids;

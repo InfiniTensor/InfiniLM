@@ -178,6 +178,7 @@ class InferEngine(_infinilm.InferEngine):
         slot_mapping=None,
         pixel_values=None,
         image_bound=None,
+        image_embed_bound=None,
         tgt_sizes=None,
         image_req_ids=None,
         visual_token_ranges=None,
@@ -219,6 +220,7 @@ class InferEngine(_infinilm.InferEngine):
 
             pixel_values = convert_tensor_list(pixel_values)
             image_bound = convert_tensor_list(image_bound)
+            image_embed_bound = convert_tensor_list(image_embed_bound)
             tgt_sizes = convert_tensor_list(tgt_sizes)
 
             return infinicore.Tensor(
@@ -235,6 +237,7 @@ class InferEngine(_infinilm.InferEngine):
                         slot_mapping=slot_mapping,
                         pixel_values=pixel_values,
                         image_bound=image_bound,
+                        image_embed_bound=image_embed_bound,
                         tgt_sizes=tgt_sizes,
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
@@ -256,6 +259,7 @@ class InferEngine(_infinilm.InferEngine):
         *,
         pixel_values=None,
         image_bound=None,
+        image_embed_bound=None,
         tgt_sizes=None,
         _measure_and_log_time=False,
     ):
@@ -367,6 +371,7 @@ class InferEngine(_infinilm.InferEngine):
                 block_tables=block_tables,
                 slot_mapping=slot_mapping,
                 image_bound=image_bound if iter == 0 else None,
+                image_embed_bound=image_embed_bound if iter == 0 else None,
                 tgt_sizes=tgt_sizes if iter == 0 else None,
                 temperature=generation_config.temperature,
                 top_k=generation_config.top_k,

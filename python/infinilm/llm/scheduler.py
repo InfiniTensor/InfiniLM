@@ -111,7 +111,9 @@ class Scheduler:
                     num_local_computed_tokens,
                     blocks_blueprint,
                 ) = self.cache_manager.get_computed_blocks(
-                    req_tokens, req.get_mm_token_index_mappings()
+                    req_tokens,
+                    req.get_mm_token_index_mappings(),
+                    req.get_mm_features(),
                 )
                 if self.connector is not None:
                     ext_tokens, load_kv_async = (
@@ -130,6 +132,9 @@ class Scheduler:
                 if load_kv_async:
                     num_computed_tokens -= 1
                 num_new_tokens = req.get_prompt_length() - num_computed_tokens
+                req.set_scheduled_prefill_window(
+                    num_computed_tokens, req.get_prompt_length()
+                )
 
                 # Early token budget check: skip can_accept_request and allocate_slots
                 # for requests that would exceed the per-schedule token budget.
@@ -168,6 +173,7 @@ class Scheduler:
                     num_computed_tokens=num_computed_tokens,
                     cached_block_table=cached_block_table,
                     blocks_blueprint=blocks_blueprint,
+                    mm_features=req.get_mm_features(),
                     delay_cache_blocks=load_kv_async,
                 )
 
@@ -196,9 +202,11 @@ class Scheduler:
                     )
             else:
                 load_kv_async = False
-                num_tokens_this_step = (
-                    req.get_prompt_length() - req.num_local_cached_tokens
+                req.set_scheduled_prefill_window(
+                    req.num_computed_tokens, req.get_prompt_length()
                 )
+                compute_start, compute_end = req.get_scheduled_prefill_window()
+                num_tokens_this_step = compute_end - compute_start
                 if self._exceeds_token_budget(
                     current_num_batched_tokens,
                     num_tokens_this_step,
@@ -221,7 +229,8 @@ class Scheduler:
             current_prefill_extra_blocks += self._get_prefill_extra_blocks(req)
             scheduled_requests.append(req)
 
-            num_tokens_this_step = req.get_prompt_length() - req.num_local_cached_tokens
+            compute_start, compute_end = req.get_scheduled_prefill_window()
+            num_tokens_this_step = compute_end - compute_start
             current_num_batched_tokens += num_tokens_this_step
 
             req.status = RequestStatus.RUNNING
@@ -256,7 +265,10 @@ class Scheduler:
             # Decode phase: allocate slot for newly generated token
             try:
                 req.block_table, new_slot = self.cache_manager.append_slot(
-                    req.block_table, req.get_total_length(), req.get_all_token_ids()
+                    req.block_table,
+                    req.get_total_length(),
+                    req.get_all_token_ids(),
+                    req.get_mm_features(),
                 )
                 req.slot_mapping = [new_slot]
                 req.num_blocks = len(req.block_table)

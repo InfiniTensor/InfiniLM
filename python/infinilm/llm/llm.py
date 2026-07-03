@@ -388,6 +388,7 @@ class LLM:
             request_id = f"cmpl-{uuid.uuid4().hex}"
             processed_inputs = None
             mm_index_mappings = None
+            mm_features = None
             if apply_chat_template:
                 prompt = self.engine.apply_chat_template(
                     content, add_generation_prompt=True
@@ -410,6 +411,13 @@ class LLM:
                     video_ids=mm_inputs["video_urls"],
                     audio_ids=mm_inputs["audio_urls"],
                 )
+                mm_features = self.engine.processor.get_mm_features(
+                    prompt_token_ids,
+                    processed_inputs=processed_inputs,
+                    image_ids=mm_inputs["image_urls"],
+                    video_ids=mm_inputs["video_urls"],
+                    audio_ids=mm_inputs["audio_urls"],
+                )
             else:
                 prompt = content
                 prompt_token_ids = self.engine.tokenize(prompt)
@@ -420,6 +428,7 @@ class LLM:
                 prompt_token_ids=prompt_token_ids,
                 processed_inputs=processed_inputs,
                 mm_token_index_mappings=mm_index_mappings,
+                mm_features=mm_features,
                 sampling_params=sampling_params,
                 eos_token_ids=self.engine.eos_token_ids,
             )
@@ -714,6 +723,7 @@ class AsyncLLMEngine:
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
         mm_index_mappings = None
+        mm_features = None
         processed_inputs = None
 
         if prompt_token_ids is not None:
@@ -750,6 +760,13 @@ class AsyncLLMEngine:
                 video_ids=mm_inputs["video_urls"],
                 audio_ids=mm_inputs["audio_urls"],
             )
+            mm_features = self.engine.processor.get_mm_features(
+                prompt_token_ids,
+                processed_inputs=processed_inputs,
+                image_ids=mm_inputs["image_urls"],
+                video_ids=mm_inputs["video_urls"],
+                audio_ids=mm_inputs["audio_urls"],
+            )
 
         if sampling_params is None:
             sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
@@ -763,6 +780,7 @@ class AsyncLLMEngine:
             prompt_token_ids=prompt_token_ids,
             processed_inputs=processed_inputs,
             mm_token_index_mappings=mm_index_mappings,
+            mm_features=mm_features,
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,

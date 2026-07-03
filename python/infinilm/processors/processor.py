@@ -42,6 +42,18 @@ class InfinilmProcessor:
         """
         raise NotImplementedError("get_mm_token_index_list is not implemented yet")
 
+    def get_mm_features(
+        self,
+        prompt_token_ids,
+        processed_inputs=None,
+        image_ids=None,
+        video_ids=None,
+        audio_ids=None,
+        **kwargs,
+    ):
+        """Return normalized multimodal features for prefix caching."""
+        raise NotImplementedError("get_mm_features is not implemented yet")
+
 
 # Global registry mapping model_type strings to their Processor classes
 _PROCESSOR_REGISTRY = {}

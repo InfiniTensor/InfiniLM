@@ -155,6 +155,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(slot_mapping),
         to_device_vec(pixel_values),
         to_device_vec(image_bound),
+        to_device_vec(image_embed_bound),
         to_device_vec(tgt_sizes),
         visual_token_ranges,
     };

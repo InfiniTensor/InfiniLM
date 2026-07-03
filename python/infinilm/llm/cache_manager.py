@@ -3,9 +3,15 @@ KV Cache Manager - Paged Attention block-based cache allocation and management.
 """
 
 from collections import deque
-from typing import List, Dict, Set
+from typing import Any, List, Dict, Set
+import json
 import xxhash
-import numpy as np
+
+from infinilm.multimodal.features import (
+    MMFeature,
+    iter_mm_parts,
+    legacy_mappings_to_mm_features,
+)
 
 
 class Block:
@@ -49,17 +55,63 @@ class BlockManager:
         cls,
         token_ids: List[int],
         prefix_hash: int = -1,
-        mm_data_identifiers: List[str] = None,
+        extra_keys: tuple[Any, ...] | list[Any] | None = None,
     ) -> int:
-        """Compute hash for token sequence with optional prefix chaining."""
+        """Compute hash for token sequence with optional prefix chaining.
+
+        The payload is serialized as structured JSON so extra-key boundaries are
+        explicit. This keeps the current xxhash64 return type while avoiding
+        ambiguous byte concatenation of multimodal identifiers.
+        """
         h = xxhash.xxh64()
-        if prefix_hash != -1:
-            h.update(prefix_hash.to_bytes(8, "little"))
-        h.update(np.array(token_ids, dtype=np.int32).tobytes())
-        if mm_data_identifiers is not None:
-            for identifier in mm_data_identifiers:
-                h.update(identifier.encode("utf-8"))
+        payload = {
+            "prefix_hash": int(prefix_hash),
+            "token_ids": [int(t) for t in token_ids],
+            "extra_keys": extra_keys or (),
+        }
+        h.update(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        )
         return h.intdigest()
+
+    @staticmethod
+    def _normalize_mm_features(
+        mm_features: List[MMFeature] | None = None,
+        mm_token_index_mappings: List[dict] | None = None,
+    ) -> List[MMFeature]:
+        if mm_features is not None:
+            return mm_features
+        return legacy_mappings_to_mm_features(mm_token_index_mappings)
+
+    @staticmethod
+    def _get_mm_extra_keys_for_block(
+        mm_features: List[MMFeature],
+        block_start: int,
+        block_end: int,
+    ) -> tuple[Any, ...]:
+        extra_keys = []
+        for feature, part in iter_mm_parts(mm_features):
+            if not part.overlaps(block_start, block_end):
+                continue
+            overlap_start = max(part.token_start, block_start)
+            overlap_end = min(part.token_end, block_end)
+            src_start = part.embed_start + (overlap_start - part.token_start)
+            src_end = part.embed_start + (overlap_end - part.token_start)
+            feature_key = feature.mm_hash or feature.identifier
+            extra_keys.append(
+                (
+                    "mm_part",
+                    feature.modality,
+                    feature_key,
+                    part.part_index,
+                    overlap_start - block_start,
+                    src_start,
+                    src_end - src_start,
+                )
+            )
+        return tuple(extra_keys)
 
     def __init__(self, num_blocks: int, block_size: int):
         assert num_blocks > 0 and block_size > 0, (
@@ -145,6 +197,7 @@ class BlockManager:
         self,
         token_ids: List[int],
         mm_token_index_mappings: List[dict] = None,
+        mm_features: List[MMFeature] = None,
     ) -> tuple[List[int], int, List[dict]]:
         """Find locally cached prefix blocks for the given token sequence.
 
@@ -163,15 +216,14 @@ class BlockManager:
         num_blocks = (num_tokens + self.block_size - 1) // self.block_size
         num_full_blocks = num_tokens // self.block_size
         remain_tokens = num_tokens % self.block_size
-        mm_token_index_mappings = mm_token_index_mappings or []
-        num_mm_inputs = len(mm_token_index_mappings)
+        mm_features = self._normalize_mm_features(
+            mm_features, mm_token_index_mappings
+        )
 
         # Variables
         cached_block_table = []
         prefix_hash = -1
         cache_miss = False
-        mm_start_counter = 0
-        mm_caching_queue = deque()
         blocks_blueprint = []  # [{"prefix_hash": int or -1 if not a full block, "block_id": int or -1 if not cached}, ...]
         max_blocks_to_reuse = num_full_blocks
 
@@ -180,23 +232,12 @@ class BlockManager:
             end_idx = min(start_idx + self.block_size, num_tokens)
             block_tokens = token_ids[start_idx:end_idx]
 
-            # Process multimodal token index mappings for this block
-            mm_data_identifiers = []
-            while (
-                mm_start_counter < num_mm_inputs
-                and mm_token_index_mappings[mm_start_counter]["start_index"] < end_idx
-                and mm_token_index_mappings[mm_start_counter]["start_index"]
-                >= start_idx
-            ):
-                # for all mm_data whose start_index is within this block's token range, add its identifier to the list
-                mm_data_identifiers.append(
-                    mm_token_index_mappings[mm_start_counter]["identifier"]
-                )
-                mm_caching_queue.append(mm_start_counter)
-                mm_start_counter += 1
+            extra_keys = self._get_mm_extra_keys_for_block(
+                mm_features, start_idx, end_idx
+            )
 
             prefix_hash = (
-                self.compute_hash(block_tokens, prefix_hash, mm_data_identifiers)
+                self.compute_hash(block_tokens, prefix_hash, extra_keys)
                 if len(block_tokens) == self.block_size
                 else -1
             )
@@ -219,27 +260,8 @@ class BlockManager:
                 max_blocks_to_reuse = min(max_blocks_to_reuse, block_idx)
                 cache_miss = True
 
-            if not cache_miss:
-                # pop fully cached mm_data
-                while (
-                    mm_caching_queue
-                    and mm_token_index_mappings[mm_caching_queue[0]]["end_index"]
-                    < end_idx
-                ):
-                    mm_caching_queue.popleft()
-
             blocks_blueprint.append(
                 {"prefix_hash": prefix_hash, "block_id": cached_block_id}
-            )
-
-        # If there is one incomplete mm_data, tailing blocks need to fall back until all included mm_data are complete
-        if mm_caching_queue:
-            incomplete_mm = mm_token_index_mappings[mm_caching_queue.popleft()]
-            incomplete_mm_start = incomplete_mm[
-                "start_index"
-            ]  # Fall back until this index is no longer included in the block
-            max_blocks_to_reuse = min(
-                max_blocks_to_reuse, incomplete_mm_start // self.block_size
             )
 
         num_local_cached_tokens = max_blocks_to_reuse * self.block_size
@@ -258,6 +280,7 @@ class BlockManager:
         num_computed_tokens: int = 0,
         cached_block_table: List[int] = None,
         blocks_blueprint: List[dict] = None,
+        mm_features: List[MMFeature] = None,
         delay_cache_blocks: bool = False,
     ) -> tuple[List[int], List[int]] | None:
         """Allocate KV cache slots for a request (PD-disaggregation aware).
@@ -314,7 +337,10 @@ class BlockManager:
                 if blocks_blueprint is not None and block_idx < len(blocks_blueprint):
                     block_hash = blocks_blueprint[block_idx]["prefix_hash"]
                 if block_hash == -1:
-                    block_hash = self.compute_hash(block_tokens, prefix_hash)
+                    extra_keys = self._get_mm_extra_keys_for_block(
+                        mm_features or [], start_tok, end_tok
+                    )
+                    block_hash = self.compute_hash(block_tokens, prefix_hash, extra_keys)
                 prefix_hash = block_hash
                 block = self._allocate_full_block()
                 block.update(block_hash, block_tokens)
@@ -338,7 +364,11 @@ class BlockManager:
         return block_table, slot_mapping
 
     def append_slot(
-        self, block_table: List[int], num_tokens: int, total_token_ids: List[int] = None
+        self,
+        block_table: List[int],
+        num_tokens: int,
+        total_token_ids: List[int] = None,
+        mm_features: List[MMFeature] = None,
     ) -> tuple[List[int], int]:
         """Append slot for decode phase (generate one new token).
 
@@ -371,7 +401,10 @@ class BlockManager:
                 else:
                     prefix_hash = -1
 
-                current_hash = self.compute_hash(block_tokens, prefix_hash)
+                extra_keys = self._get_mm_extra_keys_for_block(
+                    mm_features or [], block_start_idx, block_end_idx
+                )
+                current_hash = self.compute_hash(block_tokens, prefix_hash, extra_keys)
                 last_block.update(current_hash, block_tokens)
                 self.hash_to_block_id[current_hash] = last_block_id
 

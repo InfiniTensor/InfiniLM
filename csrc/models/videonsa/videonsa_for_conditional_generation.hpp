@@ -21,7 +21,8 @@ public:
 protected:
     void replace_embeddings(infinicore::Tensor inputs_embeds,
                             const infinicore::Tensor &vision_hidden,
-                            const infinicore::Tensor &image_bound) const;
+                            const infinicore::Tensor &image_bound,
+                            const infinicore::Tensor &image_embed_bound) const;
 
     INFINICORE_NN_MODULE(VideoNSATextModel, model);
     INFINICORE_NN_MODULE(VideoNSAVisionModel, visual);

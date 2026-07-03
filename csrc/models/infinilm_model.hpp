@@ -38,10 +38,13 @@ public:
         /// Vector of tensors. Shape is model-specific (e.g. LLaVA: [batch, 3, H, W], MiniCPM-V: [n_patch, 3, filter_H, H * W / filter_H]).
         std::optional<std::vector<infinicore::Tensor>> pixel_values;
         /// Image placeholder bounds for MiniCPM-V style replacement.
-        /// Vector of tensors shape: [n_patch, 2].
+        /// Vector of tensors shape: [1, n_patch, 2].
         std::optional<std::vector<infinicore::Tensor>> image_bound;
+        /// Source embedding bounds for partial multimodal prefill replacement.
+        /// Vector of tensors shape: [1, n_patch, 2].
+        std::optional<std::vector<infinicore::Tensor>> image_embed_bound;
         /// Target patch sizes for each image (MiniCPM-V).
-        /// Vector of tensors shape: [n_path, 2] if pre-flattened.
+        /// Vector of tensors shape is model-specific (MiniCPM-V: [n_patch, 2], VideoNSA: [n_media, 3]).
         std::optional<std::vector<infinicore::Tensor>> tgt_sizes;
         /// Flattened [start, end) visual token ranges in the packed language sequence.
         std::optional<std::vector<size_t>> visual_token_ranges;
