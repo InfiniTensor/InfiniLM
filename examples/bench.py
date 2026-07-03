@@ -376,7 +376,7 @@ class TestModel:
 
         self.model = model
         self.input_ids_list = input_ids_list
-        #self.input_ids_list = [[ 201,      0, 128803,  30594,    303,   2788,    642,  34543,   6657, 36005,    320, 128804]]
+        self.input_ids_list = [[ 201,   0, 128803,  30594,    303,   2788,    642,  34543,   6657, 36005,    320, 128804]]
 
     def run(
         self,

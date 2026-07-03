@@ -23,6 +23,7 @@ public:
     std::vector<float> forward_values(const infinicore::Tensor &hidden_states,
                                       size_t &batch_size,
                                       size_t &num_blocks) const;
+    void process_weights_after_loading() override;
     size_t head_dim() const { return head_dim_; }
     size_t compress_ratio() const { return compress_ratio_; }
     size_t coff() const { return coff_; }
@@ -36,6 +37,7 @@ private:
     size_t compress_ratio_{0};
     size_t head_dim_{0};
     size_t coff_{1};
+    bool ape_converted_{false};
 };
 
 } // namespace infinilm::models::deepseek_v4

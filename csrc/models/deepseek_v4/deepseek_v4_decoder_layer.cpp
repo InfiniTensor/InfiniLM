@@ -44,23 +44,41 @@ DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &post_mix,
                                 const infinicore::Tensor &res_mix,
                                 const infinicore::Tensor & /*residual*/) const {
-    const auto attn_mhc = build_mhc_params(hidden_states, hc_attn_base_, hc_attn_fn_, hc_attn_scale_,
-                                           hc_mult_, hidden_size_, hc_sinkhorn_iters_, hc_eps_);
+    const auto attn_prepared = mhc_prepare(hidden_states, hc_attn_base_, hc_attn_fn_, hc_attn_scale_,
+                                           hc_attn_coeffs_, hc_mult_, hidden_size_,
+                                           hc_sinkhorn_iters_, hc_eps_);
 
-    auto attn_input = mhc_pre(hidden_states, attn_mhc);
-    attn_input = attn_norm_->forward(attn_input);
+    auto attn_input = attn_norm_->forward(attn_prepared.collapsed);
     auto attn_output = attn_->forward(positions, attn_input);
-    auto x = mhc_post(attn_output, hidden_states, attn_mhc);
+    auto x = mhc_post(attn_output, hidden_states, attn_prepared.params);
 
-    const auto ffn_mhc = build_mhc_params(x, hc_ffn_base_, hc_ffn_fn_, hc_ffn_scale_,
-                                          hc_mult_, hidden_size_, hc_sinkhorn_iters_, hc_eps_);
+    const auto ffn_prepared = mhc_prepare(x, hc_ffn_base_, hc_ffn_fn_, hc_ffn_scale_,
+                                          hc_ffn_coeffs_, hc_mult_, hidden_size_,
+                                          hc_sinkhorn_iters_, hc_eps_);
 
-    auto ffn_input = mhc_pre(x, ffn_mhc);
-    ffn_input = ffn_norm_->forward(ffn_input);
+    auto ffn_input = ffn_norm_->forward(ffn_prepared.collapsed);
     auto ffn_output = ffn_->forward(ffn_input, input_ids);
-    x = mhc_post(ffn_output, x, ffn_mhc);
+    x = mhc_post(ffn_output, x, ffn_prepared.params);
 
     return {x, x, post_mix, res_mix};
 }
+
+// std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+// DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
+//                                 const infinicore::Tensor &positions,
+//                                 const infinicore::Tensor &input_ids,
+//                                 const infinicore::Tensor &post_mix,
+//                                 const infinicore::Tensor &res_mix,
+//                                 const infinicore::Tensor & /*residual*/) const {
+
+//     auto attn_input = hidden_states;
+//     attn_input = attn_norm_->forward(attn_input);
+//     auto attn_output = attn_->forward(positions, attn_input);
+//     auto ffn_input = attn_output;
+//     ffn_input = ffn_norm_->forward(ffn_input);
+//     auto ffn_output = ffn_->forward(ffn_input, input_ids);
+
+//     return {ffn_output, ffn_output, post_mix, res_mix};
+// }
 
 } // namespace infinilm::models::deepseek_v4

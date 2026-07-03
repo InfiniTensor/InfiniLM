@@ -128,11 +128,16 @@ RankWorker::RankWorker(
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
     }
-    // start the thread
+    // Start the thread; InferEngine waits on all workers via wait_init() so ranks init in parallel.
     thread_ = std::thread(&RankWorker::thread_loop, this);
-    // Wait until the worker thread finishes initialization (model created)
+}
+
+void RankWorker::wait_init() {
     std::unique_lock<std::mutex> lk(mutex_);
-    cv_.wait(lk, [&] { return init_done_; });
+    cv_.wait(lk, [&] { return init_done_ || should_exit_; });
+    if (!init_done_) {
+        throw std::runtime_error("RankWorker failed during initialization: " + info());
+    }
 }
 
 std::string RankWorker::info() const {

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace infinilm::models::deepseek_v4 {
@@ -32,6 +33,35 @@ DeepseekV4Compressor::DeepseekV4Compressor(std::shared_ptr<infinilm::config::Mod
     INFINICORE_NN_MODULE_INIT(wkv, hidden_size, compressed_dim, none_quantization, false, dtype, device);
     INFINICORE_NN_MODULE_INIT(wgate, hidden_size, compressed_dim, none_quantization, false, dtype, device);
     INFINICORE_NN_MODULE_INIT(norm, head_dim, rms_norm_eps, dtype, device);
+}
+
+void DeepseekV4Compressor::process_weights_after_loading() {
+    if (ape_converted_ || coff_ != 2) {
+        return;
+    }
+
+    auto ape = tensor_to_float_vector(ape_);
+    const size_t compressed_dim = coff_ * head_dim_;
+    if (ape.size() != compress_ratio_ * compressed_dim) {
+        throw std::runtime_error("DeepseekV4Compressor: unexpected APE shape");
+    }
+
+    std::vector<float> converted(ape.size());
+    for (size_t row = 0; row < compress_ratio_; ++row) {
+        for (size_t col = 0; col < compressed_dim; ++col) {
+            const size_t flat = row * compressed_dim + col;
+            const size_t cat_row = flat / head_dim_;
+            const size_t cat_col = flat % head_dim_;
+            const bool second_half = cat_row >= compress_ratio_;
+            const size_t src_row = second_half ? cat_row - compress_ratio_ : cat_row;
+            const size_t src_col = (second_half ? head_dim_ : 0) + cat_col;
+            converted[flat] = ape[src_row * compressed_dim + src_col];
+        }
+    }
+
+    auto converted_tensor = float_vector_to_tensor(converted, ape_->shape(), ape_->dtype(), ape_->device());
+    ape_->copy_from(converted_tensor);
+    ape_converted_ = true;
 }
 
 std::vector<float> DeepseekV4Compressor::forward_values(const infinicore::Tensor &hidden_states,

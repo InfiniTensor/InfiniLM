@@ -38,7 +38,7 @@ InferEngine::InferEngine(
     if (kv_cache_dtype.has_value()) {
         this->model_config_->set_kv_quant_scheme(kv_cache_dtype.value());
     }
-    // Create one RankWorker per rank
+    // Start one RankWorker thread per rank, then wait for all models to finish building in parallel.
     int world_size = communication_group_.get_world_size();
     barrier_ = std::make_unique<RankBarrier>((size_t)world_size);
     workers_.reserve(world_size);
@@ -50,6 +50,9 @@ InferEngine::InferEngine(
             barrier_.get(),
             enable_graph_compiling,
             attention_backend_));
+    }
+    for (auto &worker : workers_) {
+        worker->wait_init();
     }
     // Graphs must be compiled after weights are loaded and post-processed.
     // Quantized models may replace their linear implementations during

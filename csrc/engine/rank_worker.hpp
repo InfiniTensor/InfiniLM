@@ -82,6 +82,9 @@ public:
                bool enable_graph_compiling,
                backends::AttentionBackend attention_backend);
 
+    // Block until model creation on this worker's device finishes.
+    void wait_init();
+
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
                     const infinicore::Tensor &param);
