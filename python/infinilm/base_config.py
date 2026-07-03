@@ -249,9 +249,9 @@ class BaseConfig:
         self.parser.add_argument(
             "--prompt", type=str, default="How are you", help="default prompt text"
         )
-        self.parser.add_argument("--top-k", type=int, default=1)
-        self.parser.add_argument("--top-p", type=float, default=1.0)
-        self.parser.add_argument("--temperature", type=float, default=1.0)
+        self.parser.add_argument("--top-k", type=int, default=None)
+        self.parser.add_argument("--top-p", type=float, default=None)
+        self.parser.add_argument("--temperature", type=float, default=None)
 
         # --- debug ---
         self.parser.add_argument("--warmup", action="store_true")
