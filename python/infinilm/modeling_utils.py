@@ -183,7 +183,21 @@ def load_model_state_dict_by_file(
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
 
-    file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
+    index_file_path = os.path.join(model_path, "model.safetensors.index.json")
+    if os.path.exists(index_file_path):
+        # Priority 1: If the index file exists, strictly load exactly what it maps to.
+        # This handles all standard sharded models perfectly, regardless of their actual prefix.
+        print(f"Found index file: {index_file_path}. Loading shards by index.")
+        with open(index_file_path, "r") as f:
+            index_data = json.load(f)
+        weight_map = index_data.get("weight_map", {})
+        unique_filenames = set(weight_map.values())
+        file_list = [os.path.join(model_path, fname) for fname in unique_filenames]
+    else:
+        # Priority 2: If no index file, scan all safetensors files.
+        print("No index file found. Scanning all safetensors files...")
+        file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
+
     if len(file_list) > 0:
         for file_path in tqdm(file_list, desc="Processing files"):
             tqdm.write(f"Processing: {os.path.basename(file_path)}")
