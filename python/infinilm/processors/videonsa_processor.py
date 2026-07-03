@@ -14,20 +14,53 @@ def decode_video_frames(video_path, num_frames=None):
     try:
         from decord import VideoReader, cpu
         from PIL import Image
+
+        reader = VideoReader(video_path, ctx=cpu(0))
+        total = len(reader)
+        if total == 0:
+            return video_path
+        num_frames = max(1, min(num_frames or total, total))
+        if num_frames == 1:
+            indices = [0]
+        else:
+            indices = [
+                round(i * (total - 1) / (num_frames - 1)) for i in range(num_frames)
+            ]
+        batch = reader.get_batch(indices).asnumpy()
+        return [Image.fromarray(frame) for frame in batch]
+    except Exception:
+        pass
+
+    try:
+        import cv2
+        from PIL import Image
     except Exception:
         return video_path
 
-    reader = VideoReader(video_path, ctx=cpu(0))
-    total = len(reader)
-    if total == 0:
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
         return video_path
-    num_frames = max(1, min(num_frames or total, total))
-    if num_frames == 1:
-        indices = [0]
-    else:
-        indices = [round(i * (total - 1) / (num_frames - 1)) for i in range(num_frames)]
-    batch = reader.get_batch(indices).asnumpy()
-    return [Image.fromarray(frame) for frame in batch]
+    try:
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if total <= 0:
+            return video_path
+        num_frames = max(1, min(num_frames or total, total))
+        if num_frames == 1:
+            indices = [0]
+        else:
+            indices = [
+                round(i * (total - 1) / (num_frames - 1)) for i in range(num_frames)
+            ]
+        frames = []
+        for index in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, index)
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            frames.append(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+        return frames or video_path
+    finally:
+        cap.release()
 
 
 @register_processor("videonsa")
