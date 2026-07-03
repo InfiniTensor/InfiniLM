@@ -2,8 +2,12 @@
 #include "../models/model_factory.hpp"
 #include "../utils.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/distributed/allreduce.hpp"
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iomanip>
 #include <limits>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -74,6 +78,28 @@ infinicore::Tensor greedy_sample_to_cpu_i64(const infinicore::Tensor &logits,
         out[i] = static_cast<int64_t>(best);
     }
     return output_ids;
+}
+
+bool tensor_parallel_comm_warmup_enabled() {
+    const char *value = std::getenv("INFINILM_TP_COMM_WARMUP");
+    return value == nullptr || std::string(value) != "0";
+}
+
+void warmup_tensor_parallel_allreduce(const distributed::RankInfo &rank_info) {
+    if (!tensor_parallel_comm_warmup_enabled()
+        || rank_info.tp_size <= 1
+        || rank_info.comm == nullptr
+        || rank_info.device.getType() == infinicore::Device::Type::CPU) {
+        return;
+    }
+
+    constexpr size_t warmup_elems = 1 << 20;
+    auto f32 = infinicore::Tensor::empty({warmup_elems}, infinicore::DataType::F32, rank_info.device);
+    infinicore::op::distributed::allreduce_(f32, f32, INFINICCL_SUM, rank_info.comm);
+
+    auto bf16 = infinicore::Tensor::empty({warmup_elems}, infinicore::DataType::BF16, rank_info.device);
+    infinicore::op::distributed::allreduce_(bf16, bf16, INFINICCL_SUM, rank_info.comm);
+    infinicore::context::syncStream();
 }
 
 } // namespace
@@ -464,6 +490,7 @@ void RankWorker::thread_loop() {
                 try {
                     model_->process_weights_after_loading();
                     infinicore::context::syncStream();
+                    warmup_tensor_parallel_allreduce(rank_info_);
                     infinicore::context::trimMemory();
                 } catch (const std::exception &e) {
                     {
@@ -516,6 +543,32 @@ void RankWorker::thread_loop() {
                             const auto &vocab_size{logits_shape[2]};
                             const auto &total_len{logits_shape[1]};
                             const auto &batch_size{logits_shape[0]};
+                            const char *dump_logits_env = std::getenv("INFINILM_DUMP_DSV4_LOGITS");
+                            const bool dump_any_logits = dump_logits_env != nullptr && std::string(dump_logits_env) == "1";
+                            const std::string dump_stage = total_len == 1 ? "decode" : "prefill";
+
+                            if (dump_any_logits) {
+                                auto logits_cpu = logits_to_cpu_f32(logits);
+                                const auto &dump_shape = logits_cpu->shape();
+                                const std::string dump_base = "/tmp/infinilm_dsv4_layer0_" + dump_stage + "_logits";
+                                std::ofstream meta(dump_base + ".json");
+                                meta << "{\"shape\":[";
+                                for (size_t i = 0; i < dump_shape.size(); ++i) {
+                                    if (i != 0) {
+                                        meta << ",";
+                                    }
+                                    meta << dump_shape[i];
+                                }
+                                meta << "],\"dtype\":\"float32\",\"stage\":\"" << dump_stage << "\"}";
+
+                                std::ofstream data(dump_base + ".txt");
+                                data << std::setprecision(9);
+                                const auto *vals = reinterpret_cast<const float *>(logits_cpu->data());
+                                for (size_t i = 0; i < logits_cpu->numel(); ++i) {
+                                    data << vals[i] << '\n';
+                                }
+                                spdlog::info("RankWorker dumped {} logits to {}", dump_stage, dump_base);
+                            }
 
                             auto n_req = local_args.input_offsets.value()->size(0) - 1;
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();

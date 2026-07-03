@@ -11,11 +11,13 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <numeric>
 #include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <string>
 
 namespace infinilm::models::deepseek_v4 {
 namespace {
@@ -60,6 +62,34 @@ bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
     }
 }
 
+
+std::vector<float> router_logits_fp32_reference(const infinicore::Tensor &hidden_states,
+                                                const infinicore::Tensor &weight,
+                                                size_t ntoken,
+                                                size_t hidden_size,
+                                                size_t num_experts) {
+    const auto hidden_values = tensor_to_float_vector(hidden_states);
+    const auto weight_values = tensor_to_float_vector(weight);
+    if (hidden_values.size() != ntoken * hidden_size
+        || weight_values.size() != num_experts * hidden_size) {
+        throw std::runtime_error("DeepseekV4Gate: router logits shape mismatch");
+    }
+
+    std::vector<float> logits(ntoken * num_experts, 0.0f);
+    for (size_t token = 0; token < ntoken; ++token) {
+        const size_t hidden_offset = token * hidden_size;
+        for (size_t expert = 0; expert < num_experts; ++expert) {
+            const size_t weight_offset = expert * hidden_size;
+            float acc = 0.0f;
+            for (size_t hidden = 0; hidden < hidden_size; ++hidden) {
+                acc += hidden_values[hidden_offset + hidden] * weight_values[weight_offset + hidden];
+            }
+            logits[token * num_experts + expert] = acc;
+        }
+    }
+    return logits;
+}
+
 infinicore::Tensor int32_vector_to_tensor(const std::vector<int64_t> &values,
                                           const infinicore::Shape &shape,
                                           const infinicore::Device &device) {
@@ -96,7 +126,9 @@ DeepseekV4Gate::DeepseekV4Gate(std::shared_ptr<infinilm::config::ModelConfig> mo
       num_experts_(model_config->get<size_t>("n_routed_experts")),
       num_experts_per_tok_(model_config->get<size_t>("num_experts_per_tok")),
       routed_scaling_(static_cast<float>(model_config->get_or<double>("routed_scaling_factor", 1.0))),
-      scoring_func_(model_config->get_or<std::string>("scoring_func", "sqrtsoftplus")) {
+      scoring_func_(model_config->get_or<std::string>("scoring_func", "sqrtsoftplus")),
+      norm_topk_prob_(model_config->get_or<bool>("norm_topk_prob", true)),
+      layer_idx_(layer_idx) {
     const auto &dtype = model_config->get_dtype();
     const size_t vocab_size = model_config->get<size_t>("vocab_size");
     const size_t num_hash_layers = model_config->get_or<size_t>("num_hash_layers", 0);
@@ -118,8 +150,9 @@ DeepseekV4Gate::forward(const infinicore::Tensor &hidden_states,
     }
     const size_t ntoken = hidden_states->shape()[0];
 
-    auto router_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt);
-    auto logits_values = tensor_to_float_vector(router_logits);
+    // SGLang computes router logits with BF16 inputs and FP32 accumulation.
+    // Keep this reference path for precision alignment of DeepSeek-V4 routing.
+    auto logits_values = router_logits_fp32_reference(hidden_states, weight_, ntoken, hidden_size_, num_experts_);
     auto scores = logits_values;
     for (size_t token = 0; token < ntoken; ++token) {
         const size_t offset = token * num_experts_;
@@ -197,18 +230,17 @@ DeepseekV4Gate::forward(const infinicore::Tensor &hidden_states,
             weights[route_offset + k] = scores[score_offset + static_cast<size_t>(expert)];
             denom += weights[route_offset + k];
         }
-        if (scoring_func_ != "softmax") {
+        if (norm_topk_prob_ && scoring_func_ != "softmax") {
             denom += 1e-9f;
             for (size_t k = 0; k < num_experts_per_tok_; ++k) {
                 weights[route_offset + k] /= denom;
             }
         }
-        for (size_t k = 0; k < num_experts_per_tok_; ++k) {
-            weights[route_offset + k] *= routed_scaling_;
-        }
-    }
-
-    auto top_k_weights = float_vector_to_tensor(weights, {ntoken, num_experts_per_tok_},
+        // Match the current SGLang slimquant_marlin reference: keep top-k
+        // routing probabilities normalized here and do not bake
+        // routed_scaling_factor into the gate weights.
+        (void)routed_scaling_;
+    }    auto top_k_weights = float_vector_to_tensor(weights, {ntoken, num_experts_per_tok_},
                                                 infinicore::DataType::F32, hidden_states->device());
     auto top_k_index = int32_vector_to_tensor(selected, {ntoken, num_experts_per_tok_},
                                               hidden_states->device());
@@ -262,9 +294,6 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
             auto output = infinicore::op::deepseek_moe(hidden_states, top_k_index, top_k_weights,
                                                        gate_weights_, up_weights_, down_weights_,
                                                        local_moe_intermediate_size_, num_experts_);
-            if (tp_size_ > 1 && communicator_ != nullptr) {
-                infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
-            }
             return output;
         } catch (const std::exception &e) {
             spdlog::warn("DeepseekV4Experts: deepseek_moe unavailable on {}, falling back to CPU-routed experts: {}",
@@ -287,21 +316,26 @@ infinicore::Tensor DeepseekV4Experts::forward_cpu_routed_(const infinicore::Tens
     auto final_hidden_states = infinicore::Tensor::empty({ntoken, hidden_size_}, hidden_states->dtype(), hidden_states->device());
     for (size_t token = 0; token < ntoken; ++token) {
         auto hidden_i = hidden_states->narrow({{0, token, 1}});
-        infinicore::Tensor token_out;
+        std::vector<float> token_values(hidden_size_, 0.0f);
         const size_t route_offset = token * num_experts_per_tok_;
         for (size_t k = 0; k < num_experts_per_tok_; ++k) {
             const int64_t expert = selected[route_offset + k];
             if (expert < 0 || static_cast<size_t>(expert) >= num_experts_) {
                 throw std::runtime_error("DeepseekV4Experts: selected expert id out of range");
             }
-            experts_[expert]->set_alpha(weights[route_offset + k]);
-            auto expert_out = experts_[expert]->forward(hidden_i);
-            if (k == 0) {
-                token_out = expert_out;
-            } else {
-                infinicore::op::add_(token_out, token_out, expert_out);
+            const float route_weight = weights[route_offset + k];
+            experts_[expert]->set_alpha(route_weight);
+            auto expert_out = experts_[expert]->forward_without_allreduce(hidden_i);
+            experts_[expert]->set_alpha(1.0f);
+            auto expert_values = tensor_to_float_vector(expert_out);
+            if (expert_values.size() != hidden_size_) {
+                throw std::runtime_error("DeepseekV4Experts: expert output size mismatch");
+            }
+            for (size_t i = 0; i < hidden_size_; ++i) {
+                token_values[i] += expert_values[i];
             }
         }
+        auto token_out = float_vector_to_tensor(token_values, {1, hidden_size_}, hidden_states->dtype(), hidden_states->device());
         final_hidden_states->narrow({{0, token, 1}})->copy_from(token_out);
     }
     return final_hidden_states;
@@ -315,9 +349,13 @@ DeepseekV4MoE::DeepseekV4MoE(std::shared_ptr<infinilm::config::ModelConfig> mode
 DeepseekV4MoE::DeepseekV4MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                              size_t layer_idx,
                              const infinicore::Device &device)
-    : hidden_size_(model_config->get<size_t>("hidden_size")) {
+    : hidden_size_(model_config->get<size_t>("hidden_size")),
+      layer_idx_(layer_idx) {
     const size_t moe_intermediate_size = model_config->get<size_t>("moe_intermediate_size");
     const size_t num_shared_experts = model_config->get_or<size_t>("n_shared_experts", 0);
+    const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+    tp_size_ = static_cast<size_t>(rank_info.tp_size);
+    communicator_ = rank_info.comm;
 
     INFINICORE_NN_MODULE_INIT(gate, model_config, layer_idx, device);
     INFINICORE_NN_MODULE_INIT(experts, model_config, device);
@@ -337,8 +375,21 @@ infinicore::Tensor DeepseekV4MoE::forward(const infinicore::Tensor &hidden_state
     auto [routing_weights, selected_experts] = gate_->forward(hidden_flat, input_ids);
     auto final_hidden_states = experts_->forward(hidden_flat, selected_experts, routing_weights);
     if (has_shared_experts_) {
-        auto shared_out = shared_experts_->forward(hidden_flat);
-        final_hidden_states = infinicore::op::add(final_hidden_states, shared_out);
+        final_hidden_states = infinicore::op::add(
+            final_hidden_states, shared_experts_->forward_without_allreduce(hidden_flat));
+    }
+    if (tp_size_ > 1 && communicator_ != nullptr) {
+        const char *f32_allreduce = std::getenv("DSV4_FFN_F32_ALLREDUCE");
+        if (f32_allreduce != nullptr && std::string(f32_allreduce) == "1") {
+            const auto local_values = tensor_to_float_vector(final_hidden_states);
+            auto reduced = float_vector_to_tensor(local_values, final_hidden_states->shape(),
+                                                  infinicore::DataType::F32, final_hidden_states->device());
+            infinicore::op::distributed::allreduce_(reduced, reduced, INFINICCL_SUM, communicator_);
+            final_hidden_states = float_vector_to_tensor(tensor_to_float_vector(reduced), final_hidden_states->shape(),
+                                                        final_hidden_states->dtype(), final_hidden_states->device());
+        } else {
+            infinicore::op::distributed::allreduce_(final_hidden_states, final_hidden_states, INFINICCL_SUM, communicator_);
+        }
     }
     return final_hidden_states->view(shape);
 }

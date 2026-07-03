@@ -67,10 +67,77 @@ void apply_partial_rope_inplace(std::vector<float> &x,
         const double angle = static_cast<double>(position) * inv_freq;
         const float c = static_cast<float>(std::cos(angle));
         const float s = static_cast<float>((inverse ? -1.0 : 1.0) * std::sin(angle));
-        const float x1 = old[i];
-        const float x2 = old[half + i];
-        x[offset + pass_dim + i] = x1 * c - x2 * s;
-        x[offset + pass_dim + half + i] = x2 * c + x1 * s;
+        const size_t even = 2 * i;
+        const size_t odd = even + 1;
+        const float x1 = old[even];
+        const float x2 = old[odd];
+        x[offset + pass_dim + even] = x1 * c - x2 * s;
+        x[offset + pass_dim + odd] = x2 * c + x1 * s;
+    }
+}
+
+double deepseek_v4_yarn_inv_freq(size_t pair_idx,
+                                 size_t rope_dim,
+                                 double base,
+                                 double factor,
+                                 double beta_fast,
+                                 double beta_slow,
+                                 int64_t original_seq_len) {
+    double inv_freq = 1.0 / std::pow(base, static_cast<double>(2 * pair_idx) / static_cast<double>(rope_dim));
+    if (original_seq_len <= 0 || factor == 1.0) {
+        return inv_freq;
+    }
+
+    constexpr double pi = 3.141592653589793238462643383279502884;
+    auto find_correction_dim = [&](double num_rotations) {
+        return static_cast<double>(rope_dim)
+             * std::log(static_cast<double>(original_seq_len) / (num_rotations * 2.0 * pi))
+             / (2.0 * std::log(base));
+    };
+    double low = std::floor(find_correction_dim(beta_fast));
+    double high = std::ceil(find_correction_dim(beta_slow));
+    low = std::max(low, 0.0);
+    high = std::min(high, static_cast<double>(rope_dim - 1));
+    if (low == high) {
+        high += 0.001;
+    }
+
+    const double ramp = std::clamp((static_cast<double>(pair_idx) - low) / (high - low), 0.0, 1.0);
+    const double smooth = 1.0 - ramp;
+    return inv_freq / factor * (1.0 - smooth) + inv_freq * smooth;
+}
+
+void apply_deepseek_v4_yarn_rope_inplace(std::vector<float> &x,
+                                         size_t offset,
+                                         size_t head_dim,
+                                         size_t rope_dim,
+                                         int64_t position,
+                                         double base,
+                                         double factor,
+                                         double beta_fast,
+                                         double beta_slow,
+                                         int64_t original_seq_len,
+                                         bool inverse) {
+    if (rope_dim == 0) {
+        return;
+    }
+    const size_t pass_dim = head_dim - rope_dim;
+    const size_t half = rope_dim / 2;
+    std::vector<float> old(rope_dim);
+    for (size_t i = 0; i < rope_dim; ++i) {
+        old[i] = x[offset + pass_dim + i];
+    }
+    for (size_t i = 0; i < half; ++i) {
+        const double inv_freq = deepseek_v4_yarn_inv_freq(i, rope_dim, base, factor, beta_fast, beta_slow, original_seq_len);
+        const double angle = static_cast<double>(position) * inv_freq;
+        const float c = static_cast<float>(std::cos(angle));
+        const float s = static_cast<float>((inverse ? -1.0 : 1.0) * std::sin(angle));
+        const size_t even = 2 * i;
+        const size_t odd = even + 1;
+        const float x1 = old[even];
+        const float x2 = old[odd];
+        x[offset + pass_dim + even] = x1 * c - x2 * s;
+        x[offset + pass_dim + odd] = x2 * c + x1 * s;
     }
 }
 
@@ -106,6 +173,13 @@ DeepseekV4Attention::DeepseekV4Attention(std::shared_ptr<infinilm::config::Model
     const size_t q_output_size = num_attention_heads_ * head_dim_;
     size_t compress_ratio = 0;
     const auto &config_json = model_config->get_config_json();
+    if (config_json.contains("rope_scaling") && config_json.at("rope_scaling").is_object()) {
+        const auto &rope_scaling = config_json.at("rope_scaling");
+        rope_factor_ = rope_scaling.value("factor", 1.0);
+        rope_beta_fast_ = rope_scaling.value("beta_fast", 32.0);
+        rope_beta_slow_ = rope_scaling.value("beta_slow", 1.0);
+        rope_original_max_position_embeddings_ = rope_scaling.value("original_max_position_embeddings", 0);
+    }
     if (config_json.contains("compress_ratios") && layer_idx < config_json.at("compress_ratios").size()) {
         compress_ratio = config_json.at("compress_ratios").at(layer_idx).get<size_t>();
     }
@@ -244,19 +318,70 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
         }
         q_normed = float_vector_to_tensor(q_values, {batch_size, seq_len, num_heads, head_dim}, query_states->dtype(), query_states->device());
     }
-    auto q_rope = rotary_emb_->forward(
-        q_normed->narrow({{3, head_dim - qk_rope_head_dim_, qk_rope_head_dim_}})->contiguous(),
-        pos_ids,
-        false);
-    q_normed->narrow({{3, head_dim - qk_rope_head_dim_, qk_rope_head_dim_}})->copy_from(q_rope);
-    auto kv_rope = key_states->contiguous();
-    auto kv_rope_part = rotary_emb_->forward(
-        kv_rope->narrow({{3, head_dim - qk_rope_head_dim_, qk_rope_head_dim_}})->contiguous(),
-        pos_ids,
-        false);
-    kv_rope->narrow({{3, head_dim - qk_rope_head_dim_, qk_rope_head_dim_}})->copy_from(kv_rope_part);
-    auto q = tensor_to_float_vector(q_normed);
-    auto kv = tensor_to_float_vector(kv_rope);
+    std::vector<float> q;
+    std::vector<float> kv;
+    if (compress_ratio_ == 0) {
+        // SGLang uses DeepSeek-V4's precomputed complex RoPE with original_seq_len=0
+        // for uncompressed layers, i.e. GPT-J/interleaved layout without YaRN scaling.
+        q = tensor_to_float_vector(q_normed);
+        auto kv_rope = key_states->contiguous();
+        kv = tensor_to_float_vector(kv_rope);
+        const auto kv_shape = kv_rope->shape();
+        const size_t kv_heads = kv_shape[2];
+        for (size_t b = 0; b < batch_size; ++b) {
+            for (size_t t = 0; t < seq_len; ++t) {
+                const int64_t position = pos[t];
+                for (size_t h = 0; h < num_heads; ++h) {
+                    const size_t q_offset = ((b * seq_len + t) * num_heads + h) * head_dim;
+                    apply_partial_rope_inplace(q, q_offset, head_dim, qk_rope_head_dim_, position, rope_theta_, false);
+                }
+                for (size_t h = 0; h < kv_heads; ++h) {
+                    const size_t kv_offset = ((b * seq_len + t) * kv_heads + h) * head_dim;
+                    apply_partial_rope_inplace(kv, kv_offset, head_dim, qk_rope_head_dim_, position, rope_theta_, false);
+                }
+            }
+        }
+    } else {
+        // SGLang uses compress_rope_theta plus DeepSeek YaRN scaling for compressed layers.
+        q = tensor_to_float_vector(q_normed);
+        auto kv_rope = key_states->contiguous();
+        kv = tensor_to_float_vector(kv_rope);
+        const auto kv_shape = kv_rope->shape();
+        const size_t kv_heads = kv_shape[2];
+        for (size_t b = 0; b < batch_size; ++b) {
+            for (size_t t = 0; t < seq_len; ++t) {
+                const int64_t position = pos[t];
+                for (size_t h = 0; h < num_heads; ++h) {
+                    const size_t q_offset = ((b * seq_len + t) * num_heads + h) * head_dim;
+                    apply_deepseek_v4_yarn_rope_inplace(q,
+                                                        q_offset,
+                                                        head_dim,
+                                                        qk_rope_head_dim_,
+                                                        position,
+                                                        compress_rope_theta_,
+                                                        rope_factor_,
+                                                        rope_beta_fast_,
+                                                        rope_beta_slow_,
+                                                        rope_original_max_position_embeddings_,
+                                                        false);
+                }
+                for (size_t h = 0; h < kv_heads; ++h) {
+                    const size_t kv_offset = ((b * seq_len + t) * kv_heads + h) * head_dim;
+                    apply_deepseek_v4_yarn_rope_inplace(kv,
+                                                        kv_offset,
+                                                        head_dim,
+                                                        qk_rope_head_dim_,
+                                                        position,
+                                                        compress_rope_theta_,
+                                                        rope_factor_,
+                                                        rope_beta_fast_,
+                                                        rope_beta_slow_,
+                                                        rope_original_max_position_embeddings_,
+                                                        false);
+                }
+            }
+        }
+    }
     std::vector<float> kv_comp;
     size_t nb = 0;
     size_t index_top_k = 0;
@@ -273,9 +398,19 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
 
     for (size_t b = 0; b < batch_size; ++b) {
         for (size_t block = 0; block < nb; ++block) {
-            const int64_t block_pos = static_cast<int64_t>(block * compress_ratio_ + (compress_ratio_ - 1));
+            const int64_t block_pos = static_cast<int64_t>(block * compress_ratio_);
             const size_t kv_offset = (b * nb + block) * head_dim;
-            apply_partial_rope_inplace(kv_comp, kv_offset, head_dim, qk_rope_head_dim_, std::min(block_pos, max_position), compress_rope_theta_, false);
+            apply_deepseek_v4_yarn_rope_inplace(kv_comp,
+                                                kv_offset,
+                                                head_dim,
+                                                qk_rope_head_dim_,
+                                                std::min(block_pos, max_position),
+                                                compress_rope_theta_,
+                                                rope_factor_,
+                                                rope_beta_fast_,
+                                                rope_beta_slow_,
+                                                rope_original_max_position_embeddings_,
+                                                false);
         }
     }
 
@@ -287,7 +422,7 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
                 const size_t q_offset = ((b * seq_len + t) * num_heads + h) * head_dim;
                 float max_logit = sink[h];
                 for (size_t block = 0; block < nb; ++block) {
-                    bool valid = static_cast<int64_t>(block) < (pos[t] / static_cast<int64_t>(compress_ratio_));
+                    bool valid = static_cast<int64_t>(block) < ((pos[t] + 1) / static_cast<int64_t>(compress_ratio_));
                     if (valid && !indexed_blocks.empty()) {
                         valid = false;
                         const size_t index_offset = (b * seq_len + t) * index_top_k;
@@ -351,7 +486,21 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
                         out[out_offset + d] += prob * kv[kv_offset + d];
                     }
                 }
-                apply_partial_rope_inplace(out, out_offset, head_dim, qk_rope_head_dim_, pos[t], rope_theta_, true);
+                if (compress_ratio_ == 0) {
+                    apply_partial_rope_inplace(out, out_offset, head_dim, qk_rope_head_dim_, pos[t], rope_theta_, true);
+                } else {
+                    apply_deepseek_v4_yarn_rope_inplace(out,
+                                                        out_offset,
+                                                        head_dim,
+                                                        qk_rope_head_dim_,
+                                                        pos[t],
+                                                        compress_rope_theta_,
+                                                        rope_factor_,
+                                                        rope_beta_fast_,
+                                                        rope_beta_slow_,
+                                                        rope_original_max_position_embeddings_,
+                                                        true);
+                }
             }
         }
     }

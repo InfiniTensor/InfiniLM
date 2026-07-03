@@ -40,6 +40,8 @@ private:
     size_t num_experts_per_tok_{0};
     float routed_scaling_{1.0f};
     std::string scoring_func_;
+    bool norm_topk_prob_{true};
+    size_t layer_idx_{0};
 };
 
 class DeepseekV4Experts : public infinicore::nn::Module {
@@ -88,6 +90,9 @@ private:
     INFINICORE_NN_MODULE(DeepseekV4MLP, shared_experts);
 
     size_t hidden_size_{0};
+    size_t layer_idx_{0};
+    size_t tp_size_{1};
+    infinicclComm_t communicator_{nullptr};
     bool has_shared_experts_{false};
 };
 

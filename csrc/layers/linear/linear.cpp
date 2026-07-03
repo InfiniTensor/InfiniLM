@@ -93,6 +93,10 @@ infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
     return output;
 }
 
+infinicore::Tensor RowParallelLinear::forward_without_allreduce(infinicore::Tensor &input) const {
+    return BaseLinear::forward(input);
+}
+
 std::string RowParallelLinear::extra_repr() const {
     return "RowParallelLinear(in_features=" + std::to_string(in_features_) + ", out_features=" + std::to_string(out_features_) + ", bias=" + (has_bias_ ? "true" : "false") + ", dtype=" + std::to_string(static_cast<int>(dtype_)) + ")";
 }

@@ -2,8 +2,14 @@
 #include "infinicore/ops/linear_w8a8i8.hpp"
 #include "infinicore/ops/mul_scalar.hpp"
 
+#include "infinicore/context/context.hpp"
 #include <cmath>
+
+#include <cmath>
+#include <cstring>
 #include <optional>
+#include <stdexcept>
+#include <vector>
 
 namespace infinilm::quantization {
 
@@ -37,6 +43,22 @@ infinicore::Tensor CompressedTensors::forward(
     auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
     auto weight = params.at("weight");
     auto weight_scale = params.at("weight_scale");
+
+    if (std::fabs(alpha - 1.0f) > 1e-7f) {
+        auto scale_cpu = weight_scale->contiguous()->to(infinicore::Device::cpu());
+        const size_t count = scale_cpu->numel();
+        if (scale_cpu->dtype() != infinicore::DataType::F32) {
+            throw std::runtime_error("CompressedTensors: weight_scale alpha path expects F32 scale");
+        }
+        auto *ptr = reinterpret_cast<float *>(scale_cpu->data());
+        for (size_t i = 0; i < count; ++i) {
+            ptr[i] *= alpha;
+        }
+        weight_scale = scale_cpu->to(weight_scale->device());
+        if (weight_scale->device().getType() != infinicore::Device::Type::CPU) {
+            infinicore::context::syncStream();
+        }
+    }
 
     std::optional<infinicore::Tensor> bias_opt;
     if (has_bias) {

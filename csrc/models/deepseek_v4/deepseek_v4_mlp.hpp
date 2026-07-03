@@ -23,6 +23,7 @@ public:
     infinicore::Tensor up_weight() const { return w3_->weight(); }
     infinicore::Tensor down_weight() const { return w2_->weight(); }
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinicore::Tensor forward_without_allreduce(const infinicore::Tensor &hidden_states) const;
 
 private:
     INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, w1);
@@ -31,8 +32,6 @@ private:
 
     size_t hidden_size_{0};
     size_t intermediate_size_{0};
-    double swiglu_limit_{0.0};
-    bool has_swiglu_limit_{false};
 };
 
 } // namespace infinilm::models::deepseek_v4

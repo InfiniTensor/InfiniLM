@@ -11,8 +11,6 @@ namespace infinilm::models::deepseek_v4 {
 
 std::vector<float> tensor_to_float_vector(const infinicore::Tensor &tensor);
 std::vector<int64_t> tensor_to_int64_vector(const infinicore::Tensor &tensor);
-bool debug_trace_enabled();
-void debug_trace_tensor(const std::string &name, const infinicore::Tensor &tensor);
 infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
                                           const infinicore::Shape &shape,
                                           infinicore::DataType dtype,
@@ -20,10 +18,6 @@ infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
 infinicore::Tensor int64_vector_to_tensor(const std::vector<int64_t> &values,
                                           const infinicore::Shape &shape,
                                           const infinicore::Device &device);
-
-infinicore::Tensor clamped_swiglu(const infinicore::Tensor &up,
-                                  const infinicore::Tensor &gate,
-                                  double limit);
 
 struct DeepseekV4MHCParams {
     std::vector<float> pre;

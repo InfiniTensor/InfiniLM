@@ -24,6 +24,33 @@ DATA_TYPE_BYTES = {
     "bfloat16": 2,
     "float16": 2,
     "float32": 4,
+    "float64": 8,
+    "int8": 1,
+    "uint8": 1,
+    "bool": 1,
+    "int16": 2,
+    "uint16": 2,
+    "int32": 4,
+    "uint32": 4,
+    "int64": 8,
+    "uint64": 8,
+}
+
+DATA_TYPE_NAME_MAP = {
+    "BOOL": "bool",
+    "BYTE": "uint8",
+    "I8": "int8",
+    "I16": "int16",
+    "I32": "int32",
+    "I64": "int64",
+    "U8": "uint8",
+    "U16": "uint16",
+    "U32": "uint32",
+    "U64": "uint64",
+    "F16": "float16",
+    "F32": "float32",
+    "F64": "float64",
+    "BF16": "bfloat16",
 }
 
 _PAGED_KV_BLOCK_SIZE = 256
@@ -178,6 +205,117 @@ def repeat_prompt(input_ids: list[int], target_length: int):
     return (input_ids * repeat_times)[:target_length]
 
 
+def _dtype_name(dtype) -> str:
+    name = str(dtype)
+    for prefix in ("infinicore.", "DataType."):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    return DATA_TYPE_NAME_MAP.get(name, name)
+
+
+def _module_name_from_param(param_name: str) -> str:
+    parts = param_name.split(".")
+    return ".".join(parts[:-1]) if len(parts) > 1 else "<root>"
+
+
+def _tensor_shape(tensor) -> list[int]:
+    return [int(dim) for dim in tensor.shape]
+
+
+def _tensor_stride(tensor, ndim: int) -> list[int]:
+    strides = getattr(tensor, "strides", None)
+    if strides is not None:
+        return [int(dim) for dim in strides]
+    return [int(tensor.stride(dim)) for dim in range(ndim)]
+
+
+def _tensor_weight_info(param_name: str, tensor) -> dict:
+    dtype = _dtype_name(tensor.dtype)
+    shape = _tensor_shape(tensor)
+    numel = int(tensor.numel())
+    element_size = DATA_TYPE_BYTES.get(dtype)
+    nbytes = None if element_size is None else numel * element_size
+    return {
+        "name": param_name,
+        "parameter": param_name.rsplit(".", 1)[-1],
+        "module": _module_name_from_param(param_name),
+        "shape": shape,
+        "stride": _tensor_stride(tensor, len(shape)),
+        "dtype": dtype,
+        "device": str(tensor.device),
+        "numel": numel,
+        "element_size": element_size,
+        "nbytes": nbytes,
+        "is_contiguous": bool(tensor.is_contiguous()),
+    }
+
+
+def save_model_weight_info(model: infinicore.nn.Module, output_path: str) -> None:
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    state_dict_by_rank = model.state_dict()
+    if isinstance(state_dict_by_rank, dict):
+        state_dict_by_rank = [state_dict_by_rank]
+
+    ranks = []
+    total_numel = 0
+    total_nbytes = 0
+    total_parameters = 0
+    for rank, state_dict in enumerate(state_dict_by_rank):
+        modules = OrderedDict()
+        rank_numel = 0
+        rank_nbytes = 0
+        for param_name in sorted(state_dict.keys()):
+            info = _tensor_weight_info(param_name, state_dict[param_name])
+            module_name = info["module"]
+            module_info = modules.setdefault(
+                module_name,
+                {
+                    "name": module_name,
+                    "parameters": [],
+                    "num_parameters": 0,
+                    "total_numel": 0,
+                    "total_nbytes": 0,
+                },
+            )
+            module_info["parameters"].append(info)
+            module_info["num_parameters"] += 1
+            module_info["total_numel"] += info["numel"]
+            if info["nbytes"] is not None:
+                module_info["total_nbytes"] += info["nbytes"]
+                rank_nbytes += info["nbytes"]
+            rank_numel += info["numel"]
+
+        rank_parameters = sum(m["num_parameters"] for m in modules.values())
+        ranks.append(
+            {
+                "rank": rank,
+                "num_modules": len(modules),
+                "num_parameters": rank_parameters,
+                "total_numel": rank_numel,
+                "total_nbytes": rank_nbytes,
+                "modules": list(modules.values()),
+            }
+        )
+        total_numel += rank_numel
+        total_nbytes += rank_nbytes
+        total_parameters += rank_parameters
+
+    report = {
+        "format_version": 1,
+        "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "num_tp_ranks": len(ranks),
+        "num_parameters": total_parameters,
+        "total_numel": total_numel,
+        "total_nbytes": total_nbytes,
+        "tp_ranks": ranks,
+    }
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    print(f"Saved model weight info to {output_path}")
+
+
 class TestModel:
     model: infinicore.nn.Module
     input_ids_list: list[int]
@@ -247,6 +385,12 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         if not skip_load:
             load_model_state_dict_by_file(model, model_path, dtype=model.dtype)
+        else:
+            print(" ================> skip load weights ......")
+
+        # TODO: 添加一个函数，将model中的所有模块的权重的信息保存到文件中。
+        # save_model_weight_info(model, os.path.join("outputs", "model_weight_info.json"))
+
 
         # ---------------------------------------------------------------------------- #
         #                        创建 tokenizer
@@ -281,6 +425,7 @@ class TestModel:
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
+        #self.input_ids_list = [[ 201,      0, 128803,  30594,    303,   2788,    642,  34543,   6657, 36005,    320, 128804]]
 
     def run(
         self,
@@ -357,6 +502,18 @@ class TestModel:
         numpy_output_ids = np.array(
             [output_id.to_numpy()[0] for output_id in output_ids]
         )
+        dump_path = os.getenv("INFINILM_DECODE_OUTPUT_IDS_PATH")
+        if dump_path:
+            with open(dump_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "shape": list(numpy_output_ids.shape),
+                        "output_ids": numpy_output_ids.tolist(),
+                    },
+                    f,
+                    ensure_ascii=False,
+                )
+            print(f"dumped output ids to {dump_path}: {numpy_output_ids.tolist()}")
         if not skip_load:
             print(self.tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
 
