@@ -80,6 +80,8 @@ void PagedCompiler::compile() {
             auto input = make_decode_input(b);
 
             barrier_->wait();
+            (void)model_->forward(input);
+            infinicore::context::syncStream();
             // Capture must not start with stale Marlin locks from previous
             // warmup/capture attempts. This reset is intentionally outside
             // graph capture; the current implementation still pays a memset

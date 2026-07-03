@@ -36,7 +36,9 @@ class JiugeGPTQMetaFromConfig(JiugeGPTQMetaCStruct):
 
         # GPTQ 没有 scale 字段
 
-        has_qkv_bias = 1 if ("attention_bias" in config and config["attention_bias"]) else 0
+        has_qkv_bias = (
+            1 if ("attention_bias" in config and config["attention_bias"]) else 0
+        )
         if config["model_type"] in ["qwen2", "qwen3"]:
             has_qkv_bias = 1
         eos_token_id = (
@@ -177,7 +179,11 @@ class JiugeGPTQForCausalLM:
                     # still consumes g_idx, so we convert the dummy to identity
                     # to keep dequant correct.
                     tensor_ptr = tensor.data_ptr()
-                    if key.endswith(".g_idx") and tensor.dtype == torch.int32 and tensor.numel() > 1:
+                    if (
+                        key.endswith(".g_idx")
+                        and tensor.dtype == torch.int32
+                        and tensor.numel() > 1
+                    ):
                         try:
                             if int(tensor.max().item()) == 0:
                                 if not hasattr(self, "_gidx_fix_buffers"):
@@ -188,16 +194,16 @@ class JiugeGPTQForCausalLM:
                         except Exception:
                             pass
 
-                    self.jiuge_gptq_model.load_weight(
-                        self.weights, key, tensor_ptr
-                    )
+                    self.jiuge_gptq_model.load_weight(self.weights, key, tensor_ptr)
         if not lm_head_loaded and embed_tokens_tensor is not None:
             print("lm_head.weight missing, tying to embed_tokens.weight")
             self.jiuge_gptq_model.load_weight(
                 self.weights, "lm_head.weight", embed_tokens_tensor.data_ptr()
             )
         elif not lm_head_loaded:
-            raise RuntimeError("lm_head.weight missing and embed_tokens.weight not found")
+            raise RuntimeError(
+                "lm_head.weight missing and embed_tokens.weight not found"
+            )
 
     def max_context_len(self):
         return self.meta.dctx

@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
 from infinilm.config import KVTransferConfig
+from infinilm.moe_config import configure_moe_ep_backend
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,8 @@ class InferenceServer:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        moe_ep_backend: str = "disabled",
+        moe_ep_size: int = 1,
         cache_type: str = "paged",
         max_tokens: int = 4096,
         max_batch_size: int = 16,
@@ -122,6 +125,8 @@ class InferenceServer:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            moe_ep_backend: MoE expert-parallel backend.
+            moe_ep_size: MoE expert-parallel size.
             cache_type: Cache type ('paged' or 'static').
             max_tokens: Default maximum tokens to generate.
             max_batch_size: Maximum batch size for inference (only for paged cache).
@@ -146,6 +151,8 @@ class InferenceServer:
         self.device = device
         self.dtype = dtype
         self.tensor_parallel_size = tensor_parallel_size
+        self.moe_ep_backend = moe_ep_backend
+        self.moe_ep_size = moe_ep_size
         self.cache_type = cache_type
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
@@ -183,6 +190,8 @@ class InferenceServer:
                 device=self.device,
                 dtype=self.dtype,
                 tensor_parallel_size=self.tensor_parallel_size,
+                moe_ep_backend=self.moe_ep_backend,
+                moe_ep_size=self.moe_ep_size,
                 cache_type=self.cache_type,
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
@@ -580,11 +589,24 @@ def main():
     if cfg.kv_transfer_config:
         kv_transfer_config = parse_kv_transfer_config(cfg.kv_transfer_config)
 
+    moe_ep_backend, ep = configure_moe_ep_backend(
+        cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
+    )
+    logger.info(
+        "MoE EP backend: %s  TP=%s  DP=%s  EP=%s",
+        moe_ep_backend,
+        cfg.tp,
+        cfg.dp,
+        ep,
+    )
+
     server = InferenceServer(
         model_path=cfg.model,
         device=device,
         dtype=cfg.dtype,
         tensor_parallel_size=cfg.tp,
+        moe_ep_backend=moe_ep_backend,
+        moe_ep_size=ep,
         cache_type="paged" if cfg.enable_paged_attn else "static",
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,

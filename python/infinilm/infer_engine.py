@@ -17,13 +17,14 @@ _MODEL_DEFAULTS = {
     "mistral": {"torch_dtype": "bfloat16"},
 }
 
+
 def _apply_torch_dtype_defaults(config: dict) -> dict:
     if config.get("torch_dtype") is None:
-        config["torch_dtype"] = (
-            config.get("dtype") or
-            _MODEL_DEFAULTS.get(config.get("model_type"), {}).get("torch_dtype")
-        )
+        config["torch_dtype"] = config.get("dtype") or _MODEL_DEFAULTS.get(
+            config.get("model_type"), {}
+        ).get("torch_dtype")
     return config
+
 
 def _normalize_videonsa_config(config_dict):
     model_type = config_dict.get("model_type")
@@ -48,6 +49,7 @@ def _normalize_videonsa_config(config_dict):
 
     return config_dict
 
+
 def read_hf_config(model_path):
     config_path = os.path.join(model_path, "config.json")
     with open(config_path, "r") as f:
@@ -62,6 +64,7 @@ def read_hf_config(model_path):
     config_dict = _normalize_videonsa_config(config_dict)
 
     return config_dict
+
 
 # config.json (required) defines model architecture, while generation_config.json
 # (optional) defines generation behavior. They are kept as separate readers
@@ -94,19 +97,33 @@ class InferEngine(_infinilm.InferEngine):
         self,
         model_path,
         device=None,
-        distributed_config=DistConfig(1),
+        distributed_config=None,
         cache_config=None,
         enable_graph_compiling=False,
         attention_backend="default",
         kv_cache_dtype=None,
         use_mla=False,
         weight_load_mode="async",
+        moe_ep_backend="disabled",
+        moe_ep_size=1,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
 
         if device is None:
             device = infinicore.device()
+        if distributed_config is None:
+            distributed_config = DistConfig(1)
+        if (
+            moe_ep_backend != "disabled"
+            or moe_ep_size != 1
+            or (
+                distributed_config.moe_ep_backend == "disabled"
+                and distributed_config.moe_ep_size == 1
+            )
+        ):
+            distributed_config.moe_ep_backend = moe_ep_backend
+            distributed_config.moe_ep_size = moe_ep_size
 
         hf_config_str = json.dumps(self.hf_config)
         super().__init__(
@@ -419,8 +436,11 @@ class InferEngine(_infinilm.InferEngine):
         return list(super().state_dict_keyname())
 
     def load_state_dict(self, state_dict, strict=None):
+        # MoE/quantized paths may register internal packed tensors that are not
+        # present in the HF checkpoint, so callers can request non-strict loads.
         super().load_params(
-            {name: param._underlying for name, param in state_dict.items()}
+            {name: param._underlying for name, param in state_dict.items()},
+            strict=True if strict is None else strict,
         )
 
     def process_weights_after_loading(self):

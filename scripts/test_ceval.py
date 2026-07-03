@@ -15,6 +15,7 @@ from libinfinicore_infer import (
 # Import missing classes
 from jiuge import KVCache, InferTask
 
+
 class JiugeForCeval(JiugeForCauslLM):
     def __init__(
         self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
@@ -181,6 +182,7 @@ def test():
     # 计算正确率
     # -----------------------------
     import re
+
     true_num = 0
     all_num = 0
     for cont in answers_list:

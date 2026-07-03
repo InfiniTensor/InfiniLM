@@ -542,7 +542,6 @@ def main():
                 sys.exit(1)
             i += 1
 
-
     if not os.path.exists(model_dir):
         print(f"Error: Model directory not found: {model_dir}")
         print(f"\nUsage: {sys.argv[0]} [model_dir] [--prompt PROMPT] [--device DEVICE]")
@@ -558,9 +557,7 @@ def main():
         print(f"  {sys.argv[0]} dir/to/model")
         print(f'  {sys.argv[0]} dir/to/model --prompt "What is AI?"')
         print(f"  {sys.argv[0]} dir/to/model --device cuda:0")
-        print(
-            f'  {sys.argv[0]} dir/to/model --prompt "What is AI?" --device cuda:0'
-        )
+        print(f'  {sys.argv[0]} dir/to/model --prompt "What is AI?" --device cuda:0')
         sys.exit(1)
 
     try:

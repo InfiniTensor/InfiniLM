@@ -1,8 +1,9 @@
 #include "moe_mlp.hpp"
-#include "../../global_state/global_state.hpp"
+
+#include "../../../global_state/global_state.hpp"
 #include "infinicore/ops.hpp"
 
-namespace infinilm::layers::moe_mlp {
+namespace infinilm::layers::moe::legacy {
 
 MoeMLP::MoeMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const infinicore::Device &device) {
@@ -36,4 +37,5 @@ infinicore::Tensor MoeMLP::forward(const infinicore::Tensor &hidden_states) cons
     auto output = down_proj_->forward(intermediate);
     return output;
 }
-} // namespace infinilm::layers::moe_mlp
+
+} // namespace infinilm::layers::moe::legacy

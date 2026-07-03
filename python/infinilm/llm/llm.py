@@ -290,6 +290,8 @@ class LLM:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        moe_ep_backend: str = "disabled",
+        moe_ep_size: int = 1,
         cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 4096,
@@ -331,6 +333,8 @@ class LLM:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            moe_ep_backend=moe_ep_backend,
+            moe_ep_size=moe_ep_size,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
@@ -487,6 +491,8 @@ class AsyncLLMEngine:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        moe_ep_backend: str = "disabled",
+        moe_ep_size: int = 1,
         cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 512,
@@ -531,6 +537,8 @@ class AsyncLLMEngine:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            moe_ep_backend=moe_ep_backend,
+            moe_ep_size=moe_ep_size,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
@@ -721,13 +729,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert (
-                messages is not None
-            ), "Either messages or prompt/prompt_token_ids must be provided"
+            assert messages is not None, (
+                "Either messages or prompt/prompt_token_ids must be provided"
+            )
 
-            assert (
-                apply_chat_template
-            ), "apply_chat_template needs to be true for multi-role conversation"
+            assert apply_chat_template, (
+                "apply_chat_template needs to be true for multi-role conversation"
+            )
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt
