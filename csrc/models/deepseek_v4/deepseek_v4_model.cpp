@@ -85,7 +85,10 @@ infinicore::Tensor DeepseekV4Model::forward(const infinicore::Tensor &input_ids,
 
     hidden_states = mhc_head_pre(hidden_states, hc_head_base_, hc_head_fn_, hc_head_scale_,
                                  hc_mult_, hidden_size_, hc_eps_);
-    return norm_->forward(hidden_states);
+    debug_trace_tensor("20_model_hc_head", hidden_states);
+    auto final_hidden = norm_->forward(hidden_states);
+    debug_trace_tensor("21_model_final_norm", final_hidden);
+    return final_hidden;
 }
 
 } // namespace infinilm::models::deepseek_v4

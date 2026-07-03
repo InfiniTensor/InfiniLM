@@ -49,16 +49,22 @@ DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
 
     auto attn_input = mhc_pre(hidden_states, attn_mhc);
     attn_input = attn_norm_->forward(attn_input);
+    debug_trace_layer_tensor("10_layer_attn_input", layer_idx_, attn_input);
     auto attn_output = attn_->forward(positions, attn_input);
+    debug_trace_layer_tensor("11a_layer_raw_attn_output", layer_idx_, attn_output);
     auto x = mhc_post(attn_output, hidden_states, attn_mhc);
+    debug_trace_layer_tensor("11_layer_attn_output", layer_idx_, x);
 
     const auto ffn_mhc = build_mhc_params(x, hc_ffn_base_, hc_ffn_fn_, hc_ffn_scale_,
                                           hc_mult_, hidden_size_, hc_sinkhorn_iters_, hc_eps_);
 
     auto ffn_input = mhc_pre(x, ffn_mhc);
     ffn_input = ffn_norm_->forward(ffn_input);
+    debug_trace_layer_tensor("12_layer_mlp_input", layer_idx_, ffn_input);
     auto ffn_output = ffn_->forward(ffn_input, input_ids);
+    debug_trace_layer_tensor("13a_layer_raw_mlp_output", layer_idx_, ffn_output);
     x = mhc_post(ffn_output, x, ffn_mhc);
+    debug_trace_layer_tensor("13_layer_mlp_output", layer_idx_, x);
 
     return {x, x, post_mix, res_mix};
 }

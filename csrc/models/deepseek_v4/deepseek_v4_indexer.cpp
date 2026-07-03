@@ -60,7 +60,7 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
 
     for (size_t b = 0; b < batch_size; ++b) {
         for (size_t t = 0; t < seq_len; ++t) {
-            const int64_t causal_threshold = positions[t] / static_cast<int64_t>(compress_ratio_);
+            const int64_t causal_threshold = (positions[t] + 1) / static_cast<int64_t>(compress_ratio_);
             std::vector<std::pair<float, int64_t>> ranked;
             ranked.reserve(num_blocks);
             for (size_t block = 0; block < num_blocks; ++block) {

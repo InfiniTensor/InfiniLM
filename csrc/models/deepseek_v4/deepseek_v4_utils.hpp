@@ -12,7 +12,9 @@ namespace infinilm::models::deepseek_v4 {
 std::vector<float> tensor_to_float_vector(const infinicore::Tensor &tensor);
 std::vector<int64_t> tensor_to_int64_vector(const infinicore::Tensor &tensor);
 bool debug_trace_enabled();
+bool debug_trace_layer_enabled(size_t layer_idx);
 void debug_trace_tensor(const std::string &name, const infinicore::Tensor &tensor);
+void debug_trace_layer_tensor(const std::string &name, size_t layer_idx, const infinicore::Tensor &tensor);
 infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
                                           const infinicore::Shape &shape,
                                           infinicore::DataType dtype,

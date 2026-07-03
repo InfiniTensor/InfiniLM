@@ -1,5 +1,7 @@
 #include "compressed_tensors.hpp"
 #include "infinicore/ops/linear_w8a8i8.hpp"
+#include "infinicore/ops/mul.hpp"
+#include <algorithm>
 #include <optional>
 
 namespace infinilm::quantization {
@@ -29,7 +31,7 @@ infinicore::Tensor CompressedTensors::forward(
     const ParamsMap &params,
     const infinicore::Tensor &input,
     bool has_bias,
-    float /*alpha*/) const {
+    float alpha) const {
 
     auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
     auto weight = params.at("weight");
@@ -40,7 +42,16 @@ infinicore::Tensor CompressedTensors::forward(
         bias_opt = params.at("bias");
     }
 
-    return infinicore::op::linear_w8a8i8(input_contiguous->contiguous(), weight, weight_scale, bias_opt);
+    auto effective_weight_scale = weight_scale;
+    if (alpha != 1.0f) {
+        auto alpha_cpu = infinicore::Tensor::empty(weight_scale->shape(), infinicore::DataType::F32, infinicore::Device::cpu());
+        auto *alpha_ptr = reinterpret_cast<float *>(alpha_cpu->data());
+        std::fill(alpha_ptr, alpha_ptr + alpha_cpu->numel(), alpha);
+        auto alpha_tensor = alpha_cpu->to(weight_scale->device());
+        effective_weight_scale = infinicore::op::mul(weight_scale, alpha_tensor);
+    }
+
+    return infinicore::op::linear_w8a8i8(input_contiguous->contiguous(), weight, effective_weight_scale, bias_opt);
 }
 
 std::vector<SplitParam> CompressedTensors::split_params(

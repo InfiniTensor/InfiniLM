@@ -121,6 +121,28 @@ bool debug_trace_enabled() {
     return value != nullptr && value[0] != '\0' && std::string(value) != "0";
 }
 
+bool debug_trace_layer_enabled(size_t layer_idx) {
+    if (!debug_trace_enabled()) {
+        return false;
+    }
+    const char *value = std::getenv("DEEPSEEK_V4_DEBUG_LAYER");
+    if (value == nullptr || value[0] == '\0') {
+        return true;
+    }
+    try {
+        return std::stoll(value) == static_cast<long long>(layer_idx);
+    } catch (...) {
+        return false;
+    }
+}
+
+void debug_trace_layer_tensor(const std::string &name, size_t layer_idx, const infinicore::Tensor &tensor) {
+    if (!debug_trace_layer_enabled(layer_idx)) {
+        return;
+    }
+    debug_trace_tensor(name + ".layer" + std::to_string(layer_idx), tensor);
+}
+
 void debug_trace_tensor(const std::string &name, const infinicore::Tensor &tensor) {
     if (!debug_trace_enabled()) {
         return;

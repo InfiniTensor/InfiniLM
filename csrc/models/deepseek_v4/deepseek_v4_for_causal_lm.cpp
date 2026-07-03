@@ -49,6 +49,7 @@ infinilm::InfinilmModel::Output DeepseekV4ForCausalLM::forward(const infinilm::I
 
     auto hidden_states = model_->forward(input_ids, positions);
     auto logits = head_->forward(hidden_states);
+    debug_trace_tensor("22_lm_head_logits", logits);
     if (recompute_decode) {
         const size_t total_seq_len = logits->shape()[1];
         logits = logits->narrow({{1, total_seq_len - current_seq_len, current_seq_len}})->contiguous();

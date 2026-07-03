@@ -242,14 +242,19 @@ infinicore::Tensor DeepseekV4Attention::forward_static_(const infinicore::Tensor
 
     auto q_residual = wq_a_->forward(hidden_states_mutable);
     q_residual = q_norm_->forward(q_residual);
+    debug_trace_layer_tensor("02_attn_q_norm", layer_idx_, q_residual);
     auto q = wq_b_->forward(q_residual)->view({batch_size, seq_len, num_attention_heads_, head_dim_});
+    debug_trace_layer_tensor("03_attn_wq_b_lightop_w8a8", layer_idx_, q);
 
     auto kv = wkv_->forward(hidden_states_mutable);
+    debug_trace_layer_tensor("05_attn_kv_proj", layer_idx_, kv);
     kv = kv_norm_->forward(kv);
+    debug_trace_layer_tensor("05b_attn_kv_norm", layer_idx_, kv);
     auto key_states = kv->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
     auto value_states = key_states;
 
     auto attn_output = dense_attention_reference_(positions, q, key_states, hidden_states_mutable, q_residual);
+    debug_trace_layer_tensor("06_attn_backend_forward", layer_idx_, attn_output);
     return apply_grouped_output_projection_(attn_output);
 }
 
@@ -263,14 +268,20 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
 
     auto q_residual = wq_a_->forward(hidden_states_mutable);
     q_residual = q_norm_->forward(q_residual);
+    debug_trace_layer_tensor("02_attn_q_norm", layer_idx_, q_residual);
     auto q = wq_b_->forward(q_residual)->view({1, seq_len, num_attention_heads_, head_dim_});
+    debug_trace_layer_tensor("03_attn_wq_b_lightop_w8a8", layer_idx_, q);
 
     auto kv = wkv_->forward(hidden_states_mutable);
-    kv = kv_norm_->forward(kv)->view({1, seq_len, num_key_value_heads_, head_dim_});
+    debug_trace_layer_tensor("05_attn_kv_proj", layer_idx_, kv);
+    kv = kv_norm_->forward(kv);
+    debug_trace_layer_tensor("05b_attn_kv_norm", layer_idx_, kv);
+    kv = kv->view({1, seq_len, num_key_value_heads_, head_dim_});
     auto key_states = kv;
     auto value_states = kv;
 
     auto attn_output = dense_attention_reference_(positions, q, key_states, hidden_states_mutable, q_residual);
+    debug_trace_layer_tensor("06_attn_backend_forward", layer_idx_, attn_output);
     return apply_grouped_output_projection_(attn_output);
 }
 
@@ -286,7 +297,11 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
     const size_t head_dim = shape[3];
     const size_t window = sliding_window_ == 0 ? seq_len : sliding_window_;
     auto pos = normalize_positions(positions, seq_len);
-    const double active_rope_theta = compress_ratio_ > 1 ? compress_rope_theta_ : rope_theta_;
+    const bool use_compress_rope = compress_ratio_ > 1;
+    const double active_rope_theta = use_compress_rope ? compress_rope_theta_ : rope_theta_;
+    const double active_rope_scaling_factor = use_compress_rope ? rope_scaling_factor_ : 1.0;
+    const size_t active_rope_original_max_position_embeddings =
+        use_compress_rope ? rope_original_max_position_embeddings_ : 0;
     auto q = tensor_to_float_vector(query_states->contiguous());
     for (size_t b = 0; b < batch_size; ++b) {
         for (size_t t = 0; t < seq_len; ++t) {
@@ -301,8 +316,8 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
                     q[q_offset + d] *= rsqrt;
                 }
                 apply_deepseek_v4_rope_inplace(q, q_offset, head_dim, qk_rope_head_dim_, pos[t],
-                                                active_rope_theta, rope_scaling_factor_,
-                                                rope_original_max_position_embeddings_, rope_beta_fast_,
+                                                active_rope_theta, active_rope_scaling_factor,
+                                                active_rope_original_max_position_embeddings, rope_beta_fast_,
                                                 rope_beta_slow_, rope_extrapolation_factor_, false);
             }
         }
@@ -315,8 +330,8 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
             for (size_t h = 0; h < num_kv_heads; ++h) {
                 const size_t kv_offset = ((b * seq_len + t) * num_kv_heads + h) * head_dim;
                 apply_deepseek_v4_rope_inplace(kv, kv_offset, head_dim, qk_rope_head_dim_, pos[t],
-                                                active_rope_theta, rope_scaling_factor_,
-                                                rope_original_max_position_embeddings_, rope_beta_fast_,
+                                                active_rope_theta, active_rope_scaling_factor,
+                                                active_rope_original_max_position_embeddings, rope_beta_fast_,
                                                 rope_beta_slow_, rope_extrapolation_factor_, false);
             }
         }
@@ -341,8 +356,8 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
                                     * static_cast<int64_t>(compress_ratio_);
             const size_t kv_offset = (b * nb + block) * head_dim;
             apply_deepseek_v4_rope_inplace(kv_comp, kv_offset, head_dim, qk_rope_head_dim_, block_pos,
-                                            active_rope_theta, rope_scaling_factor_,
-                                            rope_original_max_position_embeddings_, rope_beta_fast_,
+                                            active_rope_theta, active_rope_scaling_factor,
+                                            active_rope_original_max_position_embeddings, rope_beta_fast_,
                                             rope_beta_slow_, rope_extrapolation_factor_, false);
         }
     }
@@ -355,7 +370,7 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
                 const size_t q_offset = ((b * seq_len + t) * num_heads + h) * head_dim;
                 float max_logit = sink[h];
                 for (size_t block = 0; block < nb; ++block) {
-                    bool valid = static_cast<int64_t>(block) < (pos[t] / static_cast<int64_t>(compress_ratio_));
+                    bool valid = static_cast<int64_t>(block) < ((pos[t] + 1) / static_cast<int64_t>(compress_ratio_));
                     if (valid && !indexed_blocks.empty()) {
                         valid = false;
                         const size_t index_offset = (b * seq_len + t) * index_top_k;
@@ -420,8 +435,8 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
                     }
                 }
                 apply_deepseek_v4_rope_inplace(out, out_offset, head_dim, qk_rope_head_dim_, pos[t],
-                                                active_rope_theta, rope_scaling_factor_,
-                                                rope_original_max_position_embeddings_, rope_beta_fast_,
+                                                active_rope_theta, active_rope_scaling_factor,
+                                                active_rope_original_max_position_embeddings, rope_beta_fast_,
                                                 rope_beta_slow_, rope_extrapolation_factor_, true);
             }
         }
@@ -476,7 +491,10 @@ infinicore::Tensor DeepseekV4Attention::apply_grouped_output_projection_(const i
     }
 
     auto projected = infinicore::op::cat(projected_groups, 2);
-    return wo_b_->forward(projected);
+    debug_trace_layer_tensor("08_attn_wo_a_einsum", layer_idx_, projected);
+    auto final = wo_b_->forward(projected);
+    debug_trace_layer_tensor("09_attn_wo_b_lightop_w8a8", layer_idx_, final);
+    return final;
 }
 
 } // namespace infinilm::models::deepseek_v4
