@@ -4,7 +4,7 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/matmul.hpp"
-#include "infinicore/ops/rms_norm.hpp"
+#include "infinicore/ops/unweighted_rms_norm.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -199,28 +199,6 @@ infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
         infinicore::context::syncStream();
     }
     return out;
-}
-
-infinicore::Tensor unweighted_rms_norm(const infinicore::Tensor &x, double eps) {
-    const auto shape = x->shape();
-    if (shape.empty()) {
-        throw std::runtime_error("DeepseekV4: unweighted_rms_norm expects non-scalar tensor");
-    }
-    const size_t last_dim = shape.back();
-    auto values = tensor_to_float_vector(x->contiguous());
-    const size_t num_groups = values.size() / last_dim;
-    for (size_t group = 0; group < num_groups; ++group) {
-        const size_t offset = group * last_dim;
-        double mean_square = 0.0;
-        for (size_t d = 0; d < last_dim; ++d) {
-            mean_square += static_cast<double>(values[offset + d]) * values[offset + d];
-        }
-        const float rsqrt = static_cast<float>(1.0 / std::sqrt(mean_square / static_cast<double>(last_dim) + eps));
-        for (size_t d = 0; d < last_dim; ++d) {
-            values[offset + d] *= rsqrt;
-        }
-    }
-    return float_vector_to_tensor(values, shape, x->dtype(), x->device());
 }
 
 std::vector<int64_t> normalize_positions(const infinicore::Tensor &positions, size_t seq_len) {
@@ -492,10 +470,6 @@ void ensure_mhc_gpu_cache(DeepseekV4MHCCoeffs &cache,
         cache.fn, {cache.mix_hc, cache.flat_dim}, matmul_dtype, device);
     cache.gpu.fn_mat_right = fn_tensor->permute({1, 0})->contiguous()->view({1, cache.flat_dim, cache.mix_hc});
 
-    std::vector<float> ones(cache.flat_dim, 1.0f);
-    cache.gpu.rms_norm_weight = float_vector_to_tensor(
-        ones, {cache.flat_dim}, infinicore::DataType::F32, device);
-
     cache.gpu.device = device;
     cache.gpu.matmul_dtype = matmul_dtype;
     cache.gpu.mix_hc = cache.mix_hc;
@@ -587,8 +561,7 @@ std::vector<float> compute_mhc_mixes(const infinicore::Tensor &x,
 
         ensure_mhc_gpu_cache(coeffs, x->device(), x->dtype());
         auto flat = x->view({batch_size, seq_len, flat_dim})->contiguous();
-        flat = infinicore::op::rms_norm(
-            flat, coeffs.gpu.rms_norm_weight, static_cast<float>(eps));
+        flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
 
         // op::linear is inaccurate for large in_features; matmul dtypes must match (both bf16).
         auto flat_tokens = flat->view({token_count, 1, flat_dim});

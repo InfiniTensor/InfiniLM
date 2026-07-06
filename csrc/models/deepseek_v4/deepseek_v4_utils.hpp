@@ -23,8 +23,6 @@ infinicore::Tensor int64_vector_to_tensor(const std::vector<int64_t> &values,
                                           const infinicore::Shape &shape,
                                           const infinicore::Device &device);
 
-// DeepseekV4UnweightedRMSNorm: x * rsqrt(mean(x^2, dim=-1) + eps), no learnable weight.
-infinicore::Tensor unweighted_rms_norm(const infinicore::Tensor &x, double eps);
 
 std::vector<int64_t> normalize_positions(const infinicore::Tensor &positions, size_t seq_len);
 
@@ -62,10 +60,9 @@ struct DeepseekV4MHCParams {
     size_t hc_mult{0};
 };
 
-// GPU-resident static mHC tensors reused across forwards (fn^T for matmul, rms weight).
+// GPU-resident static mHC tensors reused across forwards (fn^T for matmul).
 struct DeepseekV4MHCGpuCache {
     infinicore::Tensor fn_mat_right;
-    infinicore::Tensor rms_norm_weight;
     infinicore::Device device;
     infinicore::DataType matmul_dtype{infinicore::DataType::F32};
     size_t mix_hc{0};
