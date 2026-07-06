@@ -5,14 +5,12 @@
 #include "deepseek_v4_utils.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/deepseek_v4_router.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
 #include "infinicore/ops/linear.hpp"
 
 #include "spdlog/spdlog.h"
-#include <algorithm>
-#include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -20,10 +18,6 @@
 
 namespace infinilm::models::deepseek_v4 {
 namespace {
-
-float sqrtsoftplus(float logit) {
-    return std::sqrt(std::log1p(std::exp(-std::abs(logit))) + std::max(logit, 0.0f));
-}
 
 bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
     switch (device_type) {
@@ -39,129 +33,7 @@ bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
     }
 }
 
-void apply_sqrtsoftplus_scores(std::vector<float> &scores,
-                               const std::vector<float> &logits,
-                               size_t ntoken,
-                               size_t num_experts) {
-    scores.resize(logits.size());
-    for (size_t token = 0; token < ntoken; ++token) {
-        const size_t offset = token * num_experts;
-        for (size_t i = 0; i < num_experts; ++i) {
-            scores[offset + i] = sqrtsoftplus(logits[offset + i]);
-        }
-    }
-}
 
-void select_topk_experts(size_t ntoken,
-                         size_t num_experts,
-                         size_t num_experts_per_tok,
-                         const std::vector<float> &scores,
-                         const std::vector<float> &bias,
-                         std::vector<int64_t> &selected) {
-    selected.assign(ntoken * num_experts_per_tok, 0);
-
-    for (size_t token = 0; token < ntoken; ++token) {
-        const size_t score_offset = token * num_experts;
-        const size_t route_offset = token * num_experts_per_tok;
-
-        std::vector<std::pair<float, int64_t>> ranked;
-        ranked.reserve(num_experts);
-        for (size_t expert = 0; expert < num_experts; ++expert) {
-            const float biased = scores[score_offset + expert] + (bias.empty() ? 0.0f : bias[expert]);
-            ranked.emplace_back(biased, static_cast<int64_t>(expert));
-        }
-        std::partial_sort(ranked.begin(),
-                          ranked.begin() + static_cast<std::ptrdiff_t>(num_experts_per_tok),
-                          ranked.end(),
-                          [](const auto &a, const auto &b) {
-                              if (a.first == b.first) {
-                                  return a.second < b.second;
-                              }
-                              return a.first > b.first;
-                          });
-        for (size_t k = 0; k < num_experts_per_tok; ++k) {
-            selected[route_offset + k] = ranked[k].second;
-        }
-    }
-}
-
-void select_hash_experts(size_t ntoken,
-                         size_t num_experts_per_tok,
-                         const std::vector<int64_t> &token_ids,
-                         const std::vector<int64_t> &tid2eid,
-                         std::vector<int64_t> &selected) {
-    selected.assign(ntoken * num_experts_per_tok, 0);
-
-    for (size_t token = 0; token < ntoken; ++token) {
-        const int64_t token_id = token_ids[token];
-        const size_t route_offset = token * num_experts_per_tok;
-        if (token_id < 0
-            || static_cast<size_t>(token_id) * num_experts_per_tok + num_experts_per_tok > tid2eid.size()) {
-            throw std::runtime_error("DeepseekV4HashRouter: token id out of tid2eid range");
-        }
-        for (size_t k = 0; k < num_experts_per_tok; ++k) {
-            selected[route_offset + k] = tid2eid[static_cast<size_t>(token_id) * num_experts_per_tok + k];
-        }
-    }
-}
-
-void weights_from_selected(size_t ntoken,
-                           size_t num_experts,
-                           size_t num_experts_per_tok,
-                           bool norm_topk_prob,
-                           const std::vector<float> &scores,
-                           const std::vector<int64_t> &selected,
-                           std::vector<float> &weights) {
-    weights.assign(ntoken * num_experts_per_tok, 0.0f);
-
-    for (size_t token = 0; token < ntoken; ++token) {
-        const size_t score_offset = token * num_experts;
-        const size_t route_offset = token * num_experts_per_tok;
-        float denom = 0.0f;
-        for (size_t k = 0; k < num_experts_per_tok; ++k) {
-            const int64_t expert = selected[route_offset + k];
-            if (expert < 0 || static_cast<size_t>(expert) >= num_experts) {
-                throw std::runtime_error("DeepseekV4MoE router: selected expert id out of range");
-            }
-            weights[route_offset + k] = scores[score_offset + static_cast<size_t>(expert)];
-            denom += weights[route_offset + k];
-        }
-        if (norm_topk_prob) {
-            denom += 1e-9f;
-            for (size_t k = 0; k < num_experts_per_tok; ++k) {
-                weights[route_offset + k] /= denom;
-            }
-        }
-    }
-}
-
-infinicore::Tensor int32_vector_to_tensor(const std::vector<int64_t> &values,
-                                          const infinicore::Shape &shape,
-                                          const infinicore::Device &device) {
-    size_t numel = 1;
-    for (auto dim : shape) {
-        numel *= dim;
-    }
-    if (values.size() != numel) {
-        throw std::runtime_error("DeepseekV4MoE: int32_vector_to_tensor shape mismatch");
-    }
-    auto cpu = infinicore::Tensor::empty(shape, infinicore::DataType::I32, infinicore::Device::cpu());
-    auto *out = reinterpret_cast<int32_t *>(cpu->data());
-    for (size_t i = 0; i < values.size(); ++i) {
-        out[i] = static_cast<int32_t>(values[i]);
-    }
-    auto tensor = cpu->to(device);
-    if (device.getType() != infinicore::Device::Type::CPU) {
-        infinicore::context::syncStream();
-    }
-    return tensor;
-}
-
-void validate_router_hidden_states(const infinicore::Tensor &hidden_states, size_t hidden_size) {
-    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size) {
-        throw std::runtime_error("DeepseekV4MoE router: expected hidden_states shape [N,D]");
-    }
-}
 
 infinicore::Tensor compute_router_logits(const infinicore::Tensor &hidden_states,
                                          const infinicore::Tensor &weight) {
@@ -194,37 +66,22 @@ std::tuple<infinicore::Tensor, infinicore::Tensor>
 DeepseekV4TopKRouter::forward(const infinicore::Tensor &hidden_states,
                               const infinicore::Tensor &input_ids) const {
     (void)input_ids;
-    validate_router_hidden_states(hidden_states, hidden_size_);
-    const size_t ntoken = hidden_states->shape()[0];
-    const auto device = hidden_states->device();
 
-    auto logits = compute_router_logits(hidden_states, weight_);
-
-    auto logits_values = tensor_to_float_vector(logits);
-    if (logits_values.size() != ntoken * num_experts_) {
-        throw std::runtime_error("DeepseekV4TopKRouter: router logits shape mismatch");
+    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size) {
+        throw std::runtime_error("DeepseekV4MoE router: expected hidden_states shape [N,D]");
     }
 
-    std::vector<float> scores;
-    apply_sqrtsoftplus_scores(scores, logits_values, ntoken, num_experts_);
-
-    std::vector<float> bias;
+    infinicore::Tensor router_bias;
     if (has_bias()) {
-        bias = tensor_to_float_vector(bias_);
+        router_bias = bias_;
     }
 
-    std::vector<int64_t> selected;
-    std::vector<float> weights;
-    select_topk_experts(ntoken, num_experts_, num_experts_per_tok_, scores, bias, selected);
-    weights_from_selected(ntoken, num_experts_, num_experts_per_tok_,
-                          norm_topk_prob_, scores, selected, weights);
-    // Match SGLang: keep normalized top-k weights; do not apply routed_scaling_factor here.
-    (void)routed_scaling_;
+    auto gate_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
 
-    auto top_k_weights = float_vector_to_tensor(weights, {ntoken, num_experts_per_tok_},
-                                                infinicore::DataType::F32, device);
-    auto top_k_index = int32_vector_to_tensor(selected, {ntoken, num_experts_per_tok_}, device);
-    return {top_k_weights, top_k_index};
+    return infinicore::op::deepseek_v4_topk_router(gate_logits,
+        num_experts_per_tok_,
+        norm_topk_prob_,
+        router_bias);
 }
 
 DeepseekV4HashRouter::DeepseekV4HashRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -248,39 +105,25 @@ DeepseekV4HashRouter::DeepseekV4HashRouter(std::shared_ptr<infinilm::config::Mod
 std::tuple<infinicore::Tensor, infinicore::Tensor>
 DeepseekV4HashRouter::forward(const infinicore::Tensor &hidden_states,
                               const infinicore::Tensor &input_ids) const {
-    validate_router_hidden_states(hidden_states, hidden_size_);
+    
+    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size) {
+        throw std::runtime_error("DeepseekV4MoE router: expected hidden_states shape [N,D]");
+    }
     if (input_ids.empty()) {
         throw std::runtime_error("DeepseekV4HashRouter: hash-routed layer requires input_ids");
     }
 
-    const size_t ntoken = hidden_states->shape()[0];
-    const auto device = hidden_states->device();
-    auto logits = compute_router_logits(hidden_states, weight_);
-    auto logits_values = tensor_to_float_vector(logits);
-    if (logits_values.size() != ntoken * num_experts_) {
-        throw std::runtime_error("DeepseekV4HashRouter: router logits shape mismatch");
+    if (input_ids->device() != hidden_states->device()) {
+        throw std::runtime_error("DeepseekV4HashRouter: input_ids must be on the same device as hidden_states");
     }
 
-    std::vector<float> scores;
-    apply_sqrtsoftplus_scores(scores, logits_values, ntoken, num_experts_);
+    auto gate_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
 
-    auto token_ids = tensor_to_int64_vector(input_ids);
-    if (token_ids.size() != ntoken) {
-        throw std::runtime_error("DeepseekV4HashRouter: input_ids size mismatch");
-    }
-    auto tid2eid = tensor_to_int64_vector(tid2eid_);
-
-    std::vector<int64_t> selected;
-    std::vector<float> weights;
-    select_hash_experts(ntoken, num_experts_per_tok_, token_ids, tid2eid, selected);
-    weights_from_selected(ntoken, num_experts_, num_experts_per_tok_,
-                          norm_topk_prob_, scores, selected, weights);
-    (void)routed_scaling_;
-
-    auto top_k_weights = float_vector_to_tensor(weights, {ntoken, num_experts_per_tok_},
-                                                infinicore::DataType::F32, device);
-    auto top_k_index = int32_vector_to_tensor(selected, {ntoken, num_experts_per_tok_}, device);
-    return {top_k_weights, top_k_index};
+    return infinicore::op::deepseek_v4_hash_router(
+        gate_logits,
+        input_ids->contiguous(),
+        tid2eid_,
+        norm_topk_prob_);
 }
 
 DeepseekV4Experts::DeepseekV4Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
