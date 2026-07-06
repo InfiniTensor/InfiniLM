@@ -9,6 +9,7 @@
 #include "infinicore/ops/linear.hpp"
 #include "infinicore/ops/matmul.hpp"
 #include "infinicore/ops/softmax.hpp"
+#include "infinicore/ops/unweighted_rms_norm.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -134,7 +135,7 @@ infinicore::Tensor DeepseekV4Attention::forward_static_(const infinicore::Tensor
 
     auto q = wq_b_->forward(q_residual)->view({batch_size, seq_len, num_attention_heads_, head_dim_});
 
-    auto q_normed = unweighted_rms_norm(q->contiguous(), rms_norm_eps_);
+    auto q_normed = infinicore::op::unweighted_rms_norm(q->contiguous(), static_cast<float>(rms_norm_eps_));
     q_normed = rotary_emb_.forward(q_normed, pos);
 
     auto kv = wkv_->forward(hidden_states_mutable);
@@ -162,7 +163,7 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
 
     auto q = wq_b_->forward(q_residual)->view({1, seq_len, num_attention_heads_, head_dim_});
 
-    auto q_normed = unweighted_rms_norm(q->contiguous(), rms_norm_eps_);
+    auto q_normed = infinicore::op::unweighted_rms_norm(q->contiguous(), static_cast<float>(rms_norm_eps_));
     q_normed = rotary_emb_.forward(q_normed, pos);
 
     auto kv = kv_norm_->forward(wkv_->forward(hidden_states_mutable));
