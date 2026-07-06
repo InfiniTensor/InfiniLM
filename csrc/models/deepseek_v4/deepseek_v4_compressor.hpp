@@ -29,6 +29,8 @@ public:
     size_t coff() const { return coff_; }
 
 private:
+    void ensure_host_caches() const;
+
     INFINICORE_NN_PARAMETER(ape);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wkv);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wgate);
@@ -37,7 +39,12 @@ private:
     size_t compress_ratio_{0};
     size_t head_dim_{0};
     size_t coff_{1};
+    double rms_norm_eps_{0.0};
     bool ape_converted_{false};
+    mutable bool ape_host_cached_{false};
+    mutable bool norm_weight_host_cached_{false};
+    mutable std::vector<float> ape_host_;
+    mutable std::vector<float> norm_weight_host_;
 };
 
 } // namespace infinilm::models::deepseek_v4

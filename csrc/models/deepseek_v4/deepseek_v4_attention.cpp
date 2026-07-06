@@ -225,7 +225,8 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const 
         size_t comp_batch = 0;
         kv_comp = compressor_->forward_values(hidden_states, comp_batch, nb);
         if (nb > 0 && indexer_) {
-            indexed_blocks = indexer_->forward(hidden_states, q_residual, positions, index_top_k);
+            indexed_blocks = indexer_->forward(hidden_states, q_residual, positions, index_top_k,
+                                               query_start, query_len);
         }
     }
     rotary_emb_.forward_blocks(kv_comp, batch_size, nb, head_dim, total_len, positions);
@@ -245,7 +246,7 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const 
                     bool valid = static_cast<int64_t>(block) < ((positions[t] + 1) / static_cast<int64_t>(compress_ratio));
                     if (valid && !indexed_blocks.empty()) {
                         valid = false;
-                        const size_t index_offset = (b * total_len + t) * index_top_k;
+                        const size_t index_offset = (b * query_len + tq) * index_top_k;
                         for (size_t k = 0; k < index_top_k; ++k) {
                             if (indexed_blocks[index_offset + k] == static_cast<int64_t>(block)) {
                                 valid = true;

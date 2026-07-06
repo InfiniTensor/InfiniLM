@@ -1,5 +1,6 @@
 #include "deepseek_v4_compressor.hpp"
 
+#include "../../utils.hpp"
 #include "deepseek_v4_linear.hpp"
 #include "deepseek_v4_utils.hpp"
 
@@ -14,6 +15,44 @@ namespace {
 
 float stable_exp(float value) { return std::exp(value); }
 
+float round_to_dtype(float value, infinicore::DataType dtype) {
+    switch (dtype) {
+    case infinicore::DataType::F32:
+        return value;
+    case infinicore::DataType::F16:
+        return f16_to_f32(f32_to_f16(value));
+    case infinicore::DataType::BF16:
+        return bf16_to_f32(f32_to_bf16(value));
+    default:
+        return value;
+    }
+}
+
+void apply_rms_norm_inplace(std::vector<float> &values,
+                            const std::vector<float> &weight,
+                            size_t hidden_size,
+                            double eps,
+                            infinicore::DataType dtype) {
+    if (hidden_size == 0 || weight.size() != hidden_size) {
+        throw std::runtime_error("DeepseekV4Compressor: RMSNorm weight shape mismatch");
+    }
+    const size_t groups = values.size() / hidden_size;
+    for (size_t group = 0; group < groups; ++group) {
+        const size_t offset = group * hidden_size;
+        double mean_square = 0.0;
+        for (size_t d = 0; d < hidden_size; ++d) {
+            values[offset + d] = round_to_dtype(values[offset + d], dtype);
+            const float value = values[offset + d];
+            mean_square += static_cast<double>(value) * value;
+        }
+        const float rsqrt = static_cast<float>(
+            1.0 / std::sqrt(mean_square / static_cast<double>(hidden_size) + eps));
+        for (size_t d = 0; d < hidden_size; ++d) {
+            values[offset + d] = round_to_dtype(values[offset + d] * rsqrt * weight[d], dtype);
+        }
+    }
+}
+
 } // namespace
 
 DeepseekV4Compressor::DeepseekV4Compressor(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -22,17 +61,17 @@ DeepseekV4Compressor::DeepseekV4Compressor(std::shared_ptr<infinilm::config::Mod
                                            const infinicore::Device &device)
     : compress_ratio_(compress_ratio),
       head_dim_(head_dim),
-      coff_(compress_ratio == 4 ? 2 : 1) {
+      coff_(compress_ratio == 4 ? 2 : 1),
+      rms_norm_eps_(model_config->get<double>("rms_norm_eps")) {
     const auto &dtype = model_config->get_dtype();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
     const size_t compressed_dim = coff_ * head_dim;
 
     auto none_quantization = deepseek_v4_linear_quantization(model_config, false);
     INFINICORE_NN_PARAMETER_INIT(ape, ({compress_ratio, compressed_dim}, dtype, device));
     INFINICORE_NN_MODULE_INIT(wkv, hidden_size, compressed_dim, none_quantization, false, dtype, device);
     INFINICORE_NN_MODULE_INIT(wgate, hidden_size, compressed_dim, none_quantization, false, dtype, device);
-    INFINICORE_NN_MODULE_INIT(norm, head_dim, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(norm, head_dim, rms_norm_eps_, dtype, device);
 }
 
 void DeepseekV4Compressor::process_weights_after_loading() {
@@ -61,7 +100,20 @@ void DeepseekV4Compressor::process_weights_after_loading() {
 
     auto converted_tensor = float_vector_to_tensor(converted, ape_->shape(), ape_->dtype(), ape_->device());
     ape_->copy_from(converted_tensor);
+    ape_host_ = tensor_to_float_vector(ape_);
+    ape_host_cached_ = true;
     ape_converted_ = true;
+}
+
+void DeepseekV4Compressor::ensure_host_caches() const {
+    if (!ape_host_cached_) {
+        ape_host_ = tensor_to_float_vector(ape_);
+        ape_host_cached_ = true;
+    }
+    if (!norm_weight_host_cached_) {
+        norm_weight_host_ = tensor_to_float_vector(norm_->weight());
+        norm_weight_host_cached_ = true;
+    }
 }
 
 std::vector<float> DeepseekV4Compressor::forward_values(const infinicore::Tensor &hidden_states,
@@ -75,7 +127,8 @@ std::vector<float> DeepseekV4Compressor::forward_values(const infinicore::Tensor
     auto score_t = wgate_->forward(hidden_states_mut);
     auto kv = tensor_to_float_vector(kv_t);
     auto score = tensor_to_float_vector(score_t);
-    auto ape = tensor_to_float_vector(ape_);
+    ensure_host_caches();
+    const auto &ape = ape_host_;
     const size_t m = compress_ratio_;
     const size_t compressed_dim = coff_ * head_dim_;
     const size_t usable_len = (seq_len / m) * m;
@@ -131,9 +184,8 @@ std::vector<float> DeepseekV4Compressor::forward_values(const infinicore::Tensor
             }
         }
     }
-    auto pooled = float_vector_to_tensor(out, {batch_size, num_blocks, head_dim_},
-                                         hidden_states->dtype(), hidden_states->device());
-    return tensor_to_float_vector(norm_->forward(pooled));
+    apply_rms_norm_inplace(out, norm_weight_host_, head_dim_, rms_norm_eps_, hidden_states->dtype());
+    return out;
 }
 
 infinicore::Tensor DeepseekV4Compressor::forward(const infinicore::Tensor &hidden_states) const {
