@@ -17,10 +17,12 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
     int tp_size = rank_info.tp_size;
 
     auto quantization_method = model_config->get_quantization_method();
-    auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
-    gate_up_proj_ = std::make_shared<layers::linear::GateUpParallelLinear>(
-        hidden_size_, intermediate_size_, "gate_proj", "up_proj", register_fn,
-        quantization_method, use_bias_, dtype, device, rank_info);
+    gate_proj_ = this->register_module<layers::linear::ColumnParallelLinear>(
+        "gate_proj", hidden_size_, intermediate_size_, quantization_method,
+        use_bias_, dtype, device, tp_rank, tp_size);
+    up_proj_ = this->register_module<layers::linear::ColumnParallelLinear>(
+        "up_proj", hidden_size_, intermediate_size_, quantization_method,
+        use_bias_, dtype, device, tp_rank, tp_size);
     down_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "down_proj", intermediate_size_, hidden_size_, quantization_method,
         use_bias_, dtype, device, tp_rank, tp_size, rank_info.comm);
@@ -29,7 +31,8 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
 infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
     // 1. Project to gate and up
     auto hidden_states_mutable = hidden_states;
-    auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
+    auto gate = gate_proj_->forward(hidden_states_mutable);
+    auto up = up_proj_->forward(hidden_states_mutable);
     // 2. Apply SwiGLU: silu(gate) * up
     auto intermediate = infinicore::op::swiglu(up, gate);
     // 3. Project down

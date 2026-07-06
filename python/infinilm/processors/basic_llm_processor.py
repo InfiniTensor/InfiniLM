@@ -138,7 +138,7 @@ class BasicLLMProcessor(InfinilmProcessor):
 
         return {
             "input_ids": infinicore.from_list(input_ids, dtype=infinicore.int64),
-            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
+            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int32),
             "past_kv_lengths": infinicore.from_list(
                 [past_kv_len], dtype=infinicore.int32
             ),
@@ -248,7 +248,7 @@ class BasicLLMProcessor(InfinilmProcessor):
 
         return {
             "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
-            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
+            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int32),
             "past_kv_lengths": infinicore.from_list(
                 cached_lens, dtype=infinicore.int32
             ),

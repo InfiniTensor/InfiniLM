@@ -106,7 +106,12 @@ def load_state_dict(
             )
 
         for k in f.keys():
-            state_dict[k] = f.get_tensor(k).to(device=device)
+            tensor = f.get_tensor(k)
+            if tensor.is_floating_point():
+                tensor = tensor.to(device=device, dtype=dtype)
+            else:
+                tensor = tensor.to(device=device)
+            state_dict[k] = tensor
 
     return state_dict
 

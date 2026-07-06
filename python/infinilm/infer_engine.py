@@ -63,6 +63,18 @@ def read_hf_config(model_path):
 
     return config_dict
 
+def read_hf_config_with_dtype(model_path, dtype_override=None):
+    config_dict = read_hf_config(model_path)
+    if dtype_override is not None:
+        config_dict["torch_dtype"] = dtype_override
+        config_dict["dtype"] = dtype_override
+        if "text_config" in config_dict:
+            text_config = dict(config_dict["text_config"])
+            text_config["torch_dtype"] = dtype_override
+            text_config["dtype"] = dtype_override
+            config_dict["text_config"] = text_config
+    return config_dict
+
 # config.json (required) defines model architecture, while generation_config.json
 # (optional) defines generation behavior. They are kept as separate readers
 # because: 1) config.json must exist and requires model_type validation,
@@ -99,10 +111,11 @@ class InferEngine(_infinilm.InferEngine):
         enable_graph_compiling=False,
         attention_backend="default",
         kv_cache_dtype=None,
+        dtype=None,
         use_mla=False,
         weight_load_mode="async",
     ):
-        self.hf_config = read_hf_config(model_path)
+        self.hf_config = read_hf_config_with_dtype(model_path, dtype)
         self.hf_generation_config = read_hf_generation_config(model_path)
 
         if device is None:

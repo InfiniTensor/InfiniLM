@@ -21,11 +21,15 @@ public:
                                const infinicore::Tensor &hidden_states) const;
 
     void process_weights_after_loading() override {
-        qkv_proj_->process_weights_after_loading();
+        q_proj_->process_weights_after_loading();
+        k_proj_->process_weights_after_loading();
+        v_proj_->process_weights_after_loading();
     }
 
     void reset_runtime_state() const override {
-        qkv_proj_->reset_runtime_state();
+        q_proj_->reset_runtime_state();
+        k_proj_->reset_runtime_state();
+        v_proj_->reset_runtime_state();
     }
 
     size_t layer_idx() const { return layer_idx_; }
@@ -42,7 +46,9 @@ private:
                                       const infinicore::Tensor &hidden_states) const;
 
 protected:
-    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> q_proj_;
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> k_proj_;
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> v_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
 

@@ -484,7 +484,7 @@ class BaseConfig:
             "metax": "cuda",
             "moore": "musa",
             "iluvatar": "cuda",
-            "kunlun": "kunlun",
+            "kunlun": "cuda",
             "hygon": "cuda",
             "ali": "cuda",
         }

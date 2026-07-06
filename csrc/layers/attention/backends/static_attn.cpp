@@ -74,8 +74,14 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
                 q_reshaped);
         }
 
-        k_total = k_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
-        v_total = v_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
+        const size_t past_seq_len = reinterpret_cast<int32_t *>(past_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
+        if (past_seq_len == 0 && total_seq_len == seq_len) {
+            k_total = k_permuted->contiguous();
+            v_total = v_permuted->contiguous();
+        } else {
+            k_total = k_total->narrow({{2, 0, total_seq_len}})->contiguous(); // [bs, n_kv_head, total_seq_len, head_dim]
+            v_total = v_total->narrow({{2, 0, total_seq_len}})->contiguous(); // [bs, n_kv_head, total_seq_len, head_dim]
+        }
 
         //  Compute attention
         size_t ngroup = num_heads_ / num_kv_heads_;

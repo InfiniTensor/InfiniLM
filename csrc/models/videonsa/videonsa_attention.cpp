@@ -281,7 +281,9 @@ infinicore::Tensor VideoNSAAttention::forward(const infinicore::Tensor &position
     auto hidden_states_mutable = hidden_states;
     const size_t batch_size = hidden_states->size(0);
     const size_t seq_len = hidden_states->size(1);
-    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    auto q = q_proj_->forward(hidden_states_mutable);
+    auto k = k_proj_->forward(hidden_states_mutable);
+    auto v = v_proj_->forward(hidden_states_mutable);
 
     auto pos_shape = positions->shape();
     infinicore::Tensor pos_ids_for_rope = positions;

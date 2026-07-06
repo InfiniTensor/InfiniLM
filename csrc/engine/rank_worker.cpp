@@ -1,10 +1,68 @@
 #include "rank_worker.hpp"
 #include "../models/model_factory.hpp"
 #include "infinicore/ops.hpp"
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <limits>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace infinilm::engine {
+
+namespace {
+
+float f16_to_f32(uint16_t h) {
+    uint32_t sign = (h & 0x8000u) << 16;
+    uint32_t exp = (h & 0x7c00u) >> 10;
+    uint32_t mant = h & 0x03ffu;
+    uint32_t bits;
+
+    if (exp == 0) {
+        if (mant == 0) {
+            bits = sign;
+        } else {
+            exp = 1;
+            while ((mant & 0x0400u) == 0) {
+                mant <<= 1;
+                --exp;
+            }
+            mant &= 0x03ffu;
+            bits = sign | ((exp + 127 - 15) << 23) | (mant << 13);
+        }
+    } else if (exp == 0x1fu) {
+        bits = sign | 0x7f800000u | (mant << 13);
+    } else {
+        bits = sign | ((exp + 127 - 15) << 23) | (mant << 13);
+    }
+
+    float out;
+    std::memcpy(&out, &bits, sizeof(out));
+    return out;
+}
+
+float bf16_to_f32(uint16_t h) {
+    uint32_t bits = static_cast<uint32_t>(h) << 16;
+    float out;
+    std::memcpy(&out, &bits, sizeof(out));
+    return out;
+}
+
+float read_scalar_as_f32(const std::byte *data, infinicore::DataType dtype, size_t idx) {
+    switch (dtype) {
+    case infinicore::DataType::F32:
+        return reinterpret_cast<const float *>(data)[idx];
+    case infinicore::DataType::F16:
+        return f16_to_f32(reinterpret_cast<const uint16_t *>(data)[idx]);
+    case infinicore::DataType::BF16:
+        return bf16_to_f32(reinterpret_cast<const uint16_t *>(data)[idx]);
+    default:
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+}
+
+} // namespace
 
 RankWorker::RankWorker(
     std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -426,13 +484,75 @@ void RankWorker::thread_loop() {
                             const auto &total_len{logits_shape[1]};
                             const auto &batch_size{logits_shape[0]};
 
-                            auto n_req = local_args.input_offsets.value()->size(0) - 1;
-                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+                            auto input_offsets_cpu = local_args.input_offsets.value()->to(infinicore::Device::cpu());
+                            auto n_req = input_offsets_cpu->size(0) - 1;
+                            int32_t *input_offsets = (int32_t *)input_offsets_cpu->data();
 
-                            auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
+                            bool use_cpu_argmax = top_k == 1 && rank_info_.device.getType() == infinicore::Device::Type::KUNLUN;
+                            auto output_ids{infinicore::Tensor::empty(
+                                {n_req},
+                                infinicore::DataType::I64,
+                                use_cpu_argmax ? infinicore::Device::cpu() : rank_info_.device)};
+                            auto *output_ids_cpu = use_cpu_argmax
+                                                     ? reinterpret_cast<int64_t *>(output_ids->data())
+                                                     : nullptr;
 
                             for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
                                 auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
+                                if (use_cpu_argmax) {
+                                    auto score_cpu = score->contiguous()->to(infinicore::Device::cpu());
+                                    const auto *score_data = score_cpu->data();
+                                    float best_score = -std::numeric_limits<float>::infinity();
+                                    size_t best_token = 0;
+                                    for (size_t token_idx = 0; token_idx < vocab_size; ++token_idx) {
+                                        float token_score = read_scalar_as_f32(score_data, score_cpu->dtype(), token_idx);
+                                        if (token_score > best_score) {
+                                            best_score = token_score;
+                                            best_token = token_idx;
+                                        }
+                                    }
+
+                                    output_ids_cpu[i] = static_cast<int64_t>(best_token);
+
+                                    if (std::getenv("INFINILM_DEBUG_SAMPLE") != nullptr) {
+                                        spdlog::warn(
+                                            "sample req={} offset={} cpu_argmax token={} score={}",
+                                            i,
+                                            input_offsets[i + 1] - 1,
+                                            best_token,
+                                            best_score);
+                                    }
+                                    continue;
+                                }
+
+                                if (std::getenv("INFINILM_DEBUG_SAMPLE") != nullptr) {
+                                    auto score_cpu = score->contiguous()->to(infinicore::Device::cpu());
+                                    const auto *score_data = score_cpu->data();
+                                    std::vector<std::pair<float, size_t>> top_scores;
+                                    top_scores.reserve(vocab_size);
+                                    for (size_t token_idx = 0; token_idx < vocab_size; ++token_idx) {
+                                        top_scores.emplace_back(
+                                            read_scalar_as_f32(score_data, score_cpu->dtype(), token_idx),
+                                            token_idx);
+                                    }
+                                    size_t k = std::min<size_t>(5, top_scores.size());
+                                    std::partial_sort(
+                                        top_scores.begin(),
+                                        top_scores.begin() + k,
+                                        top_scores.end(),
+                                        [](const auto &a, const auto &b) {
+                                            return a.first > b.first;
+                                        });
+                                    for (size_t j = 0; j < k; ++j) {
+                                        spdlog::warn(
+                                            "sample req={} offset={} top{} token={} score={}",
+                                            i,
+                                            input_offsets[i + 1] - 1,
+                                            j,
+                                            top_scores[j].second,
+                                            top_scores[j].first);
+                                    }
+                                }
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(

@@ -27,11 +27,15 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
     num_key_value_heads_ = total_num_kv_heads < tp_size ? 1 : total_num_kv_heads / tp_size;
 
     auto quantization_method = model_config->get_quantization_method();
-    auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
-    qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(
-        hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
-        "q_proj", "k_proj", "v_proj", register_fn,
-        quantization_method, use_bias, dtype, device, rank_info);
+    q_proj_ = this->register_module<layers::linear::ColumnParallelLinear>(
+        "q_proj", hidden_size_, total_num_heads * head_dim_, quantization_method,
+        use_bias, dtype, device, tp_rank, tp_size);
+    k_proj_ = this->register_module<layers::linear::ColumnParallelLinear>(
+        "k_proj", hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
+        use_bias, dtype, device, tp_rank, tp_size);
+    v_proj_ = this->register_module<layers::linear::ColumnParallelLinear>(
+        "v_proj", hidden_size_, total_num_kv_heads * head_dim_, quantization_method,
+        use_bias, dtype, device, tp_rank, tp_size);
     o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
         use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
@@ -42,6 +46,7 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
     attn_ = std::make_shared<AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
                                              kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
 
+    auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
     init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
 }
 
@@ -62,7 +67,9 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     size_t seq_len = shape[1];
 
     // 1. Project Q, K, V
-    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    auto q = q_proj_->forward(hidden_states_mutable);
+    auto k = k_proj_->forward(hidden_states_mutable);
+    auto v = v_proj_->forward(hidden_states_mutable);
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
@@ -82,8 +89,7 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     }
 
     // 4. Apply RoPE to QK
-    auto q_rope = infinicore::Tensor::empty({batch_size, num_attention_heads_, seq_len, head_dim_}, q_reshaped->dtype(), q_reshaped->device())->permute({0, 2, 1, 3});
-    rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope);
+    auto q_rope = rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
 
     // 5. Attn Backend calculate
@@ -106,7 +112,9 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     ASSERT_EQ(batch_size, 1);
 
     // 1. Project Q, K, V
-    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    auto q = q_proj_->forward(hidden_states_mutable);
+    auto k = k_proj_->forward(hidden_states_mutable);
+    auto v = v_proj_->forward(hidden_states_mutable);
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
