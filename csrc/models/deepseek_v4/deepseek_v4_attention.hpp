@@ -47,6 +47,18 @@ private:
                                                     const infinicore::Tensor &key_states,
                                                     const std::vector<int64_t> &pos) const;
 
+    infinicore::Tensor dense_attention_decode_reference_(const infinicore::Tensor &query_states,
+                                                         const infinicore::Tensor &key_states,
+                                                         const infinicore::Tensor &hidden_states,
+                                                         const infinicore::Tensor &q_residual,
+                                                         const std::vector<int64_t> &positions,
+                                                         size_t query_start) const;
+
+    void reset_runtime_state() const override {
+        cached_seq_len_ = 0;
+        cached_positions_.clear();
+    }
+
     INFINICORE_NN_PARAMETER(attn_sink);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, kv_norm);
@@ -80,6 +92,12 @@ private:
     size_t sliding_window_{0};
     double rms_norm_eps_{1e-6};
     float softmax_scale_{1.0f};
+
+    mutable size_t cached_seq_len_{0};
+    mutable std::vector<int64_t> cached_positions_;
+    mutable infinicore::Tensor cached_hidden_states_;
+    mutable infinicore::Tensor cached_q_residual_;
+    mutable infinicore::Tensor cached_key_states_;
 };
 
 } // namespace infinilm::models::deepseek_v4

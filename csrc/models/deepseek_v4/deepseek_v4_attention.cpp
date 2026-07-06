@@ -170,9 +170,152 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
     auto key_states = rotary_emb_.forward(
         kv->view({1, seq_len, num_key_value_heads_, head_dim_}), pos);
 
-    auto attn_output = dense_attention_reference_(positions, q_normed, key_states, hidden_states_mutable, q_residual);
+    auto &attn_metadata = infinilm::global_state::get_forward_context().attn_metadata;
+    bool is_decode = false;
+    if (attn_metadata.past_sequence_lengths.has_value() && cached_seq_len_ > 0 && seq_len == 1) {
+        const auto past_lengths = tensor_to_int64_vector(attn_metadata.past_sequence_lengths.value());
+        is_decode = !past_lengths.empty() && past_lengths[0] > 0;
+    }
+
+    infinicore::Tensor attn_output;
+    if (is_decode) {
+        const size_t query_start = cached_seq_len_;
+        cached_hidden_states_ = infinicore::op::cat({cached_hidden_states_, hidden_states_mutable}, 1);
+        cached_q_residual_ = infinicore::op::cat({cached_q_residual_, q_residual}, 1);
+        cached_key_states_ = infinicore::op::cat({cached_key_states_, key_states}, 1);
+        cached_positions_.insert(cached_positions_.end(), pos.begin(), pos.end());
+        cached_seq_len_ = cached_positions_.size();
+        attn_output = dense_attention_decode_reference_(
+            q_normed, cached_key_states_, cached_hidden_states_, cached_q_residual_, cached_positions_, query_start);
+    } else {
+        cached_hidden_states_ = hidden_states_mutable;
+        cached_q_residual_ = q_residual;
+        cached_key_states_ = key_states;
+        cached_positions_ = pos;
+        cached_seq_len_ = seq_len;
+        attn_output = dense_attention_reference_(positions, q_normed, key_states, hidden_states_mutable, q_residual);
+    }
 
     return apply_grouped_output_projection_(attn_output);
+}
+
+infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const infinicore::Tensor &q_rope,
+                                                                          const infinicore::Tensor &key_states,
+                                                                          const infinicore::Tensor &hidden_states,
+                                                                          const infinicore::Tensor &q_residual,
+                                                                          const std::vector<int64_t> &positions,
+                                                                          size_t query_start) const {
+    const auto q_shape = q_rope->shape();
+    const size_t batch_size = q_shape[0];
+    const size_t query_len = q_shape[1];
+    const size_t num_heads = q_shape[2];
+    const size_t head_dim = q_shape[3];
+    const size_t total_len = key_states->shape()[1];
+    const size_t window = sliding_window_ == 0 ? total_len : sliding_window_;
+    const size_t compress_ratio = rotary_emb_.compress_ratio();
+
+    auto q = tensor_to_float_vector(q_rope);
+    auto kv = tensor_to_float_vector(key_states->contiguous());
+
+    std::vector<float> kv_comp;
+    size_t nb = 0;
+    size_t index_top_k = 0;
+    std::vector<int64_t> indexed_blocks;
+    if (compressor_ && compress_ratio > 0) {
+        size_t comp_batch = 0;
+        kv_comp = compressor_->forward_values(hidden_states, comp_batch, nb);
+        if (nb > 0 && indexer_) {
+            indexed_blocks = indexer_->forward(hidden_states, q_residual, positions, index_top_k);
+        }
+    }
+    rotary_emb_.forward_blocks(kv_comp, batch_size, nb, head_dim, total_len, positions);
+
+    auto sink = tensor_to_float_vector(attn_sink_);
+    std::vector<float> out(batch_size * query_len * num_heads * head_dim, 0.0f);
+    std::vector<float> logits(nb + total_len);
+
+    for (size_t b = 0; b < batch_size; ++b) {
+        for (size_t tq = 0; tq < query_len; ++tq) {
+            const size_t t = query_start + tq;
+            for (size_t h = 0; h < num_heads; ++h) {
+                const size_t q_offset = ((b * query_len + tq) * num_heads + h) * head_dim;
+                float max_logit = sink[h];
+
+                for (size_t block = 0; block < nb; ++block) {
+                    bool valid = static_cast<int64_t>(block) < ((positions[t] + 1) / static_cast<int64_t>(compress_ratio));
+                    if (valid && !indexed_blocks.empty()) {
+                        valid = false;
+                        const size_t index_offset = (b * total_len + t) * index_top_k;
+                        for (size_t k = 0; k < index_top_k; ++k) {
+                            if (indexed_blocks[index_offset + k] == static_cast<int64_t>(block)) {
+                                valid = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!valid) {
+                        logits[block] = -std::numeric_limits<float>::infinity();
+                        continue;
+                    }
+                    const size_t kv_offset = (b * nb + block) * head_dim;
+                    double dot = 0.0;
+                    for (size_t d = 0; d < head_dim; ++d) {
+                        dot += static_cast<double>(q[q_offset + d]) * kv_comp[kv_offset + d];
+                    }
+                    logits[block] = static_cast<float>(dot * softmax_scale_);
+                    max_logit = std::max(max_logit, logits[block]);
+                }
+
+                for (size_t j = 0; j < total_len; ++j) {
+                    const bool valid = positions[j] <= positions[t] && positions[j] > positions[t] - static_cast<int64_t>(window);
+                    if (!valid) {
+                        logits[nb + j] = -std::numeric_limits<float>::infinity();
+                        continue;
+                    }
+                    const size_t kv_offset = (b * total_len + j) * head_dim;
+                    double dot = 0.0;
+                    for (size_t d = 0; d < head_dim; ++d) {
+                        dot += static_cast<double>(q[q_offset + d]) * kv[kv_offset + d];
+                    }
+                    logits[nb + j] = static_cast<float>(dot * softmax_scale_);
+                    max_logit = std::max(max_logit, logits[nb + j]);
+                }
+
+                double denom = std::exp(static_cast<double>(sink[h] - max_logit));
+                for (float logit : logits) {
+                    if (std::isfinite(logit)) {
+                        denom += std::exp(static_cast<double>(logit - max_logit));
+                    }
+                }
+                const size_t out_offset = ((b * query_len + tq) * num_heads + h) * head_dim;
+
+                for (size_t block = 0; block < nb; ++block) {
+                    if (!std::isfinite(logits[block])) {
+                        continue;
+                    }
+                    const float prob = static_cast<float>(std::exp(static_cast<double>(logits[block] - max_logit)) / denom);
+                    const size_t kv_offset = (b * nb + block) * head_dim;
+                    for (size_t d = 0; d < head_dim; ++d) {
+                        out[out_offset + d] += prob * kv_comp[kv_offset + d];
+                    }
+                }
+                for (size_t j = 0; j < total_len; ++j) {
+                    if (!std::isfinite(logits[nb + j])) {
+                        continue;
+                    }
+                    const float prob = static_cast<float>(std::exp(static_cast<double>(logits[nb + j] - max_logit)) / denom);
+                    const size_t kv_offset = (b * total_len + j) * head_dim;
+                    for (size_t d = 0; d < head_dim; ++d) {
+                        out[out_offset + d] += prob * kv[kv_offset + d];
+                    }
+                }
+
+                rotary_emb_.inverse_at_offset(out, out_offset, positions[t]);
+            }
+        }
+    }
+
+    return float_vector_to_tensor(out, {batch_size, query_len, num_heads * head_dim}, q_rope->dtype(), q_rope->device());
 }
 
 infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infinicore::Tensor &q_rope,

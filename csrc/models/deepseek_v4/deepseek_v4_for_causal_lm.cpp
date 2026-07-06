@@ -24,35 +24,8 @@ DeepseekV4ForCausalLM::DeepseekV4ForCausalLM(std::shared_ptr<infinilm::config::M
 infinilm::InfinilmModel::Output DeepseekV4ForCausalLM::forward(const infinilm::InfinilmModel::Input &input) const {
     auto input_ids = input.input_ids.value();
     auto positions = input.position_ids.value();
-    const auto original_input_shape = input_ids->shape();
-    const size_t current_seq_len = original_input_shape.empty() ? 1 : original_input_shape.back();
-    auto current_ids = tensor_to_int64_vector(input_ids);
-
-    bool recompute_decode = false;
-    if (input.past_sequence_lengths.has_value()) {
-        auto past_lengths = tensor_to_int64_vector(input.past_sequence_lengths.value());
-        recompute_decode = !past_lengths.empty() && past_lengths[0] > 0 && !cached_input_ids_.empty();
-    }
-    if (recompute_decode) {
-        std::vector<int64_t> full_ids = cached_input_ids_;
-        full_ids.insert(full_ids.end(), current_ids.begin(), current_ids.end());
-        cached_input_ids_ = full_ids;
-        input_ids = int64_vector_to_tensor(full_ids, {1, full_ids.size()}, input_ids->device());
-        std::vector<int64_t> full_positions(full_ids.size());
-        for (size_t i = 0; i < full_positions.size(); ++i) {
-            full_positions[i] = static_cast<int64_t>(i);
-        }
-        positions = int64_vector_to_tensor(full_positions, {full_positions.size()}, positions->device());
-    } else {
-        cached_input_ids_ = current_ids;
-    }
-
     auto hidden_states = model_->forward(input_ids, positions);
     auto logits = head_->forward(hidden_states);
-    if (recompute_decode) {
-        const size_t total_seq_len = logits->shape()[1];
-        logits = logits->narrow({{1, total_seq_len - current_seq_len, current_seq_len}})->contiguous();
-    }
     return {logits};
 }
 
