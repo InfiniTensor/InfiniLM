@@ -53,8 +53,8 @@ std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v4_model_config(
     }
     if (config_json.contains("qk_rope_head_dim")) {
         const size_t head_dim = config_json.contains("head_dim")
-                                    ? config_json.at("head_dim").get<size_t>()
-                                    : config_json.at("hidden_size").get<size_t>() / config_json.at("num_attention_heads").get<size_t>();
+                                  ? config_json.at("head_dim").get<size_t>()
+                                  : config_json.at("hidden_size").get<size_t>() / config_json.at("num_attention_heads").get<size_t>();
         const size_t qk_rope_head_dim = config_json.at("qk_rope_head_dim").get<size_t>();
         config_json["head_dim"] = head_dim;
         config_json["partial_rotary_factor"] = static_cast<double>(qk_rope_head_dim) / static_cast<double>(head_dim);

@@ -33,8 +33,6 @@ bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
     }
 }
 
-
-
 infinicore::Tensor compute_router_logits(const infinicore::Tensor &hidden_states,
                                          const infinicore::Tensor &weight) {
     return infinicore::op::linear(hidden_states, weight, std::nullopt, 1.0f);
@@ -67,7 +65,7 @@ DeepseekV4TopKRouter::forward(const infinicore::Tensor &hidden_states,
                               const infinicore::Tensor &input_ids) const {
     (void)input_ids;
 
-    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size) {
+    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size_) {
         throw std::runtime_error("DeepseekV4MoE router: expected hidden_states shape [N,D]");
     }
 
@@ -79,9 +77,9 @@ DeepseekV4TopKRouter::forward(const infinicore::Tensor &hidden_states,
     auto gate_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
 
     return infinicore::op::deepseek_v4_topk_router(gate_logits,
-        num_experts_per_tok_,
-        norm_topk_prob_,
-        router_bias);
+                                                   num_experts_per_tok_,
+                                                   norm_topk_prob_,
+                                                   router_bias);
 }
 
 DeepseekV4HashRouter::DeepseekV4HashRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -105,8 +103,8 @@ DeepseekV4HashRouter::DeepseekV4HashRouter(std::shared_ptr<infinilm::config::Mod
 std::tuple<infinicore::Tensor, infinicore::Tensor>
 DeepseekV4HashRouter::forward(const infinicore::Tensor &hidden_states,
                               const infinicore::Tensor &input_ids) const {
-    
-    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size) {
+
+    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size_) {
         throw std::runtime_error("DeepseekV4MoE router: expected hidden_states shape [N,D]");
     }
     if (input_ids.empty()) {
@@ -177,16 +175,14 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
         && (hidden_states->dtype() == infinicore::DataType::BF16
             || hidden_states->dtype() == infinicore::DataType::F16)) {
         try {
-            // printf("-----------> 111 gpu fused moe \n");
             return infinicore::op::deepseek_moe(hidden_states, top_k_index, top_k_weights,
                                                 gate_weights_, up_weights_, down_weights_,
                                                 local_moe_intermediate_size_, num_experts_);
         } catch (const std::exception &e) {
-            spdlog::warn("DeepseekV4Experts: deepseek_moe unavailable on {}, falling back to routed experts: {}",
-                         static_cast<int>(hidden_states->device().getType()), e.what());
+            spdlog::warn("DeepseekV4Experts: deepseek_moe unavailable on {}, falling back to routed experts: {}", static_cast<int>(hidden_states->device().getType()), e.what());
         }
     }
-    //  printf("-----------> 222 cpu fused moe \n");
+
     return forward_cpu_routed_(hidden_states, top_k_index, top_k_weights);
 }
 

@@ -24,8 +24,7 @@ make_compress_yarn_scaling(const nlohmann::json &config_json,
     }
 
     const float factor = rope_scaling.at("factor").get<float>();
-    const size_t original_max_position_embeddings =
-        rope_scaling.at("original_max_position_embeddings").get<size_t>();
+    const size_t original_max_position_embeddings = rope_scaling.at("original_max_position_embeddings").get<size_t>();
     const int beta_fast = static_cast<int>(rope_scaling.value("beta_fast", 32.0f));
     const int beta_slow = static_cast<int>(rope_scaling.value("beta_slow", 1.0f));
     const float mscale = rope_scaling.value("mscale", 1.0f);
@@ -54,8 +53,7 @@ size_t rope_cache_max_seq_len(const std::shared_ptr<infinilm::config::ModelConfi
         return max_position_embeddings;
     }
     const float factor = rope_scaling.at("factor").get<float>();
-    const size_t original_max_position_embeddings =
-        rope_scaling.at("original_max_position_embeddings").get<size_t>();
+    const size_t original_max_position_embeddings = rope_scaling.at("original_max_position_embeddings").get<size_t>();
     return std::max(
         max_position_embeddings,
         infinicore::nn::YarnRopeScalingConfig::max_seq_len(factor, original_max_position_embeddings));
@@ -135,8 +133,7 @@ DeepseekV4RoPE::DeepseekV4RoPE(std::shared_ptr<infinilm::config::ModelConfig> mo
     const size_t head_dim = model_config->get<size_t>("head_dim");
     const size_t qk_rope_head_dim = model_config->get_or<size_t>("qk_rope_head_dim", 0);
     const double rope_theta = model_config->get_or<double>("rope_theta", 10000.0);
-    const double compress_rope_theta =
-        model_config->get_or<double>("compress_rope_theta", model_config->get_or<double>("rope_theta", 10000.0));
+    const double compress_rope_theta = model_config->get_or<double>("compress_rope_theta", model_config->get_or<double>("rope_theta", 10000.0));
 
     size_t compress_ratio = 0;
     if (config_json.contains("compress_ratios") && layer_idx < config_json.at("compress_ratios").size()) {
@@ -204,12 +201,12 @@ const std::shared_ptr<infinicore::nn::RoPE> &DeepseekV4RoPE::active_gpu_rope_() 
 }
 
 infinicore::Tensor DeepseekV4RoPE::forward_cpu_(const infinicore::Tensor &x,
-                                                  const std::vector<int64_t> &positions) const {
+                                                const std::vector<int64_t> &positions) const {
     return apply_rotary_pos_emb(x, positions, params_);
 }
 
 infinicore::Tensor DeepseekV4RoPE::forward_gpu_(const infinicore::Tensor &x,
-                                                  const std::vector<int64_t> &positions) const {
+                                                const std::vector<int64_t> &positions) const {
     const auto shape = x->shape();
     if (shape.size() != 4) {
         throw std::runtime_error("DeepseekV4RoPE: forward expects [B,S,H,D]");
@@ -236,7 +233,7 @@ infinicore::Tensor DeepseekV4RoPE::forward_gpu_(const infinicore::Tensor &x,
 }
 
 infinicore::Tensor DeepseekV4RoPE::forward(const infinicore::Tensor &x,
-                                            const std::vector<int64_t> &positions) const {
+                                           const std::vector<int64_t> &positions) const {
     if (use_gpu_forward_()) {
         return forward_gpu_(x, positions);
     }

@@ -115,7 +115,7 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
                               });
             for (size_t k = 0; k < row_top_k; ++k) {
                 const bool valid = std::isfinite(ranked[k].first)
-                    && ranked[k].second < causal_threshold;
+                                && ranked[k].second < causal_threshold;
                 indices[(b * query_len + tq) * top_k + k] = valid ? ranked[k].second : -1;
             }
         }

@@ -8,7 +8,7 @@
 
 #include <cstddef>
 #include <memory>
-#include <vector> 
+#include <vector>
 
 namespace infinilm::models::deepseek_v4 {
 
