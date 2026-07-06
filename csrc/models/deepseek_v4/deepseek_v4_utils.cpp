@@ -504,6 +504,31 @@ void ensure_mhc_gpu_cache(DeepseekV4MHCCoeffs &cache,
     cache.gpu.valid = true;
 }
 
+void ensure_mhc_head_coeffs_cached(DeepseekV4MHCCoeffs &cache,
+                                  const infinicore::Tensor &base,
+                                  const infinicore::Tensor &fn,
+                                  const infinicore::Tensor &scale,
+                                  size_t hc_mult,
+                                  size_t hidden_size) {
+    const size_t flat_dim = hc_mult * hidden_size;
+    if (cache.mix_hc == hc_mult && cache.flat_dim == flat_dim) {
+        return;
+    }
+
+    cache.base = tensor_to_float_vector(base);
+    cache.fn = tensor_to_float_vector(fn);
+    auto scale_values = tensor_to_float_vector(scale);
+    if (cache.base.size() != hc_mult || cache.fn.size() != hc_mult * flat_dim || scale_values.empty()) {
+        throw std::runtime_error("DeepseekV4MHC head: parameter shape mismatch");
+    }
+    cache.scale[0] = scale_values[0];
+    cache.scale[1] = 1.0f;
+    cache.scale[2] = 1.0f;
+    cache.mix_hc = hc_mult;
+    cache.flat_dim = flat_dim;
+    cache.gpu.valid = false;
+}
+
 std::vector<float> compute_mhc_mixes_cpu(const infinicore::Tensor &x,
                                          const DeepseekV4MHCCoeffs &coeffs,
                                          size_t hc_mult,
@@ -787,6 +812,7 @@ infinicore::Tensor mhc_head_pre(const infinicore::Tensor &x,
                                 const infinicore::Tensor &base,
                                 const infinicore::Tensor &fn,
                                 const infinicore::Tensor &scale,
+                                DeepseekV4MHCCoeffs &coeffs_cache,
                                 size_t hc_mult,
                                 size_t hidden_size,
                                 double eps) {
@@ -794,37 +820,25 @@ infinicore::Tensor mhc_head_pre(const infinicore::Tensor &x,
     if (shape.size() != 4 || shape[2] != hc_mult || shape[3] != hidden_size) {
         throw std::runtime_error("DeepseekV4MHC: expected x shape [B,S,hc_mult,hidden_size]");
     }
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    const size_t flat_dim = hc_mult * hidden_size;
-    auto x_values = tensor_to_float_vector(x);
-    auto base_values = tensor_to_float_vector(base);
-    auto fn_values = tensor_to_float_vector(fn);
-    auto scale_values = tensor_to_float_vector(scale);
-    const float s = scale_values.empty() ? 1.0f : scale_values[0];
-    std::vector<float> out(batch_size * seq_len * hidden_size, 0.0f);
-    for (size_t token = 0; token < batch_size * seq_len; ++token) {
-        double mean_square = 0.0;
-        for (size_t i = 0; i < flat_dim; ++i) {
-            const float value = x_values[token * flat_dim + i];
-            mean_square += static_cast<double>(value) * value;
-        }
-        const float rsqrt = static_cast<float>(1.0 / std::sqrt(mean_square / static_cast<double>(flat_dim) + eps));
-        std::vector<float> pre(hc_mult);
+
+    ensure_mhc_head_coeffs_cached(coeffs_cache, base, fn, scale, hc_mult, hidden_size);
+
+    DeepseekV4MHCParams params;
+    params.batch_size = shape[0];
+    params.seq_len = shape[1];
+    params.hc_mult = hc_mult;
+    params.pre.resize(params.batch_size * params.seq_len * hc_mult);
+
+    const auto mixes = compute_mhc_mixes(x, fn, coeffs_cache, hc_mult, hidden_size, eps);
+    for (size_t token = 0; token < params.batch_size * params.seq_len; ++token) {
         for (size_t h = 0; h < hc_mult; ++h) {
-            double dot = 0.0;
-            for (size_t i = 0; i < flat_dim; ++i) {
-                dot += static_cast<double>(fn_values[h * flat_dim + i]) * x_values[token * flat_dim + i];
-            }
-            pre[h] = sigmoid(s * static_cast<float>(dot * rsqrt) + base_values[h]) + static_cast<float>(eps);
-        }
-        for (size_t h = 0; h < hc_mult; ++h) {
-            for (size_t d = 0; d < hidden_size; ++d) {
-                out[token * hidden_size + d] += pre[h] * x_values[(token * hc_mult + h) * hidden_size + d];
-            }
+            params.pre[token * hc_mult + h] =
+                sigmoid(coeffs_cache.scale[0] * mixes[token * hc_mult + h] + coeffs_cache.base[h])
+                + static_cast<float>(eps);
         }
     }
-    return float_vector_to_tensor(out, {batch_size, seq_len, hidden_size}, x->dtype(), x->device());
+
+    return mhc_collapse(x, params);
 }
 
 } // namespace infinilm::models::deepseek_v4

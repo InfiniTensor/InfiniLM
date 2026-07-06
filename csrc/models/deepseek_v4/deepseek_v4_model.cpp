@@ -43,7 +43,7 @@ infinicore::Tensor DeepseekV4Model::forward(const infinicore::Tensor &input_ids,
     }
 
     hidden_states = mhc_head_pre(hidden_states, hc_head_base_, hc_head_fn_, hc_head_scale_,
-                                 hc_mult_, hidden_size_, hc_eps_);
+                                 hc_head_coeffs_, hc_mult_, hidden_size_, hc_eps_);
     return norm_->forward(hidden_states);
 }
 

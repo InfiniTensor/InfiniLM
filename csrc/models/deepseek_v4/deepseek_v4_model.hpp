@@ -2,6 +2,7 @@
 
 #include "../../config/model_config.hpp"
 #include "deepseek_v4_decoder_layer.hpp"
+#include "deepseek_v4_utils.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
@@ -32,6 +33,8 @@ private:
     size_t vocab_size_{0};
     size_t hc_mult_{0};
     double hc_eps_{0.0};
+
+    mutable DeepseekV4MHCCoeffs hc_head_coeffs_;
 };
 
 } // namespace infinilm::models::deepseek_v4

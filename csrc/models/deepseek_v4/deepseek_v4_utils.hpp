@@ -131,6 +131,7 @@ infinicore::Tensor mhc_head_pre(const infinicore::Tensor &x,
                                 const infinicore::Tensor &base,
                                 const infinicore::Tensor &fn,
                                 const infinicore::Tensor &scale,
+                                DeepseekV4MHCCoeffs &coeffs_cache,
                                 size_t hc_mult,
                                 size_t hidden_size,
                                 double eps);
