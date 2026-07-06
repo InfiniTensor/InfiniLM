@@ -10,7 +10,6 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from infinilm.llm.request import InferenceRequest, RequestStatus
 from infinilm.server.inference_server import InferenceServer
 from infinimetadata.metrics import MetricsRegistry
 
@@ -88,16 +87,15 @@ class InferenceServerObservabilityTest(unittest.TestCase):
         self.assertEqual(on_disk["server_id"], self.server.server_id)
 
     def test_record_request_metrics_integration(self):
-        req = InferenceRequest(
-            request_id="req-1",
-            prompt_token_ids=[1, 2, 3],
-            arrival_time=1000.0,
+        handle = self.server.obs.begin_request(arrival_time=1000.0)
+        self.server.obs.on_request_token(handle, now=1000.05)
+        self.server.obs.on_request_finish(
+            handle,
+            status="ok",
+            finished_time=1000.2,
+            prompt_tokens=3,
+            completion_tokens=2,
         )
-        req.generated_token_ids = [4, 5]
-        req.first_token_time = 1000.05
-        req.status = RequestStatus.FINISHED
-        req.finished_time = 1000.2
-        self.server.obs.on_request_finish(req)
 
         assert self.server.obs is not None
         snap = self.server.obs.json_snapshot()

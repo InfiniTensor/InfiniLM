@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse, PlainTextResponse
 
 from infinilm.llm import AsyncLLMEngine, SamplingParams, FinishReason
 from infinilm.llm.llm import normalize_chat_messages, _should_defer_tokenize_to_step_thread
+from infinilm.llm.request import RequestStatus
 
 create_server_observability = None
 
@@ -38,6 +39,17 @@ from infinilm.server.openai_compat import resolve_chat_template_kwargs
 from infinilm.server.reasoning_parser import ReasoningStreamSplitter, split_thinking_content
 
 logger = logging.getLogger(__name__)
+
+
+def _metrics_status_label(status: RequestStatus) -> str:
+    if status == RequestStatus.FINISHED:
+        return "ok"
+    if status == RequestStatus.CANCELED:
+        return "canceled"
+    if status == RequestStatus.TIMEOUT:
+        return "timeout"
+    return "error"
+
 
 def _env_float(name: str, default: float) -> float:
     raw = os.environ.get(name)
@@ -537,6 +549,7 @@ class InferenceServer:
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
         """Handle streaming chat request."""
         req = None
+        metrics = None
 
         try:
             messages = data.get("messages", [])
@@ -551,6 +564,8 @@ class InferenceServer:
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=resolve_chat_template_kwargs(data),
             )
+            if self.obs is not None:
+                metrics = self.obs.begin_request(arrival_time=req.arrival_time)
 
             stream_splitter = ReasoningStreamSplitter()
 
@@ -593,7 +608,7 @@ class InferenceServer:
 
                 if not is_eos_token and token_output.token_text:
                     if self.obs is not None:
-                        self.obs.on_request_token(req, now=time.time())
+                        self.obs.on_request_token(metrics, now=time.time())
                     visible = stream_splitter.feed(token_output.token_text)
                     if not visible:
                         continue
@@ -658,8 +673,14 @@ class InferenceServer:
         finally:
             if req and not req.is_finished():
                 req.mark_canceled()
-            if self.obs is not None:
-                self.obs.on_request_finish(req)
+            if self.obs is not None and metrics is not None and req is not None:
+                self.obs.on_request_finish(
+                    metrics,
+                    status=_metrics_status_label(req.status),
+                    finished_time=req.finished_time,
+                    prompt_tokens=req.get_prompt_length(),
+                    completion_tokens=req.get_num_generated_tokens(),
+                )
             if req:
                 await req.close()
             yield "data: [DONE]\n\n"
@@ -667,6 +688,7 @@ class InferenceServer:
     async def _chat(self, request_id: str, data: dict, http_request: Request):
         """Handle non-streaming chat request."""
         req = None
+        metrics = None
 
         try:
             messages = data.get("messages", [])
@@ -681,6 +703,8 @@ class InferenceServer:
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=resolve_chat_template_kwargs(data),
             )
+            if self.obs is not None:
+                metrics = self.obs.begin_request(arrival_time=req.arrival_time)
 
             # Collect all generated tokens
             output_text = ""
@@ -707,7 +731,7 @@ class InferenceServer:
 
                 if not is_eos_token and token_output.token_text:
                     if self.obs is not None:
-                        self.obs.on_request_token(req, now=time.time())
+                        self.obs.on_request_token(metrics, now=time.time())
                     output_text += token_output.token_text
 
                 if token_output.finished:
@@ -749,8 +773,14 @@ class InferenceServer:
         finally:
             if req and not req.is_finished():
                 req.mark_canceled()
-            if self.obs is not None:
-                self.obs.on_request_finish(req)
+            if self.obs is not None and metrics is not None and req is not None:
+                self.obs.on_request_finish(
+                    metrics,
+                    status=_metrics_status_label(req.status),
+                    finished_time=req.finished_time,
+                    prompt_tokens=req.get_prompt_length(),
+                    completion_tokens=req.get_num_generated_tokens(),
+                )
             if req:
                 await req.close()
 
