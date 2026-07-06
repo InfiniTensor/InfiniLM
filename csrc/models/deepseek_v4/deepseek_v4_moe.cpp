@@ -21,30 +21,8 @@
 namespace infinilm::models::deepseek_v4 {
 namespace {
 
-float sigmoid(float value) {
-    if (value >= 0.0f) {
-        const float z = std::exp(-value);
-        return 1.0f / (1.0f + z);
-    }
-    const float z = std::exp(value);
-    return z / (1.0f + z);
-}
-
-std::vector<float> softmax_row(const std::vector<float> &logits, size_t row_offset, size_t width) {
-    float max_value = logits[row_offset];
-    for (size_t i = 1; i < width; ++i) {
-        max_value = std::max(max_value, logits[row_offset + i]);
-    }
-    std::vector<float> out(width);
-    double denom = 0.0;
-    for (size_t i = 0; i < width; ++i) {
-        out[i] = std::exp(logits[row_offset + i] - max_value);
-        denom += out[i];
-    }
-    for (auto &value : out) {
-        value = static_cast<float>(value / denom);
-    }
-    return out;
+float sqrtsoftplus(float logit) {
+    return std::sqrt(std::log1p(std::exp(-std::abs(logit))) + std::max(logit, 0.0f));
 }
 
 bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
@@ -61,89 +39,94 @@ bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
     }
 }
 
-void apply_scoring_func(std::vector<float> &scores,
-                        const std::vector<float> &logits,
-                        size_t ntoken,
-                        size_t num_experts,
-                        const std::string &scoring_func) {
-    scores = logits;
+void apply_sqrtsoftplus_scores(std::vector<float> &scores,
+                               const std::vector<float> &logits,
+                               size_t ntoken,
+                               size_t num_experts) {
+    scores.resize(logits.size());
     for (size_t token = 0; token < ntoken; ++token) {
         const size_t offset = token * num_experts;
-        if (scoring_func == "softmax") {
-            auto row = softmax_row(logits, offset, num_experts);
-            std::copy(row.begin(), row.end(), scores.begin() + offset);
-        } else if (scoring_func == "sigmoid") {
-            for (size_t i = 0; i < num_experts; ++i) {
-                scores[offset + i] = sigmoid(logits[offset + i]);
-            }
-        } else {
-            for (size_t i = 0; i < num_experts; ++i) {
-                const float logit = logits[offset + i];
-                scores[offset + i] = std::sqrt(std::log1p(std::exp(-std::abs(logit)))
-                                               + std::max(logit, 0.0f));
-            }
+        for (size_t i = 0; i < num_experts; ++i) {
+            scores[offset + i] = sqrtsoftplus(logits[offset + i]);
         }
     }
 }
 
-void route_from_scores(size_t ntoken,
-                       size_t num_experts,
-                       size_t num_experts_per_tok,
-                       const std::string &scoring_func,
-                       bool norm_topk_prob,
-                       const std::vector<float> &scores,
-                       const std::vector<int64_t> &token_ids,
-                       const std::vector<int64_t> &tid2eid,
-                       const std::vector<float> &bias,
-                       std::vector<int64_t> &selected,
-                       std::vector<float> &weights) {
-    const bool hash_route = !tid2eid.empty();
+void select_topk_experts(size_t ntoken,
+                         size_t num_experts,
+                         size_t num_experts_per_tok,
+                         const std::vector<float> &scores,
+                         const std::vector<float> &bias,
+                         std::vector<int64_t> &selected) {
     selected.assign(ntoken * num_experts_per_tok, 0);
+
+    for (size_t token = 0; token < ntoken; ++token) {
+        const size_t score_offset = token * num_experts;
+        const size_t route_offset = token * num_experts_per_tok;
+
+        std::vector<std::pair<float, int64_t>> ranked;
+        ranked.reserve(num_experts);
+        for (size_t expert = 0; expert < num_experts; ++expert) {
+            const float biased = scores[score_offset + expert] + (bias.empty() ? 0.0f : bias[expert]);
+            ranked.emplace_back(biased, static_cast<int64_t>(expert));
+        }
+        std::partial_sort(ranked.begin(),
+                          ranked.begin() + static_cast<std::ptrdiff_t>(num_experts_per_tok),
+                          ranked.end(),
+                          [](const auto &a, const auto &b) {
+                              if (a.first == b.first) {
+                                  return a.second < b.second;
+                              }
+                              return a.first > b.first;
+                          });
+        for (size_t k = 0; k < num_experts_per_tok; ++k) {
+            selected[route_offset + k] = ranked[k].second;
+        }
+    }
+}
+
+void select_hash_experts(size_t ntoken,
+                         size_t num_experts_per_tok,
+                         const std::vector<int64_t> &token_ids,
+                         const std::vector<int64_t> &tid2eid,
+                         std::vector<int64_t> &selected) {
+    selected.assign(ntoken * num_experts_per_tok, 0);
+
+    for (size_t token = 0; token < ntoken; ++token) {
+        const int64_t token_id = token_ids[token];
+        const size_t route_offset = token * num_experts_per_tok;
+        if (token_id < 0
+            || static_cast<size_t>(token_id) * num_experts_per_tok + num_experts_per_tok > tid2eid.size()) {
+            throw std::runtime_error("DeepseekV4HashRouter: token id out of tid2eid range");
+        }
+        for (size_t k = 0; k < num_experts_per_tok; ++k) {
+            selected[route_offset + k] = tid2eid[static_cast<size_t>(token_id) * num_experts_per_tok + k];
+        }
+    }
+}
+
+void weights_from_selected(size_t ntoken,
+                           size_t num_experts,
+                           size_t num_experts_per_tok,
+                           bool norm_topk_prob,
+                           const std::vector<float> &scores,
+                           const std::vector<int64_t> &selected,
+                           std::vector<float> &weights) {
     weights.assign(ntoken * num_experts_per_tok, 0.0f);
 
     for (size_t token = 0; token < ntoken; ++token) {
         const size_t score_offset = token * num_experts;
         const size_t route_offset = token * num_experts_per_tok;
-        if (hash_route) {
-            const int64_t token_id = token_ids[token];
-            if (token_id < 0
-                || static_cast<size_t>(token_id) * num_experts_per_tok + num_experts_per_tok > tid2eid.size()) {
-                throw std::runtime_error("DeepseekV4Gate: token id out of tid2eid range");
-            }
-            for (size_t k = 0; k < num_experts_per_tok; ++k) {
-                selected[route_offset + k] = tid2eid[static_cast<size_t>(token_id) * num_experts_per_tok + k];
-            }
-        } else {
-            std::vector<std::pair<float, int64_t>> ranked;
-            ranked.reserve(num_experts);
-            for (size_t expert = 0; expert < num_experts; ++expert) {
-                const float biased = scores[score_offset + expert] + (bias.empty() ? 0.0f : bias[expert]);
-                ranked.emplace_back(biased, static_cast<int64_t>(expert));
-            }
-            std::partial_sort(ranked.begin(),
-                              ranked.begin() + static_cast<std::ptrdiff_t>(num_experts_per_tok),
-                              ranked.end(),
-                              [](const auto &a, const auto &b) {
-                                  if (a.first == b.first) {
-                                      return a.second < b.second;
-                                  }
-                                  return a.first > b.first;
-                              });
-            for (size_t k = 0; k < num_experts_per_tok; ++k) {
-                selected[route_offset + k] = ranked[k].second;
-            }
-        }
-
         float denom = 0.0f;
         for (size_t k = 0; k < num_experts_per_tok; ++k) {
             const int64_t expert = selected[route_offset + k];
             if (expert < 0 || static_cast<size_t>(expert) >= num_experts) {
-                throw std::runtime_error("DeepseekV4Gate: selected expert id out of range");
+                throw std::runtime_error("DeepseekV4MoE router: selected expert id out of range");
             }
             weights[route_offset + k] = scores[score_offset + static_cast<size_t>(expert)];
             denom += weights[route_offset + k];
         }
-        if (norm_topk_prob && scoring_func != "softmax") {
+        if (norm_topk_prob) {
             denom += 1e-9f;
             for (size_t k = 0; k < num_experts_per_tok; ++k) {
                 weights[route_offset + k] /= denom;
@@ -174,16 +157,22 @@ infinicore::Tensor int32_vector_to_tensor(const std::vector<int64_t> &values,
     return tensor;
 }
 
-} // namespace
-
-DeepseekV4Gate::DeepseekV4Gate(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                               const infinicore::Device &device)
-    : DeepseekV4Gate(std::move(model_config), 0, device) {
+void validate_router_hidden_states(const infinicore::Tensor &hidden_states, size_t hidden_size) {
+    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size) {
+        throw std::runtime_error("DeepseekV4MoE router: expected hidden_states shape [N,D]");
+    }
 }
 
-DeepseekV4Gate::DeepseekV4Gate(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                               size_t layer_idx,
-                               const infinicore::Device &device)
+infinicore::Tensor compute_router_logits(const infinicore::Tensor &hidden_states,
+                                         const infinicore::Tensor &weight) {
+    return infinicore::op::linear(hidden_states, weight, std::nullopt, 1.0f);
+}
+
+} // namespace
+
+DeepseekV4TopKRouter::DeepseekV4TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                           size_t layer_idx,
+                                           const infinicore::Device &device)
     : hidden_size_(model_config->get<size_t>("hidden_size")),
       num_experts_(model_config->get<size_t>("n_routed_experts")),
       num_experts_per_tok_(model_config->get<size_t>("num_experts_per_tok")),
@@ -191,67 +180,33 @@ DeepseekV4Gate::DeepseekV4Gate(std::shared_ptr<infinilm::config::ModelConfig> mo
       scoring_func_(model_config->get_or<std::string>("scoring_func", "sqrtsoftplus")),
       norm_topk_prob_(model_config->get_or<bool>("norm_topk_prob", true)),
       layer_idx_(layer_idx) {
+    ASSERT(scoring_func_ == "sqrtsoftplus");
     const auto &dtype = model_config->get_dtype();
-    const size_t vocab_size = model_config->get<size_t>("vocab_size");
-    const size_t num_hash_layers = model_config->get_or<size_t>("num_hash_layers", 0);
-    const std::string topk_method = model_config->get_or<std::string>("topk_method", "");
-
     INFINICORE_NN_PARAMETER_INIT(weight, ({num_experts_, hidden_size_}, dtype, device));
-    if (layer_idx < num_hash_layers) {
-        INFINICORE_NN_PARAMETER_INIT(tid2eid, ({vocab_size, num_experts_per_tok_}, infinicore::DataType::I64, device));
-    } else if (topk_method == "noaux_tc") {
+
+    const std::string topk_method = model_config->get_or<std::string>("topk_method", "");
+    if (topk_method == "noaux_tc") {
         INFINICORE_NN_PARAMETER_INIT(bias, ({num_experts_}, infinicore::DataType::F32, device));
     }
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor>
-DeepseekV4Gate::forward(const infinicore::Tensor &hidden_states,
-                        const infinicore::Tensor &input_ids) const {
-    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size_) {
-        throw std::runtime_error("DeepseekV4Gate: expected hidden_states shape [N,D]");
-    }
+DeepseekV4TopKRouter::forward(const infinicore::Tensor &hidden_states,
+                              const infinicore::Tensor &input_ids) const {
+    (void)input_ids;
+    validate_router_hidden_states(hidden_states, hidden_size_);
     const size_t ntoken = hidden_states->shape()[0];
     const auto device = hidden_states->device();
 
-    // Router projection on device; scoring/top-k stay on CPU for sqrtsoftplus/hash paths.
-    auto router_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
+    auto logits = compute_router_logits(hidden_states, weight_);
 
-    const bool gpu_sigmoid_topk = device.getType() != infinicore::Device::Type::CPU
-                               && !has_tid2eid()
-                               && scoring_func_ == "sigmoid";
-    if (gpu_sigmoid_topk) {
-        if (has_bias()) {
-            auto [top_k_weights, top_k_index] = infinicore::op::moe_topk_sigmoid(
-                router_logits, num_experts_per_tok_, norm_topk_prob_, bias_);
-            (void)routed_scaling_;
-            return {top_k_weights, top_k_index};
-        }
-        auto [top_k_weights, top_k_index] = infinicore::op::moe_topk_sigmoid(
-            router_logits, num_experts_per_tok_, norm_topk_prob_);
-        (void)routed_scaling_;
-        return {top_k_weights, top_k_index};
-    }
-
-    auto logits_values = tensor_to_float_vector(router_logits);
+    auto logits_values = tensor_to_float_vector(logits);
     if (logits_values.size() != ntoken * num_experts_) {
-        throw std::runtime_error("DeepseekV4Gate: router logits shape mismatch");
+        throw std::runtime_error("DeepseekV4TopKRouter: router logits shape mismatch");
     }
 
     std::vector<float> scores;
-    apply_scoring_func(scores, logits_values, ntoken, num_experts_, scoring_func_);
-
-    std::vector<int64_t> token_ids;
-    std::vector<int64_t> tid2eid;
-    if (has_tid2eid()) {
-        if (input_ids.empty()) {
-            throw std::runtime_error("DeepseekV4Gate: hash-routed layer requires input_ids");
-        }
-        token_ids = tensor_to_int64_vector(input_ids);
-        if (token_ids.size() != ntoken) {
-            throw std::runtime_error("DeepseekV4Gate: input_ids size mismatch");
-        }
-        tid2eid = tensor_to_int64_vector(tid2eid_);
-    }
+    apply_sqrtsoftplus_scores(scores, logits_values, ntoken, num_experts_);
 
     std::vector<float> bias;
     if (has_bias()) {
@@ -260,18 +215,66 @@ DeepseekV4Gate::forward(const infinicore::Tensor &hidden_states,
 
     std::vector<int64_t> selected;
     std::vector<float> weights;
-    route_from_scores(ntoken,
-                      num_experts_,
-                      num_experts_per_tok_,
-                      scoring_func_,
-                      norm_topk_prob_,
-                      scores,
-                      token_ids,
-                      tid2eid,
-                      bias,
-                      selected,
-                      weights);
+    select_topk_experts(ntoken, num_experts_, num_experts_per_tok_, scores, bias, selected);
+    weights_from_selected(ntoken, num_experts_, num_experts_per_tok_,
+                          norm_topk_prob_, scores, selected, weights);
     // Match SGLang: keep normalized top-k weights; do not apply routed_scaling_factor here.
+    (void)routed_scaling_;
+
+    auto top_k_weights = float_vector_to_tensor(weights, {ntoken, num_experts_per_tok_},
+                                                infinicore::DataType::F32, device);
+    auto top_k_index = int32_vector_to_tensor(selected, {ntoken, num_experts_per_tok_}, device);
+    return {top_k_weights, top_k_index};
+}
+
+DeepseekV4HashRouter::DeepseekV4HashRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                           size_t layer_idx,
+                                           const infinicore::Device &device)
+    : hidden_size_(model_config->get<size_t>("hidden_size")),
+      num_experts_(model_config->get<size_t>("n_routed_experts")),
+      num_experts_per_tok_(model_config->get<size_t>("num_experts_per_tok")),
+      routed_scaling_(static_cast<float>(model_config->get_or<double>("routed_scaling_factor", 1.0))),
+      scoring_func_(model_config->get_or<std::string>("scoring_func", "sqrtsoftplus")),
+      norm_topk_prob_(model_config->get_or<bool>("norm_topk_prob", true)),
+      layer_idx_(layer_idx) {
+    ASSERT(scoring_func_ == "sqrtsoftplus");
+    const auto &dtype = model_config->get_dtype();
+    INFINICORE_NN_PARAMETER_INIT(weight, ({num_experts_, hidden_size_}, dtype, device));
+
+    const size_t vocab_size = model_config->get<size_t>("vocab_size");
+    INFINICORE_NN_PARAMETER_INIT(tid2eid, ({vocab_size, num_experts_per_tok_}, infinicore::DataType::I64, device));
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+DeepseekV4HashRouter::forward(const infinicore::Tensor &hidden_states,
+                              const infinicore::Tensor &input_ids) const {
+    validate_router_hidden_states(hidden_states, hidden_size_);
+    if (input_ids.empty()) {
+        throw std::runtime_error("DeepseekV4HashRouter: hash-routed layer requires input_ids");
+    }
+
+    const size_t ntoken = hidden_states->shape()[0];
+    const auto device = hidden_states->device();
+    auto logits = compute_router_logits(hidden_states, weight_);
+    auto logits_values = tensor_to_float_vector(logits);
+    if (logits_values.size() != ntoken * num_experts_) {
+        throw std::runtime_error("DeepseekV4HashRouter: router logits shape mismatch");
+    }
+
+    std::vector<float> scores;
+    apply_sqrtsoftplus_scores(scores, logits_values, ntoken, num_experts_);
+
+    auto token_ids = tensor_to_int64_vector(input_ids);
+    if (token_ids.size() != ntoken) {
+        throw std::runtime_error("DeepseekV4HashRouter: input_ids size mismatch");
+    }
+    auto tid2eid = tensor_to_int64_vector(tid2eid_);
+
+    std::vector<int64_t> selected;
+    std::vector<float> weights;
+    select_hash_experts(ntoken, num_experts_per_tok_, token_ids, tid2eid, selected);
+    weights_from_selected(ntoken, num_experts_, num_experts_per_tok_,
+                          norm_topk_prob_, scores, selected, weights);
     (void)routed_scaling_;
 
     auto top_k_weights = float_vector_to_tensor(weights, {ntoken, num_experts_per_tok_},
@@ -315,10 +318,14 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
     if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size_) {
         throw std::runtime_error("DeepseekV4Experts: expected hidden_states shape [N,D]");
     }
-    const bool dense_weights = !gate_weights_.empty()
-                            && gate_weights_.front()->dtype() == hidden_states->dtype()
+    const bool dense_weights = !gate_weights_.empty() && gate_weights_.front()->dtype() == hidden_states->dtype()
                             && up_weights_.front()->dtype() == hidden_states->dtype()
                             && down_weights_.front()->dtype() == hidden_states->dtype();
+
+    // std::cout << "----------->  use_fused_moe_ " << use_fused_moe_ << std::endl;                                                                                                  // 0
+    // std::cout << "----------->  dense_weights " << dense_weights << std::endl;                                                                                                    // 0
+    // std::cout << "----------->   supports_fused_deepseek_moe(hidden_states->device().getType()) " << supports_fused_deepseek_moe(hidden_states->device().getType()) << std::endl; // 1
+
     if (use_fused_moe_
         && dense_weights
         && supports_fused_deepseek_moe(hidden_states->device().getType())
@@ -327,6 +334,7 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
         && (hidden_states->dtype() == infinicore::DataType::BF16
             || hidden_states->dtype() == infinicore::DataType::F16)) {
         try {
+            // printf("-----------> 111 gpu fused moe \n");
             return infinicore::op::deepseek_moe(hidden_states, top_k_index, top_k_weights,
                                                 gate_weights_, up_weights_, down_weights_,
                                                 local_moe_intermediate_size_, num_experts_);
@@ -335,6 +343,7 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
                          static_cast<int>(hidden_states->device().getType()), e.what());
         }
     }
+    //  printf("-----------> 222 cpu fused moe \n");
     return forward_cpu_routed_(hidden_states, top_k_index, top_k_weights);
 }
 
@@ -386,16 +395,23 @@ DeepseekV4MoE::DeepseekV4MoE(std::shared_ptr<infinilm::config::ModelConfig> mode
       layer_idx_(layer_idx) {
     const size_t moe_intermediate_size = model_config->get<size_t>("moe_intermediate_size");
     const size_t num_shared_experts = model_config->get_or<size_t>("n_shared_experts", 0);
+    const size_t num_hash_layers = model_config->get_or<size_t>("num_hash_layers", 0);
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     tp_size_ = static_cast<size_t>(rank_info.tp_size);
     communicator_ = rank_info.comm;
 
-    INFINICORE_NN_MODULE_INIT(gate, model_config, layer_idx, device);
+    if (layer_idx < num_hash_layers) {
+        gate_ = this->register_module<DeepseekV4HashRouter>("gate", model_config, layer_idx, device);
+    } else {
+        gate_ = this->register_module<DeepseekV4TopKRouter>("gate", model_config, layer_idx, device);
+    }
     INFINICORE_NN_MODULE_INIT(experts, model_config, device);
     has_shared_experts_ = num_shared_experts > 0;
     if (num_shared_experts > 0) {
         INFINICORE_NN_MODULE_INIT(shared_experts, model_config, moe_intermediate_size * num_shared_experts, device);
     }
+
+    f32_allreduce_env = std::getenv("DSV4_FFN_F32_ALLREDUCE");
 }
 
 infinicore::Tensor DeepseekV4MoE::forward(const infinicore::Tensor &hidden_states,
@@ -405,15 +421,19 @@ infinicore::Tensor DeepseekV4MoE::forward(const infinicore::Tensor &hidden_state
         throw std::runtime_error("DeepseekV4MoE: expected hidden_states shape [B,S,D]");
     }
     auto hidden_flat = hidden_states->view({shape[0] * shape[1], hidden_size_});
-    auto [routing_weights, selected_experts] = gate_->forward(hidden_flat, input_ids);
+    auto [routing_weights, selected_experts] = std::visit(
+        [&](const auto &gate) {
+            return gate->forward(hidden_flat, input_ids);
+        },
+        gate_);
     auto final_hidden_states = experts_->forward(hidden_flat, selected_experts, routing_weights);
     if (has_shared_experts_) {
-        final_hidden_states = infinicore::op::add(
-            final_hidden_states, shared_experts_->forward_without_allreduce(hidden_flat));
+        final_hidden_states = infinicore::op::add(final_hidden_states, shared_experts_->forward_without_allreduce(hidden_flat));
     }
     if (tp_size_ > 1 && communicator_ != nullptr) {
-        const char *f32_allreduce = std::getenv("DSV4_FFN_F32_ALLREDUCE");
-        if (f32_allreduce != nullptr && std::string(f32_allreduce) == "1") {
+
+        if (f32_allreduce_env != nullptr && std::string(f32_allreduce_env) == "1") {
+
             const auto local_values = tensor_to_float_vector(final_hidden_states);
             auto reduced = float_vector_to_tensor(local_values, final_hidden_states->shape(),
                                                   infinicore::DataType::F32, final_hidden_states->device());
