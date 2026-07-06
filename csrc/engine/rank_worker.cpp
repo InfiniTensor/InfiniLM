@@ -30,9 +30,14 @@ RankWorker::RankWorker(
     }
     // start the thread
     thread_ = std::thread(&RankWorker::thread_loop, this);
-    // Wait until the worker thread finishes initialization (model created)
+}
+
+void RankWorker::wait_for_init() {
     std::unique_lock<std::mutex> lk(mutex_);
-    cv_.wait(lk, [&] { return init_done_; });
+    cv_.wait(lk, [&] { return init_done_ || should_exit_; });
+    if (should_exit_) {
+        throw std::runtime_error("RankWorker failed to initialize");
+    }
 }
 
 std::string RankWorker::info() const {

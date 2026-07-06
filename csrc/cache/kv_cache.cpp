@@ -136,9 +136,7 @@ infinicore::Tensor create_layer_kv_cache(
         kv_shape,
         dtype,
         rank_info.device);
-    set_zeros(kv_cache);
-
-    infinicore::context::syncStream();
+    set_zeros_device_async(kv_cache);
 
     return kv_cache;
 }

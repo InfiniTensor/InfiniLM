@@ -78,6 +78,7 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
                 *paged_kv_cache_config);
             kv_cache_vec.push_back(kv_cache);
         }
+        infinicore::context::syncStream();
         break;
     }
     default:
