@@ -41,23 +41,50 @@ MiniCPMVModel::MiniCPMVModel(std::shared_ptr<infinilm::config::ModelConfig> mode
 
 void MiniCPMVModel::replace_embeddings(infinicore::Tensor inputs_embeds,
                                        const infinicore::Tensor &vision_hidden,
-                                       const infinicore::Tensor &image_bound) const {
+                                       const infinicore::Tensor &image_bound,
+                                       const infinicore::Tensor &image_embed_bound) const {
     auto bounds_cpu = image_bound->to(infinicore::Device::cpu());
+    auto embed_bounds_cpu = image_embed_bound->to(infinicore::Device::cpu());
     auto batch_size = inputs_embeds->size(0);
 
     ASSERT_EQ(batch_size, 1);
     ASSERT_EQ(bounds_cpu->size(0), 1);
+    ASSERT_EQ(bounds_cpu->size(2), 2);
+    ASSERT_EQ(embed_bounds_cpu->size(0), 1);
+    ASSERT_EQ(embed_bounds_cpu->size(1), bounds_cpu->size(1));
+    ASSERT_EQ(embed_bounds_cpu->size(2), 2);
     auto out_slice = inputs_embeds->squeeze(0);
     auto bound_slice = bounds_cpu->squeeze(0);
+    auto embed_bound_slice = embed_bounds_cpu->squeeze(0);
     auto vision_len = vision_hidden->size(0);
+    ASSERT_EQ(vision_len, bound_slice->size(0));
     for (size_t patch = 0; patch < vision_len; ++patch) {
         auto patch_embed = vision_hidden->narrow({{0, patch, 1}})->squeeze(0);
         auto bound = bound_slice->narrow({{0, patch, 1}});
         auto bound_ptr = reinterpret_cast<const int64_t *>(bound->data());
-        auto start = bound_ptr[0];
-        auto end = bound_ptr[1];
+        const int64_t start = bound_ptr[0];
+        const int64_t end = bound_ptr[1];
+        if (start < 0 || end < start) {
+            throw std::runtime_error("MiniCPMVModel: invalid image_bound");
+        }
+        const int64_t dst_len = end - start;
 
-        out_slice->narrow({{0, size_t(start), size_t(end - start)}})->copy_from(patch_embed);
+        auto embed_bound = embed_bound_slice->narrow({{0, patch, 1}});
+        auto embed_bound_ptr = reinterpret_cast<const int64_t *>(embed_bound->data());
+        const int64_t src_start = embed_bound_ptr[0];
+        const int64_t src_end = embed_bound_ptr[1];
+        if (src_start < 0 || src_end < src_start) {
+            throw std::runtime_error("MiniCPMVModel: invalid image_embed_bound");
+        }
+        if (dst_len != src_end - src_start) {
+            throw std::runtime_error("MiniCPMVModel: image_bound and image_embed_bound length mismatch");
+        }
+        if (static_cast<size_t>(end) > out_slice->size(0) || static_cast<size_t>(src_end) > patch_embed->size(0)) {
+            throw std::runtime_error("MiniCPMVModel: multimodal embedding bounds are out of range");
+        }
+
+        out_slice->narrow({{0, static_cast<size_t>(start), static_cast<size_t>(dst_len)}})
+            ->copy_from(patch_embed->narrow({{0, static_cast<size_t>(src_start), static_cast<size_t>(dst_len)}}));
     }
 }
 
@@ -74,18 +101,50 @@ InfinilmModel::Output MiniCPMVModel::forward(const InfinilmModel::Input &input) 
         if (input.pixel_values->size() != input.image_bound->size() || input.pixel_values->size() != input.tgt_sizes->size()) {
             throw std::runtime_error("MiniCPMVModel: pixel_values, image_bound and tgt_sizes must have the same number of elements");
         }
+        const auto &mm_metadata = global_state::get_forward_context().mm_metadata;
+        if (!mm_metadata.image_req_ids.has_value()) {
+            throw std::runtime_error("MiniCPMVModel: image_req_ids must be provided with pixel_values");
+        }
+        const auto &image_req_ids = mm_metadata.image_req_ids.value();
+        if (input.pixel_values->size() != image_req_ids.size()) {
+            throw std::runtime_error("MiniCPMVModel: multimodal tensor lists must match image_req_ids");
+        }
+        if (!input.image_embed_bound.has_value()) {
+            throw std::runtime_error("MiniCPMVModel: image_embed_bound must be provided with pixel_values");
+        }
+        if (input.image_embed_bound->size() != image_req_ids.size()) {
+            throw std::runtime_error("MiniCPMVModel: image_embed_bound must match image_req_ids");
+        }
 
         auto inputs_embeds = llm_->model().embed_tokens(input_ids);
 
         // inputs_embeds concat tokens from all requests, while images are processed per request
         // slice inputs_embeds using request offsets to get the embedding of each request
+        if (!input.input_offsets.has_value()) {
+            throw std::runtime_error("MiniCPMVModel: input_offsets is required with pixel_values");
+        }
         infinicore::Tensor input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device::cpu());
         int32_t *offsets = (int32_t *)(input_offsets_cpu->data());
-        for (size_t i : global_state::get_forward_context().mm_metadata.image_req_ids.value()) {
-            auto pixel_values = input.pixel_values.value().at(i);
-            auto vision_embedding = vpm_->forward(pixel_values, input.tgt_sizes.value().at(i));
-            auto vision_hidden = resampler_->forward(vision_embedding, input.tgt_sizes.value().at(i));
-            replace_embeddings(inputs_embeds->narrow({{1, size_t(offsets[i]), size_t(offsets[i + 1] - offsets[i])}}), vision_hidden, input.image_bound.value().at(i));
+        const size_t num_offsets = input_offsets_cpu->size(0);
+        for (size_t media_idx = 0; media_idx < image_req_ids.size(); ++media_idx) {
+            const size_t req_id = image_req_ids[media_idx];
+            if (num_offsets < 2 || req_id >= num_offsets - 1) {
+                throw std::runtime_error("MiniCPMVModel: image_req_ids is out of input_offsets range");
+            }
+            const int32_t req_start = offsets[req_id];
+            const int32_t req_end = offsets[req_id + 1];
+            if (req_start < 0 || req_end < req_start) {
+                throw std::runtime_error("MiniCPMVModel: invalid input_offsets");
+            }
+            auto pixel_values = input.pixel_values.value().at(media_idx);
+            auto tgt_sizes = input.tgt_sizes.value().at(media_idx);
+            auto vision_embedding = vpm_->forward(pixel_values, tgt_sizes);
+            auto vision_hidden = resampler_->forward(vision_embedding, tgt_sizes);
+            replace_embeddings(
+                inputs_embeds->narrow({{1, static_cast<size_t>(req_start), static_cast<size_t>(req_end - req_start)}}),
+                vision_hidden,
+                input.image_bound.value().at(media_idx),
+                input.image_embed_bound.value().at(media_idx));
         }
 
         auto hidden_states = llm_->model().forward_embeds(

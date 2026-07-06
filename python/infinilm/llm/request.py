@@ -12,6 +12,7 @@ from typing import List, Optional
 import janus
 
 from infinilm.llm.sampling_params import SamplingParams
+from infinilm.multimodal.features import MMFeature
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,7 @@ class InferenceRequest:
         prompt: Optional[str] = None,
         prompt_token_ids: Optional[List[int]] = None,
         processed_inputs: Optional[dict] = None,
-        mm_token_index_mappings: Optional[List[dict]] = None,
+        mm_features: Optional[List[MMFeature]] = None,
         sampling_params: Optional[SamplingParams] = None,
         eos_token_ids: Optional[List[int]] = None,
         arrival_time: Optional[float] = None,
@@ -138,7 +139,9 @@ class InferenceRequest:
         )
         self.prompt_length: int = len(self.prompt_token_ids)
         self.processed_inputs: Optional[dict] = processed_inputs
-        self.mm_token_index_mappings: Optional[List[dict]] = mm_token_index_mappings
+        self.mm_features: List[MMFeature] = (
+            mm_features if mm_features is not None else []
+        )
         self.priority: int = 0
 
         # Sampling & stopping criteria
@@ -161,6 +164,8 @@ class InferenceRequest:
         )
         self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
         self.num_blocks: int = 0
+        self.scheduled_prefill_start: int = 0
+        self.scheduled_prefill_end: int = self.prompt_length
 
         # Mamba cache management. None means no mamba cache row is currently owned.
         self.mamba_cache_index: Optional[int] = None
@@ -208,8 +213,19 @@ class InferenceRequest:
     def get_max_tokens(self) -> Optional[int]:
         return self.sampling_params.max_tokens
 
-    def get_mm_token_index_mappings(self) -> Optional[List[dict]]:
-        return self.mm_token_index_mappings
+    def get_mm_features(self) -> List[MMFeature]:
+        return self.mm_features
+
+    def set_scheduled_prefill_window(self, start: int, end: int) -> None:
+        assert 0 <= start <= end <= self.prompt_length, (
+            f"Invalid prefill window [{start}, {end}) for prompt length "
+            f"{self.prompt_length}"
+        )
+        self.scheduled_prefill_start = start
+        self.scheduled_prefill_end = end
+
+    def get_scheduled_prefill_window(self) -> tuple[int, int]:
+        return self.scheduled_prefill_start, self.scheduled_prefill_end
 
     def is_finished(self) -> bool:
         return self.status in [

@@ -173,6 +173,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(mamba_final_state_indices),
         to_device_vec(pixel_values),
         to_device_vec(image_bound),
+        to_device_vec(image_embed_bound),
         to_device_vec(tgt_sizes),
         visual_token_ranges,
     };

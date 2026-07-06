@@ -207,7 +207,8 @@ class BasicLLMProcessor(InfinilmProcessor):
             if scheduler_output.is_prefill:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
+                compute_start, compute_end = req.get_scheduled_prefill_window()
+                tokens_to_compute = req_tokens[compute_start:compute_end]
                 tokens.extend(tokens_to_compute)
 
                 compute_len = len(tokens_to_compute)
@@ -218,8 +219,8 @@ class BasicLLMProcessor(InfinilmProcessor):
                 seq_offsets.append(current_offset)
 
                 slot_mapping.extend(req.slot_mapping)
-                cached_lens.append(num_cached)
-                position_ids.extend(range(num_cached, num_cached + compute_len))
+                cached_lens.append(compute_start)
+                position_ids.extend(range(compute_start, compute_start + compute_len))
 
             else:
                 # Decode phase
@@ -269,5 +270,17 @@ class BasicLLMProcessor(InfinilmProcessor):
     @override
     def get_mm_token_index_list(
         self, prompt_token_ids, image_ids=None, video_ids=None, audio_ids=None, **kwargs
+    ):
+        return []
+
+    @override
+    def get_mm_features(
+        self,
+        prompt_token_ids,
+        processed_inputs=None,
+        image_ids=None,
+        video_ids=None,
+        audio_ids=None,
+        **kwargs,
     ):
         return []

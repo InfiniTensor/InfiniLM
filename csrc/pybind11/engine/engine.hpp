@@ -144,6 +144,7 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<infinicore::Tensor> mamba_final_state_indices,
                          std::optional<std::vector<infinicore::Tensor>> pixel_values,
                          std::optional<std::vector<infinicore::Tensor>> image_bound,
+                         std::optional<std::vector<infinicore::Tensor>> image_embed_bound,
                          std::optional<std::vector<infinicore::Tensor>> tgt_sizes,
                          std::optional<std::vector<size_t>> image_req_ids,
                          std::optional<std::vector<size_t>> visual_token_ranges,
@@ -161,6 +162,7 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(mamba_final_state_indices),
                     std::move(pixel_values),
                     std::move(image_bound),
+                    std::move(image_embed_bound),
                     std::move(tgt_sizes),
                     std::move(image_req_ids),
                     std::move(visual_token_ranges),
@@ -209,6 +211,7 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("mamba_final_state_indices") = std::nullopt,
             py::arg("pixel_values") = std::nullopt,
             py::arg("image_bound") = std::nullopt,
+            py::arg("image_embed_bound") = std::nullopt,
             py::arg("tgt_sizes") = std::nullopt,
             py::arg("image_req_ids") = std::nullopt,
             py::arg("visual_token_ranges") = std::nullopt)
@@ -224,6 +227,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("mamba_final_state_indices", &InferEngine::Input::mamba_final_state_indices)
         .def_readwrite("pixel_values", &InferEngine::Input::pixel_values)
         .def_readwrite("image_bound", &InferEngine::Input::image_bound)
+        .def_readwrite("image_embed_bound", &InferEngine::Input::image_embed_bound)
         .def_readwrite("tgt_sizes", &InferEngine::Input::tgt_sizes)
         .def_readwrite("image_req_ids", &InferEngine::Input::image_req_ids)
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)

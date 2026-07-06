@@ -37,10 +37,24 @@ class InfinilmProcessor:
         self, prompt_token_ids, image_ids=None, video_ids=None, audio_ids=None, **kwargs
     ):
         """
-        Get the list of starting token index and identifier mapping for multimodal inputs, sorted by index.
+        Legacy/helper API for placeholder range parsing.
+
+        New scheduling and prefix-cache code should use get_mm_features().
         Return: [{"start_index": <token_id>, "identifier": <id>}, ...]
         """
         raise NotImplementedError("get_mm_token_index_list is not implemented yet")
+
+    def get_mm_features(
+        self,
+        prompt_token_ids,
+        processed_inputs=None,
+        image_ids=None,
+        video_ids=None,
+        audio_ids=None,
+        **kwargs,
+    ):
+        """Return normalized multimodal features for scheduling and prefix caching."""
+        raise NotImplementedError("get_mm_features is not implemented yet")
 
 
 # Global registry mapping model_type strings to their Processor classes
