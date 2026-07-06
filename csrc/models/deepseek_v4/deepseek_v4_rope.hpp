@@ -57,7 +57,7 @@ private:
     infinicore::Tensor forward_gpu_(const infinicore::Tensor &x,
                                     const std::vector<int64_t> &positions) const;
     infinicore::Tensor forward_cpu_(const infinicore::Tensor &x,
-                                      const std::vector<int64_t> &positions) const;
+                                    const std::vector<int64_t> &positions) const;
 
     DeepseekV4RopeParams params_;
     size_t compress_ratio_{0};

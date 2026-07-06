@@ -432,8 +432,7 @@ void fill_mhc_params_from_mixes(DeepseekV4MHCParams &params,
 
         for (size_t i = 0; i < hc_mult; ++i) {
             params.pre[pre_offset + i] = sigmoid(coeffs.scale[0] * mix[i] + coeffs.base[i]) + static_cast<float>(eps);
-            params.post[pre_offset + i] =
-                2.0f * sigmoid(coeffs.scale[1] * mix[hc_mult + i] + coeffs.base[hc_mult + i]);
+            params.post[pre_offset + i] = 2.0f * sigmoid(coeffs.scale[1] * mix[hc_mult + i] + coeffs.base[hc_mult + i]);
         }
 
         for (size_t i = 0; i < hc_mult; ++i) {
@@ -505,11 +504,11 @@ void ensure_mhc_gpu_cache(DeepseekV4MHCCoeffs &cache,
 }
 
 void ensure_mhc_head_coeffs_cached(DeepseekV4MHCCoeffs &cache,
-                                  const infinicore::Tensor &base,
-                                  const infinicore::Tensor &fn,
-                                  const infinicore::Tensor &scale,
-                                  size_t hc_mult,
-                                  size_t hidden_size) {
+                                   const infinicore::Tensor &base,
+                                   const infinicore::Tensor &fn,
+                                   const infinicore::Tensor &scale,
+                                   size_t hc_mult,
+                                   size_t hidden_size) {
     const size_t flat_dim = hc_mult * hidden_size;
     if (cache.mix_hc == hc_mult && cache.flat_dim == flat_dim) {
         return;
@@ -564,11 +563,11 @@ std::vector<float> compute_mhc_mixes_cpu(const infinicore::Tensor &x,
 }
 
 std::vector<float> compute_mhc_mixes(const infinicore::Tensor &x,
-                                   const infinicore::Tensor &fn,
-                                   DeepseekV4MHCCoeffs &coeffs,
-                                   size_t hc_mult,
-                                   size_t hidden_size,
-                                   double eps) {
+                                     const infinicore::Tensor &fn,
+                                     DeepseekV4MHCCoeffs &coeffs,
+                                     size_t hc_mult,
+                                     size_t hidden_size,
+                                     double eps) {
     const auto shape = x->shape();
     const size_t batch_size = shape[0];
     const size_t seq_len = shape[1];
@@ -656,14 +655,14 @@ DeepseekV4MHCParams build_mhc_params(const infinicore::Tensor &x,
 }
 
 DeepseekV4MHCPrepareResult mhc_prepare(const infinicore::Tensor &x,
-                                        const infinicore::Tensor &base,
-                                        const infinicore::Tensor &fn,
-                                        const infinicore::Tensor &scale,
-                                        DeepseekV4MHCCoeffs &coeffs_cache,
-                                        size_t hc_mult,
-                                        size_t hidden_size,
-                                        size_t sinkhorn_iters,
-                                        double eps) {
+                                       const infinicore::Tensor &base,
+                                       const infinicore::Tensor &fn,
+                                       const infinicore::Tensor &scale,
+                                       DeepseekV4MHCCoeffs &coeffs_cache,
+                                       size_t hc_mult,
+                                       size_t hidden_size,
+                                       size_t sinkhorn_iters,
+                                       double eps) {
     ensure_mhc_coeffs_cached(coeffs_cache, base, fn, scale, hc_mult, hidden_size);
 
     const auto shape = x->shape();
@@ -832,9 +831,8 @@ infinicore::Tensor mhc_head_pre(const infinicore::Tensor &x,
     const auto mixes = compute_mhc_mixes(x, fn, coeffs_cache, hc_mult, hidden_size, eps);
     for (size_t token = 0; token < params.batch_size * params.seq_len; ++token) {
         for (size_t h = 0; h < hc_mult; ++h) {
-            params.pre[token * hc_mult + h] =
-                sigmoid(coeffs_cache.scale[0] * mixes[token * hc_mult + h] + coeffs_cache.base[h])
-                + static_cast<float>(eps);
+            params.pre[token * hc_mult + h] = sigmoid(coeffs_cache.scale[0] * mixes[token * hc_mult + h] + coeffs_cache.base[h])
+                                            + static_cast<float>(eps);
         }
     }
 
