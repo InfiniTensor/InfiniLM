@@ -82,12 +82,11 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     }
 
     // 4. Apply RoPE to QK
-    auto q_rope = infinicore::Tensor::empty({batch_size, num_attention_heads_, seq_len, head_dim_}, q_reshaped->dtype(), q_reshaped->device())->permute({0, 2, 1, 3});
-    rotary_emb_->forward(q_rope, q_reshaped, pos_ids_for_rope);
+    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
     rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
 
     // 5. Attn Backend calculate
-    auto attn_output = attn_->forward(q_rope, k_reshaped, v_reshaped);
+    auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
 
     // 7. Project output
     auto output = o_proj_->forward(attn_output);
