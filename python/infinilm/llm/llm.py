@@ -411,7 +411,7 @@ class LLM:
         for content in contents:
             request_id = f"cmpl-{uuid.uuid4().hex}"
             processed_inputs = None
-            mm_index_mappings = None
+            mm_features = None
             if apply_chat_template:
                 prompt = self.engine.apply_chat_template(
                     content, add_generation_prompt=True
@@ -428,8 +428,9 @@ class LLM:
                 )
 
                 prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
-                mm_index_mappings = self.engine.processor.get_mm_token_index_list(
+                mm_features = self.engine.processor.get_mm_features(
                     prompt_token_ids,
+                    processed_inputs=processed_inputs,
                     image_ids=mm_inputs["image_urls"],
                     video_ids=mm_inputs["video_urls"],
                     audio_ids=mm_inputs["audio_urls"],
@@ -443,7 +444,7 @@ class LLM:
                 prompt=prompt,
                 prompt_token_ids=prompt_token_ids,
                 processed_inputs=processed_inputs,
-                mm_token_index_mappings=mm_index_mappings,
+                mm_features=mm_features,
                 sampling_params=sampling_params,
                 eos_token_ids=self.engine.eos_token_ids,
             )
@@ -743,7 +744,7 @@ class AsyncLLMEngine:
         if request_id is None:
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
-        mm_index_mappings = None
+        mm_features = None
         processed_inputs = None
 
         if prompt_token_ids is not None:
@@ -774,8 +775,9 @@ class AsyncLLMEngine:
             )
 
             prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
-            mm_index_mappings = self.engine.processor.get_mm_token_index_list(
+            mm_features = self.engine.processor.get_mm_features(
                 prompt_token_ids,
+                processed_inputs=processed_inputs,
                 image_ids=mm_inputs["image_urls"],
                 video_ids=mm_inputs["video_urls"],
                 audio_ids=mm_inputs["audio_urls"],
@@ -792,7 +794,7 @@ class AsyncLLMEngine:
             prompt=prompt,
             prompt_token_ids=prompt_token_ids,
             processed_inputs=processed_inputs,
-            mm_token_index_mappings=mm_index_mappings,
+            mm_features=mm_features,
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,

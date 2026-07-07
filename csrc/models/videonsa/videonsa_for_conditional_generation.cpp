@@ -25,6 +25,34 @@ std::shared_ptr<infinilm::config::ModelConfig> text_config_from(std::shared_ptr<
     return std::make_shared<infinilm::config::ModelConfig>(text_config_json);
 }
 
+size_t visual_length_from_grid(const infinicore::Tensor &grid_tensor,
+                               size_t spatial_merge_size) {
+    if (spatial_merge_size == 0) {
+        throw std::runtime_error("VideoNSAForConditionalGeneration: spatial_merge_size must be positive");
+    }
+    auto grid_cpu = grid_tensor->to(infinicore::Device::cpu());
+    auto rows = grid_cpu->size(0);
+    auto grid_ptr = reinterpret_cast<const int64_t *>(grid_cpu->data());
+    size_t total = 0;
+    for (size_t i = 0; i < rows; ++i) {
+        const int64_t grid_t_i = grid_ptr[i * 3];
+        const int64_t grid_h_i = grid_ptr[i * 3 + 1];
+        const int64_t grid_w_i = grid_ptr[i * 3 + 2];
+        if (grid_t_i <= 0 || grid_h_i <= 0 || grid_w_i <= 0) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: invalid grid_thw");
+        }
+        if (grid_h_i % static_cast<int64_t>(spatial_merge_size) != 0
+            || grid_w_i % static_cast<int64_t>(spatial_merge_size) != 0) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: grid_thw is not divisible by spatial_merge_size");
+        }
+        const size_t grid_t = static_cast<size_t>(grid_t_i);
+        const size_t llm_grid_h = static_cast<size_t>(grid_h_i / static_cast<int64_t>(spatial_merge_size));
+        const size_t llm_grid_w = static_cast<size_t>(grid_w_i / static_cast<int64_t>(spatial_merge_size));
+        total += grid_t * llm_grid_h * llm_grid_w;
+    }
+    return total;
+}
+
 } // namespace
 
 VideoNSAForConditionalGeneration::VideoNSAForConditionalGeneration(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -42,40 +70,84 @@ VideoNSAForConditionalGeneration::VideoNSAForConditionalGeneration(std::shared_p
 
 void VideoNSAForConditionalGeneration::replace_embeddings(infinicore::Tensor inputs_embeds,
                                                           const infinicore::Tensor &vision_hidden,
-                                                          const infinicore::Tensor &image_bound) const {
+                                                          const infinicore::Tensor &image_bound,
+                                                          const infinicore::Tensor &image_embed_bound) const {
     auto bounds_cpu = image_bound->to(infinicore::Device::cpu());
+    auto embed_bounds_cpu = image_embed_bound->to(infinicore::Device::cpu());
+    ASSERT_EQ(inputs_embeds->size(0), 1);
+    ASSERT_EQ(bounds_cpu->size(0), 1);
+    ASSERT_EQ(bounds_cpu->size(2), 2);
+    ASSERT_EQ(embed_bounds_cpu->size(0), 1);
+    ASSERT_EQ(embed_bounds_cpu->size(1), bounds_cpu->size(1));
+    ASSERT_EQ(embed_bounds_cpu->size(2), 2);
     auto out_slice = inputs_embeds->squeeze(0);
     auto bound_slice = bounds_cpu->squeeze(0);
+    auto embed_bound_slice = embed_bounds_cpu->squeeze(0);
     auto bound_count = bound_slice->size(0);
-    size_t vision_offset = 0;
     for (size_t i = 0; i < bound_count; ++i) {
         auto bound = bound_slice->narrow({{0, i, 1}});
         auto bound_ptr = reinterpret_cast<const int64_t *>(bound->data());
-        auto start = bound_ptr[0];
-        auto end = bound_ptr[1];
-        if (end <= start) {
+        const int64_t start = bound_ptr[0];
+        const int64_t end = bound_ptr[1];
+        if (start < 0 || end < start) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: invalid image_bound");
+        }
+        if (start == end) {
             continue;
         }
         const size_t len = static_cast<size_t>(end - start);
-        auto patch_embed = vision_hidden->narrow({{0, vision_offset, len}});
+
+        auto embed_bound = embed_bound_slice->narrow({{0, i, 1}});
+        auto embed_bound_ptr = reinterpret_cast<const int64_t *>(embed_bound->data());
+        const int64_t src_start_i = embed_bound_ptr[0];
+        const int64_t src_end_i = embed_bound_ptr[1];
+        if (src_start_i < 0 || src_end_i < src_start_i) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: invalid image_embed_bound");
+        }
+        if (src_end_i - src_start_i != static_cast<int64_t>(len)) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: image_bound and image_embed_bound length mismatch");
+        }
+        const size_t src_start = static_cast<size_t>(src_start_i);
+        const size_t src_len = len;
+        if (static_cast<size_t>(end) > out_slice->size(0)
+            || src_start > vision_hidden->size(0)
+            || src_len > vision_hidden->size(0) - src_start) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: multimodal embedding bounds are out of range");
+        }
+        auto patch_embed = vision_hidden->narrow({{0, src_start, src_len}});
         out_slice->narrow({{0, size_t(start), len}})->copy_from(patch_embed);
-        vision_offset += len;
     }
 }
 
 infinilm::InfinilmModel::Output VideoNSAForConditionalGeneration::forward(const infinilm::InfinilmModel::Input &input) const {
     if (input.pixel_values.has_value() && input.pixel_values.value().size() > 0) {
+        if (!input.input_ids.has_value()) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: input_ids is required");
+        }
         if (!input.image_bound.has_value() || !input.tgt_sizes.has_value()) {
             throw std::runtime_error("VideoNSAForConditionalGeneration: image_bound and tgt_sizes must be provided with pixel_values");
+        }
+        if (!input.input_offsets.has_value()) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: input_offsets is required with pixel_values");
         }
         auto input_ids = input.input_ids.value();
         auto inputs_embeds = model_->embed_tokens(input_ids);
         auto input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device::cpu());
         int32_t *offsets = reinterpret_cast<int32_t *>(input_offsets_cpu->data());
 
-        const auto &image_req_ids = global_state::get_forward_context().mm_metadata.image_req_ids.value();
+        const auto &mm_metadata = global_state::get_forward_context().mm_metadata;
+        if (!mm_metadata.image_req_ids.has_value()) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: image_req_ids must be provided with pixel_values");
+        }
+        const auto &image_req_ids = mm_metadata.image_req_ids.value();
         if (input.pixel_values->size() != image_req_ids.size() || input.image_bound->size() != image_req_ids.size() || input.tgt_sizes->size() != image_req_ids.size()) {
             throw std::runtime_error("VideoNSAForConditionalGeneration: multimodal tensor lists must match image_req_ids");
+        }
+        if (!input.image_embed_bound.has_value()) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: image_embed_bound must be provided with pixel_values");
+        }
+        if (input.image_embed_bound->size() != image_req_ids.size()) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: image_embed_bound must match image_req_ids");
         }
 
         std::vector<infinicore::Tensor> pixel_tensors;
@@ -91,24 +163,40 @@ infinilm::InfinilmModel::Output VideoNSAForConditionalGeneration::forward(const 
         auto batched_vision_hidden = visual_->forward(batched_pixels, batched_grids);
 
         size_t vision_offset = 0;
+        size_t spatial_merge_size = 2;
+        const auto &vision_config = model_config_->get_config_json()["vision_config"];
+        if (vision_config.contains("spatial_merge_size")) {
+            spatial_merge_size = vision_config["spatial_merge_size"].get<size_t>();
+        }
+        const size_t num_offsets = input_offsets_cpu->size(0);
         for (size_t media_idx = 0; media_idx < image_req_ids.size(); ++media_idx) {
             const size_t req_id = image_req_ids[media_idx];
-            auto bounds_cpu = input.image_bound.value().at(media_idx)->to(infinicore::Device::cpu())->squeeze(0);
-            auto bound_count = bounds_cpu->size(0);
-            auto bounds = reinterpret_cast<const int64_t *>(bounds_cpu->data());
-            size_t vision_len = 0;
-            for (size_t i = 0; i < bound_count; ++i) {
-                auto start = bounds[i * 2];
-                auto end = bounds[i * 2 + 1];
-                if (end > start) {
-                    vision_len += static_cast<size_t>(end - start);
-                }
+            if (num_offsets < 2 || req_id >= num_offsets - 1) {
+                throw std::runtime_error("VideoNSAForConditionalGeneration: image_req_ids is out of input_offsets range");
+            }
+            const int32_t req_start = offsets[req_id];
+            const int32_t req_end = offsets[req_id + 1];
+            if (req_start < 0 || req_end < req_start) {
+                throw std::runtime_error("VideoNSAForConditionalGeneration: invalid input_offsets");
+            }
+            auto grid_tensor = input.tgt_sizes.value().at(media_idx);
+            const size_t vision_len = visual_length_from_grid(grid_tensor, spatial_merge_size);
+            if (vision_offset > batched_vision_hidden->size(0)
+                || vision_len > batched_vision_hidden->size(0) - vision_offset) {
+                throw std::runtime_error("VideoNSAForConditionalGeneration: visual hidden size does not match tgt_sizes");
             }
 
             auto vision_hidden = batched_vision_hidden->narrow({{0, vision_offset, vision_len}});
-            auto req_embeds = inputs_embeds->narrow({{1, size_t(offsets[req_id]), size_t(offsets[req_id + 1] - offsets[req_id])}});
-            replace_embeddings(req_embeds, vision_hidden, input.image_bound.value().at(media_idx));
+            auto req_embeds = inputs_embeds->narrow({{1, static_cast<size_t>(req_start), static_cast<size_t>(req_end - req_start)}});
+            replace_embeddings(
+                req_embeds,
+                vision_hidden,
+                input.image_bound.value().at(media_idx),
+                input.image_embed_bound.value().at(media_idx));
             vision_offset += vision_len;
+        }
+        if (vision_offset != batched_vision_hidden->size(0)) {
+            throw std::runtime_error("VideoNSAForConditionalGeneration: unused visual hidden states after replacement");
         }
 
         auto hidden_states = model_->forward_embeds(inputs_embeds, input.position_ids.value());

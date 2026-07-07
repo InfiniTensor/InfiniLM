@@ -4,6 +4,13 @@ import torch
 from transformers import AutoConfig, AutoProcessor
 from typing_extensions import override
 
+from infinilm.multimodal.features import (
+    MMFeature,
+    MMFeaturePart,
+    MMPlaceholderRange,
+    iter_mm_parts,
+)
+
 from .processor import InfinilmProcessor, register_processor
 
 
@@ -226,6 +233,127 @@ class VideoNSAProcessor(InfinilmProcessor):
         except Exception:
             return 1.0
 
+    @staticmethod
+    def _append_mm_data(mm_data: dict, key: str, value):
+        mm_data.setdefault(key, []).append(value)
+
+    def _media_payloads(self, processed_inputs):
+        payloads = {"image": [], "video": []}
+        if processed_inputs is None:
+            return payloads
+
+        pixel_values = processed_inputs.get("pixel_values")
+        image_grids = self._grid_list(processed_inputs, "image_grid_thw")
+        if pixel_values is not None:
+            offset = 0
+            for grid in image_grids:
+                grid_tensor = torch.as_tensor(grid, dtype=torch.int64)
+                patch_count = int(grid_tensor.prod().item())
+                payloads["image"].append(
+                    (pixel_values[offset : offset + patch_count], grid_tensor)
+                )
+                offset += patch_count
+
+        pixel_values_videos = processed_inputs.get("pixel_values_videos")
+        video_grids = self._grid_list(processed_inputs, "video_grid_thw")
+        if pixel_values_videos is not None:
+            offset = 0
+            for grid in video_grids:
+                grid_tensor = torch.as_tensor(grid, dtype=torch.int64)
+                patch_count = int(grid_tensor.prod().item())
+                payloads["video"].append(
+                    (pixel_values_videos[offset : offset + patch_count], grid_tensor)
+                )
+                offset += patch_count
+
+        return payloads
+
+    def _append_request_mm_data(
+        self,
+        mm_data: dict,
+        req,
+        req_batch_index: int,
+        compute_start: int,
+        compute_end: int,
+        packed_request_start: int,
+    ) -> None:
+        if req.processed_inputs is None or "image_bound" not in req.processed_inputs:
+            return
+
+        import infinicore
+
+        payloads = self._media_payloads(req.processed_inputs)
+        selected = []
+
+        for feature, part in iter_mm_parts(req.get_mm_features()):
+            if feature.modality not in payloads:
+                continue
+
+            copy_start = max(part.token_start, compute_start)
+            copy_end = min(part.token_end, compute_end)
+            if copy_start >= copy_end:
+                continue
+
+            item_index = part.item_index
+            if item_index >= len(payloads[feature.modality]):
+                raise IndexError(
+                    f"VideoNSA {feature.modality} item_index={item_index} exceeds "
+                    f"processed input count {len(payloads[feature.modality])}"
+                )
+
+            dst_start = copy_start - compute_start
+            dst_end = copy_end - compute_start
+            src_start = part.embed_start + (copy_start - part.token_start)
+            src_end = part.embed_start + (copy_end - part.token_start)
+            selected.append(
+                (
+                    feature.modality,
+                    payloads[feature.modality][item_index],
+                    dst_start,
+                    dst_end,
+                    src_start,
+                    src_end,
+                )
+            )
+
+        if not selected:
+            return
+
+        for modality, payload, dst_start, dst_end, src_start, src_end in selected:
+            pixel_tensor = payload[0].to(self.pixel_values_dtype).contiguous()
+            grid_tensor = payload[1].reshape(1, 3).to(torch.int64)
+            image_bound_tensor = torch.tensor(
+                [[[dst_start, dst_end]]],
+                dtype=torch.int64,
+            )
+            image_embed_bound_tensor = torch.tensor(
+                [[[src_start, src_end]]],
+                dtype=torch.int64,
+            )
+
+            self._append_mm_data(
+                mm_data, "pixel_values", infinicore.from_torch(pixel_tensor)
+            )
+            self._append_mm_data(
+                mm_data, "tgt_sizes", infinicore.from_torch(grid_tensor)
+            )
+            self._append_mm_data(
+                mm_data, "image_bound", infinicore.from_torch(image_bound_tensor)
+            )
+            self._append_mm_data(
+                mm_data,
+                "image_embed_bound",
+                infinicore.from_torch(image_embed_bound_tensor),
+            )
+            self._append_mm_data(mm_data, "image_req_ids", req_batch_index)
+
+            mm_data.setdefault("visual_token_ranges", []).extend(
+                [
+                    packed_request_start + int(dst_start),
+                    packed_request_start + int(dst_end),
+                ]
+            )
+
     def _append_text_positions(self, axes, length, start_pos):
         if length <= 0:
             return start_pos
@@ -374,88 +502,32 @@ class VideoNSAProcessor(InfinilmProcessor):
             num_cached = req.num_local_cached_tokens
             if scheduler_output.is_prefill:
                 req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
+                compute_start, compute_end = req.get_scheduled_prefill_window()
+                tokens_to_compute = req_tokens[compute_start:compute_end]
                 tokens.extend(tokens_to_compute)
                 compute_len = len(tokens_to_compute)
                 seq_len = len(req_tokens)
                 seq_lens.append(seq_len)
+                packed_request_start = current_offset
                 current_offset += compute_len
                 seq_offsets.append(current_offset)
-                cached_lens.append(num_cached)
+                cached_lens.append(compute_start)
                 prompt_positions = self._prompt_mrope_positions(
                     req_tokens, req.processed_inputs
                 )
                 for axis in range(3):
                     position_axes[axis].extend(
-                        prompt_positions[axis][num_cached : num_cached + compute_len]
+                        prompt_positions[axis][compute_start:compute_end]
                     )
 
-                if (
-                    req.processed_inputs is not None
-                    and "image_bound" in req.processed_inputs
-                ):
-                    image_bound = req.processed_inputs["image_bound"]
-                    bounds = image_bound[0]
-                    bounds = bounds[bounds[:, 1] > bounds[:, 0]]
-                    num_cached_media = (bounds[:, 1] <= num_cached).sum().item()
-                    if num_cached_media < len(bounds):
-                        grids = []
-                        tensors = []
-                        offset = 0
-                        pixel_values = req.processed_inputs.get("pixel_values")
-                        image_grid = req.processed_inputs.get("image_grid_thw")
-                        if pixel_values is not None:
-                            for media_idx, grid in enumerate(image_grid):
-                                patch_count = int(grid.prod().item())
-                                if media_idx >= num_cached_media:
-                                    grids.append(grid)
-                                    tensors.append(
-                                        pixel_values[offset : offset + patch_count]
-                                    )
-                                offset += patch_count
-                        pixel_values_videos = req.processed_inputs.get(
-                            "pixel_values_videos"
-                        )
-                        video_grid = req.processed_inputs.get("video_grid_thw")
-                        if pixel_values_videos is not None:
-                            offset = 0
-                            base = 0 if image_grid is None else len(image_grid)
-                            for media_idx, grid in enumerate(video_grid):
-                                patch_count = int(grid.prod().item())
-                                if base + media_idx >= num_cached_media:
-                                    grids.append(grid)
-                                    tensors.append(
-                                        pixel_values_videos[
-                                            offset : offset + patch_count
-                                        ]
-                                    )
-                                offset += patch_count
-                        if tensors:
-                            pixel_tensor = torch.cat(tensors, dim=0).to(
-                                self.pixel_values_dtype
-                            )
-                            grid_tensor = torch.stack(grids).to(torch.int64)
-                            bound = (
-                                bounds[num_cached_media:].unsqueeze(0).to(torch.int64)
-                            )
-                            mm_data.setdefault("pixel_values", []).append(
-                                infinicore.from_torch(pixel_tensor)
-                            )
-                            mm_data.setdefault("tgt_sizes", []).append(
-                                infinicore.from_torch(grid_tensor)
-                            )
-                            mm_data.setdefault("image_bound", []).append(
-                                infinicore.from_torch(bound)
-                            )
-                            mm_data.setdefault("image_req_ids", []).append(req_id)
-                            if pixel_values_videos is not None:
-                                for start, end in bound.squeeze(0).tolist():
-                                    if end > start:
-                                        packed_start = seq_offsets[-2] + int(start)
-                                        packed_end = seq_offsets[-2] + int(end)
-                                        mm_data.setdefault(
-                                            "visual_token_ranges", []
-                                        ).extend([packed_start, packed_end])
+                self._append_request_mm_data(
+                    mm_data,
+                    req,
+                    req_id,
+                    compute_start,
+                    compute_end,
+                    packed_request_start,
+                )
             else:
                 seq_len = req.get_total_length()
                 last_token = (
@@ -516,40 +588,149 @@ class VideoNSAProcessor(InfinilmProcessor):
     def get_mm_token_index_list(
         self, prompt_token_ids, image_ids=None, video_ids=None, **kwargs
     ):
-        ids = list(image_ids or []) + list(video_ids or [])
+        image_ids = list(image_ids or [])
+        video_ids = list(video_ids or [])
         out = []
-        media_idx = 0
+        image_idx = 0
+        video_idx = 0
+        data_index = 0
         start = None
         current = None
-        for i, token_id in enumerate(prompt_token_ids):
-            if token_id in (self.image_token_id, self.video_token_id):
-                if start is None:
-                    start = i
-                    current = token_id
-                elif current != token_id:
-                    out.append(
-                        {
-                            "start_index": start,
-                            "end_index": i,
-                            "identifier": ids[media_idx],
-                        }
-                    )
-                    media_idx += 1
-                    start = i
-                    current = token_id
-            elif start is not None:
-                out.append(
-                    {"start_index": start, "end_index": i, "identifier": ids[media_idx]}
-                )
-                media_idx += 1
-                start = None
-                current = None
-        if start is not None:
+        current_modality = None
+        current_item_index = None
+
+        def append_current(end):
+            nonlocal data_index
+            if start is None:
+                return
+            if current_modality == "image":
+                identifier = image_ids[current_item_index]
+            else:
+                identifier = video_ids[current_item_index]
             out.append(
                 {
                     "start_index": start,
-                    "end_index": len(prompt_token_ids),
-                    "identifier": ids[media_idx],
+                    "end_index": end,
+                    "end": end,
+                    "identifier": identifier,
+                    "modality": current_modality,
+                    "item_index": current_item_index,
+                    "part_index": 0,
+                    "data_index": data_index,
                 }
             )
+            data_index += 1
+
+        for i, token_id in enumerate(prompt_token_ids):
+            if token_id in (self.image_token_id, self.video_token_id):
+                modality = "image" if token_id == self.image_token_id else "video"
+                if start is None:
+                    start = i
+                    current = token_id
+                    current_modality = modality
+                    if modality == "image":
+                        if image_idx >= len(image_ids):
+                            raise ValueError(
+                                "The number of image tokens exceeds image data provided"
+                            )
+                        current_item_index = image_idx
+                        image_idx += 1
+                    else:
+                        if video_idx >= len(video_ids):
+                            raise ValueError(
+                                "The number of video tokens exceeds video data provided"
+                            )
+                        current_item_index = video_idx
+                        video_idx += 1
+                elif current != token_id:
+                    append_current(i)
+                    start = i
+                    current = token_id
+                    current_modality = modality
+                    if modality == "image":
+                        if image_idx >= len(image_ids):
+                            raise ValueError(
+                                "The number of image tokens exceeds image data provided"
+                            )
+                        current_item_index = image_idx
+                        image_idx += 1
+                    else:
+                        if video_idx >= len(video_ids):
+                            raise ValueError(
+                                "The number of video tokens exceeds video data provided"
+                            )
+                        current_item_index = video_idx
+                        video_idx += 1
+            elif start is not None:
+                append_current(i)
+                start = None
+                current = None
+                current_modality = None
+                current_item_index = None
+        if start is not None:
+            append_current(len(prompt_token_ids))
+        if image_idx != len(image_ids):
+            raise ValueError(
+                "The number of image tokens does not match the number of images data provided"
+            )
+        if video_idx != len(video_ids):
+            raise ValueError(
+                "The number of video tokens does not match the number of videos data provided"
+            )
         return out
+
+    @override
+    def get_mm_features(
+        self,
+        prompt_token_ids,
+        processed_inputs=None,
+        image_ids=None,
+        video_ids=None,
+        audio_ids=None,
+        **kwargs,
+    ):
+        mappings = self.get_mm_token_index_list(
+            prompt_token_ids,
+            image_ids=image_ids,
+            video_ids=video_ids,
+            audio_ids=audio_ids,
+            **kwargs,
+        )
+        bounds = self._valid_media_bounds(processed_inputs)
+        if bounds and len(bounds) != len(mappings):
+            raise ValueError(
+                "VideoNSA image_bound rows do not match placeholder ranges: "
+                f"{len(bounds)} != {len(mappings)}"
+            )
+
+        features = []
+        for data_index, mapping in enumerate(mappings):
+            start = int(mapping["start_index"])
+            end = int(mapping["end"])
+            if bounds:
+                bound_start, bound_end = bounds[data_index]
+                if (bound_start, bound_end) != (start, end):
+                    raise ValueError(
+                        "VideoNSA token placeholder range does not match "
+                        f"image_bound row {data_index}: token=[{start},{end}), "
+                        f"image_bound=[{bound_start},{bound_end})"
+                    )
+
+            part = MMFeaturePart(
+                token_start=start,
+                token_end=end,
+                embed_start=0,
+                embed_end=end - start,
+                item_index=int(mapping["item_index"]),
+                part_index=int(mapping["part_index"]),
+                data_index=int(mapping.get("data_index", data_index)),
+            )
+            features.append(
+                MMFeature(
+                    modality=str(mapping["modality"]),
+                    identifier=str(mapping["identifier"]),
+                    position=MMPlaceholderRange(offset=start, length=end - start),
+                    parts=(part,),
+                )
+            )
+        return features
