@@ -24,7 +24,8 @@ infinicore::Tensor int64_vector_to_tensor(const std::vector<int64_t> &values,
                                           const infinicore::Device &device);
 
 
-std::vector<int64_t> normalize_positions(const infinicore::Tensor &positions, size_t seq_len);
+infinicore::Tensor position_ids_for_rope(const infinicore::Tensor &positions, size_t seq_len);
+std::vector<int64_t> position_ids_as_vector(const infinicore::Tensor &pos_ids);
 
 struct DeepseekV4RopeParams {
     size_t head_dim{0};
