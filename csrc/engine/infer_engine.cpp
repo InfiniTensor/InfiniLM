@@ -169,6 +169,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(cu_seqlens),
         to_device(block_tables),
         to_device(slot_mapping),
+        to_device(mamba_init_state_indices),
+        to_device(mamba_final_state_indices),
         to_device_vec(pixel_values),
         to_device_vec(image_bound),
         to_device_vec(tgt_sizes),
@@ -182,6 +184,11 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         input.cu_seqlens,
         input.block_tables,
         input.slot_mapping};
+
+    infinilm::global_state::get_forward_context().mamba_metadata = {
+        input.input_offsets,
+        input.mamba_init_state_indices,
+        input.mamba_final_state_indices};
 
     global_state::get_forward_context().mm_metadata = {
         image_req_ids,

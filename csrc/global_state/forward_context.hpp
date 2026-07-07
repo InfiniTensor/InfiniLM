@@ -46,10 +46,22 @@ struct MultiModalMetadata {
     std::optional<std::vector<size_t>> visual_token_ranges;
 };
 
+struct MambaMetadata {
+    /// Offsets of each request in a continous-batched sequence, of shape `[num_requests + 1]`.
+    std::optional<infinicore::Tensor> input_offsets;
+    /// State cache indices read at the start of each request forward.
+    std::optional<infinicore::Tensor> init_state_indices;
+    /// State cache indices written with the final state of each request forward.
+    std::optional<infinicore::Tensor> final_state_indices;
+};
+
 struct ForwardContext {
     AttentionMetadata attn_metadata;
+    MambaMetadata mamba_metadata;
     MultiModalMetadata mm_metadata;
     std::vector<infinicore::Tensor> kv_cache_vec;
+    std::vector<infinicore::Tensor> conv_state_vec;
+    std::vector<infinicore::Tensor> ssm_state_vec;
 };
 
 void initialize_forward_context(ForwardContext &forward_context);

@@ -28,6 +28,17 @@ public:
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     QKVParallelLinear(size_t hidden_size,
+                      size_t q_dim, size_t k_dim, size_t v_dim,
+                      size_t num_q_head, size_t num_k_head, size_t num_v_head,
+                      bool q_bias, bool k_bias, bool v_bias,
+                      const std::string &q_name, const std::string &k_name, const std::string &v_name,
+                      RegisterParamFn register_fn,
+                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
+                      const infinicore::DataType &dtype = infinicore::DataType::F32,
+                      const infinicore::Device &device = infinicore::Device(),
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    QKVParallelLinear(size_t hidden_size,
                       size_t head_dim,
                       size_t num_q_head, size_t num_kv_head,
                       const std::string &q_name, const std::string &k_name, const std::string &v_name,
