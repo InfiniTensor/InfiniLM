@@ -1,6 +1,7 @@
+from tokenizers import decoders as _dec
+
 from .basic_llm_processor import BasicLLMProcessor
 from .processor import register_processor
-from tokenizers import decoders as _dec
 
 
 @register_processor("llama")

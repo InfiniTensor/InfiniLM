@@ -2,8 +2,10 @@ import importlib
 import json
 import pkgutil
 from pathlib import Path
+
 from transformers import AutoConfig
-from .processor import get_processor_class, InfinilmProcessor
+
+from .processor import InfinilmProcessor, get_processor_class
 
 # ---------------------------------------------------------------------------
 # Auto-discovery mechanism

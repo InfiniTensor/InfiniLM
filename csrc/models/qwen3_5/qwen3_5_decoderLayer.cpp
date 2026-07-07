@@ -1,14 +1,14 @@
-#include "qwen3_next_decoderLayer.hpp"
+#include "qwen3_5_decoderLayer.hpp"
 #include "infinicore/ops.hpp"
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-namespace infinilm::models::qwen3_next {
+namespace infinilm::models::qwen3_5 {
 
-Qwen3NextDecoderLayer::Qwen3NextDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                             size_t layer_idx,
-                                             const infinicore::Device &device)
+Qwen35DecoderLayer::Qwen35DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                       size_t layer_idx,
+                                       const infinicore::Device &device)
     : layer_idx_(layer_idx) {
 
     const auto &dtype{model_config->get_dtype()};
@@ -26,13 +26,13 @@ Qwen3NextDecoderLayer::Qwen3NextDecoderLayer(std::shared_ptr<infinilm::config::M
     } else if ("full_attention" == layer_type_) {
         INFINICORE_NN_MODULE_INIT(self_attn, model_config, layer_idx, device);
     } else {
-        throw std::runtime_error("infinilm::models::qwen3_next::Qwen3NextDecoderLayer: unsupported layer_type '" + layer_type_ + "' for layer " + std::to_string(layer_idx));
+        throw std::runtime_error("infinilm::models::qwen3_5::Qwen35DecoderLayer: unsupported layer_type '" + layer_type_ + "' for layer " + std::to_string(layer_idx));
     }
 }
 
-std::tuple<infinicore::Tensor, infinicore::Tensor> Qwen3NextDecoderLayer::forward(const infinicore::Tensor &positions,
-                                                                                  infinicore::Tensor &hidden_states,
-                                                                                  infinicore::Tensor &residual) {
+std::tuple<infinicore::Tensor, infinicore::Tensor> Qwen35DecoderLayer::forward(const infinicore::Tensor &positions,
+                                                                               infinicore::Tensor &hidden_states,
+                                                                               infinicore::Tensor &residual) {
     input_layernorm_->forward_inplace(hidden_states, residual);
     if ("linear_attention" == layer_type_) {
         hidden_states = linear_attn_->forward(hidden_states);
@@ -45,8 +45,8 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> Qwen3NextDecoderLayer::forwar
     return std::make_tuple(hidden_states, residual);
 }
 
-infinicore::Tensor Qwen3NextDecoderLayer::forward(const infinicore::Tensor &positions,
-                                                  infinicore::Tensor &hidden_states) {
+infinicore::Tensor Qwen35DecoderLayer::forward(const infinicore::Tensor &positions,
+                                               infinicore::Tensor &hidden_states) {
     auto residual = hidden_states;
     hidden_states = input_layernorm_->forward(hidden_states);
     if ("linear_attention" == layer_type_) {
@@ -63,4 +63,4 @@ infinicore::Tensor Qwen3NextDecoderLayer::forward(const infinicore::Tensor &posi
     return hidden_states;
 }
 
-} // namespace infinilm::models::qwen3_next
+} // namespace infinilm::models::qwen3_5

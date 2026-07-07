@@ -1,8 +1,10 @@
 #include "qwen3_next_for_causal_lm.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
+#include "qwen3_next_allocate_kv_cache_tensors.hpp"
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace infinilm::models::qwen3_next {
@@ -31,12 +33,17 @@ void Qwen3NextForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
     }
     cache_config_ = cache_config->unique_copy();
 
-    auto &kv_cache_vec = infinilm::global_state::get_forward_context().kv_cache_vec;
-    kv_cache_vec.clear();
+    auto &forward_context = infinilm::global_state::get_forward_context();
+    forward_context.kv_cache_vec.clear();
+    forward_context.conv_state_vec.clear();
+    forward_context.ssm_state_vec.clear();
+
     const backends::AttentionBackend attention_backend = infinilm::global_state::get_infinilm_config().attention_backend;
 
-    auto new_kv_cache_vec = qwen3_next_allocate_kv_cache_tensors(cache_config, model_config_, attention_backend);
-    kv_cache_vec = std::move(new_kv_cache_vec);
+    auto cache_vectors = qwen3_next_allocate_cache_tensors(cache_config, model_config_, attention_backend);
+    forward_context.kv_cache_vec = std::move(cache_vectors.kv_cache_tensors);
+    forward_context.conv_state_vec = std::move(cache_vectors.conv_state_tensors);
+    forward_context.ssm_state_vec = std::move(cache_vectors.ssm_state_tensors);
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {

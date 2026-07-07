@@ -1,8 +1,9 @@
-from .processor import InfinilmProcessor, register_processor
 from transformers import AutoTokenizer
-from ..llm.static_scheduler import StaticSchedulerOutput
-from ..llm.scheduler import SchedulerOutput
 from typing_extensions import override
+
+from ..llm.scheduler import SchedulerOutput
+from ..llm.static_scheduler import StaticSchedulerOutput
+from .processor import InfinilmProcessor, register_processor
 
 
 @register_processor("default")
@@ -24,8 +25,6 @@ class BasicLLMProcessor(InfinilmProcessor):
         if return_tensors is None:
             return self.tokenizer(prompt, add_special_tokens=False)
         elif return_tensors == "infini":
-            import infinicore
-
             result = {}
             for key, tensor in self.tokenizer(
                 prompt, return_tensors="pt", add_special_tokens=False
@@ -73,6 +72,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         temperature: float = 1.0,
         top_p: float = 0.8,
         top_k: int = 1,
+        **kwargs,
     ) -> dict:
         """Process a batch of data and return a dictionary of model inputs."""
         if isinstance(scheduler_output, StaticSchedulerOutput):

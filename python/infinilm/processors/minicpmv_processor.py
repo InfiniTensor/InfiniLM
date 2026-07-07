@@ -1,9 +1,7 @@
+from transformers import AutoConfig, AutoProcessor
 from typing_extensions import override
 
-from transformers import AutoConfig, AutoProcessor
-
-from .processor import InfinilmProcessor
-from .processor import register_processor
+from .processor import InfinilmProcessor, register_processor
 
 
 @register_processor("minicpmv")

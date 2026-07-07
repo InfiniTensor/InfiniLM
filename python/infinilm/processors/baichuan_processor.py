@@ -2,6 +2,7 @@
 
 import json
 import os
+
 from .basic_llm_processor import BasicLLMProcessor
 from .processor import register_processor
 
@@ -53,7 +54,7 @@ class BaichuanProcessor(BasicLLMProcessor):
         This confirms that "<reserved_106>" encodes to [195] and "<reserved_107>" encodes
         to [196], while the naive "<reserved_195>" would be split into garbage tokens.
         """
-        if getattr(self.tokenizer, 'chat_template', None):
+        if getattr(self.tokenizer, "chat_template", None):
             return
 
         # Step 1: Read role token IDs from generation_config.json
@@ -87,4 +88,3 @@ class BaichuanProcessor(BasicLLMProcessor):
             "{%- endfor -%}"
         )
         self.tokenizer.chat_template = baichuan_template
-

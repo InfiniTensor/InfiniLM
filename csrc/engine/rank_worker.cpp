@@ -40,6 +40,10 @@ void RankWorker::wait_for_init() {
     }
 }
 
+RankWorker::~RankWorker() {
+    close();
+}
+
 std::string RankWorker::info() const {
     std::stringstream ss;
 
@@ -524,6 +528,7 @@ void RankWorker::thread_loop() {
         // Top-level exception: ensure any waiters are woken and the thread exits cleanly.
         {
             std::lock_guard<std::mutex> lk(mutex_);
+            init_done_ = true;
             should_exit_ = true;
             job_done_ = true;
         }

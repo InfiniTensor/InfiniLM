@@ -1,9 +1,8 @@
 import os
 
-from typing_extensions import override
-
 import torch
 from transformers import AutoConfig, AutoProcessor
+from typing_extensions import override
 
 from .processor import InfinilmProcessor, register_processor
 

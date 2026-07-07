@@ -52,6 +52,10 @@ public:
         std::optional<infinicore::Tensor> block_tables;
         /// Slot ids for each token `[seq]`. Used for paged cache.
         std::optional<infinicore::Tensor> slot_mapping;
+        /// Mamba state cache indices read at the start of each request forward.
+        std::optional<infinicore::Tensor> mamba_init_state_indices;
+        /// Mamba state cache indices written with the final state of each request forward.
+        std::optional<infinicore::Tensor> mamba_final_state_indices;
         /// Image pixel values for multi-modal models.
         std::optional<std::vector<infinicore::Tensor>> pixel_values;
         /// Image placeholder bounds for MiniCPM-V style replacement.
@@ -84,6 +88,8 @@ public:
                backends::AttentionBackend attention_backend);
 
     void wait_for_init();
+
+    ~RankWorker();
 
     // Submit a parameter load job and wait until the load completes on the worker thread.
     void load_param(const std::string &name,
