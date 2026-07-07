@@ -1,6 +1,5 @@
-from typing_extensions import override
-
 from transformers import AutoProcessor, AutoTokenizer
+from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput

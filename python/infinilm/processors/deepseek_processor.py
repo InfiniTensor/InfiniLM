@@ -1,9 +1,9 @@
-from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
-
 from typing import List, Optional, Union
 
 from transformers.models.llama import LlamaTokenizerFast
+
+from .basic_llm_processor import BasicLLMProcessor
+from .processor import register_processor
 
 
 class DeepseekTokenizerFast(LlamaTokenizerFast):

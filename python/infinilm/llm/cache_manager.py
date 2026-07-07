@@ -3,9 +3,10 @@ KV Cache Manager - Paged Attention block-based cache allocation and management.
 """
 
 from collections import deque
-from typing import List, Dict, Set
-import xxhash
+from typing import Dict, List, Set
+
 import numpy as np
+import xxhash
 
 
 class Block:
