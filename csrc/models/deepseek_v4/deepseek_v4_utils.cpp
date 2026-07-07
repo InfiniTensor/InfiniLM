@@ -3,6 +3,7 @@
 #include "../../utils.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/add.hpp"
+#include "infinicore/ops/deepseek_v4_mhc.hpp"
 #include "infinicore/ops/matmul.hpp"
 #include "infinicore/ops/unweighted_rms_norm.hpp"
 
@@ -654,6 +655,44 @@ DeepseekV4MHCPrepareResult mhc_prepare(const infinicore::Tensor &x,
     params.seq_len = shape[1];
     params.hc_mult = hc_mult;
 
+    const bool force_cpu_prepare = []() {
+        if (const char *flag = std::getenv("DSV4_MHC_CPU_PREPARE"); flag != nullptr && std::string(flag) == "1") {
+            return true;
+        }
+        if (const char *flag = std::getenv("DSV4_MHC_CPU_MIXES"); flag != nullptr && std::string(flag) == "1") {
+            return true;
+        }
+        return false;
+    }();
+
+    if (!force_cpu_prepare && x->device().getType() != infinicore::Device::Type::CPU) {
+        const size_t batch_size = shape[0];
+        const size_t seq_len = shape[1];
+        const size_t flat_dim = hc_mult * hidden_size;
+        const size_t token_count = batch_size * seq_len;
+        const size_t mix_hc = coeffs_cache.mix_hc;
+
+        (void)fn;
+        ensure_mhc_gpu_cache(coeffs_cache, x->device(), x->dtype());
+        auto flat = x->contiguous()->view({batch_size, seq_len, flat_dim});
+        flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
+        auto mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}), coeffs_cache.gpu.fn_mat_right)
+                          ->view({batch_size, seq_len, mix_hc})
+                          ->contiguous();
+
+        auto [pre, post, comb] = infinicore::op::deepseek_v4_mhc_params(
+            mixes, base, scale, sinkhorn_iters, static_cast<float>(eps));
+        params.pre_gpu = pre;
+        params.post_gpu = post;
+        params.comb_gpu = comb;
+        params.gpu_valid = true;
+
+        DeepseekV4MHCPrepareResult result;
+        result.params = std::move(params);
+        result.collapsed = mhc_collapse(x, result.params);
+        return result;
+    }
+
     auto mixes = compute_mhc_mixes(x, fn, coeffs_cache, hc_mult, hidden_size, eps);
     fill_mhc_params_from_mixes(params, mixes, coeffs_cache, sinkhorn_iters, eps);
 
@@ -671,7 +710,7 @@ infinicore::Tensor mhc_collapse(const infinicore::Tensor &x, const DeepseekV4MHC
     const size_t hidden_size = shape[3];
 
     if (x->device().getType() != infinicore::Device::Type::CPU) {
-        auto pre = float_vector_to_tensor(
+        auto pre = params.pre_gpu ? params.pre_gpu : float_vector_to_tensor(
             params.pre, {batch_size, seq_len, hc_mult}, x->dtype(), x->device());
         const size_t token_count = batch_size * seq_len;
         auto x_tokens = x->contiguous()->view({token_count, hc_mult, hidden_size});
@@ -714,9 +753,9 @@ infinicore::Tensor mhc_post_gpu(const infinicore::Tensor &new_x,
     const auto &device = residual->device();
     const auto dtype = residual->dtype();
 
-    auto post = float_vector_to_tensor(
+    auto post = params.post_gpu ? params.post_gpu : float_vector_to_tensor(
         params.post, {batch_size, seq_len, hc_mult}, dtype, device);
-    auto comb = float_vector_to_tensor(
+    auto comb = params.comb_gpu ? params.comb_gpu : float_vector_to_tensor(
         params.comb, {batch_size, seq_len, hc_mult, hc_mult}, dtype, device);
 
     auto res = residual->contiguous()->view({token_count, hc_mult, hidden_size});
@@ -750,16 +789,23 @@ infinicore::Tensor mhc_post(const infinicore::Tensor &new_x,
     const size_t seq_len = shape[1];
     const size_t hc_mult = shape[2];
     const size_t hidden_size = shape[3];
+    DeepseekV4MHCParams cpu_params = params;
+    if (cpu_params.post.empty() && params.post_gpu) {
+        cpu_params.post = tensor_to_float_vector(params.post_gpu);
+    }
+    if (cpu_params.comb.empty() && params.comb_gpu) {
+        cpu_params.comb = tensor_to_float_vector(params.comb_gpu);
+    }
     auto residual_values = tensor_to_float_vector(residual);
     auto new_values = tensor_to_float_vector(new_x);
     std::vector<float> out(batch_size * seq_len * hc_mult * hidden_size, 0.0f);
     for (size_t token = 0; token < batch_size * seq_len; ++token) {
         for (size_t i = 0; i < hc_mult; ++i) {
-            const float post = params.post[token * hc_mult + i];
+            const float post = cpu_params.post[token * hc_mult + i];
             for (size_t d = 0; d < hidden_size; ++d) {
                 float value = post * new_values[token * hidden_size + d];
                 for (size_t j = 0; j < hc_mult; ++j) {
-                    value += params.comb[(token * hc_mult + i) * hc_mult + j]
+                    value += cpu_params.comb[(token * hc_mult + i) * hc_mult + j]
                            * residual_values[(token * hc_mult + j) * hidden_size + d];
                 }
                 out[(token * hc_mult + i) * hidden_size + d] = value;
