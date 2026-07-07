@@ -201,19 +201,25 @@ infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
     return out;
 }
 
-std::vector<int64_t> normalize_positions(const infinicore::Tensor &positions, size_t seq_len) {
-    auto values = tensor_to_int64_vector(positions);
-    if (values.size() == seq_len) {
-        return values;
+infinicore::Tensor position_ids_for_rope(const infinicore::Tensor &positions, size_t seq_len) {
+    const auto shape = positions->shape();
+    if (shape.size() == 2) {
+        if (shape[0] != 1 || shape[1] != seq_len) {
+            throw std::runtime_error("DeepseekV4: expected position_ids shape [1,seq_len]");
+        }
+        return positions->narrow({{0, 0, 1}})->view({seq_len});
     }
-    if (values.size() >= seq_len) {
-        return std::vector<int64_t>(values.end() - static_cast<std::ptrdiff_t>(seq_len), values.end());
+    if (shape.size() == 1) {
+        if (shape[0] != seq_len) {
+            throw std::runtime_error("DeepseekV4: position_ids length mismatch");
+        }
+        return positions->is_contiguous() ? positions : positions->contiguous();
     }
-    std::vector<int64_t> out(seq_len);
-    for (size_t i = 0; i < seq_len; ++i) {
-        out[i] = static_cast<int64_t>(i);
-    }
-    return out;
+    throw std::runtime_error("DeepseekV4: unexpected position_ids rank");
+}
+
+std::vector<int64_t> position_ids_as_vector(const infinicore::Tensor &pos_ids) {
+    return tensor_to_int64_vector(pos_ids);
 }
 
 void apply_partial_rope_inplace(std::vector<float> &x,

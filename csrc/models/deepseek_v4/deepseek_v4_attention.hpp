@@ -37,22 +37,17 @@ private:
 
     infinicore::Tensor apply_grouped_output_projection_(const infinicore::Tensor &attn_output) const;
 
-    infinicore::Tensor dense_attention_reference_(const infinicore::Tensor &positions,
+    infinicore::Tensor dense_attention_reference_(const std::vector<int64_t> &positions,
                                                   const infinicore::Tensor &query_states,
                                                   const infinicore::Tensor &key_states,
                                                   const infinicore::Tensor &hidden_states,
-                                                  const infinicore::Tensor &q_residual) const;
+                                                  const infinicore::Tensor &q_residual,
+                                                  size_t query_start = 0) const;
 
     infinicore::Tensor dense_attention_sliding_gpu_(const infinicore::Tensor &q_rope,
                                                     const infinicore::Tensor &key_states,
-                                                    const std::vector<int64_t> &pos) const;
-
-    infinicore::Tensor dense_attention_decode_reference_(const infinicore::Tensor &query_states,
-                                                         const infinicore::Tensor &key_states,
-                                                         const infinicore::Tensor &hidden_states,
-                                                         const infinicore::Tensor &q_residual,
-                                                         const std::vector<int64_t> &positions,
-                                                         size_t query_start) const;
+                                                    const std::vector<int64_t> &positions,
+                                                    size_t query_start = 0) const;
 
     void reset_runtime_state() const override {
         cached_seq_len_ = 0;
