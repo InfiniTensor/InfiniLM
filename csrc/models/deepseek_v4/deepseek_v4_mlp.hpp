@@ -22,6 +22,9 @@ public:
     infinicore::Tensor gate_weight() const { return w1_->weight(); }
     infinicore::Tensor up_weight() const { return w3_->weight(); }
     infinicore::Tensor down_weight() const { return w2_->weight(); }
+    infinicore::Tensor gate_weight_scale() const { return w1_->weight_scale(); }
+    infinicore::Tensor up_weight_scale() const { return w3_->weight_scale(); }
+    infinicore::Tensor down_weight_scale() const { return w2_->weight_scale(); }
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
     infinicore::Tensor forward_without_allreduce(const infinicore::Tensor &hidden_states) const;
 
