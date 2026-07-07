@@ -20,6 +20,9 @@ public:
                          const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinicore::Tensor forward_tensor(const infinicore::Tensor &hidden_states,
+                                      size_t &batch_size,
+                                      size_t &num_blocks) const;
     std::vector<float> forward_values(const infinicore::Tensor &hidden_states,
                                       size_t &batch_size,
                                       size_t &num_blocks) const;

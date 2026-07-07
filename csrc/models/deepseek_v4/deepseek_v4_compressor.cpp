@@ -3,6 +3,7 @@
 #include "../../utils.hpp"
 #include "deepseek_v4_linear.hpp"
 #include "deepseek_v4_utils.hpp"
+#include "infinicore/ops/deepseek_v4_compressor.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -188,9 +189,34 @@ std::vector<float> DeepseekV4Compressor::forward_values(const infinicore::Tensor
     return out;
 }
 
+infinicore::Tensor DeepseekV4Compressor::forward_tensor(const infinicore::Tensor &hidden_states,
+                                                                size_t &batch_size,
+                                                                size_t &num_blocks) const {
+    const auto shape = hidden_states->shape();
+    batch_size = shape[0];
+    const size_t seq_len = shape[1];
+    const size_t usable_len = (seq_len / compress_ratio_) * compress_ratio_;
+    num_blocks = usable_len / compress_ratio_;
+    if (num_blocks == 0) {
+        return infinicore::Tensor::empty({batch_size, 0, head_dim_}, hidden_states->dtype(), hidden_states->device());
+    }
+    auto hidden_states_mut = hidden_states;
+    auto kv_t = wkv_->forward(hidden_states_mut);
+    auto score_t = wgate_->forward(hidden_states_mut);
+    return infinicore::op::deepseek_v4_compressor(kv_t->contiguous(),
+                                                  score_t->contiguous(),
+                                                  ape_->contiguous(),
+                                                  norm_->weight()->contiguous(),
+                                                  compress_ratio_,
+                                                  static_cast<float>(rms_norm_eps_));
+}
+
 infinicore::Tensor DeepseekV4Compressor::forward(const infinicore::Tensor &hidden_states) const {
     size_t batch_size = 0;
     size_t num_blocks = 0;
+    if (hidden_states->device().getType() != infinicore::Device::Type::CPU) {
+        return forward_tensor(hidden_states, batch_size, num_blocks);
+    }
     auto out = forward_values(hidden_states, batch_size, num_blocks);
     return float_vector_to_tensor(out, {batch_size, num_blocks, head_dim_},
                                   hidden_states->dtype(), hidden_states->device());

@@ -2,15 +2,42 @@
 
 #include "deepseek_v4_linear.hpp"
 #include "deepseek_v4_utils.hpp"
+#include "infinicore/ops/deepseek_v4_indexer.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdlib>
 #include <limits>
-#include <numeric>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace infinilm::models::deepseek_v4 {
+namespace {
+
+bool force_indexer_cpu() {
+    if (const char *flag = std::getenv("DSV4_INDEXER_CPU"); flag != nullptr) {
+        return std::string(flag) == "1";
+    }
+    return false;
+}
+
+bool use_indexer_fused_gpu() {
+    if (const char *flag = std::getenv("DSV4_INDEXER_FUSED_GPU"); flag != nullptr) {
+        return std::string(flag) != "0";
+    }
+    return true;
+}
+
+bool use_indexer_full_coverage_shortcut() {
+    if (const char *flag = std::getenv("DSV4_INDEXER_FULL_COVERAGE_SHORTCUT"); flag != nullptr) {
+        return std::string(flag) != "0";
+    }
+    return true;
+}
+
+} // namespace
 
 DeepseekV4Indexer::DeepseekV4Indexer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      size_t compress_ratio,
@@ -52,9 +79,36 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
         throw std::runtime_error("DeepseekV4Indexer: query range out of bounds");
     }
 
+    if (compress_ratio_ == 0) {
+        throw std::runtime_error("DeepseekV4Indexer: compress_ratio must be non-zero");
+    }
+    const size_t cheap_num_blocks = total_len / compress_ratio_;
+    top_k = std::min(index_topk_, cheap_num_blocks);
+    if (cheap_num_blocks == 0 || top_k == 0 || query_len == 0) {
+        top_k = 0;
+        return {};
+    }
+    if (use_indexer_full_coverage_shortcut() && top_k == cheap_num_blocks) {
+        top_k = 0;
+        return {};
+    }
+
     size_t comp_batch = 0;
     size_t num_blocks = 0;
-    auto compressed = compressor_->forward_values(hidden_states, comp_batch, num_blocks);
+    infinicore::Tensor compressed_gpu;
+    std::vector<float> compressed;
+    const bool want_fused_gpu = !force_indexer_cpu() && use_indexer_fused_gpu()
+                              && hidden_states->device().getType() != infinicore::Device::Type::CPU;
+    if (want_fused_gpu) {
+        try {
+            compressed_gpu = compressor_->forward_tensor(hidden_states, comp_batch, num_blocks);
+        } catch (const std::exception &) {
+            compressed_gpu = infinicore::Tensor();
+        }
+    }
+    if (!compressed_gpu) {
+        compressed = compressor_->forward_values(hidden_states, comp_batch, num_blocks);
+    }
     if (comp_batch != batch_size) {
         throw std::runtime_error("DeepseekV4Indexer: compressed batch mismatch");
     }
@@ -73,12 +127,43 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
 
     auto q_proj = wq_b_->forward(q_input)
                       ->view({batch_size, query_len, index_n_heads_, index_head_dim_});
-    auto q_values = tensor_to_float_vector(q_proj);
-
     auto weights_proj = weights_proj_->forward(weights_input);
-    auto weights = tensor_to_float_vector(weights_proj);
     const float score_scale = 1.0f / std::sqrt(static_cast<float>(index_head_dim_));
     const float weight_scale = 1.0f / std::sqrt(static_cast<float>(index_n_heads_));
+
+    if (!force_indexer_cpu() && use_indexer_fused_gpu() &&
+        hidden_states->device().getType() != infinicore::Device::Type::CPU) {
+        try {
+            auto positions_tensor = int64_vector_to_tensor(positions, {positions.size()}, q_proj->device());
+            auto fused_indices = infinicore::op::deepseek_v4_indexer(
+                q_proj->contiguous(),
+                weights_proj->contiguous(),
+                compressed_gpu ? compressed_gpu->contiguous()
+                               : float_vector_to_tensor(compressed,
+                                                        {batch_size, num_blocks, index_head_dim_},
+                                                        q_proj->dtype(),
+                                                        q_proj->device()),
+                positions_tensor,
+                top_k,
+                query_start,
+                compress_ratio_);
+            return tensor_to_int64_vector(fused_indices);
+        } catch (const std::exception &) {
+            // Fall back to the reference CPU path if the fused op is unavailable.
+        }
+    }
+
+    if (compressed.empty()) {
+        size_t host_batch = 0;
+        size_t host_num_blocks = 0;
+        compressed = compressor_->forward_values(hidden_states, host_batch, host_num_blocks);
+        if (host_batch != batch_size || host_num_blocks != num_blocks) {
+            throw std::runtime_error("DeepseekV4Indexer: host compressed shape mismatch");
+        }
+    }
+
+    auto q_values = tensor_to_float_vector(q_proj);
+    auto weights = tensor_to_float_vector(weights_proj);
     std::vector<int64_t> indices(batch_size * query_len * top_k, -1);
 
     for (size_t b = 0; b < batch_size; ++b) {
