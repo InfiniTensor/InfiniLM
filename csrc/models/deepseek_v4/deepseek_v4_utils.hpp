@@ -56,6 +56,10 @@ struct DeepseekV4MHCParams {
     std::vector<float> pre;
     std::vector<float> post;
     std::vector<float> comb;
+    infinicore::Tensor pre_gpu;
+    infinicore::Tensor post_gpu;
+    infinicore::Tensor comb_gpu;
+    bool gpu_valid{false};
     size_t batch_size{0};
     size_t seq_len{0};
     size_t hc_mult{0};
