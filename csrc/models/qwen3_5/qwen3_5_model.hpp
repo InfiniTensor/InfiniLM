@@ -2,6 +2,7 @@
 
 #include "../../layers/common_modules.hpp"
 #include "../infinilm_model.hpp"
+#include "infinicore/tensor.hpp"
 #include "qwen3_5_decoderLayer.hpp"
 #include "qwen3_5_vision.hpp"
 
@@ -18,11 +19,14 @@ public:
 
     void reset_cache(const cache::CacheConfig *cache_config);
 
+private:
+    void replace_image_embeddings(infinicore::Tensor &inputs_embeds,
+                                  const infinilm::InfinilmModel::Input &input) const;
+
 protected:
     INFINICORE_NN_MODULE(Qwen35VisionModel, visual);
     INFINICORE_NN_MODULE(Qwen35LanguageModel, language_model);
 
-private:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 

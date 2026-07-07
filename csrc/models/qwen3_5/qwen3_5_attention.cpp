@@ -1,9 +1,15 @@
 #include "qwen3_5_attention.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../layers/attention/attention.hpp"
+#include "../../layers/rotary_embedding/rotary_embedding.hpp"
+#include "../../layers/rotary_embedding/rotary_embedding_factory.hpp"
 #include "../../utils.hpp"
+#include <algorithm>
+#include <cmath>
 #include <infinicore/ops/mul.hpp>
 #include <infinicore/ops/sigmoid.hpp>
+#include <optional>
+#include <vector>
 
 namespace infinilm::models::qwen3_5 {
 
@@ -43,7 +49,33 @@ Qwen35Attention::Qwen35Attention(std::shared_ptr<infinilm::config::ModelConfig> 
         "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
         use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
 
-    rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
+    const auto &rope_params = model_config->get_config_json()["rope_parameters"];
+    const double partial_rotary_factor = rope_params["partial_rotary_factor"].get<double>();
+    rotary_dim_ = static_cast<size_t>(std::llround(static_cast<double>(head_dim_) * partial_rotary_factor));
+    rotary_dim_ = std::clamp(rotary_dim_, static_cast<size_t>(2), head_dim_);
+    if (rotary_dim_ % 2 != 0) {
+        rotary_dim_ -= 1;
+    }
+    rotary_dim_ = std::max(rotary_dim_, static_cast<size_t>(2));
+
+    auto mrope_section = rope_params["mrope_section"].get<std::vector<int>>();
+    if (mrope_section.size() != 3) {
+        throw std::runtime_error("infinilm::models::qwen3_5::Qwen35Attention: mrope_section must have 3 elements");
+    }
+    const bool mrope_interleaved = rope_params["mrope_interleaved"].get<bool>();
+    const double rope_theta = rope_params["rope_theta"].get<double>();
+    const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");
+    auto rope_scaling = infinilm::layers::rotary_embedding::make_scaling_config(model_config);
+    mrope_ = infinilm::layers::rotary_embedding::get_rope(head_dim_,
+                                                          rotary_dim_,
+                                                          max_position_embeddings,
+                                                          rope_theta,
+                                                          model_config->get_rope_algo(),
+                                                          dtype,
+                                                          device,
+                                                          rope_scaling,
+                                                          mrope_section,
+                                                          mrope_interleaved);
 
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
@@ -72,28 +104,18 @@ infinicore::Tensor Qwen35Attention::forward_static_(const infinicore::Tensor &po
 
     auto [q, gate, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
-    q = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
-    k = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
-
-    auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
-    auto k_reshaped = k->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
-    auto v_reshaped = v->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
+    auto q_reshaped = q_norm_->forward(q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
+    auto k_reshaped = k_norm_->forward(k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
 
     auto pos_shape = position_ids->shape();
-    infinicore::Tensor pos_ids_for_rope = position_ids;
-    if (pos_shape.size() == 2) {
-        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
-        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
-    } else if (pos_shape.size() == 1) {
-        pos_ids_for_rope = position_ids;
-    } else {
+    if (pos_shape.size() != 2 && pos_shape.size() != 1) {
         throw std::runtime_error("infinilm::models::qwen3_5::Qwen35Attention: Unexpected position_ids shape");
     }
+    std::tie(q_reshaped, k_reshaped) = mrope_->forward(q_reshaped, k_reshaped, position_ids);
 
-    auto q_rotary = q_reshaped->narrow({{3, 0, rotary_dim_}});
-    auto k_rotary = k_reshaped->narrow({{3, 0, rotary_dim_}});
-    rotary_emb_->forward(q_rotary, pos_ids_for_rope, true);
-    rotary_emb_->forward(k_rotary, pos_ids_for_rope, true);
+    q_reshaped = q_reshaped->view({batch_size, seq_len, num_attention_heads_, head_dim_});
+    k_reshaped = k_reshaped->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
+    auto v_reshaped = v->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
     attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate));
@@ -118,20 +140,10 @@ infinicore::Tensor Qwen35Attention::forward_paged_(const infinicore::Tensor &pos
     k_reshaped = k_norm_->forward(k_reshaped);
 
     auto pos_shape = position_ids->shape();
-    infinicore::Tensor pos_ids_for_rope = position_ids;
-    if (pos_shape.size() == 2) {
-        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
-        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
-    } else if (pos_shape.size() == 1) {
-        pos_ids_for_rope = position_ids;
-    } else {
+    if (pos_shape.size() != 2 && pos_shape.size() != 1) {
         throw std::runtime_error("Unexpected position_ids shape");
     }
-
-    auto q_rotary = q_reshaped->narrow({{2, 0, rotary_dim_}});
-    auto k_rotary = k_reshaped->narrow({{2, 0, rotary_dim_}});
-    rotary_emb_->forward(q_rotary, pos_ids_for_rope, true);
-    rotary_emb_->forward(k_rotary, pos_ids_for_rope, true);
+    std::tie(q_reshaped, k_reshaped) = mrope_->forward(q_reshaped, k_reshaped, position_ids);
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
     attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate)->view(attn_output->shape()));

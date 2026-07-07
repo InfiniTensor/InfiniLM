@@ -62,6 +62,8 @@ public:
         std::optional<std::vector<infinicore::Tensor>> image_bound;
         /// Target patch sizes for each image (MiniCPM-V).
         std::optional<std::vector<infinicore::Tensor>> tgt_sizes;
+        /// Qwen-style image grids. Vector of tensors shape: [3] with temporal, height, width.
+        std::optional<std::vector<infinicore::Tensor>> image_grid_thw;
         /// req_id for each pixel_values among a batch
         std::optional<std::vector<size_t>> image_req_ids;
         /// Flattened [start, end) visual token ranges in the packed language sequence.
