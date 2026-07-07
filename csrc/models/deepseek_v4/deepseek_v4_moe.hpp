@@ -78,11 +78,13 @@ private:
     infinicore::Tensor forward_cpu_routed_(const infinicore::Tensor &hidden_states,
                                            const infinicore::Tensor &top_k_index,
                                            const infinicore::Tensor &top_k_weights) const;
-
     INFINICORE_NN_MODULE_VEC(DeepseekV4MLP, experts);
     std::vector<infinicore::Tensor> gate_weights_;
     std::vector<infinicore::Tensor> up_weights_;
     std::vector<infinicore::Tensor> down_weights_;
+    std::vector<infinicore::Tensor> gate_weight_scales_;
+    std::vector<infinicore::Tensor> up_weight_scales_;
+    std::vector<infinicore::Tensor> down_weight_scales_;
 
     size_t hidden_size_{0};
     size_t moe_intermediate_size_{0};
