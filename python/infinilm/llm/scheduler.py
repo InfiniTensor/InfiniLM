@@ -2,12 +2,14 @@
 Scheduler - Request scheduling and batch management with Paged Attention KV Cache.
 """
 
-import queue
-import janus
 import logging
+import queue
 from typing import List, Optional
-from infinilm.llm.request import RequestStatus, InferenceRequest
+
+import janus
+
 from infinilm.llm.cache_manager import BlockManager, MambaCacheManager
+from infinilm.llm.request import InferenceRequest, RequestStatus
 
 logger = logging.getLogger(__name__)
 

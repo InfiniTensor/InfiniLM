@@ -1,8 +1,8 @@
 #include "qwen3_5_for_causal_lm.hpp"
 
-#include "../qwen3_next/qwen3_next_for_causal_lm.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
+#include "../qwen3_next/qwen3_next_for_causal_lm.hpp"
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -10,7 +10,7 @@
 namespace infinilm::models::qwen3_5 {
 
 Qwen35ForCausalLM::Qwen35ForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                           const infinicore::Device &device) {
+                                     const infinicore::Device &device) {
     model_config_ = model_config;
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     size_t vocab_size = model_config->get<size_t>("vocab_size");
@@ -53,19 +53,13 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(std::
             config_json["dtype"] = config_json["torch_dtype"];
         }
     }
-    if (!config_json.contains("rope_theta") &&
-        config_json.contains("rope_parameters") &&
-        config_json["rope_parameters"].is_object() &&
-        config_json["rope_parameters"].contains("rope_theta")) {
+    if (!config_json.contains("rope_theta") && config_json.contains("rope_parameters") && config_json["rope_parameters"].is_object() && config_json["rope_parameters"].contains("rope_theta")) {
         // TODO: This is only a temporary loader shim. Qwen3.6 uses mRoPE,
         // which needs proper support in InfiniCore instead of treating it as
         // plain RoPE through a top-level rope_theta.
         config_json["rope_theta"] = config_json["rope_parameters"]["rope_theta"];
     }
-    if (!config_json.contains("partial_rotary_factor") &&
-        config_json.contains("rope_parameters") &&
-        config_json["rope_parameters"].is_object() &&
-        config_json["rope_parameters"].contains("partial_rotary_factor")) {
+    if (!config_json.contains("partial_rotary_factor") && config_json.contains("rope_parameters") && config_json["rope_parameters"].is_object() && config_json["rope_parameters"].contains("partial_rotary_factor")) {
         config_json["partial_rotary_factor"] = config_json["rope_parameters"]["partial_rotary_factor"];
     }
     if (!config_json.contains("layer_types")) {

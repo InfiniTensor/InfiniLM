@@ -6,11 +6,10 @@
 
 namespace infinilm::models::qwen3_5 {
 
-
 class Qwen35ForCausalLM : public InfinilmModel {
 public:
     Qwen35ForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                         const infinicore::Device &device);
+                      const infinicore::Device &device);
 
     Output forward(const Input &input) const override;
 
