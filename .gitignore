@@ -1,6 +1,9 @@
 /deepseek_v4_vllm
 /deepseek_v4_transformers
 /deepseek_v4_sglang
+/deepseek_v4_kernels
+/sglang_layers
+
 .clangd
 *.cpp.bak_*
 
