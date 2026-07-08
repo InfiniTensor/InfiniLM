@@ -315,6 +315,8 @@ platforms:
             gpu_style: none
             shm_size: 64g
             timeout: 3600
+          env:
+            AMD_SERIALIZE_KERNEL: 2
           stages:
             - name: test
               run: python InfiniLM/examples/test_infer.py --device hygon --model=/data-aisoft/mechdancer/models/9g_8b_thinking/
