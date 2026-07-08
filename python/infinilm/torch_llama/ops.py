@@ -37,11 +37,14 @@ def _run_flash_attention(
     else:
         ql = bucket_len
 
-    q, k, v = query, key, value
+    # FA2 layout contract: [batch, seqlen, num_heads, head_dim] (matches C++ mha_fwd).
+    q = query.contiguous()
+    k = key.contiguous()
+    v = value.contiguous()
     if ql < bucket_len:
-        q = query.clone()
-        k = key.clone()
-        v = value.clone()
+        q = q.clone()
+        k = k.clone()
+        v = v.clone()
         q[:, ql:, :, :].zero_()
         k[:, ql:, :, :].zero_()
         v[:, ql:, :, :].zero_()

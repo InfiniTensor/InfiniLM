@@ -131,9 +131,16 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("name"),
             py::arg("param"),
             "Load a parameter tensor into all workers (each worker picks its shard)")
-        .def("weight_blob", [](InferEngine &self, const std::string &name) -> py::dict {
-            for (const auto &state_dict_tp : self.state_dict()) {
-                for (const auto &[n, param] : state_dict_tp) {
+        .def(
+            "weight_blob",
+            [](InferEngine &self, const std::string &name, size_t tp_rank) -> py::dict {
+                const auto &all = self.state_dict();
+                if (tp_rank >= all.size()) {
+                    throw std::runtime_error(
+                        "tp_rank " + std::to_string(tp_rank)
+                        + " out of range (tp_size=" + std::to_string(all.size()) + ")");
+                }
+                for (const auto &[n, param] : all[tp_rank]) {
                     if (n != name) {
                         continue;
                     }
@@ -150,9 +157,10 @@ inline void bind_infer_engine(py::module &m) {
                     }
                     return meta;
                 }
-            }
-            throw std::runtime_error("weight not found: " + name);
-        })
+                throw std::runtime_error("weight not found: " + name);
+            },
+            py::arg("name"),
+            py::arg("tp_rank") = 0)
         .def("state_dict_keys", [](InferEngine &self) {
             py::list state_dict_keys_tp_all;
             for (const auto &state_dict_tp : self.state_dict()) {

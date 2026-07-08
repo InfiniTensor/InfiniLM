@@ -65,14 +65,17 @@ def splitting_flash_attention_forward(
         layer_idx = paged_ctx.next_layer_idx()
         torch.ops.infinilm.write_paged_kv(key, value, layer_idx)
 
+    from .prefill_context import valid_seq_len_tensor
+
     softmax_scale = scaling if scaling is not None else module.scaling
+    valid_seq_len = valid_seq_len_tensor(query, device=query.device)
     attn_output = torch.ops.infinilm.prefill_flash_attention(
         query,
         key,
         value,
         float(softmax_scale),
         bool(is_causal),
-        None,
+        valid_seq_len,
     )
     return attn_output, None
 

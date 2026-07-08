@@ -386,6 +386,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         infinicore::context::startGraphRecording();
         model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
         graphs.pre_attn[layer] = infinicore::context::stopGraphRecording();
+        infinicore::context::syncStream();
 
         piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
         model_->native_piecewise_eager_attn_layer(layer, graphs.input);

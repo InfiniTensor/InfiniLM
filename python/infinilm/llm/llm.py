@@ -481,14 +481,7 @@ class LLMEngine:
                 req.is_prefill = False
 
             req.generated_token_ids.append(token_id)
-            pending_tokens = req.generated_token_ids[req._pending_token_offset :]
-            delta = self.tokenizer.decode(pending_tokens)
-            holds_back = bool(delta) and delta.endswith("\ufffd")
-            last_committed_text = req.generated_text
-
-            if not holds_back:
-                req.generated_text = last_committed_text + delta
-                req._pending_token_offset = len(req.generated_token_ids)
+            holds_back = self._update_generated_text_from_tokens(req)
 
             is_finished = self._check_request_finished(req, token_id)
 
@@ -630,6 +623,14 @@ class LLMEngine:
         self.scheduler.complete_requests(requests)
         return pending
 
+    def _update_generated_text_from_tokens(self, req: InferenceRequest) -> bool:
+        """Decode all generated tokens; return True if held back (incomplete UTF-8)."""
+        full_text = self.tokenizer.decode(req.generated_token_ids)
+        holds_back = bool(full_text) and full_text.endswith("\ufffd")
+        if not holds_back:
+            req.generated_text = full_text
+        return holds_back
+
     def _apply_sampled_token(
         self, req: InferenceRequest, token_id: int
     ) -> List[tuple]:
@@ -647,15 +648,7 @@ class LLMEngine:
             req.is_prefill = False
 
         req.generated_token_ids.append(token_id)
-        pending_tokens = req.generated_token_ids[req._pending_token_offset :]
-        delta = self.tokenizer.decode(pending_tokens)
-        holds_back = bool(delta) and delta.endswith("\ufffd")
-
-        last_committed_text = req.generated_text
-
-        if not holds_back:
-            req.generated_text = last_committed_text + delta
-            req._pending_token_offset = len(req.generated_token_ids)
+        holds_back = self._update_generated_text_from_tokens(req)
 
         is_finished = self._check_request_finished(req, token_id)
 

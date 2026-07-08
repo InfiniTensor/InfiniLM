@@ -37,33 +37,42 @@ class TorchLlamaPrefillModel(nn.Module):
         )
         return out.logits
 
-    def forward_prefill_compile(self, input_ids: torch.Tensor) -> torch.Tensor:
+    def forward_prefill_compile(
+        self,
+        input_ids: torch.Tensor,
+        *,
+        valid_seq_len: Optional[int] = None,
+    ) -> torch.Tensor:
         """Prefill forward without ``DynamicCache`` / mask helpers (torch.compile friendly)."""
+        from .prefill_context import prefill_compile_context
         from .rope import rotary_embeddings_compile_friendly
 
         model = self.inner.model
-        hidden = model.embed_tokens(input_ids)
-        seq_len = hidden.shape[1]
-        device = hidden.device
-        cache_position = torch.arange(0, seq_len, device=device, dtype=torch.long)
-        position_ids = cache_position.unsqueeze(0)
-        position_embeddings = rotary_embeddings_compile_friendly(
-            model.rotary_emb, hidden, position_ids
-        )
+        bucket_len = int(input_ids.shape[1])
+        actual_len = int(valid_seq_len) if valid_seq_len is not None else bucket_len
 
-        for decoder_layer in model.layers:
-            hidden = decoder_layer(
-                hidden,
-                attention_mask=None,
-                position_ids=position_ids,
-                past_key_values=None,
-                use_cache=False,
-                cache_position=cache_position,
-                position_embeddings=position_embeddings,
+        with prefill_compile_context(actual_len):
+            hidden = model.embed_tokens(input_ids)
+            device = hidden.device
+            cache_position = torch.arange(0, bucket_len, device=device, dtype=torch.long)
+            position_ids = cache_position.unsqueeze(0)
+            position_embeddings = rotary_embeddings_compile_friendly(
+                model.rotary_emb, hidden, position_ids
             )
 
-        hidden = model.norm(hidden)
-        return self.inner.lm_head(hidden)
+            for decoder_layer in model.layers:
+                hidden = decoder_layer(
+                    hidden,
+                    attention_mask=None,
+                    position_ids=position_ids,
+                    past_key_values=None,
+                    use_cache=False,
+                    cache_position=cache_position,
+                    position_embeddings=position_embeddings,
+                )
+
+            hidden = model.norm(hidden)
+            return self.inner.lm_head(hidden)
 
     def forward_last_token_logits(self, input_ids: torch.Tensor) -> torch.Tensor:
         """Logits at the last prefill position: ``[batch, vocab]``."""
@@ -93,6 +102,7 @@ def load_torch_llama(
     attn_implementation: str = "flash_attention_2",
     splitting_flash_boundary: bool = False,
     cpp_state_dict: Optional[dict] = None,
+    tp_size: int = 1,
 ) -> TorchLlamaPrefillModel:
     """Build model, load HF weights from safetensors, eval mode on ``device``.
 
@@ -116,6 +126,14 @@ def load_torch_llama(
         from transformers import AutoConfig
 
         config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+        if int(tp_size) > 1:
+            tp_size = int(tp_size)
+            config.num_attention_heads = int(config.num_attention_heads) // tp_size
+            total_kv = int(config.num_key_value_heads)
+            config.num_key_value_heads = (
+                1 if total_kv < tp_size else total_kv // tp_size
+            )
+            config.intermediate_size = int(config.intermediate_size) // tp_size
         with torch.device("meta"):
             inner = AutoModelForCausalLM.from_config(
                 config,
@@ -132,8 +150,14 @@ def load_torch_llama(
         wrapper = TorchLlamaPrefillModel(inner)
         from infinilm.compile.weights import bind_cpp_weights_to_torch
 
-        bind_cpp_weights_to_torch(wrapper, cpp_state_dict, strict=False)
+        bind_cpp_weights_to_torch(wrapper, cpp_state_dict, strict=False, device=device)
         _materialize_rotary_for_compile(inner)
+        from .mup import Fm9gMupScales, apply_fm9g_mup_runtime_scales
+
+        mup = Fm9gMupScales.from_config(config)
+        if mup is not None:
+            apply_fm9g_mup_runtime_scales(inner, mup)
+            wrapper._fm9g_mup_scales = mup
         return wrapper
 
     inner = AutoModelForCausalLM.from_pretrained(

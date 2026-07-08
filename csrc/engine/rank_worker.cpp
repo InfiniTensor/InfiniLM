@@ -7,6 +7,7 @@
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
 #include "infinicore/context/context.hpp"
+#include "infinicore/ops/inductor_segment.hpp"
 #include "infinicore/ops.hpp"
 #include <chrono>
 #include <cstdlib>
@@ -26,6 +27,18 @@ bool rank_worker_profile_enabled() {
         cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
     }
     return cached == 1;
+}
+
+size_t inductor_tp_rank_resolver() {
+    return infinilm::global_state::get_tensor_model_parallel_rank();
+}
+
+void ensure_inductor_tp_rank_resolver() {
+    static std::once_flag once;
+    std::call_once(once, []() {
+        infinicore::op::inductor_segment_impl::set_tensor_parallel_rank_resolver(
+            &inductor_tp_rank_resolver);
+    });
 }
 
 /// Keep pre-graph RankBarrier on decode replay (default on for TP rank sync).
@@ -332,6 +345,7 @@ void RankWorker::thread_loop() {
 
             // Initialize global enviromnet.
             infinilm::global_state::initialize_model_parallel(rank_info_);
+            ensure_inductor_tp_rank_resolver();
             infinilm::global_state::initialize_forward_context(forward_context_);
             infinilm::global_state::initialize_infinilm_config(infinilm_config_);
 

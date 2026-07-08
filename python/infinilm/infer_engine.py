@@ -73,6 +73,7 @@ class InferEngine(_infinilm.InferEngine):
             device = infinicore.device()
         self._infini_device = device
         self._tp_size = max(1, len(distributed_config.tp_device_ids))
+        self._distributed_config = distributed_config
 
         hf_config_str = json.dumps(self.hf_config)
         super().__init__(
@@ -96,13 +97,20 @@ class InferEngine(_infinilm.InferEngine):
         self._compiled_prefill_ready = False
         self._paged_kv_layers_cache = None
         try:
-            from infinilm.compile.env import prefill_native_cg_enabled
+            from infinilm.compile.env import (
+                piecewise_inductor_segment_enabled,
+                prefill_native_cg_enabled,
+            )
 
             self._prefill_native_cg_enabled = prefill_native_cg_enabled()
+            self._piecewise_inductor_segment_enabled = piecewise_inductor_segment_enabled()
         except ImportError:
             self._prefill_native_cg_enabled = False
+            self._piecewise_inductor_segment_enabled = False
 
-        if not self._prefill_native_cg_enabled:
+        if self._prefill_native_cg_enabled and self._piecewise_inductor_segment_enabled:
+            self._maybe_bootstrap_compiled_subgraphs()
+        elif not self._prefill_native_cg_enabled:
             self._maybe_bootstrap_compiled_subgraphs()
 
     def _maybe_bootstrap_compiled_subgraphs(self):
@@ -123,6 +131,11 @@ class InferEngine(_infinilm.InferEngine):
             hidden_size=hidden,
             dtype=to_torch_dtype(self.dtype),
             warmup=True,
+            model_path=self._model_path,
+            tp_size=getattr(self, "_tp_size", 1),
+            tp_device_ids=getattr(
+                self, "_distributed_config", DistConfig(1)
+            ).tp_device_ids,
         )
 
     def _hybrid_prefill_ready(self) -> bool:
@@ -465,11 +478,13 @@ class InferEngine(_infinilm.InferEngine):
             meta["data_ptr"], meta["shape"], strides, dtype=dtype, device=device
         )
 
-    def _cpp_state_dict_for_compile(self) -> dict:
+    def _cpp_state_dict_for_compile(self, tp_rank: int = 0) -> dict:
         """Export C++ weight buffers as infinicore.Tensor views for torch share-weights."""
         out = {}
-        for name in super().state_dict_keys()[0]:
-            out[name] = self._tensor_from_blob_meta(super().weight_blob(name))
+        for name in super().state_dict_keys()[int(tp_rank)]:
+            out[name] = self._tensor_from_blob_meta(
+                super().weight_blob(name, int(tp_rank))
+            )
         return out
 
     def load_param(self, name, param):

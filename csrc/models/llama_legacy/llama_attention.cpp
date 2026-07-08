@@ -12,13 +12,83 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
+#ifdef ENABLE_FLASH_ATTN
+#include "infinicore/adaptor/aten_adaptor.hpp"
+#include "infinicore/adaptor/flash_attention_adaptor.hpp"
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
+#include <c10/cuda/CUDAGuard.h>
+#endif
+#endif
+
 namespace infinilm::models::llama_legacy {
+namespace {
+
+#ifdef ENABLE_FLASH_ATTN
+#if defined(ENABLE_METAX_API)
+#define INFINILM_FLASH_OP(name) ::name
+#else
+#define INFINILM_FLASH_OP(name) flash::name
+#endif
+
+bool use_flash_attn_static_prefill() {
+    const char *raw = std::getenv("INFINI_ATTENTION_BACKEND");
+    if (raw == nullptr) {
+        return true;
+    }
+    const std::string backend(raw);
+    if (backend == "legacy_matmul" || backend == "matmul") {
+        return false;
+    }
+    return backend == "flash" || backend == "flash-attn" || backend == "default";
+}
+
+infinicore::Tensor flash_attn_prefill_fwd(const infinicore::Tensor &q,
+                                          const infinicore::Tensor &k,
+                                          const infinicore::Tensor &v,
+                                          float scale) {
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
+    c10::cuda::CUDAStreamGuard guard(infinicore::adaptor::get_cuda_stream());
+#endif
+    auto q_work = q->contiguous();
+    auto k_work = k->contiguous();
+    auto v_work = v->contiguous();
+    auto q_aten = infinicore::adaptor::to_aten_tensor(q_work);
+    auto k_aten = infinicore::adaptor::to_aten_tensor(k_work);
+    auto v_aten = infinicore::adaptor::to_aten_tensor(v_work);
+
+    auto out_ic = infinicore::Tensor::empty(q_work->shape(), q_work->dtype(), q_work->device());
+    auto out_aten = infinicore::adaptor::to_aten_tensor(out_ic);
+    std::optional<at::Tensor> out_opt(out_aten);
+    std::optional<at::Tensor> alibi_slopes = std::nullopt;
+
+    INFINILM_FLASH_OP(mha_fwd)(
+        q_aten,
+        k_aten,
+        v_aten,
+        out_opt,
+        alibi_slopes,
+        0.0f,
+        scale,
+        true,
+        -1,
+        -1,
+        0.0f,
+        false,
+        std::nullopt);
+
+    return out_ic;
+}
+#endif // ENABLE_FLASH_ATTN
+
+} // namespace
 
 using layers::linear::to_legacy_quant;
 using layers::linear::to_legacy_quant_scheme;
@@ -237,6 +307,29 @@ infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_sta
     }
 
     infinicore::Tensor attn_output;
+#ifdef ENABLE_FLASH_ATTN
+    if (use_flash_attn_static_prefill()) {
+        size_t total_seq_len = reinterpret_cast<int32_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
+
+        infinilm::KVQuantUtils::dequantize(
+            k_total, v_total,
+            this->model_config_->get_kv_quant_scheme(),
+            this->kv_cache_k_scale_,
+            this->kv_cache_v_scale_,
+            q_reshaped);
+
+        k_total = k_total->narrow({{2, 0, total_seq_len}});
+        v_total = v_total->narrow({{2, 0, total_seq_len}});
+
+        // FA2 layout: [bs, seqlen, n_heads, head_dim] (flash_attention_adaptor.hpp).
+        auto q_fa = q_reshaped->permute({0, 2, 1, 3})->contiguous();
+        auto k_fa = k_total->permute({0, 2, 1, 3})->contiguous();
+        auto v_fa = v_total->permute({0, 2, 1, 3})->contiguous();
+        auto fa_out = flash_attn_prefill_fwd(q_fa, k_fa, v_fa, scaling_);
+        attn_output = fa_out->contiguous()
+                          ->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
+    } else
+#endif
     if (false) {
         // experimental nineoothed flash attention
         attn_output = infinicore::op::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scaling_, true);

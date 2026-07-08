@@ -3,8 +3,10 @@
 #include "../../config/model_config.hpp"
 #include "../../global_state/ar_profile.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../global_state/piecewise_inductor_flags.hpp"
 #include "../../global_state/piecewise_prefill_state.hpp"
 #include "infinicore/device.hpp"
+#include "infinicore/ops/inductor_segment.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
@@ -68,6 +70,20 @@ public:
                             infinicore::Tensor &hidden_states,
                             infinicore::Tensor &residual,
                             global_state::PiecewiseLayerStaging &staging) const {
+        if (global_state::piecewise_inductor_segment_enabled()) {
+            const size_t bucket = hidden_states->size(1);
+            infinicore::op::inductor_segment_(
+                positions,
+                hidden_states,
+                residual,
+                staging.q_rope,
+                staging.k_rope,
+                staging.v_rope,
+                infinicore::op::PiecewiseInductorSegmentId::PreAttn,
+                layer_idx_,
+                bucket);
+            return;
+        }
         input_layernorm_->forward_inplace(hidden_states, residual);
         self_attn_->forward_pre_attn_piecewise(positions, hidden_states, staging);
     }

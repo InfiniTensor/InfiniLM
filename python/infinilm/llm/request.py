@@ -157,9 +157,9 @@ class InferenceRequest:
         self._output_queue: Optional[janus.Queue] = None
         self._aborted = False
 
-        # Streaming helpers (vLLM-style UTF-8 buffering at the chunking layer)
-        # Used by the engine to compute "delta" text chunks from a full decode.
+        # Streaming: index into generated_text for deltas already sent to client.
         self._stream_last_yielded_length: int = 0
+        # Deprecated: slice-decode offset; engine uses full-sequence decode now.
         self._pending_token_offset: int = 0
 
     @property

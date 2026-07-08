@@ -1,6 +1,7 @@
 # Copyright (c) 2025, InfiniCore
-"""PRD-03 prefill env flags (native C++ piecewise CG). No vLLM compile-prefill stack."""
+"""PRD-04 torch.compile config/runner + PRD-03 prefill env flags."""
 
+from .config import TorchCompileConfig, default_compile_size_ladder, model_cache_hash
 from .env import (
     compile_bucket_ceiling,
     compile_buckets,
@@ -14,6 +15,9 @@ from .env import (
     min_cudagraph_piecewise_bucket,
     native_piecewise_capture_buckets,
     padded_bucket_for_seq_len,
+    piecewise_inductor_cache_root,
+    piecewise_inductor_require_aot,
+    piecewise_inductor_segment_enabled,
     prefill_chunk_size,
     prefill_chunked_enabled,
     prefill_cg_baseline_none,
@@ -24,11 +28,37 @@ from .env import (
     prefill_share_weights_enabled,
     return_logits_enabled,
     schedule_homogeneous_enabled,
+    torch_compile_cache_root,
+    torch_compile_enabled,
+    torch_compile_share_weights_enabled,
     v1_scheduler_enabled,
     vllm_unified_power_ladder,
 )
+from .runner import TorchCompileRunner
+from .piecewise_segments import (
+    PIECEWISE_SEGMENT_IDS,
+    SEGMENT_POST_ATTN_CG,
+    SEGMENT_PRE_ATTN,
+    PiecewisePreAttnSegment,
+    build_piecewise_segment,
+    load_torch_model_with_cpp_weights,
+    make_segment_example_inputs,
+    piecewise_inductor_artifact_dir,
+    piecewise_inductor_package_path,
+    segment_output_fingerprint,
+    write_piecewise_inductor_metadata,
+    aot_compile_piecewise_segment,
+    aot_compile_piecewise_segments_batch,
+    torch_compile_piecewise_segment,
+)
+from .weights import bind_cpp_weights_to_torch
 
 __all__ = [
+    "TorchCompileConfig",
+    "TorchCompileRunner",
+    "bind_cpp_weights_to_torch",
+    "default_compile_size_ladder",
+    "model_cache_hash",
     "compile_bucket_ceiling",
     "compile_buckets",
     "compile_max_seq_len",
@@ -41,6 +71,23 @@ __all__ = [
     "min_cudagraph_piecewise_bucket",
     "native_piecewise_capture_buckets",
     "padded_bucket_for_seq_len",
+    "piecewise_inductor_cache_root",
+    "piecewise_inductor_require_aot",
+    "piecewise_inductor_segment_enabled",
+    "PIECEWISE_SEGMENT_IDS",
+    "PiecewisePreAttnSegment",
+    "SEGMENT_POST_ATTN_CG",
+    "SEGMENT_PRE_ATTN",
+    "build_piecewise_segment",
+    "load_torch_model_with_cpp_weights",
+    "make_segment_example_inputs",
+    "piecewise_inductor_artifact_dir",
+    "piecewise_inductor_package_path",
+    "segment_output_fingerprint",
+    "write_piecewise_inductor_metadata",
+    "aot_compile_piecewise_segment",
+    "aot_compile_piecewise_segments_batch",
+    "torch_compile_piecewise_segment",
     "prefill_chunk_size",
     "prefill_chunked_enabled",
     "prefill_cg_baseline_none",
@@ -51,6 +98,9 @@ __all__ = [
     "prefill_share_weights_enabled",
     "return_logits_enabled",
     "schedule_homogeneous_enabled",
+    "torch_compile_cache_root",
+    "torch_compile_enabled",
+    "torch_compile_share_weights_enabled",
     "v1_scheduler_enabled",
     "vllm_unified_power_ladder",
 ]

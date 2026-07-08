@@ -127,6 +127,57 @@ def return_logits_enabled() -> bool:
     return _truthy("INFINI_RETURN_LOGITS", "0")
 
 
+def torch_compile_enabled() -> bool:
+    """Master switch: unified prefill + decode via torch.compile (PRD-04)."""
+    return _truthy("INFINI_TORCH_COMPILE", "0")
+
+
+def torch_compile_share_weights_enabled() -> bool:
+    """Reuse C++ weight buffers for torch compile path (both phases)."""
+    return _truthy("INFINI_TORCH_COMPILE_SHARE_WEIGHTS", "0")
+
+
+def torch_compile_cache_root() -> str:
+    """Inductor + metadata cache root for PRD-04 torch.compile."""
+    return os.environ.get(
+        "INFINI_TORCH_COMPILE_CACHE",
+        "bench_results/torch_compile_cache",
+    )
+
+
+def piecewise_inductor_cache_root() -> str:
+    """AOTInductor artifact cache for M4 piecewise kernel segments."""
+    return os.environ.get(
+        "INFINI_PIECEWISE_INDUCTOR_CACHE",
+        "bench_results/piecewise_inductor_cache",
+    )
+
+
+def piecewise_inductor_require_aot() -> bool:
+    """When set, AOT packaging failures must not fall back to torch.compile."""
+    return _truthy("INFINI_PIECEWISE_INDUCTOR_REQUIRE_AOT", "0")
+
+
+def piecewise_inductor_segment_enabled() -> bool:
+    """Use AOTInductor kernels inside native piecewise pre/post segments (M4)."""
+    return _truthy("INFINI_PIECEWISE_INDUCTOR_SEGMENT", "0")
+
+
+_TORCH_COMPILE_MUTEX_WARNED = False
+
+
+def check_torch_compile_mutual_exclusion() -> None:
+    """Log error when PRD-03 native CG and PRD-04 torch.compile are both enabled."""
+    global _TORCH_COMPILE_MUTEX_WARNED
+    if torch_compile_enabled() and prefill_native_cg_enabled():
+        if not _TORCH_COMPILE_MUTEX_WARNED:
+            logger.error(
+                "INFINI_TORCH_COMPILE=1 and INFINI_PREFILL_NATIVE_CG=1 are mutually "
+                "exclusive; undefined dispatch if both are set at server init"
+            )
+            _TORCH_COMPILE_MUTEX_WARNED = True
+
+
 def compile_max_seq_len(default: int = 8192) -> int:
     raw = os.environ.get("INFINI_COMPILE_MAX_SEQ")
     return int(raw) if raw else default
