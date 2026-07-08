@@ -4,6 +4,7 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/deepseek_v4_mhc.hpp"
+#include "infinicore/ops/deepseek_v4_mhc_head.hpp"
 #include "infinicore/ops/matmul.hpp"
 #include "infinicore/ops/unweighted_rms_norm.hpp"
 
@@ -58,36 +59,6 @@ void write_float_at(std::byte *ptr, infinicore::DataType dtype, size_t idx, floa
     }
 }
 
-void softmax_with_eps_inplace(std::vector<float> &row, double eps) {
-    const float max_value = *std::max_element(row.begin(), row.end());
-    double sum = 0.0;
-    for (auto &v : row) {
-        v = std::exp(v - max_value);
-        sum += v;
-    }
-    for (auto &v : row) {
-        v = static_cast<float>(v / sum + eps);
-    }
-}
-
-std::vector<float> softmax_with_eps(const std::vector<float> &row, double eps) {
-    std::vector<float> out = row;
-    softmax_with_eps_inplace(out, eps);
-    return out;
-}
-
-float sigmoid(float value) {
-    if (value >= 0.0f) {
-        const float z = std::exp(-value);
-        return 1.0f / (1.0f + z);
-    }
-    const float z = std::exp(value);
-    return z / (1.0f + z);
-}
-
-float silu(float value) {
-    return value * sigmoid(value);
-}
 
 } // namespace
 
@@ -407,278 +378,12 @@ infinicore::Tensor int64_vector_to_tensor(const std::vector<int64_t> &values,
     return out;
 }
 
-namespace {
 
-void fill_mhc_params_from_mixes(DeepseekV4MHCParams &params,
-                                const std::vector<float> &mixes,
-                                const DeepseekV4MHCCoeffs &coeffs,
-                                size_t sinkhorn_iters,
-                                double eps) {
-    const size_t batch_size = params.batch_size;
-    const size_t seq_len = params.seq_len;
-    const size_t hc_mult = params.hc_mult;
-    const size_t mix_hc = coeffs.mix_hc;
-    const size_t token_count = batch_size * seq_len;
-
-    params.pre.resize(token_count * hc_mult);
-    params.post.resize(token_count * hc_mult);
-    params.comb.resize(token_count * hc_mult * hc_mult);
-
-    std::vector<float> row(hc_mult);
-    std::vector<float> comb_raw(hc_mult * hc_mult);
-    for (size_t token = 0; token < token_count; ++token) {
-        const float *mix = mixes.data() + token * mix_hc;
-        const size_t pre_offset = token * hc_mult;
-
-        for (size_t i = 0; i < hc_mult; ++i) {
-            params.pre[pre_offset + i] = sigmoid(coeffs.scale[0] * mix[i] + coeffs.base[i]) + static_cast<float>(eps);
-            params.post[pre_offset + i] = 2.0f * sigmoid(coeffs.scale[1] * mix[hc_mult + i] + coeffs.base[hc_mult + i]);
-        }
-
-        for (size_t i = 0; i < hc_mult; ++i) {
-            for (size_t j = 0; j < hc_mult; ++j) {
-                const size_t idx = 2 * hc_mult + i * hc_mult + j;
-                row[j] = coeffs.scale[2] * mix[idx] + coeffs.base[idx];
-            }
-            softmax_with_eps_inplace(row, eps);
-            for (size_t j = 0; j < hc_mult; ++j) {
-                comb_raw[i * hc_mult + j] = row[j];
-            }
-        }
-
-        for (size_t j = 0; j < hc_mult; ++j) {
-            double col_sum = eps;
-            for (size_t i = 0; i < hc_mult; ++i) {
-                col_sum += comb_raw[i * hc_mult + j];
-            }
-            for (size_t i = 0; i < hc_mult; ++i) {
-                comb_raw[i * hc_mult + j] = static_cast<float>(comb_raw[i * hc_mult + j] / col_sum);
-            }
-        }
-        for (size_t iter = 1; iter < sinkhorn_iters; ++iter) {
-            for (size_t i = 0; i < hc_mult; ++i) {
-                double row_sum = eps;
-                for (size_t j = 0; j < hc_mult; ++j) {
-                    row_sum += comb_raw[i * hc_mult + j];
-                }
-                for (size_t j = 0; j < hc_mult; ++j) {
-                    comb_raw[i * hc_mult + j] = static_cast<float>(comb_raw[i * hc_mult + j] / row_sum);
-                }
-            }
-            for (size_t j = 0; j < hc_mult; ++j) {
-                double col_sum = eps;
-                for (size_t i = 0; i < hc_mult; ++i) {
-                    col_sum += comb_raw[i * hc_mult + j];
-                }
-                for (size_t i = 0; i < hc_mult; ++i) {
-                    comb_raw[i * hc_mult + j] = static_cast<float>(comb_raw[i * hc_mult + j] / col_sum);
-                }
-            }
-        }
-
-        std::copy(comb_raw.begin(), comb_raw.end(), params.comb.begin() + token * hc_mult * hc_mult);
-    }
-}
-
-void ensure_mhc_fn_mat_right(DeepseekV4MHCGpuCache &gpu,
-                             const infinicore::Tensor &fn,
-                             size_t flat_dim,
-                             const infinicore::Device &device,
-                             infinicore::DataType matmul_dtype) {
-    const auto fn_shape = fn->shape();
-    if (fn_shape.size() != 2 || fn_shape[1] != flat_dim) {
-        throw std::runtime_error("DeepseekV4MHC: fn shape mismatch");
-    }
-    const size_t mix_hc = fn_shape[0];
-
-    if (gpu.valid && gpu.device == device && gpu.matmul_dtype == matmul_dtype
-        && gpu.mix_hc == mix_hc && gpu.flat_dim == flat_dim) {
-        return;
-    }
-
-    infinicore::Tensor fn_for_matmul;
-    if (fn->dtype() == matmul_dtype && fn->device() == device) {
-        fn_for_matmul = fn->contiguous();
-    } else {
-        fn_for_matmul = float_vector_to_tensor(
-            tensor_to_float_vector(fn), {mix_hc, flat_dim}, matmul_dtype, device);
-    }
-    gpu.fn_mat_right = fn_for_matmul->permute({1, 0})->contiguous()->view({1, flat_dim, mix_hc});
-    gpu.device = device;
-    gpu.matmul_dtype = matmul_dtype;
-    gpu.mix_hc = mix_hc;
-    gpu.flat_dim = flat_dim;
-    gpu.valid = true;
-}
-
-infinicore::Tensor mhc_collapse_gpu(const infinicore::Tensor &x, const infinicore::Tensor &pre) {
-    const auto shape = x->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    const size_t hc_mult = shape[2];
-    const size_t hidden_size = shape[3];
-    const size_t token_count = batch_size * seq_len;
-
-    auto x_tokens = x->contiguous()->view({token_count, hc_mult, hidden_size});
-    auto pre_tokens = pre->contiguous()->view({token_count, 1, hc_mult});
-    return infinicore::op::matmul(pre_tokens, x_tokens)
-        ->view({batch_size, seq_len, hidden_size});
-}
-
-void ensure_mhc_head_coeffs_cached(DeepseekV4MHCCoeffs &cache,
-                                   const infinicore::Tensor &base,
-                                   const infinicore::Tensor &fn,
-                                   const infinicore::Tensor &scale,
-                                   size_t hc_mult,
-                                   size_t hidden_size) {
-    const size_t flat_dim = hc_mult * hidden_size;
-    if (cache.mix_hc == hc_mult && cache.flat_dim == flat_dim) {
-        return;
-    }
-
-    cache.base = tensor_to_float_vector(base);
-    cache.fn = tensor_to_float_vector(fn);
-    auto scale_values = tensor_to_float_vector(scale);
-    if (cache.base.size() != hc_mult || cache.fn.size() != hc_mult * flat_dim || scale_values.empty()) {
-        throw std::runtime_error("DeepseekV4MHC head: parameter shape mismatch");
-    }
-    cache.scale[0] = scale_values[0];
-    cache.scale[1] = 1.0f;
-    cache.scale[2] = 1.0f;
-    cache.mix_hc = hc_mult;
-    cache.flat_dim = flat_dim;
-    cache.gpu.valid = false;
-}
-
-std::vector<float> compute_mhc_mixes_cpu(const infinicore::Tensor &x,
-                                         const DeepseekV4MHCCoeffs &coeffs,
-                                         size_t hc_mult,
-                                         size_t hidden_size,
-                                         double eps) {
-    const auto shape = x->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    const size_t flat_dim = hc_mult * hidden_size;
-    const size_t token_count = batch_size * seq_len;
-    const size_t mix_hc = coeffs.mix_hc;
-
-    auto x_values = tensor_to_float_vector(x->contiguous());
-    std::vector<float> mixes(token_count * mix_hc);
-    std::vector<float> flat(flat_dim);
-    for (size_t token = 0; token < token_count; ++token) {
-        double mean_square = 0.0;
-        for (size_t i = 0; i < flat_dim; ++i) {
-            flat[i] = x_values[token * flat_dim + i];
-            mean_square += static_cast<double>(flat[i]) * flat[i];
-        }
-        const float rsqrt = static_cast<float>(1.0 / std::sqrt(mean_square / static_cast<double>(flat_dim) + eps));
-        for (size_t m = 0; m < mix_hc; ++m) {
-            double dot = 0.0;
-            const size_t fn_offset = m * flat_dim;
-            for (size_t i = 0; i < flat_dim; ++i) {
-                dot += static_cast<double>(coeffs.fn[fn_offset + i]) * flat[i];
-            }
-            mixes[token * mix_hc + m] = static_cast<float>(dot * rsqrt);
-        }
-    }
-    return mixes;
-}
-
-std::vector<float> compute_mhc_mixes(const infinicore::Tensor &x,
-                                     const infinicore::Tensor &fn,
-                                     DeepseekV4MHCCoeffs &coeffs,
-                                     size_t hc_mult,
-                                     size_t hidden_size,
-                                     double eps) {
-    const auto shape = x->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    const size_t flat_dim = hc_mult * hidden_size;
-
-    const bool force_cpu = []() {
-        if (const char *flag = std::getenv("DSV4_MHC_CPU_MIXES"); flag != nullptr && std::string(flag) == "1") {
-            return true;
-        }
-        return false;
-    }();
-
-    if (!force_cpu && x->device().getType() != infinicore::Device::Type::CPU) {
-        const size_t token_count = batch_size * seq_len;
-
-        ensure_mhc_fn_mat_right(coeffs.gpu, fn, flat_dim, x->device(), x->dtype());
-        auto flat = x->view({batch_size, seq_len, flat_dim})->contiguous();
-        flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
-
-        // op::linear is inaccurate for large in_features; matmul dtypes must match (both bf16).
-        auto flat_tokens = flat->view({token_count, 1, flat_dim});
-        const size_t mix_hc = fn->shape()[0];
-        auto mixes = infinicore::op::matmul(flat_tokens, coeffs.gpu.fn_mat_right)
-                         ->view({batch_size, seq_len, mix_hc});
-        return tensor_to_float_vector(mixes->contiguous());
-    }
-
-    return compute_mhc_mixes_cpu(x, coeffs, hc_mult, hidden_size, eps);
-}
-
-} // namespace
-
-void ensure_mhc_coeffs_cached(DeepseekV4MHCCoeffs &cache,
-                              const infinicore::Tensor &base,
-                              const infinicore::Tensor &fn,
-                              const infinicore::Tensor &scale,
-                              size_t hc_mult,
-                              size_t hidden_size) {
-    const size_t flat_dim = hc_mult * hidden_size;
-    const size_t mix_hc = (2 + hc_mult) * hc_mult;
-    if (cache.mix_hc == mix_hc && cache.flat_dim == flat_dim) {
-        return;
-    }
-
-    cache.base = tensor_to_float_vector(base);
-    cache.fn = tensor_to_float_vector(fn);
-    auto scale_values = tensor_to_float_vector(scale);
-    if (cache.base.size() != mix_hc || cache.fn.size() != mix_hc * flat_dim || scale_values.size() < 3) {
-        throw std::runtime_error("DeepseekV4MHC: parameter shape mismatch");
-    }
-    cache.scale[0] = scale_values[0];
-    cache.scale[1] = scale_values[1];
-    cache.scale[2] = scale_values[2];
-    cache.mix_hc = mix_hc;
-    cache.flat_dim = flat_dim;
-    cache.gpu.valid = false;
-}
-
-DeepseekV4MHCParams build_mhc_params(const infinicore::Tensor &x,
-                                     const infinicore::Tensor &base,
-                                     const infinicore::Tensor &fn,
-                                     const infinicore::Tensor &scale,
-                                     size_t hc_mult,
-                                     size_t hidden_size,
-                                     size_t sinkhorn_iters,
-                                     double eps) {
-    DeepseekV4MHCCoeffs coeffs;
-    ensure_mhc_coeffs_cached(coeffs, base, fn, scale, hc_mult, hidden_size);
-
-    const auto shape = x->shape();
-    if (shape.size() != 4 || shape[2] != hc_mult || shape[3] != hidden_size) {
-        throw std::runtime_error("DeepseekV4MHC: expected x shape [B,S,hc_mult,hidden_size]");
-    }
-
-    DeepseekV4MHCParams params;
-    params.batch_size = shape[0];
-    params.seq_len = shape[1];
-    params.hc_mult = hc_mult;
-
-    auto mixes = compute_mhc_mixes(x, fn, coeffs, hc_mult, hidden_size, eps);
-    fill_mhc_params_from_mixes(params, mixes, coeffs, sinkhorn_iters, eps);
-    return params;
-}
-
-DeepseekV4MHCPrepareResult mhc_prepare(const infinicore::Tensor &x,
+std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+mhc_prepare(const infinicore::Tensor &x,
                                        const infinicore::Tensor &base,
-                                       const infinicore::Tensor &fn,
+                                       const infinicore::Tensor &fn_mat_right,
                                        const infinicore::Tensor &scale,
-                                       DeepseekV4MHCGpuCache &gpu_cache,
                                        size_t hc_mult,
                                        size_t hidden_size,
                                        size_t sinkhorn_iters,
@@ -695,62 +400,22 @@ DeepseekV4MHCPrepareResult mhc_prepare(const infinicore::Tensor &x,
     const size_t seq_len = shape[1];
     const size_t flat_dim = hc_mult * hidden_size;
     const size_t token_count = batch_size * seq_len;
-    const size_t mix_hc = fn->shape()[0];
+    const size_t mix_hc = fn_mat_right->shape()[2];
 
-    ensure_mhc_fn_mat_right(gpu_cache, fn, flat_dim, x->device(), x->dtype());
-    auto flat = x->contiguous()->view({batch_size, seq_len, flat_dim});
+    auto x_view = x->is_contiguous() ? x : x->contiguous();
+    auto flat = x_view->view({batch_size, seq_len, flat_dim});
     flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
-    auto mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}), gpu_cache.fn_mat_right)
-                     ->view({batch_size, seq_len, mix_hc})
-                     ->contiguous();
+    auto mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}), fn_mat_right)
+                     ->view({batch_size, seq_len, mix_hc});
 
     auto [pre, post, comb] = infinicore::op::deepseek_v4_mhc_params(
         mixes, base, scale, sinkhorn_iters, static_cast<float>(eps));
 
-    DeepseekV4MHCPrepareResult result;
-    result.params.pre_gpu = pre;
-    result.params.post_gpu = post;
-    result.params.comb_gpu = comb;
-    result.collapsed = mhc_collapse_gpu(x, pre);
-    return result;
-}
-
-infinicore::Tensor mhc_collapse(const infinicore::Tensor &x, const DeepseekV4MHCParams &params) {
-    const auto shape = x->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    const size_t hc_mult = shape[2];
-    const size_t hidden_size = shape[3];
-
-    if (x->device().getType() != infinicore::Device::Type::CPU) {
-        auto pre = params.pre_gpu ? params.pre_gpu : float_vector_to_tensor(params.pre, {batch_size, seq_len, hc_mult}, x->dtype(), x->device());
-        const size_t token_count = batch_size * seq_len;
-        auto x_tokens = x->contiguous()->view({token_count, hc_mult, hidden_size});
-        auto pre_tokens = pre->view({token_count, 1, hc_mult});
-        return infinicore::op::matmul(pre_tokens, x_tokens)
-            ->view({batch_size, seq_len, hidden_size});
-    }
-    return mhc_pre(x, params);
-}
-
-infinicore::Tensor mhc_pre(const infinicore::Tensor &x,
-                           const DeepseekV4MHCParams &params) {
-    const auto shape = x->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    const size_t hc_mult = shape[2];
-    const size_t hidden_size = shape[3];
-    auto x_values = tensor_to_float_vector(x);
-    std::vector<float> out(batch_size * seq_len * hidden_size, 0.0f);
-    for (size_t token = 0; token < batch_size * seq_len; ++token) {
-        for (size_t h = 0; h < hc_mult; ++h) {
-            const float coeff = params.pre[token * hc_mult + h];
-            for (size_t d = 0; d < hidden_size; ++d) {
-                out[token * hidden_size + d] += coeff * x_values[(token * hc_mult + h) * hidden_size + d];
-            }
-        }
-    }
-    return float_vector_to_tensor(out, {batch_size, seq_len, hidden_size}, x->dtype(), x->device());
+    auto x_tokens = x_view->view({token_count, hc_mult, hidden_size});
+    auto pre_tokens = pre->view({token_count, 1, hc_mult});
+    auto collapsed = infinicore::op::matmul(pre_tokens, x_tokens)
+                         ->view({batch_size, seq_len, hidden_size});
+    return {collapsed, post, comb};
 }
 
 infinicore::Tensor mhc_post_gpu(const infinicore::Tensor &new_x,
@@ -764,87 +429,17 @@ infinicore::Tensor mhc_post_gpu(const infinicore::Tensor &new_x,
     const size_t hidden_size = shape[3];
     const size_t token_count = batch_size * seq_len;
 
-    auto res = residual->contiguous()->view({token_count, hc_mult, hidden_size});
+    auto residual_view = residual->is_contiguous() ? residual : residual->contiguous();
+    auto new_x_view = new_x->is_contiguous() ? new_x : new_x->contiguous();
+    auto res = residual_view->view({token_count, hc_mult, hidden_size});
     auto comb_out = infinicore::op::matmul(
-        comb->contiguous()->view({token_count, hc_mult, hc_mult}), res);
+        comb->view({token_count, hc_mult, hc_mult}), res);
 
-    auto new_t = new_x->contiguous()->view({token_count, 1, hidden_size});
+    auto new_t = new_x_view->view({token_count, 1, hidden_size});
     auto post_out = infinicore::op::matmul(
-        post->contiguous()->view({token_count, hc_mult, 1}), new_t);
+        post->view({token_count, hc_mult, 1}), new_t);
 
     return infinicore::op::add(post_out, comb_out)->view({batch_size, seq_len, hc_mult, hidden_size});
-}
-
-std::pair<infinicore::Tensor, infinicore::Tensor> mhc_post_comb_tensors(
-    const DeepseekV4MHCParams &params,
-    const infinicore::Tensor &reference) {
-    (void)reference;
-    if (!params.post_gpu || !params.comb_gpu) {
-        throw std::runtime_error("DeepseekV4MHC: expected GPU post/comb tensors");
-    }
-    return {params.post_gpu, params.comb_gpu};
-}
-
-infinicore::Tensor mhc_post_gpu(const infinicore::Tensor &new_x,
-                                const infinicore::Tensor &residual,
-                                const DeepseekV4MHCParams &params) {
-    auto [post, comb] = mhc_post_comb_tensors(params, residual);
-    return mhc_post_gpu(new_x, residual, post, comb);
-}
-
-infinicore::Tensor mhc_post(const infinicore::Tensor &new_x,
-                            const infinicore::Tensor &residual,
-                            const infinicore::Tensor &post,
-                            const infinicore::Tensor &comb) {
-    if (residual->device().getType() == infinicore::Device::Type::CPU) {
-        throw std::runtime_error("DeepseekV4MHC: mhc_post requires GPU tensor");
-    }
-    return mhc_post_gpu(new_x, residual, post, comb);
-}
-
-infinicore::Tensor mhc_post(const infinicore::Tensor &new_x,
-                            const infinicore::Tensor &residual,
-                            const DeepseekV4MHCParams &params) {
-    const bool force_cpu = []() {
-        if (const char *flag = std::getenv("DSV4_MHC_CPU_POST"); flag != nullptr && std::string(flag) == "1") {
-            return true;
-        }
-        return false;
-    }();
-
-    if (!force_cpu && residual->device().getType() != infinicore::Device::Type::CPU) {
-        return mhc_post_gpu(new_x, residual, params);
-    }
-
-    const auto shape = residual->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    const size_t hc_mult = shape[2];
-    const size_t hidden_size = shape[3];
-    DeepseekV4MHCParams cpu_params = params;
-    if (cpu_params.post.empty() && params.post_gpu) {
-        cpu_params.post = tensor_to_float_vector(params.post_gpu);
-    }
-    if (cpu_params.comb.empty() && params.comb_gpu) {
-        cpu_params.comb = tensor_to_float_vector(params.comb_gpu);
-    }
-    auto residual_values = tensor_to_float_vector(residual);
-    auto new_values = tensor_to_float_vector(new_x);
-    std::vector<float> out(batch_size * seq_len * hc_mult * hidden_size, 0.0f);
-    for (size_t token = 0; token < batch_size * seq_len; ++token) {
-        for (size_t i = 0; i < hc_mult; ++i) {
-            const float post = cpu_params.post[token * hc_mult + i];
-            for (size_t d = 0; d < hidden_size; ++d) {
-                float value = post * new_values[token * hidden_size + d];
-                for (size_t j = 0; j < hc_mult; ++j) {
-                    value += cpu_params.comb[(token * hc_mult + i) * hc_mult + j]
-                           * residual_values[(token * hc_mult + j) * hidden_size + d];
-                }
-                out[(token * hc_mult + i) * hidden_size + d] = value;
-            }
-        }
-    }
-    return float_vector_to_tensor(out, residual->shape(), residual->dtype(), residual->device());
 }
 
 infinicore::Tensor expand_hc_stream(const infinicore::Tensor &hidden_states,
@@ -866,9 +461,8 @@ infinicore::Tensor expand_hc_stream(const infinicore::Tensor &hidden_states,
 
 infinicore::Tensor mhc_head_pre(const infinicore::Tensor &x,
                                 const infinicore::Tensor &base,
-                                const infinicore::Tensor &fn,
+                                const infinicore::Tensor &fn_mat_right,
                                 const infinicore::Tensor &scale,
-                                DeepseekV4MHCCoeffs &coeffs_cache,
                                 size_t hc_mult,
                                 size_t hidden_size,
                                 double eps) {
@@ -877,23 +471,24 @@ infinicore::Tensor mhc_head_pre(const infinicore::Tensor &x,
         throw std::runtime_error("DeepseekV4MHC: expected x shape [B,S,hc_mult,hidden_size]");
     }
 
-    ensure_mhc_head_coeffs_cached(coeffs_cache, base, fn, scale, hc_mult, hidden_size);
-
-    DeepseekV4MHCParams params;
-    params.batch_size = shape[0];
-    params.seq_len = shape[1];
-    params.hc_mult = hc_mult;
-    params.pre.resize(params.batch_size * params.seq_len * hc_mult);
-
-    const auto mixes = compute_mhc_mixes(x, fn, coeffs_cache, hc_mult, hidden_size, eps);
-    for (size_t token = 0; token < params.batch_size * params.seq_len; ++token) {
-        for (size_t h = 0; h < hc_mult; ++h) {
-            params.pre[token * hc_mult + h] = sigmoid(coeffs_cache.scale[0] * mixes[token * hc_mult + h] + coeffs_cache.base[h])
-                                            + static_cast<float>(eps);
-        }
+    if (x->device().getType() == infinicore::Device::Type::CPU) {
+        throw std::runtime_error("DeepseekV4MHC head requires GPU tensor");
     }
 
-    return mhc_collapse(x, params);
+    const size_t batch_size = shape[0];
+    const size_t seq_len = shape[1];
+    const size_t flat_dim = hc_mult * hidden_size;
+    const size_t token_count = batch_size * seq_len;
+    const size_t mix_hc = fn_mat_right->shape()[2];
+
+    auto x_view = x->is_contiguous() ? x : x->contiguous();
+    auto flat = x_view->view({batch_size, seq_len, flat_dim});
+    flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
+    auto mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}),
+                                        fn_mat_right)
+                      ->view({batch_size, seq_len, mix_hc});
+    return infinicore::op::deepseek_v4_mhc_head_collapse(
+        x_view, mixes, base, scale, static_cast<float>(eps));
 }
 
 } // namespace infinilm::models::deepseek_v4

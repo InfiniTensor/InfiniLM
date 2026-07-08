@@ -45,7 +45,8 @@ private:
 
     infinicore::Tensor dense_attention_sliding_gpu_(const infinicore::Tensor &q_rope,
                                                     const infinicore::Tensor &key_states,
-                                                    const std::vector<int64_t> &pos) const;
+                                                    const std::vector<int64_t> &pos,
+                                                    size_t query_start = 0) const;
 
     infinicore::Tensor dense_attention_decode_reference_(const infinicore::Tensor &query_states,
                                                          const infinicore::Tensor &key_states,

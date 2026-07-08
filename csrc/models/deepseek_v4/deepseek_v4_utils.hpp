@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -53,84 +54,15 @@ void apply_rope_at_offset(std::vector<float> &values,
                           const DeepseekV4RopeParams &cfg,
                           bool inverse = false);
 
-struct DeepseekV4MHCParams {
-    std::vector<float> pre;
-    std::vector<float> post;
-    std::vector<float> comb;
-    infinicore::Tensor pre_gpu;
-    infinicore::Tensor post_gpu;
-    infinicore::Tensor comb_gpu;
-    bool gpu_valid{false};
-    size_t batch_size{0};
-    size_t seq_len{0};
-    size_t hc_mult{0};
-};
-
-// GPU-resident static mHC tensors reused across forwards (fn^T for matmul).
-struct DeepseekV4MHCGpuCache {
-    infinicore::Tensor fn_mat_right;
-    infinicore::Device device;
-    infinicore::DataType matmul_dtype{infinicore::DataType::F32};
-    size_t mix_hc{0};
-    size_t flat_dim{0};
-    bool valid{false};
-};
-
-// Cached CPU copy of static mHC weights (base/fn/scale); safe to reuse across forwards.
-struct DeepseekV4MHCCoeffs {
-    std::vector<float> base;
-    std::vector<float> fn;
-    float scale[3]{1.0f, 1.0f, 1.0f};
-    size_t mix_hc{0};
-    size_t flat_dim{0};
-    mutable DeepseekV4MHCGpuCache gpu;
-};
-
-void ensure_mhc_coeffs_cached(DeepseekV4MHCCoeffs &cache,
-                              const infinicore::Tensor &base,
-                              const infinicore::Tensor &fn,
-                              const infinicore::Tensor &scale,
-                              size_t hc_mult,
-                              size_t hidden_size);
-
-struct DeepseekV4MHCPrepareResult {
-    DeepseekV4MHCParams params;
-    infinicore::Tensor collapsed;
-};
-
-DeepseekV4MHCParams build_mhc_params(const infinicore::Tensor &x,
-                                     const infinicore::Tensor &base,
-                                     const infinicore::Tensor &fn,
-                                     const infinicore::Tensor &scale,
-                                     size_t hc_mult,
-                                     size_t hidden_size,
-                                     size_t sinkhorn_iters,
-                                     double eps);
-
-DeepseekV4MHCPrepareResult mhc_prepare(const infinicore::Tensor &x,
+std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+mhc_prepare(const infinicore::Tensor &x,
                                        const infinicore::Tensor &base,
-                                       const infinicore::Tensor &fn,
+                                       const infinicore::Tensor &fn_mat_right,
                                        const infinicore::Tensor &scale,
-                                       DeepseekV4MHCGpuCache &gpu_cache,
                                        size_t hc_mult,
                                        size_t hidden_size,
                                        size_t sinkhorn_iters,
                                        double eps);
-
-infinicore::Tensor mhc_collapse(const infinicore::Tensor &x,
-                                const DeepseekV4MHCParams &params);
-
-infinicore::Tensor mhc_pre(const infinicore::Tensor &x,
-                           const DeepseekV4MHCParams &params);
-
-infinicore::Tensor mhc_post(const infinicore::Tensor &new_x,
-                            const infinicore::Tensor &residual,
-                            const DeepseekV4MHCParams &params);
-
-infinicore::Tensor mhc_post(const infinicore::Tensor &new_x,
-                            const infinicore::Tensor &residual,
-                            const infinicore::Tensor &post,
-                            const infinicore::Tensor &comb);
 
 infinicore::Tensor mhc_post_gpu(const infinicore::Tensor &new_x,
                                 const infinicore::Tensor &residual,
@@ -142,9 +74,8 @@ infinicore::Tensor expand_hc_stream(const infinicore::Tensor &hidden_states,
 
 infinicore::Tensor mhc_head_pre(const infinicore::Tensor &x,
                                 const infinicore::Tensor &base,
-                                const infinicore::Tensor &fn,
+                                const infinicore::Tensor &fn_mat_right,
                                 const infinicore::Tensor &scale,
-                                DeepseekV4MHCCoeffs &coeffs_cache,
                                 size_t hc_mult,
                                 size_t hidden_size,
                                 double eps);

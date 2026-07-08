@@ -31,9 +31,12 @@ public:
             const infinicore::Tensor &residual = infinicore::Tensor()) const;
 
 private:
+    void ensure_hc_attn_fn_mat_right(const infinicore::Tensor &reference) const;
+    void ensure_hc_ffn_fn_mat_right(const infinicore::Tensor &reference) const;
+
     std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
     hc_pre(const infinicore::Tensor &x,
-           const infinicore::Tensor &fn,
+           const infinicore::Tensor &fn_mat_right,
            const infinicore::Tensor &scale,
            const infinicore::Tensor &base) const;
 
@@ -60,8 +63,8 @@ private:
     double hc_eps_{0.0};
     double hc_post_alpha_{2.0};
 
-    mutable DeepseekV4MHCGpuCache hc_attn_gpu_;
-    mutable DeepseekV4MHCGpuCache hc_ffn_gpu_;
+    mutable infinicore::Tensor hc_attn_fn_mat_right_;
+    mutable infinicore::Tensor hc_ffn_fn_mat_right_;
 };
 
 } // namespace infinilm::models::deepseek_v4

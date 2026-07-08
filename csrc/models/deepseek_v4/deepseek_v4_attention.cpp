@@ -186,8 +186,14 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
         cached_key_states_ = infinicore::op::cat({cached_key_states_, key_states}, 1);
         cached_positions_.insert(cached_positions_.end(), pos.begin(), pos.end());
         cached_seq_len_ = cached_positions_.size();
-        attn_output = dense_attention_decode_reference_(
-            q_normed, cached_key_states_, cached_hidden_states_, cached_q_residual_, cached_positions_, query_start);
+        if (rotary_emb_.compress_ratio() == 0
+            && q_normed->device().getType() != infinicore::Device::Type::CPU) {
+            attn_output = dense_attention_sliding_gpu_(
+                q_normed, cached_key_states_, cached_positions_, query_start);
+        } else {
+            attn_output = dense_attention_decode_reference_(
+                q_normed, cached_key_states_, cached_hidden_states_, cached_q_residual_, cached_positions_, query_start);
+        }
     } else {
         cached_hidden_states_ = hidden_states_mutable;
         cached_q_residual_ = q_residual;
@@ -322,46 +328,72 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const 
 
 infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infinicore::Tensor &q_rope,
                                                                      const infinicore::Tensor &key_states,
-                                                                     const std::vector<int64_t> &pos) const {
+                                                                     const std::vector<int64_t> &pos,
+                                                                     size_t query_start) const {
     const auto shape = q_rope->shape();
     const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
+    const size_t query_len = shape[1];
     const size_t num_heads = shape[2];
     const size_t head_dim = shape[3];
+    const size_t total_len = key_states->shape()[1];
     const size_t num_kv_heads = key_states->shape()[2];
     if (num_heads % num_kv_heads != 0) {
         throw std::runtime_error("DeepseekV4Attention: num_heads must be divisible by num_key_value_heads");
     }
+    if (pos.size() < query_start + query_len) {
+        throw std::runtime_error("DeepseekV4Attention: position_ids length mismatch");
+    }
     const size_t ngroup = num_heads / num_kv_heads;
-    const size_t window = sliding_window_ == 0 ? seq_len : sliding_window_;
+    const size_t window = sliding_window_ == 0 ? total_len : sliding_window_;
 
     auto q = q_rope->permute({0, 2, 1, 3})->contiguous();
     auto k = key_states->permute({0, 2, 1, 3})->contiguous();
 
-    auto Q = q->view({batch_size * num_kv_heads, ngroup * seq_len, head_dim});
-    auto K = k->view({batch_size * num_kv_heads, seq_len, head_dim});
+    size_t kv_start = 0;
+    size_t kv_len = total_len;
+    if (sliding_window_ > 0 && query_len == 1) {
+        const size_t t = query_start;
+        const int64_t pos_min = pos[t] - static_cast<int64_t>(sliding_window_);
+        while (kv_start < total_len && pos[kv_start] <= pos_min) {
+            ++kv_start;
+        }
+        kv_len = total_len - kv_start;
+        if (kv_len < total_len) {
+            k = k->narrow({{2, kv_start, kv_len}})->contiguous();
+        }
+    }
+
+    auto Q = q->view({batch_size * num_kv_heads, ngroup * query_len, head_dim});
+    auto K = k->view({batch_size * num_kv_heads, kv_len, head_dim});
     auto scores = infinicore::op::matmul(Q, K->permute({0, 2, 1}), softmax_scale_);
-    scores = scores->view({batch_size, num_heads, seq_len, seq_len})->contiguous();
+    scores = scores->view({batch_size, num_heads, query_len, kv_len})->contiguous();
 
     // InfiniCore add/cat/softmax on 4D BF16 attention scores can segfault; mask + sink softmax on CPU.
     auto scores_host = tensor_to_float_vector(scores);
     const auto sink_host = tensor_to_float_vector(attn_sink_);
-    std::vector<float> probs_host(batch_size * num_heads * seq_len * seq_len);
+    std::vector<float> probs_host(batch_size * num_heads * query_len * kv_len);
+    std::vector<float> logits(kv_len + 1);
     for (size_t b = 0; b < batch_size; ++b) {
-        for (size_t h = 0; h < num_heads; ++h) {
-            for (size_t t = 0; t < seq_len; ++t) {
-                const size_t row_offset = ((b * num_heads + h) * seq_len + t) * seq_len;
+        for (size_t tq = 0; tq < query_len; ++tq) {
+            const size_t t = query_start + tq;
+            std::vector<uint8_t> valid_keys(kv_len, 0);
+            for (size_t j = 0; j < kv_len; ++j) {
+                const size_t key_idx = kv_start + j;
+                valid_keys[j] = pos[key_idx] <= pos[t]
+                             && pos[key_idx] > pos[t] - static_cast<int64_t>(window);
+            }
+            for (size_t h = 0; h < num_heads; ++h) {
+                const size_t row_offset = ((b * num_heads + h) * query_len + tq) * kv_len;
                 float max_logit = sink_host[h];
-                std::vector<float> logits(seq_len + 1);
-                for (size_t j = 0; j < seq_len; ++j) {
-                    const bool valid = pos[j] <= pos[t] && pos[j] > pos[t] - static_cast<int64_t>(window);
-                    logits[j] = valid ? scores_host[row_offset + j] : -std::numeric_limits<float>::infinity();
+                for (size_t j = 0; j < kv_len; ++j) {
+                    logits[j] = valid_keys[j] ? scores_host[row_offset + j]
+                                             : -std::numeric_limits<float>::infinity();
                     if (std::isfinite(logits[j])) {
                         max_logit = std::max(max_logit, logits[j]);
                     }
                 }
-                logits[seq_len] = sink_host[h];
-                max_logit = std::max(max_logit, logits[seq_len]);
+                logits[kv_len] = sink_host[h];
+                max_logit = std::max(max_logit, logits[kv_len]);
 
                 double denom = 0.0;
                 for (float logit : logits) {
@@ -369,7 +401,7 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infin
                         denom += std::exp(static_cast<double>(logit - max_logit));
                     }
                 }
-                for (size_t j = 0; j < seq_len; ++j) {
+                for (size_t j = 0; j < kv_len; ++j) {
                     if (!std::isfinite(logits[j])) {
                         probs_host[row_offset + j] = 0.0f;
                         continue;
@@ -382,15 +414,20 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infin
     }
 
     auto probs = float_vector_to_tensor(
-        probs_host, {batch_size, num_heads, seq_len, seq_len}, q_rope->dtype(), q_rope->device());
-    auto probs_flat = probs->view({batch_size * num_kv_heads, ngroup * seq_len, seq_len});
-    auto V = k->view({batch_size * num_kv_heads, seq_len, head_dim});
+        probs_host, {batch_size, num_heads, query_len, kv_len}, q_rope->dtype(), q_rope->device());
+    auto probs_flat = probs->view({batch_size * num_kv_heads, ngroup * query_len, kv_len});
+    auto V = k->view({batch_size * num_kv_heads, kv_len, head_dim});
     auto out = infinicore::op::matmul(probs_flat, V);
-    out = out->view({batch_size, num_heads, seq_len, head_dim})
+    out = out->view({batch_size, num_heads, query_len, head_dim})
               ->permute({0, 2, 1, 3})
               ->contiguous();
-    out = apply_rotary_pos_emb(out, pos, rotary_emb_.params(), true);
-    return out->view({batch_size, seq_len, num_heads * head_dim});
+
+    std::vector<int64_t> query_positions(query_len);
+    for (size_t tq = 0; tq < query_len; ++tq) {
+        query_positions[tq] = pos[query_start + tq];
+    }
+    out = apply_rotary_pos_emb(out, query_positions, rotary_emb_.params(), true);
+    return out->view({batch_size, query_len, num_heads * head_dim});
 }
 
 infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinicore::Tensor &positions,

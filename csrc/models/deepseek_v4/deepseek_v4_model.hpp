@@ -22,6 +22,9 @@ public:
                                const infinicore::Tensor &positions) const;
 
 private:
+    void ensure_hc_head_fn_mat_right(const infinicore::Tensor &reference) const;
+    infinicore::Tensor hc_head(const infinicore::Tensor &x) const;
+
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed);
     INFINICORE_NN_MODULE_VEC(DeepseekV4DecoderLayer, layers);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
@@ -34,7 +37,7 @@ private:
     size_t hc_mult_{0};
     double hc_eps_{0.0};
 
-    mutable DeepseekV4MHCCoeffs hc_head_coeffs_;
+    mutable infinicore::Tensor hc_head_fn_mat_right_;
 };
 
 } // namespace infinilm::models::deepseek_v4

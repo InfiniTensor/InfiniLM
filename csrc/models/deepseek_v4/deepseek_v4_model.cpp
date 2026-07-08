@@ -42,9 +42,29 @@ infinicore::Tensor DeepseekV4Model::forward(const infinicore::Tensor &input_ids,
         res_mix = std::get<3>(layer_output);
     }
 
-    hidden_states = mhc_head_pre(hidden_states, hc_head_base_, hc_head_fn_, hc_head_scale_,
-                                 hc_head_coeffs_, hc_mult_, hidden_size_, hc_eps_);
+    ensure_hc_head_fn_mat_right(hidden_states);
+    hidden_states = this->hc_head(hidden_states);
     return norm_->forward(hidden_states);
+}
+
+void DeepseekV4Model::ensure_hc_head_fn_mat_right(const infinicore::Tensor &reference) const {
+    if (hc_head_fn_mat_right_) {
+        return;
+    }
+    const size_t flat_dim = hidden_size_ * hc_mult_;
+    auto fn_for_matmul = float_vector_to_tensor(
+        tensor_to_float_vector(hc_head_fn_),
+        {hc_mult_, flat_dim},
+        reference->dtype(),
+        reference->device());
+    hc_head_fn_mat_right_ = fn_for_matmul->permute({1, 0})
+                                ->contiguous()
+                                ->view({static_cast<size_t>(1), flat_dim, hc_mult_});
+}
+
+infinicore::Tensor DeepseekV4Model::hc_head(const infinicore::Tensor &x) const {
+    return mhc_head_pre(x, hc_head_base_, hc_head_fn_mat_right_, hc_head_scale_,
+                        hc_mult_, hidden_size_, hc_eps_);
 }
 
 } // namespace infinilm::models::deepseek_v4
