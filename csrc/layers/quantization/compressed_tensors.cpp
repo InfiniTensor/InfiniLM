@@ -6,7 +6,9 @@
 #include "infinicore/ops/mul.hpp"
 #include <cmath>
 
+#include "infinicore/ops/mul_scalar.hpp"
 #include <algorithm>
+
 #include <cmath>
 #include <optional>
 
