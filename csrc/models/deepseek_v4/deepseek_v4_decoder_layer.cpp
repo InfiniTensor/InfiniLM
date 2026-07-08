@@ -75,8 +75,8 @@ DeepseekV4DecoderLayer::hc_pre(const infinicore::Tensor &x,
                                const infinicore::Tensor &scale,
                                const infinicore::Tensor &base) const {
     auto [collapsed, post, comb] = mhc_prepare(x, base, fn_mat_right, scale,
-                                                hc_mult_, hidden_size_,
-                                                hc_sinkhorn_iters_, hc_eps_);
+                                               hc_mult_, hidden_size_,
+                                               hc_sinkhorn_iters_, hc_eps_);
     if (!post || !comb) {
         throw std::runtime_error("DeepseekV4MHC: hc_pre requires GPU post/comb tensors");
     }

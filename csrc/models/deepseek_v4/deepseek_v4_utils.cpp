@@ -5,6 +5,7 @@
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/deepseek_v4_mhc.hpp"
 #include "infinicore/ops/deepseek_v4_mhc_head.hpp"
+#include "infinicore/ops/deepseek_v4_mhc_post.hpp"
 #include "infinicore/ops/matmul.hpp"
 #include "infinicore/ops/unweighted_rms_norm.hpp"
 
@@ -58,7 +59,6 @@ void write_float_at(std::byte *ptr, infinicore::DataType dtype, size_t idx, floa
         throw std::runtime_error("DeepseekV4: unsupported tensor dtype for float write");
     }
 }
-
 
 } // namespace
 
@@ -378,16 +378,15 @@ infinicore::Tensor int64_vector_to_tensor(const std::vector<int64_t> &values,
     return out;
 }
 
-
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 mhc_prepare(const infinicore::Tensor &x,
-                                       const infinicore::Tensor &base,
-                                       const infinicore::Tensor &fn_mat_right,
-                                       const infinicore::Tensor &scale,
-                                       size_t hc_mult,
-                                       size_t hidden_size,
-                                       size_t sinkhorn_iters,
-                                       double eps) {
+            const infinicore::Tensor &base,
+            const infinicore::Tensor &fn_mat_right,
+            const infinicore::Tensor &scale,
+            size_t hc_mult,
+            size_t hidden_size,
+            size_t sinkhorn_iters,
+            double eps) {
     const auto shape = x->shape();
     if (shape.size() != 4 || shape[2] != hc_mult || shape[3] != hidden_size) {
         throw std::runtime_error("DeepseekV4MHC: expected x shape [B,S,hc_mult,hidden_size]");
@@ -422,26 +421,12 @@ infinicore::Tensor mhc_post_gpu(const infinicore::Tensor &new_x,
                                 const infinicore::Tensor &residual,
                                 const infinicore::Tensor &post,
                                 const infinicore::Tensor &comb) {
-    const auto shape = residual->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    const size_t hc_mult = shape[2];
-    const size_t hidden_size = shape[3];
-    const size_t token_count = batch_size * seq_len;
-
     auto residual_view = residual->is_contiguous() ? residual : residual->contiguous();
     auto new_x_view = new_x->is_contiguous() ? new_x : new_x->contiguous();
-    auto res = residual_view->view({token_count, hc_mult, hidden_size});
-    auto comb_out = infinicore::op::matmul(
-        comb->view({token_count, hc_mult, hc_mult}), res);
-
-    auto new_t = new_x_view->view({token_count, 1, hidden_size});
-    auto post_out = infinicore::op::matmul(
-        post->view({token_count, hc_mult, 1}), new_t);
-
-    return infinicore::op::add(post_out, comb_out)->view({batch_size, seq_len, hc_mult, hidden_size});
+    auto post_view = post->is_contiguous() ? post : post->contiguous();
+    auto comb_view = comb->is_contiguous() ? comb : comb->contiguous();
+    return infinicore::op::deepseek_v4_mhc_post(new_x_view, residual_view, post_view, comb_view);
 }
-
 infinicore::Tensor expand_hc_stream(const infinicore::Tensor &hidden_states,
                                     size_t hc_mult) {
     const auto shape = hidden_states->shape();
@@ -486,7 +471,7 @@ infinicore::Tensor mhc_head_pre(const infinicore::Tensor &x,
     flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
     auto mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}),
                                         fn_mat_right)
-                      ->view({batch_size, seq_len, mix_hc});
+                     ->view({batch_size, seq_len, mix_hc});
     return infinicore::op::deepseek_v4_mhc_head_collapse(
         x_view, mixes, base, scale, static_cast<float>(eps));
 }

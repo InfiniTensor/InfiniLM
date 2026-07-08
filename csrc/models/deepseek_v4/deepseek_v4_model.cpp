@@ -47,6 +47,24 @@ infinicore::Tensor DeepseekV4Model::forward(const infinicore::Tensor &input_ids,
     return norm_->forward(hidden_states);
 }
 
+// infinicore::Tensor DeepseekV4Model::forward(const infinicore::Tensor &input_ids,
+//                                             const infinicore::Tensor &positions) const {
+//     auto hidden_states = embed_->forward(input_ids);
+
+//     infinicore::Tensor residual;
+//     infinicore::Tensor post_mix;
+//     infinicore::Tensor res_mix;
+//     for (const auto &layer : layers_) {
+//         auto layer_output = layer->forward(hidden_states, positions, input_ids, post_mix, res_mix, residual);
+//         hidden_states = std::get<0>(layer_output);
+//         residual = std::get<1>(layer_output);
+//         post_mix = std::get<2>(layer_output);
+//         res_mix = std::get<3>(layer_output);
+//     }
+
+//     return norm_->forward(hidden_states);
+// }
+
 void DeepseekV4Model::ensure_hc_head_fn_mat_right(const infinicore::Tensor &reference) const {
     if (hc_head_fn_mat_right_) {
         return;
