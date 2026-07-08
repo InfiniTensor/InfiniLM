@@ -68,6 +68,10 @@ public:
         std::optional<std::vector<size_t>> image_req_ids;
         /// Flattened [start, end) visual token ranges in the packed language sequence.
         std::optional<std::vector<size_t>> visual_token_ranges;
+        /// Target model hidden states for draft/MTP models.
+        std::optional<infinicore::Tensor> target_hidden_states;
+        /// Sample logits at every packed input position instead of one token per request.
+        bool sample_all_positions{false};
 
         float temperature{1};
 
@@ -80,6 +84,8 @@ public:
 
     struct Output {
         infinicore::Tensor output_ids;
+        infinicore::Tensor logits;
+        infinicore::Tensor hidden_states;
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -104,7 +110,7 @@ public:
 
     std::vector<std::string> state_dict_keys();
 
-    // Submit a run (forward) job.
+    // Submit a run (forward + sampling) job.
     void run(const Input &args);
 
     // Reset the internal cache with a new configuration

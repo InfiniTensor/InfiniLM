@@ -47,17 +47,21 @@ public:
         /// Target patch sizes for each image (MiniCPM-V).
         /// Vector of tensors shape: [n_path, 2] if pre-flattened.
         std::optional<std::vector<infinicore::Tensor>> tgt_sizes;
-        /// Flattened [start, end) visual token ranges in the packed language sequence.
-        std::optional<std::vector<size_t>> visual_token_ranges;
         /// Qwen-style image grids. Vector of tensors shape: [3] with temporal, height, width.
         std::optional<std::vector<infinicore::Tensor>> image_grid_thw;
         /// req_id for each pixel_values among a batch.
         std::optional<std::vector<size_t>> image_req_ids;
+        /// Flattened [start, end) visual token ranges in the packed language sequence.
+        std::optional<std::vector<size_t>> visual_token_ranges;
+        /// Target model hidden states consumed by draft/MTP models.
+        std::optional<infinicore::Tensor> target_hidden_states;
     };
 
     struct Output {
         /// Logits.
         infinicore::Tensor logits;
+        /// Optional final hidden states, used by MTP/Eagle draft models.
+        infinicore::Tensor hidden_states;
     };
 
     virtual ~InfinilmModel() = default;

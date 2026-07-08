@@ -10,6 +10,8 @@ from infinilm.base_config import BaseConfig
 from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
+from infinilm.llm.llm import LLM
+from infinilm.llm.sampling_params import SamplingParams
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.moe_config import configure_moe_ep_backend
 from infinilm.processors import AutoInfinilmProcessor
@@ -183,6 +185,8 @@ class TestModel:
     def __init__(
         self,
         model_path,
+        draft_model_path=None,
+        num_draft_tokens=4,
         infini_device=infinicore.device("cpu", 0),
         tp=1,
         skip_load=False,
@@ -195,6 +199,30 @@ class TestModel:
         moe_ep_size=1,
     ) -> None:
         model_path = os.path.expanduser(model_path)
+        self.draft_model_path = draft_model_path
+        self.num_draft_tokens = num_draft_tokens
+        self.model_path = model_path
+        self.device_str = infini_device.type
+        self.tp = tp
+        self.cache_config = cache_config
+        self.enable_graph = enable_graph
+        self.attn_backend = attn_backend
+        self.use_mla = use_mla
+        self.weight_load_mode = weight_load_mode
+        self.skip_load = skip_load
+
+        if draft_model_path is not None:
+            self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
+            self.tokenizer = self.processor.get_tokenizer()
+            input_content = self.processor.apply_chat_template(
+                conversation=[{"role": "user", "content": prompt}],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+            self.input_ids_list = [self.tokenizer.encode(input_content)]
+            self.model = None
+            return
+
         # ---------------------------------------------------------------------------- #
         #                        创建模型,
         # ---------------------------------------------------------------------------- #
@@ -243,6 +271,16 @@ class TestModel:
 
         self.model = model
         self.input_ids_list = input_ids_list
+        self.draft_model_path = draft_model_path
+        self.model_path = model_path
+        self.device_str = infini_device.type
+        self.tp = tp
+        self.cache_config = cache_config
+        self.enable_graph = enable_graph
+        self.attn_backend = attn_backend
+        self.use_mla = use_mla
+        self.weight_load_mode = weight_load_mode
+        self.skip_load = skip_load
 
     def run(
         self,
@@ -259,6 +297,45 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        自回归生成
         # ---------------------------------------------------------------------------- #
+        if self.draft_model_path is not None:
+            prompt_text = self.tokenizer.decode(input_ids, skip_special_tokens=False)
+            llm = LLM(
+                model_path=self.model_path,
+                draft_model_path=self.draft_model_path,
+                num_draft_tokens=self.num_draft_tokens,
+                device=self.device_str,
+                tensor_parallel_size=self.tp,
+                cache_type="paged" if self.cache_config is not None else "static",
+                max_batch_size=batch_size,
+                max_tokens=output_len,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                enable_graph=self.enable_graph,
+                attn_backend=self.attn_backend,
+                use_mla=self.use_mla,
+                weight_load_mode=self.weight_load_mode,
+                skip_load=self.skip_load,
+            )
+            t1 = time.time()
+            print("=================== start generate ====================")
+            outputs = llm.generate(
+                prompts=[prompt_text] * batch_size,
+                sampling_params=SamplingParams(max_tokens=output_len, ignore_eos=True),
+                use_tqdm=False,
+            )
+            t2 = time.time()
+            if cfg.verbose and not skip_load:
+                if output_len <= 256:
+                    for output in outputs:
+                        print(output.outputs[0].text)
+                else:
+                    print(
+                        f"[bench] output text omitted because output_len={output_len} > 256."
+                    )
+            print(f"total_time: {round((t2 - t1) * 1000, 2)} ms")
+            return
+
         input_ids_infini = infinicore.from_list(input_ids_list, dtype=infinicore.int64)
 
         t1 = time.time()
@@ -353,6 +430,8 @@ if __name__ == "__main__":
 
     test = TestModel(
         model_path,
+        draft_model_path=cfg.draft_model,
+        num_draft_tokens=cfg.num_draft_tokens,
         infini_device=infini_device,
         tp=tp,
         skip_load=skip_load,
