@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace infinilm::models::deepseek_v4 {
@@ -23,9 +24,9 @@ infinicore::Tensor int64_vector_to_tensor(const std::vector<int64_t> &values,
                                           const infinicore::Shape &shape,
                                           const infinicore::Device &device);
 
-
 infinicore::Tensor position_ids_for_rope(const infinicore::Tensor &positions, size_t seq_len);
 std::vector<int64_t> position_ids_as_vector(const infinicore::Tensor &pos_ids);
+std::vector<int64_t> normalize_positions(const infinicore::Tensor &positions, size_t seq_len);
 
 struct DeepseekV4RopeParams {
     size_t head_dim{0};
@@ -110,7 +111,7 @@ DeepseekV4MHCPrepareResult mhc_prepare(const infinicore::Tensor &x,
                                        const infinicore::Tensor &base,
                                        const infinicore::Tensor &fn,
                                        const infinicore::Tensor &scale,
-                                       DeepseekV4MHCCoeffs &coeffs_cache,
+                                       DeepseekV4MHCGpuCache &gpu_cache,
                                        size_t hc_mult,
                                        size_t hidden_size,
                                        size_t sinkhorn_iters,
@@ -125,6 +126,16 @@ infinicore::Tensor mhc_pre(const infinicore::Tensor &x,
 infinicore::Tensor mhc_post(const infinicore::Tensor &new_x,
                             const infinicore::Tensor &residual,
                             const DeepseekV4MHCParams &params);
+
+infinicore::Tensor mhc_post(const infinicore::Tensor &new_x,
+                            const infinicore::Tensor &residual,
+                            const infinicore::Tensor &post,
+                            const infinicore::Tensor &comb);
+
+infinicore::Tensor mhc_post_gpu(const infinicore::Tensor &new_x,
+                                const infinicore::Tensor &residual,
+                                const infinicore::Tensor &post,
+                                const infinicore::Tensor &comb);
 
 infinicore::Tensor expand_hc_stream(const infinicore::Tensor &hidden_states,
                                     size_t hc_mult);

@@ -14,7 +14,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <vector>
 
 namespace infinilm::models::deepseek_v4 {
 
@@ -30,69 +29,34 @@ public:
                                const infinicore::Tensor &hidden_states) const;
 
 private:
-    struct QkProjections {
-        infinicore::Tensor q_normed;
-        infinicore::Tensor key_states;
-        infinicore::Tensor q_residual;
-        infinicore::Tensor pos_ids;
-    };
-
-    struct AttentionInputs {
-        std::vector<int64_t> positions;
-        infinicore::Tensor q_normed;
-        infinicore::Tensor key_states;
-        infinicore::Tensor hidden_states;
-        infinicore::Tensor q_residual;
-        size_t query_start{0};
-    };
-
     infinicore::Tensor forward_static_(const infinicore::Tensor &positions,
                                        const infinicore::Tensor &hidden_states) const;
 
     infinicore::Tensor forward_paged_(const infinicore::Tensor &positions,
                                       const infinicore::Tensor &hidden_states) const;
 
-    QkProjections project_qk_rope_(const infinicore::Tensor &positions,
-                                   const infinicore::Tensor &hidden_states,
-                                   size_t batch_size,
-                                   size_t seq_len) const;
-
-    bool is_paged_decode_step_(size_t seq_len) const;
-
-    AttentionInputs build_paged_attention_inputs_(const QkProjections &qk,
-                                                  const infinicore::Tensor &hidden_states,
-                                                  size_t seq_len,
-                                                  bool is_decode) const;
-
-    infinicore::Tensor run_attention_(const AttentionInputs &inputs) const;
-
     infinicore::Tensor apply_grouped_output_projection_(const infinicore::Tensor &attn_output) const;
 
-    infinicore::Tensor dense_attention_reference_(const std::vector<int64_t> &positions,
+    infinicore::Tensor dense_attention_reference_(const infinicore::Tensor &positions,
                                                   const infinicore::Tensor &query_states,
                                                   const infinicore::Tensor &key_states,
                                                   const infinicore::Tensor &hidden_states,
-                                                  const infinicore::Tensor &q_residual,
-                                                  size_t query_start = 0) const;
-
-    infinicore::Tensor dense_attention_compressed_cpu_(const std::vector<int64_t> &positions,
-                                                       const infinicore::Tensor &q_rope,
-                                                       const infinicore::Tensor &key_states,
-                                                       const infinicore::Tensor &hidden_states,
-                                                       const infinicore::Tensor &q_residual,
-                                                       size_t query_start) const;
+                                                  const infinicore::Tensor &q_residual) const;
 
     infinicore::Tensor dense_attention_sliding_gpu_(const infinicore::Tensor &q_rope,
                                                     const infinicore::Tensor &key_states,
-                                                    const std::vector<int64_t> &positions,
-                                                    size_t query_start = 0) const;
+                                                    const std::vector<int64_t> &pos) const;
+
+    infinicore::Tensor dense_attention_decode_reference_(const infinicore::Tensor &query_states,
+                                                         const infinicore::Tensor &key_states,
+                                                         const infinicore::Tensor &hidden_states,
+                                                         const infinicore::Tensor &q_residual,
+                                                         const std::vector<int64_t> &positions,
+                                                         size_t query_start) const;
 
     void reset_runtime_state() const override {
         cached_seq_len_ = 0;
         cached_positions_.clear();
-        cached_key_states_ = infinicore::Tensor();
-        cached_hidden_states_ = infinicore::Tensor();
-        cached_q_residual_ = infinicore::Tensor();
     }
 
     INFINICORE_NN_PARAMETER(attn_sink);
@@ -108,7 +72,6 @@ private:
 
     DeepseekV4RoPE rotary_emb_;
 
-    // Reserved for future paged-attention kernel integration (sink / sliding / inverse-RoPE).
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
@@ -135,7 +98,6 @@ private:
     mutable infinicore::Tensor cached_hidden_states_;
     mutable infinicore::Tensor cached_q_residual_;
     mutable infinicore::Tensor cached_key_states_;
-    mutable std::vector<float> cached_sink_host_;
 };
 
 } // namespace infinilm::models::deepseek_v4

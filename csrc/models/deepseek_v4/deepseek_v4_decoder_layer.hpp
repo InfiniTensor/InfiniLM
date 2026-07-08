@@ -31,6 +31,17 @@ public:
             const infinicore::Tensor &residual = infinicore::Tensor()) const;
 
 private:
+    std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+    hc_pre(const infinicore::Tensor &x,
+           const infinicore::Tensor &fn,
+           const infinicore::Tensor &scale,
+           const infinicore::Tensor &base) const;
+
+    infinicore::Tensor hc_post(const infinicore::Tensor &new_x,
+                               const infinicore::Tensor &residual,
+                               const infinicore::Tensor &post,
+                               const infinicore::Tensor &comb) const;
+
     INFINICORE_NN_MODULE(DeepseekV4Attention, attn);
     INFINICORE_NN_MODULE(DeepseekV4MoE, ffn);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, attn_norm);
@@ -49,8 +60,8 @@ private:
     double hc_eps_{0.0};
     double hc_post_alpha_{2.0};
 
-    mutable DeepseekV4MHCCoeffs hc_attn_coeffs_;
-    mutable DeepseekV4MHCCoeffs hc_ffn_coeffs_;
+    mutable DeepseekV4MHCGpuCache hc_attn_gpu_;
+    mutable DeepseekV4MHCGpuCache hc_ffn_gpu_;
 };
 
 } // namespace infinilm::models::deepseek_v4

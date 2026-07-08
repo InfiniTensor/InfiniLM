@@ -37,6 +37,28 @@ DeepseekV4DecoderLayer::DeepseekV4DecoderLayer(std::shared_ptr<infinilm::config:
     INFINICORE_NN_PARAMETER_INIT(hc_ffn_scale, ({static_cast<size_t>(3)}, infinicore::DataType::F32, device));
 }
 
+std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+DeepseekV4DecoderLayer::hc_pre(const infinicore::Tensor &x,
+                               const infinicore::Tensor &fn,
+                               const infinicore::Tensor &scale,
+                               const infinicore::Tensor &base) const {
+    DeepseekV4MHCGpuCache &gpu_cache = (&fn == &hc_attn_fn_) ? hc_attn_gpu_ : hc_ffn_gpu_;
+    const auto prepared = mhc_prepare(x, base, fn, scale, gpu_cache,
+                                      hc_mult_, hidden_size_,
+                                      hc_sinkhorn_iters_, hc_eps_);
+    if (!prepared.params.post_gpu || !prepared.params.comb_gpu) {
+        throw std::runtime_error("DeepseekV4MHC: hc_pre requires GPU post/comb tensors");
+    }
+    return {prepared.collapsed, prepared.params.post_gpu, prepared.params.comb_gpu};
+}
+
+infinicore::Tensor DeepseekV4DecoderLayer::hc_post(const infinicore::Tensor &new_x,
+                                                   const infinicore::Tensor &residual,
+                                                   const infinicore::Tensor &post,
+                                                   const infinicore::Tensor &comb) const {
+    return mhc_post_gpu(new_x, residual, post, comb);
+}
+
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &positions,
@@ -44,21 +66,17 @@ DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &post_mix,
                                 const infinicore::Tensor &res_mix,
                                 const infinicore::Tensor & /*residual*/) const {
-    const auto attn_prepared = mhc_prepare(hidden_states, hc_attn_base_, hc_attn_fn_, hc_attn_scale_,
-                                           hc_attn_coeffs_, hc_mult_, hidden_size_,
-                                           hc_sinkhorn_iters_, hc_eps_);
+    auto [attn_input, attn_post, attn_comb] = hc_pre(hidden_states, hc_attn_fn_, hc_attn_scale_, hc_attn_base_);
 
-    auto attn_input = attn_norm_->forward(attn_prepared.collapsed);
+    attn_input = attn_norm_->forward(attn_input);
     auto attn_output = attn_->forward(positions, attn_input);
-    auto x = mhc_post(attn_output, hidden_states, attn_prepared.params);
+    auto x = hc_post(attn_output, hidden_states, attn_post, attn_comb);
 
-    const auto ffn_prepared = mhc_prepare(x, hc_ffn_base_, hc_ffn_fn_, hc_ffn_scale_,
-                                          hc_ffn_coeffs_, hc_mult_, hidden_size_,
-                                          hc_sinkhorn_iters_, hc_eps_);
+    auto [ffn_input, ffn_post, ffn_comb] = hc_pre(x, hc_ffn_fn_, hc_ffn_scale_, hc_ffn_base_);
 
-    auto ffn_input = ffn_norm_->forward(ffn_prepared.collapsed);
+    ffn_input = ffn_norm_->forward(ffn_input);
     auto ffn_output = ffn_->forward(ffn_input, input_ids);
-    x = mhc_post(ffn_output, x, ffn_prepared.params);
+    x = hc_post(ffn_output, x, ffn_post, ffn_comb);
 
     return {x, x, post_mix, res_mix};
 }
