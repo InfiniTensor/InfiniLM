@@ -165,6 +165,9 @@ class InferenceRequest:
         # Mamba cache management. None means no mamba cache row is currently owned.
         self.mamba_cache_index: Optional[int] = None
 
+        # Qwen-style MRoPE decode offset. It is zero for pure text requests.
+        self.mrope_position_delta: int = 0
+
         # PD disaggregation support
         self.kv_transfer_params: Optional[dict] = (
             None  # KV transfer parameters from the router

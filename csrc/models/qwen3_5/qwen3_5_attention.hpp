@@ -31,7 +31,7 @@ protected:
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+    std::shared_ptr<infinicore::nn::RoPE> mrope_;
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;

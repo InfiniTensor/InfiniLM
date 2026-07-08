@@ -211,6 +211,7 @@ class InferEngine(_infinilm.InferEngine):
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
+        image_grid_thw=None,
         image_req_ids=None,
         visual_token_ranges=None,
         temperature=None,
@@ -262,6 +263,7 @@ class InferEngine(_infinilm.InferEngine):
             pixel_values = convert_tensor_list(pixel_values)
             image_bound = convert_tensor_list(image_bound)
             tgt_sizes = convert_tensor_list(tgt_sizes)
+            image_grid_thw = convert_tensor_list(image_grid_thw)
 
             return infinicore.Tensor(
                 super()
@@ -280,6 +282,7 @@ class InferEngine(_infinilm.InferEngine):
                         pixel_values=pixel_values,
                         image_bound=image_bound,
                         tgt_sizes=tgt_sizes,
+                        image_grid_thw=image_grid_thw,
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
                         temperature=temperature,
