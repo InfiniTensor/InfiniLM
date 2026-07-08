@@ -60,6 +60,7 @@ private:
     size_t hidden_size_{0};
     size_t hc_mult_{0};
     size_t hc_sinkhorn_iters_{0};
+    double rms_norm_eps_{0.0};
     double hc_eps_{0.0};
     double hc_post_alpha_{2.0};
 

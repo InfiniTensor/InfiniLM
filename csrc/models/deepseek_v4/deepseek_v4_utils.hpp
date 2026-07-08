@@ -62,7 +62,8 @@ mhc_prepare(const infinicore::Tensor &x,
                                        size_t hc_mult,
                                        size_t hidden_size,
                                        size_t sinkhorn_iters,
-                                       double eps);
+                                       double rms_norm_eps,
+                                       double hc_eps);
 
 infinicore::Tensor mhc_post_gpu(const infinicore::Tensor &new_x,
                                 const infinicore::Tensor &residual,

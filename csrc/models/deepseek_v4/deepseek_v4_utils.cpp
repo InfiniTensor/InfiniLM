@@ -386,7 +386,8 @@ mhc_prepare(const infinicore::Tensor &x,
             size_t hc_mult,
             size_t hidden_size,
             size_t sinkhorn_iters,
-            double eps) {
+            double rms_norm_eps,
+            double hc_eps) {
     const auto shape = x->shape();
     if (shape.size() != 4 || shape[2] != hc_mult || shape[3] != hidden_size) {
         throw std::runtime_error("DeepseekV4MHC: expected x shape [B,S,hc_mult,hidden_size]");
@@ -403,13 +404,28 @@ mhc_prepare(const infinicore::Tensor &x,
 
     auto x_view = x->is_contiguous() ? x : x->contiguous();
     auto flat = x_view->view({batch_size, seq_len, flat_dim});
-    flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
-    auto mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}), fn_mat_right)
+    infinicore::Tensor mixes;
+    const char *raw_mhc_gemm = std::getenv("INFINILM_DSV4_RAW_MHC_GEMM");
+    if (raw_mhc_gemm == nullptr || std::string(raw_mhc_gemm) != "0") {
+        auto raw_mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}), fn_mat_right)
+                             ->view({batch_size, seq_len, mix_hc});
+        mixes = infinicore::op::deepseek_v4_mhc_scale_mixes(
+            x_view, raw_mixes, static_cast<float>(rms_norm_eps));
+    } else {
+        auto normed_flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(rms_norm_eps));
+        mixes = infinicore::op::matmul(normed_flat->view({token_count, 1, flat_dim}), fn_mat_right)
                      ->view({batch_size, seq_len, mix_hc});
+    }
+
+    const char *fused_mhc_pre = std::getenv("INFINILM_DSV4_FUSED_MHC_PRE");
+    if (fused_mhc_pre == nullptr || std::string(fused_mhc_pre) != "0") {
+        auto [collapsed, post, comb] = infinicore::op::deepseek_v4_mhc_pre_collapse(
+            x_view, mixes, base, scale, sinkhorn_iters, static_cast<float>(hc_eps));
+        return {collapsed, post, comb};
+    }
 
     auto [pre, post, comb] = infinicore::op::deepseek_v4_mhc_params(
-        mixes, base, scale, sinkhorn_iters, static_cast<float>(eps));
-
+        mixes, base, scale, sinkhorn_iters, static_cast<float>(hc_eps));
     auto x_tokens = x_view->view({token_count, hc_mult, hidden_size});
     auto pre_tokens = pre->view({token_count, 1, hc_mult});
     auto collapsed = infinicore::op::matmul(pre_tokens, x_tokens)

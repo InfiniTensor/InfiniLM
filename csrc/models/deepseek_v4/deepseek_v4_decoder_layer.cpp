@@ -19,9 +19,10 @@ DeepseekV4DecoderLayer::DeepseekV4DecoderLayer(std::shared_ptr<infinilm::config:
       hidden_size_(model_config->get<size_t>("hidden_size")),
       hc_mult_(model_config->get<size_t>("hc_mult")),
       hc_sinkhorn_iters_(model_config->get<size_t>("hc_sinkhorn_iters")),
+      rms_norm_eps_(model_config->get<double>("rms_norm_eps")),
       hc_eps_(model_config->get<double>("hc_eps")) {
     const auto &dtype = model_config->get_dtype();
-    const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+    const double rms_norm_eps = rms_norm_eps_;
     const size_t mix_hc = (2 + hc_mult_) * hc_mult_;
     const size_t hc_dim = hc_mult_ * hidden_size_;
 
@@ -76,7 +77,7 @@ DeepseekV4DecoderLayer::hc_pre(const infinicore::Tensor &x,
                                const infinicore::Tensor &base) const {
     auto [collapsed, post, comb] = mhc_prepare(x, base, fn_mat_right, scale,
                                                hc_mult_, hidden_size_,
-                                               hc_sinkhorn_iters_, hc_eps_);
+                                               hc_sinkhorn_iters_, rms_norm_eps_, hc_eps_);
     if (!post || !comb) {
         throw std::runtime_error("DeepseekV4MHC: hc_pre requires GPU post/comb tensors");
     }
