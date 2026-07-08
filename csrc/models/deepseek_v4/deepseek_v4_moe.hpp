@@ -15,14 +15,13 @@
 
 namespace infinilm::models::deepseek_v4 {
 
-class DeepseekV4TopKRouter : public infinicore::nn::Module {
+class DeepseekV4TopK : public infinicore::nn::Module {
 public:
-    DeepseekV4TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                         size_t layer_idx,
-                         const infinicore::Device &device);
+    DeepseekV4TopK(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                   size_t layer_idx,
+                   const infinicore::Device &device);
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &hidden_states,
-                                                               const infinicore::Tensor &input_ids = infinicore::Tensor()) const;
+    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &hidden_states) const;
     infinicore::Tensor weight() const { return weight_; }
     infinicore::Tensor bias() const { return bias_; }
     bool has_bias() const { return !bias_.empty(); }
@@ -40,14 +39,14 @@ private:
     size_t layer_idx_{0};
 };
 
-class DeepseekV4HashRouter : public infinicore::nn::Module {
+class DeepseekV4HashTopK : public infinicore::nn::Module {
 public:
-    DeepseekV4HashRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                         size_t layer_idx,
-                         const infinicore::Device &device);
+    DeepseekV4HashTopK(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                       size_t layer_idx,
+                       const infinicore::Device &device);
 
     std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &hidden_states,
-                                                               const infinicore::Tensor &input_ids = infinicore::Tensor()) const;
+                                                               const infinicore::Tensor &input_ids) const;
     infinicore::Tensor weight() const { return weight_; }
     infinicore::Tensor tid2eid() const { return tid2eid_; }
     bool has_tid2eid() const { return !tid2eid_.empty(); }
@@ -108,8 +107,8 @@ public:
                                const infinicore::Tensor &input_ids = infinicore::Tensor()) const;
 
 private:
-    using DeepseekV4Gate = std::variant<std::shared_ptr<DeepseekV4HashRouter>, std::shared_ptr<DeepseekV4TopKRouter>>;
-    DeepseekV4Gate gate_;
+    using DeepseekV4TopKVariant = std::variant<std::shared_ptr<DeepseekV4HashTopK>, std::shared_ptr<DeepseekV4TopK>>;
+    DeepseekV4TopKVariant topk_;
 
     INFINICORE_NN_MODULE(DeepseekV4Experts, experts);
     INFINICORE_NN_MODULE(DeepseekV4MLP, shared_experts);

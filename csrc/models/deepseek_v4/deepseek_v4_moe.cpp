@@ -41,9 +41,9 @@ bool env_flag(const char *name) {
 
 } // namespace
 
-DeepseekV4TopKRouter::DeepseekV4TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                           size_t layer_idx,
-                                           const infinicore::Device &device)
+DeepseekV4TopK::DeepseekV4TopK(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                               size_t layer_idx,
+                               const infinicore::Device &device)
     : hidden_size_(model_config->get<size_t>("hidden_size")),
       num_experts_(model_config->get<size_t>("n_routed_experts")),
       num_experts_per_tok_(model_config->get<size_t>("num_experts_per_tok")),
@@ -62,10 +62,7 @@ DeepseekV4TopKRouter::DeepseekV4TopKRouter(std::shared_ptr<infinilm::config::Mod
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor>
-DeepseekV4TopKRouter::forward(const infinicore::Tensor &hidden_states,
-                              const infinicore::Tensor &input_ids) const {
-    (void)input_ids;
-
+DeepseekV4TopK::forward(const infinicore::Tensor &hidden_states) const {
     if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size_) {
         throw std::runtime_error("DeepseekV4MoE router: expected hidden_states shape [N,D]");
     }
@@ -83,9 +80,9 @@ DeepseekV4TopKRouter::forward(const infinicore::Tensor &hidden_states,
                                                    router_bias);
 }
 
-DeepseekV4HashRouter::DeepseekV4HashRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                           size_t layer_idx,
-                                           const infinicore::Device &device)
+DeepseekV4HashTopK::DeepseekV4HashTopK(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                       size_t layer_idx,
+                                       const infinicore::Device &device)
     : hidden_size_(model_config->get<size_t>("hidden_size")),
       num_experts_(model_config->get<size_t>("n_routed_experts")),
       num_experts_per_tok_(model_config->get<size_t>("num_experts_per_tok")),
@@ -102,18 +99,18 @@ DeepseekV4HashRouter::DeepseekV4HashRouter(std::shared_ptr<infinilm::config::Mod
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor>
-DeepseekV4HashRouter::forward(const infinicore::Tensor &hidden_states,
-                              const infinicore::Tensor &input_ids) const {
+DeepseekV4HashTopK::forward(const infinicore::Tensor &hidden_states,
+                            const infinicore::Tensor &input_ids) const {
 
     if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size_) {
         throw std::runtime_error("DeepseekV4MoE router: expected hidden_states shape [N,D]");
     }
     if (input_ids.empty()) {
-        throw std::runtime_error("DeepseekV4HashRouter: hash-routed layer requires input_ids");
+        throw std::runtime_error("DeepseekV4HashTopK: hash-routed layer requires input_ids");
     }
 
     if (input_ids->device() != hidden_states->device()) {
-        throw std::runtime_error("DeepseekV4HashRouter: input_ids must be on the same device as hidden_states");
+        throw std::runtime_error("DeepseekV4HashTopK: input_ids must be on the same device as hidden_states");
     }
 
     auto gate_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
@@ -217,7 +214,8 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
 
     if (require_fused_moe) {
         throw std::runtime_error("DeepseekV4Experts: DSV4_REQUIRE_FUSED_MOE=1 but no fused MoE path matched");
-    }    return forward_cpu_routed_(hidden_states, top_k_index, top_k_weights);
+    }
+    return forward_cpu_routed_(hidden_states, top_k_index, top_k_weights);
 }
 
 
@@ -275,9 +273,9 @@ DeepseekV4MoE::DeepseekV4MoE(std::shared_ptr<infinilm::config::ModelConfig> mode
     communicator_ = rank_info.comm;
 
     if (layer_idx < num_hash_layers) {
-        gate_ = this->register_module<DeepseekV4HashRouter>("gate", model_config, layer_idx, device);
+        topk_ = this->register_module<DeepseekV4HashTopK>("gate", model_config, layer_idx, device);
     } else {
-        gate_ = this->register_module<DeepseekV4TopKRouter>("gate", model_config, layer_idx, device);
+        topk_ = this->register_module<DeepseekV4TopK>("gate", model_config, layer_idx, device);
     }
     INFINICORE_NN_MODULE_INIT(experts, model_config, device);
     has_shared_experts_ = num_shared_experts > 0;
@@ -295,12 +293,14 @@ infinicore::Tensor DeepseekV4MoE::forward(const infinicore::Tensor &hidden_state
         throw std::runtime_error("DeepseekV4MoE: expected hidden_states shape [B,S,D]");
     }
     auto hidden_flat = hidden_states->view({shape[0] * shape[1], hidden_size_});
-    auto [routing_weights, selected_experts] = std::visit(
-        [&](const auto &gate) {
-            return gate->forward(hidden_flat, input_ids);
-        },
-        gate_);
-    auto final_hidden_states = experts_->forward(hidden_flat, selected_experts, routing_weights);
+    infinicore::Tensor topk_weights;
+    infinicore::Tensor topk_ids;
+    if (std::holds_alternative<std::shared_ptr<DeepseekV4HashTopK>>(topk_)) {
+        std::tie(topk_weights, topk_ids) = std::get<std::shared_ptr<DeepseekV4HashTopK>>(topk_)->forward(hidden_flat, input_ids);
+    } else {
+        std::tie(topk_weights, topk_ids) = std::get<std::shared_ptr<DeepseekV4TopK>>(topk_)->forward(hidden_flat);
+    }
+    auto final_hidden_states = experts_->forward(hidden_flat, topk_ids, topk_weights);
     if (has_shared_experts_) {
         final_hidden_states = infinicore::op::add(final_hidden_states, shared_experts_->forward_without_allreduce(hidden_flat));
     }
