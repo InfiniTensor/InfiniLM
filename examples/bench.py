@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import sys
@@ -197,6 +198,7 @@ class TestModel:
         weight_load_mode="async",
         moe_ep_backend="disabled",
         moe_ep_size=1,
+        config=None,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         self.draft_model_path = draft_model_path
@@ -210,6 +212,7 @@ class TestModel:
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
+        self.config = config
 
         if draft_model_path is not None:
             self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
@@ -299,24 +302,17 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         if self.draft_model_path is not None:
             prompt_text = self.tokenizer.decode(input_ids, skip_special_tokens=False)
-            llm = LLM(
-                model_path=self.model_path,
-                draft_model_path=self.draft_model_path,
-                num_draft_tokens=self.num_draft_tokens,
-                device=self.device_str,
-                tensor_parallel_size=self.tp,
-                cache_type="paged" if self.cache_config is not None else "static",
-                max_batch_size=batch_size,
-                max_tokens=output_len,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                enable_graph=self.enable_graph,
-                attn_backend=self.attn_backend,
-                use_mla=self.use_mla,
-                weight_load_mode=self.weight_load_mode,
-                skip_load=self.skip_load,
-            )
+            if self.config is None:
+                raise ValueError(
+                    "TestModel requires config when draft_model_path is set"
+                )
+            llm_config = copy.copy(self.config)
+            llm_config.max_batch_size = batch_size
+            llm_config.max_new_tokens = output_len
+            llm_config.temperature = temperature
+            llm_config.top_p = top_p
+            llm_config.top_k = top_k
+            llm = LLM(llm_config)
             t1 = time.time()
             print("=================== start generate ====================")
             outputs = llm.generate(
@@ -387,6 +383,9 @@ if __name__ == "__main__":
 
     skip_load = cfg.skip_load
 
+    cfg.moe_ep_backend = moe_ep_backend
+    cfg.ep = ep
+
     batch_size = cfg.batch_size
     input_len = cfg.input_len
     output_len = cfg.output_len
@@ -442,6 +441,7 @@ if __name__ == "__main__":
         weight_load_mode=cfg.weight_load_mode,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
+        config=cfg,
     )
 
     # ---------------------------------------------------------------------------- #

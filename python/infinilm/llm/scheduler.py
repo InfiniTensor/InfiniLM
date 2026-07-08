@@ -8,6 +8,7 @@ from typing import List, Optional
 
 import janus
 
+from infinilm.config.engine_config import EngineConfig
 from infinilm.llm.cache_manager import BlockManager, MambaCacheManager
 from infinilm.llm.request import InferenceRequest, RequestStatus
 
@@ -71,9 +72,7 @@ class Scheduler:
 
     def __init__(
         self,
-        max_batch_size: int = 16,
-        num_blocks: int = 512,
-        block_size: int = 256,
+        config: EngineConfig,
         max_num_batched_tokens: int = 1024,
         connector=None,
         has_mamba_cache: bool = False,
@@ -81,7 +80,7 @@ class Scheduler:
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
-        self.max_batch_size = max_batch_size
+        self.config = config
 
         self.finished_receiving_kv_req_ids: set[str] = set()
         self.failed_receiving_kv_req_ids: set[str] = set()
@@ -89,17 +88,26 @@ class Scheduler:
         self.pending_kv_decode_blocks: int = 0
         self.remote_kv_requests: dict[str, InferenceRequest] = {}
 
-        self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
+        self.cache_manager = BlockManager(
+            num_blocks=config.num_blocks, block_size=config.block_size
+        )
         self.has_mamba_cache = has_mamba_cache
         self.mamba_cache_manager = (
-            MambaCacheManager(num_mamba_cache_blocks or max(2, num_blocks // 4))
+            MambaCacheManager(num_mamba_cache_blocks or max(2, config.num_blocks // 4))
             if has_mamba_cache
             else None
         )
         self.speculative_cache_ops = SpeculativeCacheOps(self.cache_manager)
-        self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
+
+    @property
+    def max_batch_size(self) -> int:
+        return self.config.max_batch_size
+
+    @property
+    def block_size(self) -> int:
+        return self.config.block_size
 
     def add_request(self, request: InferenceRequest):
         if request is not None:

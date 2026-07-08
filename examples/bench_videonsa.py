@@ -10,7 +10,6 @@ from infinilm.llm.sampling_params import SamplingParams
 from infinilm.processors import AutoInfinilmProcessor
 from infinilm.processors.videonsa_processor import decode_video_frames
 
-
 VIDEO_AUTO_MIN_FRAMES = 4
 VIDEO_AUTO_MAX_FRAMES = 8
 VIDEO_AUTO_SAMPLE_FPS = 1.0
@@ -186,7 +185,9 @@ def main():
     output_lens = as_int_list(cfg.output_len)
     max_batch_size = max(int(cfg.batch_size), int(cfg.max_batch_size))
     max_cache_len = max(max(input_lens) + max(output_lens) + 4096, cfg.max_cache_len)
-    cache_type = "paged" if cfg.enable_paged_attn else "static"
+    cfg.max_batch_size = max_batch_size
+    cfg.max_new_tokens = max(output_lens)
+    cfg.max_cache_len = max_cache_len
 
     video_meta = apply_video_auto_args(cfg)
     apply_multimodal_env(cfg)
@@ -203,23 +204,7 @@ def main():
     )
     processor = AutoInfinilmProcessor.from_pretrained(cfg.model)
     tokenizer = processor.get_tokenizer()
-    model = LLM(
-        model_path=cfg.model,
-        device=cfg.get_device_str(cfg.device),
-        tensor_parallel_size=cfg.tp,
-        cache_type=cache_type,
-        max_batch_size=max_batch_size,
-        max_tokens=max(output_lens),
-        num_blocks=cfg.num_blocks,
-        block_size=cfg.block_size,
-        max_cache_len=max_cache_len,
-        temperature=cfg.temperature,
-        top_p=cfg.top_p,
-        top_k=cfg.top_k,
-        attn_backend=cfg.attn,
-        enable_graph=cfg.enable_graph,
-        weight_load_mode=cfg.weight_load_mode,
-    )
+    model = LLM(cfg)
 
     for input_len in input_lens:
         for output_len in output_lens:
