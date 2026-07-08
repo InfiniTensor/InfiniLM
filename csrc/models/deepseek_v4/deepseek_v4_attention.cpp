@@ -387,7 +387,7 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infin
                 float max_logit = sink_host[h];
                 for (size_t j = 0; j < kv_len; ++j) {
                     logits[j] = valid_keys[j] ? scores_host[row_offset + j]
-                                             : -std::numeric_limits<float>::infinity();
+                                              : -std::numeric_limits<float>::infinity();
                     if (std::isfinite(logits[j])) {
                         max_logit = std::max(max_logit, logits[j]);
                     }

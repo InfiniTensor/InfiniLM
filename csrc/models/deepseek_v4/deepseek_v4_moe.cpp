@@ -32,12 +32,10 @@ bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
     }
 }
 
-
 bool env_flag(const char *name) {
     const char *value = std::getenv(name);
     return value != nullptr && std::string(value) == "1";
 }
-
 
 } // namespace
 
@@ -113,11 +111,26 @@ DeepseekV4HashTopK::forward(const infinicore::Tensor &hidden_states,
         throw std::runtime_error("DeepseekV4HashTopK: input_ids must be on the same device as hidden_states");
     }
 
+    auto input_ids_view = input_ids->is_contiguous() ? input_ids : input_ids->contiguous();
+    const char *disable_fused = std::getenv("DSV4_DISABLE_FUSED_HASH_TOPK");
+    if (disable_fused == nullptr || std::string(disable_fused) != "1") {
+        try {
+            return infinicore::op::deepseek_v4_hash_topk_router(
+                hidden_states,
+                weight_,
+                input_ids_view,
+                tid2eid_,
+                norm_topk_prob_);
+        } catch (const std::exception &e) {
+            spdlog::warn("DeepseekV4HashTopK: fused hash topk unavailable, falling back to linear + hash router: {}", e.what());
+        }
+    }
+
     auto gate_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
 
     return infinicore::op::deepseek_v4_hash_router(
         gate_logits,
-        input_ids->contiguous(),
+        input_ids_view,
         tid2eid_,
         norm_topk_prob_);
 }
@@ -178,10 +191,10 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
                            && down_weight_scales_.front()->dtype() == infinicore::DataType::F32;
 
     const bool fused_device_dtype_ready = supports_fused_deepseek_moe(hidden_states->device().getType())
-                                      && top_k_index->dtype() == infinicore::DataType::I32
-                                      && top_k_weights->dtype() == infinicore::DataType::F32
-                                      && (hidden_states->dtype() == infinicore::DataType::BF16
-                                          || hidden_states->dtype() == infinicore::DataType::F16);
+                                       && top_k_index->dtype() == infinicore::DataType::I32
+                                       && top_k_weights->dtype() == infinicore::DataType::F32
+                                       && (hidden_states->dtype() == infinicore::DataType::BF16
+                                           || hidden_states->dtype() == infinicore::DataType::F16);
     const bool fused_common_ready = use_fused_moe_ && fused_device_dtype_ready;
     const bool require_fused_moe = env_flag("DSV4_REQUIRE_FUSED_MOE");
 
@@ -217,7 +230,6 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
     }
     return forward_cpu_routed_(hidden_states, top_k_index, top_k_weights);
 }
-
 
 infinicore::Tensor DeepseekV4Experts::forward_cpu_routed_(const infinicore::Tensor &hidden_states,
                                                           const infinicore::Tensor &top_k_index,
