@@ -32,10 +32,15 @@ def _parse_layer_indices(spec: str, num_layers: int) -> list[int]:
 
 
 def _parse_buckets(spec: str) -> list[int]:
-    if spec.strip().lower() in ("all", "*"):
+    spec_norm = spec.strip().lower()
+    if spec_norm in ("all", "*"):
         from infinilm.compile.env import native_piecewise_capture_buckets, compile_max_seq_len
 
         return list(native_piecewise_capture_buckets(compile_max_seq_len()))
+    if spec_norm in ("sub512", "vllm-ladder", "vllm_ladder"):
+        from infinilm.compile.piecewise_segments import sub512_farm_buckets
+
+        return list(sub512_farm_buckets())
     return [int(x.strip()) for x in spec.split(",") if x.strip()]
 
 
@@ -48,7 +53,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--buckets",
         default="",
-        help="Comma-separated buckets or 'all' (512,1024,2048,4096); one weight load per rank",
+        help="Comma-separated buckets, 'all' (native capture ladder), or 'sub512' (1..512 powers)",
     )
     parser.add_argument("--tp-size", type=int, default=1)
     parser.add_argument("--tp-rank", type=int, default=0)

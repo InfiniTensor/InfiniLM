@@ -81,9 +81,8 @@ public:
                             global_state::PiecewiseLayerStaging &staging) const {
         if (global_state::piecewise_inductor_segment_enabled()) {
             const size_t bucket = hidden_states->size(1);
-            const auto &pw = global_state::get_forward_context().piecewise;
-            const size_t valid = pw.valid_seq_len > 0 ? pw.valid_seq_len : bucket;
-            if (valid >= bucket) {
+            if (infinicore::op::inductor_segment_impl::has_package(
+                    infinicore::op::PiecewiseInductorSegmentId::PreAttn, layer_idx_, bucket)) {
                 infinicore::op::inductor_segment_(
                     positions,
                     hidden_states,

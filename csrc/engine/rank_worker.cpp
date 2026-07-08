@@ -38,11 +38,17 @@ size_t inductor_tp_rank_resolver() {
     return infinilm::global_state::get_tensor_model_parallel_rank();
 }
 
+size_t inductor_valid_seq_len_resolver() {
+    return infinilm::global_state::get_forward_context().piecewise.valid_seq_len;
+}
+
 void ensure_inductor_tp_rank_resolver() {
     static std::once_flag once;
     std::call_once(once, []() {
         infinicore::op::inductor_segment_impl::set_tensor_parallel_rank_resolver(
             &inductor_tp_rank_resolver);
+        infinicore::op::inductor_segment_impl::set_piecewise_valid_seq_len_resolver(
+            &inductor_valid_seq_len_resolver);
     });
 }
 

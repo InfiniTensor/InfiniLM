@@ -238,6 +238,38 @@ def vllm_unified_power_ladder(
     return tuple(sorted(b for b in set(buckets) if b <= ceiling))
 
 
+def vllm_capture_ladder_enabled() -> bool:
+    """Merge sub-512 power ladder into native CG capture (vLLM 0.20 piecewise policy)."""
+    return _truthy("INFINI_VLLM_CAPTURE_LADDER", "0")
+
+
+def vllm_piecewise_capture_sizes(chunk_cap: int = 512) -> Tuple[int, ...]:
+    """Powers of two from 1 through ``min(chunk_cap, 512)`` (vLLM tail-chunk ladder)."""
+    if chunk_cap <= 0:
+        raise ValueError(f"chunk_cap must be positive, got {chunk_cap}")
+    cap = min(int(chunk_cap), _VLLM_POWER_LADDER_FLOOR)
+    buckets: List[int] = []
+    s = 1
+    while s <= cap:
+        buckets.append(s)
+        next_s = s * 2
+        if next_s <= s:
+            break
+        s = next_s
+    return tuple(buckets)
+
+
+def native_piecewise_capture_buckets_vllm(
+    max_seq_len: int,
+    chunk_cap: int = 512,
+) -> Tuple[int, ...]:
+    """Sub-512 ladder merged with power ladder 512..8192 for CG capture."""
+    sub = vllm_piecewise_capture_sizes(chunk_cap)
+    power = vllm_unified_power_ladder(max_seq_len)
+    merged = tuple(sorted(set(sub) | set(power)))
+    return tuple(b for b in merged if b <= _VLLM_POWER_LADDER_CAP)
+
+
 def default_cudagraph_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
     """Power ladder buckets eligible for PIECEWISE CUDAGraph capture.
 
@@ -310,6 +342,8 @@ def graph_replay_bucket_for_seq_len(
 
 def native_piecewise_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
     """Native C++ capture ladder: power buckets through 8192 (8448 pad is eager-only)."""
+    if vllm_capture_ladder_enabled():
+        return native_piecewise_capture_buckets_vllm(max_seq_len, prefill_chunk_size(default=512))
     return default_cudagraph_capture_buckets(max_seq_len)
 
 

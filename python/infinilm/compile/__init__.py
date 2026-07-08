@@ -32,7 +32,10 @@ from .env import (
     torch_compile_enabled,
     torch_compile_share_weights_enabled,
     v1_scheduler_enabled,
+    vllm_capture_ladder_enabled,
+    vllm_piecewise_capture_sizes,
     vllm_unified_power_ladder,
+    native_piecewise_capture_buckets_vllm,
 )
 from .runner import TorchCompileRunner
 from .piecewise_segments import (
@@ -102,5 +105,8 @@ __all__ = [
     "torch_compile_enabled",
     "torch_compile_share_weights_enabled",
     "v1_scheduler_enabled",
+    "vllm_capture_ladder_enabled",
+    "vllm_piecewise_capture_sizes",
     "vllm_unified_power_ladder",
+    "native_piecewise_capture_buckets_vllm",
 ]

@@ -1309,6 +1309,21 @@ def expected_piecewise_package_count(
     return num_layers * len(buckets) * tp_size
 
 
+def sub512_farm_buckets() -> Tuple[int, ...]:
+    """Sub-512 vLLM tail ladder (1,2,4,...,512) for layer-agnostic AOT farm."""
+    from .env import vllm_piecewise_capture_sizes
+
+    return vllm_piecewise_capture_sizes(512)
+
+
+def vllm_aligned_farm_buckets(max_seq_len: Optional[int] = None) -> Tuple[int, ...]:
+    """Full vLLM-aligned capture ladder: sub-512 + power buckets through 8192."""
+    from .env import compile_max_seq_len, native_piecewise_capture_buckets_vllm, prefill_chunk_size
+
+    max_seq = int(max_seq_len) if max_seq_len is not None else compile_max_seq_len()
+    return native_piecewise_capture_buckets_vllm(max_seq, prefill_chunk_size(default=512))
+
+
 def torch_compile_piecewise_segment(
     segment_module: nn.Module,
     example_inputs: Tuple[torch.Tensor, ...],
