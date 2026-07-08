@@ -46,6 +46,7 @@ private:
     void allocate_layer_staging_(size_t bucket, size_t num_layers);
     InfinilmModel::Input make_bucket_input_(size_t bucket, size_t nblocks, size_t n_req) const;
     void capture_bucket_(size_t bucket);
+    void warmup_inductor_segments_(size_t nblocks, size_t n_req);
     void copy_runtime_into_bucket_(BucketGraphs &bucket_graphs,
                                    const InfinilmModel::Input &runtime,
                                    size_t valid_seq_len) const;

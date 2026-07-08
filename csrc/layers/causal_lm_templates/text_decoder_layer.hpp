@@ -9,6 +9,8 @@
 #include "infinicore/ops/inductor_segment.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
+#include "infinicore/ops/inductor_segment.hpp"
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
@@ -66,23 +68,36 @@ public:
 
     size_t layer_idx() const { return layer_idx_; }
 
+    infinicore::op::inductor_segment_impl::PreAttnExternalWeightTensors
+    pre_attn_external_weights() const {
+        auto out = self_attn_->pre_attn_external_weights();
+        out.ln_weight = input_layernorm_->weight();
+        return out;
+    }
+
     void piecewise_pre_attn(const infinicore::Tensor &positions,
                             infinicore::Tensor &hidden_states,
                             infinicore::Tensor &residual,
                             global_state::PiecewiseLayerStaging &staging) const {
         if (global_state::piecewise_inductor_segment_enabled()) {
             const size_t bucket = hidden_states->size(1);
-            infinicore::op::inductor_segment_(
-                positions,
-                hidden_states,
-                residual,
-                staging.q_rope,
-                staging.k_rope,
-                staging.v_rope,
-                infinicore::op::PiecewiseInductorSegmentId::PreAttn,
-                layer_idx_,
-                bucket);
-            return;
+            const auto &pw = global_state::get_forward_context().piecewise;
+            const size_t valid = pw.valid_seq_len > 0 ? pw.valid_seq_len : bucket;
+            if (valid >= bucket) {
+                infinicore::op::inductor_segment_(
+                    positions,
+                    hidden_states,
+                    residual,
+                    staging.q_rope,
+                    staging.k_rope,
+                    staging.v_rope,
+                    infinicore::op::PiecewiseInductorSegmentId::PreAttn,
+                    layer_idx_,
+                    bucket);
+                // AOTInductor uses the PyTorch stream; sync before InfiniCore collectives (o_proj AR).
+                infinicore::context::syncDevice();
+                return;
+            }
         }
         input_layernorm_->forward_inplace(hidden_states, residual);
         self_attn_->forward_pre_attn_piecewise(positions, hidden_states, staging);

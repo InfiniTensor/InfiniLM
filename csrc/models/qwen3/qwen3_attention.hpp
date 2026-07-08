@@ -2,6 +2,7 @@
 
 #include "../../layers/attention/attention.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
+#include "infinicore/ops/inductor_segment.hpp"
 
 namespace infinilm::models::qwen3 {
 
@@ -17,6 +18,9 @@ public:
     void forward_pre_attn_piecewise(const infinicore::Tensor &positions,
                                     const infinicore::Tensor &hidden_states,
                                     global_state::PiecewiseLayerStaging &staging) const;
+
+    infinicore::op::inductor_segment_impl::PreAttnExternalWeightTensors
+    pre_attn_external_weights() const override;
 
     void forward_eager_attn_piecewise(const infinicore::Tensor &positions,
                                       global_state::PiecewiseLayerStaging &staging) const {

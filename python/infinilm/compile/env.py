@@ -158,6 +158,11 @@ def piecewise_inductor_require_aot() -> bool:
     return _truthy("INFINI_PIECEWISE_INDUCTOR_REQUIRE_AOT", "0")
 
 
+def piecewise_inductor_compile_on_miss() -> bool:
+    """When set (default), bootstrap AOT-compiles missing segment packages before register."""
+    return _truthy("INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS", "1")
+
+
 def piecewise_inductor_segment_enabled() -> bool:
     """Use AOTInductor kernels inside native piecewise pre/post segments (M4)."""
     return _truthy("INFINI_PIECEWISE_INDUCTOR_SEGMENT", "0")

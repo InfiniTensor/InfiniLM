@@ -3,12 +3,17 @@
 #include "../global_state/ar_profile.hpp"
 #include "../global_state/hang_trace.hpp"
 #include "../global_state/global_state.hpp"
+#include "../global_state/piecewise_inductor_flags.hpp"
 #include "../utils/agent_debug.hpp"
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
+#include "../models/qwen3/qwen3_for_causal_lm.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/inductor_segment.hpp"
 #include "infinicore/ops.hpp"
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
+#include <c10/cuda/CUDAGuard.h>
+#endif
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -39,6 +44,20 @@ void ensure_inductor_tp_rank_resolver() {
         infinicore::op::inductor_segment_impl::set_tensor_parallel_rank_resolver(
             &inductor_tp_rank_resolver);
     });
+}
+
+void register_piecewise_pre_attn_weight_resolver(infinilm::InfinilmModel *model) {
+    if (!infinilm::global_state::piecewise_inductor_segment_enabled() || model == nullptr) {
+        return;
+    }
+    auto *qwen = dynamic_cast<infinilm::models::qwen3::Qwen3ForCausalLM *>(model);
+    if (qwen == nullptr) {
+        return;
+    }
+    infinicore::op::inductor_segment_impl::set_pre_attn_weight_resolver(
+        [qwen](size_t layer_idx) {
+            return qwen->model().pre_attn_external_weights(layer_idx);
+        });
 }
 
 /// Keep pre-graph RankBarrier on decode replay (default on for TP rank sync).
@@ -477,6 +496,7 @@ void RankWorker::thread_loop() {
                 // Handle preprocess command
                 try {
                     model_->process_weights_after_loading();
+                    register_piecewise_pre_attn_weight_resolver(model_.get());
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -841,6 +861,9 @@ void RankWorker::thread_loop() {
                 }
             } else if (local_cmd == Command::COMPILE) {
                 try {
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
+                    c10::cuda::CUDAGuard device_guard(static_cast<int>(rank_info_.device.getIndex()));
+#endif
                     if (compiler_ != nullptr) {
                         compiler_->compile();
                     }

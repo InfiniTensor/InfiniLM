@@ -5,6 +5,12 @@
 #include "../../utils/agent_debug.hpp"
 #include "../rotary_embedding/rotary_embedding.hpp"
 #include "infinicore/context/context.hpp"
+#include "infinicore/ops/inductor_segment.hpp"
+
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
+#include <c10/cuda/CUDAGuard.h>
+#include <c10/cuda/CUDAFunctions.h>
+#endif
 
 namespace infinilm::layers::attention {
 
@@ -28,6 +34,13 @@ void log_piecewise_stage(size_t layer_idx, const char *stage, const char *hypoth
         std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" + std::to_string(layer_idx) +
             ",\"first_bits\":" + std::to_string(infinilm::agent_debug::first_elem_bits(t)) + "}",
         run_id);
+}
+
+void restore_rank_device(const infinicore::Device &device) {
+    infinicore::context::setDevice(device);
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
+    c10::cuda::CUDAGuard guard(static_cast<int>(device.getIndex()));
+#endif
 }
 
 } // namespace
@@ -188,6 +201,46 @@ void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_id
 
 void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
                                              global_state::PiecewiseLayerStaging &staging) const {
+    restore_rank_device(staging.q_rope->device());
+
+    // #region agent log
+    if (layer_idx_ == 0) {
+        auto &fwd = global_state::get_forward_context();
+        const int tp_rank = global_state::get_tensor_model_parallel_rank();
+        const auto rank_dev = global_state::get_tensor_model_parallel_rank_info().device.toString();
+        const auto ctx_dev = infinicore::context::getDevice().toString();
+        const auto k_dev = staging.k_rope->device().toString();
+        const auto v_dev = staging.v_rope->device().toString();
+        std::string slot_dev = "none";
+        std::string kcache_dev = "none";
+        if (fwd.attn_metadata.slot_mapping.has_value()) {
+            slot_dev = fwd.attn_metadata.slot_mapping.value()->device().toString();
+        }
+        if (layer_idx_ < fwd.kv_cache_vec.size() && fwd.kv_cache_vec[layer_idx_]) {
+            kcache_dev = fwd.kv_cache_vec[layer_idx_]->device().toString();
+        }
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
+        const int c10_dev = static_cast<int>(c10::cuda::current_device());
+        infinilm::agent_debug::session_log(
+            "attention.cpp:forward_eager_attn_piecewise",
+            "paged_caching_devices",
+            "H2",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"rank_dev\":\"" + rank_dev +
+                "\",\"ctx_dev\":\"" + ctx_dev + "\",\"k_dev\":\"" + k_dev + "\",\"v_dev\":\"" + v_dev +
+                "\",\"slot_dev\":\"" + slot_dev + "\",\"kcache_dev\":\"" + kcache_dev +
+                "\",\"c10_dev\":" + std::to_string(c10_dev) + "}");
+#else
+        infinilm::agent_debug::session_log(
+            "attention.cpp:forward_eager_attn_piecewise",
+            "paged_caching_devices",
+            "H2",
+            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"rank_dev\":\"" + rank_dev +
+                "\",\"ctx_dev\":\"" + ctx_dev + "\",\"k_dev\":\"" + k_dev + "\",\"v_dev\":\"" + v_dev +
+                "\",\"slot_dev\":\"" + slot_dev + "\",\"kcache_dev\":\"" + kcache_dev + "\"}");
+#endif
+    }
+    // #endregion
+
     auto &piecewise = global_state::get_forward_context().piecewise;
     const size_t seq_len = staging.q_rope->size(1);
     const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
@@ -331,6 +384,19 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     // 6. Project output
     auto output = o_proj_->forward(attn_output);
     return output;
+}
+
+infinicore::op::inductor_segment_impl::PreAttnExternalWeightTensors
+Attention::pre_attn_external_weights() const {
+    infinicore::op::inductor_segment_impl::PreAttnExternalWeightTensors out;
+    out.q_weight = qkv_proj_->q_weight();
+    out.k_weight = qkv_proj_->k_weight();
+    out.v_weight = qkv_proj_->v_weight();
+    const auto &device = out.q_weight->device();
+    const auto dtype = out.q_weight->dtype();
+    out.q_norm_weight = infinicore::Tensor::empty({0}, dtype, device);
+    out.k_norm_weight = infinicore::Tensor::empty({0}, dtype, device);
+    return out;
 }
 
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,

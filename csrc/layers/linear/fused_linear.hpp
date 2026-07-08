@@ -43,6 +43,10 @@ public:
     std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
     forward_split(infinicore::Tensor &input);
 
+    infinicore::Tensor q_weight() const;
+    infinicore::Tensor k_weight() const;
+    infinicore::Tensor v_weight() const;
+
     bool has_q_bias() const;
     bool has_k_bias() const;
     bool has_v_bias() const;
@@ -80,6 +84,8 @@ private:
     size_t num_kv_head_replicas_ = 1;
     RegisterParamFn register_fn_;
     std::vector<infinilm::quantization::SplitInfo> split_infos_;
+
+    infinicore::Tensor weight_for_prefix(const std::string &prefix) const;
 };
 
 class GateUpParallelLinear : public infinilm::nn::ColumnParallelLinear {

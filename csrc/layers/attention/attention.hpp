@@ -8,6 +8,7 @@
 #include "backends/attention_layer.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rope.hpp"
+#include "infinicore/ops/inductor_segment.hpp"
 #include "infinicore/tensor.hpp"
 #include <memory>
 
@@ -49,6 +50,10 @@ public:
     void process_fused_weights_after_loading() {
         qkv_proj_->process_weights_after_loading();
     }
+
+    /// External-weight inputs for layer-agnostic AOTInductor pre_attn replay.
+    virtual infinicore::op::inductor_segment_impl::PreAttnExternalWeightTensors
+    pre_attn_external_weights() const;
 
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }

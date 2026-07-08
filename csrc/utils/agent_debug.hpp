@@ -86,8 +86,9 @@ inline void log(const char *location, const char *message, const char *hypothesi
 inline void session_log(const char *location, const char *message, const char *hypothesis_id,
                         const std::string &data_json, const char *run_id = "cg-capture") {
     const char *path = std::getenv("INFINI_DEBUG_SESSION_LOG");
-    const std::string log_path =
-        (path != nullptr && path[0] != '\0') ? path : "/workspace/.cursor/debug-1e6005.log";
+    const std::string log_path = (path != nullptr && path[0] != '\0')
+                                     ? path
+                                     : "/workspace/bench_results/debug-09a514.log";
     std::ofstream f(log_path, std::ios::app);
     if (!f) {
         return;
@@ -95,7 +96,7 @@ inline void session_log(const char *location, const char *message, const char *h
     const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
-    f << "{\"sessionId\":\"1e6005\",\"runId\":\"" << run_id << "\",\"hypothesisId\":\""
+    f << "{\"sessionId\":\"09a514\",\"runId\":\"" << run_id << "\",\"hypothesisId\":\""
       << hypothesis_id << "\",\"location\":\"" << location << "\",\"message\":\"" << message
       << "\",\"data\":" << data_json << ",\"timestamp\":" << ts << "}\n";
 }

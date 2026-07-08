@@ -75,6 +75,38 @@ bool QKVParallelLinear::has_q_bias() const { return q_bias_; }
 bool QKVParallelLinear::has_k_bias() const { return k_bias_; }
 bool QKVParallelLinear::has_v_bias() const { return v_bias_; }
 
+infinicore::Tensor QKVParallelLinear::q_weight() const {
+    return weight_for_prefix("q_proj");
+}
+
+infinicore::Tensor QKVParallelLinear::k_weight() const {
+    return weight_for_prefix("k_proj");
+}
+
+infinicore::Tensor QKVParallelLinear::v_weight() const {
+    return weight_for_prefix("v_proj");
+}
+
+infinicore::Tensor QKVParallelLinear::weight_for_prefix(const std::string &prefix) const {
+    for (const auto &suffix : {"weight", "qweight"}) {
+        auto it = parameters_.find(prefix + "." + suffix);
+        if (it != parameters_.end()) {
+            return static_cast<const infinicore::Tensor &>(it->second);
+        }
+    }
+    if (!split_infos_.empty()) {
+        for (const auto &s : split_infos_) {
+            if (s.prefix != prefix) {
+                continue;
+            }
+            const std::string fused_key = parameters_.count("qweight") ? "qweight" : "weight";
+            const auto &fused = get_parameter_ref(fused_key);
+            return fused->narrow({{static_cast<size_t>(split_dim_), s.start, s.size}});
+        }
+    }
+    throw std::runtime_error("QKVParallelLinear: missing weight for " + prefix);
+}
+
 QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      size_t head_dim,
                                      size_t num_q_head, size_t num_kv_head,

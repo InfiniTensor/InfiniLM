@@ -3,6 +3,7 @@
 #include "../../utils.hpp"
 #include "../../utils/agent_debug.hpp"
 #include "infinicore/context/context.hpp"
+#include "infinicore/ops/inductor_segment.hpp"
 
 namespace infinilm::models::qwen3 {
 
@@ -329,6 +330,14 @@ void Qwen3Attention::forward_pre_attn_piecewise(const infinicore::Tensor &positi
             "piecewise-upstream");
     }
     // #endregion
+}
+
+infinicore::op::inductor_segment_impl::PreAttnExternalWeightTensors
+Qwen3Attention::pre_attn_external_weights() const {
+    auto out = Attention::pre_attn_external_weights();
+    out.q_norm_weight = q_norm_->weight();
+    out.k_norm_weight = k_norm_->weight();
+    return out;
 }
 
 } // namespace infinilm::models::qwen3
