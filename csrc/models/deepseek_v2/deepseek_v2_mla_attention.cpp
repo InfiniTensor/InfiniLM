@@ -149,7 +149,8 @@ infinicore::Tensor DeepseekV2MLAAttention::forward_static_(const infinicore::Ten
     auto k_pe = compressed->narrow({{1, kv_lora_rank_, qk_rope_head_dim_}})->contiguous();
 
     auto kv_norm = kv_a_layernorm_->forward(compressed_kv);
-    auto pos_ids = position_ids_for_rope_(position_ids);
+    auto pos_shape = position_ids->shape();
+    auto pos_ids = pos_shape.size() == 2 ? position_ids->contiguous()->view({ntokens}) : position_ids_for_rope_(position_ids);
     q_pe = rotary_emb_->forward(q_pe, pos_ids, true);
     auto k_pe_rope = rotary_emb_->forward(k_pe->view({ntokens, 1, qk_rope_head_dim_}), pos_ids, true);
 
