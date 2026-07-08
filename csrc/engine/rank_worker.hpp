@@ -95,6 +95,8 @@ public:
                bool enable_graph_compiling,
                backends::AttentionBackend attention_backend);
 
+    void wait_for_init();
+
     ~RankWorker();
 
     // Submit a parameter load job and wait until the load completes on the worker thread.

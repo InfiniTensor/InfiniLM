@@ -57,6 +57,10 @@ InferEngine::InferEngine(
             enable_graph_compiling,
             attention_backend_));
     }
+
+    for (auto &worker : workers_) {
+        worker->wait_for_init();
+    }
     // Graphs must be compiled after weights are loaded and post-processed.
     // Quantized models may replace their linear implementations during
     // process_weights_after_loading(), so compiling here would capture stale

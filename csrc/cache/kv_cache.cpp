@@ -132,13 +132,10 @@ infinicore::Tensor create_layer_kv_cache(
     }
 
     // [1+1, num_blocks, num_rank_k_heads, block_size, k_dim]
-    infinicore::Tensor kv_cache = infinicore::Tensor::empty(
+    infinicore::Tensor kv_cache = infinicore::Tensor::zeros(
         kv_shape,
         dtype,
         rank_info.device);
-    set_zeros(kv_cache);
-
-    infinicore::context::syncStream();
 
     return kv_cache;
 }
