@@ -11,12 +11,14 @@ QuantConfig::get_quantization_method() const {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config); // Default case if no matching scheme
     }
 
+    const std::string quant_method = quantization_config.value("quant_method", "");
+
     // Determine the quantization scheme from the JSON config
-    if (quantization_config["quant_method"] == "compressed-tensors") {
+    if (quant_method == "compressed-tensors") {
         return std::make_shared<infinilm::quantization::CompressedTensors>(quantization_config);
-    } else if (quantization_config["quant_method"] == "awq") {
+    } else if (quant_method == "awq") {
         return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
-    } else if (quantization_config["quant_method"] == "gptq") {
+    } else if (quant_method == "gptq") {
         return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
