@@ -22,6 +22,8 @@ public:
                            size_t layer_idx,
                            const infinicore::Device &device);
 
+    void process_weights_after_loading() override;
+
     std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
     forward(const infinicore::Tensor &hidden_states,
             const infinicore::Tensor &positions,
@@ -31,8 +33,8 @@ public:
             const infinicore::Tensor &residual = infinicore::Tensor()) const;
 
 private:
-    void ensure_hc_attn_fn_mat_right(const infinicore::Tensor &reference) const;
-    void ensure_hc_ffn_fn_mat_right(const infinicore::Tensor &reference) const;
+    infinicore::Tensor build_hc_fn_mat_right_(const infinicore::Tensor &fn,
+                                              size_t mix_hc) const;
 
     std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
     hc_pre(const infinicore::Tensor &x,
@@ -60,6 +62,7 @@ private:
     size_t hidden_size_{0};
     size_t hc_mult_{0};
     size_t hc_sinkhorn_iters_{0};
+    infinicore::DataType compute_dtype_{infinicore::DataType::F32};
     double rms_norm_eps_{0.0};
     double hc_eps_{0.0};
     double hc_post_alpha_{2.0};

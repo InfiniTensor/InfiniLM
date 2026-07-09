@@ -18,11 +18,14 @@ public:
     DeepseekV4Model(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                     const infinicore::Device &device);
 
+    void process_weights_after_loading() override;
+
     infinicore::Tensor forward(const infinicore::Tensor &input_ids,
                                const infinicore::Tensor &positions) const;
 
 private:
-    void ensure_hc_head_fn_mat_right(const infinicore::Tensor &reference) const;
+    infinicore::Tensor build_hc_head_fn_mat_right_() const;
+
     infinicore::Tensor hc_head(const infinicore::Tensor &x) const;
 
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed);
@@ -35,6 +38,7 @@ private:
     size_t hidden_size_{0};
     size_t vocab_size_{0};
     size_t hc_mult_{0};
+    infinicore::DataType compute_dtype_{infinicore::DataType::F32};
     double hc_eps_{0.0};
 
     mutable infinicore::Tensor hc_head_fn_mat_right_;

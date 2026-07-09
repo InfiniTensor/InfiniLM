@@ -3,6 +3,7 @@
 #include "deepseek_v4_utils.hpp"
 #include "infinicore/ops.hpp"
 
+#include <stdexcept>
 #include <utility>
 
 namespace infinilm::models::deepseek_v4 {
@@ -19,6 +20,7 @@ DeepseekV4DecoderLayer::DeepseekV4DecoderLayer(std::shared_ptr<infinilm::config:
       hidden_size_(model_config->get<size_t>("hidden_size")),
       hc_mult_(model_config->get<size_t>("hc_mult")),
       hc_sinkhorn_iters_(model_config->get<size_t>("hc_sinkhorn_iters")),
+      compute_dtype_(model_config->get_dtype()),
       rms_norm_eps_(model_config->get<double>("rms_norm_eps")),
       hc_eps_(model_config->get<double>("hc_eps")) {
     const auto &dtype = model_config->get_dtype();
@@ -38,36 +40,23 @@ DeepseekV4DecoderLayer::DeepseekV4DecoderLayer(std::shared_ptr<infinilm::config:
     INFINICORE_NN_PARAMETER_INIT(hc_ffn_scale, ({static_cast<size_t>(3)}, infinicore::DataType::F32, device));
 }
 
-void DeepseekV4DecoderLayer::ensure_hc_attn_fn_mat_right(const infinicore::Tensor &reference) const {
-    if (hc_attn_fn_mat_right_) {
-        return;
-    }
+infinicore::Tensor DeepseekV4DecoderLayer::build_hc_fn_mat_right_(const infinicore::Tensor &fn,
+                                                                  size_t mix_hc) const {
     const size_t flat_dim = hc_mult_ * hidden_size_;
-    const size_t mix_hc = (2 + hc_mult_) * hc_mult_;
     auto fn_for_matmul = float_vector_to_tensor(
-        tensor_to_float_vector(hc_attn_fn_),
+        tensor_to_float_vector(fn),
         {mix_hc, flat_dim},
-        reference->dtype(),
-        reference->device());
-    hc_attn_fn_mat_right_ = fn_for_matmul->permute({1, 0})
-                                ->contiguous()
-                                ->view({static_cast<size_t>(1), flat_dim, mix_hc});
+        compute_dtype_,
+        fn->device());
+    return fn_for_matmul->permute({1, 0})
+        ->contiguous()
+        ->view({static_cast<size_t>(1), flat_dim, mix_hc});
 }
 
-void DeepseekV4DecoderLayer::ensure_hc_ffn_fn_mat_right(const infinicore::Tensor &reference) const {
-    if (hc_ffn_fn_mat_right_) {
-        return;
-    }
-    const size_t flat_dim = hc_mult_ * hidden_size_;
+void DeepseekV4DecoderLayer::process_weights_after_loading() {
     const size_t mix_hc = (2 + hc_mult_) * hc_mult_;
-    auto fn_for_matmul = float_vector_to_tensor(
-        tensor_to_float_vector(hc_ffn_fn_),
-        {mix_hc, flat_dim},
-        reference->dtype(),
-        reference->device());
-    hc_ffn_fn_mat_right_ = fn_for_matmul->permute({1, 0})
-                               ->contiguous()
-                               ->view({static_cast<size_t>(1), flat_dim, mix_hc});
+    hc_attn_fn_mat_right_ = build_hc_fn_mat_right_(hc_attn_fn_, mix_hc);
+    hc_ffn_fn_mat_right_ = build_hc_fn_mat_right_(hc_ffn_fn_, mix_hc);
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
@@ -98,14 +87,12 @@ DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &post_mix,
                                 const infinicore::Tensor &res_mix,
                                 const infinicore::Tensor & /*residual*/) const {
-    ensure_hc_attn_fn_mat_right(hidden_states);
     auto [attn_input, attn_post, attn_comb] = hc_pre(hidden_states, hc_attn_fn_mat_right_, hc_attn_scale_, hc_attn_base_);
 
     attn_input = attn_norm_->forward(attn_input);
     auto attn_output = attn_->forward(positions, attn_input);
     auto x = hc_post(attn_output, hidden_states, attn_post, attn_comb);
 
-    ensure_hc_ffn_fn_mat_right(x);
     auto [ffn_input, ffn_post, ffn_comb] = hc_pre(x, hc_ffn_fn_mat_right_, hc_ffn_scale_, hc_ffn_base_);
 
     ffn_input = ffn_norm_->forward(ffn_input);

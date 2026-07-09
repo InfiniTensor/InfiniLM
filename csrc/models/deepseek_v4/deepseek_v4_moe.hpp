@@ -72,8 +72,11 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                const infinicore::Tensor &top_k_index,
                                const infinicore::Tensor &top_k_weights) const;
+    void process_weights_after_loading() override;
 
 private:
+    void refresh_expert_weight_views_();
+    bool has_w8a8_weights_() const;
     infinicore::Tensor build_w8a8_ptr_tables_(const infinicore::Device &device) const;
 
     infinicore::Tensor forward_cpu_routed_(const infinicore::Tensor &hidden_states,

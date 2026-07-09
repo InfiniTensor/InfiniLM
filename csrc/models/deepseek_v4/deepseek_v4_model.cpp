@@ -2,6 +2,7 @@
 
 #include "deepseek_v4_utils.hpp"
 #include <optional>
+#include <stdexcept>
 #include <tuple>
 
 namespace infinilm::models::deepseek_v4 {
@@ -10,6 +11,7 @@ DeepseekV4Model::DeepseekV4Model(std::shared_ptr<infinilm::config::ModelConfig> 
     : hidden_size_(model_config->get<size_t>("hidden_size")),
       vocab_size_(model_config->get<size_t>("vocab_size")),
       hc_mult_(model_config->get<size_t>("hc_mult")),
+      compute_dtype_(model_config->get_dtype()),
       hc_eps_(model_config->get<double>("hc_eps")) {
     const auto &dtype = model_config->get_dtype();
     const size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
@@ -42,7 +44,6 @@ infinicore::Tensor DeepseekV4Model::forward(const infinicore::Tensor &input_ids,
         res_mix = std::get<3>(layer_output);
     }
 
-    ensure_hc_head_fn_mat_right(hidden_states);
     hidden_states = this->hc_head(hidden_states);
     return norm_->forward(hidden_states);
 }
@@ -65,19 +66,20 @@ infinicore::Tensor DeepseekV4Model::forward(const infinicore::Tensor &input_ids,
 //     return norm_->forward(hidden_states);
 // }
 
-void DeepseekV4Model::ensure_hc_head_fn_mat_right(const infinicore::Tensor &reference) const {
-    if (hc_head_fn_mat_right_) {
-        return;
-    }
+infinicore::Tensor DeepseekV4Model::build_hc_head_fn_mat_right_() const {
     const size_t flat_dim = hidden_size_ * hc_mult_;
     auto fn_for_matmul = float_vector_to_tensor(
         tensor_to_float_vector(hc_head_fn_),
         {hc_mult_, flat_dim},
-        reference->dtype(),
-        reference->device());
-    hc_head_fn_mat_right_ = fn_for_matmul->permute({1, 0})
-                                ->contiguous()
-                                ->view({static_cast<size_t>(1), flat_dim, hc_mult_});
+        compute_dtype_,
+        hc_head_fn_->device());
+    return fn_for_matmul->permute({1, 0})
+        ->contiguous()
+        ->view({static_cast<size_t>(1), flat_dim, hc_mult_});
+}
+
+void DeepseekV4Model::process_weights_after_loading() {
+    hc_head_fn_mat_right_ = build_hc_head_fn_mat_right_();
 }
 
 infinicore::Tensor DeepseekV4Model::hc_head(const infinicore::Tensor &x) const {
