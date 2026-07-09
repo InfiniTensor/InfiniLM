@@ -30,13 +30,6 @@
     git submodule update --init --recursive
     ```
 
-
-  - 选择是否使用kv caching，默认为false；在支持了此算子的平台(英伟达、阿里、天数、沐曦、海光、QY)可以使用
-    ```bash
-      xmake f --use-kv-caching= [true | false] -cv
-    ```
-
-
   - 安装 InfiniLM Python 包
     ```bash
       pip install -e .
