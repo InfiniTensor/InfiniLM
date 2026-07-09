@@ -3,16 +3,23 @@
 #include "../../../global_state/global_state.hpp"
 #include "../ep/ep_config.hpp"
 
+#include "infinicore/ops/moe_w16a16_marlin.hpp"
+
+#include <spdlog/spdlog.h>
+
+#include <stdexcept>
 #include <string>
 
 namespace infinilm::layers::moe {
 
 FusedMoeExperts::FusedMoeExperts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                  const infinicore::Device &device) {
+    device_ = device;
     num_experts_ = model_config->get<size_t>("num_experts");
     hidden_size_ = model_config->get<size_t>("hidden_size");
     const size_t intermediate_size = model_config->get<size_t>("moe_intermediate_size");
     const auto dtype = model_config->get_dtype();
+    enable_hygon_w16a16_marlin_ = model_config->is_moe_w16a16_marlin_enabled();
     ASSERT(num_experts_ > 0);
 
     const auto ep_config = make_ep_config();
@@ -69,6 +76,50 @@ FusedMoeExperts::FusedMoeExperts(std::shared_ptr<infinilm::config::ModelConfig> 
 
     moe_weights_.packed_w13 = w13_weight_;
     moe_weights_.packed_w2 = w2_weight_;
+    moe_weights_.backend = MoeWeightBackend::Dense;
+}
+
+void FusedMoeExperts::process_weights_after_loading() {
+    if (!enable_hygon_w16a16_marlin_ || w16a16_marlin_packed_) {
+        return;
+    }
+    if (device_.getType() != infinicore::Device::Type::HYGON) {
+        throw std::runtime_error("w16a16_marlin MoE weight method is only supported on HYGON");
+    }
+
+    const auto ep_config = make_ep_config();
+    if (ep_config.backend != EPBackend::Disabled) {
+        throw std::runtime_error("w16a16_marlin MoE weight method currently supports TP-split experts only; disable MoE EP");
+    }
+    if (!w13_weight_ || !w2_weight_) {
+        throw std::runtime_error("w16a16_marlin MoE weight method requires loaded dense w13/w2 weights");
+    }
+    if (w13_weight_->dtype() != infinicore::DataType::F16 &&
+        w13_weight_->dtype() != infinicore::DataType::BF16) {
+        throw std::runtime_error("w16a16_marlin MoE weight method requires FP16 or BF16 weights");
+    }
+    if (hidden_size_ % 32 != 0 || intermediate_size_per_partition_ % 16 != 0 ||
+        (intermediate_size_per_partition_ * 2) % 32 != 0) {
+        throw std::runtime_error("w16a16_marlin MoE weight method requires aligned hidden/intermediate sizes");
+    }
+
+    spdlog::debug(
+        "Packing MoE weights with Hygon W16A16 Marlin layout: experts={}, hidden={}, intermediate_per_partition={}",
+        w13_weight_->size(0), hidden_size_, intermediate_size_per_partition_);
+
+    auto packed_w13 = infinicore::op::moe_w16a16_marlin_pack(w13_weight_);
+    auto packed_w2 = infinicore::op::moe_w16a16_marlin_pack(w2_weight_);
+
+    parameters_.clear();
+    w13_weight_ = infinicore::nn::Parameter(packed_w13);
+    w2_weight_ = infinicore::nn::Parameter(packed_w2);
+    this->register_parameter("w13_weight", w13_weight_);
+    this->register_parameter("w2_weight", w2_weight_);
+
+    moe_weights_.packed_w13 = w13_weight_;
+    moe_weights_.packed_w2 = w2_weight_;
+    moe_weights_.backend = MoeWeightBackend::HygonW16A16Marlin;
+    w16a16_marlin_packed_ = true;
 }
 
 const MoeWeights &FusedMoeExperts::moe_weights() const {

@@ -3,6 +3,7 @@
 #include "../layers/quantization/quantization.hpp"
 #include "nlohmann/json.hpp"
 #include <optional>
+#include <string>
 #include <spdlog/spdlog.h>
 
 namespace infinilm::config {
@@ -15,6 +16,8 @@ public:
     QuantConfig(const nlohmann::json &json);
 
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const;
+    std::string get_moe_weight_method() const;
+    bool is_moe_w16a16_marlin_enabled() const;
 
     infinilm::quantization::QuantScheme get_quant_scheme() const {
         if (quantization_method != nullptr) {

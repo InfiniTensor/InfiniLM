@@ -88,6 +88,14 @@ public:
         return quant_config.get_quantization_method();
     }
 
+    std::string get_moe_weight_method() const {
+        return quant_config.get_moe_weight_method();
+    }
+
+    bool is_moe_w16a16_marlin_enabled() const {
+        return quant_config.is_moe_w16a16_marlin_enabled();
+    }
+
     infinicore::DataType get_dtype() const;
     infinilm::quantization::QuantScheme get_quant_scheme() const;
 

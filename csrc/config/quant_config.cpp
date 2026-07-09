@@ -1,6 +1,33 @@
 #include "quant_config.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+
 namespace infinilm::config {
+namespace {
+
+std::string lower_string(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+std::string env_string(const char *name) {
+    const char *value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+        return {};
+    }
+    return lower_string(value);
+}
+
+bool truthy_env(const char *name) {
+    auto value = env_string(name);
+    return value == "1" || value == "true" || value == "on" || value == "yes";
+}
+
+} // namespace
 QuantConfig::QuantConfig(const nlohmann::json &json) : quantization_config(json) {
     this->quantization_method = get_quantization_method();
 }
@@ -20,6 +47,9 @@ QuantConfig::get_quantization_method() const {
         return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
     } else if (quant_method == "gptq") {
         return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
+    } else if (quantization_config["quant_method"] == "w16a16_marlin" ||
+               quantization_config["quant_method"] == "hygon_w16a16_marlin") {
+        return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     }
@@ -27,4 +57,36 @@ QuantConfig::get_quantization_method() const {
 
     return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config); // Default case if no matching scheme
 }
+
+std::string QuantConfig::get_moe_weight_method() const {
+    auto env_method = env_string("INFINILM_MOE_WEIGHT_METHOD");
+    if (!env_method.empty()) {
+        return env_method;
+    }
+    if (truthy_env("INFINILM_HYGON_MOE_W16A16_MARLIN")) {
+        return "w16a16_marlin";
+    }
+    if (quantization_config.is_object()) {
+        for (const char *key : {"moe_weight_method", "weight_method", "moe_kernel_method"}) {
+            auto it = quantization_config.find(key);
+            if (it != quantization_config.end() && it->is_string()) {
+                return lower_string(it->get<std::string>());
+            }
+        }
+        auto it = quantization_config.find("quant_method");
+        if (it != quantization_config.end() && it->is_string()) {
+            auto method = lower_string(it->get<std::string>());
+            if (method == "w16a16_marlin" || method == "hygon_w16a16_marlin") {
+                return "w16a16_marlin";
+            }
+        }
+    }
+    return "dense";
+}
+
+bool QuantConfig::is_moe_w16a16_marlin_enabled() const {
+    auto method = get_moe_weight_method();
+    return method == "w16a16_marlin" || method == "hygon_w16a16_marlin";
+}
+
 } // namespace infinilm::config

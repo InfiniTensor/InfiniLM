@@ -4,6 +4,8 @@
 
 namespace infinilm::layers::moe {
 
+struct HygonW16A16MarlinRuntimeConfig;
+
 struct CudaFusedMoeRunnerInput {
     infinicore::Tensor hidden_states;
     TopKOutput topk_output;
@@ -27,11 +29,18 @@ public:
 
 private:
     CudaFusedMoeRunnerInput prepare_runner_input(const DispatchOutput &dispatch_output,
-                                                 MoeWorkspace &workspace) const;
+                                                 MoeWorkspace &workspace,
+                                                 size_t block_size) const;
 
     CudaFusedMoeRunnerOutput run_fused_core(const CudaFusedMoeRunnerInput &runner_input,
                                             const MoeWeights &weights,
                                             MoeWorkspace &workspace) const;
+
+    CudaFusedMoeRunnerOutput run_hygon_w16a16_marlin_core(
+        const CudaFusedMoeRunnerInput &runner_input,
+        const MoeWeights &weights,
+        MoeWorkspace &workspace,
+        const HygonW16A16MarlinRuntimeConfig &config) const;
 
     size_t num_local_experts_ = 0;
     size_t hidden_size_ = 0;
