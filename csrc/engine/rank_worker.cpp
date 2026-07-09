@@ -44,6 +44,11 @@ infinicore::Tensor logits_to_cpu_f32(const infinicore::Tensor &logits) {
     return out;
 }
 
+bool cpu_greedy_sample_enabled() {
+    const char *value = std::getenv("INFINILM_ENABLE_CPU_GREEDY_SAMPLE");
+    return value != nullptr && std::string(value) == "1";
+}
+
 infinicore::Tensor greedy_sample_to_cpu_i64(const infinicore::Tensor &logits,
                                             const infinicore::Tensor &input_offsets) {
     auto logits_cpu = logits_to_cpu_f32(logits);
@@ -574,19 +579,31 @@ void RankWorker::thread_loop() {
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
                             const bool sample_all_positions = local_args.sample_all_positions;
-                            const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
-
-                            for (size_t i{0}; i < n_out; ++i) {
-                                size_t score_idx = i;
-                                if (!sample_all_positions) {
-                                    score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                            infinicore::Tensor output_ids;
+                            const bool greedy = cpu_greedy_sample_enabled()
+                                             && !sample_all_positions
+                                             && (top_k == 1 || temperature == 0.0f || top_p == 0.0f);
+                            if (greedy) {
+                                output_ids = greedy_sample_to_cpu_i64(logits, local_args.input_offsets.value());
+                            } else {
+                                const size_t n_out = sample_all_positions
+                                                       ? static_cast<size_t>(input_offsets[n_req])
+                                                       : n_req;
+                                output_ids = infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device);
+                                for (size_t i{0}; i < n_out; ++i) {
+                                    size_t score_idx = i;
+                                    if (!sample_all_positions) {
+                                        score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                    }
+                                    auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                    auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                    float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                    infinicore::op::random_sample_(
+                                        out, score, random_val, top_p, top_k, temperature);
                                 }
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
+                                if (!sample_all_positions) {
+                                    output_ids = output_ids->to(infinicore::Device::cpu());
+                                }
                             }
 
                             infinicore::context::syncStream();
