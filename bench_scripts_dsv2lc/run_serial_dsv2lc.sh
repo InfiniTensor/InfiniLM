@@ -124,7 +124,6 @@ run_infinilm_case() {
         run_cmd "$log_file" "$PYTHON_BIN" examples/bench.py \
           --device "$DSV2_INFINI_DEVICE" \
           --use-mla \
-          --enable-paged-attn \
           --weight-load "$DSV2_INFINI_WEIGHT_LOAD" \
           --model "$MODEL" \
           --batch-size "$bs" \

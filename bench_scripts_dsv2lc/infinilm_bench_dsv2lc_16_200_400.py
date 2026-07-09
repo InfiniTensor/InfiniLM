@@ -45,17 +45,12 @@ cmd = [
 ]
 
 if USE_TP2:
-    cmd += [
-        "--enable-paged-attn",
-        "--tp", os.environ.get("DSV2_INFINI_TP", "2"),
-    ]
+    cmd += ["--tp", os.environ.get("DSV2_INFINI_TP", "2")]
 else:
-    # Single-GPU cases intentionally omit --tp and paged attention by default.
+    # Single-GPU cases intentionally omit --tp by default.
     tp = os.environ.get("DSV2_INFINI_TP")
     if tp:
         cmd += ["--tp", tp]
-    if os.environ.get("DSV2_INFINI_PAGED_ATTN", "0") == "1":
-        cmd.append("--enable-paged-attn")
 
 if os.environ.get("DSV2_INFINI_GRAPH", "0") == "1":
     cmd.append("--enable-graph")
