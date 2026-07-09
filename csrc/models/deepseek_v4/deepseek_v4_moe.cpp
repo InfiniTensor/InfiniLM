@@ -11,6 +11,7 @@
 
 #include "spdlog/spdlog.h"
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -179,6 +180,28 @@ DeepseekV4Experts::DeepseekV4Experts(std::shared_ptr<infinilm::config::ModelConf
     local_moe_intermediate_size_ = gate_weights_.empty() ? moe_intermediate_size_ : gate_weights_.front()->shape()[0];
 }
 
+
+infinicore::Tensor DeepseekV4Experts::build_w8a8_ptr_tables_(const infinicore::Device &device) const {
+    std::vector<const void *> ptrs;
+    ptrs.reserve(num_experts_ * 6);
+    auto append = [&ptrs](const std::vector<infinicore::Tensor> &tensors) {
+        for (const auto &tensor : tensors) {
+            ptrs.push_back(tensor->data());
+        }
+    };
+    append(gate_weights_);
+    append(up_weights_);
+    append(down_weights_);
+    append(gate_weight_scales_);
+    append(up_weight_scales_);
+    append(down_weight_scales_);
+
+    const size_t bytes = ptrs.size() * sizeof(void *);
+    auto host = infinicore::Tensor::empty({bytes}, infinicore::DataType::U8, infinicore::Device::Type::CPU, true);
+    std::memcpy(host->data(), ptrs.data(), bytes);
+    return host->to(device);
+}
+
 infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_states,
                                               const infinicore::Tensor &top_k_index,
                                               const infinicore::Tensor &top_k_weights) const {
@@ -209,10 +232,18 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
 
     if (fused_device_dtype_ready && w8a8_weights) {
         try {
-            return infinicore::op::deepseek_moe_w8a8i8(hidden_states, top_k_index, top_k_weights,
-                                                       gate_weights_, up_weights_, down_weights_,
-                                                       gate_weight_scales_, up_weight_scales_, down_weight_scales_,
-                                                       local_moe_intermediate_size_, num_experts_);
+            if (std::getenv("DSV4_DISABLE_LAYER_PTR_TABLES") != nullptr) {
+                return infinicore::op::deepseek_moe_w8a8i8(hidden_states, top_k_index, top_k_weights,
+                                                           gate_weights_, up_weights_, down_weights_,
+                                                           gate_weight_scales_, up_weight_scales_, down_weight_scales_,
+                                                           local_moe_intermediate_size_, num_experts_);
+            }
+            if (expert_ptr_tables_.empty()) {
+                expert_ptr_tables_ = build_w8a8_ptr_tables_(hidden_states->device());
+            }
+            return infinicore::op::deepseek_moe_w8a8i8_with_ptr_tables(hidden_states, top_k_index, top_k_weights,
+                                                                       expert_ptr_tables_,
+                                                                       local_moe_intermediate_size_, num_experts_);
         } catch (const std::exception &e) {
             if (require_fused_moe) {
                 throw;

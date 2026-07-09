@@ -117,6 +117,24 @@ DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
 
 // std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 // DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
+//                                 const infinicore::Tensor & /*positions*/,
+//                                 const infinicore::Tensor &input_ids,
+//                                 const infinicore::Tensor &post_mix,
+//                                 const infinicore::Tensor &res_mix,
+//                                 const infinicore::Tensor & /*residual*/) const {
+//     auto x = hidden_states;
+//     ensure_hc_ffn_fn_mat_right(x);
+//     auto [ffn_input, ffn_post, ffn_comb] = hc_pre(x, hc_ffn_fn_mat_right_, hc_ffn_scale_, hc_ffn_base_);
+
+//     ffn_input = ffn_norm_->forward(ffn_input);
+//     auto ffn_output = ffn_->forward(ffn_input, input_ids);
+//     x = hc_post(ffn_output, x, ffn_post, ffn_comb);
+
+//     return {x, x, post_mix, res_mix};
+// }
+
+// std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+// DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
 //                                 const infinicore::Tensor &positions,
 //                                 const infinicore::Tensor &input_ids,
 //                                 const infinicore::Tensor &post_mix,

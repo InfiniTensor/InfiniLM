@@ -74,6 +74,8 @@ public:
                                const infinicore::Tensor &top_k_weights) const;
 
 private:
+    infinicore::Tensor build_w8a8_ptr_tables_(const infinicore::Device &device) const;
+
     infinicore::Tensor forward_cpu_routed_(const infinicore::Tensor &hidden_states,
                                            const infinicore::Tensor &top_k_index,
                                            const infinicore::Tensor &top_k_weights) const;
@@ -84,6 +86,7 @@ private:
     std::vector<infinicore::Tensor> gate_weight_scales_;
     std::vector<infinicore::Tensor> up_weight_scales_;
     std::vector<infinicore::Tensor> down_weight_scales_;
+    mutable infinicore::Tensor expert_ptr_tables_;
 
     size_t hidden_size_{0};
     size_t moe_intermediate_size_{0};
