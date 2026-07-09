@@ -4,6 +4,7 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/deepseek_v4_mhc.hpp"
+#include "infinicore/ops/dsv4_linear_bf16_fp32.hpp"
 #include "infinicore/ops/matmul.hpp"
 #include "infinicore/ops/unweighted_rms_norm.hpp"
 
@@ -476,6 +477,8 @@ void ensure_mhc_gpu_cache(DeepseekV4MHCCoeffs &cache,
     auto fn_tensor = float_vector_to_tensor(
         cache.fn, {cache.mix_hc, cache.flat_dim}, matmul_dtype, device);
     cache.gpu.fn_mat_right = fn_tensor->permute({1, 0})->contiguous()->view({1, cache.flat_dim, cache.mix_hc});
+    cache.gpu.fn_mat_f32 = float_vector_to_tensor(
+        cache.fn, {cache.mix_hc, cache.flat_dim}, infinicore::DataType::F32, device);
 
     cache.gpu.device = device;
     cache.gpu.matmul_dtype = matmul_dtype;
@@ -570,10 +573,18 @@ std::vector<float> compute_mhc_mixes(const infinicore::Tensor &x,
         auto flat = x->view({batch_size, seq_len, flat_dim})->contiguous();
         flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
 
-        // op::linear is inaccurate for large in_features; matmul dtypes must match (both bf16).
-        auto flat_tokens = flat->view({token_count, 1, flat_dim});
-        auto mixes = infinicore::op::matmul(flat_tokens, coeffs.gpu.fn_mat_right)
-                         ->view({batch_size, seq_len, mix_hc});
+        auto mixes = [&]() {
+            // dsv4 op test: dsv4_linear_bf16_fp32
+            if (false) {
+                return infinicore::op::dsv4_linear_bf16_fp32(
+                    flat->view({token_count, flat_dim}), coeffs.gpu.fn_mat_f32)
+                    ->view({batch_size, seq_len, mix_hc});
+            }
+            // op::linear is inaccurate for large in_features; matmul dtypes must match (both bf16).
+            auto flat_tokens = flat->view({token_count, 1, flat_dim});
+            return infinicore::op::matmul(flat_tokens, coeffs.gpu.fn_mat_right)
+                ->view({batch_size, seq_len, mix_hc});
+        }();
         return tensor_to_float_vector(mixes->contiguous());
     }
 
@@ -676,9 +687,18 @@ DeepseekV4MHCPrepareResult mhc_prepare(const infinicore::Tensor &x,
         ensure_mhc_gpu_cache(coeffs_cache, x->device(), x->dtype());
         auto flat = x->contiguous()->view({batch_size, seq_len, flat_dim});
         flat = infinicore::op::unweighted_rms_norm(flat, static_cast<float>(eps));
-        auto mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}), coeffs_cache.gpu.fn_mat_right)
-                          ->view({batch_size, seq_len, mix_hc})
-                          ->contiguous();
+        auto mixes = [&]() {
+            // dsv4 op test: dsv4_linear_bf16_fp32
+            if (false) {
+                return infinicore::op::dsv4_linear_bf16_fp32(
+                    flat->view({token_count, flat_dim}), coeffs_cache.gpu.fn_mat_f32)
+                    ->view({batch_size, seq_len, mix_hc})
+                    ->contiguous();
+            }
+            return infinicore::op::matmul(flat->view({token_count, 1, flat_dim}), coeffs_cache.gpu.fn_mat_right)
+                ->view({batch_size, seq_len, mix_hc})
+                ->contiguous();
+        }();
 
         auto [pre, post, comb] = infinicore::op::deepseek_v4_mhc_params(
             mixes, base, scale, sinkhorn_iters, static_cast<float>(eps));

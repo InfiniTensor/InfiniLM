@@ -39,7 +39,13 @@ infinicore::Tensor DeepseekV4MLP::forward(const infinicore::Tensor &hidden_state
     auto hidden_states_mutable = hidden_states;
     auto gate = w1_->forward(hidden_states_mutable);
     auto up = w3_->forward(hidden_states_mutable);
-    auto intermediate = infinicore::op::swiglu(up, gate);
+    auto intermediate = [&]() {
+        // dsv4 op test: dsv4_silu_and_mul
+        if (false) {
+            return infinicore::op::dsv4_silu_and_mul(gate, up);
+        }
+        return infinicore::op::swiglu(up, gate);
+    }();
     return w2_->forward(intermediate);
 }
 
@@ -47,7 +53,13 @@ infinicore::Tensor DeepseekV4MLP::forward_without_allreduce(const infinicore::Te
     auto hidden_states_mutable = hidden_states;
     auto gate = w1_->forward(hidden_states_mutable);
     auto up = w3_->forward(hidden_states_mutable);
-    auto intermediate = infinicore::op::swiglu(up, gate);
+    auto intermediate = [&]() {
+        // dsv4 op test: dsv4_silu_and_mul
+        if (false) {
+            return infinicore::op::dsv4_silu_and_mul(gate, up);
+        }
+        return infinicore::op::swiglu(up, gate);
+    }();
     return w2_->forward_without_allreduce(intermediate);
 }
 

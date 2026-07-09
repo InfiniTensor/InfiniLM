@@ -68,6 +68,7 @@ struct DeepseekV4MHCParams {
 // GPU-resident static mHC tensors reused across forwards (fn^T for matmul).
 struct DeepseekV4MHCGpuCache {
     infinicore::Tensor fn_mat_right;
+    infinicore::Tensor fn_mat_f32;
     infinicore::Device device;
     infinicore::DataType matmul_dtype{infinicore::DataType::F32};
     size_t mix_hc{0};

@@ -224,7 +224,14 @@ DeepseekV4Attention::QkProjections DeepseekV4Attention::project_qk_rope_(
 
     auto q_residual = q_norm_->forward(wq_a_->forward(hidden_states_mut));
     auto q = wq_b_->forward(q_residual)->view({batch_size, seq_len, num_attention_heads_, head_dim_});
-    auto q_normed = infinicore::op::unweighted_rms_norm(q->contiguous(), static_cast<float>(rms_norm_eps_));
+    auto q_normed = [&]() {
+        auto q_contiguous = q->contiguous();
+        // dsv4 op test: dsv4_rmsnorm_self
+        if (false) {
+            return infinicore::op::dsv4_rmsnorm_self(q_contiguous, static_cast<float>(rms_norm_eps_));
+        }
+        return infinicore::op::unweighted_rms_norm(q_contiguous, static_cast<float>(rms_norm_eps_));
+    }();
 
     auto kv = kv_norm_->forward(wkv_->forward(hidden_states_mut))
                   ->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
