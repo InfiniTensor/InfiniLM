@@ -2,6 +2,7 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
+#include "infinicore/context/context.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -49,6 +50,13 @@ DeepseekV2ForCausalLM::DeepseekV2ForCausalLM(std::shared_ptr<infinilm::config::M
 
 infinilm::InfinilmModel::Output DeepseekV2ForCausalLM::forward(const infinilm::InfinilmModel::Input &input) const {
     auto hidden_states = model_->forward(input);
+
+    const auto &hidden_shape = hidden_states->shape();
+    if (hidden_shape.size() >= 2 && hidden_shape[0] * hidden_shape[1] > 4096) {
+        // Release cached prefill temporaries so lm_head can allocate full logits for large batches.
+        infinicore::context::trimMemory();
+    }
+
     auto logits = lm_head_->forward(hidden_states);
     return {logits};
 }
@@ -77,10 +85,10 @@ std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(s
     auto &config_json = model_config->get_config_json();
     const size_t q_head_dim = config_json.at("qk_nope_head_dim").get<size_t>() + config_json.at("qk_rope_head_dim").get<size_t>();
     config_json["head_dim"] = q_head_dim;
-    
+
     const size_t qk_rope_head_dim = config_json.at("qk_rope_head_dim").get<size_t>();
     config_json["partial_rotary_factor"] = static_cast<double>(qk_rope_head_dim) / static_cast<double>(q_head_dim);
-    
+
     config_json["num_experts"] = config_json.value("n_routed_experts", 0);
     config_json["mlp_bias"] = false;
     if (!config_json.contains("attention_output_bias")) {
