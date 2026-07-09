@@ -1,13 +1,13 @@
-import sys
-import os
-import time
-import re
-import csv
 import argparse
+import csv
 import json
-import numpy as np
-from datasets import load_dataset, Dataset
+import os
+import re
+import time
 from abc import ABC, abstractmethod
+
+import numpy as np
+from datasets import Dataset, load_dataset
 from infinilm.base_config import BaseConfig
 from infinilm.processors import AutoInfinilmProcessor
 
@@ -56,12 +56,21 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_graph=False,
         attn_backend="default",
     ):
-        import transformers
         import infinicore
-        from infinilm.modeling_utils import load_model_state_dict_by_file
+        from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
         from infinilm.distributed import DistConfig
-        from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
         from infinilm.infer_engine import InferEngine
+        from infinilm.modeling_utils import load_model_state_dict_by_file
+
+        device_name = None
+        if hasattr(model_dir_path, "model"):
+            config = model_dir_path
+            model_dir_path = config.model
+            device_name = config.get_device_str(config.device)
+            ndev = config.tp
+            enable_paged_attn = config.enable_paged_attn
+            enable_graph = config.enable_graph
+            attn_backend = config.attn
 
         self.benchmark = benchmark
 
@@ -81,7 +90,8 @@ class InfiniLMBenchmark(BaseBenchmark):
             "ali": "cuda",
         }
 
-        device_name = device_map.get(device_type_str.lower(), "cpu")
+        if device_name is None:
+            device_name = device_map.get(device_type_str.lower(), "cpu")
         # CUDA_VISIBLE_DEVICES is automatically respected by CUDA runtime API
         # When CUDA_VISIBLE_DEVICES=5 is set, CUDA only sees device 5 as device 0
         # So device index 0 will automatically map to the first visible device
@@ -298,8 +308,9 @@ class TorchBenchmark(BaseBenchmark):
             raise ValueError(f"Unknown benchmark: {self.benchmark}")
 
     def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
-        import torch
         import time
+
+        import torch
 
         input_ids = torch.tensor([tokens], device=self.device)
 
@@ -763,7 +774,7 @@ def _load_mmlu_from_cache(cache_dir, subject_name, split, mmlu_subjects):
                 continue
         if not all_samples:
             raise FileNotFoundError(
-                f"No MMLU cached data found for any subject. Please ensure datasets are cached."
+                "No MMLU cached data found for any subject. Please ensure datasets are cached."
             )
         return all_samples, "all"
 
@@ -1005,7 +1016,7 @@ def load_dataset_samples(args):
                             continue
                 if not samples:
                     raise FileNotFoundError(
-                        f"No MMLU data found for any subject in the list"
+                        "No MMLU data found for any subject in the list"
                     )
                 return samples, "all"
             else:
@@ -1118,14 +1129,9 @@ def main():
         model = VLLMBenchmark(cfg.model, device_type_str, cfg.tp, cfg.bench)
     else:  # cpp backend
         model = InfiniLMBenchmark(
-            cfg.model,
-            device_type_str,
-            cfg.tp,
-            cfg.backend,
-            cfg.bench,
-            cfg.enable_paged_attn,
-            cfg.enable_graph,
-            cfg.attn,
+            cfg,
+            backend=cfg.backend,
+            benchmark=cfg.bench,
         )
 
     # Step 3: Evaluate each subject

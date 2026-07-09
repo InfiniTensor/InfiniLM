@@ -34,6 +34,61 @@ from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 logger = logging.getLogger(__name__)
 
 
+def _is_config_like(value) -> bool:
+    return isinstance(value, EngineConfig) or hasattr(value, "model")
+
+
+def _normalize_engine_config(value, *, kv_transfer_config=None) -> EngineConfig:
+    if isinstance(value, EngineConfig):
+        if kv_transfer_config is None:
+            return value
+        return EngineConfig(
+            **{**value.__dict__, "kv_transfer_config": kv_transfer_config}
+        )
+    if hasattr(value, "model"):
+        return EngineConfig(
+            model_path=os.path.expanduser(value.model),
+            draft_model_path=value.draft_model,
+            num_draft_tokens=value.num_draft_tokens,
+            device=value.get_device_str(value.device),
+            dtype=value.dtype,
+            tensor_parallel_size=value.tp,
+            moe_ep_backend=value.moe_ep_backend,
+            moe_ep_size=value.ep or 1,
+            cache_type="paged" if value.enable_paged_attn else "static",
+            max_batch_size=value.max_batch_size,
+            max_tokens=value.max_new_tokens,
+            num_blocks=value.num_blocks,
+            block_size=value.block_size,
+            max_cache_len=value.max_cache_len,
+            temperature=value.temperature,
+            top_p=value.top_p,
+            top_k=value.top_k,
+            enable_graph=value.enable_graph,
+            attn_backend=value.attn,
+            kv_transfer_config=kv_transfer_config,
+            use_mla=value.use_mla,
+            weight_load_mode=value.weight_load_mode,
+            skip_load=value.skip_load,
+            skip_legacy_moe=value.skip_legacy_moe,
+        )
+    raise TypeError(f"Unsupported engine config type: {type(value)!r}")
+
+
+def _build_engine_config(
+    model_path, *, kv_transfer_config=None, **kwargs
+) -> EngineConfig:
+    if _is_config_like(model_path):
+        return _normalize_engine_config(
+            model_path, kv_transfer_config=kv_transfer_config
+        )
+    return EngineConfig(
+        model_path=model_path,
+        kv_transfer_config=kv_transfer_config,
+        **kwargs,
+    )
+
+
 class LLMEngine:
     """Low-level LLM engine that handles inference execution."""
 
@@ -88,9 +143,7 @@ class LLMEngine:
             assert 1024 <= max_num_batched_tokens <= max_position_embeddings
 
             self.scheduler = Scheduler(
-                max_batch_size=config.max_batch_size,
-                num_blocks=config.num_blocks,
-                block_size=config.block_size,
+                config=config,
                 max_num_batched_tokens=max_num_batched_tokens,
                 connector=connector,
                 has_mamba_cache=has_mamba_cache,
@@ -310,7 +363,7 @@ class LLM:
 
     def __init__(
         self,
-        model_path: str,
+        model_path: Union[str, EngineConfig, object],
         draft_model_path: Optional[str] = None,
         num_draft_tokens: int = 4,
         device: str = "cuda",
@@ -355,8 +408,8 @@ class LLM:
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
         """
-        config = EngineConfig(
-            model_path=model_path,
+        config = _build_engine_config(
+            model_path,
             draft_model_path=draft_model_path,
             num_draft_tokens=num_draft_tokens,
             device=device,
@@ -517,7 +570,7 @@ class AsyncLLMEngine:
 
     def __init__(
         self,
-        model_path: str,
+        model_path: Union[str, EngineConfig, object],
         draft_model_path: Optional[str] = None,
         num_draft_tokens: int = 4,
         device: str = "cuda",
@@ -565,8 +618,8 @@ class AsyncLLMEngine:
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
         """
-        config = EngineConfig(
-            model_path=model_path,
+        config = _build_engine_config(
+            model_path,
             draft_model_path=draft_model_path,
             num_draft_tokens=num_draft_tokens,
             device=device,
