@@ -119,7 +119,7 @@ private:
     infinicclComm_t communicator_{nullptr};
     bool has_shared_experts_{false};
 
-    char *f32_allreduce_env;
+    bool f32_allreduce_{false};
 };
 
 } // namespace infinilm::models::deepseek_v4

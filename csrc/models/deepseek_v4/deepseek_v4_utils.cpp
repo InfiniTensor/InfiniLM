@@ -96,23 +96,29 @@ std::vector<int64_t> tensor_to_int64_vector(const infinicore::Tensor &tensor) {
 }
 
 bool debug_trace_enabled() {
-    const char *value = std::getenv("DEEPSEEK_V4_DEBUG_TRACE");
-    return value != nullptr && value[0] != '\0' && std::string(value) != "0";
+    static const bool value = [] {
+        const char *raw = std::getenv("DEEPSEEK_V4_DEBUG_TRACE");
+        return raw != nullptr && raw[0] != '\0' && std::string(raw) != "0";
+    }();
+    return value;
 }
 
 bool debug_trace_layer_enabled(size_t layer_idx) {
     if (!debug_trace_enabled()) {
         return false;
     }
-    const char *value = std::getenv("DEEPSEEK_V4_DEBUG_LAYER");
-    if (value == nullptr || value[0] == '\0') {
-        return true;
-    }
-    try {
-        return std::stoll(value) == static_cast<long long>(layer_idx);
-    } catch (...) {
-        return false;
-    }
+    static const long long enabled_layer = [] {
+        const char *raw = std::getenv("DEEPSEEK_V4_DEBUG_LAYER");
+        if (raw == nullptr || raw[0] == '\0') {
+            return -1LL;
+        }
+        try {
+            return std::stoll(raw);
+        } catch (...) {
+            return -2LL;
+        }
+    }();
+    return enabled_layer == -1LL || enabled_layer == static_cast<long long>(layer_idx);
 }
 
 void debug_trace_layer_tensor(const std::string &name, size_t layer_idx, const infinicore::Tensor &tensor) {
@@ -405,8 +411,11 @@ mhc_prepare(const infinicore::Tensor &x,
     auto x_view = x->is_contiguous() ? x : x->contiguous();
     auto flat = x_view->view({batch_size, seq_len, flat_dim});
     infinicore::Tensor mixes;
-    const char *raw_mhc_gemm = std::getenv("INFINILM_DSV4_RAW_MHC_GEMM");
-    if (raw_mhc_gemm == nullptr || std::string(raw_mhc_gemm) != "0") {
+    static const bool use_raw_mhc_gemm = [] {
+        const char *raw = std::getenv("INFINILM_DSV4_RAW_MHC_GEMM");
+        return raw == nullptr || std::string(raw) != "0";
+    }();
+    if (use_raw_mhc_gemm) {
         auto raw_mixes = infinicore::op::matmul(flat->view({token_count, 1, flat_dim}), fn_mat_right)
                              ->view({batch_size, seq_len, mix_hc});
         mixes = infinicore::op::deepseek_v4_mhc_scale_mixes(
@@ -417,8 +426,11 @@ mhc_prepare(const infinicore::Tensor &x,
                      ->view({batch_size, seq_len, mix_hc});
     }
 
-    const char *fused_mhc_pre = std::getenv("INFINILM_DSV4_FUSED_MHC_PRE");
-    if (fused_mhc_pre == nullptr || std::string(fused_mhc_pre) != "0") {
+    static const bool use_fused_mhc_pre = [] {
+        const char *raw = std::getenv("INFINILM_DSV4_FUSED_MHC_PRE");
+        return raw == nullptr || std::string(raw) != "0";
+    }();
+    if (use_fused_mhc_pre) {
         auto [collapsed, post, comb] = infinicore::op::deepseek_v4_mhc_pre_collapse(
             x_view, mixes, base, scale, sinkhorn_iters, static_cast<float>(hc_eps));
         return {collapsed, post, comb};

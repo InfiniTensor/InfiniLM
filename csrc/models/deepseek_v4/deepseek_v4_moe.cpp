@@ -37,6 +37,16 @@ bool env_flag(const char *name) {
     return value != nullptr && std::string(value) == "1";
 }
 
+bool disable_fused_hash_topk_env() {
+    static const bool value = env_flag("DSV4_DISABLE_FUSED_HASH_TOPK");
+    return value;
+}
+
+bool require_fused_moe_env() {
+    static const bool value = env_flag("DSV4_REQUIRE_FUSED_MOE");
+    return value;
+}
+
 } // namespace
 
 DeepseekV4TopK::DeepseekV4TopK(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -112,8 +122,7 @@ DeepseekV4HashTopK::forward(const infinicore::Tensor &hidden_states,
     }
 
     auto input_ids_view = input_ids->is_contiguous() ? input_ids : input_ids->contiguous();
-    const char *disable_fused = std::getenv("DSV4_DISABLE_FUSED_HASH_TOPK");
-    if (disable_fused == nullptr || std::string(disable_fused) != "1") {
+    if (!disable_fused_hash_topk_env()) {
         try {
             return infinicore::op::deepseek_v4_hash_topk_router(
                 hidden_states,
@@ -196,7 +205,7 @@ infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_s
                                        && (hidden_states->dtype() == infinicore::DataType::BF16
                                            || hidden_states->dtype() == infinicore::DataType::F16);
     const bool fused_common_ready = use_fused_moe_ && fused_device_dtype_ready;
-    const bool require_fused_moe = env_flag("DSV4_REQUIRE_FUSED_MOE");
+    const bool require_fused_moe = require_fused_moe_env();
 
     if (fused_device_dtype_ready && w8a8_weights) {
         try {
@@ -295,7 +304,7 @@ DeepseekV4MoE::DeepseekV4MoE(std::shared_ptr<infinilm::config::ModelConfig> mode
         INFINICORE_NN_MODULE_INIT(shared_experts, model_config, moe_intermediate_size * num_shared_experts, device);
     }
 
-    f32_allreduce_env = std::getenv("DSV4_FFN_F32_ALLREDUCE");
+    f32_allreduce_ = env_flag("DSV4_FFN_F32_ALLREDUCE");
 }
 
 infinicore::Tensor DeepseekV4MoE::forward(const infinicore::Tensor &hidden_states,
@@ -318,7 +327,7 @@ infinicore::Tensor DeepseekV4MoE::forward(const infinicore::Tensor &hidden_state
     }
     if (tp_size_ > 1 && communicator_ != nullptr) {
 
-        if (f32_allreduce_env != nullptr && std::string(f32_allreduce_env) == "1") {
+        if (f32_allreduce_) {
 
             const auto local_values = tensor_to_float_vector(final_hidden_states);
             auto reduced = float_vector_to_tensor(local_values, final_hidden_states->shape(),

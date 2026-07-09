@@ -17,24 +17,33 @@ namespace infinilm::models::deepseek_v4 {
 namespace {
 
 bool force_indexer_cpu() {
-    if (const char *flag = std::getenv("DSV4_INDEXER_CPU"); flag != nullptr) {
-        return std::string(flag) == "1";
-    }
-    return false;
+    static const bool value = [] {
+        if (const char *flag = std::getenv("DSV4_INDEXER_CPU"); flag != nullptr) {
+            return std::string(flag) == "1";
+        }
+        return false;
+    }();
+    return value;
 }
 
 bool use_indexer_fused_gpu() {
-    if (const char *flag = std::getenv("DSV4_INDEXER_FUSED_GPU"); flag != nullptr) {
-        return std::string(flag) != "0";
-    }
-    return true;
+    static const bool value = [] {
+        if (const char *flag = std::getenv("DSV4_INDEXER_FUSED_GPU"); flag != nullptr) {
+            return std::string(flag) != "0";
+        }
+        return true;
+    }();
+    return value;
 }
 
 bool use_indexer_full_coverage_shortcut() {
-    if (const char *flag = std::getenv("DSV4_INDEXER_FULL_COVERAGE_SHORTCUT"); flag != nullptr) {
-        return std::string(flag) != "0";
-    }
-    return true;
+    static const bool value = [] {
+        if (const char *flag = std::getenv("DSV4_INDEXER_FULL_COVERAGE_SHORTCUT"); flag != nullptr) {
+            return std::string(flag) != "0";
+        }
+        return true;
+    }();
+    return value;
 }
 
 } // namespace
