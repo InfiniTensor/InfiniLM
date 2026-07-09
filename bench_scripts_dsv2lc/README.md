@@ -203,8 +203,8 @@ cudaMalloc
 ```bash
 cd /home/libaoming/workplace/InfiniLM_latest/bench_scripts_dsv2lc
 
-timeout 3600s python infinilm_bench_dsv2lc_4_2k_3k.py > infinilm_bench_dsv2lc_4_2k_3k.log 2>&1
-timeout 3600s python pytorch_bench_dsv2lc_4_2k_3k.py > torch_bench_dsv2lc_4_2k_3k.log 2>&1
+DSV2_SINGLE_GPU=7 timeout 3600s python infinilm_bench_dsv2lc_4_2k_3k.py > infinilm_bench_dsv2lc_4_2k_3k.log 2>&1
+DSV2_SINGLE_GPU=7 timeout 3600s python pytorch_bench_dsv2lc_4_2k_3k.py > torch_bench_dsv2lc_4_2k_3k.log 2>&1
 
 python calculate_performance.py --inputs \
   torch_bench_dsv2lc_4_2k_3k.log \
@@ -216,8 +216,8 @@ python calculate_performance.py --inputs \
 ```bash
 cd /home/libaoming/workplace/InfiniLM_latest/bench_scripts_dsv2lc
 
-timeout 3600s python infinilm_bench_dsv2lc_4_8k_10k.py > infinilm_bench_dsv2lc_4_8k_10k.log 2>&1
-timeout 3600s python pytorch_bench_dsv2lc_4_8k_10k.py > torch_bench_dsv2lc_4_8k_10k.log 2>&1
+DSV2_SINGLE_GPU=7 timeout 3600s python infinilm_bench_dsv2lc_4_8k_10k.py > infinilm_bench_dsv2lc_4_8k_10k.log 2>&1
+DSV2_SINGLE_GPU=7 timeout 3600s python pytorch_bench_dsv2lc_4_8k_10k.py > torch_bench_dsv2lc_4_8k_10k.log 2>&1
 
 python calculate_performance.py --inputs \
   torch_bench_dsv2lc_4_8k_10k.log \
@@ -229,8 +229,8 @@ python calculate_performance.py --inputs \
 ```bash
 cd /home/libaoming/workplace/InfiniLM_latest/bench_scripts_dsv2lc
 
-timeout 3600s python infinilm_bench_dsv2lc_16_200_400.py > infinilm_bench_dsv2lc_16_200_400.log 2>&1
-timeout 3600s python pytorch_bench_dsv2lc_16_200_400.py > torch_bench_dsv2lc_16_200_400.log 2>&1
+DSV2_SINGLE_GPU=7 timeout 3600s python infinilm_bench_dsv2lc_16_200_400.py > infinilm_bench_dsv2lc_16_200_400.log 2>&1
+DSV2_SINGLE_GPU=7 timeout 3600s python pytorch_bench_dsv2lc_16_200_400.py > torch_bench_dsv2lc_16_200_400.log 2>&1
 
 python calculate_performance.py --inputs \
   torch_bench_dsv2lc_16_200_400.log \
@@ -242,8 +242,8 @@ python calculate_performance.py --inputs \
 ```bash
 cd /home/libaoming/workplace/InfiniLM_latest/bench_scripts_dsv2lc
 
-timeout 3600s python infinilm_bench_dsv2lc_16_2k_3k.py > infinilm_bench_dsv2lc_16_2k_3k.log 2>&1
-timeout 3600s python pytorch_bench_dsv2lc_16_2k_3k.py > torch_bench_dsv2lc_16_2k_3k.log 2>&1
+DSV2_SINGLE_GPU=7 timeout 3600s python infinilm_bench_dsv2lc_16_2k_3k.py > infinilm_bench_dsv2lc_16_2k_3k.log 2>&1
+DSV2_SINGLE_GPU=7 timeout 3600s python pytorch_bench_dsv2lc_16_2k_3k.py > torch_bench_dsv2lc_16_2k_3k.log 2>&1
 
 python calculate_performance.py --inputs \
   torch_bench_dsv2lc_16_2k_3k.log \
@@ -255,8 +255,8 @@ python calculate_performance.py --inputs \
 ```bash
 cd /home/libaoming/workplace/InfiniLM_latest/bench_scripts_dsv2lc
 
-timeout 3600s python infinilm_bench_dsv2lc_16_8k_10k.py > infinilm_bench_dsv2lc_16_8k_10k.log 2>&1
-timeout 3600s python pytorch_bench_dsv2lc_16_8k_10k.py > torch_bench_dsv2lc_16_8k_10k.log 2>&1
+DSV2_TP2_GPUS=6,7 timeout 3600s python infinilm_bench_dsv2lc_16_8k_10k.py > infinilm_bench_dsv2lc_16_8k_10k.log 2>&1
+DSV2_TP2_GPUS=6,7 timeout 3600s python pytorch_bench_dsv2lc_16_8k_10k.py > torch_bench_dsv2lc_16_8k_10k.log 2>&1
 
 python calculate_performance.py --inputs \
   torch_bench_dsv2lc_16_8k_10k.log \
