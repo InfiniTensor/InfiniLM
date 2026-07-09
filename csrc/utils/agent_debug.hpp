@@ -70,7 +70,9 @@ inline void log(const char *location, const char *message, const char *hypothesi
     }
     const char *path = std::getenv("INFINI_AGENT_DEBUG_LOG");
     const std::string log_path =
-        (path != nullptr && path[0] != '\0') ? path : "/workspace/.cursor/agent_debug.log";
+        (path != nullptr && path[0] != '\0')
+            ? path
+            : "/workspace/.cursor/debug-52bf26.log";
     std::ofstream f(log_path, std::ios::app);
     if (!f) {
         return;
@@ -78,7 +80,7 @@ inline void log(const char *location, const char *message, const char *hypothesi
     const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
-    f << "{\"runId\":\"" << run_id << "\",\"hypothesisId\":\"" << hypothesis_id
+    f << "{\"sessionId\":\"52bf26\",\"runId\":\"" << run_id << "\",\"hypothesisId\":\"" << hypothesis_id
       << "\",\"location\":\"" << location << "\",\"message\":\"" << message << "\",\"data\":"
       << data_json << ",\"timestamp\":" << ts << "}\n";
 }
@@ -88,7 +90,7 @@ inline void session_log(const char *location, const char *message, const char *h
     const char *path = std::getenv("INFINI_DEBUG_SESSION_LOG");
     const std::string log_path = (path != nullptr && path[0] != '\0')
                                      ? path
-                                     : "/workspace/bench_results/debug-09a514.log";
+                                     : "/workspace/.cursor/debug-52bf26.log";
     std::ofstream f(log_path, std::ios::app);
     if (!f) {
         return;
@@ -96,7 +98,7 @@ inline void session_log(const char *location, const char *message, const char *h
     const auto ts = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::system_clock::now().time_since_epoch())
                         .count();
-    f << "{\"sessionId\":\"09a514\",\"runId\":\"" << run_id << "\",\"hypothesisId\":\""
+    f << "{\"sessionId\":\"52bf26\",\"runId\":\"" << run_id << "\",\"hypothesisId\":\""
       << hypothesis_id << "\",\"location\":\"" << location << "\",\"message\":\"" << message
       << "\",\"data\":" << data_json << ",\"timestamp\":" << ts << "}\n";
 }

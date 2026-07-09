@@ -56,6 +56,13 @@ std::optional<infinicore::Tensor> GeneralCompiler::run_native_piecewise_prefill(
     return piecewise_prefill_compiler_->run_prefill(input);
 }
 
+bool GeneralCompiler::native_piecewise_last_prefill_executed() const {
+    if (piecewise_prefill_compiler_ == nullptr) {
+        return false;
+    }
+    return piecewise_prefill_compiler_->last_prefill_executed();
+}
+
 bool GeneralCompiler::native_piecewise_enabled() const {
     return piecewise_prefill_compiler_ != nullptr && piecewise_prefill_compiler_->enabled();
 }

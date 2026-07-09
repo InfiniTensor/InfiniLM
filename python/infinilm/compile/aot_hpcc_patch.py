@@ -125,6 +125,10 @@ def hpcc_aot_inductor_configs(*, artifact_dir: Optional[str] = None) -> Dict[str
     return {"cpp.cxx": (None, hpcc_aot_host_cxx())}
 
 
+def _strip_march_native(flags: List[str]) -> List[str]:
+    return [f for f in flags if f not in ("-march=native", "-march=host")]
+
+
 @contextlib.contextmanager
 def hpcc_aot_compile_profile(
     *, artifact_dir: Optional[str] = None
@@ -133,8 +137,8 @@ def hpcc_aot_compile_profile(
     Apply HPCC AOT host-wrapper compile profile for ``aoti_compile_and_package``.
 
     PyTorch MetaX wheels set ``USE_HPCC=True``, which forces ``cucc`` for all C++
-    builds including the CPU-only AOT wrapper.  We route wrapper.cpp to ``g++`` via
-    a narrow ``CppBuilder`` hook and add ``-lstdc++fs`` on the final link step.
+    builds including CPU-only AOTInductor kernels.  Route all AOT C++ to ``g++`` and
+    drop ``-march=native`` (unsupported by htcc/cucc on aarch64 HPCC).
     """
     if not is_hpcc_aot_environment():
         yield {}
@@ -143,7 +147,7 @@ def hpcc_aot_compile_profile(
     host_cxx = hpcc_aot_host_cxx()
     saved_env = {
         key: os.environ.get(key)
-        for key in ("CXX", "TORCHINDUCTOR_CXX", "LDFLAGS", "CXXFLAGS")
+        for key in ("CXX", "TORCHINDUCTOR_CXX", "LDFLAGS", "CXXFLAGS", "CFLAGS")
     }
 
     os.environ["CXX"] = host_cxx
@@ -154,8 +158,13 @@ def hpcc_aot_compile_profile(
         os.environ["LDFLAGS"] = f"{ldflags} -lstdc++fs".strip()
 
     cxxflags = os.environ.get("CXXFLAGS", "")
+    cxxflags = " ".join(_strip_march_native(cxxflags.split()))
     if "-std=c++17" not in cxxflags and "-std=gnu++17" not in cxxflags:
-        os.environ["CXXFLAGS"] = f"{cxxflags} -std=c++17".strip()
+        cxxflags = f"{cxxflags} -std=c++17".strip()
+    os.environ["CXXFLAGS"] = cxxflags
+
+    cflags = os.environ.get("CFLAGS", "")
+    os.environ["CFLAGS"] = " ".join(_strip_march_native(cflags.split()))
 
     import torch._inductor.config as inductor_config
     import torch._inductor.cpp_builder as cpp_builder
@@ -179,30 +188,45 @@ def hpcc_aot_compile_profile(
 
     def _patched_device_options_init(self, *args, **kwargs):
         orig_device_options_init(self, *args, **kwargs)
+        for attr in ("_cflags", "_cpp_flags", "_ldflags"):
+            if hasattr(self, attr):
+                setattr(self, attr, _strip_march_native(list(getattr(self, attr))))
         compile_only = kwargs.get("compile_only", False)
         precompiling = kwargs.get("precompiling", False)
         preprocessing = kwargs.get("preprocessing", False)
         if not compile_only and not precompiling and not preprocessing:
             ld = list(self.get_ldflags())
             _append_unique(ld, "lstdc++fs")
-            self._ldflags = ld
+            self._ldflags = _strip_march_native(ld)
 
     def _patched_builder_init(self, name, sources, BuildOption, output_dir=""):
+        BuildOption._compiler = host_cxx
         if _is_wrapper_build(name, sources):
-            BuildOption._compiler = host_cxx
             _patch_wrapper_sources_for_build(name, sources)
             logger.info(
                 "HPCC AOT wrapper build: host CXX=%s sources=%s",
                 host_cxx,
                 sources,
             )
+        else:
+            logger.info(
+                "HPCC AOT kernel build: host CXX=%s name=%s",
+                host_cxx,
+                name,
+            )
         orig_builder_init(self, name, sources, BuildOption, output_dir)
-        if _is_wrapper_build(name, sources):
-            self._compiler = host_cxx
+        self._compiler = host_cxx
+        for attr in ("_cflags", "_cpp_flags", "_ldflags"):
+            if hasattr(self, attr):
+                setattr(self, attr, _strip_march_native(list(getattr(self, attr))))
 
     def _patched_builder_build(self):
         paths = getattr(self, "_orig_source_paths", None) or self._sources_args
         _patch_wrapper_sources_for_build(self._name, paths)
+        self._compiler = hpcc_aot_host_cxx()
+        for attr in ("_cflags", "_cpp_flags", "_ldflags"):
+            if hasattr(self, attr):
+                setattr(self, attr, _strip_march_native(list(getattr(self, attr))))
         return orig_builder_build(self)
 
     cpp_builder.CppBuilder.__init__ = _patched_builder_init

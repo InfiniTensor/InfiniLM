@@ -41,6 +41,7 @@ public:
     size_t segment_replays() const { return segment_replays_; }
     size_t prefill_hits() const { return prefill_hits_; }
     size_t prefill_misses() const { return prefill_misses_; }
+    bool last_prefill_executed() const { return last_prefill_executed_; }
 
 private:
     void allocate_layer_staging_(size_t bucket, size_t num_layers);
@@ -63,6 +64,7 @@ private:
     size_t segment_replays_{0};
     size_t prefill_hits_{0};
     size_t prefill_misses_{0};
+    bool last_prefill_executed_{false};
 };
 
 } // namespace infinilm::engine

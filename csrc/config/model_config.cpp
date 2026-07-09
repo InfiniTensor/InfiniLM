@@ -77,10 +77,10 @@ ModelConfig::get_rope_scaling() const {
 
 infinicore::DataType ModelConfig::get_dtype() const {
     std::string dtype_str;
-    if (config_json.contains("dtype")) {
-        dtype_str = this->get<std::string>("dtype");
-    } else if (config_json.contains("torch_dtype")) {
-        dtype_str = this->get<std::string>("torch_dtype");
+    if (config_json.contains("dtype") && !config_json["dtype"].is_null()) {
+        dtype_str = config_json["dtype"].get<std::string>();
+    } else if (config_json.contains("torch_dtype") && !config_json["torch_dtype"].is_null()) {
+        dtype_str = config_json["torch_dtype"].get<std::string>();
     } else {
         throw std::runtime_error("ModelConfig::get_dtype(): No dtype or torch_dtype found in config");
     }

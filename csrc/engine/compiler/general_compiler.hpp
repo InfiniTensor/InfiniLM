@@ -17,6 +17,8 @@ public:
 
     std::optional<infinicore::Tensor> run_native_piecewise_prefill(const InfinilmModel::Input &input);
 
+    bool native_piecewise_last_prefill_executed() const;
+
     bool native_piecewise_enabled() const;
     const std::vector<size_t> &native_capture_buckets() const;
 

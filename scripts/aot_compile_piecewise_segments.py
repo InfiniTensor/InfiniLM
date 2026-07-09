@@ -37,10 +37,14 @@ def _parse_buckets(spec: str) -> list[int]:
         from infinilm.compile.env import native_piecewise_capture_buckets, compile_max_seq_len
 
         return list(native_piecewise_capture_buckets(compile_max_seq_len()))
-    if spec_norm in ("sub512", "vllm-ladder", "vllm_ladder"):
+    if spec_norm in ("sub512",):
         from infinilm.compile.piecewise_segments import sub512_farm_buckets
 
         return list(sub512_farm_buckets())
+    if spec_norm in ("vllm-ladder", "vllm_ladder"):
+        from infinilm.compile.piecewise_segments import vllm_aligned_farm_buckets
+
+        return list(vllm_aligned_farm_buckets())
     return [int(x.strip()) for x in spec.split(",") if x.strip()]
 
 

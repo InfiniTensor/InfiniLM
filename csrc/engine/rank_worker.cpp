@@ -640,9 +640,11 @@ void RankWorker::thread_loop() {
                                 if (auto pw_logits = general_compiler->run_native_piecewise_prefill(model_input)) {
                                     logits = *pw_logits;
                                     piecewise_ran = true;
-                                } else if (!any_final_prefill_chunk(model_input.is_final_prefill_chunk)) {
+                                } else if (general_compiler->native_piecewise_last_prefill_executed()) {
                                     piecewise_ran = true;
-                                    skip_sampling = true;
+                                    if (!any_final_prefill_chunk(model_input.is_final_prefill_chunk)) {
+                                        skip_sampling = true;
+                                    }
                                 }
                                 if (profile) {
                                     spdlog::info(
@@ -745,15 +747,28 @@ void RankWorker::thread_loop() {
                             // #region agent log
                             if (rank_info_.tp_rank == 0) {
                                 auto &ctx = global_state::get_forward_context();
-                                infinilm::agent_debug::log(
+                                int32_t prior_kv = -1;
+                                if (model_args.past_sequence_lengths.has_value()) {
+                                    prior_kv = infinilm::agent_debug::first_int32(
+                                        model_args.past_sequence_lengths.value());
+                                }
+                                size_t prefill_w = 0;
+                                if (model_args.input_ids.has_value()) {
+                                    prefill_w = model_args.input_ids.value()->size(1);
+                                }
+                                infinilm::agent_debug::session_log(
                                     "rank_worker.cpp:eager_forward",
                                     "eager_forward_begin",
-                                    "A",
+                                    "H2",
                                     std::string("{\"tp_size\":") + std::to_string(rank_info_.tp_size) +
+                                        ",\"is_prefill\":" + (is_prefill ? "true" : "false") +
+                                        ",\"prefill_width\":" + std::to_string(prefill_w) +
+                                        ",\"prior_kv\":" + std::to_string(prior_kv) +
                                         ",\"defer\":" +
                                         (ctx.defer_row_parallel_allreduce ? "true" : "false") +
                                         ",\"deferred_n\":" +
-                                        std::to_string(ctx.deferred_allreduces.size()) + "}");
+                                        std::to_string(ctx.deferred_allreduces.size()) + "}",
+                                    "g3-repro");
                             }
                             // #endregion
                             logits = model_->forward(model_args).logits;
