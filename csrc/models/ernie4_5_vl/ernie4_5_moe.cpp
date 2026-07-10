@@ -128,7 +128,7 @@ infinicore::Tensor Ernie45Experts::forward(const infinicore::Tensor &hidden_stat
         b2 = b2_;
     }
     return infinicore::op::fused_moe(hidden_states, top_k_index, top_k_weights, w1_, w2_, b1, b2,
-                                    infinicore::op::FusedMoeActivation::Swiglu);
+                                     infinicore::op::FusedMoeActivation::Swiglu);
 }
 
 Ernie45MoE::Ernie45MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -176,4 +176,3 @@ infinicore::Tensor Ernie45MoE::forward(const infinicore::Tensor &hidden_states) 
 }
 
 } // namespace infinilm::models::ernie4_5_vl
-

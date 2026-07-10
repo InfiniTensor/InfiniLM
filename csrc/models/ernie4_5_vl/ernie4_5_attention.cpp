@@ -122,4 +122,3 @@ infinicore::Tensor Ernie45Attention::forward_paged_(const infinicore::Tensor &po
 }
 
 } // namespace infinilm::models::ernie4_5_vl
-

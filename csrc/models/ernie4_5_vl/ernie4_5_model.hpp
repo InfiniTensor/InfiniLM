@@ -17,6 +17,10 @@ public:
                  const infinicore::Device &device);
 
     infinicore::Tensor forward(const InfinilmModel::Input &input) const;
+    infinicore::Tensor forward(const InfinilmModel::Input &input,
+                               const Ernie45VisionModel *vision_model) const;
+    infinicore::Tensor forward_embeds(infinicore::Tensor hidden_states,
+                                      const infinicore::Tensor &positions) const;
 
     void reset_cache(const cache::CacheConfig *cache_config);
 
@@ -27,10 +31,14 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
 
 private:
+    void replace_embeddings(infinicore::Tensor inputs_embeds,
+                            const infinicore::Tensor &vision_hidden,
+                            const infinicore::Tensor &image_bound) const;
+    void apply_image_embeddings(infinicore::Tensor inputs_embeds,
+                                const InfinilmModel::Input &input,
+                                const Ernie45VisionModel &vision_model) const;
+
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
 } // namespace infinilm::models::ernie4_5_vl
-
-
-

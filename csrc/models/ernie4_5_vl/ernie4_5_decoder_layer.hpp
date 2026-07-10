@@ -35,6 +35,3 @@ private:
 };
 
 } // namespace infinilm::models::ernie4_5_vl
-
-
-

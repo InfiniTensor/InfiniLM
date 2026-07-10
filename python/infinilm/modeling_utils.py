@@ -744,8 +744,6 @@ def _remap_qwen3_5(state_dict, config):
     return state_dict
 
 
-
-
 def _remap_ernie4_5_moe_vl(state_dict, config=None):
     """Apply ERNIE 4.5 VL load-time weight fixes.
 
@@ -788,16 +786,25 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
             expert = int(match.group("expert"))
             proj = match.group("proj")
             kind = match.group("kind")
-            expert_parts.setdefault(prefix, {}).setdefault(expert, {})[(proj, kind)] = tensor
+            expert_parts.setdefault(prefix, {}).setdefault(expert, {})[(proj, kind)] = (
+                tensor
+            )
             continue
 
-        if key.endswith((".mlp.gate.weight", ".mlp.gate.weight_1")) and tensor.is_floating_point():
+        if (
+            key.endswith((".mlp.gate.weight", ".mlp.gate.weight_1"))
+            and tensor.is_floating_point()
+        ):
             remapped[key] = tensor.to(dtype=target_dtype)
         else:
             remapped[key] = tensor
 
     for prefix, experts in expert_parts.items():
-        text_ids = sorted(expert_id for expert_id in experts if text_expert_count is None or expert_id < text_expert_count)
+        text_ids = sorted(
+            expert_id
+            for expert_id in experts
+            if text_expert_count is None or expert_id < text_expert_count
+        )
         if not text_ids:
             continue
 
@@ -812,7 +819,9 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
             up = parts.get(("up_proj", "weight"))
             down = parts.get(("down_proj", "weight"))
             if gate is None or up is None or down is None:
-                raise KeyError(f"Incomplete ERNIE MoE expert weights for {prefix}.{expert_id}")
+                raise KeyError(
+                    f"Incomplete ERNIE MoE expert weights for {prefix}.{expert_id}"
+                )
             w1_tensors.append(torch.cat([gate, up], dim=0))
             w2_tensors.append(down)
 
@@ -825,11 +834,19 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
                 b1_tensors.append(torch.cat([gate_bias, up_bias], dim=0))
                 b2_tensors.append(down_bias)
 
-        remapped[f"{prefix}.w1"] = torch.stack(w1_tensors, dim=0).to(dtype=target_dtype).contiguous()
-        remapped[f"{prefix}.w2"] = torch.stack(w2_tensors, dim=0).to(dtype=target_dtype).contiguous()
+        remapped[f"{prefix}.w1"] = (
+            torch.stack(w1_tensors, dim=0).to(dtype=target_dtype).contiguous()
+        )
+        remapped[f"{prefix}.w2"] = (
+            torch.stack(w2_tensors, dim=0).to(dtype=target_dtype).contiguous()
+        )
         if has_all_bias:
-            remapped[f"{prefix}.b1"] = torch.stack(b1_tensors, dim=0).to(dtype=target_dtype).contiguous()
-            remapped[f"{prefix}.b2"] = torch.stack(b2_tensors, dim=0).to(dtype=target_dtype).contiguous()
+            remapped[f"{prefix}.b1"] = (
+                torch.stack(b1_tensors, dim=0).to(dtype=target_dtype).contiguous()
+            )
+            remapped[f"{prefix}.b2"] = (
+                torch.stack(b2_tensors, dim=0).to(dtype=target_dtype).contiguous()
+            )
 
     return remapped
 

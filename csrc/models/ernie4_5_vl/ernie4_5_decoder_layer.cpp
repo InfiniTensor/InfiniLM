@@ -67,8 +67,8 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> Ernie45DecoderLayer::forward(
 
     post_attention_layernorm_->forward_inplace(hidden_states, residual);
     hidden_states = use_moe_
-        ? std::static_pointer_cast<Ernie45MoE>(mlp_)->forward(hidden_states)
-        : std::static_pointer_cast<infinilm::layers::mlp::MLP>(mlp_)->forward(hidden_states);
+                      ? std::static_pointer_cast<Ernie45MoE>(mlp_)->forward(hidden_states)
+                      : std::static_pointer_cast<infinilm::layers::mlp::MLP>(mlp_)->forward(hidden_states);
     return {hidden_states, residual};
 }
 
@@ -82,12 +82,10 @@ infinicore::Tensor Ernie45DecoderLayer::forward(const infinicore::Tensor &positi
     residual = hidden_states;
     hidden_states = post_attention_layernorm_->forward(hidden_states);
     hidden_states = use_moe_
-        ? std::static_pointer_cast<Ernie45MoE>(mlp_)->forward(hidden_states)
-        : std::static_pointer_cast<infinilm::layers::mlp::MLP>(mlp_)->forward(hidden_states);
+                      ? std::static_pointer_cast<Ernie45MoE>(mlp_)->forward(hidden_states)
+                      : std::static_pointer_cast<infinilm::layers::mlp::MLP>(mlp_)->forward(hidden_states);
     hidden_states = infinicore::op::add(residual, hidden_states);
     return hidden_states;
 }
 
 } // namespace infinilm::models::ernie4_5_vl
-
-

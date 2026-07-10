@@ -1,7 +1,7 @@
-﻿#include "ernie4_5_for_causal_lm.hpp"
+#include "ernie4_5_for_causal_lm.hpp"
 
-#include "../models_registry.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../models_registry.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -93,7 +93,9 @@ Ernie45ForConditionalGeneration::Ernie45ForConditionalGeneration(std::shared_ptr
 }
 
 infinilm::InfinilmModel::Output Ernie45ForConditionalGeneration::forward(const infinilm::InfinilmModel::Input &input) const {
-    auto hidden_states = model_->forward(input);
+    auto hidden_states = (input.pixel_values.has_value() && !input.pixel_values.value().empty())
+                           ? model_->forward(input, vision_model_.get())
+                           : model_->forward(input);
     auto logits = lm_head_->forward(hidden_states);
     return {logits};
 }
@@ -132,5 +134,3 @@ INFINILM_REGISTER_CAUSAL_LM_MODEL(
     infinilm::models::ernie4_5_vl::Ernie45ForConditionalGeneration,
     infinilm::models::ernie4_5_vl::create_ernie4_5_moe_vl_model_config);
 } // namespace
-
-
