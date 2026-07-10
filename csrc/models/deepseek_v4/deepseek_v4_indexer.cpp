@@ -66,12 +66,12 @@ DeepseekV4Indexer::DeepseekV4Indexer(std::shared_ptr<infinilm::config::ModelConf
     INFINICORE_NN_MODULE_INIT(compressor, model_config, compress_ratio_, index_head_dim_, device);
 }
 
-std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden_states,
-                                                const infinicore::Tensor &q_residual,
-                                                const std::vector<int64_t> &positions,
-                                                size_t &top_k,
-                                                size_t query_start,
-                                                size_t query_len) const {
+infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &hidden_states,
+                                                     const infinicore::Tensor &q_residual,
+                                                     const std::vector<int64_t> &positions,
+                                                     size_t &top_k,
+                                                     size_t query_start,
+                                                     size_t query_len) const {
     const auto shape = hidden_states->shape();
     const size_t batch_size = shape[0];
     const size_t total_len = shape[1];
@@ -95,11 +95,11 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
     top_k = std::min(index_topk_, cheap_num_blocks);
     if (cheap_num_blocks == 0 || top_k == 0 || query_len == 0) {
         top_k = 0;
-        return {};
+        return infinicore::Tensor();
     }
     if (use_indexer_full_coverage_shortcut() && top_k == cheap_num_blocks) {
         top_k = 0;
-        return {};
+        return infinicore::Tensor();
     }
 
     size_t comp_batch = 0;
@@ -107,7 +107,7 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
     infinicore::Tensor compressed_gpu;
     std::vector<float> compressed;
     const bool want_fused_gpu = !force_indexer_cpu() && use_indexer_fused_gpu()
-                              && hidden_states->device().getType() != infinicore::Device::Type::CPU;
+                             && hidden_states->device().getType() != infinicore::Device::Type::CPU;
     if (want_fused_gpu) {
         try {
             compressed_gpu = compressor_->forward_tensor(hidden_states, comp_batch, num_blocks);
@@ -124,7 +124,7 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
     top_k = std::min(index_topk_, num_blocks);
     if (num_blocks == 0 || top_k == 0 || query_len == 0) {
         top_k = 0;
-        return {};
+        return infinicore::Tensor();
     }
 
     auto q_input = q_residual;
@@ -140,11 +140,10 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
     const float score_scale = 1.0f / std::sqrt(static_cast<float>(index_head_dim_));
     const float weight_scale = 1.0f / std::sqrt(static_cast<float>(index_n_heads_));
 
-    if (!force_indexer_cpu() && use_indexer_fused_gpu() &&
-        hidden_states->device().getType() != infinicore::Device::Type::CPU) {
+    if (!force_indexer_cpu() && use_indexer_fused_gpu() && hidden_states->device().getType() != infinicore::Device::Type::CPU) {
         try {
             auto positions_tensor = int64_vector_to_tensor(positions, {positions.size()}, q_proj->device());
-            auto fused_indices = infinicore::op::deepseek_v4_indexer(
+            return infinicore::op::deepseek_v4_indexer(
                 q_proj->contiguous(),
                 weights_proj->contiguous(),
                 compressed_gpu ? compressed_gpu->contiguous()
@@ -156,7 +155,6 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
                 top_k,
                 query_start,
                 compress_ratio_);
-            return tensor_to_int64_vector(fused_indices);
         } catch (const std::exception &) {
             // Fall back to the reference CPU path if the fused op is unavailable.
         }
@@ -214,7 +212,20 @@ std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden
             }
         }
     }
-    return indices;
+    return int64_vector_to_tensor(indices, {indices.size()}, hidden_states->device());
+}
+
+std::vector<int64_t> DeepseekV4Indexer::forward(const infinicore::Tensor &hidden_states,
+                                                const infinicore::Tensor &q_residual,
+                                                const std::vector<int64_t> &positions,
+                                                size_t &top_k,
+                                                size_t query_start,
+                                                size_t query_len) const {
+    auto indices = forward_tensor(hidden_states, q_residual, positions, top_k, query_start, query_len);
+    if (!indices) {
+        return {};
+    }
+    return tensor_to_int64_vector(indices);
 }
 
 } // namespace infinilm::models::deepseek_v4

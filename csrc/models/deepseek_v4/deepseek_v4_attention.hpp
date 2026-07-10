@@ -55,9 +55,26 @@ private:
                                                          const std::vector<int64_t> &positions,
                                                          size_t query_start) const;
 
+    void append_decode_cache_(const infinicore::Tensor &hidden_states,
+                              const infinicore::Tensor &q_residual,
+                              const infinicore::Tensor &key_states,
+                              const std::vector<int64_t> &positions) const;
+
     void reset_runtime_state() const override {
         cached_seq_len_ = 0;
         cached_positions_.clear();
+        cached_hidden_states_.reset();
+        cached_q_residual_.reset();
+        cached_key_states_.reset();
+        cached_hidden_states_storage_.reset();
+        cached_q_residual_storage_.reset();
+        cached_key_states_storage_.reset();
+        cached_storage_capacity_ = 0;
+        cached_kv_comp_tensor_.reset();
+        cached_kv_comp_blocks_ = 0;
+        cached_kv_comp_batch_ = 0;
+        cached_block_positions_tensor_.reset();
+        cached_block_positions_blocks_ = 0;
     }
 
     INFINICORE_NN_PARAMETER(attn_sink);
@@ -99,6 +116,15 @@ private:
     mutable infinicore::Tensor cached_hidden_states_;
     mutable infinicore::Tensor cached_q_residual_;
     mutable infinicore::Tensor cached_key_states_;
+    mutable infinicore::Tensor cached_hidden_states_storage_;
+    mutable infinicore::Tensor cached_q_residual_storage_;
+    mutable infinicore::Tensor cached_key_states_storage_;
+    mutable size_t cached_storage_capacity_{0};
+    mutable infinicore::Tensor cached_kv_comp_tensor_;
+    mutable size_t cached_kv_comp_blocks_{0};
+    mutable size_t cached_kv_comp_batch_{0};
+    mutable infinicore::Tensor cached_block_positions_tensor_;
+    mutable size_t cached_block_positions_blocks_{0};
 };
 
 } // namespace infinilm::models::deepseek_v4

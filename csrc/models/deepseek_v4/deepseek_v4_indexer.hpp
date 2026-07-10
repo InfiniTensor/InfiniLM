@@ -25,6 +25,13 @@ public:
                                  size_t query_start = 0,
                                  size_t query_len = 0) const;
 
+    infinicore::Tensor forward_tensor(const infinicore::Tensor &hidden_states,
+                                      const infinicore::Tensor &q_residual,
+                                      const std::vector<int64_t> &positions,
+                                      size_t &top_k,
+                                      size_t query_start = 0,
+                                      size_t query_len = 0) const;
+
 private:
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wq_b);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, weights_proj);

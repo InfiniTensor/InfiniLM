@@ -8,14 +8,15 @@
 #include "infinicore/ops/cat.hpp"
 #include "infinicore/ops/deepseek_v4_compressed_decode.hpp"
 #include "infinicore/ops/deepseek_v4_swa_decode.hpp"
+#include "infinicore/ops/deepseek_v4_swa_prefill.hpp"
 #include "infinicore/ops/linear.hpp"
 #include "infinicore/ops/matmul.hpp"
 #include "infinicore/ops/softmax.hpp"
 #include "infinicore/ops/unweighted_rms_norm.hpp"
 
 #include <algorithm>
-#include <cstdlib>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <mutex>
 #include <spdlog/spdlog.h>
@@ -38,6 +39,22 @@ bool disable_fused_swa_decode() {
     return value;
 }
 
+bool disable_fused_swa_prefill() {
+    static const bool value = std::getenv("DSV4_DISABLE_FUSED_SWA_PREFILL") != nullptr;
+    return value;
+}
+
+size_t fused_swa_prefill_min_len() {
+    static const size_t value = []() {
+        const char *env = std::getenv("DSV4_FUSED_SWA_PREFILL_MIN_LEN");
+        if (!env || env[0] == '\0') {
+            return static_cast<size_t>(128);
+        }
+        return static_cast<size_t>(std::max(1, std::atoi(env)));
+    }();
+    return value;
+}
+
 bool disable_compressed_empty_fastpath() {
     static const bool value = std::getenv("DSV4_DISABLE_COMPRESSED_EMPTY_FASTPATH") != nullptr;
     return value;
@@ -45,6 +62,16 @@ bool disable_compressed_empty_fastpath() {
 
 bool disable_compressed_decode() {
     static const bool value = std::getenv("DSV4_DISABLE_COMPRESSED_DECODE") != nullptr;
+    return value;
+}
+
+bool disable_compressed_kv_cache() {
+    static const bool value = std::getenv("DSV4_DISABLE_COMPRESSED_KV_CACHE") != nullptr;
+    return value;
+}
+
+bool disable_decode_position_fastpath() {
+    static const bool value = std::getenv("DSV4_DISABLE_DECODE_POSITION_FASTPATH") != nullptr;
     return value;
 }
 
@@ -201,7 +228,14 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
     const size_t seq_len = shape[1];
     ASSERT_EQ(batch_size, 1);
     auto hidden_states_mutable = hidden_states;
-    const auto pos = normalize_positions(positions, seq_len);
+    std::vector<int64_t> pos;
+    const bool decode_position_fastpath = !disable_decode_position_fastpath()
+                                      && cached_seq_len_ > 0 && seq_len == 1;
+    if (decode_position_fastpath) {
+        pos = {static_cast<int64_t>(cached_seq_len_)};
+    } else {
+        pos = normalize_positions(positions, seq_len);
+    }
 
     auto q_residual = q_norm_->forward(wq_a_->forward(hidden_states_mutable));
 
@@ -221,11 +255,7 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
     infinicore::Tensor attn_output;
     if (is_decode) {
         const size_t query_start = cached_seq_len_;
-        cached_hidden_states_ = infinicore::op::cat({cached_hidden_states_, hidden_states_mutable}, 1);
-        cached_q_residual_ = infinicore::op::cat({cached_q_residual_, q_residual}, 1);
-        cached_key_states_ = infinicore::op::cat({cached_key_states_, key_states}, 1);
-        cached_positions_.insert(cached_positions_.end(), pos.begin(), pos.end());
-        cached_seq_len_ = cached_positions_.size();
+        append_decode_cache_(hidden_states_mutable, q_residual, key_states, pos);
         if (has_no_visible_compressed_blocks(rotary_emb_.compress_ratio(),
                                              cached_positions_,
                                              query_start,
@@ -243,10 +273,78 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
         cached_key_states_ = key_states;
         cached_positions_ = pos;
         cached_seq_len_ = seq_len;
+        cached_hidden_states_storage_.reset();
+        cached_q_residual_storage_.reset();
+        cached_key_states_storage_.reset();
+        cached_storage_capacity_ = seq_len;
+        cached_kv_comp_tensor_.reset();
+        cached_kv_comp_blocks_ = 0;
+        cached_kv_comp_batch_ = 0;
+        cached_block_positions_tensor_.reset();
+        cached_block_positions_blocks_ = 0;
         attn_output = dense_attention_reference_(positions, q_normed, key_states, hidden_states_mutable, q_residual);
     }
 
     return apply_grouped_output_projection_(attn_output);
+}
+
+void DeepseekV4Attention::append_decode_cache_(const infinicore::Tensor &hidden_states,
+                                               const infinicore::Tensor &q_residual,
+                                               const infinicore::Tensor &key_states,
+                                               const std::vector<int64_t> &positions) const {
+    const size_t old_len = cached_seq_len_;
+    const size_t append_len = hidden_states->shape()[1];
+    if (append_len == 0) {
+        return;
+    }
+    const size_t new_len = old_len + append_len;
+
+    if (!cached_hidden_states_ || !cached_q_residual_ || !cached_key_states_) {
+        cached_hidden_states_ = hidden_states;
+        cached_q_residual_ = q_residual;
+        cached_key_states_ = key_states;
+        cached_positions_.insert(cached_positions_.end(), positions.begin(), positions.end());
+        cached_seq_len_ = cached_positions_.size();
+        cached_storage_capacity_ = cached_seq_len_;
+        return;
+    }
+
+    if (cached_storage_capacity_ < new_len || !cached_hidden_states_storage_
+        || !cached_q_residual_storage_ || !cached_key_states_storage_) {
+        size_t new_capacity = cached_storage_capacity_ == 0 ? new_len : cached_storage_capacity_ * 2;
+        new_capacity = std::max(new_capacity, old_len + static_cast<size_t>(16));
+        new_capacity = std::max(new_capacity, new_len);
+
+        auto grow_storage = [&](const infinicore::Tensor &current, infinicore::Tensor &storage) {
+            auto shape = current->shape();
+            shape[1] = new_capacity;
+            auto next_storage = infinicore::Tensor::empty(shape, current->dtype(), current->device());
+            if (old_len > 0) {
+                auto dst = next_storage->narrow({{1, 0, old_len}});
+                dst->copy_from(current);
+            }
+            storage = next_storage;
+        };
+
+        grow_storage(cached_hidden_states_, cached_hidden_states_storage_);
+        grow_storage(cached_q_residual_, cached_q_residual_storage_);
+        grow_storage(cached_key_states_, cached_key_states_storage_);
+        cached_storage_capacity_ = new_capacity;
+    }
+
+    auto append_to_storage = [&](infinicore::Tensor &view,
+                                 const infinicore::Tensor &storage,
+                                 const infinicore::Tensor &value) {
+        auto dst = storage->narrow({{1, old_len, append_len}});
+        dst->copy_from(value);
+        view = storage->narrow({{1, 0, new_len}});
+    };
+
+    append_to_storage(cached_hidden_states_, cached_hidden_states_storage_, hidden_states);
+    append_to_storage(cached_q_residual_, cached_q_residual_storage_, q_residual);
+    append_to_storage(cached_key_states_, cached_key_states_storage_, key_states);
+    cached_positions_.insert(cached_positions_.end(), positions.begin(), positions.end());
+    cached_seq_len_ = cached_positions_.size();
 }
 
 infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const infinicore::Tensor &q_rope,
@@ -269,22 +367,41 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const 
     size_t comp_batch = 0;
     size_t nb = 0;
     size_t index_top_k = 0;
+    infinicore::Tensor indexed_blocks_tensor;
     std::vector<int64_t> indexed_blocks;
     if (compressor_ && compress_ratio > 0) {
-        if (!use_cpu_compressor_reference()
-            && hidden_states->device().getType() != infinicore::Device::Type::CPU) {
-            kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
+        const size_t expected_nb = total_len / compress_ratio;
+        if (expected_nb == 0) {
+            comp_batch = batch_size;
+            nb = 0;
+        } else if (!use_cpu_compressor_reference()
+                   && hidden_states->device().getType() != infinicore::Device::Type::CPU) {
+            if (!disable_compressed_kv_cache()
+                && cached_kv_comp_tensor_ && cached_kv_comp_batch_ == batch_size
+                && cached_kv_comp_blocks_ == expected_nb) {
+                kv_comp_tensor = cached_kv_comp_tensor_;
+                comp_batch = cached_kv_comp_batch_;
+                nb = cached_kv_comp_blocks_;
+            } else {
+                kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
+                if (!disable_compressed_kv_cache()) {
+                    cached_kv_comp_tensor_ = kv_comp_tensor;
+                    cached_kv_comp_batch_ = comp_batch;
+                    cached_kv_comp_blocks_ = nb;
+                }
+            }
         } else {
             kv_comp = compressor_->forward_values(hidden_states, comp_batch, nb);
         }
         if (nb > 0 && indexer_) {
-            indexed_blocks = indexer_->forward(hidden_states, q_residual, positions, index_top_k,
-                                               query_start, query_len);
+            indexed_blocks_tensor = indexer_->forward_tensor(hidden_states, q_residual, positions, index_top_k,
+                                                             query_start, query_len);
         }
     }
 
-    if (!disable_compressed_decode() && kv_comp_tensor && nb > 0 && indexed_blocks.empty()
-        && query_len == 1 && q_rope->device().getType() != infinicore::Device::Type::CPU) {
+    if (!disable_compressed_decode() && query_len == 1 && kv_comp_tensor && nb > 0
+        && nb + (sliding_window_ == 0 ? total_len : std::min(total_len, sliding_window_)) <= 4096
+        && q_rope->device().getType() != infinicore::Device::Type::CPU) {
         size_t kv_start = 0;
         size_t kv_len = total_len;
         if (sliding_window_ > 0) {
@@ -303,26 +420,44 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const 
         for (size_t tq = 0; tq < query_len; ++tq) {
             query_positions[tq] = positions[query_start + tq];
         }
-        std::vector<int64_t> block_positions(nb);
-        for (size_t block = 0; block < nb; ++block) {
-            const size_t block_token = std::min(block * compress_ratio, total_len > 0 ? total_len - 1 : 0);
-            block_positions[block] = (positions[block_token] / static_cast<int64_t>(compress_ratio))
-                                   * static_cast<int64_t>(compress_ratio);
-        }
         const auto &rope_params = rotary_emb_.params();
         auto query_positions_tensor = int64_vector_to_tensor(
             query_positions, {query_len}, q_rope->device());
-        auto block_positions_tensor = int64_vector_to_tensor(
-            block_positions, {nb}, q_rope->device());
+        infinicore::Tensor block_positions_tensor;
+        if (cached_block_positions_tensor_ && cached_block_positions_blocks_ == nb) {
+            block_positions_tensor = cached_block_positions_tensor_;
+        } else {
+            std::vector<int64_t> block_positions(nb);
+            for (size_t block = 0; block < nb; ++block) {
+                const size_t block_token = std::min(block * compress_ratio, total_len > 0 ? total_len - 1 : 0);
+                block_positions[block] = (positions[block_token] / static_cast<int64_t>(compress_ratio))
+                                       * static_cast<int64_t>(compress_ratio);
+            }
+            block_positions_tensor = int64_vector_to_tensor(
+                block_positions, {nb}, q_rope->device());
+            cached_block_positions_tensor_ = block_positions_tensor;
+            cached_block_positions_blocks_ = nb;
+        }
+        size_t gpu_index_top_k = 0;
+        auto gpu_indexed_blocks_tensor = int64_vector_to_tensor(
+            std::vector<int64_t>{-1}, {1}, q_rope->device());
+        if (indexed_blocks_tensor && index_top_k > 0) {
+            gpu_index_top_k = index_top_k;
+            gpu_indexed_blocks_tensor = indexed_blocks_tensor->view({indexed_blocks_tensor->numel()})->contiguous();
+        }
         auto out = infinicore::op::deepseek_v4_compressed_decode(
             q_rope->contiguous(),
-            k_window->contiguous(),
+            key_states->contiguous(),
             kv_comp_tensor->contiguous(),
             attn_sink_->contiguous(),
             query_positions_tensor,
             block_positions_tensor,
+            gpu_indexed_blocks_tensor,
+            kv_start,
+            kv_len,
             softmax_scale_,
             compress_ratio,
+            gpu_index_top_k,
             rope_params.rope_dim,
             rope_params.rope_theta,
             rope_params.use_yarn,
@@ -449,6 +584,36 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infin
     const size_t ngroup = num_heads / num_kv_heads;
     const size_t window = sliding_window_ == 0 ? total_len : sliding_window_;
 
+    if (!disable_fused_swa_prefill() && query_len >= fused_swa_prefill_min_len()
+        && q_rope->device().getType() != infinicore::Device::Type::CPU) {
+        std::vector<int64_t> query_positions(query_len);
+        for (size_t tq = 0; tq < query_len; ++tq) {
+            query_positions[tq] = pos[query_start + tq];
+        }
+        auto query_positions_tensor = int64_vector_to_tensor(
+            query_positions, {query_len}, q_rope->device());
+        auto key_positions_tensor = int64_vector_to_tensor(
+            pos, {total_len}, q_rope->device());
+        const auto &rope_params = rotary_emb_.params();
+        auto out = infinicore::op::deepseek_v4_swa_prefill(
+            q_rope->contiguous(),
+            key_states->contiguous(),
+            attn_sink_->contiguous(),
+            query_positions_tensor,
+            key_positions_tensor,
+            softmax_scale_,
+            window,
+            rope_params.rope_dim,
+            rope_params.rope_theta,
+            rope_params.use_yarn,
+            rope_params.yarn_factor,
+            rope_params.yarn_beta_fast,
+            rope_params.yarn_beta_slow,
+            rope_params.yarn_original_seq_len,
+            rope_params.yarn_extrapolation_factor);
+        return out->view({batch_size, query_len, num_heads * head_dim});
+    }
+
     size_t kv_start = 0;
     size_t kv_len = total_len;
     if (sliding_window_ > 0 && query_len == 1) {
@@ -474,9 +639,11 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infin
             query_positions, {query_len}, q_rope->device());
         auto out = infinicore::op::deepseek_v4_swa_decode(
             q_rope->contiguous(),
-            k_window->contiguous(),
+            key_states->contiguous(),
             attn_sink_->contiguous(),
             positions_tensor,
+            kv_start,
+            kv_len,
             softmax_scale_,
             rope_params.rope_dim,
             rope_params.rope_theta,
