@@ -654,12 +654,19 @@ def make_segment_example_inputs(
     device: torch.device,
     dtype: torch.dtype,
     valid_seq_len: Optional[int] = None,
+    position_offset: Optional[int] = None,
 ) -> Tuple[torch.Tensor, ...]:
     """Random example tensors for ``torch.export`` / AOTInductor."""
     valid = int(valid_seq_len) if valid_seq_len is not None else int(bucket)
     hidden = torch.randn(1, bucket, hidden_size, device=device, dtype=dtype)
     residual = torch.randn(1, bucket, hidden_size, device=device, dtype=dtype)
-    position_ids = torch.arange(valid, device=device, dtype=torch.long).unsqueeze(0)
+    if position_offset is None:
+        from .env import prefill_chunk_size
+
+        chunk = int(prefill_chunk_size(default=512))
+        position_offset = chunk if int(bucket) < chunk else 0
+    start = int(position_offset)
+    position_ids = torch.arange(start, start + valid, device=device, dtype=torch.long).unsqueeze(0)
     if valid < bucket:
         pad = torch.zeros(1, bucket - valid, device=device, dtype=torch.long)
         position_ids = torch.cat([position_ids, pad], dim=1)

@@ -744,18 +744,18 @@ void RankWorker::thread_loop() {
                             global_state::hang_trace::ScopedBracket eager_bracket(
                                 "eager_forward", rank_info_.tp_rank);
                             auto model_args = local_args.to_model_input(rank_info_.device);
+                            int32_t prior_kv = -1;
+                            size_t prefill_w = 0;
+                            if (model_args.past_sequence_lengths.has_value()) {
+                                prior_kv = infinilm::agent_debug::first_int32(
+                                    model_args.past_sequence_lengths.value());
+                            }
+                            if (model_args.input_ids.has_value()) {
+                                prefill_w = model_args.input_ids.value()->size(1);
+                            }
                             // #region agent log
                             if (rank_info_.tp_rank == 0) {
                                 auto &ctx = global_state::get_forward_context();
-                                int32_t prior_kv = -1;
-                                if (model_args.past_sequence_lengths.has_value()) {
-                                    prior_kv = infinilm::agent_debug::first_int32(
-                                        model_args.past_sequence_lengths.value());
-                                }
-                                size_t prefill_w = 0;
-                                if (model_args.input_ids.has_value()) {
-                                    prefill_w = model_args.input_ids.value()->size(1);
-                                }
                                 infinilm::agent_debug::session_log(
                                     "rank_worker.cpp:eager_forward",
                                     "eager_forward_begin",
@@ -783,6 +783,36 @@ void RankWorker::thread_loop() {
                                         (ctx.defer_row_parallel_allreduce ? "true" : "false") +
                                         ",\"deferred_n\":" +
                                         std::to_string(ctx.deferred_allreduces.size()) + "}");
+                                if (is_prefill && prior_kv == 0 && prefill_w == 512) {
+                                    auto &piecewise = ctx.piecewise;
+                                    uint32_t k0_checksum = 0;
+                                    uint32_t v0_checksum = 0;
+                                    uint16_t hidden_bits = 0;
+                                    if (!piecewise.layer_staging.empty()
+                                        && piecewise.layer_staging[0].k_rope
+                                        && piecewise.layer_staging[0].v_rope) {
+                                        k0_checksum = infinilm::agent_debug::tensor_checksum_bf16(
+                                            piecewise.layer_staging[0].k_rope->narrow({{1, 0, 1}}));
+                                        v0_checksum = infinilm::agent_debug::tensor_checksum_bf16(
+                                            piecewise.layer_staging[0].v_rope->narrow({{1, 0, 1}}));
+                                    }
+                                    if (piecewise.hidden_states) {
+                                        const size_t last = prefill_w > 0 ? prefill_w - 1 : 0;
+                                        hidden_bits = infinilm::agent_debug::first_elem_bits(
+                                            piecewise.hidden_states->narrow({{1, last, 1}}));
+                                    }
+                                    infinilm::agent_debug::session_log(
+                                        "rank_worker.cpp:eager_forward",
+                                        "pw_eager_mid_boundary",
+                                        "H9",
+                                        std::string("{\"tp_rank\":0,\"seq_len\":") +
+                                            std::to_string(prefill_w) + ",\"graph_bucket\":512" +
+                                            ",\"prior_kv\":0,\"hidden_bits\":" +
+                                            std::to_string(hidden_bits) + ",\"k0_checksum\":" +
+                                            std::to_string(k0_checksum) + ",\"v0_checksum\":" +
+                                            std::to_string(v0_checksum) + "}",
+                                        "phase2-instrument");
+                                }
                             }
                             // #endregion
                         }

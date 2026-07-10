@@ -39,6 +39,15 @@ inline uint16_t first_elem_bits(const infinicore::Tensor &t) {
     return 0;
 }
 
+inline int64_t first_int64(const infinicore::Tensor &t) {
+    if (!t || t->numel() == 0 || skip_tensor_peek()) {
+        return -1;
+    }
+    auto on_cpu = t->contiguous()->to(infinicore::Device::cpu());
+    infinicore::context::syncStream();
+    return *reinterpret_cast<const int64_t *>(on_cpu->data());
+}
+
 inline int32_t first_int32(const infinicore::Tensor &t) {
     if (!t || t->numel() == 0 || skip_tensor_peek()) {
         return -1;

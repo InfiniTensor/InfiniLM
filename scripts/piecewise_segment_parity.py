@@ -273,6 +273,7 @@ def run_segment_parity(
     device: torch.device,
     cache_root: str,
     valid_seq_len: Optional[int],
+    position_offset: Optional[int] = None,
     seed: int,
     package_path: str = "",
     inductor_backend: str = "auto",
@@ -331,6 +332,7 @@ def run_segment_parity(
         device=device,
         dtype=dtype,
         valid_seq_len=valid,
+        position_offset=position_offset,
     )
     hidden.uniform_(-0.05, 0.05, generator=gen)
     residual.uniform_(-0.05, 0.05, generator=gen)
@@ -438,6 +440,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--layer", type=int, default=0)
     parser.add_argument("--bucket", type=int, default=512)
     parser.add_argument("--valid-seq-len", type=int, default=0)
+    parser.add_argument(
+        "--position-offset",
+        type=int,
+        default=-1,
+        help="RoPE position start (default: chunk_size for tail buckets, else 0)",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--cache-root", default="")
     parser.add_argument("--package-path", default="")
@@ -469,8 +477,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
 
     device = torch.device(args.device)
+    if int(args.tp_size) > 1:
+        device = torch.device(f"cuda:{int(args.tp_rank)}")
     cache_root = args.cache_root or piecewise_inductor_cache_root()
     valid_seq_len = args.valid_seq_len if args.valid_seq_len > 0 else args.bucket
+    position_offset = args.position_offset if args.position_offset >= 0 else None
     require_aot = args.require_aot or piecewise_inductor_require_aot()
 
     compiled_fn = None
@@ -516,6 +527,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         device=device,
         cache_root=cache_root,
         valid_seq_len=valid_seq_len,
+        position_offset=position_offset,
         seed=args.seed,
         package_path=args.package_path,
         inductor_backend=args.backend,
@@ -538,6 +550,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     summary = asdict(result)
     summary["model_path"] = args.model_path
+    summary["position_offset"] = position_offset
     summary["parity_max_abs_diff_gate"] = PARITY_MAX_ABS_DIFF
     summary["parity_rtol"] = PARITY_RTOL
     summary["parity_atol"] = PARITY_ATOL
