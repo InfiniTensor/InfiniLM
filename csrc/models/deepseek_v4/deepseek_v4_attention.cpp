@@ -6,12 +6,14 @@
 #include "deepseek_v4_utils.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/cat.hpp"
+#include "infinicore/ops/deepseek_v4_swa_decode.hpp"
 #include "infinicore/ops/linear.hpp"
 #include "infinicore/ops/matmul.hpp"
 #include "infinicore/ops/softmax.hpp"
 #include "infinicore/ops/unweighted_rms_norm.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <limits>
 #include <mutex>
@@ -28,6 +30,42 @@ void warn_attention_approximation_once() {
     std::call_once(once, []() {
         spdlog::warn("DeepseekV4Attention uses a reference CPU path for V4 sliding/compressed attention.");
     });
+}
+
+bool disable_fused_swa_decode() {
+    static const bool value = std::getenv("DSV4_DISABLE_FUSED_SWA_DECODE") != nullptr;
+    return value;
+}
+
+bool disable_compressed_empty_fastpath() {
+    static const bool value = std::getenv("DSV4_DISABLE_COMPRESSED_EMPTY_FASTPATH") != nullptr;
+    return value;
+}
+
+bool use_cpu_compressor_reference() {
+    static const bool value = std::getenv("DSV4_COMPRESSOR_CPU") != nullptr;
+    return value;
+}
+
+bool has_no_visible_compressed_blocks(size_t compress_ratio,
+                                      const std::vector<int64_t> &positions,
+                                      size_t query_start,
+                                      size_t query_len) {
+    if (compress_ratio == 0) {
+        return true;
+    }
+    if (disable_compressed_empty_fastpath() || query_len == 0
+        || positions.size() < query_start + query_len) {
+        return false;
+    }
+    const int64_t ratio = static_cast<int64_t>(compress_ratio);
+    for (size_t tq = 0; tq < query_len; ++tq) {
+        const int64_t visible_blocks = (positions[query_start + tq] + 1) / ratio;
+        if (visible_blocks > 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -171,12 +209,8 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
     auto key_states = rotary_emb_.forward(
         kv->view({1, seq_len, num_key_value_heads_, head_dim_}), pos);
 
-    auto &attn_metadata = infinilm::global_state::get_forward_context().attn_metadata;
-    bool is_decode = false;
-    if (attn_metadata.past_sequence_lengths.has_value() && cached_seq_len_ > 0 && seq_len == 1) {
-        const auto past_lengths = tensor_to_int64_vector(attn_metadata.past_sequence_lengths.value());
-        is_decode = !past_lengths.empty() && past_lengths[0] > 0;
-    }
+    const bool is_decode = cached_seq_len_ > 0 && seq_len == 1 && !pos.empty()
+                        && pos[0] >= static_cast<int64_t>(cached_seq_len_);
 
     infinicore::Tensor attn_output;
     if (is_decode) {
@@ -186,7 +220,10 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
         cached_key_states_ = infinicore::op::cat({cached_key_states_, key_states}, 1);
         cached_positions_.insert(cached_positions_.end(), pos.begin(), pos.end());
         cached_seq_len_ = cached_positions_.size();
-        if (rotary_emb_.compress_ratio() == 0
+        if (has_no_visible_compressed_blocks(rotary_emb_.compress_ratio(),
+                                             cached_positions_,
+                                             query_start,
+                                             seq_len)
             && q_normed->device().getType() != infinicore::Device::Type::CPU) {
             attn_output = dense_attention_sliding_gpu_(
                 q_normed, cached_key_states_, cached_positions_, query_start);
@@ -230,7 +267,13 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const 
     std::vector<int64_t> indexed_blocks;
     if (compressor_ && compress_ratio > 0) {
         size_t comp_batch = 0;
-        kv_comp = compressor_->forward_values(hidden_states, comp_batch, nb);
+        if (!use_cpu_compressor_reference()
+            && hidden_states->device().getType() != infinicore::Device::Type::CPU) {
+            auto kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
+            kv_comp = tensor_to_float_vector(kv_comp_tensor);
+        } else {
+            kv_comp = compressor_->forward_values(hidden_states, comp_batch, nb);
+        }
         if (nb > 0 && indexer_) {
             indexed_blocks = indexer_->forward(hidden_states, q_residual, positions, index_top_k,
                                                query_start, query_len);
@@ -346,9 +389,6 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infin
     const size_t ngroup = num_heads / num_kv_heads;
     const size_t window = sliding_window_ == 0 ? total_len : sliding_window_;
 
-    auto q = q_rope->permute({0, 2, 1, 3})->contiguous();
-    auto k = key_states->permute({0, 2, 1, 3})->contiguous();
-
     size_t kv_start = 0;
     size_t kv_len = total_len;
     if (sliding_window_ > 0 && query_len == 1) {
@@ -358,9 +398,31 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infin
             ++kv_start;
         }
         kv_len = total_len - kv_start;
-        if (kv_len < total_len) {
-            k = k->narrow({{2, kv_start, kv_len}})->contiguous();
+    }
+
+    if (!disable_fused_swa_decode() && query_len == 1) {
+        auto k_window = key_states;
+        if (kv_start > 0 || kv_len < total_len) {
+            k_window = key_states->narrow({{1, kv_start, kv_len}});
         }
+        auto out = infinicore::op::deepseek_v4_swa_decode(
+            q_rope->contiguous(),
+            k_window->contiguous(),
+            attn_sink_->contiguous(),
+            softmax_scale_);
+
+        std::vector<int64_t> query_positions(query_len);
+        for (size_t tq = 0; tq < query_len; ++tq) {
+            query_positions[tq] = pos[query_start + tq];
+        }
+        out = apply_rotary_pos_emb(out, query_positions, rotary_emb_.params(), true);
+        return out->view({batch_size, query_len, num_heads * head_dim});
+    }
+
+    auto q = q_rope->permute({0, 2, 1, 3})->contiguous();
+    auto k = key_states->permute({0, 2, 1, 3})->contiguous();
+    if (kv_len < total_len) {
+        k = k->narrow({{2, kv_start, kv_len}})->contiguous();
     }
 
     auto Q = q->view({batch_size * num_kv_heads, ngroup * query_len, head_dim});
@@ -444,7 +506,7 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
     const size_t compress_ratio = rotary_emb_.compress_ratio();
     auto pos = normalize_positions(positions, seq_len);
 
-    if (compress_ratio == 0
+    if (has_no_visible_compressed_blocks(compress_ratio, pos, 0, seq_len)
         && q_rope->device().getType() != infinicore::Device::Type::CPU) {
         return dense_attention_sliding_gpu_(q_rope, key_states, pos);
     }
@@ -466,7 +528,7 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
     // | 128 (heavily_compressed_attention) | HCA m=128 | 无    | 全部块 + SW |
     //
     // kv_comp：展平为 [B * nb * head_dim] 的压缩 KV（对应 HF 的 DeepseekV4CSACompressor /
-    // DeepseekV4HCACompressor，本处为 `Compressor.forward_values`）。每个块对 m 个源 token
+    // DeepseekV4HCACompressor，本处优先使用 GPU compressor，必要时回退 `Compressor.forward_values`）。每个块对 m 个源 token
     // 做 gated softmax 池化（CSA 为 Ca/Cb 重叠布局，coff_=2）。
     // nb：序列中完整 m-token 窗口个数（usable_len / m）。
     //
@@ -481,8 +543,14 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_reference_(const infinic
     size_t index_top_k = 0;
     std::vector<int64_t> indexed_blocks;
     if (compressor_ && compress_ratio > 0) {
-        size_t comp_batch = 0; // 由 forward_values 写出；本单次 reference 路径未使用
-        kv_comp = compressor_->forward_values(hidden_states, comp_batch, nb);
+        size_t comp_batch = 0;
+        if (!use_cpu_compressor_reference()
+            && hidden_states->device().getType() != infinicore::Device::Type::CPU) {
+            auto kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
+            kv_comp = tensor_to_float_vector(kv_comp_tensor);
+        } else {
+            kv_comp = compressor_->forward_values(hidden_states, comp_batch, nb);
+        }
         if (nb > 0 && indexer_) {
             indexed_blocks = indexer_->forward(hidden_states, q_residual, pos, index_top_k);
         }
