@@ -9,6 +9,8 @@ from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
 from .processor import register_processor
 
+DEFAULT_VIDEO_NUM_FRAMES = 8
+
 
 @register_processor("ernie4_5_moe_vl")
 class Ernie45VLProcessor(BasicLLMProcessor):
@@ -71,7 +73,16 @@ class Ernie45VLProcessor(BasicLLMProcessor):
             if isinstance(video, str):
                 from .videonsa_processor import decode_video_frames
 
-                video = decode_video_frames(video)
+                num_frames = int(
+                    os.getenv(
+                        "INFINILM_ERNIE_VIDEO_NUM_FRAMES",
+                        os.getenv(
+                            "INFINILM_VIDEONSA_VIDEO_NUM_FRAMES",
+                            DEFAULT_VIDEO_NUM_FRAMES,
+                        ),
+                    )
+                )
+                video = decode_video_frames(video, num_frames)
             if isinstance(video, list):
                 if not video:
                     continue
