@@ -6,6 +6,7 @@
 #include "deepseek_v4_utils.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/cat.hpp"
+#include "infinicore/ops/deepseek_v4_compressed_decode.hpp"
 #include "infinicore/ops/deepseek_v4_swa_decode.hpp"
 #include "infinicore/ops/linear.hpp"
 #include "infinicore/ops/matmul.hpp"
@@ -39,6 +40,11 @@ bool disable_fused_swa_decode() {
 
 bool disable_compressed_empty_fastpath() {
     static const bool value = std::getenv("DSV4_DISABLE_COMPRESSED_EMPTY_FASTPATH") != nullptr;
+    return value;
+}
+
+bool disable_compressed_decode() {
+    static const bool value = std::getenv("DSV4_DISABLE_COMPRESSED_DECODE") != nullptr;
     return value;
 }
 
@@ -258,19 +264,16 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const 
     const size_t window = sliding_window_ == 0 ? total_len : sliding_window_;
     const size_t compress_ratio = rotary_emb_.compress_ratio();
 
-    auto q = tensor_to_float_vector(q_rope);
-    auto kv = tensor_to_float_vector(key_states->contiguous());
-
     std::vector<float> kv_comp;
+    infinicore::Tensor kv_comp_tensor;
+    size_t comp_batch = 0;
     size_t nb = 0;
     size_t index_top_k = 0;
     std::vector<int64_t> indexed_blocks;
     if (compressor_ && compress_ratio > 0) {
-        size_t comp_batch = 0;
         if (!use_cpu_compressor_reference()
             && hidden_states->device().getType() != infinicore::Device::Type::CPU) {
-            auto kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
-            kv_comp = tensor_to_float_vector(kv_comp_tensor);
+            kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
         } else {
             kv_comp = compressor_->forward_values(hidden_states, comp_batch, nb);
         }
@@ -278,6 +281,63 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_decode_reference_(const 
             indexed_blocks = indexer_->forward(hidden_states, q_residual, positions, index_top_k,
                                                query_start, query_len);
         }
+    }
+
+    if (!disable_compressed_decode() && kv_comp_tensor && nb > 0 && indexed_blocks.empty()
+        && query_len == 1 && q_rope->device().getType() != infinicore::Device::Type::CPU) {
+        size_t kv_start = 0;
+        size_t kv_len = total_len;
+        if (sliding_window_ > 0) {
+            const int64_t pos_min = positions[query_start] - static_cast<int64_t>(sliding_window_);
+            while (kv_start < total_len && positions[kv_start] <= pos_min) {
+                ++kv_start;
+            }
+            kv_len = total_len - kv_start;
+        }
+        auto k_window = key_states;
+        if (kv_start > 0 || kv_len < total_len) {
+            k_window = key_states->narrow({{1, kv_start, kv_len}});
+        }
+
+        std::vector<int64_t> query_positions(query_len);
+        for (size_t tq = 0; tq < query_len; ++tq) {
+            query_positions[tq] = positions[query_start + tq];
+        }
+        std::vector<int64_t> block_positions(nb);
+        for (size_t block = 0; block < nb; ++block) {
+            const size_t block_token = std::min(block * compress_ratio, total_len > 0 ? total_len - 1 : 0);
+            block_positions[block] = (positions[block_token] / static_cast<int64_t>(compress_ratio))
+                                   * static_cast<int64_t>(compress_ratio);
+        }
+        const auto &rope_params = rotary_emb_.params();
+        auto query_positions_tensor = int64_vector_to_tensor(
+            query_positions, {query_len}, q_rope->device());
+        auto block_positions_tensor = int64_vector_to_tensor(
+            block_positions, {nb}, q_rope->device());
+        auto out = infinicore::op::deepseek_v4_compressed_decode(
+            q_rope->contiguous(),
+            k_window->contiguous(),
+            kv_comp_tensor->contiguous(),
+            attn_sink_->contiguous(),
+            query_positions_tensor,
+            block_positions_tensor,
+            softmax_scale_,
+            compress_ratio,
+            rope_params.rope_dim,
+            rope_params.rope_theta,
+            rope_params.use_yarn,
+            rope_params.yarn_factor,
+            rope_params.yarn_beta_fast,
+            rope_params.yarn_beta_slow,
+            rope_params.yarn_original_seq_len,
+            rope_params.yarn_extrapolation_factor);
+        return out->view({batch_size, query_len, num_heads * head_dim});
+    }
+
+    auto q = tensor_to_float_vector(q_rope);
+    auto kv = tensor_to_float_vector(key_states->contiguous());
+    if (kv_comp_tensor && kv_comp.empty()) {
+        kv_comp = tensor_to_float_vector(kv_comp_tensor);
     }
     rotary_emb_.forward_blocks(kv_comp, batch_size, nb, head_dim, total_len, positions);
 
@@ -405,17 +465,27 @@ infinicore::Tensor DeepseekV4Attention::dense_attention_sliding_gpu_(const infin
         if (kv_start > 0 || kv_len < total_len) {
             k_window = key_states->narrow({{1, kv_start, kv_len}});
         }
-        auto out = infinicore::op::deepseek_v4_swa_decode(
-            q_rope->contiguous(),
-            k_window->contiguous(),
-            attn_sink_->contiguous(),
-            softmax_scale_);
-
         std::vector<int64_t> query_positions(query_len);
         for (size_t tq = 0; tq < query_len; ++tq) {
             query_positions[tq] = pos[query_start + tq];
         }
-        out = apply_rotary_pos_emb(out, query_positions, rotary_emb_.params(), true);
+        const auto &rope_params = rotary_emb_.params();
+        auto positions_tensor = int64_vector_to_tensor(
+            query_positions, {query_len}, q_rope->device());
+        auto out = infinicore::op::deepseek_v4_swa_decode(
+            q_rope->contiguous(),
+            k_window->contiguous(),
+            attn_sink_->contiguous(),
+            positions_tensor,
+            softmax_scale_,
+            rope_params.rope_dim,
+            rope_params.rope_theta,
+            rope_params.use_yarn,
+            rope_params.yarn_factor,
+            rope_params.yarn_beta_fast,
+            rope_params.yarn_beta_slow,
+            rope_params.yarn_original_seq_len,
+            rope_params.yarn_extrapolation_factor);
         return out->view({batch_size, query_len, num_heads * head_dim});
     }
 
