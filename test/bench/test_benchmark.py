@@ -3,453 +3,10 @@ import csv
 import json
 import os
 import re
-import time
-from abc import ABC, abstractmethod
 
+from backends import InfiniLMBenchmark, TransformersBenchmark, VLLMBenchmark
 from datasets import Dataset, load_dataset
 from infinilm.base_config import BaseConfig
-
-TOTAL_TOKENS = 0
-TOTAL_TIME = 0.0
-
-
-class BaseBenchmark(ABC):
-    """Base class for benchmark evaluation with common tokenizer and generation utilities"""
-
-    def encode_text(self, text):
-        """Encode text to token IDs - reused across backends"""
-        return self.tokenizer.encode(text)
-
-    def decode_token(self, token_id):
-        """Decode token ID to text - reused across backends"""
-        return self.tokenizer.decode(token_id)
-
-    @abstractmethod
-    def render_input_content(self, *args, **kwargs):
-        """Render input content - benchmark-specific implementation"""
-        pass
-
-    @abstractmethod
-    def generate(self, *args, **kwargs):
-        """Generate response - benchmark-specific implementation"""
-        pass
-
-    @abstractmethod
-    def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
-        """Backend-specific generation implementation"""
-        pass
-
-
-class InfiniLMBenchmark(BaseBenchmark):
-    """InfiniLM cpp backend using the scheduler-backed high-level API."""
-
-    def __init__(
-        self,
-        model_dir_path,
-        device_type_str="cpu",
-        ndev=1,
-        backend="cpp",
-        benchmark="ceval",
-        enable_paged_attn=False,
-        enable_graph=False,
-        attn_backend="default",
-    ):
-        from infinilm import LLM
-
-        self.benchmark = benchmark
-
-        device_map = {
-            "cpu": "cpu",
-            "nvidia": "cuda",
-            "cambricon": "mlu",
-            "ascend": "npu",
-            "metax": "cuda",
-            "moore": "musa",
-            "iluvatar": "cuda",
-            "kunlun": "cuda",
-            "hygon": "cuda",
-            "ali": "cuda",
-            "cuda": "cuda",
-            "mlu": "mlu",
-            "musa": "musa",
-            "npu": "npu",
-        }
-        device_name = device_map.get(device_type_str.lower(), "cpu")
-
-        with open(os.path.join(model_dir_path, "config.json"), "r") as f:
-            self.config_dict = json.load(f)
-
-        eos_token_id = self.config_dict.get("eos_token_id")
-        self.eos_token_id = (
-            [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
-        )
-
-        if backend != "cpp":
-            raise ValueError(f"Unsupported backend: {backend}.")
-
-        if enable_paged_attn and attn_backend == "default":
-            attn_backend = "paged-attn"
-
-        print("Loading model with cpp backend...")
-        print(f"Graph compilation: {'enabled' if enable_graph else 'disabled'}")
-        print(f"Attention backend: {attn_backend}")
-
-        self.model = LLM(
-            model_path=model_dir_path,
-            device=device_name,
-            tensor_parallel_size=ndev,
-            cache_type="paged" if enable_paged_attn else "static",
-            max_batch_size=1,
-            num_blocks=128,
-            block_size=256,
-            enable_graph=enable_graph,
-            attn_backend=attn_backend,
-        )
-        self.processor = self.model.engine.processor
-        self.tokenizer = self.processor.get_tokenizer()
-        print("Model loaded successfully")
-
-    def max_context_len(self):
-        return self.config_dict.get("max_position_embeddings", 2048)
-
-    def render_input_content(self, *args, **kwargs):
-        if self.benchmark == "ceval":
-            return render_ceval(self.processor, *args, **kwargs)
-        if self.benchmark == "mmlu":
-            return render_mmlu(self.processor, *args, **kwargs)
-        raise ValueError(f"Unknown benchmark: {self.benchmark}")
-
-    def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
-        input_content = self.render_input_content(*args)
-        print(input_content, end="", flush=True)
-        return self._generate_step(input_content, max_steps, topp_, topk_, temperature_)
-
-    def _generate_step(self, prompt, max_steps, topp_, topk_, temperature_):
-        from infinilm import SamplingParams
-
-        start_time = time.perf_counter()
-        request_output = self.model.generate(
-            prompts=prompt,
-            sampling_params=SamplingParams(
-                max_tokens=max_steps,
-                temperature=temperature_,
-                top_k=topk_,
-                top_p=topp_,
-            ),
-            use_tqdm=False,
-        )[0]
-        end_time = time.perf_counter()
-
-        completion = request_output.outputs[0]
-        output_text = completion.text
-        input_tokens = len(request_output.prompt_token_ids or [])
-        new_tokens = len(completion.token_ids)
-        total_tokens = input_tokens + new_tokens
-
-        total_time = end_time - start_time
-        throughput = total_tokens / total_time if total_time > 0 else 0.0
-        print(output_text)
-        print()
-        print(f"Total time: {total_time * 1000:.2f} ms")
-        print(f"Input tokens: {input_tokens}")
-        print(f"New tokens: {new_tokens}")
-        print(f"Total tokens processed: {total_tokens}")
-        print(f"Throughput: {throughput:.2f} tok/s")
-        global TOTAL_TOKENS, TOTAL_TIME
-        TOTAL_TOKENS += total_tokens
-        TOTAL_TIME += total_time
-        return output_text
-
-    def destroy_model_instance(self):
-        del self.model
-        print("Model destroyed")
-
-
-class TorchBenchmark(BaseBenchmark):
-    """Torch backend using HuggingFace Transformers"""
-
-    def __init__(self, model_dir_path, device_type_str="cpu", benchmark="ceval"):
-        import torch
-        import transformers
-
-        self.benchmark = benchmark
-
-        # Device
-        if device_type_str == "nvidia":
-            self.device = torch.device("cuda")
-        elif device_type_str == "cpu":
-            self.device = torch.device("cpu")
-        elif device_type_str == "cambricon":
-            self.device = torch.device("mlu")
-        else:
-            raise ValueError(
-                f"Torch backend unsupported device type: {device_type_str}"
-            )
-
-        # Load tokenizer
-        with open(os.path.join(model_dir_path, "config.json"), "r") as f:
-            self.config_dict = json.load(f)
-
-        model_type = self.config_dict.get("model_type", "")
-        if model_type in ["fm9g", "minicpm", "fm9g7b"]:
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-        else:
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-
-        # Load model
-        print("Loading model with torch backend...")
-        self.model = transformers.AutoModelForCausalLM.from_pretrained(
-            model_dir_path,
-            torch_dtype=torch.bfloat16 if self.device.type == "cuda" else torch.float32,
-            trust_remote_code=True,
-        ).to(self.device)
-
-        self.model.eval()
-        print("Torch model loaded successfully")
-
-        eos_token_id = self.config_dict.get("eos_token_id")
-        self.eos_token_id = (
-            [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
-        )
-
-    def max_context_len(self):
-        return self.config_dict.get("max_position_embeddings", 2048)
-
-    def render_input_content(self, *args, **kwargs):
-        if self.benchmark == "ceval":
-            return render_ceval(self.tokenizer, *args, **kwargs)
-        elif self.benchmark == "mmlu":
-            return render_mmlu(self.tokenizer, *args, **kwargs)
-        else:
-            raise ValueError(f"Unknown benchmark: {self.benchmark}")
-
-    def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
-        import time
-
-        import torch
-
-        input_ids = torch.tensor([tokens], device=self.device)
-
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
-
-        start_time = time.perf_counter()
-
-        outputs = self.model.generate(
-            input_ids=input_ids,
-            max_new_tokens=max_steps,
-            do_sample=temperature_ > 0,
-            temperature=temperature_,
-            top_k=topk_,
-            top_p=topp_,
-            eos_token_id=self.eos_token_id,
-            pad_token_id=2,
-        )
-
-        # --- end sync ---
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
-
-        end_time = time.perf_counter()
-
-        # ---- post process ----
-        generated_ids = outputs[0][len(tokens) :]
-        output_text = self.tokenizer.decode(generated_ids)
-
-        # ---- stats ----
-        input_tokens = len(tokens)
-        new_tokens = generated_ids.numel()
-        total_tokens = input_tokens + new_tokens
-
-        total_time = end_time - start_time
-        throughput = total_tokens / total_time if total_time > 0 else 0.0
-        print(output_text)
-        print()
-        print(f"Total time: {total_time * 1000:.2f} ms")
-        print(f"Input tokens: {input_tokens}")
-        print(f"New tokens: {new_tokens}")
-        print(f"Total tokens processed: {total_tokens}")
-        print(f"Throughput: {throughput:.2f} tok/s")
-        global TOTAL_TOKENS, TOTAL_TIME
-        TOTAL_TOKENS += total_tokens
-        TOTAL_TIME += total_time
-
-        return output_text
-
-    def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
-        input_content = self.render_input_content(*args)
-        print(input_content, end="", flush=True)
-
-        tokens = self.encode_text(input_content)
-
-        return self._generate_step(tokens, max_steps, topp_, topk_, temperature_)
-
-    def destroy_model_instance(self):
-        del self.model
-        print("Torch model destroyed")
-
-
-class VLLMBenchmark(BaseBenchmark):
-    """vLLM backend using vllm.LLM"""
-
-    def __init__(
-        self,
-        model_dir_path,
-        device_type_str="nvidia",
-        tensor_parallel_size=1,
-        benchmark="ceval",
-    ):
-        import transformers
-        from vllm import LLM
-
-        if device_type_str == "cpu":
-            raise ValueError("vLLM backend does not support CPU device type.")
-
-        self.benchmark = benchmark
-
-        # ---- tokenizer ----
-        with open(os.path.join(model_dir_path, "config.json"), "r") as f:
-            self.config_dict = json.load(f)
-
-        model_type = self.config_dict.get("model_type", "")
-        if model_type in ["qwen2", "qwen3"]:
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-        else:
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                model_dir_path, trust_remote_code=True
-            )
-
-        eos_token_id = self.config_dict.get("eos_token_id")
-        self.eos_token_id = (
-            [eos_token_id] if isinstance(eos_token_id, int) else eos_token_id
-        )
-
-        # vLLM engine
-        print("Loading model with vLLM backend...")
-        self.llm = LLM(
-            model=model_dir_path,
-            tensor_parallel_size=tensor_parallel_size,
-            trust_remote_code=True,
-        )
-        print("vLLM model loaded successfully")
-
-    def max_context_len(self):
-        return self.config_dict.get("max_position_embeddings", 2048)
-
-    def render_input_content(self, *args, **kwargs):
-        if self.benchmark == "ceval":
-            return render_ceval(self.tokenizer, *args, **kwargs)
-        elif self.benchmark == "mmlu":
-            return render_mmlu(self.tokenizer, *args, **kwargs)
-        else:
-            raise ValueError(f"Unknown benchmark: {self.benchmark}")
-
-    def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
-        input_content = self.render_input_content(*args)
-        print(input_content, end="", flush=True)
-
-        tokens = self.encode_text(input_content)
-        return self._generate_step(tokens, max_steps, topp_, topk_, temperature_)
-
-    def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
-        from vllm import SamplingParams
-
-        prompt = self.tokenizer.decode(tokens)
-
-        sampling_params = SamplingParams(
-            max_tokens=max_steps,
-            temperature=temperature_,
-            top_p=topp_,
-            top_k=topk_,
-            stop_token_ids=self.eos_token_id,
-        )
-
-        start_time = time.perf_counter()
-
-        outputs = self.llm.generate(
-            prompts=[prompt],
-            sampling_params=sampling_params,
-        )
-
-        end_time = time.perf_counter()
-
-        # ---- post process ----
-        output_text = outputs[0].outputs[0].text
-
-        # ---- stats ----
-        input_tokens = len(tokens)
-        new_tokens = len(self.encode_text(output_text))
-        total_tokens = input_tokens + new_tokens
-
-        total_time = end_time - start_time
-        throughput = total_tokens / total_time if total_time > 0 else 0.0
-
-        print(output_text)
-        print()
-        print(f"Total time: {total_time * 1000:.2f} ms")
-        print(f"Input tokens: {input_tokens}")
-        print(f"New tokens: {new_tokens}")
-        print(f"Total tokens processed: {total_tokens}")
-        print(f"Throughput: {throughput:.2f} tok/s")
-
-        global TOTAL_TOKENS, TOTAL_TIME
-        TOTAL_TOKENS += total_tokens
-        TOTAL_TIME += total_time
-
-        return output_text
-
-    def destroy_model_instance(self):
-        del self.llm
-        print("vLLM model destroyed")
-
-
-def render_ceval(_tokenizer, conversation):
-    """Render C-Eval conversation to input content"""
-    return (
-        _tokenizer.apply_chat_template(
-            conversation=conversation,
-            add_generation_prompt=True,
-            tokenize=False,
-        )
-        + "正确答案是"
-    )
-
-
-def render_mmlu(_tokenizer, question, choices):
-    """Render MMLU question and choices to input content"""
-    choices_text = "\n".join(
-        [f"{chr(65 + i)}. {choice}" for i, choice in enumerate(choices)]
-    )
-    instruction = (
-        "You are a multiple-choice question solver. "
-        "Select the correct option and respond with only the letter A, B, C, or D."
-    )
-    prompt = f"{instruction}\n\nQuestion: {question}\n{choices_text}\nAnswer:"
-
-    # Use chat template if available, otherwise return plain text
-    if hasattr(_tokenizer, "apply_chat_template"):
-        conversation = [
-            {"role": "system", "content": instruction},
-            {"role": "user", "content": f"{question}\n{choices_text}\n"},
-        ]
-        try:
-            return (
-                _tokenizer.apply_chat_template(
-                    conversation=conversation,
-                    add_generation_prompt=True,
-                    tokenize=False,
-                )
-                + "The answer is: "
-            )
-        except Exception:
-            return prompt
-    return prompt
 
 
 def extract_answer_ceval(output_content, answer):
@@ -1042,23 +599,26 @@ def main():
     print("STEP 2: LOADING MODEL")
     print("=" * 60 + "\n")
 
-    if cfg.backend == "torch":
-        assert cfg.tp == 1, "Torch backend only supports single-device evaluation"
-        model = TorchBenchmark(cfg.model, device_type_str, cfg.bench)
+    device_str = cfg.get_device_str(device_type_str)
+    if cfg.backend in {"transformers", "torch"}:
+        assert cfg.tp == 1, (
+            "Transformers backend only supports single-device evaluation"
+        )
+        model = TransformersBenchmark(cfg.model, device_str, cfg.bench)
     elif cfg.backend == "vllm":
-        model = VLLMBenchmark(cfg.model, device_type_str, cfg.tp, cfg.bench)
-    else:  # cpp backend
+        model = VLLMBenchmark(cfg.model, device_str, cfg.tp, cfg.bench)
+    elif cfg.backend in {"infinilm", "cpp", "python"}:
         model = InfiniLMBenchmark(
             cfg.model,
-            cfg.get_device_str(device_type_str),
+            device_str,
             cfg.tp,
-            cfg.backend,
             cfg.bench,
             cfg.enable_paged_attn,
             cfg.enable_graph,
             cfg.attn,
         )
-
+    else:
+        raise ValueError(f"Unsupported backend: {cfg.backend}")
     # Step 3: Evaluate each subject
     print("\n" + "=" * 60)
     print("STEP 3: EVALUATING")
@@ -1108,10 +668,12 @@ def main():
             f"Overall Accuracy: {overall_correct}/{overall_total} = {overall_accuracy:.2%}"
         )
 
-    print(f"Total Latency: {TOTAL_TIME:.2f} seconds")
-    print(f"Total Tokens Processed: {TOTAL_TOKENS} tokens")
-    if TOTAL_TIME > 0:
-        print(f"Overall Throughput: {TOTAL_TOKENS / TOTAL_TIME:.2f} tokens/s")
+    print(f"Total Latency: {model.total_time:.2f} seconds")
+    print(f"Total Tokens Processed: {model.total_tokens} tokens")
+    if model.total_time > 0:
+        print(
+            f"Overall Throughput: {model.total_tokens / model.total_time:.2f} tokens/s"
+        )
 
     # Write CSV if output path is specified
     if cfg.output_csv:
