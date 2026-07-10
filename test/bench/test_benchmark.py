@@ -1,15 +1,13 @@
-import sys
-import os
-import time
-import re
-import csv
 import argparse
+import csv
 import json
-import numpy as np
-from datasets import load_dataset, Dataset
+import os
+import re
+import time
 from abc import ABC, abstractmethod
+
+from datasets import Dataset, load_dataset
 from infinilm.base_config import BaseConfig
-from infinilm.processors import AutoInfinilmProcessor
 
 TOTAL_TOKENS = 0
 TOTAL_TIME = 0.0
@@ -43,7 +41,7 @@ class BaseBenchmark(ABC):
 
 
 class InfiniLMBenchmark(BaseBenchmark):
-    """Wrapper class for InfiniLM cpp backend for benchmark evaluation"""
+    """InfiniLM cpp backend using the scheduler-backed high-level API."""
 
     def __init__(
         self,
@@ -56,18 +54,10 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_graph=False,
         attn_backend="default",
     ):
-        import transformers
-        import infinicore
-        from infinilm.modeling_utils import load_model_state_dict_by_file
-        from infinilm.distributed import DistConfig
-        from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
-        from infinilm.infer_engine import InferEngine
+        from infinilm import LLM
 
         self.benchmark = benchmark
 
-        # Map device type string to infinicore device
-        # Note: These map to the Python device type strings used by infinicore.device()
-        # which correspond to _TORCH_DEVICE_MAP values in InfiniCore/python/infinicore/device.py
         device_map = {
             "cpu": "cpu",
             "nvidia": "cuda",
@@ -79,20 +69,15 @@ class InfiniLMBenchmark(BaseBenchmark):
             "kunlun": "cuda",
             "hygon": "cuda",
             "ali": "cuda",
+            "cuda": "cuda",
+            "mlu": "mlu",
+            "musa": "musa",
+            "npu": "npu",
         }
-
         device_name = device_map.get(device_type_str.lower(), "cpu")
-        # CUDA_VISIBLE_DEVICES is automatically respected by CUDA runtime API
-        # When CUDA_VISIBLE_DEVICES=5 is set, CUDA only sees device 5 as device 0
-        # So device index 0 will automatically map to the first visible device
-        self.device = infinicore.device(device_name, 0)
 
-        # Load config and tokenizer
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             self.config_dict = json.load(f)
-
-        self.processor = AutoInfinilmProcessor.from_pretrained(model_dir_path)
-        self.tokenizer = self.processor.get_tokenizer()
 
         eos_token_id = self.config_dict.get("eos_token_id")
         self.eos_token_id = (
@@ -105,113 +90,60 @@ class InfiniLMBenchmark(BaseBenchmark):
         if enable_paged_attn and attn_backend == "default":
             attn_backend = "paged-attn"
 
-        # Create model with cpp backend
         print("Loading model with cpp backend...")
         print(f"Graph compilation: {'enabled' if enable_graph else 'disabled'}")
         print(f"Attention backend: {attn_backend}")
 
-        self.model = InferEngine(
-            model_dir_path,
-            device=self.device,
-            distributed_config=DistConfig(ndev),
-            cache_config=(
-                PagedKVCacheConfig(128) if enable_paged_attn else StaticKVCacheConfig()
-            ),
-            enable_graph_compiling=enable_graph,
-            attention_backend=attn_backend,
+        self.model = LLM(
+            model_path=model_dir_path,
+            device=device_name,
+            tensor_parallel_size=ndev,
+            cache_type="paged" if enable_paged_attn else "static",
+            max_batch_size=1,
+            num_blocks=128,
+            block_size=256,
+            enable_graph=enable_graph,
+            attn_backend=attn_backend,
         )
-
-        # Enable KV cache for generation
-        self.model.use_cache = True
-
-        # Load weights
-        print("Loading model weights...")
-        load_model_state_dict_by_file(
-            self.model,
-            model_dir_path,
-            dtype=self.model.dtype,
-        )
+        self.processor = self.model.engine.processor
+        self.tokenizer = self.processor.get_tokenizer()
         print("Model loaded successfully")
 
     def max_context_len(self):
         return self.config_dict.get("max_position_embeddings", 2048)
 
     def render_input_content(self, *args, **kwargs):
-        """Render input content based on benchmark type"""
         if self.benchmark == "ceval":
             return render_ceval(self.processor, *args, **kwargs)
-        elif self.benchmark == "mmlu":
+        if self.benchmark == "mmlu":
             return render_mmlu(self.processor, *args, **kwargs)
-        else:
-            raise ValueError(f"Unknown benchmark: {self.benchmark}")
+        raise ValueError(f"Unknown benchmark: {self.benchmark}")
 
     def generate(self, *args, max_steps=500, topp_=1.0, topk_=1, temperature_=1.0):
-        """Generate response based on benchmark type"""
-        # Render input content
         input_content = self.render_input_content(*args)
         print(input_content, end="", flush=True)
+        return self._generate_step(input_content, max_steps, topp_, topk_, temperature_)
 
-        # Encode input
-        tokens = self.encode_text(input_content)
-
-        # Delegate to backend-specific generation implementation
-        output_content = self._generate_step(
-            tokens, max_steps, topp_, topk_, temperature_
-        )
-
-        return output_content
-
-    def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
-        """
-        InfiniLM cpp backend-specific generation implementation
-
-        NOTE: Validation confirmed input configs are identical between backends.
-        The issue was that manual generation loop called InferEngine.generate() which
-        doesn't maintain KV cache. Solution: Use model's built-in generate() method
-        which properly handles KV cache through GenerationMixin.
-        """
-        # Convert tokens to infinicore format
-        import infinicore
-        from infinilm.infer_engine import GenerationConfig
-
-        input_ids_list = [tokens]
-        input_ids = infinicore.from_list(input_ids_list, dtype=infinicore.int64)
+    def _generate_step(self, prompt, max_steps, topp_, topk_, temperature_):
+        from infinilm import SamplingParams
 
         start_time = time.perf_counter()
-
-        # For cpp backend, reset cache before generation if use_cache is enabled
-        if (
-            self.model.use_cache
-            and hasattr(self.model, "_model")
-            and hasattr(self.model._model, "reset_cache")
-        ):
-            batch_size = input_ids.shape[0]
-            seq_len = input_ids.shape[1]
-            max_cache_len = max_steps + seq_len
-            self.model.reset_cache(
-                batch_size=batch_size, initial_capacity=max_cache_len
-            )
-
-        # Use model's built-in generate() method
-        output_ids = self.model.generate(
-            input_ids=input_ids,
-            generation_config=GenerationConfig(
-                max_new_tokens=max_steps,
+        request_output = self.model.generate(
+            prompts=prompt,
+            sampling_params=SamplingParams(
+                max_tokens=max_steps,
                 temperature=temperature_,
                 top_k=topk_,
                 top_p=topp_,
             ),
-        )
-
+            use_tqdm=False,
+        )[0]
         end_time = time.perf_counter()
 
-        # ---- post process ----
-        generated_ids = np.array([output_id.to_numpy()[0] for output_id in output_ids])
-        output_text = self.tokenizer.decode(generated_ids)
-
-        # ---- stats ----
-        input_tokens = len(tokens)
-        new_tokens = generated_ids.size
+        completion = request_output.outputs[0]
+        output_text = completion.text
+        input_tokens = len(request_output.prompt_token_ids or [])
+        new_tokens = len(completion.token_ids)
         total_tokens = input_tokens + new_tokens
 
         total_time = end_time - start_time
@@ -226,11 +158,9 @@ class InfiniLMBenchmark(BaseBenchmark):
         global TOTAL_TOKENS, TOTAL_TIME
         TOTAL_TOKENS += total_tokens
         TOTAL_TIME += total_time
-
         return output_text
 
     def destroy_model_instance(self):
-        # Cleanup if needed
         del self.model
         print("Model destroyed")
 
@@ -298,8 +228,9 @@ class TorchBenchmark(BaseBenchmark):
             raise ValueError(f"Unknown benchmark: {self.benchmark}")
 
     def _generate_step(self, tokens, max_steps, topp_, topk_, temperature_):
-        import torch
         import time
+
+        import torch
 
         input_ids = torch.tensor([tokens], device=self.device)
 
@@ -763,7 +694,7 @@ def _load_mmlu_from_cache(cache_dir, subject_name, split, mmlu_subjects):
                 continue
         if not all_samples:
             raise FileNotFoundError(
-                f"No MMLU cached data found for any subject. Please ensure datasets are cached."
+                "No MMLU cached data found for any subject. Please ensure datasets are cached."
             )
         return all_samples, "all"
 
@@ -1005,7 +936,7 @@ def load_dataset_samples(args):
                             continue
                 if not samples:
                     raise FileNotFoundError(
-                        f"No MMLU data found for any subject in the list"
+                        "No MMLU data found for any subject in the list"
                     )
                 return samples, "all"
             else:
@@ -1119,7 +1050,7 @@ def main():
     else:  # cpp backend
         model = InfiniLMBenchmark(
             cfg.model,
-            device_type_str,
+            cfg.get_device_str(device_type_str),
             cfg.tp,
             cfg.backend,
             cfg.bench,
