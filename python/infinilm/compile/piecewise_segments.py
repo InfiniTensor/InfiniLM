@@ -250,6 +250,11 @@ def _rms_norm_last_dim(x: torch.Tensor, weight: torch.Tensor, eps: float) -> tor
     return (xf * torch.rsqrt(variance + eps) * wf).to(dtype=x.dtype)
 
 
+def _fp32_linear(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    """QKV matmul in fp32 to avoid inductor bf16 fusion drift on TP shards."""
+    return torch.nn.functional.linear(x.float(), weight.float()).to(dtype=x.dtype)
+
+
 def add_rms_norm(
     hidden_states: torch.Tensor,
     residual: torch.Tensor,
@@ -275,6 +280,13 @@ def add_rms_norm_inplace(
     hidden_states.copy_(normed)
 
 
+def _rotate_half(x: torch.Tensor) -> torch.Tensor:
+    """Match ``transformers`` ``rotate_half`` for AOT-safe RoPE."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+
+
 def _apply_rope_to_staging(
     staging: torch.Tensor,
     *,
@@ -282,23 +294,23 @@ def _apply_rope_to_staging(
     sin: torch.Tensor,
     valid_len: int,
 ) -> torch.Tensor:
-    """Apply RoPE on ``[1, bucket, n_heads, head_dim]`` valid prefix; returns new tensor."""
-    from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
+    """Apply RoPE on ``[1, bucket, n_heads, head_dim]`` valid prefix; returns new tensor.
 
+    Functional (no clone+slice mutation) so AOTInductor cannot elide RoPE on rank0.
+    """
     valid_len = int(valid_len)
-    out = staging.clone()
+    bucket = int(staging.shape[1])
     if valid_len <= 0:
-        return out
-    view = staging[:, :valid_len].transpose(1, 2).contiguous()
-    rotated, _ = apply_rotary_pos_emb(
-        view,
-        view,
-        cos[:, :valid_len],
-        sin[:, :valid_len],
-        unsqueeze_dim=1,
-    )
-    out[:, :valid_len] = rotated.transpose(1, 2)
-    return out
+        return staging
+    pre = staging[:, :valid_len]
+    view = pre.float().transpose(1, 2).contiguous()
+    cos_f = cos[:, :valid_len].float().unsqueeze(1)
+    sin_f = sin[:, :valid_len].float().unsqueeze(1)
+    rotated = view * cos_f + _rotate_half(view) * sin_f
+    roped = rotated.transpose(1, 2).to(dtype=staging.dtype)
+    if valid_len >= bucket:
+        return roped
+    return torch.cat([roped, staging[:, valid_len:]], dim=1)
 
 
 def _stage_qkv_heads(
@@ -388,9 +400,9 @@ class PiecewisePreAttnSegment(nn.Module):
         )
 
         attn = self.self_attn
-        q = attn.q_proj(hidden_states)
-        k = attn.k_proj(hidden_states)
-        v = attn.v_proj(hidden_states)
+        q = _fp32_linear(hidden_states, attn.q_proj.weight)
+        k = _fp32_linear(hidden_states, attn.k_proj.weight)
+        v = _fp32_linear(hidden_states, attn.v_proj.weight)
 
         n_heads, n_kv = shard_attention_head_dims(
             self.num_attention_heads,
@@ -406,9 +418,17 @@ class PiecewisePreAttnSegment(nn.Module):
         q_norm = getattr(attn, "q_norm", None)
         k_norm = getattr(attn, "k_norm", None)
         if q_norm is not None:
-            q_heads = q_norm(q_heads.reshape(-1, head_dim)).reshape(1, bucket, n_heads, head_dim)
+            q_heads = _rms_norm_last_dim(
+                q_heads.reshape(-1, head_dim),
+                q_norm.weight,
+                float(getattr(q_norm, "variance_epsilon", 1e-6)),
+            ).reshape(1, bucket, n_heads, head_dim)
         if k_norm is not None:
-            k_heads = k_norm(k_heads.reshape(-1, head_dim)).reshape(1, bucket, n_kv, head_dim)
+            k_heads = _rms_norm_last_dim(
+                k_heads.reshape(-1, head_dim),
+                k_norm.weight,
+                float(getattr(k_norm, "variance_epsilon", 1e-6)),
+            ).reshape(1, bucket, n_kv, head_dim)
 
         q_staging, k_staging, v_staging = _stage_qkv_heads(
             q_heads,
@@ -492,9 +512,9 @@ class PiecewisePreAttnSegmentFunctional(nn.Module):
             self.rms_norm_eps,
         )
 
-        q = torch.nn.functional.linear(hidden_states, q_weight)
-        k = torch.nn.functional.linear(hidden_states, k_weight)
-        v = torch.nn.functional.linear(hidden_states, v_weight)
+        q = _fp32_linear(hidden_states, q_weight)
+        k = _fp32_linear(hidden_states, k_weight)
+        v = _fp32_linear(hidden_states, v_weight)
 
         q_heads = q.view(1, bucket, n_heads, self.head_dim)
         k_heads = k.view(1, bucket, n_kv, self.head_dim)
