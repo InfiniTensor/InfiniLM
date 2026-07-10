@@ -10,22 +10,9 @@
 #include "infinicore/ops/mha_varlen.hpp"
 #include "infinicore/ops/pad.hpp"
 
-#include <atomic>
 #include <stdexcept>
-#include <string>
 
 namespace infinilm::models::deepseek_v2 {
-namespace {
-
-std::atomic<int> g_dense_mla_prefill_state{0}; // 0 unknown, 1 available, 2 unavailable
-
-bool is_dense_mla_prefill_unavailable(const std::runtime_error &err) {
-    const std::string msg = err.what();
-    return msg.find("ATen is not enabled") != std::string::npos
-        || msg.find("FlashAttention is not enabled") != std::string::npos;
-}
-
-} // namespace
 
 DeepseekV2MLAAttention::DeepseekV2MLAAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                                size_t layer_idx,
@@ -213,34 +200,27 @@ infinicore::Tensor DeepseekV2MLAAttention::forward_paged_(const infinicore::Tens
     if (is_prefill) {
         ASSERT(input_offsets.has_value());
         ASSERT(cu_seqlens.has_value());
-        const size_t num_reqs = total_sequence_lengths.value()->shape()[0];
-        const bool dense_equal_length_prefill = (num_reqs > 0) && (seq_len % num_reqs == 0);
-        bool used_dense_prefill = false;
-        if (dense_equal_length_prefill && g_dense_mla_prefill_state.load(std::memory_order_relaxed) != 2) {
+        if (attention_backend_ == ::infinilm::backends::AttentionBackend::FLASH_ATTN) {
+            const size_t num_reqs = total_sequence_lengths.value()->shape()[0];
+            ASSERT(num_reqs > 0);
+            ASSERT_EQ(seq_len % num_reqs, 0);
             const int max_seqlen = static_cast<int>(seq_len / num_reqs);
-            try {
-                infinicore::op::mha_varlen_(
-                    attn_output,
-                    query_states,
-                    key_states,
-                    value_states,
-                    input_offsets.value(),
-                    cu_seqlens.value(),
-                    block_tables.value(),
-                    max_seqlen,
-                    max_seqlen,
-                    std::nullopt,
-                    softmax_scale_);
-                g_dense_mla_prefill_state.store(1, std::memory_order_relaxed);
-                used_dense_prefill = true;
-            } catch (const std::runtime_error &err) {
-                if (!is_dense_mla_prefill_unavailable(err)) {
-                    throw;
-                }
-                g_dense_mla_prefill_state.store(2, std::memory_order_relaxed);
-            }
-        }
-        if (!used_dense_prefill) {
+            // K/V are dense prompt tensors. Passing block_tables here makes the
+            // varlen backend interpret them as a paged KV cache.
+            infinicore::op::mha_varlen_(
+                attn_output,
+                query_states,
+                key_states,
+                value_states,
+                input_offsets.value(),
+                cu_seqlens.value(),
+                std::nullopt,
+                max_seqlen,
+                max_seqlen,
+                std::nullopt,
+                softmax_scale_);
+        } else {
+            ASSERT_EQ(attention_backend_, ::infinilm::backends::AttentionBackend::PAGED_ATTN);
             infinicore::op::paged_attention_prefill_(
                 attn_output,
                 query_states,
