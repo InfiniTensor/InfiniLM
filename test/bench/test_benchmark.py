@@ -601,10 +601,7 @@ def main():
 
     device_str = cfg.get_device_str(device_type_str)
     if cfg.backend in {"transformers", "torch"}:
-        assert cfg.tp == 1, (
-            "Transformers backend only supports single-device evaluation"
-        )
-        model = TransformersBenchmark(cfg.model, device_str, cfg.bench)
+        model = TransformersBenchmark(cfg.model, device_str, cfg.tp, cfg.bench)
     elif cfg.backend == "vllm":
         model = VLLMBenchmark(cfg.model, device_str, cfg.tp, cfg.bench)
     elif cfg.backend in {"infinilm", "cpp", "python"}:
