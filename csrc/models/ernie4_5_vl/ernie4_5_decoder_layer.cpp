@@ -3,6 +3,7 @@
 #include "infinicore/ops.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace infinilm::models::ernie4_5_vl {
 namespace {
@@ -40,6 +41,7 @@ bool is_moe_layer(const nlohmann::json &config, size_t layer_idx) {
 
 Ernie45DecoderLayer::Ernie45DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                          size_t layer_idx,
+                                         std::shared_ptr<const Ernie45MropeCache> mrope_cache,
                                          const infinicore::Device &device) {
     const auto &dtype = model_config->get_dtype();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
@@ -47,7 +49,7 @@ Ernie45DecoderLayer::Ernie45DecoderLayer(std::shared_ptr<infinilm::config::Model
 
     INFINICORE_NN_MODULE_INIT(input_layernorm, hidden_size, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(post_attention_layernorm, hidden_size, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(self_attn, model_config, layer_idx, device);
+    INFINICORE_NN_MODULE_INIT(self_attn, model_config, layer_idx, std::move(mrope_cache), device);
 
     use_moe_ = is_moe_layer(model_config->get_config_json(), layer_idx);
     if (use_moe_) {

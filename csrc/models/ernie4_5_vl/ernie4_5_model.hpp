@@ -39,6 +39,7 @@ private:
                                 const Ernie45VisionModel &vision_model) const;
 
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
+    std::shared_ptr<const Ernie45MropeCache> mrope_cache_;
 };
 
 } // namespace infinilm::models::ernie4_5_vl

@@ -795,7 +795,7 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
             key.endswith((".mlp.gate.weight", ".mlp.gate.weight_1"))
             and tensor.is_floating_point()
         ):
-            remapped[key] = tensor.to(dtype=target_dtype)
+            remapped[key] = tensor.to(dtype=target_dtype).contiguous()
         else:
             remapped[key] = tensor
 
@@ -805,48 +805,72 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
             for expert_id in experts
             if text_expert_count is None or expert_id < text_expert_count
         )
+        vision_ids = []
+        if text_expert_count is not None:
+            vision_ids = sorted(
+                expert_id for expert_id in experts if expert_id >= text_expert_count
+            )
         if not text_ids:
             continue
 
-        w1_tensors = []
-        w2_tensors = []
-        b1_tensors = []
-        b2_tensors = []
-        has_all_bias = True
-        for expert_id in text_ids:
-            parts = experts[expert_id]
-            gate = parts.get(("gate_proj", "weight"))
-            up = parts.get(("up_proj", "weight"))
-            down = parts.get(("down_proj", "weight"))
-            if gate is None or up is None or down is None:
-                raise KeyError(
-                    f"Incomplete ERNIE MoE expert weights for {prefix}.{expert_id}"
+        def fuse_expert_group(expert_ids):
+            w1_tensors = []
+            w2_tensors = []
+            b1_tensors = []
+            b2_tensors = []
+            has_all_bias = True
+            for expert_id in expert_ids:
+                parts = experts[expert_id]
+                gate = parts.get(("gate_proj", "weight"))
+                up = parts.get(("up_proj", "weight"))
+                down = parts.get(("down_proj", "weight"))
+                if gate is None or up is None or down is None:
+                    raise KeyError(
+                        f"Incomplete ERNIE MoE expert weights for {prefix}.{expert_id}"
+                    )
+                w1_tensors.append(torch.cat([gate, up], dim=0))
+                w2_tensors.append(down)
+
+                gate_bias = parts.get(("gate_proj", "bias"))
+                up_bias = parts.get(("up_proj", "bias"))
+                down_bias = parts.get(("down_proj", "bias"))
+                if gate_bias is None or up_bias is None or down_bias is None:
+                    has_all_bias = False
+                else:
+                    b1_tensors.append(torch.cat([gate_bias, up_bias], dim=0))
+                    b2_tensors.append(down_bias)
+
+            fused = {
+                "w1": torch.stack(w1_tensors, dim=0)
+                .to(dtype=target_dtype)
+                .contiguous(),
+                "w2": torch.stack(w2_tensors, dim=0)
+                .to(dtype=target_dtype)
+                .contiguous(),
+            }
+            if has_all_bias:
+                fused["b1"] = (
+                    torch.stack(b1_tensors, dim=0).to(dtype=target_dtype).contiguous()
                 )
-            w1_tensors.append(torch.cat([gate, up], dim=0))
-            w2_tensors.append(down)
+                fused["b2"] = (
+                    torch.stack(b2_tensors, dim=0).to(dtype=target_dtype).contiguous()
+                )
+            return fused
 
-            gate_bias = parts.get(("gate_proj", "bias"))
-            up_bias = parts.get(("up_proj", "bias"))
-            down_bias = parts.get(("down_proj", "bias"))
-            if gate_bias is None or up_bias is None or down_bias is None:
-                has_all_bias = False
-            else:
-                b1_tensors.append(torch.cat([gate_bias, up_bias], dim=0))
-                b2_tensors.append(down_bias)
+        text_fused = fuse_expert_group(text_ids)
+        remapped[f"{prefix}.w1"] = text_fused["w1"]
+        remapped[f"{prefix}.w2"] = text_fused["w2"]
+        if "b1" in text_fused:
+            remapped[f"{prefix}.b1"] = text_fused["b1"]
+            remapped[f"{prefix}.b2"] = text_fused["b2"]
 
-        remapped[f"{prefix}.w1"] = (
-            torch.stack(w1_tensors, dim=0).to(dtype=target_dtype).contiguous()
-        )
-        remapped[f"{prefix}.w2"] = (
-            torch.stack(w2_tensors, dim=0).to(dtype=target_dtype).contiguous()
-        )
-        if has_all_bias:
-            remapped[f"{prefix}.b1"] = (
-                torch.stack(b1_tensors, dim=0).to(dtype=target_dtype).contiguous()
-            )
-            remapped[f"{prefix}.b2"] = (
-                torch.stack(b2_tensors, dim=0).to(dtype=target_dtype).contiguous()
-            )
+        if vision_ids:
+            vision_fused = fuse_expert_group(vision_ids)
+            remapped[f"{prefix}.w1_1"] = vision_fused["w1"]
+            remapped[f"{prefix}.w2_1"] = vision_fused["w2"]
+            if "b1" in vision_fused:
+                remapped[f"{prefix}.b1_1"] = vision_fused["b1"]
+                remapped[f"{prefix}.b2_1"] = vision_fused["b2"]
 
     return remapped
 

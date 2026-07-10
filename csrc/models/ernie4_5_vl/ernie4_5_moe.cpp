@@ -3,9 +3,11 @@
 #include "../../global_state/global_state.hpp"
 #include "infinicore/ops.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace infinilm::models::ernie4_5_vl {
 namespace {
@@ -31,7 +33,6 @@ std::vector<size_t> get_size_list(const nlohmann::json &config, const char *key)
 
 Ernie45TopKRouter::Ernie45TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      const infinicore::Device &device) {
-    const auto &dtype = model_config->get_dtype();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const size_t num_experts = model_config->get<size_t>("num_experts");
     const auto expert_counts = get_size_list(model_config->get_config_json(), "moe_num_experts");
@@ -43,17 +44,20 @@ Ernie45TopKRouter::Ernie45TopKRouter(std::shared_ptr<infinilm::config::ModelConf
 
     // ERNIE stores router weights as [hidden_size, group_num_experts], while Qwen3 stores
     // [num_experts, hidden_size]. matmul(hidden, weight) matches ERNIE directly.
+    const auto &dtype = model_config->get_dtype();
     INFINICORE_NN_PARAMETER_INIT(weight, ({hidden_size, num_experts}, dtype, device));
     if (num_router_groups > 1) {
         INFINICORE_NN_PARAMETER_INIT(weight_1, ({hidden_size, num_experts}, dtype, device));
     }
 }
 
-std::tuple<infinicore::Tensor, infinicore::Tensor> Ernie45TopKRouter::forward(const infinicore::Tensor &hidden_states, const infinicore::Tensor &correction_bias) const {
+std::tuple<infinicore::Tensor, infinicore::Tensor> Ernie45TopKRouter::forward(const infinicore::Tensor &hidden_states,
+                                                                              const infinicore::Tensor &correction_bias,
+                                                                              size_t group_idx) const {
     ASSERT(hidden_states->ndim() == 2);
-    ASSERT(hidden_states->dtype() == weight_->dtype());
-
-    auto router_logits = infinicore::op::matmul(hidden_states, weight_);
+    const auto router_weight = group_idx == 1 && weight_1_ ? static_cast<infinicore::Tensor>(weight_1_) : static_cast<infinicore::Tensor>(weight_);
+    ASSERT(hidden_states->dtype() == router_weight->dtype());
+    auto router_logits = infinicore::op::matmul(hidden_states, router_weight);
     return infinicore::op::moe_topk_softmax(router_logits, num_experts_per_tok_, norm_topk_prob_, 0.0f, correction_bias);
 }
 
@@ -102,8 +106,10 @@ Ernie45Experts::Ernie45Experts(std::shared_ptr<infinilm::config::ModelConfig> mo
     const auto &dtype = model_config->get_dtype();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const size_t text_intermediate_size = intermediate_sizes.front();
+    const size_t vision_intermediate_size = intermediate_sizes.size() > 1 ? intermediate_sizes[1] : text_intermediate_size;
     num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
     num_text_experts_ = expert_counts.front();
+    num_vision_experts_ = expert_counts.size() > 1 ? expert_counts[1] : 0;
     use_bias_ = model_config->get_or<bool>("mlp_bias", false);
 
     ASSERT((num_text_experts_ > 0) && (num_experts_per_tok_ > 0) && (num_experts_per_tok_ <= num_text_experts_));
@@ -113,27 +119,42 @@ Ernie45Experts::Ernie45Experts(std::shared_ptr<infinilm::config::ModelConfig> mo
         INFINICORE_NN_PARAMETER_INIT(b1, ({num_text_experts_, 2 * text_intermediate_size}, dtype, device));
         INFINICORE_NN_PARAMETER_INIT(b2, ({num_text_experts_, hidden_size}, dtype, device));
     }
+    if (num_vision_experts_ > 0) {
+        ASSERT(num_experts_per_tok_ <= num_vision_experts_);
+        INFINICORE_NN_PARAMETER_INIT(w1_1, ({num_vision_experts_, 2 * vision_intermediate_size, hidden_size}, dtype, device));
+        INFINICORE_NN_PARAMETER_INIT(w2_1, ({num_vision_experts_, hidden_size, vision_intermediate_size}, dtype, device));
+        if (use_bias_) {
+            INFINICORE_NN_PARAMETER_INIT(b1_1, ({num_vision_experts_, 2 * vision_intermediate_size}, dtype, device));
+            INFINICORE_NN_PARAMETER_INIT(b2_1, ({num_vision_experts_, hidden_size}, dtype, device));
+        }
+    }
 }
 
 infinicore::Tensor Ernie45Experts::forward(const infinicore::Tensor &hidden_states,
                                            const infinicore::Tensor &top_k_index,
-                                           const infinicore::Tensor &top_k_weights) const {
+                                           const infinicore::Tensor &top_k_weights,
+                                           size_t group_idx) const {
     ASSERT(hidden_states->ndim() == 2);
     ASSERT(top_k_index->ndim() == 2 && top_k_weights->ndim() == 2);
 
+    const bool use_vision = group_idx == 1 && w1_1_ && w2_1_;
+    const auto w1 = use_vision ? static_cast<infinicore::Tensor>(w1_1_) : static_cast<infinicore::Tensor>(w1_);
+    const auto w2 = use_vision ? static_cast<infinicore::Tensor>(w2_1_) : static_cast<infinicore::Tensor>(w2_);
     std::optional<infinicore::Tensor> b1 = std::nullopt;
     std::optional<infinicore::Tensor> b2 = std::nullopt;
     if (use_bias_) {
-        b1 = b1_;
-        b2 = b2_;
+        b1 = use_vision ? static_cast<infinicore::Tensor>(b1_1_) : static_cast<infinicore::Tensor>(b1_);
+        b2 = use_vision ? static_cast<infinicore::Tensor>(b2_1_) : static_cast<infinicore::Tensor>(b2_);
     }
-    return infinicore::op::fused_moe(hidden_states, top_k_index, top_k_weights, w1_, w2_, b1, b2,
+    return infinicore::op::fused_moe(hidden_states, top_k_index, top_k_weights, w1, w2, b1, b2,
                                      infinicore::op::FusedMoeActivation::Swiglu);
 }
 
 Ernie45MoE::Ernie45MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                        const infinicore::Device &device) {
     num_experts_ = model_config->get<size_t>("num_experts");
+    const auto expert_counts = get_size_list(model_config->get_config_json(), "moe_num_experts");
+    num_vision_experts_ = expert_counts.size() > 1 ? expert_counts[1] : 0;
     INFINICORE_NN_MODULE_INIT(gate, model_config, device);
     INFINICORE_NN_MODULE_INIT(experts, model_config, device);
 
@@ -162,13 +183,50 @@ Ernie45MoE::Ernie45MoE(std::shared_ptr<infinilm::config::ModelConfig> model_conf
     }
 }
 
+infinicore::Tensor Ernie45MoE::forward_group(const infinicore::Tensor &hidden_states_2d, size_t group_idx) const {
+    const size_t bias_row = group_idx == 1 ? 1 : 0;
+    auto correction_bias = e_score_correction_bias_ ? e_score_correction_bias_->narrow({{0, bias_row, 1}})->view({num_experts_}) : infinicore::Tensor();
+    auto [routing_weights, selected_experts] = gate_->forward(hidden_states_2d, correction_bias, group_idx);
+    return experts_->forward(hidden_states_2d, selected_experts, routing_weights, group_idx);
+}
+
 infinicore::Tensor Ernie45MoE::forward(const infinicore::Tensor &hidden_states) const {
     ASSERT(hidden_states->ndim() == 3);
     const auto shape = hidden_states->shape();
     auto hidden_states_reshaped = hidden_states->view({shape[0] * shape[1], shape[2]});
-    auto correction_bias = e_score_correction_bias_ ? e_score_correction_bias_->narrow({{0, 0, 1}})->view({num_experts_}) : infinicore::Tensor();
-    auto [routing_weights, selected_experts] = gate_->forward(hidden_states_reshaped, correction_bias);
-    auto final_hidden_states = experts_->forward(hidden_states_reshaped, selected_experts, routing_weights)->view(shape);
+
+    infinicore::Tensor final_hidden_states_2d;
+    const auto &mm_metadata = infinilm::global_state::get_forward_context().mm_metadata;
+    const bool has_visual_ranges = mm_metadata.visual_token_ranges.has_value()
+                                && !mm_metadata.visual_token_ranges->empty()
+                                && num_vision_experts_ > 0;
+    if (!has_visual_ranges) {
+        final_hidden_states_2d = forward_group(hidden_states_reshaped, 0);
+    } else {
+        final_hidden_states_2d = infinicore::Tensor::empty(hidden_states_reshaped->shape(), hidden_states_reshaped->dtype(), hidden_states_reshaped->device());
+        const auto &ranges = mm_metadata.visual_token_ranges.value();
+        const size_t total_tokens = hidden_states_reshaped->size(0);
+        size_t cursor = 0;
+        for (size_t i = 0; i + 1 < ranges.size(); i += 2) {
+            const size_t start = std::min(ranges[i], total_tokens);
+            const size_t end = std::min(ranges[i + 1], total_tokens);
+            if (cursor < start) {
+                const size_t len = start - cursor;
+                final_hidden_states_2d->narrow({{0, cursor, len}})->copy_from(forward_group(hidden_states_reshaped->narrow({{0, cursor, len}}), 0));
+            }
+            if (start < end) {
+                const size_t len = end - start;
+                final_hidden_states_2d->narrow({{0, start, len}})->copy_from(forward_group(hidden_states_reshaped->narrow({{0, start, len}}), 1));
+            }
+            cursor = std::max(cursor, end);
+        }
+        if (cursor < total_tokens) {
+            const size_t len = total_tokens - cursor;
+            final_hidden_states_2d->narrow({{0, cursor, len}})->copy_from(forward_group(hidden_states_reshaped->narrow({{0, cursor, len}}), 0));
+        }
+    }
+
+    auto final_hidden_states = final_hidden_states_2d->view(shape);
     if (has_shared_experts_) {
         final_hidden_states = infinicore::op::add(final_hidden_states, shared_experts_->forward(hidden_states));
     }

@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace infinilm::models::ernie4_5_vl {
 
@@ -21,11 +22,12 @@ Ernie45Model::Ernie45Model(std::shared_ptr<infinilm::config::ModelConfig> model_
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
     const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+    mrope_cache_ = build_ernie45_mrope_cache(model_config, device);
 
     INFINICORE_NN_MODULE_INIT(embed_tokens, vocab_size, hidden_size, std::nullopt, dtype, device);
     layers_.reserve(num_hidden_layers);
     for (size_t i = 0; i < num_hidden_layers; ++i) {
-        layers_.push_back(this->register_module<Ernie45DecoderLayer>("layers." + std::to_string(i), model_config, i, device));
+        layers_.push_back(this->register_module<Ernie45DecoderLayer>("layers." + std::to_string(i), model_config, i, mrope_cache_, device));
     }
     INFINICORE_NN_MODULE_INIT(norm, hidden_size, rms_norm_eps, dtype, device);
 }
@@ -79,13 +81,21 @@ void Ernie45Model::apply_image_embeddings(infinicore::Tensor inputs_embeds,
 
     auto input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device::cpu());
     auto *offsets = reinterpret_cast<const int32_t *>(input_offsets_cpu->data());
+    std::vector<size_t> visual_token_ranges;
     for (size_t image_idx = 0; image_idx < pixel_values.size(); ++image_idx) {
         const size_t req_id = image_req_ids[image_idx];
+        auto bounds_cpu = image_bound[image_idx]->to(infinicore::Device::cpu());
+        auto bounds = reinterpret_cast<const int64_t *>(bounds_cpu->data());
+        const size_t packed_start = static_cast<size_t>(offsets[req_id]) + static_cast<size_t>(bounds[0]);
+        const size_t packed_end = static_cast<size_t>(offsets[req_id]) + static_cast<size_t>(bounds[1]);
+        visual_token_ranges.push_back(packed_start);
+        visual_token_ranges.push_back(packed_end);
         auto req_embeds = inputs_embeds->narrow({{1, static_cast<size_t>(offsets[req_id]), static_cast<size_t>(offsets[req_id + 1] - offsets[req_id])}});
         auto image_features = vision_model.forward(pixel_values[image_idx], grid_thw[image_idx]);
         auto vision_hidden = resampler_model_->forward(image_features, grid_thw[image_idx]);
         replace_embeddings(req_embeds, vision_hidden, image_bound[image_idx]);
     }
+    mm_metadata.visual_token_ranges = std::move(visual_token_ranges);
 }
 
 infinicore::Tensor Ernie45Model::forward_embeds(infinicore::Tensor hidden_states,

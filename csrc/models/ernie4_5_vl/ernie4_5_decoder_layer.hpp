@@ -15,6 +15,7 @@ class Ernie45DecoderLayer : public infinicore::nn::Module {
 public:
     Ernie45DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                         size_t layer_idx,
+                        std::shared_ptr<const Ernie45MropeCache> mrope_cache,
                         const infinicore::Device &device);
 
     std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &positions,
