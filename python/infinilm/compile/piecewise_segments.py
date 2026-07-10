@@ -45,11 +45,12 @@ def piecewise_inductor_shared_cache_dir(
     *,
     cache_root: Optional[str] = None,
     model_path: str,
+    tp_rank: int = 0,
 ) -> str:
-    """Model-level TORCHINDUCTOR cache shared across segments on one rank batch."""
+    """Per-rank TORCHINDUCTOR cache (avoid rank0 cold-cache kernel drift on HPCC)."""
     root = cache_root or piecewise_inductor_cache_root()
     model_hash = model_cache_hash(model_path)
-    return os.path.join(root, model_hash, "inductor_shared")
+    return os.path.join(root, model_hash, "inductor_shared", f"rank{int(tp_rank)}")
 
 
 def _append_compile_profile(
@@ -238,15 +239,15 @@ def write_piecewise_inductor_metadata(
 
 
 def _rms_norm_last_dim(x: torch.Tensor, weight: torch.Tensor, eps: float) -> torch.Tensor:
-    if hasattr(torch.nn.functional, "rms_norm"):
-        return torch.nn.functional.rms_norm(
-            x,
-            (x.shape[-1],),
-            weight,
-            eps,
-        )
-    variance = x.pow(2).mean(dim=-1, keepdim=True)
-    return x * torch.rsqrt(variance + eps) * weight
+    """Explicit RMSNorm for stable AOTInductor export.
+
+    Use fp32 accumulators so inductor bf16 fusion matches eager on all TP shards
+    (rank0 input_layernorm weights previously drifted K by 0.25–2.0).
+    """
+    xf = x.float()
+    wf = weight.float()
+    variance = xf.pow(2).mean(dim=-1, keepdim=True)
+    return (xf * torch.rsqrt(variance + eps) * wf).to(dtype=x.dtype)
 
 
 def add_rms_norm(
@@ -256,9 +257,10 @@ def add_rms_norm(
     eps: float,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Match ``infinicore::op::add_rms_norm`` (residual_out ← a+b, hidden ← RMSNorm)."""
-    summed = hidden_states + residual
+    summed = hidden_states.float() + residual.float()
     normed = _rms_norm_last_dim(summed, weight, eps)
-    return normed, summed
+    out_dtype = hidden_states.dtype
+    return normed.to(out_dtype), summed.to(out_dtype)
 
 
 def add_rms_norm_inplace(
@@ -855,7 +857,9 @@ def aot_compile_piecewise_segment(
         "layer_agnostic": layer_agnostic,
     }
 
-    inductor_cache = piecewise_inductor_shared_cache_dir(cache_root=root, model_path=model_path)
+    inductor_cache = piecewise_inductor_shared_cache_dir(
+        cache_root=root, model_path=model_path, tp_rank=tp_rank
+    )
     os.makedirs(inductor_cache, exist_ok=True)
     os.environ["TORCHINDUCTOR_CACHE_DIR"] = os.path.abspath(inductor_cache)
 

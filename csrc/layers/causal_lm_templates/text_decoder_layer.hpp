@@ -79,7 +79,8 @@ public:
                             infinicore::Tensor &hidden_states,
                             infinicore::Tensor &residual,
                             global_state::PiecewiseLayerStaging &staging) const {
-        if (global_state::piecewise_inductor_segment_enabled()) {
+        if (global_state::piecewise_inductor_segment_enabled()
+            && global_state::get_forward_context().piecewise.allow_inductor_pre_attn) {
             const size_t bucket = hidden_states->size(1);
             if (infinicore::op::inductor_segment_impl::has_package(
                     infinicore::op::PiecewiseInductorSegmentId::PreAttn, layer_idx_, bucket)) {

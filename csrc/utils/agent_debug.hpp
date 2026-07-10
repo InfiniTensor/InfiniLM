@@ -58,6 +58,21 @@ inline int32_t last_int32(const infinicore::Tensor &t) {
     return reinterpret_cast<const int32_t *>(on_cpu->data())[n - 1];
 }
 
+inline uint32_t tensor_checksum_bf16(const infinicore::Tensor &t, size_t max_elems = 8) {
+    if (!t || t->numel() == 0 || skip_tensor_peek()) {
+        return 0;
+    }
+    auto on_cpu = t->contiguous()->to(infinicore::Device::cpu());
+    infinicore::context::syncStream();
+    const size_t n = std::min(max_elems, on_cpu->numel());
+    const auto *data = reinterpret_cast<const uint16_t *>(on_cpu->data());
+    uint32_t xor_sum = 0;
+    for (size_t i = 0; i < n; ++i) {
+        xor_sum ^= static_cast<uint32_t>(data[i]) << ((i % 2) * 16);
+    }
+    return xor_sum;
+}
+
 inline bool debug_enabled() {
     const char *v = std::getenv("INFINI_AGENT_DEBUG");
     return v != nullptr && v[0] != '\0' && std::string(v) != "0";

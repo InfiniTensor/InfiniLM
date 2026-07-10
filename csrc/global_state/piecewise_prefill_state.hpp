@@ -37,6 +37,8 @@ struct PiecewisePrefillState {
     std::vector<PiecewiseLayerStaging> layer_staging;
     /// True while native piecewise CG bucket capture is running (compile path).
     bool compile_capture_active{false};
+    /// Per-replay gate: when false, piecewise_pre_attn uses infiniop/CG even if inductor env is on.
+    bool allow_inductor_pre_attn{true};
 };
 
 } // namespace infinilm::global_state
