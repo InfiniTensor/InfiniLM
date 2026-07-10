@@ -8,7 +8,13 @@ from .base import BaseBenchmark
 class TransformersBenchmark(BaseBenchmark):
     """Hugging Face Transformers backend."""
 
-    def __init__(self, model_dir_path, device_type_str="cpu", benchmark="ceval"):
+    def __init__(
+        self,
+        model_dir_path,
+        device_type_str="cpu",
+        tensor_parallel_size=1,
+        benchmark="ceval",
+    ):
         import torch
         import transformers
 
@@ -20,6 +26,7 @@ class TransformersBenchmark(BaseBenchmark):
                 f"Transformers backend unsupported device type: {device_type_str}"
             )
         self.device = torch.device(device_type_str)
+        self.tensor_parallel_size = tensor_parallel_size
 
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             self.config_dict = json.load(f)
@@ -29,12 +36,36 @@ class TransformersBenchmark(BaseBenchmark):
         )
 
         print("Loading model with Transformers backend...")
+        load_kwargs = {
+            "dtype": "auto",
+            "trust_remote_code": True,
+        }
+        if tensor_parallel_size > 1:
+            if device_type_str != "cuda":
+                raise ValueError(
+                    "Transformers multi-GPU evaluation requires a CUDA device. "
+                    f"Got device_type_str={device_type_str!r}."
+                )
+            available_devices = torch.cuda.device_count()
+            if available_devices < tensor_parallel_size:
+                raise ValueError(
+                    f"Requested tp={tensor_parallel_size}, but only "
+                    f"{available_devices} CUDA devices are visible."
+                )
+            load_kwargs["device_map"] = "auto"
+            print(
+                "Transformers multi-GPU device_map=auto enabled "
+                f"for {tensor_parallel_size} visible CUDA devices"
+            )
+
         self.model = transformers.AutoModelForCausalLM.from_pretrained(
             model_dir_path,
-            dtype="auto",
-            trust_remote_code=True,
-        ).to(self.device)
+            **load_kwargs,
+        )
+        if tensor_parallel_size <= 1:
+            self.model = self.model.to(self.device)
         self.model.eval()
+        self.input_device = self.model.get_input_embeddings().weight.device
         print("Transformers model loaded successfully")
 
         eos_token_id = self.config_dict.get("eos_token_id")
@@ -56,7 +87,7 @@ class TransformersBenchmark(BaseBenchmark):
         prompt = self.render_input_content(*args)
         print(prompt, end="", flush=True)
         tokens = self.encode_text(prompt)
-        input_ids = torch.tensor([tokens], device=self.device)
+        input_ids = torch.tensor([tokens], device=self.input_device)
 
         self._synchronize()
         start_time = time.perf_counter()
