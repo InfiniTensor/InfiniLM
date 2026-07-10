@@ -311,8 +311,8 @@ class BaseConfig:
             "--backend",
             type=str,
             default="cpp",
-            choices=["python", "cpp", "torch", "vllm"],
-            help="backend type",
+            choices=["python", "cpp", "infinilm", "torch", "transformers", "vllm"],
+            help="backend type (cpp/infinilm, transformers/torch, or vllm)",
         )
 
         self.parser.add_argument(
