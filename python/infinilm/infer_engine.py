@@ -461,9 +461,11 @@ class InferEngine(_infinilm.InferEngine):
         _measure_and_log_time=False,
     ):
         eos_token_id = self.eos_token_id
+        self.reset_request_state()
 
         past_seq_len = 0
         output_ids = []
+        output_history = None
         initial_batch_size, initial_seqlen = input_ids.shape[:2]
         seq_len = initial_seqlen
         batch_size = initial_batch_size
@@ -474,7 +476,9 @@ class InferEngine(_infinilm.InferEngine):
             )
 
         if _measure_and_log_time:
-            time_measurements = []
+            generation_start_time = time.perf_counter()
+            prefill_latency = None
+            decode_start_time = None
 
         block_tables = None
         max_blocks_per_batch = 0
@@ -509,9 +513,6 @@ class InferEngine(_infinilm.InferEngine):
             )
 
         for iter in range(0, generation_config.max_new_tokens):
-            if _measure_and_log_time:
-                start_time = time.perf_counter()
-
             batch_size, seq_len = input_ids.shape[:2]
 
             if self.enable_paged_attn:
@@ -602,7 +603,27 @@ class InferEngine(_infinilm.InferEngine):
                 top_p=generation_config.top_p,
             )
 
-            output_ids.append(output_id)
+            if output_history is None and generation_config.max_new_tokens is not None:
+                output_history = infinicore.empty(
+                    [generation_config.max_new_tokens, batch_size],
+                    dtype=output_id.dtype,
+                    device=output_id.device,
+                )
+
+            if output_history is not None:
+                output_slot = output_history.narrow(0, iter, 1).view([batch_size])
+            else:
+                output_slot = infinicore.empty(
+                    [batch_size], dtype=output_id.dtype, device=output_id.device
+                )
+            self.copy_last_output_to(output_slot)
+            output_ids.append(output_slot)
+
+            if _measure_and_log_time and iter == 0:
+                self.sync_last_output()
+                prefill_end_time = time.perf_counter()
+                prefill_latency = prefill_end_time - generation_start_time
+                decode_start_time = prefill_end_time
 
             if (
                 initial_batch_size == 1
@@ -617,24 +638,31 @@ class InferEngine(_infinilm.InferEngine):
 
             past_seq_len = past_seq_len + seq_len
 
-            if _measure_and_log_time:
-                end_time = time.perf_counter()
-
-                time_measurements.append((end_time - start_time))
+        if output_ids:
+            self.sync_last_output()
 
         if _measure_and_log_time:
+            generation_end_time = time.perf_counter()
+            total_latency = generation_end_time - generation_start_time
+            if prefill_latency is None:
+                prefill_latency = total_latency
+                decode_latency = 0.0
+            else:
+                decode_latency = generation_end_time - decode_start_time
+            decode_tokens = max(0, len(output_ids) - 1)
+
             print(
-                f"\n\n\n Generation completed in {round(sum(time_measurements) * 1000, 2)} ms"
+                f"\n\n\n Generation completed in {round(total_latency * 1000, 2)} ms"
             )
             print(
-                f" Batchsize={initial_batch_size}  Per_Batch_Input_Len={initial_seqlen}  Per_Batch_New_Tokens={len(time_measurements)}\n"
+                f" Batchsize={initial_batch_size}  Per_Batch_Input_Len={initial_seqlen}  Per_Batch_New_Tokens={len(output_ids)}\n"
             )
             print(
-                f" Prefill TTFT: {round(time_measurements[0] * 1000, 2)} ms  Throughput: {round((initial_batch_size * initial_seqlen) / time_measurements[0], 2)} tok/s\n",
+                f" Prefill TTFT: {round(prefill_latency * 1000, 2)} ms  Throughput: {round((initial_batch_size * initial_seqlen) / prefill_latency, 2)} tok/s\n",
             )
-            if len(time_measurements) > 1:
+            if decode_tokens > 0:
                 print(
-                    f" Decode  Avg ITL: {round(sum(time_measurements[1:]) * 1000 / (len(time_measurements) - 1), 2)} ms   Throughput: {round((initial_batch_size * (len(time_measurements) - 1)) / sum(time_measurements[1:]), 2)} tok/s\n",
+                    f" Decode  Avg ITL: {round(decode_latency * 1000 / decode_tokens, 2)} ms   Throughput: {round((initial_batch_size * decode_tokens) / decode_latency, 2)} tok/s\n",
                 )
 
         return output_ids
@@ -643,6 +671,9 @@ class InferEngine(_infinilm.InferEngine):
         infinicore.sync_device()
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
         super().reset_cache(cache_config)
+
+    def copy_last_output_to(self, dst):
+        super().copy_last_output_to(dst._underlying)
 
     def state_dict_keyname(self):
         return list(super().state_dict_keyname())

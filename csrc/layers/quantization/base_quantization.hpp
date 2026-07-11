@@ -59,6 +59,18 @@ public:
         bool has_bias,
         float alpha = 1.0f) const = 0;
 
+    virtual infinicore::Tensor forward(
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        float alpha,
+        const infinicore::Tensor *output) const {
+        (void)output;
+        return forward(params, input, has_bias, alpha);
+    }
+
+    virtual bool supports_preallocated_output() const { return false; }
+
     // Dimension for fused-split (gate/up, q/k/v) of a column-parallel weight.
     // For NoneQuantization weight [out, in], split is on dim0.
     // For AWQ qweight [in, out/pack], split is on dim1.

@@ -12,6 +12,7 @@ import os
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from typing import AsyncIterator, List, Optional, Union
 
 import janus
@@ -32,6 +33,138 @@ from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 
 logger = logging.getLogger(__name__)
+
+
+_TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _parse_env_bool(value: str) -> bool:
+    return value.strip().lower() in _TRUE_ENV_VALUES
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return _parse_env_bool(value)
+
+
+def _env_optional_flag(name: str) -> Optional[bool]:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return None
+    return _parse_env_bool(value)
+
+
+def _env_optional_int(name: str, default: Optional[int] = None) -> Optional[int]:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return int(value)
+
+
+@dataclass(frozen=True)
+class PagedSchedulerOptions:
+    max_num_batched_tokens: int
+    enable_chunked_prefill: bool
+    prefill_chunk_size: Optional[int]
+    decode_priority: bool
+    max_num_partial_prefills: int
+    max_long_partial_prefills: int
+    long_prefill_token_threshold: Optional[int]
+    min_prefill_chunk_size: Optional[int]
+
+
+def _resolve_paged_scheduler_options(
+    config: EngineConfig,
+    max_position_embeddings: int,
+) -> PagedSchedulerOptions:
+    max_num_batched_tokens = _env_optional_int(
+        "INFINILM_MAX_NUM_BATCHED_TOKENS",
+        config.max_num_batched_tokens or max_position_embeddings,
+    )
+    if not 1024 <= max_num_batched_tokens <= max_position_embeddings:
+        raise ValueError(
+            "max_num_batched_tokens must be between 1024 and "
+            f"max_position_embeddings ({max_position_embeddings}), got "
+            f"{max_num_batched_tokens}"
+        )
+
+    enable_chunked_prefill = _env_flag(
+        "INFINILM_ENABLE_CHUNKED_PREFILL",
+        config.enable_chunked_prefill,
+    )
+
+    prefill_chunk_size = _env_optional_int(
+        "INFINILM_PREFILL_CHUNK_SIZE",
+        config.prefill_chunk_size,
+    )
+    if prefill_chunk_size is not None and not (
+        0 < prefill_chunk_size <= max_position_embeddings
+    ):
+        raise ValueError(
+            "prefill_chunk_size must be between 1 and "
+            f"max_position_embeddings ({max_position_embeddings}), got "
+            f"{prefill_chunk_size}"
+        )
+
+    decode_priority = _env_optional_flag("INFINILM_DECODE_PRIORITY")
+    if decode_priority is None:
+        decode_priority = config.decode_priority
+    if decode_priority is None:
+        decode_priority = enable_chunked_prefill
+
+    max_num_partial_prefills = _env_optional_int(
+        "INFINILM_MAX_NUM_PARTIAL_PREFILLS",
+        config.max_num_partial_prefills,
+    )
+    max_long_partial_prefills = _env_optional_int(
+        "INFINILM_MAX_LONG_PARTIAL_PREFILLS",
+        config.max_long_partial_prefills,
+    )
+    if max_num_partial_prefills < 1:
+        raise ValueError("max_num_partial_prefills must be >= 1")
+    if not 1 <= max_long_partial_prefills <= max_num_partial_prefills:
+        raise ValueError(
+            "max_long_partial_prefills must be between 1 and max_num_partial_prefills"
+        )
+
+    long_prefill_token_threshold = _env_optional_int(
+        "INFINILM_LONG_PREFILL_TOKEN_THRESHOLD",
+        config.long_prefill_token_threshold,
+    )
+    if long_prefill_token_threshold is None:
+        long_prefill_token_threshold = prefill_chunk_size or max_num_batched_tokens
+    if not 0 <= long_prefill_token_threshold <= max_position_embeddings:
+        raise ValueError(
+            "long_prefill_token_threshold must be between 0 and "
+            f"max_position_embeddings ({max_position_embeddings}), got "
+            f"{long_prefill_token_threshold}"
+        )
+
+    min_prefill_chunk_size = _env_optional_int(
+        "INFINILM_MIN_PREFILL_CHUNK_SIZE",
+        config.min_prefill_chunk_size,
+    )
+    if min_prefill_chunk_size is not None and not (
+        0 < min_prefill_chunk_size <= max_position_embeddings
+    ):
+        raise ValueError(
+            "min_prefill_chunk_size must be between 1 and "
+            f"max_position_embeddings ({max_position_embeddings}), got "
+            f"{min_prefill_chunk_size}"
+        )
+
+    return PagedSchedulerOptions(
+        max_num_batched_tokens=max_num_batched_tokens,
+        enable_chunked_prefill=enable_chunked_prefill,
+        prefill_chunk_size=prefill_chunk_size,
+        decode_priority=decode_priority,
+        max_num_partial_prefills=max_num_partial_prefills,
+        max_long_partial_prefills=max_long_partial_prefills,
+        long_prefill_token_threshold=long_prefill_token_threshold,
+        min_prefill_chunk_size=min_prefill_chunk_size,
+    )
 
 
 class LLMEngine:
@@ -82,19 +215,26 @@ class LLMEngine:
             )
             num_mamba_cache_blocks = max(2, config.num_blocks // 4)
 
-            max_num_batched_tokens = int(
-                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
+            scheduler_options = _resolve_paged_scheduler_options(
+                config,
+                max_position_embeddings,
             )
-            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
 
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
-                max_num_batched_tokens=max_num_batched_tokens,
+                max_num_batched_tokens=scheduler_options.max_num_batched_tokens,
                 connector=connector,
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
+                enable_chunked_prefill=scheduler_options.enable_chunked_prefill,
+                prefill_chunk_size=scheduler_options.prefill_chunk_size,
+                max_num_partial_prefills=scheduler_options.max_num_partial_prefills,
+                max_long_partial_prefills=scheduler_options.max_long_partial_prefills,
+                long_prefill_token_threshold=scheduler_options.long_prefill_token_threshold,
+                min_prefill_chunk_size=scheduler_options.min_prefill_chunk_size,
+                decode_priority=scheduler_options.decode_priority,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
             if has_mamba_cache:
@@ -122,6 +262,10 @@ class LLMEngine:
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
+    def get_cache_stats(self) -> dict:
+        """Return scheduler and KV cache statistics."""
+        return self.scheduler.get_cache_stats()
+
     def step(self) -> tuple[bool, list[tuple]]:
         """Run one inference step.
 
@@ -146,6 +290,7 @@ class LLMEngine:
             scheduler_output.is_prefill,
             scheduler_output.scheduled_requests,
             sampled_tokens_list,
+            scheduler_output.scheduled_prefill_flags,
         )
 
         # Return False (no immediate work) only when no requests were scheduled
@@ -166,6 +311,7 @@ class LLMEngine:
         is_prefill: bool,
         requests: List[InferenceRequest],
         sampled_tokens: List[int],
+        request_prefill_flags: Optional[List[bool]] = None,
     ) -> List[tuple]:
         """Update request status after inference step."""
         if is_prefill:
@@ -177,7 +323,19 @@ class LLMEngine:
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
         pending = []
-        for req, token_ids in zip(requests, sampled_tokens):
+        requests_to_complete = []
+        if request_prefill_flags is None:
+            request_prefill_flags = [is_prefill] * len(requests)
+        if len(request_prefill_flags) != len(requests):
+            raise RuntimeError(
+                "request_prefill_flags must match scheduled request count"
+            )
+        if len(sampled_tokens) != len(requests):
+            raise RuntimeError("sampled token count must match scheduled requests")
+
+        for req, token_ids, request_is_prefill in zip(
+            requests, sampled_tokens, request_prefill_flags
+        ):
             if req.is_aborted():
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
@@ -186,10 +344,17 @@ class LLMEngine:
                 # (status still RUNNING).
                 if not req.is_finished():
                     req.mark_canceled()
+                requests_to_complete.append(req)
                 continue
+
+            if request_is_prefill and self.cache_type == "paged":
+                can_sample = self.scheduler.complete_prefill_chunk(req)
+                if not can_sample:
+                    continue
 
             if not isinstance(token_ids, list):
                 token_ids = [token_ids]
+            requests_to_complete.append(req)
 
             for token_id in token_ids:
                 if req.is_finished():
@@ -246,7 +411,7 @@ class LLMEngine:
                         continue
                     pending.append((req.output_queue.async_q, output))
 
-        self.scheduler.complete_requests(requests)
+        self.scheduler.complete_requests(requests_to_complete)
         return pending
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
@@ -318,6 +483,7 @@ class LLM:
         tensor_parallel_size: int = 1,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
+        allreduce_backend: str = "nccl",
         cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 4096,
@@ -333,6 +499,14 @@ class LLM:
         weight_load_mode: str = "async",
         skip_load: bool = False,
         skip_legacy_moe: bool = False,
+        max_num_batched_tokens: Optional[int] = None,
+        enable_chunked_prefill: bool = False,
+        prefill_chunk_size: Optional[int] = None,
+        decode_priority: Optional[bool] = None,
+        max_num_partial_prefills: int = 1,
+        max_long_partial_prefills: int = 1,
+        long_prefill_token_threshold: Optional[int] = None,
+        min_prefill_chunk_size: Optional[int] = None,
     ):
         """Initialize LLM.
 
@@ -364,11 +538,20 @@ class LLM:
             tensor_parallel_size=tensor_parallel_size,
             moe_ep_backend=moe_ep_backend,
             moe_ep_size=moe_ep_size,
+            allreduce_backend=allreduce_backend,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
+            max_num_batched_tokens=max_num_batched_tokens,
+            enable_chunked_prefill=enable_chunked_prefill,
+            prefill_chunk_size=prefill_chunk_size,
+            decode_priority=decode_priority,
+            max_num_partial_prefills=max_num_partial_prefills,
+            max_long_partial_prefills=max_long_partial_prefills,
+            long_prefill_token_threshold=long_prefill_token_threshold,
+            min_prefill_chunk_size=min_prefill_chunk_size,
             max_cache_len=max_cache_len,
             temperature=temperature,
             top_p=top_p,
@@ -487,6 +670,10 @@ class LLM:
         outputs = [req.to_request_output() for req in requests]
         return outputs
 
+    def get_cache_stats(self) -> dict:
+        """Return scheduler and KV cache statistics."""
+        return self.engine.get_cache_stats()
+
     def chat(
         self,
         messages: Union[List[dict], List[List[dict]]],
@@ -525,6 +712,7 @@ class AsyncLLMEngine:
         tensor_parallel_size: int = 1,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
+        allreduce_backend: str = "nccl",
         cache_type: str = "paged",
         max_batch_size: int = 16,
         max_tokens: int = 512,
@@ -540,6 +728,14 @@ class AsyncLLMEngine:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         skip_legacy_moe: bool = False,
+        max_num_batched_tokens: Optional[int] = None,
+        enable_chunked_prefill: bool = False,
+        prefill_chunk_size: Optional[int] = None,
+        decode_priority: Optional[bool] = None,
+        max_num_partial_prefills: int = 1,
+        max_long_partial_prefills: int = 1,
+        long_prefill_token_threshold: Optional[int] = None,
+        min_prefill_chunk_size: Optional[int] = None,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -574,11 +770,20 @@ class AsyncLLMEngine:
             tensor_parallel_size=tensor_parallel_size,
             moe_ep_backend=moe_ep_backend,
             moe_ep_size=moe_ep_size,
+            allreduce_backend=allreduce_backend,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
+            max_num_batched_tokens=max_num_batched_tokens,
+            enable_chunked_prefill=enable_chunked_prefill,
+            prefill_chunk_size=prefill_chunk_size,
+            decode_priority=decode_priority,
+            max_num_partial_prefills=max_num_partial_prefills,
+            max_long_partial_prefills=max_long_partial_prefills,
+            long_prefill_token_threshold=long_prefill_token_threshold,
+            min_prefill_chunk_size=min_prefill_chunk_size,
             max_cache_len=max_cache_len,
             temperature=temperature,
             top_p=top_p,
@@ -601,6 +806,10 @@ class AsyncLLMEngine:
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
+
+    def get_cache_stats(self) -> dict:
+        """Return scheduler and KV cache statistics."""
+        return self.engine.get_cache_stats()
 
     def start(self):
         """Start the background inference loop."""

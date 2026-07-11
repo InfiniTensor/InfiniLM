@@ -1,5 +1,6 @@
 #include "communication_group.hpp"
 #include "../../utils.hpp"
+#include <spdlog/spdlog.h>
 
 namespace infinilm::engine::distributed {
 
@@ -22,6 +23,12 @@ CommunicationGroup::CommunicationGroup(const DistConfig &dist_config, infinicore
             communicators_.data(),
             dist_config.tp_device_ids.size(),
             dist_config.tp_device_ids.data()));
+        for (auto *comm : communicators_) {
+            RUN_INFINI(infinicclCommSetAllReduceBackend(comm, dist_config_.allreduce_backend));
+        }
+        if (dist_config_.allreduce_backend != INFINICCL_ALLREDUCE_BACKEND_NCCL) {
+            spdlog::info("InfiniCCL allreduce backend set to {}", std::string(dist_config_));
+        }
     }
 }
 
@@ -35,11 +42,20 @@ RankInfo CommunicationGroup::get_rank_info(int rank) const {
     info.tp_rank = rank;
     info.device = infinicore::Device(device_type_, dist_config_.tp_device_ids[rank]);
     info.comm = communicators_[rank];
+    info.allreduce_backend = dist_config_.allreduce_backend;
     return info;
 }
 
 int CommunicationGroup::get_world_size() const {
     return dist_config_.tp_device_ids.size();
+}
+
+void CommunicationGroup::clear_registered_allreduce_buffers() {
+    if (communicators_.size() > 1) {
+        RUN_INFINI(infinicclCommClearAllReduceBuffers(
+            communicators_.data(),
+            static_cast<int>(communicators_.size())));
+    }
 }
 
 CommunicationGroup::~CommunicationGroup() {

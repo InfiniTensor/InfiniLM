@@ -50,6 +50,9 @@ target("_infinilm")
 
     add_linkdirs(INFINI_ROOT.."/lib")
     add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl")
+    if is_plat("linux") then
+        add_links("dl")
+    end
 
     -- Add src files
     add_files("csrc/**.cpp")

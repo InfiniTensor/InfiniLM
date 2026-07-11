@@ -45,13 +45,31 @@ infinicore::Tensor GPTQMarlin::forward(
     const ParamsMap &params,
     const infinicore::Tensor &input,
     bool has_bias,
-    float /*alpha*/) const {
+    float alpha) const {
+    return forward(params, input, has_bias, alpha, nullptr);
+}
+
+infinicore::Tensor GPTQMarlin::forward(
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float /*alpha*/,
+    const infinicore::Tensor *preallocated_output) const {
     auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
     const auto &shape = input_contiguous->shape();
     const size_t k = shape.back();
     const size_t m = input_contiguous->numel() / k;
     auto flat_input = input_contiguous->view({m, k});
-    auto output = infinicore::Tensor::empty({m, output_size_per_partition_}, input->dtype(), input->device());
+
+    auto out_shape = shape;
+    out_shape.back() = output_size_per_partition_;
+    auto output = preallocated_output != nullptr
+                      ? (*preallocated_output)->view({m, output_size_per_partition_})
+                      : infinicore::Tensor::empty({m, output_size_per_partition_}, input->dtype(), input->device());
+    if (preallocated_output != nullptr &&
+        ((*preallocated_output)->shape() != out_shape || (*preallocated_output)->dtype() != input->dtype() || (*preallocated_output)->device() != input->device())) {
+        throw std::runtime_error("preallocated GPTQ Marlin output does not match linear output shape, dtype, or device");
+    }
 
     auto qweight = params.at("qweight");
     auto scales = params.at("scales");
@@ -83,8 +101,6 @@ infinicore::Tensor GPTQMarlin::forward(
         infinicore::op::add_(output, output, bias->as_strided(output->shape(), {0, 1}));
     }
 
-    auto out_shape = shape;
-    out_shape.back() = output_size_per_partition_;
     return output->view(out_shape);
 }
 
@@ -114,6 +130,15 @@ infinicore::Tensor GPTQMarlin::forward(
     const infinicore::Tensor &,
     bool,
     float) const {
+    throw std::runtime_error("GPTQ Marlin is not available because InfiniCore was built without Marlin GEMM headers.");
+}
+
+infinicore::Tensor GPTQMarlin::forward(
+    const ParamsMap &,
+    const infinicore::Tensor &,
+    bool,
+    float,
+    const infinicore::Tensor *) const {
     throw std::runtime_error("GPTQ Marlin is not available because InfiniCore was built without Marlin GEMM headers.");
 }
 

@@ -39,6 +39,7 @@ class ModelRunnerOutput:
     req_ids: list[str] = field(default_factory=list)
     sampled_token_ids: list[int | list[int]] = field(default_factory=list)
     kv_connector_output: KVConnectorOutput | None = None
+    execution_stats: dict[str, Any] = field(default_factory=dict)
 
 
 class ModelRunner:
@@ -71,6 +72,7 @@ class ModelRunner:
             device=self.device,
             distributed_config=DistConfig(
                 config.tensor_parallel_size,
+                allreduce_backend=config.allreduce_backend,
                 moe_ep_backend=config.moe_ep_backend,
                 moe_ep_size=config.moe_ep_size,
             ),
@@ -163,16 +165,19 @@ class ModelRunner:
 
     def execute_model(self, scheduler_output) -> ModelRunnerOutput:
         sampled_tokens_list = []
+        execution_stats = {}
         kv_connector_output = None
 
         if self.kv_connector is None:
-            sampled_tokens_list = self._model_forward(scheduler_output)
+            sampled_tokens_list, execution_stats = self._model_forward(scheduler_output)
         else:
             with self.maybe_get_kv_connector_output(
                 scheduler_output,
             ) as kv_connector_output:
                 if scheduler_output.num_requests > 0:
-                    sampled_tokens_list = self._model_forward(scheduler_output)
+                    sampled_tokens_list, execution_stats = self._model_forward(
+                        scheduler_output
+                    )
 
         #  model_runner_output
         req_ids = []
@@ -183,9 +188,67 @@ class ModelRunner:
             req_ids=req_ids,
             sampled_token_ids=sampled_tokens_list,
             kv_connector_output=kv_connector_output,
+            execution_stats=execution_stats,
         )
 
     def _model_forward(self, scheduler_output):
+        if self._should_split_mixed_batch(scheduler_output):
+            return self._model_forward_by_phase(scheduler_output)
+
+        sampled_tokens_list = self._model_forward_single(scheduler_output)
+        return sampled_tokens_list, self._make_execution_stats(
+            scheduler_output, split_mixed_batch=False
+        )
+
+    def _should_split_mixed_batch(self, scheduler_output) -> bool:
+        return (
+            self.config.cache_type == "paged"
+            and getattr(scheduler_output, "is_mixed", False)
+            and bool(getattr(scheduler_output, "execution_phases", None))
+        )
+
+    def _model_forward_by_phase(self, scheduler_output):
+        sampled_tokens_by_index = [None] * scheduler_output.num_requests
+        phase_records = []
+
+        for phase in scheduler_output.execution_phases:
+            sub_output = scheduler_output.make_subset(phase.request_indices)
+            phase_tokens = self._model_forward_single(sub_output)
+            if len(phase_tokens) != len(phase.request_indices):
+                raise RuntimeError(
+                    f"{phase.kind} phase sampled token count does not match request count"
+                )
+            for output_index, token_id in zip(phase.request_indices, phase_tokens):
+                sampled_tokens_by_index[output_index] = token_id
+            phase_records.append(
+                {
+                    "kind": phase.kind,
+                    "num_requests": len(phase.request_indices),
+                    "num_tokens": phase.num_tokens,
+                }
+            )
+
+        if any(token_id is None for token_id in sampled_tokens_by_index):
+            raise RuntimeError("phase execution did not cover every scheduled request")
+
+        return sampled_tokens_by_index, {
+            "split_mixed_batch": True,
+            "phases": phase_records,
+        }
+
+    def _make_execution_stats(self, scheduler_output, split_mixed_batch: bool) -> dict:
+        phases = []
+        for phase in getattr(scheduler_output, "execution_phases", []):
+            phases.append(
+                {
+                    "kind": phase.kind,
+                    "num_requests": len(phase.request_indices),
+                    "num_tokens": phase.num_tokens,
+                }
+            )
+        return {"split_mixed_batch": split_mixed_batch, "phases": phases}
+
+    def _model_forward_single(self, scheduler_output):
         # Build model inputs
         model_input = self.processor.build_model_inputs(
             scheduler_output,

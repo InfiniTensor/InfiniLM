@@ -192,9 +192,11 @@ class TestModel:
         skip_load=False,
         cache_config=None,
         enable_graph=False,
+        skip_legacy_moe=False,
         attn_backend="default",
         use_mla=False,
         weight_load_mode="async",
+        allreduce_backend="nccl",
         moe_ep_backend="disabled",
         moe_ep_size=1,
     ) -> None:
@@ -231,6 +233,7 @@ class TestModel:
             device=infini_device,
             distributed_config=DistConfig(
                 tp,
+                allreduce_backend=allreduce_backend,
                 moe_ep_backend=moe_ep_backend,
                 moe_ep_size=moe_ep_size,
             ),
@@ -240,6 +243,7 @@ class TestModel:
             kv_cache_dtype=cfg.kv_cache_dtype,
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
+            skip_legacy_moe=skip_legacy_moe,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -437,9 +441,11 @@ if __name__ == "__main__":
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,
+        skip_legacy_moe=cfg.skip_legacy_moe,
         attn_backend=attn_backend,
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,
+        allreduce_backend=cfg.allreduce_backend,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
     )
@@ -506,28 +512,31 @@ if __name__ == "__main__":
     #                                Warmup done
     # ---------------------------------------------------------------------------- #
 
-    for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
-        tqdm.write(f"\033[92mProcessing : {case}\033[0m")
+    try:
+        for idx, case in tqdm(cases_dict.items(), desc="Processing cases"):
+            tqdm.write(f"\033[92mProcessing : {case}\033[0m")
 
-        batch_size = case["batch_size"]
-        input_len = case["input_len"]
-        output_len = case["output_len"]
+            batch_size = case["batch_size"]
+            input_len = case["input_len"]
+            output_len = case["output_len"]
 
-        if not enable_paged_attn:
-            # reset cache if static kvcache is used
-            initial_capacity = input_len + output_len
-            test.model.reset_cache(
-                StaticKVCacheConfig(
-                    max_batch_size=batch_size, max_cache_len=initial_capacity
+            if not enable_paged_attn:
+                # reset cache if static kvcache is used
+                initial_capacity = input_len + output_len
+                test.model.reset_cache(
+                    StaticKVCacheConfig(
+                        max_batch_size=batch_size, max_cache_len=initial_capacity
+                    )
                 )
-            )
 
-        # run test one case
-        test.run(
-            batch_size=batch_size,
-            input_len=input_len,
-            output_len=output_len,
-            top_k=cfg.top_k,
-            top_p=cfg.top_p,
-            temperature=cfg.temperature,
-        )
+            # run test one case
+            test.run(
+                batch_size=batch_size,
+                input_len=input_len,
+                output_len=output_len,
+                top_k=cfg.top_k,
+                top_p=cfg.top_p,
+                temperature=cfg.temperature,
+            )
+    finally:
+        test.model.close()

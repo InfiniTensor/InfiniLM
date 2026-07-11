@@ -57,7 +57,7 @@ public:
     const infinicore::nn::Parameter &get_parameter_ref(const std::string &name) const;
 
 protected:
-    infinicore::Tensor compute_linear(infinicore::Tensor &input) const;
+    infinicore::Tensor compute_linear(infinicore::Tensor &input, const infinicore::Tensor *output = nullptr) const;
 
     size_t in_features_;
     size_t out_features_;

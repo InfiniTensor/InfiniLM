@@ -27,6 +27,15 @@ public:
         bool has_bias,
         float alpha = 1.0f) const override;
 
+    infinicore::Tensor forward(
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        float alpha,
+        const infinicore::Tensor *output) const override;
+
+    bool supports_preallocated_output() const override { return true; }
+
     std::vector<SplitParam> split_params(
         const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
         const std::vector<SplitInfo> &splits,

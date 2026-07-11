@@ -6,8 +6,11 @@
 #include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
 #include "compiler/general_compiler.hpp"
+#include "distributed/async_collective.hpp"
 #include "distributed/distributed.hpp"
 #include "rank_barrier.hpp"
+#include "workspace/inference_workspace_manager.hpp"
+#include "infinicore/device_event.hpp"
 
 #include <any>
 #include <condition_variable>
@@ -79,6 +82,9 @@ public:
 
         float top_p{1};
 
+        // GPU relay dependency from the previous sampled token. This is not exposed to Python.
+        std::shared_ptr<infinicore::DeviceEvent> wait_event;
+
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
 
@@ -86,6 +92,7 @@ public:
         infinicore::Tensor output_ids;
         infinicore::Tensor logits;
         infinicore::Tensor hidden_states;
+        std::shared_ptr<infinicore::DeviceEvent> ready_event;
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -126,6 +133,12 @@ public:
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
 
+    // Request worker shutdown. This only signals the worker and returns immediately.
+    void request_close();
+
+    // Join the worker thread after shutdown has been requested.
+    void join();
+
     // Request worker shutdown and join the thread.
     void close();
 
@@ -145,6 +158,8 @@ private:
     ForwardContext forward_context_;
     std::shared_ptr<InfinilmModel> model_;
     std::shared_ptr<cache::Cache> cache_;
+    std::unique_ptr<InferenceWorkspaceManager> workspace_manager_;
+    std::unique_ptr<distributed::AsyncCollectiveContext> async_collective_context_;
 
     // Backends
     backends::AttentionBackend attention_backend_;

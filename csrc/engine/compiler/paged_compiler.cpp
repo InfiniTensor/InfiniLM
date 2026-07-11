@@ -1,6 +1,7 @@
 #include "paged_compiler.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "../workspace/workspace_context.hpp"
 
 namespace infinilm::engine {
 
@@ -31,7 +32,7 @@ void PagedCompiler::compile() {
 
         auto make_decode_input = [&](size_t b) {
             InfinilmModel::Input input;
-            input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
+            input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I32, infinicore::context::getDevice());
             input.position_ids = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::context::getDevice());
             set_zeros(input.input_ids.value());
@@ -67,7 +68,10 @@ void PagedCompiler::compile() {
         {
             const size_t warmup_batch_size = std::min(max_batch_size, static_cast<size_t>(64));
             auto input = make_decode_input(warmup_batch_size);
-            model_->forward(input);
+            {
+                WorkspaceForwardGuard forward_guard(maybe_current_workspace());
+                model_->forward(input);
+            }
             infinicore::context::syncStream();
             // Warmup runs the eager Marlin path and may leave per-layer lock
             // workspaces dirty. Reset before CUDA graph capture so capture
@@ -80,7 +84,10 @@ void PagedCompiler::compile() {
             auto input = make_decode_input(b);
 
             barrier_->wait();
-            (void)model_->forward(input);
+            {
+                WorkspaceForwardGuard forward_guard(maybe_current_workspace());
+                (void)model_->forward(input);
+            }
             infinicore::context::syncStream();
             // Capture must not start with stale Marlin locks from previous
             // warmup/capture attempts. This reset is intentionally outside
@@ -88,7 +95,15 @@ void PagedCompiler::compile() {
             // before every graph replay in get_compiled().
             model_->reset_runtime_state();
             infinicore::context::syncStream();
+            barrier_->wait();
             infinicore::context::startGraphRecording();
+            WorkspaceCollectiveScopeGuard collective_scope_guard(
+                maybe_current_workspace(),
+                "paged_decode." + std::to_string(b));
+            WorkspaceForwardGuard forward_guard(maybe_current_workspace());
+            // Capture runtime workspace resets so graph replay does not need
+            // an extra host-launched reset phase before every decode token.
+            model_->reset_runtime_state();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();
             barrier_->wait();
@@ -135,13 +150,6 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             set_minus_one_device_async(graph_block_tables);
             graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
-            // CUDA graph replay reuses the same per-layer Marlin workspaces.
-            // The graph itself does not contain a workspace reset, so enqueue
-            // one on the same stream before launch. This is correct but costs
-            // decode latency; the intended follow-up is a reusable global
-            // zero workspace/lock buffer shared by all Marlin layers.
-            model_->reset_runtime_state();
-
             auto graph = std::get<0>(result->second.compiled);
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
 

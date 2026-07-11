@@ -67,6 +67,7 @@ class BaseConfig:
         self.ep = self.args.ep
         self.moe_ep_backend = self.args.moe_ep_backend
         self.skip_legacy_moe = self.args.skip_legacy_moe
+        self.allreduce_backend = self.args.allreduce_backend
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
@@ -81,6 +82,14 @@ class BaseConfig:
 
         self.batch_size = self.args.batch_size
         self.max_batch_size = self.args.max_batch_size
+        self.max_num_batched_tokens = self.args.max_num_batched_tokens
+        self.enable_chunked_prefill = self.args.enable_chunked_prefill
+        self.prefill_chunk_size = self.args.prefill_chunk_size
+        self.decode_priority = self.args.decode_priority
+        self.max_num_partial_prefills = self.args.max_num_partial_prefills
+        self.max_long_partial_prefills = self.args.max_long_partial_prefills
+        self.long_prefill_token_threshold = self.args.long_prefill_token_threshold
+        self.min_prefill_chunk_size = self.args.min_prefill_chunk_size
         self.input_len = self.args.input_len
         self.output_len = self.args.output_len
         self.max_new_tokens = self.args.max_new_tokens
@@ -214,6 +223,13 @@ class BaseConfig:
             action="store_true",
             help="use the new fused MoE implementation instead of the legacy Qwen3 MoE MLP",
         )
+        self.parser.add_argument(
+            "--allreduce-backend",
+            type=str,
+            default="nccl",
+            choices=["nccl", "auto", "custom"],
+            help="Tensor-parallel AllReduce backend selector.",
+        )
 
         # --- Infer backend optimization ---
         self.parser.add_argument(
@@ -268,6 +284,59 @@ class BaseConfig:
             type=int,
             default=8,
             help="maximum batch size for server",
+        )
+        self.parser.add_argument(
+            "--max-num-batched-tokens",
+            type=int,
+            default=None,
+            help="maximum scheduled tokens per step for paged-cache scheduler",
+        )
+        self.parser.add_argument(
+            "--enable-chunked-prefill",
+            action="store_true",
+            help="split long prefills across scheduler steps",
+        )
+        self.parser.add_argument(
+            "--prefill-chunk-size",
+            type=int,
+            default=None,
+            help="maximum tokens per prefill chunk when chunked prefill is enabled",
+        )
+        self.parser.add_argument(
+            "--decode-priority",
+            action="store_true",
+            default=None,
+            help=(
+                "schedule ready decode batches before waiting prefill chunks; "
+                "defaults to enabled when chunked prefill is enabled"
+            ),
+        )
+        self.parser.add_argument(
+            "--max-num-partial-prefills",
+            type=int,
+            default=1,
+            help="maximum partial prefill chunks scheduled in one step",
+        )
+        self.parser.add_argument(
+            "--max-long-partial-prefills",
+            type=int,
+            default=1,
+            help="maximum long partial prefill chunks scheduled in one step",
+        )
+        self.parser.add_argument(
+            "--long-prefill-token-threshold",
+            type=int,
+            default=None,
+            help=(
+                "prompt length threshold for long partial prefill limiting; "
+                "defaults to the resolved prefill chunk size"
+            ),
+        )
+        self.parser.add_argument(
+            "--min-prefill-chunk-size",
+            type=int,
+            default=None,
+            help="minimum non-final prefill chunk size when mixed with decode",
         )
         self.parser.add_argument(
             "--input-len", type=parse_list, default=10, help="input sequence length"
