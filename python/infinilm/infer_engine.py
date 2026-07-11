@@ -455,6 +455,7 @@ class InferEngine(_infinilm.InferEngine):
         input_ids,
         generation_config,
         *,
+        prefill_position_ids=None,
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
@@ -479,6 +480,12 @@ class InferEngine(_infinilm.InferEngine):
             generation_start_time = time.perf_counter()
             prefill_latency = None
             decode_start_time = None
+
+        mrope_position_delta = None
+        if prefill_position_ids is not None:
+            mrope_position_delta = (
+                int(prefill_position_ids.to_numpy().max()) + 1 - initial_seqlen
+            )
 
         block_tables = None
         max_blocks_per_batch = 0
@@ -517,10 +524,18 @@ class InferEngine(_infinilm.InferEngine):
 
             if self.enable_paged_attn:
                 input_ids = input_ids.view([1, batch_size * seq_len])
-                position_ids = infinicore.from_list(
-                    list(range(past_seq_len, past_seq_len + seq_len)) * batch_size,
-                    dtype=infinicore.int64,
-                )
+                if iter > 0 and mrope_position_delta is not None:
+                    mrope_position = past_seq_len + mrope_position_delta
+                    position_ids = infinicore.from_list(
+                        [[mrope_position] * 3 for _ in range(batch_size)],
+                        dtype=infinicore.int64,
+                    )
+                else:
+                    position_ids = infinicore.from_list(
+                        list(range(past_seq_len, past_seq_len + seq_len))
+                        * batch_size,
+                        dtype=infinicore.int64,
+                    )
 
                 if iter == 0:
                     slot_mapping_list = []
@@ -548,15 +563,25 @@ class InferEngine(_infinilm.InferEngine):
                     dtype=infinicore.int64,
                 )
             else:
-                position_ids = infinicore.from_list(
-                    [
-                        list(range(past_seq_len, past_seq_len + seq_len))
-                        for _ in range(batch_size)
-                    ],
-                    dtype=infinicore.int64,
-                )
+                if iter > 0 and mrope_position_delta is not None:
+                    mrope_position = past_seq_len + mrope_position_delta
+                    position_ids = infinicore.from_list(
+                        [[[mrope_position] * 3] for _ in range(batch_size)],
+                        dtype=infinicore.int64,
+                    )
+                else:
+                    position_ids = infinicore.from_list(
+                        [
+                            list(range(past_seq_len, past_seq_len + seq_len))
+                            for _ in range(batch_size)
+                        ],
+                        dtype=infinicore.int64,
+                    )
 
                 slot_mapping = None
+
+            if iter == 0 and prefill_position_ids is not None:
+                position_ids = prefill_position_ids
 
             past_kv_lengths = infinicore.from_list(
                 [past_seq_len] * batch_size, dtype=infinicore.int32

@@ -137,7 +137,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             input_offsets = [0, 1]
 
         return {
-            "input_ids": infinicore.from_list(input_ids, dtype=infinicore.int64),
+            "input_ids": infinicore.from_list(input_ids, dtype=infinicore.int32),
             "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
             "past_kv_lengths": infinicore.from_list(
                 [past_kv_len], dtype=infinicore.int32
@@ -249,7 +249,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
         return {
-            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
+            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int32),
             "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
             "past_kv_lengths": infinicore.from_list(
                 cached_lens, dtype=infinicore.int32

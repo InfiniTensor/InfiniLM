@@ -6,6 +6,7 @@ from collections import OrderedDict
 
 import infinicore
 import numpy as np
+from PIL import Image
 from infinilm.base_config import BaseConfig
 from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.distributed import DistConfig
@@ -14,6 +15,7 @@ from infinilm.llm.llm import LLM
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.moe_config import configure_moe_ep_backend
+from infinilm.multimodal.multimodal import load_video
 from infinilm.processors import AutoInfinilmProcessor
 from tqdm import tqdm
 
@@ -163,13 +165,66 @@ def get_test_cases(
     return case_dict
 
 
-prompt_path = (
-    "examples/bench_prompt.md"
-    if os.path.isfile("examples/bench_prompt.md")
-    else "InfiniLM/examples/bench_prompt.md"
-)
-with open(prompt_path, "r") as f:
-    prompt = f.read()
+DEFAULT_PROMPT = "How are you"
+
+
+def load_bench_prompt(prompt_text: str, prompt_file: str | None) -> str:
+    if prompt_file is not None:
+        with open(os.path.expanduser(prompt_file), "r") as f:
+            return f.read()
+    if prompt_text != DEFAULT_PROMPT:
+        return prompt_text
+    prompt_path = (
+        "examples/bench_prompt.md"
+        if os.path.isfile("examples/bench_prompt.md")
+        else "InfiniLM/examples/bench_prompt.md"
+    )
+    with open(prompt_path, "r") as f:
+        return f.read()
+
+
+def _build_vl_content(prompt_text: str, image_path: str | None, video_path: str | None):
+    content = []
+    if image_path is not None:
+        content.append({"type": "image_url", "image_url": {"url": image_path}})
+    if video_path is not None:
+        content.append({"type": "video_url", "video_url": {"url": video_path}})
+    content.append({"type": "text", "text": prompt_text})
+    return content
+
+
+def _load_vl_media(image_path: str | None, video_path: str | None):
+    images = None
+    videos = None
+    if image_path is not None:
+        images = [Image.open(image_path).convert("RGB")]
+    if video_path is not None:
+        videos = [load_video(video_path)]
+    return images, videos
+
+
+def get_vl_prompt_length(
+    model_path: str, image_path: str | None, video_path: str | None, prompt_text: str
+) -> int:
+    processor = AutoInfinilmProcessor.from_pretrained(model_path)
+    input_content = processor.apply_chat_template(
+        conversation=[
+            {
+                "role": "user",
+                "content": _build_vl_content(prompt_text, image_path, video_path),
+            }
+        ],
+        add_generation_prompt=True,
+        tokenize=False,
+    )
+    images, videos = _load_vl_media(image_path, video_path)
+    processed_inputs = processor(
+        input_content,
+        images=images,
+        videos=videos,
+        return_tensors="pt",
+    )
+    return int(processed_inputs["input_ids"].shape[-1])
 
 
 def repeat_prompt(input_ids: list[int], target_length: int):
@@ -199,6 +254,10 @@ class TestModel:
         allreduce_backend="nccl",
         moe_ep_backend="disabled",
         moe_ep_size=1,
+        prompt_text=DEFAULT_PROMPT,
+        repeat_prompt_to_length=True,
+        image_path=None,
+        video_path=None,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         self.draft_model_path = draft_model_path
@@ -261,17 +320,64 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        token编码
         # ---------------------------------------------------------------------------- #
-        input_content = self.processor.apply_chat_template(
-            conversation=[{"role": "user", "content": prompt}],
-            add_generation_prompt=True,
-            tokenize=False,
-        )
+        self.pixel_values = None
+        self.image_bound = None
+        self.tgt_sizes = None
+        self.prefill_position_ids = None
 
-        input_ids_list = [
-            self.tokenizer.encode(
-                input_content,
+        if image_path is not None or video_path is not None:
+            input_content = self.processor.apply_chat_template(
+                conversation=[
+                    {
+                        "role": "user",
+                        "content": _build_vl_content(
+                            prompt_text, image_path, video_path
+                        ),
+                    }
+                ],
+                add_generation_prompt=True,
+                tokenize=False,
             )
-        ]
+            images, videos = _load_vl_media(image_path, video_path)
+            processed_inputs = self.processor(
+                input_content,
+                images=images,
+                videos=videos,
+                return_tensors="infini",
+            )
+            input_ids_list = [processed_inputs["input_ids"].to_numpy()[0].tolist()]
+            self.pixel_values = processed_inputs.get("pixel_values")
+            self.image_bound = processed_inputs.get("image_bound")
+            self.tgt_sizes = processed_inputs.get("tgt_sizes")
+            self.prefill_position_ids = processed_inputs.get("position_ids")
+            print(
+                "VL input:",
+                {
+                    "input_ids": processed_inputs["input_ids"].shape,
+                    "position_ids": None
+                    if self.prefill_position_ids is None
+                    else self.prefill_position_ids.shape,
+                    "pixel_values": None
+                    if self.pixel_values is None
+                    else self.pixel_values.shape,
+                    "image_bound": None
+                    if self.image_bound is None
+                    else self.image_bound.shape,
+                    "tgt_sizes": None if self.tgt_sizes is None else self.tgt_sizes.shape,
+                },
+            )
+        else:
+            input_content = self.processor.apply_chat_template(
+                conversation=[{"role": "user", "content": prompt_text}],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+
+            input_ids_list = [
+                self.tokenizer.encode(
+                    input_content,
+                )
+            ]
 
         self.model = model
         self.input_ids_list = input_ids_list
@@ -285,6 +391,7 @@ class TestModel:
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
+        self.repeat_prompt_to_length = repeat_prompt_to_length
 
     def run(
         self,
@@ -295,7 +402,14 @@ class TestModel:
         top_p=1.0,
         temperature=1.0,
     ):
-        input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
+        if self.pixel_values is not None:
+            if batch_size != 1:
+                raise ValueError("VL benchmark currently supports batch_size=1")
+            input_ids = self.input_ids_list[0]
+        elif self.repeat_prompt_to_length:
+            input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
+        else:
+            input_ids = self.input_ids_list[0][:input_len]
         input_ids_list = [input_ids] * batch_size
 
         # ---------------------------------------------------------------------------- #
@@ -354,6 +468,10 @@ class TestModel:
                 temperature=temperature,
                 stop_on_eos=False,
             ),
+            pixel_values=self.pixel_values,
+            image_bound=self.image_bound,
+            tgt_sizes=self.tgt_sizes,
+            prefill_position_ids=self.prefill_position_ids,
             _measure_and_log_time=True,
         )
         t2 = time.time()
@@ -362,7 +480,15 @@ class TestModel:
             [output_id.to_numpy()[0] for output_id in output_ids]
         )
         if not skip_load:
-            print(self.tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
+            decoded_ids = numpy_output_ids.reshape(-1).tolist()
+            decoded_text = self.tokenizer.decode(decoded_ids, skip_special_tokens=True)
+            print(decoded_text)
+            if decoded_text == "":
+                print(f"[decode-empty] output_ids={decoded_ids}")
+                print(
+                    "[decode-empty] with_special_tokens="
+                    f"{self.tokenizer.decode(decoded_ids, skip_special_tokens=False)}"
+                )
 
         print(
             f"total_time: {round((t2 - t1) * 1000, 2)} ms",
@@ -397,12 +523,18 @@ if __name__ == "__main__":
     enable_paged_attn = cfg.enable_paged_attn
     enable_graph = cfg.enable_graph
     attn_backend = cfg.attn
+    prompt_text = load_bench_prompt(cfg.prompt, cfg.prompt_file)
 
     if isinstance(batch_size, int):
         batch_size = [batch_size]
 
     if isinstance(input_len, int):
         input_len = [input_len]
+    if cfg.image is not None or cfg.video is not None:
+        vl_prompt_len = get_vl_prompt_length(
+            model_path, cfg.image, cfg.video, prompt_text
+        )
+        input_len = [max(length, vl_prompt_len) for length in input_len]
 
     if isinstance(output_len, int):
         output_len = [output_len]
@@ -448,6 +580,10 @@ if __name__ == "__main__":
         allreduce_backend=cfg.allreduce_backend,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
+        prompt_text=prompt_text,
+        repeat_prompt_to_length=cfg.repeat_prompt,
+        image_path=cfg.image,
+        video_path=cfg.video,
     )
 
     # ---------------------------------------------------------------------------- #

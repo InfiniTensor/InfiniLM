@@ -254,17 +254,21 @@ void InferEngine::close() {
         return;
     }
     closed_ = true;
-    sync_last_output();
-    last_output_ready_event_.reset();
-    last_saved_output_event_.reset();
-    last_output_ids_.reset();
-    request_output_refs_.clear();
+    if (last_saved_output_event_) {
+        last_saved_output_event_->synchronize();
+    }
+
     for (auto &worker : workers_) {
         worker->request_close();
     }
     for (auto &worker : workers_) {
         worker->join();
     }
+
+    last_output_ready_event_.reset();
+    last_saved_output_event_.reset();
+    last_output_ids_.reset();
+    request_output_refs_.clear();
     workers_.clear();
     barrier_.reset();
 }

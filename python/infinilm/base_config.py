@@ -94,6 +94,8 @@ class BaseConfig:
         self.output_len = self.args.output_len
         self.max_new_tokens = self.args.max_new_tokens
         self.prompt = self.args.prompt
+        self.prompt_file = self.args.prompt_file
+        self.repeat_prompt = self.args.repeat_prompt
         self.top_k = self.args.top_k
         self.top_p = self.args.top_p
         self.temperature = self.args.temperature
@@ -352,6 +354,18 @@ class BaseConfig:
         )
         self.parser.add_argument(
             "--prompt", type=str, default="How are you", help="default prompt text"
+        )
+        self.parser.add_argument(
+            "--prompt-file",
+            type=str,
+            default=None,
+            help="read prompt text from a file instead of examples/bench_prompt.md",
+        )
+        self.parser.add_argument(
+            "--no-repeat-prompt",
+            action="store_false",
+            dest="repeat_prompt",
+            help="truncate the prompt to input-len instead of repeating it",
         )
         self.parser.add_argument("--top-k", type=int, default=1)
         self.parser.add_argument("--top-p", type=float, default=1.0)
