@@ -449,15 +449,17 @@ void RankWorker::thread_loop() {
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
                             const bool sample_all_positions = local_args.sample_all_positions;
+                            const size_t logits_positions = batch_size * total_len;
+                            const bool logits_are_last_token_only = !sample_all_positions && logits_positions == n_req;
                             const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
                             auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
 
                             for (size_t i{0}; i < n_out; ++i) {
                                 size_t score_idx = i;
-                                if (!sample_all_positions) {
+                                if (!sample_all_positions && !logits_are_last_token_only) {
                                     score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
                                 }
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
