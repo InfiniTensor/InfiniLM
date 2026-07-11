@@ -34,6 +34,17 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBa
     if (decode_batch_sizes_.empty() || decode_batch_sizes_.back() != max_batch_size) {
         decode_batch_sizes_.push_back(max_batch_size);
     }
+
+    // Keep 1-16 dense, retain multiples of eight from the legacy bucket list,
+    // and always capture the configured maximum.
+    if (max_batch_size > 16) {
+        decode_batch_sizes_.erase(
+            std::remove_if(decode_batch_sizes_.begin(), decode_batch_sizes_.end(),
+                           [max_batch_size](size_t b) {
+                               return b > 16 && b != max_batch_size && b % 8 != 0;
+                           }),
+            decode_batch_sizes_.end());
+    }
 }
 
 void PagedCompiler::compile() {
