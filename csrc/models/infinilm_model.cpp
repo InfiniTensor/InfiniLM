@@ -94,6 +94,10 @@ void InfinilmModel::process_weights_after_loading() {
 }
 
 void InfinilmModel::reset_runtime_state() const {
+    // Only quantized kernels currently keep resettable runtime state.
+    if (model_config_ && model_config_->get_quant_scheme() == quantization::QuantScheme::NONE) {
+        return;
+    }
     for (const auto &[_, sub] : children()) {
         reset_runtime_state_recursive_(sub.get());
     }
