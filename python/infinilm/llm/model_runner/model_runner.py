@@ -59,7 +59,9 @@ class ModelRunner:
             )
         elif config.cache_type == "paged":
             cache_config = PagedKVCacheConfig(
-                num_blocks=config.num_blocks, block_size=config.block_size
+                num_blocks=config.num_blocks,
+                block_size=config.block_size,
+                max_batch_size=config.max_batch_size,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
         else:
