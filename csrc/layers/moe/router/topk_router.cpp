@@ -1,5 +1,6 @@
 #include "topk_router.hpp"
 
+#include "../../../utils.hpp"
 #include "infinicore/ops.hpp"
 
 #include <stdexcept>
@@ -11,6 +12,9 @@ namespace {
 TopKRouterBackend parse_router_backend(const std::string &backend) {
     if (backend == "softmax") {
         return TopKRouterBackend::Softmax;
+    }
+    if (backend == "topksoftmax" || backend == "legacy_softmax") {
+        return TopKRouterBackend::LegacySoftmax;
     }
     if (backend == "sigmoid") {
         return TopKRouterBackend::Sigmoid;
@@ -53,9 +57,13 @@ TopKRouter::TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_conf
     use_correction_bias_ = model_config->get_or<bool>({"e_score_correction_bias", "moe_router_use_correction_bias"}, false) || router_backend_ == TopKRouterBackend::FusedGate;
     ASSERT((num_experts_ > 0) && (num_experts_per_tok_ > 0) && (num_experts_per_tok_ <= num_experts_));
 
+    const auto router_dtype_name = model_config->get_or<std::string>("moe_router_dtype", "");
+    const auto router_dtype = router_dtype_name.empty()
+                                ? model_config->get_dtype()
+                                : parse_dtype(router_dtype_name);
     INFINICORE_NN_PARAMETER_INIT(
         weight,
-        ({num_experts_, model_config->get<size_t>("hidden_size")}, model_config->get_dtype(), device));
+        ({num_experts_, model_config->get<size_t>("hidden_size")}, router_dtype, device));
 
     if (use_correction_bias_) {
         INFINICORE_NN_PARAMETER_INIT(e_score_correction_bias, ({num_experts_}, infinicore::DataType::F32, device));
@@ -79,9 +87,17 @@ TopKRouter::TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_conf
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> TopKRouter::forward(const infinicore::Tensor &hidden_states) const {
     ASSERT(hidden_states->ndim() == 2);
-
     size_t ntoken = hidden_states->shape()[0];
-    auto router_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
+    auto router_input = hidden_states->is_contiguous() ? hidden_states : hidden_states->contiguous();
+    auto router_weight = static_cast<infinicore::Tensor>(weight_);
+    router_weight = router_weight->is_contiguous() ? router_weight : router_weight->contiguous();
+    auto logits_shape = router_input->shape();
+    logits_shape[logits_shape.size() - 1] = num_experts_;
+    auto router_logits = infinicore::Tensor::empty(
+        logits_shape,
+        router_weight->dtype(),
+        router_input->device());
+    infinicore::op::linear_(router_logits, router_input, router_weight, std::nullopt, 1.0f);
 
     auto router_scores = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::F32, hidden_states->device());
     auto router_indices = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::I32, hidden_states->device());
@@ -97,6 +113,14 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> TopKRouter::forward(const inf
             correction_bias,
             norm_topk_prob_,
             moe_softcapping_);
+        break;
+    case TopKRouterBackend::LegacySoftmax:
+        infinicore::op::topksoftmax(
+            router_scores,
+            router_indices,
+            router_logits,
+            num_experts_per_tok_,
+            norm_topk_prob_);
         break;
     case TopKRouterBackend::Sigmoid:
         infinicore::op::moe_topk_sigmoid_(

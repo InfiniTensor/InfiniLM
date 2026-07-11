@@ -151,9 +151,10 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> GateUpParallelLinear::forward_split(infinicore::Tensor &input) {
     auto output = this->forward(input);
-    auto cols = output->shape()[2];
-    auto gate_output = output->narrow({{2, 0, cols / 2}});
-    auto up_output = output->narrow({{2, cols / 2, cols / 2}});
+    const size_t split_dim = output->ndim() - 1;
+    auto cols = output->size(split_dim);
+    auto gate_output = output->narrow({{split_dim, 0, cols / 2}});
+    auto up_output = output->narrow({{split_dim, cols / 2, cols / 2}});
     return std::make_tuple(gate_output, up_output);
 }
 

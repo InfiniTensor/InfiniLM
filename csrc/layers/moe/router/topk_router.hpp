@@ -11,6 +11,7 @@ namespace infinilm::layers::moe {
 
 enum class TopKRouterBackend {
     Softmax,
+    LegacySoftmax,
     Sigmoid,
     FusedGate,
 };
