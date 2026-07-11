@@ -54,7 +54,7 @@ void PagedCompiler::compile() {
 
         auto make_decode_input = [&](size_t b) {
             InfinilmModel::Input input;
-            input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
+            input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I32, infinicore::context::getDevice());
             input.position_ids = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::context::getDevice());
             set_zeros(input.input_ids.value());

@@ -131,6 +131,10 @@ inline void bind_infer_engine(py::module &m) {
             "Run inference on all ranks with arbitrary arguments")
         .def(
             "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def("reset_request_state", &InferEngine::reset_request_state, "Clear per-request relay state without resetting KV cache or recompiling graphs")
+        .def("sync_last_output", &InferEngine::sync_last_output, "Synchronize with the worker stream that produced the latest output")
+        .def("copy_last_output_to", &InferEngine::copy_last_output_to, py::arg("dst"), "Copy the latest output into a caller-owned tensor on the correct stream")
+        .def("close", &InferEngine::close, "Close worker threads and release engine-owned GPU resources")
         .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
@@ -252,9 +256,24 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("top_p", &InferEngine::Input::top_p);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
-        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Sampled token IDs")
-        .def_readwrite("logits", &InferEngine::Output::logits, "Raw logits tensor")
-        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor");
+        .def_property_readonly(
+            "output_ids",
+            [](const InferEngine::Output &output) {
+                return output.output_ids;
+            },
+            "Sampled token IDs")
+        .def_property_readonly(
+            "logits",
+            [](const InferEngine::Output &output) {
+                return output.logits;
+            },
+            "Raw logits tensor")
+        .def_property_readonly(
+            "hidden_states",
+            [](const InferEngine::Output &output) {
+                return output.hidden_states;
+            },
+            "Raw hidden states tensor");
 }
 
 } // namespace infinilm::engine

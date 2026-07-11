@@ -22,6 +22,7 @@ def infini_to_ctype_dtype(infini_dtype):
 def infini_to_numpy(infini_tensor: infinicore.Tensor):
     if infini_tensor.device.type != "cpu":
         infini_tensor_cpu = infini_tensor.to(infinicore.device("cpu", 0))
+        infinicore.sync_stream()
     else:
         infini_tensor_cpu = infini_tensor
 
