@@ -35,6 +35,11 @@ from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 logger = logging.getLogger(__name__)
 
 _MOE_BACKENDS = {"auto", "legacy", "fused"}
+# Apply the conservative prefill budget from 32 concurrent requests onward.
+# It still admits 64 x 32-token prompts in one wave while bounding longer packed
+# prefills on 24 GiB GPUs. `INFINILM_MAX_NUM_BATCHED_TOKENS` overrides it.
+_QWEN3_MOE_HIGH_CONCURRENCY_BATCH_SIZE = 32
+_QWEN3_MOE_MAX_BATCHED_TOKENS = 4096
 
 
 def _resolve_moe_backend(
@@ -97,6 +102,17 @@ def _resolve_moe_backend(
     return fused_supported, resolved_backend
 
 
+def _default_max_num_batched_tokens(
+    llm_config: dict, max_batch_size: int, max_position_embeddings: int
+) -> int:
+    if (
+        llm_config.get("model_type") == "qwen3_moe"
+        and max_batch_size >= _QWEN3_MOE_HIGH_CONCURRENCY_BATCH_SIZE
+    ):
+        return min(max_position_embeddings, _QWEN3_MOE_MAX_BATCHED_TOKENS)
+    return max_position_embeddings
+
+
 class LLMEngine:
     """Low-level LLM engine that handles inference execution."""
 
@@ -145,10 +161,18 @@ class LLMEngine:
             )
             num_mamba_cache_blocks = max(2, config.num_blocks // 4)
 
+            # Bound packed prefill activations for high-concurrency Qwen3-MoE.
+            default_max_num_batched_tokens = _default_max_num_batched_tokens(
+                llm_config, config.max_batch_size, max_position_embeddings
+            )
             max_num_batched_tokens = int(
-                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
+                os.getenv(
+                    "INFINILM_MAX_NUM_BATCHED_TOKENS",
+                    default_max_num_batched_tokens,
+                )
             )
             assert 1024 <= max_num_batched_tokens <= max_position_embeddings
+            logger.info("Scheduler max_num_batched_tokens=%d", max_num_batched_tokens)
 
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
