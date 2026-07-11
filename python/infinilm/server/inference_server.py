@@ -117,6 +117,7 @@ class InferenceServer:
         weight_load_mode: str = "async",
         ignore_eos: bool = False,
         kv_transfer_config: Optional[KVTransferConfig] = None,
+        moe_backend: str = "auto",
     ):
         """Initialize inference server.
 
@@ -144,6 +145,7 @@ class InferenceServer:
             weight_load_mode: Weight loading mode across tensor-parallel workers.
             ignore_eos: Whether to ignore EOS tokens during generation.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
+            moe_backend: MoE execution backend.
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -153,6 +155,7 @@ class InferenceServer:
         self.tensor_parallel_size = tensor_parallel_size
         self.moe_ep_backend = moe_ep_backend
         self.moe_ep_size = moe_ep_size
+        self.moe_backend = moe_backend
         self.cache_type = cache_type
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
@@ -192,6 +195,7 @@ class InferenceServer:
                 tensor_parallel_size=self.tensor_parallel_size,
                 moe_ep_backend=self.moe_ep_backend,
                 moe_ep_size=self.moe_ep_size,
+                moe_backend=self.moe_backend,
                 cache_type=self.cache_type,
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
@@ -607,6 +611,7 @@ def main():
         tensor_parallel_size=cfg.tp,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
+        moe_backend=cfg.moe_backend,
         cache_type="paged" if cfg.enable_paged_attn else "static",
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,

@@ -66,6 +66,7 @@ class BaseConfig:
         self.dp = self.args.dp
         self.ep = self.args.ep
         self.moe_ep_backend = self.args.moe_ep_backend
+        self.moe_backend = self.args.moe_backend
         self.skip_legacy_moe = self.args.skip_legacy_moe
 
         self.attn = self.args.attn
@@ -210,8 +211,15 @@ class BaseConfig:
             help=MOE_EP_BACKEND_HELP,
         )
         self.parser.add_argument(
+            "--moe-backend",
+            choices=["auto", "legacy", "fused"],
+            default="auto",
+            help="MoE execution backend",
+        )
+        self.parser.add_argument(
             "--skip-legacy-moe",
             action="store_true",
+            default=None,
             help="use the new fused MoE implementation instead of the legacy Qwen3 MoE MLP",
         )
 
