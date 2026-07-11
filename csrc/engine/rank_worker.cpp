@@ -1,8 +1,12 @@
 #include "rank_worker.hpp"
+#include "topology/device_topology.hpp"
+#include "../utils.hpp"
 #include "../models/model_factory.hpp"
+#include "workspace/workspace_context.hpp"
 #include "infinicore/ops.hpp"
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <tuple>
 
 namespace infinilm::engine {
 
@@ -246,9 +250,9 @@ std::vector<infinicore::Tensor> RankWorker::get_kv_cache() {
 }
 
 //------------------------------------------------------
-// close -- request shutdown and join thread
+// request_close -- request shutdown without waiting for the thread
 //------------------------------------------------------
-void RankWorker::close() {
+void RankWorker::request_close() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         should_exit_ = true;
@@ -256,10 +260,23 @@ void RankWorker::close() {
         job_cmd_ = Command::STOP;
     }
     cv_.notify_all();
+}
 
+//------------------------------------------------------
+// join -- wait for worker thread shutdown
+//------------------------------------------------------
+void RankWorker::join() {
     if (thread_.joinable()) {
         thread_.join();
     }
+}
+
+//------------------------------------------------------
+// close -- request shutdown and join thread
+//------------------------------------------------------
+void RankWorker::close() {
+    request_close();
+    join();
 }
 
 //------------------------------------------------------
@@ -280,6 +297,33 @@ void RankWorker::thread_loop() {
 
             // Initialize device & model outside of holding the main mutex to avoid blocking callers.
             infinicore::context::setDevice(rank_info_.device);
+            auto affinity_binding = topology::bind_current_thread_to_device_numa(rank_info_.device);
+            if (affinity_binding.applied) {
+                spdlog::info(
+                    "{} bound worker thread to NUMA node {} CPUs {} via {}{}",
+                    rank_info_.to_string(),
+                    affinity_binding.numa_node,
+                    affinity_binding.cpu_list,
+                    affinity_binding.provider,
+                    affinity_binding.pci_bus_id.empty() ? "" : " pci=" + affinity_binding.pci_bus_id);
+            } else if (affinity_binding.attempted) {
+                spdlog::debug(
+                    "{} skipped worker CPU affinity binding via {}: {}",
+                    rank_info_.to_string(),
+                    affinity_binding.provider,
+                    affinity_binding.reason);
+            }
+            workspace_manager_ = std::make_unique<InferenceWorkspaceManager>(rank_info_.device);
+            const bool enable_async_collectives = distributed::async_collectives_enabled_for_rank(
+                rank_info_.device,
+                rank_info_.tp_size,
+                rank_info_.comm);
+            async_collective_context_ = std::make_unique<distributed::AsyncCollectiveContext>(
+                rank_info_.device,
+                enable_async_collectives);
+            if (async_collective_context_->enabled()) {
+                spdlog::info("{} enabled async collective context", rank_info_.to_string());
+            }
 
             // Initialize global enviromnet.
             infinilm::global_state::initialize_model_parallel(rank_info_);
@@ -413,22 +457,41 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::RUN) {
                 try {
                     {
+                        WorkspaceForwardGuard forward_guard(workspace_manager_.get());
+                        WorkspaceContextGuard workspace_guard(workspace_manager_.get());
+                        distributed::AsyncCollectiveContextGuard async_collective_guard(async_collective_context_.get());
                         std::lock_guard<std::mutex> lk(mutex_);
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
-                        // All-position speculative/MTP runs need eager mode because
-                        // hidden states are not part of compiled graph outputs.
-                        if (!local_args.sample_all_positions && compiler_ != nullptr) {
-                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
-                            if (graph != nullptr && output != nullptr) {
-                                graph->run();
-                                logits = output->logits;
-                            }
+                        if (local_args.wait_event) {
+                            infinicore::context::setDevice(rank_info_.device);
+                            infinicore::context::streamWaitEvent(
+                                infinicore::context::getStream(), local_args.wait_event->get());
                         }
-                        // Fall back to eager mode
+                        auto model_args = local_args.to_model_input(rank_info_.device);
+                        std::shared_ptr<infinicore::graph::Graph> graph;
+                        std::shared_ptr<InfinilmModel::Output> graph_output;
+                        if (compiler_ != nullptr && !local_args.sample_all_positions) {
+                            std::tie(graph, graph_output) = compiler_->get_compiled(model_args);
+                        }
+
+                        const bool use_compiled_decode_graph = graph != nullptr && graph_output != nullptr;
+                        if (rank_info_.comm != nullptr &&
+                            rank_info_.allreduce_backend == INFINICCL_ALLREDUCE_BACKEND_CUSTOM) {
+                            RUN_INFINI(infinicclCommSetAllReduceBackend(
+                                rank_info_.comm,
+                                use_compiled_decode_graph ? INFINICCL_ALLREDUCE_BACKEND_CUSTOM
+                                                          : INFINICCL_ALLREDUCE_BACKEND_NCCL));
+                        }
+
+                        if (use_compiled_decode_graph) {
+                            graph->run();
+                            logits = graph_output->logits;
+                        }
+                        // Fall back to eager mode. This covers prefill and unsupported decode shapes;
+                        // when custom was requested, it is forced to NCCL above for this eager path.
                         if (!logits) {
-                            auto model_args = local_args.to_model_input(rank_info_.device);
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
@@ -449,9 +512,13 @@ void RankWorker::thread_loop() {
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
                             const bool sample_all_positions = local_args.sample_all_positions;
-                            const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
-
+                            const size_t n_out = sample_all_positions
+                                                     ? static_cast<size_t>(input_offsets[n_req])
+                                                     : n_req;
+                            const auto output_dtype = sample_all_positions
+                                                          ? infinicore::DataType::I64
+                                                          : infinicore::DataType::I32;
+                            auto output_ids{infinicore::Tensor::empty({n_out}, output_dtype, rank_info_.device)};
                             for (size_t i{0}; i < n_out; ++i) {
                                 size_t score_idx = i;
                                 if (!sample_all_positions) {
@@ -464,12 +531,9 @@ void RankWorker::thread_loop() {
                                     out, score, random_val, top_p, top_k, temperature);
                             }
 
-                            output_ids = output_ids->to(infinicore::Device::cpu());
-
-                            infinicore::context::syncStream();
-
-                            auto out{Output{output_ids, logits, hidden_states}};
-
+                            auto ready_event = std::make_shared<infinicore::DeviceEvent>(rank_info_.device);
+                            ready_event->record(infinicore::context::getStream());
+                            auto out{Output{output_ids, logits, hidden_states, ready_event}};
                             output_ = std::move(out);
                         }
 
@@ -509,6 +573,8 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::COMPILE) {
                 try {
                     if (compiler_ != nullptr) {
+                        WorkspaceContextGuard workspace_guard(workspace_manager_.get());
+                        distributed::AsyncCollectiveContextGuard async_collective_guard(async_collective_context_.get());
                         compiler_->compile();
                     }
                     {
@@ -532,8 +598,20 @@ void RankWorker::thread_loop() {
                 // Shouldn't reach here (no-op)
             }
         } // while
-        // Some clean up should be done before exiting the thread
+        // Release graph/model-owned GPU resources on the worker's CUDA context
+        // instead of leaving them to Python interpreter shutdown.
+        infinicore::context::setDevice(rank_info_.device);
+        infinicore::context::syncStream();
+        {
+            std::lock_guard<std::mutex> lk(mutex_);
+            output_ = Output{};
+            pending_args_ = Input{};
+        }
         compiler_.reset();
+        model_.reset();
+        workspace_manager_.reset();
+        async_collective_context_.reset();
+        infinicore::context::syncStream();
     } catch (const std::exception &e) {
         // Top-level exception: ensure any waiters are woken and the thread exits cleanly.
         {

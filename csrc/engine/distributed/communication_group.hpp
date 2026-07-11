@@ -20,9 +20,11 @@ struct RankInfo {
     int tp_rank;
     // Communicator handle
     infinicclComm_t comm;
+    // User-requested allreduce backend for this TP group.
+    infinicclAllReduceBackend_t allreduce_backend;
 
     RankInfo(infinicore::Device _device = infinicore::context::getDevice())
-        : tp_size(1), tp_rank(0), device(_device), comm(nullptr){};
+        : tp_size(1), tp_rank(0), device(_device), comm(nullptr), allreduce_backend(INFINICCL_ALLREDUCE_BACKEND_NCCL){};
 
     std::string to_string() const {
         std::stringstream ss;
@@ -41,6 +43,8 @@ public:
     RankInfo get_rank_info(int rank) const;
 
     int get_world_size() const;
+
+    void clear_registered_allreduce_buffers();
 
     ~CommunicationGroup();
 

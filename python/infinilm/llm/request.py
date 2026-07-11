@@ -161,6 +161,9 @@ class InferenceRequest:
         )
         self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
         self.num_blocks: int = 0
+        self.prefill_chunk_start: int = 0
+        self.prefill_chunk_end: int = 0
+        self.prefill_chunk_is_final: bool = True
 
         # Mamba cache management. None means no mamba cache row is currently owned.
         self.mamba_cache_index: Optional[int] = None

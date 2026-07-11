@@ -1,11 +1,13 @@
 #pragma once
 
+#include "../../engine/distributed/async_collective.hpp"
 #include "../quantization/quantization.hpp"
 #include "base_linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/ops.hpp"
 #include <infiniccl.h>
 #include <optional>
+#include <vector>
 
 namespace infinilm::nn {
 
@@ -52,6 +54,16 @@ protected:
     infinicore::Size tp_size_ = 1;
 };
 
+struct RowParallelLinearOutput {
+    infinicore::Tensor output;
+    infinicore::Tensor allreduce_input;
+    engine::distributed::AsyncCollectiveContext *async_context = nullptr;
+    std::vector<engine::distributed::PendingCollective> pending_collectives;
+
+    bool has_pending() const;
+    void wait() const;
+};
+
 class RowParallelLinear : public BaseLinear {
 public:
     // Without quantization (backward compat)
@@ -70,6 +82,7 @@ public:
                       infinicclComm_t communicator = nullptr);
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
+    RowParallelLinearOutput forward_async(infinicore::Tensor &input) const;
     std::string extra_repr() const;
 
 protected:
@@ -87,6 +100,7 @@ namespace infinilm::layers::linear {
 using ReplicatedLinear = infinilm::nn::Linear;
 using ColumnParallelLinear = infinilm::nn::ColumnParallelLinear;
 using RowParallelLinear = infinilm::nn::RowParallelLinear;
+using RowParallelLinearOutput = infinilm::nn::RowParallelLinearOutput;
 using BaseLinear = infinilm::nn::BaseLinear;
 
 } // namespace infinilm::layers::linear

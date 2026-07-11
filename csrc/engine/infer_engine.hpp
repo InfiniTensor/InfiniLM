@@ -55,6 +55,14 @@ public:
 
     void reset_cache(const cache::CacheConfig *new_config);
 
+    void reset_request_state();
+
+    void sync_last_output();
+
+    void copy_last_output_to(infinicore::Tensor dst);
+
+    void close();
+
     std::vector<std::vector<infinicore::Tensor>> get_kv_cache();
 
     ~InferEngine();
@@ -74,6 +82,11 @@ protected:
     std::string weight_load_mode_ = "async";
     bool weights_finalized_ = false;
     bool use_mla_{false};
+    bool closed_{false};
+    std::shared_ptr<infinicore::DeviceEvent> last_output_ready_event_;
+    infinicore::Tensor last_output_ids_;
+    std::shared_ptr<infinicore::DeviceEvent> last_saved_output_event_;
+    std::vector<infinicore::Tensor> request_output_refs_;
 };
 
 } // namespace infinilm::engine

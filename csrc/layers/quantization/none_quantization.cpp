@@ -1,6 +1,8 @@
 #include "none_quantization.hpp"
+#include "../../engine/workspace/tensor_allocator.hpp"
 #include "infinicore/ops/linear.hpp"
 #include <optional>
+#include <stdexcept>
 
 namespace infinilm::quantization {
 
@@ -26,6 +28,15 @@ infinicore::Tensor NoneQuantization::forward(
     const infinicore::Tensor &input,
     bool has_bias,
     float alpha) const {
+    return forward(params, input, has_bias, alpha, nullptr);
+}
+
+infinicore::Tensor NoneQuantization::forward(
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float alpha,
+    const infinicore::Tensor *preallocated_output) const {
 
     auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
     auto weight = params.at("weight");
@@ -35,7 +46,26 @@ infinicore::Tensor NoneQuantization::forward(
         bias_opt = params.at("bias");
     }
 
-    return infinicore::op::linear(input_contiguous->contiguous(), weight->contiguous(), bias_opt, alpha);
+    auto input_for_linear = input_contiguous->contiguous();
+    auto weight_for_linear = weight->contiguous();
+    auto output_shape = input_for_linear->shape();
+    output_shape.back() = weight_for_linear->shape()[0];
+
+    infinicore::Tensor output;
+    if (preallocated_output != nullptr) {
+        output = *preallocated_output;
+        if (output->shape() != output_shape || output->dtype() != input_for_linear->dtype() || output->device() != input_for_linear->device()) {
+            throw std::runtime_error("preallocated NoneQuantization output does not match linear output shape, dtype, or device");
+        }
+    } else {
+        output = infinilm::engine::allocate_inference_tensor(
+            "linear.none.output",
+            output_shape,
+            input_for_linear->dtype(),
+            input_for_linear->device());
+    }
+    infinicore::op::linear_(output, input_for_linear, weight_for_linear, bias_opt, alpha);
+    return output;
 }
 
 std::vector<SplitParam> NoneQuantization::split_params(

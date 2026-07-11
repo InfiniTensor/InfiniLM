@@ -32,7 +32,7 @@ BaseLinear::BaseLinear(size_t in_features, size_t out_features,
     }
 }
 
-infinicore::Tensor BaseLinear::compute_linear(infinicore::Tensor &input) const {
+infinicore::Tensor BaseLinear::compute_linear(infinicore::Tensor &input, const infinicore::Tensor *output) const {
     // Build params map from direct parameters only (not state_dict which uses a
     // static local and is not thread-safe across RankWorker threads).
     infinilm::quantization::ParamsMap params;
@@ -40,7 +40,7 @@ infinicore::Tensor BaseLinear::compute_linear(infinicore::Tensor &input) const {
         params[name] = static_cast<const infinicore::Tensor &>(param);
     }
 
-    return quantization_->forward(params, input, has_bias_, alpha_);
+    return quantization_->forward(params, input, has_bias_, alpha_, output);
 }
 
 infinicore::Tensor BaseLinear::forward(infinicore::Tensor &input) const {

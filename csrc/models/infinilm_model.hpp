@@ -20,7 +20,8 @@ public:
     struct Input {
         /// Token IDs tensor of shape `[batch, seq_len]`.
         std::optional<infinicore::Tensor> input_ids;
-        /// Position IDs tensor of shape `[batch, seq_len]` or `[seq_len]`.
+        /// Position IDs tensor of shape `[batch, seq_len]`, `[seq_len]`,
+        /// or `[batch, seq_len, 3]` / `[seq_len, 3]` for mrope models.
         std::optional<infinicore::Tensor> position_ids;
         /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
         std::optional<infinicore::Tensor> past_sequence_lengths;
@@ -69,6 +70,9 @@ public:
     virtual void reset_cache(const cache::CacheConfig *cache_config);
     virtual const cache::CacheConfig *get_cache_config() const {
         return cache_config_.get();
+    }
+    virtual bool supports_mrope_position_ids() const {
+        return false;
     }
 
     void process_weights_after_loading();

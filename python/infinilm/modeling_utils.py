@@ -59,8 +59,11 @@ def _is_internal_moe_packed_weight(key: str) -> bool:
     # InfiniLM registers packed MoE parameters internally. HF checkpoints
     # provide per-expert gate/up/down weights instead, so these packed tensors
     # are expected missing keys during non-strict checkpoint loading.
-    return key.endswith(".mlp.experts.w13_weight") or key.endswith(
-        ".mlp.experts.w2_weight"
+    return (
+        key.endswith(".mlp.experts.w13_weight")
+        or key.endswith(".mlp.experts.w2_weight")
+        or key.endswith(".mlp.vision_experts.w13_weight")
+        or key.endswith(".mlp.vision_experts.w2_weight")
     )
 
 
@@ -705,6 +708,69 @@ def _remap_videonsa(state_dict, config=None):
     return state_dict
 
 
+def _remap_ernie4_5_moe_vl(state_dict, config=None):
+    """Map ERNIE-4.5-VL-MoE weights to InfiniLM's module layout."""
+    text_num_experts = 0
+    if config is not None:
+        moe_num_experts = config.get("moe_num_experts", 0)
+        if isinstance(moe_num_experts, (list, tuple)):
+            text_num_experts = int(moe_num_experts[0])
+        else:
+            text_num_experts = int(moe_num_experts)
+
+    remapped = {}
+    for key, tensor in state_dict.items():
+        new_key = key
+        if new_key.startswith("language_model."):
+            new_key = "model." + new_key[len("language_model.") :]
+        elif new_key.startswith("model.language_model."):
+            new_key = "model." + new_key[len("model.language_model.") :]
+        elif new_key.startswith("model.resampler_model."):
+            new_key = "resampler_model." + new_key[len("model.resampler_model.") :]
+        elif new_key.startswith("model.vision_model."):
+            new_key = "vision_model." + new_key[len("model.vision_model.") :]
+
+        if new_key.endswith(".mlp.moe_statics.e_score_correction_bias"):
+            prefix = new_key.removesuffix(".mlp.moe_statics.e_score_correction_bias")
+            remapped[f"{prefix}.mlp.gate.e_score_correction_bias"] = tensor[
+                0
+            ].contiguous()
+            remapped[f"{prefix}.mlp.vision_gate.e_score_correction_bias"] = tensor[
+                1
+            ].contiguous()
+            continue
+
+        if ".mlp.moe_statics." in new_key:
+            continue
+
+        if ".mlp.experts." in new_key and text_num_experts > 0:
+            parts = new_key.split(".")
+            try:
+                expert_pos = parts.index("experts") + 1
+                expert_idx = int(parts[expert_pos])
+            except (ValueError, IndexError):
+                expert_idx = -1
+            if expert_idx >= text_num_experts:
+                parts[expert_pos - 1] = "vision_experts"
+                parts[expert_pos] = str(expert_idx - text_num_experts)
+                new_key = ".".join(parts)
+
+        if new_key.endswith(".mlp.gate.weight"):
+            remapped[new_key] = tensor.transpose(0, 1).contiguous()
+            continue
+
+        if new_key.endswith(".mlp.gate.weight_1"):
+            remapped[
+                new_key.removesuffix(".mlp.gate.weight_1")
+                + ".mlp.vision_gate.weight"
+            ] = tensor.transpose(0, 1).contiguous()
+            continue
+
+        remapped[new_key] = tensor
+
+    return remapped
+
+
 # Model type → remap function mapping
 def _remap_qwen3_5(state_dict, config):
     """Apply Qwen3.5-specific load-time weight fixes."""
@@ -751,4 +817,6 @@ _WEIGHT_REMAPPER = {
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
+    "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
+    "ernie4_5_vl_moe": _remap_ernie4_5_moe_vl,
 }

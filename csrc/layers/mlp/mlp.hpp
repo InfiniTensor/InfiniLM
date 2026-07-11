@@ -35,6 +35,7 @@ public:
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::layers::linear::RowParallelLinearOutput forward_async(const infinicore::Tensor &hidden_states) const;
 
     void process_weights_after_loading() override {
         gate_up_proj_->process_weights_after_loading();

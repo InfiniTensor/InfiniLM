@@ -112,6 +112,14 @@ class BlockManager:
         self.free_block_ids: deque = deque(range(num_blocks))
         self.used_block_ids: Set[int] = set()
         self.pending_block_ids: Set[int] = set()
+        self._stats = {
+            "prefix_cache_queries": 0,
+            "prefix_cache_hit_requests": 0,
+            "prefix_cache_hit_blocks": 0,
+            "prefix_cache_query_blocks": 0,
+            "prefix_cache_hit_tokens": 0,
+            "prefix_cache_evicted_blocks": 0,
+        }
 
     def __repr__(self):
         return (
@@ -150,6 +158,7 @@ class BlockManager:
 
         if block.hash != -1 and self.hash_to_block_id.get(block.hash) == block_id:
             del self.hash_to_block_id[block.hash]
+            self._stats["prefix_cache_evicted_blocks"] += 1
 
         block.free()
         self.used_block_ids.remove(block_id)
@@ -283,6 +292,13 @@ class BlockManager:
 
         num_local_cached_tokens = max_blocks_to_reuse * self.block_size
 
+        self._stats["prefix_cache_queries"] += 1
+        self._stats["prefix_cache_query_blocks"] += num_full_blocks
+        self._stats["prefix_cache_hit_blocks"] += max_blocks_to_reuse
+        self._stats["prefix_cache_hit_tokens"] += num_local_cached_tokens
+        if max_blocks_to_reuse > 0:
+            self._stats["prefix_cache_hit_requests"] += 1
+
         for block_id in range(max_blocks_to_reuse):
             block = self.blocks[blocks_blueprint[block_id]["block_id"]]
             block.ref_count += 1
@@ -325,9 +341,11 @@ class BlockManager:
 
         total_tokens = num_computed_tokens + num_new_tokens
 
-        num_blocks_needed = (
-            total_tokens + self.block_size - 1
-        ) // self.block_size - len(cached_block_table)
+        num_blocks_needed = max(
+            (total_tokens + self.block_size - 1) // self.block_size
+            - len(cached_block_table),
+            0,
+        )
 
         if not self.can_allocate(num_blocks_needed):
             if not self.try_free_blocks(num_blocks_needed):
@@ -341,7 +359,7 @@ class BlockManager:
 
         for block_idx in range(start_block_idx, total_blocks):
             start_tok = block_idx * self.block_size
-            end_tok = min(start_tok + self.block_size, len(token_ids))
+            end_tok = min(start_tok + self.block_size, total_tokens)
             block_tokens = token_ids[start_tok:end_tok]
             is_full_block = len(block_tokens) == self.block_size
 
@@ -533,6 +551,36 @@ class BlockManager:
 
     # PD-disaggregation specific
 
+    def commit_computed_blocks(
+        self,
+        block_table: List[int],
+        token_ids: List[int],
+        start_token: int,
+        end_token: int,
+    ) -> None:
+        """Register hashes for full blocks whose KV has just been computed."""
+        if end_token <= start_token:
+            return
+
+        first_block = start_token // self.block_size
+        last_full_block = end_token // self.block_size
+
+        for block_idx in range(first_block, last_full_block):
+            block_start = block_idx * self.block_size
+            block_end = block_start + self.block_size
+            if block_end > end_token:
+                break
+
+            block_id = block_table[block_idx]
+            block = self.blocks[block_id]
+            if block.hash == -1:
+                prefix_hash = -1
+                if block_idx > 0:
+                    prefix_hash = self.blocks[block_table[block_idx - 1]].hash
+                block_tokens = token_ids[block_start:block_end]
+                block.update(self.compute_hash(block_tokens, prefix_hash), block_tokens)
+            self.hash_to_block_id[block.hash] = block_id
+
     def update_blocks_hash(self, block_table: List[int], num_local_cached_tokens: int):
         """Register hashes for blocks beyond the locally cached prefix into the lookup table.
 
@@ -601,3 +649,16 @@ class BlockManager:
         new_slot_mapping.extend(range(base, base + end_offset))
 
         return new_slot_mapping
+
+    def get_stats(self) -> dict:
+        """Return prefix-cache statistics without mutating allocator state."""
+        stats = dict(self._stats)
+        query_blocks = stats["prefix_cache_query_blocks"]
+        stats["prefix_cache_block_hit_rate"] = (
+            stats["prefix_cache_hit_blocks"] / query_blocks if query_blocks else 0.0
+        )
+        queries = stats["prefix_cache_queries"]
+        stats["prefix_cache_request_hit_rate"] = (
+            stats["prefix_cache_hit_requests"] / queries if queries else 0.0
+        )
+        return stats

@@ -26,14 +26,19 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
         use_bias_, dtype, device, tp_rank, tp_size, rank_info.comm);
 }
 
-infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
+infinilm::layers::linear::RowParallelLinearOutput MLP::forward_async(const infinicore::Tensor &hidden_states) const {
     // 1. Project to gate and up
     auto hidden_states_mutable = hidden_states;
     auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
     // 2. Apply SwiGLU: silu(gate) * up
     auto intermediate = infinicore::op::swiglu(up, gate);
-    // 3. Project down
-    auto output = down_proj_->forward(intermediate);
-    return output;
+    // 3. Project down and optionally leave row-parallel allreduce pending.
+    return down_proj_->forward_async(intermediate);
+}
+
+infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
+    auto output = forward_async(hidden_states);
+    output.wait();
+    return output.output;
 }
 } // namespace infinilm::layers::mlp

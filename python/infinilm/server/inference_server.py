@@ -100,9 +100,18 @@ class InferenceServer:
         tensor_parallel_size: int = 1,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
+        allreduce_backend: str = "nccl",
         cache_type: str = "paged",
         max_tokens: int = 4096,
         max_batch_size: int = 16,
+        max_num_batched_tokens: Optional[int] = None,
+        enable_chunked_prefill: bool = False,
+        prefill_chunk_size: Optional[int] = None,
+        decode_priority: Optional[bool] = None,
+        max_num_partial_prefills: int = 1,
+        max_long_partial_prefills: int = 1,
+        long_prefill_token_threshold: Optional[int] = None,
+        min_prefill_chunk_size: Optional[int] = None,
         num_blocks: int = 512,
         block_size: int = 256,
         max_cache_len: int = 4096,
@@ -130,6 +139,14 @@ class InferenceServer:
             cache_type: Cache type ('paged' or 'static').
             max_tokens: Default maximum tokens to generate.
             max_batch_size: Maximum batch size for inference (only for paged cache).
+            max_num_batched_tokens: Token budget per scheduler step.
+            enable_chunked_prefill: Whether to split long prefills across steps.
+            prefill_chunk_size: Maximum tokens per prefill chunk.
+            decode_priority: Whether to schedule decode before waiting prefill chunks.
+            max_num_partial_prefills: Maximum partial prefill chunks per scheduler step.
+            max_long_partial_prefills: Maximum long partial prefill chunks per step.
+            long_prefill_token_threshold: Prompt length threshold for long partial prefills.
+            min_prefill_chunk_size: Minimum non-final mixed prefill chunk size.
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).
             max_cache_len: Maximum sequence length (only for static cache).
@@ -153,9 +170,18 @@ class InferenceServer:
         self.tensor_parallel_size = tensor_parallel_size
         self.moe_ep_backend = moe_ep_backend
         self.moe_ep_size = moe_ep_size
+        self.allreduce_backend = allreduce_backend
         self.cache_type = cache_type
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
+        self.max_num_batched_tokens = max_num_batched_tokens
+        self.enable_chunked_prefill = enable_chunked_prefill
+        self.prefill_chunk_size = prefill_chunk_size
+        self.decode_priority = decode_priority
+        self.max_num_partial_prefills = max_num_partial_prefills
+        self.max_long_partial_prefills = max_long_partial_prefills
+        self.long_prefill_token_threshold = long_prefill_token_threshold
+        self.min_prefill_chunk_size = min_prefill_chunk_size
         self.num_blocks = num_blocks
         self.block_size = block_size
         self.max_cache_len = max_cache_len
@@ -192,9 +218,18 @@ class InferenceServer:
                 tensor_parallel_size=self.tensor_parallel_size,
                 moe_ep_backend=self.moe_ep_backend,
                 moe_ep_size=self.moe_ep_size,
+                allreduce_backend=self.allreduce_backend,
                 cache_type=self.cache_type,
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
+                max_num_batched_tokens=self.max_num_batched_tokens,
+                enable_chunked_prefill=self.enable_chunked_prefill,
+                prefill_chunk_size=self.prefill_chunk_size,
+                decode_priority=self.decode_priority,
+                max_num_partial_prefills=self.max_num_partial_prefills,
+                max_long_partial_prefills=self.max_long_partial_prefills,
+                long_prefill_token_threshold=self.long_prefill_token_threshold,
+                min_prefill_chunk_size=self.min_prefill_chunk_size,
                 num_blocks=self.num_blocks,
                 block_size=self.block_size,
                 max_cache_len=self.max_cache_len,
@@ -267,6 +302,13 @@ class InferenceServer:
             ):
                 return JSONResponse(content={"status": "unhealthy"}, status_code=503)
             return {"status": "healthy"}
+
+        @app.get("/cache_stats")
+        @app.get("/v1/cache_stats")
+        async def cache_stats():
+            if self.engine is None:
+                return JSONResponse(content={"error": "engine not initialized"}, status_code=503)
+            return self.engine.get_cache_stats()
 
         def _models_payload():
             return {
@@ -607,9 +649,18 @@ def main():
         tensor_parallel_size=cfg.tp,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
+        allreduce_backend=cfg.allreduce_backend,
         cache_type="paged" if cfg.enable_paged_attn else "static",
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,
+        max_num_batched_tokens=cfg.max_num_batched_tokens,
+        enable_chunked_prefill=cfg.enable_chunked_prefill,
+        prefill_chunk_size=cfg.prefill_chunk_size,
+        decode_priority=cfg.decode_priority,
+        max_num_partial_prefills=cfg.max_num_partial_prefills,
+        max_long_partial_prefills=cfg.max_long_partial_prefills,
+        long_prefill_token_threshold=cfg.long_prefill_token_threshold,
+        min_prefill_chunk_size=cfg.min_prefill_chunk_size,
         num_blocks=cfg.num_blocks,
         block_size=cfg.block_size,
         max_cache_len=cfg.max_cache_len,

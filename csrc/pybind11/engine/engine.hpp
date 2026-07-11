@@ -9,11 +9,20 @@ namespace py = pybind11;
 namespace infinilm::engine::distributed {
 
 inline void bind_dist_config(py::module &m) {
+    py::enum_<infinicclAllReduceBackend_t>(m, "AllReduceBackend")
+        .value("AUTO", INFINICCL_ALLREDUCE_BACKEND_AUTO)
+        .value("NCCL", INFINICCL_ALLREDUCE_BACKEND_NCCL)
+        .value("CUSTOM", INFINICCL_ALLREDUCE_BACKEND_CUSTOM);
+
     py::class_<DistConfig>(m, "DistConfig")
         .def(py::init<>(), "Default constructor, empty device list")
-        .def(py::init<int>(), py::arg("tp_size"),
+        .def(py::init<int, infinicclAllReduceBackend_t>(),
+             py::arg("tp_size"),
+             py::arg("allreduce_backend") = INFINICCL_ALLREDUCE_BACKEND_NCCL,
              "Constructor with tensor parallel size, auto-assigns device IDs 0..tp_size-1")
-        .def(py::init<const std::vector<int> &>(), py::arg("tp_device_ids"),
+        .def(py::init<const std::vector<int> &, infinicclAllReduceBackend_t>(),
+             py::arg("tp_device_ids"),
+             py::arg("allreduce_backend") = INFINICCL_ALLREDUCE_BACKEND_NCCL,
              "Constructor with explicit device IDs")
         .def_readwrite("tp_device_ids", &DistConfig::tp_device_ids,
                        "List of device IDs used in tensor parallelism")
@@ -21,6 +30,8 @@ inline void bind_dist_config(py::module &m) {
                        "MoE expert-parallel backend")
         .def_readwrite("moe_ep_size", &DistConfig::moe_ep_size,
                        "MoE expert-parallel size")
+        .def_readwrite("allreduce_backend", &DistConfig::allreduce_backend,
+                       "AllReduce backend selector")
         .def("__repr__", [](const DistConfig &cfg) {
             return std::string(cfg);
         })
@@ -123,6 +134,10 @@ inline void bind_infer_engine(py::module &m) {
             "Run inference on all ranks with arbitrary arguments")
         .def(
             "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+        .def("reset_request_state", &InferEngine::reset_request_state, "Clear per-request relay state without resetting KV cache or recompiling graphs")
+        .def("sync_last_output", &InferEngine::sync_last_output, "Synchronize with the worker stream that produced the latest output")
+        .def("copy_last_output_to", &InferEngine::copy_last_output_to, py::arg("dst"), "Copy the latest output into a caller-owned tensor on the correct stream")
+        .def("close", &InferEngine::close, "Close worker threads and release engine-owned GPU resources")
         .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
@@ -244,9 +259,24 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("top_p", &InferEngine::Input::top_p);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
-        .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Sampled token IDs")
-        .def_readwrite("logits", &InferEngine::Output::logits, "Raw logits tensor")
-        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor");
+        .def_property_readonly(
+            "output_ids",
+            [](const InferEngine::Output &output) {
+                return output.output_ids;
+            },
+            "Sampled token IDs")
+        .def_property_readonly(
+            "logits",
+            [](const InferEngine::Output &output) {
+                return output.logits;
+            },
+            "Raw logits tensor")
+        .def_property_readonly(
+            "hidden_states",
+            [](const InferEngine::Output &output) {
+                return output.hidden_states;
+            },
+            "Raw hidden states tensor");
 }
 
 } // namespace infinilm::engine
