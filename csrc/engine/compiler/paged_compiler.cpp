@@ -18,6 +18,22 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBa
     for (size_t b = 256; b <= 512; b += 64) {
         decode_batch_sizes_.push_back(b);
     }
+
+    const auto *config = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
+    if (config == nullptr) {
+        return;
+    }
+    const size_t max_batch_size = config->max_batch_size();
+    if (max_batch_size == 0) {
+        throw std::invalid_argument("Paged Graph max_batch_size must be greater than zero");
+    }
+    decode_batch_sizes_.erase(
+        std::remove_if(decode_batch_sizes_.begin(), decode_batch_sizes_.end(),
+                       [max_batch_size](size_t b) { return b > max_batch_size; }),
+        decode_batch_sizes_.end());
+    if (decode_batch_sizes_.empty() || decode_batch_sizes_.back() != max_batch_size) {
+        decode_batch_sizes_.push_back(max_batch_size);
+    }
 }
 
 void PagedCompiler::compile() {
