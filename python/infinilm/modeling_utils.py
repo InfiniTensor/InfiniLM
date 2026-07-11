@@ -705,6 +705,63 @@ def _remap_videonsa(state_dict, config=None):
     return state_dict
 
 
+def _remap_ernie4_5_vl(state_dict, config=None):
+    """Remap ERNIE-4.5-VL model weights to InfiniLM format.
+    Handle MoE gate weight transpose, dtype conversion, and parameter name mapping issues."""
+    import torch
+    
+    result = {}
+    for key, tensor in state_dict.items():
+        new_key = key  # 默认保持键不变
+        
+        # Handle MoE gate weight transpose issue. Checkpoint stores the gate as
+        # [hidden, num_experts]; InfiniLM's op::linear expects [num_experts, hidden].
+        # NOTE: .t() returns a non-contiguous (stride-swapped) view; from_torch reads
+        # the raw contiguous buffer, so it MUST be materialized with .contiguous() or
+        # the weight is loaded scrambled (routing then picks the wrong experts).
+        if ".mlp.gate.weight" in key:
+            expected_shape = tensor.shape
+            if expected_shape[0] > expected_shape[1]:  # e.g., [2560, 64] -> [64, 2560]
+                tensor = tensor.t().contiguous()
+
+            # Ensure consistent dtype (convert to bfloat16 as expected by the model)
+            if tensor.dtype != torch.bfloat16:
+                tensor = tensor.to(torch.bfloat16)
+        
+        # Vision encoder: map vision_model.* to visual.* (C++ registration name)
+        # and its layer-norm submodule names to norm1/norm2. Other submodule names
+        # (attn/qkv/proj/mlp/fc1/fc2) already match, so they pass through unchanged.
+        elif key.startswith("vision_model."):
+            new_key = (key.replace("vision_model.", "visual.")
+                          .replace(".ln_1.", ".norm1.")   # LayerNorm in attention block
+                          .replace(".ln_2.", ".norm2.")   # LayerNorm in mlp block
+                          .replace(".ln.", ".norm1."))     # general layer-norm fallback
+
+        # Map resampler (lives under model.resampler_model.* in HF) -> visual.merger.*
+        elif key.startswith("model.resampler_model."):
+            new_key = key.replace("model.resampler_model.", "visual.merger.", 1)
+
+        # Text model (language_model.* / model.*) submodule names already match
+        # InfiniLM, so new_key stays equal to key (handled by the default above).
+
+        # Standard dtype handling for tensors that need dtype conversion
+        if tensor.dtype == torch.float32:
+            # Check if this is a weight or bias that should be converted to bfloat16
+            if new_key.endswith(('.weight', '.bias')):
+                # Convert to expected dtype if needed
+                if config and config.get("torch_dtype") == "bfloat16":
+                    tensor = tensor.to(torch.bfloat16)
+                elif hasattr(config, 'get') and config.get('dtype') == 'bfloat16':
+                    tensor = tensor.to(torch.bfloat16)
+        
+        result[new_key] = tensor
+
+    # after_norm in the ERNIE-4.5-VL resampler is an RMSNorm (weight-only) in the
+    # checkpoint -- it maps directly to infinicore::nn::RMSNorm, no bias needed.
+
+    return result
+
+
 # Model type → remap function mapping
 def _remap_qwen3_5(state_dict, config):
     """Apply Qwen3.5-specific load-time weight fixes."""
@@ -751,4 +808,6 @@ _WEIGHT_REMAPPER = {
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
+    "ernie4_5_moe_vl": _remap_ernie4_5_vl,  # Add ERNIE-4.5-VL mapping
+}
 }
