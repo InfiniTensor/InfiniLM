@@ -239,6 +239,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
+        .def_readwrite("allow_local_vocab_logits", &InferEngine::Input::allow_local_vocab_logits)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p);

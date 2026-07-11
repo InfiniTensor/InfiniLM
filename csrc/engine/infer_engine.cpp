@@ -174,10 +174,15 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         && input_ids.has_value()
         && input_ids.value()->shape().size() == 2
         && input_ids.value()->size(0) == 1
+        && input_offsets.value()->size(0) > 1
         && input_ids.value()->size(1) > input_offsets.value()->size(0) - 1) {
         const auto &offsets_tensor = input_offsets.value();
         const size_t num_requests = offsets_tensor->size(0) - 1;
         const auto *offsets = reinterpret_cast<const int32_t *>(offsets_tensor->data());
+        if (offsets[0] != 0
+            || static_cast<size_t>(offsets[num_requests]) != input_ids.value()->size(1)) {
+            throw std::invalid_argument("input_offsets must cover the packed input");
+        }
         std::vector<size_t> indices;
         indices.reserve(num_requests);
         for (size_t i = 0; i < num_requests; ++i) {
@@ -188,6 +193,9 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         }
         last_token_indices = std::move(indices);
     }
+    const bool use_local_vocab_logits = allow_local_vocab_logits
+                                     && !sample_all_positions
+                                     && is_greedy_sampling();
 
     infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
@@ -208,6 +216,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         visual_token_ranges,
         to_device(target_hidden_states),
         std::move(last_token_indices),
+        use_local_vocab_logits,
         sample_all_positions};
 
     infinilm::global_state::get_forward_context().attn_metadata = {

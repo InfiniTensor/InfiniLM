@@ -58,6 +58,7 @@ void PagedCompiler::compile() {
 
         auto make_decode_input = [&](size_t b) {
             InfinilmModel::Input input;
+            input.use_local_vocab_logits = true;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.position_ids = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::context::getDevice());
@@ -133,8 +134,10 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         size_t batch_size = input.block_tables.value()->size(0);
         size_t block_per_req = input.block_tables.value()->size(1);
 
-        // only support decode only batch
-        if (batch_size != input.input_ids.value()->size(1)) {
+        // Vocab-parallel graphs are valid only for local-logit sampling.
+        if ((model_->uses_vocab_parallel_logits()
+             && !input.use_local_vocab_logits)
+            || batch_size != input.input_ids.value()->size(1)) {
             return {nullptr, nullptr};
         } else {
             auto result = compiled_map_decode_.find(batch_size);
