@@ -7,6 +7,7 @@ This module provides:
 """
 
 import asyncio
+import json
 import logging
 import os
 import threading
@@ -32,6 +33,84 @@ from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 
 logger = logging.getLogger(__name__)
+
+_MOE_BACKENDS = {"auto", "legacy", "fused"}
+# Apply the conservative prefill budget from 32 concurrent requests onward.
+# It still admits 64 x 32-token prompts in one wave while bounding longer packed
+# prefills on 24 GiB GPUs. `INFINILM_MAX_NUM_BATCHED_TOKENS` overrides it.
+_QWEN3_MOE_HIGH_CONCURRENCY_BATCH_SIZE = 32
+_QWEN3_MOE_MAX_BATCHED_TOKENS = 4096
+
+
+def _resolve_moe_backend(
+    model_path: str,
+    device: str,
+    dtype: str,
+    moe_backend: str,
+    skip_legacy_moe: Optional[bool],
+):
+    """Resolve the MoE policy while preserving the legacy boolean override."""
+    if moe_backend not in _MOE_BACKENDS:
+        raise ValueError(
+            f"Unsupported moe_backend {moe_backend!r}; expected one of "
+            f"{sorted(_MOE_BACKENDS)}"
+        )
+
+    if skip_legacy_moe is not None:
+        resolved_backend = "fused" if skip_legacy_moe else "legacy"
+        if moe_backend != "auto" and moe_backend != resolved_backend:
+            raise ValueError(
+                "Conflicting MoE options: "
+                f"moe_backend={moe_backend!r}, skip_legacy_moe={skip_legacy_moe!r}"
+            )
+        logger.info(
+            "Resolved MoE backend to %s from explicit skip_legacy_moe=%s",
+            resolved_backend,
+            skip_legacy_moe,
+        )
+        return skip_legacy_moe, resolved_backend
+
+    if moe_backend != "auto":
+        return moe_backend == "fused", moe_backend
+
+    config_path = os.path.join(model_path, "config.json")
+    with open(config_path, encoding="utf-8") as config_file:
+        hf_config = json.load(config_file)
+
+    text_config = hf_config.get("text_config") or hf_config
+    quantization_config = text_config.get("quantization_config") or {}
+    quant_method = quantization_config.get("quant_method") or text_config.get(
+        "quant_method"
+    )
+    model_type = text_config.get("model_type", "")
+    fused_supported = (
+        model_type == "qwen3_moe"
+        and device == "cuda"
+        and dtype in {"float16", "bfloat16"}
+        and not quant_method
+    )
+    resolved_backend = "fused" if fused_supported else "legacy"
+    logger.info(
+        "Resolved moe_backend=auto to %s (model_type=%s, device=%s, "
+        "dtype=%s, quant_method=%s)",
+        resolved_backend,
+        model_type or "unknown",
+        device,
+        dtype,
+        quant_method or "none",
+    )
+    return fused_supported, resolved_backend
+
+
+def _default_max_num_batched_tokens(
+    llm_config: dict, max_batch_size: int, max_position_embeddings: int
+) -> int:
+    if (
+        llm_config.get("model_type") == "qwen3_moe"
+        and max_batch_size >= _QWEN3_MOE_HIGH_CONCURRENCY_BATCH_SIZE
+    ):
+        return min(max_position_embeddings, _QWEN3_MOE_MAX_BATCHED_TOKENS)
+    return max_position_embeddings
 
 
 class LLMEngine:
@@ -82,10 +161,18 @@ class LLMEngine:
             )
             num_mamba_cache_blocks = max(2, config.num_blocks // 4)
 
+            # Bound packed prefill activations for high-concurrency Qwen3-MoE.
+            default_max_num_batched_tokens = _default_max_num_batched_tokens(
+                llm_config, config.max_batch_size, max_position_embeddings
+            )
             max_num_batched_tokens = int(
-                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
+                os.getenv(
+                    "INFINILM_MAX_NUM_BATCHED_TOKENS",
+                    default_max_num_batched_tokens,
+                )
             )
             assert 1024 <= max_num_batched_tokens <= max_position_embeddings
+            logger.info("Scheduler max_num_batched_tokens=%d", max_num_batched_tokens)
 
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
@@ -332,7 +419,8 @@ class LLM:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         skip_load: bool = False,
-        skip_legacy_moe: bool = False,
+        skip_legacy_moe: Optional[bool] = None,
+        moe_backend: str = "auto",
     ):
         """Initialize LLM.
 
@@ -354,7 +442,16 @@ class LLM:
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
+            skip_legacy_moe: Compatibility override for the legacy boolean API.
+            moe_backend: MoE execution policy ('auto', 'legacy', or 'fused').
         """
+        skip_legacy_moe, resolved_moe_backend = _resolve_moe_backend(
+            model_path=model_path,
+            device=device,
+            dtype=dtype,
+            moe_backend=moe_backend,
+            skip_legacy_moe=skip_legacy_moe,
+        )
         config = EngineConfig(
             model_path=model_path,
             draft_model_path=draft_model_path,
@@ -382,6 +479,7 @@ class LLM:
         )
         self.engine = LLMEngine(config)
         self.config = config
+        self.moe_backend = resolved_moe_backend
 
     def generate(
         self,
@@ -539,7 +637,8 @@ class AsyncLLMEngine:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
         weight_load_mode: str = "async",
-        skip_legacy_moe: bool = False,
+        skip_legacy_moe: Optional[bool] = None,
+        moe_backend: str = "auto",
     ):
         """Initialize AsyncLLMEngine.
 
@@ -564,7 +663,16 @@ class AsyncLLMEngine:
             kv_connector_extra_config: Extra config dict for KV connector.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
+            skip_legacy_moe: Compatibility override for the legacy boolean API.
+            moe_backend: MoE execution policy ('auto', 'legacy', or 'fused').
         """
+        skip_legacy_moe, resolved_moe_backend = _resolve_moe_backend(
+            model_path=model_path,
+            device=device,
+            dtype=dtype,
+            moe_backend=moe_backend,
+            skip_legacy_moe=skip_legacy_moe,
+        )
         config = EngineConfig(
             model_path=model_path,
             draft_model_path=draft_model_path,
@@ -592,6 +700,7 @@ class AsyncLLMEngine:
         )
         self.engine = LLMEngine(config)
         self.config = config
+        self.moe_backend = resolved_moe_backend
 
         self._running = False
         self._step_thread: Optional[threading.Thread] = None

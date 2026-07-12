@@ -73,11 +73,18 @@ public:
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
 
+        /// Allow callers to consume vocabulary-parallel logits.
+        bool allow_local_vocab_logits{false};
+
         float temperature{1};
 
         int top_k{50};
 
         float top_p{1};
+
+        bool is_greedy_sampling() const {
+            return top_k == 1 || top_p == 0.0f || temperature == 0.0f;
+        }
 
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };

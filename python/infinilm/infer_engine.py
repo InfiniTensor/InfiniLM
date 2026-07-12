@@ -230,6 +230,7 @@ class InferEngine(_infinilm.InferEngine):
         visual_token_ranges=None,
         target_hidden_states=None,
         sample_all_positions=False,
+        allow_local_vocab_logits=False,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -269,7 +270,7 @@ class InferEngine(_infinilm.InferEngine):
         top_k = 1 if top_k is None else top_k
         top_p = 1.0 if top_p is None else top_p
 
-        return super().Input(
+        model_input = super().Input(
             input_ids,
             position_ids=position_ids,
             past_sequence_lengths=past_kv_lengths,
@@ -292,6 +293,8 @@ class InferEngine(_infinilm.InferEngine):
             top_k=top_k,
             top_p=top_p,
         )
+        model_input.allow_local_vocab_logits = allow_local_vocab_logits
+        return model_input
 
     def forward(
         self,
@@ -385,6 +388,7 @@ class InferEngine(_infinilm.InferEngine):
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
                         target_hidden_states=target_hidden_states,
+                        allow_local_vocab_logits=True,
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
@@ -419,28 +423,27 @@ class InferEngine(_infinilm.InferEngine):
         top_p=None,
     ):
         try:
-            output = super().forward(
-                self._build_input(
-                    input_ids,
-                    position_ids=position_ids,
-                    past_kv_lengths=past_kv_lengths,
-                    total_kv_lengths=total_kv_lengths,
-                    input_offsets=input_offsets,
-                    cu_seqlens=cu_seqlens,
-                    block_tables=block_tables,
-                    slot_mapping=slot_mapping,
-                    pixel_values=pixel_values,
-                    image_bound=image_bound,
-                    tgt_sizes=tgt_sizes,
-                    image_req_ids=image_req_ids,
-                    visual_token_ranges=visual_token_ranges,
-                    target_hidden_states=target_hidden_states,
-                    sample_all_positions=sample_all_positions,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                )
+            model_input = self._build_input(
+                input_ids,
+                position_ids=position_ids,
+                past_kv_lengths=past_kv_lengths,
+                total_kv_lengths=total_kv_lengths,
+                input_offsets=input_offsets,
+                cu_seqlens=cu_seqlens,
+                block_tables=block_tables,
+                slot_mapping=slot_mapping,
+                pixel_values=pixel_values,
+                image_bound=image_bound,
+                tgt_sizes=tgt_sizes,
+                image_req_ids=image_req_ids,
+                visual_token_ranges=visual_token_ranges,
+                target_hidden_states=target_hidden_states,
+                sample_all_positions=sample_all_positions,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
             )
+            output = super().forward(model_input)
             return {
                 "output_ids": infinicore.Tensor(output.output_ids),
                 "logits": infinicore.Tensor(output.logits),

@@ -55,6 +55,12 @@ public:
         std::optional<std::vector<size_t>> visual_token_ranges;
         /// Target model hidden states consumed by draft/MTP models.
         std::optional<infinicore::Tensor> target_hidden_states;
+        /// Packed hidden-state positions sampled by ordinary prefill.
+        std::optional<std::vector<size_t>> last_token_indices;
+        /// Keep vocabulary-parallel logits sharded for distributed greedy sampling.
+        bool use_local_vocab_logits{false};
+        /// Preserve logits for every packed position for speculative/MTP callers.
+        bool sample_all_positions{false};
     };
 
     struct Output {
@@ -66,6 +72,9 @@ public:
 
     virtual ~InfinilmModel() = default;
     virtual Output forward(const Input &input) const = 0;
+    virtual bool uses_vocab_parallel_logits() const {
+        return false;
+    }
     virtual void reset_cache(const cache::CacheConfig *cache_config);
     virtual const cache::CacheConfig *get_cache_config() const {
         return cache_config_.get();

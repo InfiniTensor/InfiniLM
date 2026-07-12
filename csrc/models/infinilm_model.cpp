@@ -94,6 +94,12 @@ void InfinilmModel::process_weights_after_loading() {
 }
 
 void InfinilmModel::reset_runtime_state() const {
+    // Non-quantized Qwen3-MoE currently has no resettable module state.
+    if (model_config_
+        && model_config_->get_or<std::string>("model_type", "") == "qwen3_moe"
+        && model_config_->get_quant_scheme() == quantization::QuantScheme::NONE) {
+        return;
+    }
     for (const auto &[_, sub] : children()) {
         reset_runtime_state_recursive_(sub.get());
     }

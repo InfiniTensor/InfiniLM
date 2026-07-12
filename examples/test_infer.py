@@ -31,7 +31,8 @@ def test(
     video_num_frames=None,
     skip_load=False,
     weight_load_mode="async",
-    skip_legacy_moe=False,
+    skip_legacy_moe=None,
+    moe_backend="auto",
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -62,6 +63,7 @@ def test(
         skip_load=skip_load,
         weight_load_mode=weight_load_mode,
         skip_legacy_moe=skip_legacy_moe,
+        moe_backend=moe_backend,
     )
 
     conversations = [
@@ -150,4 +152,5 @@ if __name__ == "__main__":
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,
         skip_legacy_moe=cfg.skip_legacy_moe,
+        moe_backend=cfg.moe_backend,
     )

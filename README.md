@@ -76,6 +76,8 @@
       ```bash
       CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --enable-paged-attn --attn=flash-attn --enable-graph
       ```
+
+    - Qwen3-MoE 执行后端可通过 `--moe-backend=auto|legacy|fused` 选择；默认 `auto` 仅对支持的 CUDA FP16/BF16 非量化模型启用 fused 路径。
     
     - 测试推理服务性能：
       ```bash

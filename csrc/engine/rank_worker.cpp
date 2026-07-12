@@ -1,6 +1,8 @@
 #include "rank_worker.hpp"
 #include "../models/model_factory.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/distributed/allgather.hpp"
+#include "infinicore/ops/take.hpp"
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -419,7 +421,9 @@ void RankWorker::thread_loop() {
                         infinicore::Tensor hidden_states;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
-                        if (!local_args.sample_all_positions && compiler_ != nullptr) {
+                        if (!local_args.sample_all_positions
+                            && local_args.allow_local_vocab_logits
+                            && compiler_ != nullptr) {
                             auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
@@ -434,43 +438,135 @@ void RankWorker::thread_loop() {
                             hidden_states = model_output.hidden_states;
                         }
 
-                        // Random sampling (rank 0 only)
-                        if (rank_info_.tp_rank == 0) {
-                            auto temperature{local_args.temperature};
-                            auto top_p{local_args.top_p};
-                            auto top_k{local_args.top_k};
+                        auto temperature{local_args.temperature};
+                        auto top_p{local_args.top_p};
+                        auto top_k{local_args.top_k};
+                        const auto &logits_shape{logits->shape()};
+                        const size_t vocab_size{logits_shape[2]};
+                        const size_t total_len{logits_shape[1]};
+                        const size_t batch_size{logits_shape[0]};
+                        const size_t logits_positions = batch_size * total_len;
+                        const size_t n_req = local_args.input_offsets.value()->size(0) - 1;
+                        int32_t *input_offsets = reinterpret_cast<int32_t *>(
+                            local_args.input_offsets.value()->data());
+                        const bool sample_all_positions = local_args.sample_all_positions;
+                        const bool logits_are_last_token_only = !sample_all_positions && logits_positions == n_req;
+                        const size_t n_out = sample_all_positions
+                                               ? static_cast<size_t>(input_offsets[n_req])
+                                               : n_req;
 
-                            const auto &logits_shape{logits->shape()};
-                            const auto &vocab_size{logits_shape[2]};
-                            const auto &total_len{logits_shape[1]};
-                            const auto &batch_size{logits_shape[0]};
+                        const size_t global_vocab_size = model_config_->get<size_t>("vocab_size");
+                        const bool distributed_greedy = !sample_all_positions
+                                                     && local_args.is_greedy_sampling()
+                                                     && rank_info_.tp_size > 1
+                                                     && vocab_size * static_cast<size_t>(rank_info_.tp_size)
+                                                            == global_vocab_size;
 
-                            auto n_req = local_args.input_offsets.value()->size(0) - 1;
-                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+                        if (distributed_greedy) {
+                            // Exchange one local argmax candidate per TP rank.
+                            auto local_ids = infinicore::Tensor::empty(
+                                {n_out}, infinicore::DataType::I64, rank_info_.device);
+                            auto local_values = infinicore::Tensor::empty(
+                                {n_out}, logits->dtype(), rank_info_.device);
+                            infinicore::Tensor output_ids;
+                            infinicore::Tensor winning_ranks;
+                            if (rank_info_.tp_rank == 0) {
+                                output_ids = infinicore::Tensor::empty(
+                                    {n_out}, infinicore::DataType::I64, rank_info_.device);
+                                winning_ranks = infinicore::Tensor::empty(
+                                    {n_out}, infinicore::DataType::I64, rank_info_.device);
+                            }
+                            auto flat_logits = logits->view({logits_positions, vocab_size});
+                            for (size_t i = 0; i < n_out; ++i) {
+                                size_t score_idx = i;
+                                if (!logits_are_last_token_only) {
+                                    score_idx = static_cast<size_t>(
+                                        input_offsets[i + 1] - 1);
+                                }
+                                auto score = flat_logits->narrow(
+                                                            {{0, score_idx, 1}})
+                                                 ->view({vocab_size});
+                                auto local_id = local_ids->narrow({{0, i, 1}});
+                                infinicore::op::random_sample_(
+                                    local_id->view({}), score, 0.0f,
+                                    top_p, top_k, temperature);
+                                infinicore::op::take_(
+                                    local_values->narrow({{0, i, 1}}), score, local_id);
+                            }
 
-                            const bool sample_all_positions = local_args.sample_all_positions;
-                            const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
+                            const size_t tp_size = static_cast<size_t>(rank_info_.tp_size);
+                            auto candidate_values = infinicore::op::distributed::allgather(
+                                local_values, tp_size, rank_info_.comm);
+                            auto candidate_ids = infinicore::op::distributed::allgather(
+                                local_ids, tp_size, rank_info_.comm);
+                            if (n_out > 1) {
+                                candidate_values = candidate_values
+                                                       ->view({tp_size, n_out})
+                                                       ->permute({1, 0})
+                                                       ->contiguous();
+                                candidate_ids = candidate_ids
+                                                    ->view({tp_size, n_out})
+                                                    ->permute({1, 0})
+                                                    ->contiguous();
+                            } else {
+                                candidate_values = candidate_values->view({1, tp_size});
+                                candidate_ids = candidate_ids->view({1, tp_size});
+                            }
 
+                            if (rank_info_.tp_rank == 0) {
+                                for (size_t i = 0; i < n_out; ++i) {
+                                    auto winning_rank = winning_ranks->narrow(
+                                        {{0, i, 1}});
+                                    auto values = candidate_values->narrow(
+                                                                      {{0, i, 1}})
+                                                      ->view({tp_size});
+                                    infinicore::op::random_sample_(
+                                        winning_rank->view({}), values,
+                                        0.0f, 0.0f, 1, 0.0f);
+                                    auto ids = candidate_ids->narrow(
+                                                                {{0, i, 1}})
+                                                   ->view({tp_size});
+                                    infinicore::op::take_(
+                                        output_ids->narrow({{0, i, 1}}), ids,
+                                        winning_rank);
+                                }
+                                auto output_ids_cpu = output_ids->to(
+                                    infinicore::Device::cpu());
+                                auto winning_ranks_cpu = winning_ranks->to(
+                                    infinicore::Device::cpu());
+                                infinicore::context::syncStream();
+                                auto *output_ptr = reinterpret_cast<int64_t *>(
+                                    output_ids_cpu->data());
+                                const auto *rank_ptr = reinterpret_cast<const int64_t *>(
+                                    winning_ranks_cpu->data());
+                                for (size_t i = 0; i < n_out; ++i) {
+                                    output_ptr[i] += rank_ptr[i]
+                                                   * static_cast<int64_t>(vocab_size);
+                                }
+                                output_ = Output{
+                                    output_ids_cpu, logits, hidden_states};
+                            }
+                        } else if (rank_info_.tp_rank == 0) {
+                            auto output_ids = infinicore::Tensor::empty(
+                                {n_out}, infinicore::DataType::I64, rank_info_.device);
+                            auto flat_logits = logits->view({logits_positions, vocab_size});
                             for (size_t i{0}; i < n_out; ++i) {
                                 size_t score_idx = i;
-                                if (!sample_all_positions) {
+                                if (!sample_all_positions && !logits_are_last_token_only) {
                                     score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
                                 }
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                auto score = flat_logits->narrow(
+                                                            {{0, score_idx, 1}})
+                                                 ->view({vocab_size});
+                                auto out = output_ids->narrow({{0, i, 1}})->view({});
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
                                     out, score, random_val, top_p, top_k, temperature);
                             }
 
                             output_ids = output_ids->to(infinicore::Device::cpu());
-
                             infinicore::context::syncStream();
-
-                            auto out{Output{output_ids, logits, hidden_states}};
-
-                            output_ = std::move(out);
+                            output_ = Output{output_ids, logits, hidden_states};
                         }
 
                         job_done_ = true;

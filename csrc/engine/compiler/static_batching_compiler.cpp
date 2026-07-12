@@ -11,6 +11,7 @@ void StaticBatchingCompiler::compile() {
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())) {
         size_t b = dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())->max_batch_size();
         InfinilmModel::Input input;
+        input.use_local_vocab_logits = true;
         input.input_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::I64, infinicore::context::getDevice());
         input.position_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::I64, infinicore::context::getDevice());
         input.past_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
@@ -46,6 +47,10 @@ void StaticBatchingCompiler::compile() {
 StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
     const InfinilmModel::Input &input) {
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())) {
+        if (model_->uses_vocab_parallel_logits()
+            && !input.use_local_vocab_logits) {
+            return std::make_tuple(nullptr, nullptr);
+        }
         size_t batch_size = input.input_ids.value()->size(0);
         size_t seqlen = input.input_ids.value()->size(1);
         auto result = compiled_map_.find(std::make_tuple(batch_size, seqlen));
