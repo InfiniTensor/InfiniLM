@@ -149,7 +149,10 @@ class Scheduler:
             total_len = req.get_total_length()
         except Exception:
             total_len = prompt_len + max_tokens
-        return total_len >= self.long_context_threshold or prompt_len + max_tokens >= self.long_context_threshold
+        return (
+            total_len >= self.long_context_threshold
+            or prompt_len + max_tokens >= self.long_context_threshold
+        )
 
     def _exceeds_long_context_batch(
         self, req: InferenceRequest, scheduled_requests: List[InferenceRequest]
@@ -158,13 +161,17 @@ class Scheduler:
             return False
 
         long_in_batch = sum(
-            1 for scheduled_req in scheduled_requests
+            1
+            for scheduled_req in scheduled_requests
             if self._is_long_context_request(scheduled_req)
         )
         req_is_long = self._is_long_context_request(req)
 
         if long_in_batch == 0:
-            return req_is_long and len(scheduled_requests) >= self.long_context_max_batch
+            return (
+                req_is_long
+                and len(scheduled_requests) >= self.long_context_max_batch
+            )
         return long_in_batch >= self.long_context_max_batch
 
     def schedule(self) -> Optional[SchedulerOutput]:
