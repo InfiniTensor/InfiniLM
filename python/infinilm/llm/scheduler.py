@@ -83,10 +83,18 @@ class Scheduler:
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
         self.max_batch_size = max_batch_size
-        self.long_context_threshold = int(os.getenv("INFINILM_LONG_CONTEXT_THRESHOLD", "4096"))
-        self.long_context_max_batch = int(os.getenv("INFINILM_LONG_CONTEXT_MAX_BATCH", "1"))
-        self.long_context_use_total_len = os.getenv("INFINILM_LONG_CONTEXT_USE_TOTAL_LEN", "0") == "1"
-        self.decode_first_when_running = os.getenv("INFINILM_DECODE_FIRST_WHEN_RUNNING", "0") == "1"
+        self.long_context_threshold = int(
+            os.getenv("INFINILM_LONG_CONTEXT_THRESHOLD", "4096")
+        )
+        self.long_context_max_batch = int(
+            os.getenv("INFINILM_LONG_CONTEXT_MAX_BATCH", "1")
+        )
+        self.long_context_use_total_len = (
+            os.getenv("INFINILM_LONG_CONTEXT_USE_TOTAL_LEN", "0") == "1"
+        )
+        self.decode_first_when_running = (
+            os.getenv("INFINILM_DECODE_FIRST_WHEN_RUNNING", "0") == "1"
+        )
         self.prefill_batch_cap = int(os.getenv("INFINILM_PREFILL_BATCH_CAP", "0"))
         self.decode_batch_cap = int(os.getenv("INFINILM_DECODE_BATCH_CAP", "0"))
 
@@ -169,8 +177,7 @@ class Scheduler:
 
         if long_in_batch == 0:
             return (
-                req_is_long
-                and len(scheduled_requests) >= self.long_context_max_batch
+                req_is_long and len(scheduled_requests) >= self.long_context_max_batch
             )
         return long_in_batch >= self.long_context_max_batch
 
