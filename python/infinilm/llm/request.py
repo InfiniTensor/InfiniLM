@@ -181,6 +181,8 @@ class InferenceRequest:
         self._aborted: bool = False
         self._text_output_offset: int = 0
         self._token_decode_offset: int = 0
+        self._completion_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._completion_event: Optional[asyncio.Event] = None
 
     @property
     def output_queue(self) -> janus.Queue:
@@ -222,6 +224,43 @@ class InferenceRequest:
             RequestStatus.TIMEOUT,
         ]
 
+    def bind_completion_event(self, loop: asyncio.AbstractEventLoop):
+        """Bind an asyncio event used by non-streaming HTTP waiters."""
+        self._completion_loop = loop
+        self._completion_event = asyncio.Event()
+        if self.is_finished():
+            self._completion_event.set()
+
+    async def wait_finished(self, timeout: Optional[float] = None):
+        """Wait until the request reaches a terminal state."""
+        if self.is_finished():
+            return True
+        if self._completion_event is None:
+            start = time.time()
+            while not self.is_finished():
+                if timeout is not None and time.time() - start > timeout:
+                    return False
+                await asyncio.sleep(0.001)
+            return True
+        try:
+            if timeout is None:
+                await self._completion_event.wait()
+            else:
+                await asyncio.wait_for(self._completion_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
+    def _notify_finished(self):
+        event = self._completion_event
+        loop = self._completion_loop
+        if event is None:
+            return
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(event.set)
+        else:
+            event.set()
+
     def abort(self):
         """Signal that the request has been aborted and should stop generation."""
         self._aborted = True
@@ -235,6 +274,7 @@ class InferenceRequest:
         self.status = RequestStatus.FINISHED
         self.finish_reason = reason
         self.finished_time = time.time()
+        self._notify_finished()
 
     def mark_failed(self, reason: FinishReason = FinishReason.ERROR):
         """Mark the request as failed."""
@@ -242,6 +282,7 @@ class InferenceRequest:
         self.status = RequestStatus.FAILED
         self.finish_reason = reason
         self.finished_time = time.time()
+        self._notify_finished()
 
     def mark_canceled(self):
         """Mark the request as canceled."""
@@ -249,6 +290,7 @@ class InferenceRequest:
         self.status = RequestStatus.CANCELED
         self.finish_reason = FinishReason.CANCELED
         self.finished_time = time.time()
+        self._notify_finished()
 
     def mark_timeout(self):
         """Mark the request as timed out."""
@@ -256,6 +298,7 @@ class InferenceRequest:
         self.status = RequestStatus.TIMEOUT
         self.finish_reason = FinishReason.TIMEOUT
         self.finished_time = time.time()
+        self._notify_finished()
 
     async def close(self):
         """Close the output queue and clean up resources."""
