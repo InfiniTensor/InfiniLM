@@ -65,6 +65,8 @@ class ModelRunner:
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
+        attention_backend = self._resolve_attention_backend(config)
+
         # Initialize model engine
         self.model_engine = InferEngine(
             model_path=config.model_path,
@@ -76,7 +78,7 @@ class ModelRunner:
             ),
             cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
-            attention_backend=config.attn_backend,
+            attention_backend=attention_backend,
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,
             skip_legacy_moe=config.skip_legacy_moe,
@@ -127,6 +129,16 @@ class ModelRunner:
                     kv_caches[key_name] = layer_kv_cache
 
             self.kv_connector.register_kv_caches(kv_caches)
+
+    @staticmethod
+    def _resolve_attention_backend(config: EngineConfig) -> str:
+        if config.attn_backend != "default":
+            return config.attn_backend
+        if config.cache_type == "paged":
+            return "paged-attn"
+        if config.cache_type == "static":
+            return "static-attn"
+        return config.attn_backend
 
     @property
     def model_type(self):

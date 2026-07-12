@@ -5,6 +5,52 @@ import time
 from .base import BaseBenchmark
 
 
+def _fix_hf_meta_helper_tensors(model):
+    """Materialize ERNIE remote-code helper tensors left on the meta device."""
+    import torch
+
+    patched = []
+    vision_model = getattr(model, "vision_model", None) or getattr(
+        model, "visual", None
+    )
+    rotary = (
+        getattr(vision_model, "rotary_pos_emb", None)
+        if vision_model is not None
+        else None
+    )
+    inv_freq = getattr(rotary, "inv_freq", None) if rotary is not None else None
+    if inv_freq is not None and getattr(inv_freq, "device", None).type == "meta":
+        dim = int(inv_freq.numel() * 2)
+        theta = float(getattr(rotary, "theta", 10000.0))
+        rotary.inv_freq = 1.0 / theta ** (
+            torch.arange(start=0, end=dim, step=2, dtype=torch.float32) / dim
+        )
+        patched.append("vision_rotary_inv_freq")
+
+    for module in model.modules():
+        experts_type_ids = getattr(module, "experts_type_ids", None)
+        if (
+            experts_type_ids is None
+            or getattr(experts_type_ids, "device", None).type != "meta"
+        ):
+            continue
+        config = getattr(module, "config", None)
+        moe_num_experts = getattr(config, "moe_num_experts", None)
+        if not isinstance(moe_num_experts, (list, tuple)):
+            continue
+        rebuilt = torch.zeros([sum(moe_num_experts)], dtype=torch.int64)
+        offset = 0
+        for idx, expert_num in enumerate(moe_num_experts):
+            rebuilt[offset : offset + expert_num] = idx
+            offset += expert_num
+        module.experts_type_ids = rebuilt
+        module.experts_type_mask = [
+            module.experts_type_ids == idx for idx, _ in enumerate(moe_num_experts)
+        ]
+        patched.append("experts_type_ids")
+    return patched
+
+
 class TransformersBenchmark(BaseBenchmark):
     """Hugging Face Transformers backend."""
 
@@ -31,9 +77,18 @@ class TransformersBenchmark(BaseBenchmark):
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             self.config_dict = json.load(f)
 
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-            model_dir_path, trust_remote_code=True
+        self.use_processor_inputs = (
+            self.config_dict.get("model_type") == "ernie4_5_moe_vl"
         )
+        if self.use_processor_inputs:
+            self.processor = transformers.AutoProcessor.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
+            self.tokenizer = self.processor.tokenizer
+        else:
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
 
         print("Loading model with Transformers backend...")
         load_kwargs = {
@@ -65,6 +120,9 @@ class TransformersBenchmark(BaseBenchmark):
         if tensor_parallel_size <= 1:
             self.model = self.model.to(self.device)
         self.model.eval()
+        patched_meta = _fix_hf_meta_helper_tensors(self.model)
+        if patched_meta:
+            print(f"Patched HF meta helper tensors: {patched_meta}")
         self.input_device = self.model.get_input_embeddings().weight.device
         print("Transformers model loaded successfully")
 
@@ -86,6 +144,45 @@ class TransformersBenchmark(BaseBenchmark):
 
         prompt = self.render_input_content(*args)
         print(prompt, end="", flush=True)
+        if self.use_processor_inputs:
+            inputs = self.processor(
+                prompt, return_tensors="pt", add_special_tokens=False
+            )
+            model_inputs = {
+                key: value.to(self.input_device)
+                for key, value in inputs.items()
+                if value is not None
+            }
+            if "attention_mask" not in model_inputs:
+                model_inputs["attention_mask"] = torch.ones_like(
+                    model_inputs["input_ids"]
+                )
+            input_tokens = int(model_inputs["input_ids"].shape[-1])
+
+            self._synchronize()
+            start_time = time.perf_counter()
+            outputs = self.model.generate(
+                **model_inputs,
+                max_new_tokens=max_steps,
+                do_sample=temperature_ > 0,
+                temperature=temperature_,
+                top_k=topk_,
+                top_p=topp_,
+                eos_token_id=self.eos_token_id,
+                pad_token_id=self.tokenizer.pad_token_id or 2,
+                use_cache=False,
+            )
+            self._synchronize()
+
+            generated_ids = outputs[0][input_tokens:]
+            output_text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+            return self.record_generation(
+                output_text,
+                input_tokens,
+                generated_ids.numel(),
+                start_time,
+            )
+
         tokens = self.encode_text(prompt)
         input_ids = torch.tensor([tokens], device=self.input_device)
 

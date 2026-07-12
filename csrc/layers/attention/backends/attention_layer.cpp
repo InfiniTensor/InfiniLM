@@ -30,6 +30,11 @@ infinicore::Tensor AttentionLayer::forward(infinicore::Tensor &query,
                                            infinicore::Tensor &value) const {
     auto &forward_context = infinilm::global_state::get_forward_context();
     auto &attn_metadata = forward_context.attn_metadata;
+    if (forward_context.kv_cache_vec.size() <= layer_idx_) {
+        throw std::runtime_error(
+            "AttentionLayer::forward requires an initialized KV cache; "
+            "pass a cache_config to InferEngine or call reset_cache before generation.");
+    }
     auto &kv_cache = forward_context.kv_cache_vec[layer_idx_];
 
     return std::visit(
