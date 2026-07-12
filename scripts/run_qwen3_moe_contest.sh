@@ -65,7 +65,7 @@ NUM_BLOCKS=18
 NUM_PROMPTS=1
 MAX_CONCURRENCY=1
 INPUT_LEN=32
-OUTPUT_LEN=64
+OUTPUT_LEN=128
 RUN_BENCH=0
 
 case "$PROFILE" in
@@ -311,13 +311,40 @@ if [ "$RUN_BENCH" = "1" ]; then
     fi
     "${BENCH_COMMAND[@]}" 2>&1 | tee "$CLIENT_LOG"
 else
+    SMOKE_FILE="$RESULT_DIR/${RUN_NAME}-smoke.json"
     PAYLOAD=$(printf \
         '{"model":"%s","messages":[{"role":"user","content":"What is 15 + 27? Answer briefly."}],"max_tokens":%d,"temperature":0.0}' \
         "$MODEL_NAME" "$OUTPUT_LEN")
     curl -fsS "http://$HOST:$PORT/v1/chat/completions" \
         -H 'Content-Type: application/json' \
-        --data-binary "$PAYLOAD" | tee "$RESULT_DIR/${RUN_NAME}-smoke.json"
+        --data-binary "$PAYLOAD" | tee "$SMOKE_FILE"
     printf '\n'
+    "$PYTHON" - "$SMOKE_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as response_file:
+    response = json.load(response_file)
+
+try:
+    choice = response["choices"][0]
+    content = choice["message"]["content"]
+    completion_tokens = response["usage"]["completion_tokens"]
+except (KeyError, IndexError, TypeError) as error:
+    raise SystemExit(f"Smoke validation failed: malformed response: {error}") from error
+
+if not isinstance(content, str) or not content.strip():
+    raise SystemExit("Smoke validation failed: empty completion")
+if not isinstance(completion_tokens, int) or completion_tokens <= 0:
+    raise SystemExit("Smoke validation failed: no completion tokens")
+if "42" not in content:
+    raise SystemExit("Smoke validation failed: arithmetic answer 42 not found")
+
+print(
+    "Smoke validation: PASS "
+    f"(completion_tokens={completion_tokens}, answer_contains_42=yes)"
+)
+PY
 fi
 
 echo "Server log: $SERVER_LOG"
