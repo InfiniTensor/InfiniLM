@@ -182,6 +182,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         image_req_ids,
         visual_token_ranges,
         to_device(target_hidden_states)};
+    input.last_token_only = !sample_all_positions;
 
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,

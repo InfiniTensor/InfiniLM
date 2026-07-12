@@ -4,6 +4,7 @@
 #include "infinicore/ops/moe_align.hpp"
 #include "infinicore/ops/moe_fused_dense.hpp"
 #include "infinicore/ops/moe_w16a16_marlin.hpp"
+#include "infinicore/ops/moe_w8a8_marlin.hpp"
 
 #include "nlohmann/json.hpp"
 
@@ -14,11 +15,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <utility>
 
 namespace infinilm::layers::moe {
 
-struct HygonW16A16MarlinGemmConfig {
+struct HygonMarlinGemmConfig {
     int mode = 103;
     int delta = 1;
     size_t block_size_m = 16;
@@ -26,8 +26,14 @@ struct HygonW16A16MarlinGemmConfig {
 };
 
 struct HygonW16A16MarlinRuntimeConfig {
-    HygonW16A16MarlinGemmConfig gemm1;
-    HygonW16A16MarlinGemmConfig gemm2;
+    HygonMarlinGemmConfig gemm1;
+    HygonMarlinGemmConfig gemm2;
+    bool supported = false;
+};
+
+struct HygonW8A8MarlinRuntimeConfig {
+    HygonMarlinGemmConfig gemm1;
+    HygonMarlinGemmConfig gemm2;
     bool supported = false;
 };
 
@@ -47,23 +53,34 @@ std::string env_or_default(const char *name, const char *default_value) {
     return (value != nullptr && value[0] != '\0') ? std::string(value) : std::string(default_value);
 }
 
-HygonW16A16MarlinGemmConfig load_lightop_marlin_config(size_t n,
-                                                        size_t k,
-                                                        size_t m) {
-    HygonW16A16MarlinGemmConfig result;
+bool env_flag_enabled(const char *name, bool default_value) {
+    const char *value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+        return default_value;
+    }
+    std::string s(value);
+    return s == "1" || s == "true" || s == "TRUE" || s == "on" || s == "ON" || s == "yes" || s == "YES";
+}
+
+constexpr size_t kHygonW8A8MoeSliceTokens = 16384;
+
+HygonMarlinGemmConfig load_lightop_marlin_config(size_t n,
+                                                 size_t k,
+                                                 size_t m,
+                                                 const std::string &file_prefix,
+                                                 const char *device_name_default,
+                                                 bool allow_asm,
+                                                 bool num_cus_with_cu_prefix) {
+    HygonMarlinGemmConfig result;
     const std::string config_dir = env_or_default(
         "INFINILM_LIGHTOP_CONFIG_DIR",
         "/usr/local/lib/python3.10/dist-packages/lightop/configs");
-    const std::string device_name = env_or_default("INFINILM_HYGON_LIGHTOP_DEVICE_NAME", "gfx936");
+    const std::string device_name = env_or_default("INFINILM_HYGON_LIGHTOP_DEVICE_NAME", device_name_default);
     const std::string num_cus = env_or_default("INFINILM_HYGON_LIGHTOP_NUM_CUS", "80");
-    const std::string allow_asm_env = env_or_default("INFINILM_HYGON_LIGHTOP_ALLOW_ASM", "0");
-    const bool allow_asm = allow_asm_env == "1" || allow_asm_env == "true" ||
-                           allow_asm_env == "TRUE" || allow_asm_env == "on" ||
-                           allow_asm_env == "ON" || allow_asm_env == "yes" ||
-                           allow_asm_env == "YES";
-    const std::string file_name = config_dir + "/MOE_W16A16_CUDA_MARLIN_" +
+    const std::string num_cus_suffix = num_cus_with_cu_prefix ? ("_CU" + num_cus) : ("_" + num_cus);
+    const std::string file_name = config_dir + "/" + file_prefix + "_" +
                                   std::to_string(n) + "_" + std::to_string(k) + "_" +
-                                  device_name + "_" + num_cus + ".json";
+                                  device_name + num_cus_suffix + ".json";
     std::ifstream file(file_name);
     if (!file.is_open()) {
         return result;
@@ -129,8 +146,27 @@ HygonW16A16MarlinRuntimeConfig select_hygon_w16a16_marlin_config(size_t m,
                                                                  size_t hidden_size,
                                                                  size_t intermediate_size_per_partition) {
     HygonW16A16MarlinRuntimeConfig config;
-    config.gemm1 = load_lightop_marlin_config(intermediate_size_per_partition * 2, hidden_size, m);
-    config.gemm2 = load_lightop_marlin_config(hidden_size, intermediate_size_per_partition, m);
+    const bool allow_asm = env_flag_enabled("INFINILM_HYGON_LIGHTOP_ALLOW_ASM", false);
+    config.gemm1 = load_lightop_marlin_config(
+        intermediate_size_per_partition * 2, hidden_size, m,
+        "MOE_W16A16_CUDA_MARLIN", "gfx936", allow_asm, false);
+    config.gemm2 = load_lightop_marlin_config(
+        hidden_size, intermediate_size_per_partition, m,
+        "MOE_W16A16_CUDA_MARLIN", "gfx936", allow_asm, false);
+    config.supported = config.gemm1.found && config.gemm2.found;
+    return config;
+}
+
+HygonW8A8MarlinRuntimeConfig select_hygon_w8a8_marlin_config(size_t m,
+                                                             size_t hidden_size,
+                                                             size_t intermediate_size_per_partition) {
+    HygonW8A8MarlinRuntimeConfig config;
+    config.gemm1 = load_lightop_marlin_config(
+        intermediate_size_per_partition * 2, hidden_size, m,
+        "MOE_BLOCKINT8_CUDA_MARLIN", "GFX936", true, true);
+    config.gemm2 = load_lightop_marlin_config(
+        hidden_size, intermediate_size_per_partition, m,
+        "MOE_BLOCKINT8_CUDA_MARLIN", "GFX936", true, true);
     config.supported = config.gemm1.found && config.gemm2.found;
     return config;
 }
@@ -176,7 +212,7 @@ void check_packed_weight_tensor(const infinicore::Tensor &tensor,
         throw std::runtime_error("MoE fused dense core requires packed weights on the hidden_states device");
     }
     if (tensor->dtype() != dtype) {
-        throw std::runtime_error("MoE fused dense core requires packed weights to have the same dtype as hidden_states");
+        throw std::runtime_error("MoE fused dense core packed tensor dtype mismatch for " + name);
     }
     if (tensor->shape() != shape) {
         throw std::runtime_error(
@@ -191,17 +227,37 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
                                      MoeWorkspace &workspace) const {
     size_t block_size = align_block_size_;
     HygonW16A16MarlinRuntimeConfig marlin_config;
-    if (weights.is_hygon_w16a16_marlin()) {
+    HygonW8A8MarlinRuntimeConfig w8a8_marlin_config;
+    if (weights.is_hygon_w16a16_marlin() || weights.is_hygon_w8a8_marlin()) {
         const auto &hidden_shape = dispatch_output.hidden_states->shape();
         if (hidden_shape.size() != 2) {
-            throw std::runtime_error("Hygon W16A16 Marlin MoE runner requires hidden states [M, K]");
+            throw std::runtime_error("Hygon Marlin MoE runner requires hidden states [M, K]");
         }
-        marlin_config = select_hygon_w16a16_marlin_config(
-            hidden_shape[0], hidden_size_, intermediate_size_per_partition_);
-        if (!marlin_config.supported) {
-            throw std::runtime_error("No lightop W16A16 Marlin MoE config found for this Hygon shape");
+        if (weights.is_hygon_w16a16_marlin()) {
+            marlin_config = select_hygon_w16a16_marlin_config(
+                hidden_shape[0], hidden_size_, intermediate_size_per_partition_);
+            if (!marlin_config.supported) {
+                throw std::runtime_error("No lightop W16A16 Marlin MoE config found for this Hygon shape");
+            }
+            block_size = marlin_config.gemm1.block_size_m;
+        } else {
+            if (hidden_shape[0] > kHygonW8A8MoeSliceTokens) {
+                auto runner_output = run_hygon_w8a8_marlin_core_sliced(
+                    dispatch_output, weights, workspace);
+                return CombineInput{
+                    CombineInputFormat::Standard,
+                    runner_output.hidden_states,
+                    dispatch_output.topk_output,
+                    MoeRoutingMetadata{},
+                };
+            }
+            w8a8_marlin_config = select_hygon_w8a8_marlin_config(
+                hidden_shape[0], hidden_size_, intermediate_size_per_partition_);
+            if (!w8a8_marlin_config.supported) {
+                throw std::runtime_error("No lightop W8A8 Marlin MoE config found for this Hygon shape");
+            }
+            block_size = w8a8_marlin_config.gemm1.block_size_m;
         }
-        block_size = marlin_config.gemm1.block_size_m;
     }
 
     auto runner_input = prepare_runner_input(
@@ -211,7 +267,10 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
 
     auto runner_output = weights.is_hygon_w16a16_marlin()
                              ? run_hygon_w16a16_marlin_core(runner_input, weights, workspace, marlin_config)
-                             : run_fused_core(runner_input, weights, workspace);
+                             : (weights.is_hygon_w8a8_marlin()
+                                    ? run_hygon_w8a8_marlin_core(
+                                          runner_input, weights, workspace, w8a8_marlin_config)
+                                    : run_fused_core(runner_input, weights, workspace));
 
     return CombineInput{
         CombineInputFormat::Standard,
@@ -316,7 +375,6 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(const CudaFusedMoeRu
         runner_input.hidden_states->shape(),
         runner_input.hidden_states->dtype(),
         runner_input.hidden_states->device());
-    workspace.fused_moe_output_tokens_capacity = runner_input.hidden_states->shape()[0];
     infinicore::op::moe_fused_dense_(
         workspace.fused_moe_output,
         runner_input.hidden_states,
@@ -350,8 +408,6 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w16a16_marlin_core(
         runner_input.hidden_states->shape(),
         runner_input.hidden_states->dtype(),
         runner_input.hidden_states->device());
-    workspace.fused_moe_output_tokens_capacity = num_tokens;
-
     if (!same_device(workspace.marlin_cache13, runner_input.hidden_states->device()) ||
         workspace.marlin_cache13->dtype() != runner_input.hidden_states->dtype() ||
         workspace.marlin_cache13_capacity < cache13_required) {
@@ -389,6 +445,176 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w16a16_marlin_core(
         config.gemm1.delta,
         config.gemm2.mode,
         config.gemm2.delta);
+
+    return CudaFusedMoeRunnerOutput{
+        workspace.fused_moe_output,
+    };
+}
+
+CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w8a8_marlin_core(
+    const CudaFusedMoeRunnerInput &runner_input,
+    const MoeWeights &weights,
+    MoeWorkspace &workspace,
+    const HygonW8A8MarlinRuntimeConfig &config) const {
+    if (!weights.has_packed_w8a8_marlin_weights() || !weights.is_hygon_w8a8_marlin()) {
+        throw std::runtime_error("Hygon W8A8 Marlin MoE runner requires packed Marlin weights and scales");
+    }
+    const size_t top_k = runner_input.topk_output.topk_ids->shape()[1];
+    const size_t num_tokens = runner_input.hidden_states->shape()[0];
+    const size_t cache13_required = num_tokens * top_k * std::max(intermediate_size_per_partition_ * 2, hidden_size_);
+
+    check_packed_weight_tensor(
+        weights.packed_w13,
+        "w13",
+        runner_input.hidden_states->device(),
+        infinicore::DataType::I8,
+        {num_local_experts_, hidden_size_ / 64, intermediate_size_per_partition_ * 2 * 64});
+    check_packed_weight_tensor(
+        weights.packed_w2,
+        "w2",
+        runner_input.hidden_states->device(),
+        infinicore::DataType::I8,
+        {num_local_experts_, intermediate_size_per_partition_ / 64, hidden_size_ * 64});
+    check_packed_weight_tensor(
+        weights.packed_w13_scale,
+        "w13_scale",
+        runner_input.hidden_states->device(),
+        infinicore::DataType::F32,
+        {num_local_experts_, intermediate_size_per_partition_ * 2, 1});
+    check_packed_weight_tensor(
+        weights.packed_w2_scale,
+        "w2_scale",
+        runner_input.hidden_states->device(),
+        infinicore::DataType::F32,
+        {num_local_experts_, hidden_size_, 1});
+
+    ensure_tensor(
+        workspace.fused_moe_output,
+        runner_input.hidden_states->shape(),
+        runner_input.hidden_states->dtype(),
+        runner_input.hidden_states->device());
+    if (!same_device(workspace.marlin_cache13, runner_input.hidden_states->device()) ||
+        workspace.marlin_cache13->dtype() != runner_input.hidden_states->dtype() ||
+        workspace.marlin_cache13_capacity < cache13_required) {
+        if (infinicore::context::isGraphRecording()) {
+            throw std::runtime_error("MoE W8A8 Marlin cache13 workspace was not initialized before graph capture");
+        }
+        workspace.marlin_cache13 = infinicore::Tensor::empty(
+            {cache13_required}, runner_input.hidden_states->dtype(), runner_input.hidden_states->device());
+        workspace.marlin_cache13_capacity = cache13_required;
+    }
+    ensure_tensor(
+        workspace.marlin_input_i8,
+        {num_tokens, hidden_size_},
+        infinicore::DataType::I8,
+        runner_input.hidden_states->device());
+    ensure_tensor(
+        workspace.marlin_input_scale,
+        {num_tokens, 1},
+        infinicore::DataType::F32,
+        runner_input.hidden_states->device());
+    ensure_tensor(
+        workspace.marlin_cache2_i8,
+        {num_tokens * top_k, intermediate_size_per_partition_},
+        infinicore::DataType::I8,
+        runner_input.hidden_states->device());
+    ensure_tensor(
+        workspace.marlin_cache2_scale,
+        {num_tokens * top_k, 1},
+        infinicore::DataType::F32,
+        runner_input.hidden_states->device());
+
+    infinicore::op::moe_w8a8_marlin_fused_dense_(
+        workspace.fused_moe_output,
+        workspace.marlin_cache13,
+        workspace.marlin_cache2_i8,
+        workspace.marlin_input_i8,
+        workspace.marlin_input_scale,
+        workspace.marlin_cache2_scale,
+        runner_input.hidden_states,
+        weights.packed_w13,
+        weights.packed_w2,
+        weights.packed_w13_scale,
+        weights.packed_w2_scale,
+        runner_input.topk_output.topk_weights,
+        runner_input.routing_metadata.sorted_token_ids,
+        runner_input.routing_metadata.expert_ids,
+        runner_input.routing_metadata.num_tokens_post_padded,
+        top_k,
+        config.gemm1.mode,
+        config.gemm1.block_size_m,
+        config.gemm1.delta,
+        config.gemm2.mode,
+        config.gemm2.delta);
+
+    return CudaFusedMoeRunnerOutput{
+        workspace.fused_moe_output,
+    };
+}
+
+CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w8a8_marlin_core_sliced(
+    const DispatchOutput &dispatch_output,
+    const MoeWeights &weights,
+    MoeWorkspace &workspace) const {
+    const auto &hidden_shape = dispatch_output.hidden_states->shape();
+    if (hidden_shape.size() != 2) {
+        throw std::runtime_error("Hygon W8A8 sliced MoE runner requires hidden states [M, K]");
+    }
+    const size_t num_tokens = hidden_shape[0];
+    if (infinicore::context::isGraphRecording()) {
+        throw std::runtime_error("Hygon W8A8 sliced MoE runner cannot allocate/copy slice outputs during graph capture");
+    }
+
+    ensure_tensor(
+        workspace.fused_moe_output,
+        dispatch_output.hidden_states->shape(),
+        dispatch_output.hidden_states->dtype(),
+        dispatch_output.hidden_states->device());
+    MoeWorkspace slice_workspace;
+    const auto full_slice_config = select_hygon_w8a8_marlin_config(
+        kHygonW8A8MoeSliceTokens, hidden_size_, intermediate_size_per_partition_);
+    if (!full_slice_config.supported) {
+        throw std::runtime_error("No lightop W8A8 Marlin MoE config found for full Hygon slice");
+    }
+    size_t offset = 0;
+    while (offset < num_tokens) {
+        const size_t slice_tokens = std::min(kHygonW8A8MoeSliceTokens, num_tokens - offset);
+        const auto slice_config = slice_tokens == kHygonW8A8MoeSliceTokens
+                                    ? full_slice_config
+                                    : select_hygon_w8a8_marlin_config(
+                                          slice_tokens, hidden_size_, intermediate_size_per_partition_);
+        if (!slice_config.supported) {
+            throw std::runtime_error("No lightop W8A8 Marlin MoE config found for sliced Hygon shape");
+        }
+
+        const auto hidden_slice = dispatch_output.hidden_states->narrow({{0, offset, slice_tokens}});
+        const TopKOutput topk_slice{
+            dispatch_output.topk_output.topk_weights->narrow({{0, offset, slice_tokens}}),
+            dispatch_output.topk_output.topk_ids->narrow({{0, offset, slice_tokens}}),
+            dispatch_output.topk_output.router_logits
+                ? dispatch_output.topk_output.router_logits->narrow({{0, offset, slice_tokens}})
+                : infinicore::Tensor(),
+        };
+        const DispatchOutput dispatch_slice{
+            DispatchOutputFormat::Standard,
+            hidden_slice,
+            infinicore::Tensor(),
+            topk_slice,
+            infinicore::Tensor(),
+        };
+        auto slice_input = prepare_runner_input(
+            dispatch_slice,
+            slice_workspace,
+            slice_config.gemm1.block_size_m);
+        auto slice_output = run_hygon_w8a8_marlin_core(
+            slice_input,
+            weights,
+            slice_workspace,
+            slice_config);
+        workspace.fused_moe_output->narrow({{0, offset, slice_tokens}})->copy_from(slice_output.hidden_states);
+
+        offset += slice_tokens;
+    }
 
     return CudaFusedMoeRunnerOutput{
         workspace.fused_moe_output,

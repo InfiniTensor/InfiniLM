@@ -88,7 +88,8 @@ infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
     auto output = BaseLinear::forward(input);
 
     if ((tp_size_ > 1) && (communicator_ != nullptr)) {
-        infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
+        return infinicore::op::distributed::allreduce(
+            output, INFINICCL_SUM, communicator_);
     }
     return output;
 }

@@ -47,23 +47,20 @@ pip install -e .
 
 The long-run stall was isolated to the W8A8 MoE path with long prefill. FP graph runs and short W8A8 decode runs can complete, so the issue is not simply long output length.
 
-Observed behavior before the temporary workaround:
+Observed behavior before long-prefill slicing:
 
 - W8A8 `4096/128` graph timed out.
 - W8A8 `4096/128` no-graph segfaulted.
 - Backtraces showed one rank waiting in `RankWorker::wait`, while the other rank was inside the W8A8 Marlin MoE path and teardown/exit handling.
 
-A temporary internal slice loop was added around the Hygon W8A8 Marlin MoE path:
+The Hygon W8A8 Marlin MoE path now chunks long prefill internally:
 
 - Files: `csrc/layers/moe/runner/cuda_fused_moe_runner.cpp`, `.hpp`
-- Env: `INFINILM_HYGON_W8A8_MOE_SLICE_TOKENS`
-- Debug env: `INFINILM_DEBUG_W8A8_MOE_LOOP`
+- Fixed chunk size: `16384` tokens, matching vLLM's production chunk size
+- The sliced path is selected before full-input routing metadata is prepared, so each token is aligned only once
+- No W8A8 slice or debug environment switches are required
 
-With a small slice cap, graph runs can complete, but this is not the final target because it still uses the Marlin-packed path and does not match vLLM's W8A8 channel layout/kernel flow.
-
-Representative temporary result:
-
-- W8A8 `4096/1280`, graph, slice cap `512`: prefill about `5644 tok/s`, decode about `88.8 tok/s`
+This keeps long-prefill workspace bounded while decode continues to use the graph-captured Marlin path directly.
 
 ## vLLM W8A8 MoE Path
 
@@ -148,4 +145,3 @@ The next code change should move InfiniLM W8A8 MoE toward vLLM's ordinary channe
 - Dense linear micro traces:
   - `/tmp/hygon_trace_vllm_w8a8_linear_m1_n4096_k2048_20260710_113331`
   - `/tmp/hygon_trace_vllm_w8a8_linear_m4096_n4096_k2048_20260710_113413`
-

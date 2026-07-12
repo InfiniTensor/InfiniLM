@@ -25,6 +25,8 @@ public:
         bool has_bias,
         float alpha = 1.0f) const override;
 
+    std::string get_moe_weight_method(const infinicore::Device &device) const override;
+
     std::vector<SplitParam> split_params(
         const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
         const std::vector<SplitInfo> &splits,

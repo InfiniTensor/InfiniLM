@@ -92,8 +92,20 @@ public:
         return quant_config.get_moe_weight_method();
     }
 
+    std::string get_moe_weight_method(const infinicore::Device &device) const {
+        return quant_config.get_moe_weight_method(device);
+    }
+
     bool is_moe_w16a16_marlin_enabled() const {
         return quant_config.is_moe_w16a16_marlin_enabled();
+    }
+
+    bool is_moe_w16a16_marlin_enabled(const infinicore::Device &device) const {
+        return quant_config.is_moe_w16a16_marlin_enabled(device);
+    }
+
+    bool is_moe_w8a8_marlin_enabled(const infinicore::Device &device) const {
+        return quant_config.is_moe_w8a8_marlin_enabled(device);
     }
 
     infinicore::DataType get_dtype() const;

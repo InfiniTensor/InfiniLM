@@ -4,7 +4,10 @@
 #include "../../models/infinilm_model.hpp"
 #include "../linear/linear.hpp"
 #include "infinicore/device.hpp"
+#include "infinicore/ops/select_last_token_hidden_states.hpp"
+
 #include <stdexcept>
+
 
 namespace infinilm::layers::causal_lm_templates {
 
@@ -54,6 +57,15 @@ public:
         if (!is_last_pp_stage()) {
             return {infinicore::Tensor(), hidden_states};
         }
+
+        if (input.last_token_only) {
+            if (!input.input_offsets.has_value()) {
+                throw std::runtime_error("TextCausalLM: last_token_only requires input_offsets");
+            }
+            hidden_states = infinicore::op::select_last_token_hidden_states(
+                hidden_states, input.input_offsets.value());
+        }
+
         auto logits = lm_head_->forward(hidden_states);
         return {logits, hidden_states};
     }

@@ -23,6 +23,7 @@ enum class CombineInputFormat {
 enum class MoeWeightBackend {
     Dense,
     HygonW16A16Marlin,
+    HygonW8A8Marlin,
 };
 
 struct DispatchOutput {
@@ -58,6 +59,8 @@ struct CombineInput {
 struct MoeWeights {
     infinicore::Tensor packed_w13;
     infinicore::Tensor packed_w2;
+    infinicore::Tensor packed_w13_scale;
+    infinicore::Tensor packed_w2_scale;
     MoeWeightBackend backend = MoeWeightBackend::Dense;
 
     bool empty() const {
@@ -68,8 +71,16 @@ struct MoeWeights {
         return packed_w13 && packed_w2;
     }
 
+    bool has_packed_w8a8_marlin_weights() const {
+        return packed_w13 && packed_w2 && packed_w13_scale && packed_w2_scale;
+    }
+
     bool is_hygon_w16a16_marlin() const {
         return backend == MoeWeightBackend::HygonW16A16Marlin;
+    }
+
+    bool is_hygon_w8a8_marlin() const {
+        return backend == MoeWeightBackend::HygonW8A8Marlin;
     }
 };
 
@@ -81,6 +92,10 @@ struct MoeWorkspace {
     infinicore::Tensor fused_moe_output;
     infinicore::Tensor marlin_cache13;
     infinicore::Tensor marlin_cache2;
+    infinicore::Tensor marlin_input_i8;
+    infinicore::Tensor marlin_input_scale;
+    infinicore::Tensor marlin_cache2_i8;
+    infinicore::Tensor marlin_cache2_scale;
 
     infinicore::Tensor sorted_token_ids;
     infinicore::Tensor expert_ids;
@@ -96,7 +111,6 @@ struct MoeWorkspace {
     size_t expert_ids_capacity = 0;
     size_t ep_gathered_tokens_capacity = 0;
     size_t ep_reduced_tokens_capacity = 0;
-    size_t fused_moe_output_tokens_capacity = 0;
     size_t marlin_cache13_capacity = 0;
     size_t marlin_cache2_capacity = 0;
     size_t blockscale_offsets_capacity = 0;
