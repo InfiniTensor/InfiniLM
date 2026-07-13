@@ -2,6 +2,7 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "deepseek_v4_profile.hpp"
 #include "deepseek_v4_utils.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
@@ -403,5 +404,50 @@ infinicore::Tensor DeepseekV4MoE::forward(const infinicore::Tensor &hidden_state
     }
     return final_hidden_states->view(shape);
 }
+
+// infinicore::Tensor DeepseekV4MoE::forward(const infinicore::Tensor &hidden_states,
+//                                           const infinicore::Tensor &input_ids) const {
+//     const auto shape = hidden_states->shape();
+//     if (shape.size() != 3 || shape[2] != hidden_size_) {
+//         throw std::runtime_error("DeepseekV4MoE: expected hidden_states shape [B,S,D]");
+//     }
+//     auto hidden_flat = hidden_states->view({shape[0] * shape[1], hidden_size_});
+//     profile::ScopedTimer moe_timer(profile::Event::MoeForward);
+//     infinicore::Tensor topk_weights;
+//     infinicore::Tensor topk_ids;
+//     {
+//         profile::ScopedTimer timer(profile::Event::MoeTopk);
+//         if (std::holds_alternative<std::shared_ptr<DeepseekV4HashTopK>>(topk_)) {
+//             std::tie(topk_weights, topk_ids) = std::get<std::shared_ptr<DeepseekV4HashTopK>>(topk_)->forward(hidden_flat, input_ids);
+//         } else {
+//             std::tie(topk_weights, topk_ids) = std::get<std::shared_ptr<DeepseekV4TopK>>(topk_)->forward(hidden_flat);
+//         }
+//     }
+//     infinicore::Tensor final_hidden_states;
+//     {
+//         profile::ScopedTimer timer(profile::Event::MoeExperts);
+//         final_hidden_states = experts_->forward(hidden_flat, topk_ids, topk_weights);
+//     }
+//     if (has_shared_experts_) {
+//         profile::ScopedTimer timer(profile::Event::MoeSharedExperts);
+//         final_hidden_states = infinicore::op::add(final_hidden_states, shared_experts_->forward_without_allreduce(hidden_flat));
+//     }
+//     if (tp_size_ > 1 && communicator_ != nullptr) {
+//         profile::ScopedTimer timer(profile::Event::MoeAllReduce);
+
+//         if (f32_allreduce_) {
+
+//             const auto local_values = tensor_to_float_vector(final_hidden_states);
+//             auto reduced = float_vector_to_tensor(local_values, final_hidden_states->shape(),
+//                                                   infinicore::DataType::F32, final_hidden_states->device());
+//             infinicore::op::distributed::allreduce_(reduced, reduced, INFINICCL_SUM, communicator_);
+//             final_hidden_states = float_vector_to_tensor(tensor_to_float_vector(reduced), final_hidden_states->shape(),
+//                                                          final_hidden_states->dtype(), final_hidden_states->device());
+//         } else {
+//             infinicore::op::distributed::allreduce_(final_hidden_states, final_hidden_states, INFINICCL_SUM, communicator_);
+//         }
+//     }
+//     return final_hidden_states->view(shape);
+// }
 
 } // namespace infinilm::models::deepseek_v4

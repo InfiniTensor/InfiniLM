@@ -1,5 +1,6 @@
 #include "deepseek_v4_decoder_layer.hpp"
 
+#include "deepseek_v4_profile.hpp"
 #include "deepseek_v4_utils.hpp"
 #include "infinicore/ops.hpp"
 
@@ -107,13 +108,29 @@ DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
 //                                 const infinicore::Tensor &post_mix,
 //                                 const infinicore::Tensor &res_mix,
 //                                 const infinicore::Tensor & /*residual*/) const {
+//     profile::ScopedTimer layer_timer(profile::Event::DecoderFfnLayer);
 //     auto x = hidden_states;
-//     ensure_hc_ffn_fn_mat_right(x);
-//     auto [ffn_input, ffn_post, ffn_comb] = hc_pre(x, hc_ffn_fn_mat_right_, hc_ffn_scale_, hc_ffn_base_);
+//     infinicore::Tensor ffn_input;
+//     infinicore::Tensor ffn_post;
+//     infinicore::Tensor ffn_comb;
+//     {
+//         profile::ScopedTimer timer(profile::Event::DecoderHcPre);
+//         std::tie(ffn_input, ffn_post, ffn_comb) = hc_pre(x, hc_ffn_fn_mat_right_, hc_ffn_scale_, hc_ffn_base_);
+//     }
 
-//     ffn_input = ffn_norm_->forward(ffn_input);
-//     auto ffn_output = ffn_->forward(ffn_input, input_ids);
-//     x = hc_post(ffn_output, x, ffn_post, ffn_comb);
+//     {
+//         profile::ScopedTimer timer(profile::Event::DecoderFfnNorm);
+//         ffn_input = ffn_norm_->forward(ffn_input);
+//     }
+//     infinicore::Tensor ffn_output;
+//     {
+//         profile::ScopedTimer timer(profile::Event::DecoderMoe);
+//         ffn_output = ffn_->forward(ffn_input, input_ids);
+//     }
+//     {
+//         profile::ScopedTimer timer(profile::Event::DecoderHcPost);
+//         x = hc_post(ffn_output, x, ffn_post, ffn_comb);
+//     }
 
 //     return {x, x, post_mix, res_mix};
 // }
