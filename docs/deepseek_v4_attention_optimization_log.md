@@ -644,3 +644,124 @@ Verification:
 
 Assessment: accepted. Bounded hidden history removes the dominant allocation
 cliff and makes the requested full case runnable at a small decode-performance
+cost.
+
+## Stage 15 - Device Positions and Radix TopK-512
+
+Status: accepted; the full batch 4 / input 1024 / output 7168 case improves by
+about 10% in decode throughput
+
+Goal: reduce the Indexer cost that grows with compressed-context length after
+the number of visible C4 blocks exceeds `index_topk=512`.
+
+Root cause:
+
+- The Stage 13 selection kernel computed scores once, but still found each of
+  the 512 winners by rescanning every compressed block. Selection therefore
+  remained `O(topk * num_blocks)` per C4 layer and decode step.
+- The Indexer rebuilt and copied the complete logical position vector from the
+  host even though attention already held the current query positions on the
+  GPU.
+
+Changes:
+
+- Replace 512 repeated full scans with four byte-wise radix passes that find
+  the exact K-th ordered FP32 score. Gather only scores above the threshold,
+  resolve threshold ties by lower block id, and bitonic-sort the fixed 512
+  candidates.
+- Canonicalize signed zero in the radix key. The legacy comparator treats
+  `+0.0` and `-0.0` as equal, so this preserves its lower-block-id tie rule.
+- Use 256 HYGON threads, with each thread handling two comparison pairs, while
+  retaining a 512-candidate shared-memory sort. A 512-thread launch exceeds the
+  gfx936 launch bound.
+- Reuse attention's contiguous GPU query-position tensor in the Indexer and
+  retain the historical host-to-device path only as a compatibility fallback.
+
+Verification:
+
+- InfiniCore HYGON build and install: passed.
+- InfiniLM HYGON build and install: passed.
+- `git diff --check`: passed in both repositories.
+- Layer0-4 boundary case, TP=8, batch=4, input 1024, output 3074: TTFT
+  1271.12 ms, Decode Avg ITL 20.52 ms, throughput 194.89 tok/s. This case has
+  at most 512 compressed blocks and intentionally remains on the full-coverage
+  shortcut, so it is a regression check rather than a radix performance result.
+- Layer0-4 target case, output 7168: TTFT 1319.53 ms, Decode Avg ITL
+  22.42 ms, throughput 178.43 tok/s, and total generation 161989.29 ms. Against
+  the Stage 14 result, Avg ITL fell from 24.82 ms by 9.67% and throughput rose
+  from 161.16 tok/s by 10.71%.
+- Full model short regression, TP=8, batch=1, input 12, output 16: coherent
+  output remained `你好！我是DeepSeek，一个由深度公司研发的AI助手，`.
+- Full target case, TP=8, batch=4, input 1024, output 7168: completed in
+  1454773.55 ms. TTFT was 13451.46 ms, Decode Avg ITL was 201.11 ms, and
+  throughput was 19.89 tok/s. Against Stage 14, Avg ITL fell from 221.45 ms by
+  9.18% and throughput rose from 18.06 tok/s by 10.13%. TTFT changed by 0.45%,
+  within run-to-run noise.
+- The full target run completed all 7168 output tokens without OOM, launch
+  errors, or cache-shape failures and produced coherent Chinese output before
+  the expected long no-EOS repetition.
+
+Assessment: accepted. Radix TopK removes the remaining repeated-selection
+growth and gives a measured 10.13% full-model decode-throughput improvement on
+the requested case. Score computation itself still scans every visible
+compressed block and is the next context-length-dependent Indexer target.
+
+## Stage 16 - Softmax Probability Reuse and Fixed Key Window
+
+Status: accepted; the full target case improves by another 16.49% in decode
+throughput over Stage 15
+
+Goal: remove repeated exponentials inside the decode attention kernels and
+avoid materializing the complete key history when only the 128-token sliding
+window is consumed.
+
+Root cause:
+
+- Both `deepseek_v4_compressed_decode` and `deepseek_v4_swa_decode` recomputed
+  `exp(logit - max) / denominator` inside every output-dimension loop. With
+  512 compressed keys, 128 sliding keys, and head dimension 512, each row
+  repeated hundreds of thousands of exponential operations.
+- Decode passed `key_states->contiguous()` before applying the sliding-window
+  offset. For batch size greater than one, the capacity-backed history view is
+  non-contiguous, so this could materialize the complete and growing key
+  history even though the kernel reads only the newest 128 tokens.
+
+Changes:
+
+- Convert shared-memory logits to normalized probabilities once, in parallel,
+  after computing the softmax maximum and denominator. Reuse those stored
+  probabilities for every output dimension in both decode kernels.
+- Narrow key states to `[kv_start, kv_start + kv_len)` before calling
+  `contiguous()`. Pass the compact window with key offset zero and rebase the
+  compressed-decode key position to `positions[kv_start]`.
+- Preserve prefill behavior, contiguous-position requirements, the selected
+  key set, attention-sink normalization, and the existing compatibility paths.
+
+Verification:
+
+- InfiniCore HYGON build and install: passed.
+- InfiniLM HYGON build and install: passed.
+- `git diff --check`: passed in both repositories.
+- Full model short regression, TP=8, batch=1, input 12, output 16: coherent
+  output remained `你好！我是DeepSeek，一个由深度公司研发的AI助手，`.
+- Layer0-4 target case, TP=8, batch=4, input 1024, output 7168: completed in
+  145107.36 ms. TTFT was 990.59 ms, Decode Avg ITL was 20.11 ms, and
+  throughput was 198.92 tok/s. Against Stage 15, Avg ITL fell by 10.30% and
+  throughput rose by 11.48%.
+- A four-lane-per-head Indexer score experiment measured 20.09 ms and
+  199.07 tok/s on the same layer0-4 case, only a 0.08% throughput difference.
+  It was removed because the result was noise-level and the changed FP32
+  accumulation order added complexity without a defensible gain.
+- Full target case, TP=8, batch=4, input 1024, output 7168: completed in
+  1247018.58 ms. TTFT was 9634.62 ms, Decode Avg ITL was 172.65 ms, and
+  throughput was 23.17 tok/s. Against Stage 15, TTFT fell by 28.37%, Avg ITL
+  fell by 14.15%, and throughput rose by 16.49%.
+- Relative to the Stage 14 first successful full run, Avg ITL is now 22.04%
+  lower and decode throughput is 28.29% higher.
+- The full run completed all 7168 output tokens without OOM, launch errors, or
+  cache-shape failures and produced coherent Chinese output before the expected
+  long no-EOS repetition.
+
+Assessment: accepted. The retained changes are small, preserve the attention
+formula, and directly remove two context-dependent decode costs. The rejected
+score-kernel experiment is documented but is not present in the final source.

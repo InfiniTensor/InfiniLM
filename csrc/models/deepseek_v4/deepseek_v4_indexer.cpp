@@ -150,7 +150,8 @@ infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &h
                                                      size_t &top_k,
                                                      size_t query_start,
                                                      size_t query_len,
-                                                     size_t logical_total_len) const {
+                                                     size_t logical_total_len,
+                                                     const infinicore::Tensor &query_positions) const {
     if (hidden_states->device().getType() == infinicore::Device::Type::CPU) {
         throw std::runtime_error("DeepseekV4Indexer: GPU tensor required");
     }
@@ -219,15 +220,28 @@ infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &h
     auto q_proj = wq_b_->forward(q_input)
                       ->view({batch_size, query_len, index_n_heads_, index_head_dim_});
     auto weights = weights_proj_->forward(weights_input);
-    auto positions_tensor = int64_vector_to_tensor(
-        positions, {positions.size()}, q_proj->device());
+    infinicore::Tensor positions_tensor;
+    size_t positions_query_start = query_start;
+    if (query_positions
+        && query_positions->device() == q_proj->device()
+        && query_positions->dtype() == infinicore::DataType::I64
+        && query_positions->numel() == query_len) {
+        positions_tensor = query_positions->is_contiguous()
+                             ? query_positions
+                             : query_positions->contiguous();
+        positions_tensor = positions_tensor->view({query_len});
+        positions_query_start = 0;
+    } else {
+        positions_tensor = int64_vector_to_tensor(
+            positions, {positions.size()}, q_proj->device());
+    }
     return infinicore::op::deepseek_v4_indexer(
         q_proj->contiguous(),
         weights->contiguous(),
         compressed->contiguous(),
         positions_tensor,
         top_k,
-        query_start,
+        positions_query_start,
         compress_ratio_);
 }
 

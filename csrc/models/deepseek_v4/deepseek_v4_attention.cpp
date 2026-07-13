@@ -481,7 +481,8 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
     }
     if (nb > 0 && indexer_) {
         indexed_blocks_tensor = indexer_->forward_tensor(hidden_states, q_residual, positions, index_top_k,
-                                                         query_start, query_len, total_len);
+                                                         query_start, query_len, total_len,
+                                                         raw_positions);
     }
 
     const bool contiguous_prefill = query_start == 0 && query_len == total_len
@@ -561,19 +562,24 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
         gpu_index_top_k = index_top_k;
         gpu_indexed_blocks_tensor = indexed_blocks_tensor->view({indexed_blocks_tensor->numel()})->contiguous();
     }
+    auto window_key_states = key_states->narrow(
+        {{1, kv_start, kv_len}})->contiguous();
+    const int64_t window_position_base = positions.empty()
+                                           ? 0
+                                           : positions[kv_start];
     auto out = infinicore::op::deepseek_v4_compressed_decode(
         q_rope->contiguous(),
-        key_states->contiguous(),
+        window_key_states,
         kv_comp_tensor->contiguous(),
         attn_sink_->contiguous(),
         query_positions_tensor,
         block_positions_tensor,
         gpu_indexed_blocks_tensor,
-        kv_start,
+        0,
         kv_len,
         contiguous_prefill,
         window,
-        positions.empty() ? 0 : positions.front(),
+        window_position_base,
         softmax_scale_,
         compress_ratio,
         gpu_index_top_k,
@@ -673,12 +679,14 @@ infinicore::Tensor DeepseekV4Attention::sliding_attention_gpu_(const infinicore:
         const auto &rope_params = rotary_emb_.params();
         auto positions_tensor = position_tensor_for_query(
             raw_positions, pos, query_start, query_len, q_rope->device());
+        auto window_key_states = key_states->narrow(
+            {{1, kv_start, kv_len}})->contiguous();
         auto out = infinicore::op::deepseek_v4_swa_decode(
             q_rope->contiguous(),
-            key_states->contiguous(),
+            window_key_states,
             attn_sink_->contiguous(),
             positions_tensor,
-            kv_start,
+            0,
             kv_len,
             softmax_scale_,
             rope_params.rope_dim,
