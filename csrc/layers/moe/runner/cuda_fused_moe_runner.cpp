@@ -53,23 +53,20 @@ std::string env_or_default(const char *name, const char *default_value) {
     return (value != nullptr && value[0] != '\0') ? std::string(value) : std::string(default_value);
 }
 
-bool env_flag_enabled(const char *name, bool default_value) {
-    const char *value = std::getenv(name);
-    if (value == nullptr || value[0] == '\0') {
-        return default_value;
-    }
-    std::string s(value);
-    return s == "1" || s == "true" || s == "TRUE" || s == "on" || s == "ON" || s == "yes" || s == "YES";
-}
-
 constexpr size_t kHygonW8A8MoeSliceTokens = 16384;
+
+enum class HygonMarlinModePolicy {
+    LegacyOnly,
+    LegacyAndBf16Mode1000,
+    All,
+};
 
 HygonMarlinGemmConfig load_lightop_marlin_config(size_t n,
                                                  size_t k,
                                                  size_t m,
                                                  const std::string &file_prefix,
                                                  const char *device_name_default,
-                                                 bool allow_asm,
+                                                 HygonMarlinModePolicy mode_policy,
                                                  bool num_cus_with_cu_prefix) {
     HygonMarlinGemmConfig result;
     const std::string config_dir = env_or_default(
@@ -100,7 +97,9 @@ HygonMarlinGemmConfig load_lightop_marlin_config(size_t n,
             return false;
         }
         const int mode = configs.at(key).value("MODE", result.mode);
-        return allow_asm || mode < 1000;
+        return mode < 1000 ||
+               mode_policy == HygonMarlinModePolicy::All ||
+               (mode_policy == HygonMarlinModePolicy::LegacyAndBf16Mode1000 && mode == 1000);
     };
 
     size_t chosen = 0;
@@ -144,15 +143,18 @@ HygonMarlinGemmConfig load_lightop_marlin_config(size_t n,
 }
 HygonW16A16MarlinRuntimeConfig select_hygon_w16a16_marlin_config(size_t m,
                                                                  size_t hidden_size,
-                                                                 size_t intermediate_size_per_partition) {
+                                                                 size_t intermediate_size_per_partition,
+                                                                 infinicore::DataType hidden_dtype) {
     HygonW16A16MarlinRuntimeConfig config;
-    const bool allow_asm = env_flag_enabled("INFINILM_HYGON_LIGHTOP_ALLOW_ASM", false);
+    const auto mode_policy = hidden_dtype == infinicore::DataType::BF16
+                                 ? HygonMarlinModePolicy::LegacyAndBf16Mode1000
+                                 : HygonMarlinModePolicy::LegacyOnly;
     config.gemm1 = load_lightop_marlin_config(
         intermediate_size_per_partition * 2, hidden_size, m,
-        "MOE_W16A16_CUDA_MARLIN", "gfx936", allow_asm, false);
+        "MOE_W16A16_CUDA_MARLIN", "gfx936", mode_policy, false);
     config.gemm2 = load_lightop_marlin_config(
         hidden_size, intermediate_size_per_partition, m,
-        "MOE_W16A16_CUDA_MARLIN", "gfx936", allow_asm, false);
+        "MOE_W16A16_CUDA_MARLIN", "gfx936", mode_policy, false);
     config.supported = config.gemm1.found && config.gemm2.found;
     return config;
 }
@@ -163,10 +165,10 @@ HygonW8A8MarlinRuntimeConfig select_hygon_w8a8_marlin_config(size_t m,
     HygonW8A8MarlinRuntimeConfig config;
     config.gemm1 = load_lightop_marlin_config(
         intermediate_size_per_partition * 2, hidden_size, m,
-        "MOE_BLOCKINT8_CUDA_MARLIN", "GFX936", true, true);
+        "MOE_BLOCKINT8_CUDA_MARLIN", "GFX936", HygonMarlinModePolicy::All, true);
     config.gemm2 = load_lightop_marlin_config(
         hidden_size, intermediate_size_per_partition, m,
-        "MOE_BLOCKINT8_CUDA_MARLIN", "GFX936", true, true);
+        "MOE_BLOCKINT8_CUDA_MARLIN", "GFX936", HygonMarlinModePolicy::All, true);
     config.supported = config.gemm1.found && config.gemm2.found;
     return config;
 }
@@ -235,7 +237,8 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
         }
         if (weights.is_hygon_w16a16_marlin()) {
             marlin_config = select_hygon_w16a16_marlin_config(
-                hidden_shape[0], hidden_size_, intermediate_size_per_partition_);
+                hidden_shape[0], hidden_size_, intermediate_size_per_partition_,
+                dispatch_output.hidden_states->dtype());
             if (!marlin_config.supported) {
                 throw std::runtime_error("No lightop W16A16 Marlin MoE config found for this Hygon shape");
             }
@@ -398,6 +401,23 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w16a16_marlin_core(
     if (!weights.has_packed_dense_weights() || !weights.is_hygon_w16a16_marlin()) {
         throw std::runtime_error("Hygon W16A16 Marlin MoE runner requires packed Marlin weights");
     }
+    const auto activation_dtype = runner_input.hidden_states->dtype();
+    if (activation_dtype != infinicore::DataType::BF16 &&
+        activation_dtype != infinicore::DataType::F16) {
+        throw std::runtime_error("Hygon W16A16 Marlin MoE runner requires BF16 or FP16 activations");
+    }
+    check_packed_weight_tensor(
+        weights.packed_w13,
+        "w13",
+        runner_input.hidden_states->device(),
+        activation_dtype,
+        {num_local_experts_, hidden_size_ / 16, intermediate_size_per_partition_ * 2 * 16});
+    check_packed_weight_tensor(
+        weights.packed_w2,
+        "w2",
+        runner_input.hidden_states->device(),
+        activation_dtype,
+        {num_local_experts_, intermediate_size_per_partition_ / 16, hidden_size_ * 16});
     const size_t top_k = runner_input.topk_output.topk_ids->shape()[1];
     const size_t num_tokens = runner_input.hidden_states->shape()[0];
     const size_t cache13_required = num_tokens * top_k * std::max(intermediate_size_per_partition_ * 2, hidden_size_);

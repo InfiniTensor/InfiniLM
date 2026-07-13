@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
 
 namespace infinilm::config {
 namespace {
@@ -12,19 +11,6 @@ std::string lower_string(std::string value) {
         return static_cast<char>(std::tolower(ch));
     });
     return value;
-}
-
-std::string env_string(const char *name) {
-    const char *value = std::getenv(name);
-    if (value == nullptr || value[0] == '\0') {
-        return {};
-    }
-    return lower_string(value);
-}
-
-bool truthy_env(const char *name) {
-    auto value = env_string(name);
-    return value == "1" || value == "true" || value == "on" || value == "yes";
 }
 
 bool is_w16a16_marlin_method(const std::string &method) {
@@ -110,13 +96,6 @@ std::string QuantConfig::get_moe_weight_method() const {
 }
 
 std::string QuantConfig::get_moe_weight_method(const infinicore::Device &device) const {
-    auto env_method = env_string("INFINILM_MOE_WEIGHT_METHOD");
-    if (!env_method.empty()) {
-        return env_method;
-    }
-    if (truthy_env("INFINILM_HYGON_MOE_W16A16_MARLIN")) {
-        return "w16a16_marlin";
-    }
     auto configured_method = explicit_moe_weight_method(quantization_config);
     if (!configured_method.empty()) {
         return configured_method;
