@@ -149,14 +149,16 @@ infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &h
                                                      const std::vector<int64_t> &positions,
                                                      size_t &top_k,
                                                      size_t query_start,
-                                                     size_t query_len) const {
+                                                     size_t query_len,
+                                                     size_t logical_total_len) const {
     if (hidden_states->device().getType() == infinicore::Device::Type::CPU) {
         throw std::runtime_error("DeepseekV4Indexer: GPU tensor required");
     }
 
     const auto shape = hidden_states->shape();
     const size_t batch_size = shape[0];
-    const size_t total_len = shape[1];
+    const size_t available_hidden_len = shape[1];
+    const size_t total_len = logical_total_len == 0 ? available_hidden_len : logical_total_len;
     if (positions.size() < total_len) {
         throw std::runtime_error("DeepseekV4Indexer: positions length mismatch");
     }
@@ -173,20 +175,19 @@ infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &h
         throw std::runtime_error("DeepseekV4Indexer: compress_ratio must be non-zero");
     }
 
-    const size_t cheap_num_blocks = total_len / compress_ratio_;
-    top_k = std::min(index_topk_, cheap_num_blocks);
-    if (cheap_num_blocks == 0 || top_k == 0 || query_len == 0) {
+    const size_t num_blocks = total_len / compress_ratio_;
+    top_k = std::min(index_topk_, num_blocks);
+    if (num_blocks == 0 || top_k == 0 || query_len == 0) {
         top_k = 0;
         return infinicore::Tensor();
     }
-    if (use_indexer_full_coverage_shortcut() && top_k == cheap_num_blocks) {
+    auto compressed = get_or_update_compressed_cache(
+        hidden_states, batch_size, num_blocks, query_len);
+    if (use_indexer_full_coverage_shortcut() && top_k == num_blocks) {
         top_k = 0;
         return infinicore::Tensor();
     }
 
-    const size_t num_blocks = cheap_num_blocks;
-    auto compressed = get_or_update_compressed_cache(
-        hidden_states, batch_size, num_blocks, query_len);
     top_k = std::min(index_topk_, num_blocks);
     if (num_blocks == 0 || top_k == 0) {
         top_k = 0;
@@ -195,9 +196,24 @@ infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &h
 
     auto q_input = q_residual;
     auto weights_input = hidden_states;
-    if (query_start != 0 || query_len != total_len) {
-        q_input = q_residual->narrow({{1, query_start, query_len}})->contiguous();
-        weights_input = hidden_states->narrow({{1, query_start, query_len}})->contiguous();
+    if (query_start != 0 || query_len != total_len
+        || q_residual->shape()[1] != total_len) {
+        const size_t q_available = q_residual->shape()[1];
+        if (q_available < query_len) {
+            throw std::runtime_error("DeepseekV4Indexer: recent query history is too short");
+        }
+        const size_t q_start = q_available == total_len
+                                 ? query_start
+                                 : q_available - query_len;
+        q_input = q_residual->narrow({{1, q_start, query_len}})->contiguous();
+    }
+    if (query_start != 0 || query_len != total_len
+        || available_hidden_len != total_len) {
+        if (available_hidden_len < query_len) {
+            throw std::runtime_error("DeepseekV4Indexer: recent hidden history is too short");
+        }
+        weights_input = hidden_states->narrow(
+            {{1, available_hidden_len - query_len, query_len}})->contiguous();
     }
 
     auto q_proj = wq_b_->forward(q_input)

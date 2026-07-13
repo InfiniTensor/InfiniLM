@@ -383,6 +383,13 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
     } else {
         runtime_state_.initialize(hidden_states_mutable, q_residual, key_states, step.positions);
         attn_output = attention_prefill_(shared_position_tensor, q_normed, key_states, hidden_states_mutable, q_residual);
+        const size_t compress_ratio = rotary_emb_.compress_ratio();
+        const bool hidden_history_is_cached = !compressor_ || compress_ratio == 0
+                                           || (!disable_compressed_kv_cache()
+                                               && !disable_incremental_compressor());
+        if (hidden_history_is_cached && sliding_window_ > 0) {
+            runtime_state_.retain_recent_hidden(sliding_window_);
+        }
     }
 
     return apply_grouped_output_projection_(attn_output)->view(packed_shape);
@@ -434,9 +441,11 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
         const size_t recent_len = compress_ratio == 4
                                     ? 2 * compress_ratio
                                     : compress_ratio;
-        if (total_len >= recent_len) {
+        const size_t available_hidden_len = hidden_states->shape()[1];
+        if (available_hidden_len >= recent_len) {
             auto recent_hidden = hidden_states->narrow(
-                                                  {{1, total_len - recent_len, recent_len}})
+                                                  {{1, available_hidden_len - recent_len,
+                                                    recent_len}})
                                      ->contiguous();
             size_t recent_batch = 0;
             size_t recent_blocks = 0;
@@ -453,10 +462,18 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
             }
         }
         if (!kv_comp_tensor) {
+            if (hidden_states->shape()[1] != total_len) {
+                throw std::runtime_error(
+                    "DeepseekV4Attention: compressed KV cache cannot be rebuilt from bounded hidden history");
+            }
             kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
             runtime_state_.set_compressed_kv(kv_comp_tensor, comp_batch, nb);
         }
     } else {
+        if (hidden_states->shape()[1] != total_len) {
+            throw std::runtime_error(
+                "DeepseekV4Attention: compressed KV cache is unavailable for bounded hidden history");
+        }
         kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
         if (!disable_compressed_kv_cache()) {
             runtime_state_.set_compressed_kv(kv_comp_tensor, comp_batch, nb);
@@ -464,7 +481,7 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
     }
     if (nb > 0 && indexer_) {
         indexed_blocks_tensor = indexer_->forward_tensor(hidden_states, q_residual, positions, index_top_k,
-                                                         query_start, query_len);
+                                                         query_start, query_len, total_len);
     }
 
     const bool contiguous_prefill = query_start == 0 && query_len == total_len

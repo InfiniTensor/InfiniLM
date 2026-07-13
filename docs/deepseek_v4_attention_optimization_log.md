@@ -585,3 +585,62 @@ completes the requested 7168-output case in under three minutes. Completing the
 same case on the current full-model machine requires bounded hidden-state
 storage or more GPU memory. On a larger-memory machine, rerun the saved full
 case directly and record TTFT, Decode Avg ITL, throughput, and peak memory.
+
+## Stage 14 - Bounded Hidden-State History
+
+Status: accepted; the full batch 4 / input 1024 / output 7168 case now completes
+on the current machine
+
+Goal: remove the 4096-to-8192 attention-state allocation cliff without a broad
+rewrite of q-residual or key-state storage.
+
+Root cause:
+
+- `DeepseekV4AttentionState` retained BF16 hidden states for every token in all
+  43 layers and doubled all state capacities together.
+- At batch 4 and capacity 8192, hidden history alone occupied approximately
+  11 GiB per device. Growing past logical history 4096 temporarily required
+  old and new storage at the same time and caused HYGON:0 allocation failure.
+- The Indexer full-coverage shortcut returned before constructing its compressed
+  cache, so old hidden states could not simply be discarded.
+
+Changes:
+
+- Build and incrementally maintain the Indexer compressed cache before applying
+  the full-coverage TopK shortcut.
+- Separate logical total sequence length from locally retained hidden length in
+  the Indexer interface. Decode projections consume the newest local query and
+  hidden token while position filtering continues to use global offsets.
+- After prefill, retain at most the latest 128 hidden tokens in storage with a
+  fixed capacity of 256 tokens. When full, compact the newest 128 tokens into a
+  replacement 256-token block instead of doubling with sequence length.
+- Incremental compressor and Indexer updates consume the tail of bounded hidden
+  storage. Rebuild attempts fail explicitly if the historical compressed cache
+  is unavailable, rather than silently using incomplete history.
+- q-residual and key-state histories intentionally remain unchanged in this
+  stage to keep the first memory fix small and reviewable.
+
+Verification:
+
+- InfiniLM Hygon build and install: passed.
+- Full model short regression, TP=8, batch=4, input 12, output 16: coherent
+  output remained `你好！我是DeepSeek，一个由深度公司研发的AI助手，`.
+- Layer0-4, TP=8, batch=4, input 1024, output 1100: TTFT 1269.62 ms,
+  Decode Avg ITL 19.26 ms, throughput 207.64 tok/s.
+- Layer0-4 boundary, output 3074: completed in 69703.04 ms with TTFT
+  1279.10 ms, Decode Avg ITL 22.27 ms, and throughput 179.64 tok/s.
+- Full model boundary, output 3074: the pre-change run failed after 10 minutes
+  17 seconds. The bounded run completed in 611927.36 ms with TTFT 13431.39 ms,
+  Decode Avg ITL 194.76 ms, and throughput 20.54 tok/s.
+- Full target case, output 7168: completed in 1600551.22 ms. TTFT was
+  13391.52 ms, Decode Avg ITL was 221.45 ms, and throughput was 18.06 tok/s.
+  The model produced coherent Chinese before the expected no-EOS repetition.
+- During the full target run, early device memory was 79-80%. After crossing
+  the old OOM boundary it was 93% on rank 0 and 85% on other ranks, versus the
+  old failed run's approximately 97% and 92%.
+- Layer0-4 target-case performance changed from 24.49 to 24.82 ms Decode Avg
+  ITL and from 163.32 to 161.16 tok/s, a 1.3% decode-throughput cost. TTFT was
+  effectively unchanged at 1264.25 versus 1263.78 ms.
+
+Assessment: accepted. Bounded hidden history removes the dominant allocation
+cliff and makes the requested full case runnable at a small decode-performance

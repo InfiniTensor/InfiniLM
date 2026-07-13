@@ -15,6 +15,8 @@ void DeepseekV4AttentionState::reset() {
     q_residual_storage_.reset();
     key_states_storage_.reset();
     storage_capacity_ = 0;
+    hidden_storage_capacity_ = 0;
+    hidden_window_size_ = 0;
     kv_comp.reset();
     kv_comp_blocks = 0;
     kv_comp_batch = 0;
@@ -46,6 +48,8 @@ void DeepseekV4AttentionState::initialize(
     q_residual_storage_.reset();
     key_states_storage_.reset();
     storage_capacity_ = seq_len;
+    hidden_storage_capacity_ = 0;
+    hidden_window_size_ = 0;
     kv_comp.reset();
     kv_comp_blocks = 0;
     kv_comp_batch = 0;
@@ -53,6 +57,28 @@ void DeepseekV4AttentionState::initialize(
     kv_comp_capacity_ = 0;
     block_positions.reset();
     block_positions_blocks = 0;
+}
+
+void DeepseekV4AttentionState::retain_recent_hidden(size_t window_size) {
+    if (!hidden_states || window_size == 0) {
+        return;
+    }
+    const size_t available_len = hidden_states->shape()[1];
+    const size_t keep_len = std::min(available_len, window_size);
+    const size_t capacity = std::max(window_size * 2, keep_len);
+    auto storage_shape = hidden_states->shape();
+    storage_shape[1] = capacity;
+    auto storage = infinicore::Tensor::empty(
+        storage_shape, hidden_states->dtype(), hidden_states->device());
+    if (keep_len > 0) {
+        auto src = hidden_states->narrow(
+            {{1, available_len - keep_len, keep_len}});
+        storage->narrow({{1, 0, keep_len}})->copy_from(src);
+    }
+    hidden_states_storage_ = storage;
+    hidden_states = storage->narrow({{1, 0, keep_len}});
+    hidden_storage_capacity_ = capacity;
+    hidden_window_size_ = window_size;
 }
 
 void DeepseekV4AttentionState::append(
@@ -87,29 +113,60 @@ void DeepseekV4AttentionState::append(
         return;
     }
 
-    if (storage_capacity_ < new_len || !hidden_states_storage_
-        || !q_residual_storage_ || !key_states_storage_) {
+    if (storage_capacity_ < new_len || !q_residual_storage_
+        || !key_states_storage_) {
         size_t new_capacity = storage_capacity_ == 0 ? new_len : storage_capacity_ * 2;
         new_capacity = std::max(new_capacity, old_len + static_cast<size_t>(16));
         new_capacity = std::max(new_capacity, new_len);
 
-        auto grow_storage = [&](const infinicore::Tensor &current,
-                                infinicore::Tensor &storage) {
+        auto grow_full_history = [&](const infinicore::Tensor &current,
+                                     infinicore::Tensor &storage) {
             auto shape = current->shape();
             shape[1] = new_capacity;
             auto next_storage = infinicore::Tensor::empty(
                 shape, current->dtype(), current->device());
-            if (old_len > 0) {
-                auto dst = next_storage->narrow({{1, 0, old_len}});
-                dst->copy_from(current);
+            const size_t current_len = current->shape()[1];
+            if (current_len > 0) {
+                next_storage->narrow({{1, 0, current_len}})->copy_from(current);
             }
             storage = next_storage;
         };
 
-        grow_storage(hidden_states, hidden_states_storage_);
-        grow_storage(q_residual, q_residual_storage_);
-        grow_storage(key_states, key_states_storage_);
+        if (hidden_window_size_ == 0) {
+            grow_full_history(hidden_states, hidden_states_storage_);
+            hidden_storage_capacity_ = new_capacity;
+        }
+        grow_full_history(q_residual, q_residual_storage_);
+        grow_full_history(key_states, key_states_storage_);
         storage_capacity_ = new_capacity;
+    }
+
+    if (hidden_window_size_ > 0) {
+        size_t retained_len = hidden_states->shape()[1];
+        if (!hidden_states_storage_
+            || retained_len + append_len > hidden_storage_capacity_) {
+            const size_t keep_len = std::min(retained_len, hidden_window_size_);
+            auto storage_shape = hidden_states->shape();
+            storage_shape[1] = hidden_window_size_ * 2;
+            auto next_storage = infinicore::Tensor::empty(
+                storage_shape, hidden_states->dtype(), hidden_states->device());
+            if (keep_len > 0) {
+                auto src = hidden_states->narrow(
+                    {{1, retained_len - keep_len, keep_len}});
+                next_storage->narrow({{1, 0, keep_len}})->copy_from(src);
+            }
+            hidden_states_storage_ = next_storage;
+            hidden_storage_capacity_ = storage_shape[1];
+            retained_len = keep_len;
+        }
+        hidden_states_storage_->narrow({{1, retained_len, append_len}})
+            ->copy_from(new_hidden_states);
+        hidden_states = hidden_states_storage_->narrow(
+            {{1, 0, retained_len + append_len}});
+    } else {
+        hidden_states_storage_->narrow({{1, old_len, append_len}})
+            ->copy_from(new_hidden_states);
+        hidden_states = hidden_states_storage_->narrow({{1, 0, new_len}});
     }
 
     auto append_to_storage = [&](infinicore::Tensor &view,
@@ -120,7 +177,6 @@ void DeepseekV4AttentionState::append(
         view = storage->narrow({{1, 0, new_len}});
     };
 
-    append_to_storage(hidden_states, hidden_states_storage_, new_hidden_states);
     append_to_storage(q_residual, q_residual_storage_, new_q_residual);
     append_to_storage(key_states, key_states_storage_, new_key_states);
     positions.insert(positions.end(), new_positions.begin(), new_positions.end());

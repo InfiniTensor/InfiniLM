@@ -37,6 +37,8 @@ public:
                 const infinicore::Tensor &key_states,
                 const std::vector<int64_t> &positions);
 
+    void retain_recent_hidden(size_t window_size);
+
     void set_compressed_kv(const infinicore::Tensor &compressed,
                            size_t batch_size,
                            size_t num_blocks);
@@ -61,6 +63,8 @@ private:
     infinicore::Tensor q_residual_storage_;
     infinicore::Tensor key_states_storage_;
     size_t storage_capacity_{0};
+    size_t hidden_storage_capacity_{0};
+    size_t hidden_window_size_{0};
     infinicore::Tensor kv_comp_storage_;
     size_t kv_comp_capacity_{0};
 };

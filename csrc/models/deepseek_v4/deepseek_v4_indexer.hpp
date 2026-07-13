@@ -23,7 +23,8 @@ public:
                                       const std::vector<int64_t> &positions,
                                       size_t &top_k,
                                       size_t query_start = 0,
-                                      size_t query_len = 0) const;
+                                      size_t query_len = 0,
+                                      size_t logical_total_len = 0) const;
 
 private:
     void reset_runtime_state() const override;
