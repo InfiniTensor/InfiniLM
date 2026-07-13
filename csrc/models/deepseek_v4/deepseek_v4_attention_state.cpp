@@ -145,31 +145,30 @@ void DeepseekV4AttentionState::append_compressed_kv(
     if (append_blocks == 0) {
         return;
     }
+    const size_t batch_size = shape[0];
     const size_t old_blocks = kv_comp_blocks;
     const size_t new_block_count = old_blocks + append_blocks;
 
-    if (!kv_comp || kv_comp_capacity_ < new_block_count || !kv_comp_storage_) {
+    if (!kv_comp || kv_comp_capacity_ < new_block_count || !kv_comp_storage_
+        || kv_comp_batch != batch_size) {
         size_t new_capacity = std::max(new_block_count, old_blocks + static_cast<size_t>(16));
         new_capacity = std::max(new_capacity, kv_comp_capacity_ * 2);
         const size_t head_dim = shape[2];
-        std::vector<size_t> storage_shape{new_capacity, head_dim};
+        std::vector<size_t> storage_shape{batch_size, new_capacity, head_dim};
         auto next_storage = infinicore::Tensor::empty(
             storage_shape, new_blocks->dtype(), new_blocks->device());
-        if (kv_comp && old_blocks > 0) {
-            next_storage->narrow({{0, 0, old_blocks}})->copy_from(
-                kv_comp->view({old_blocks, head_dim}));
+        if (kv_comp && old_blocks > 0 && kv_comp_batch == batch_size) {
+            next_storage->narrow({{1, 0, old_blocks}})->copy_from(kv_comp);
         }
         kv_comp_storage_ = next_storage;
         kv_comp_capacity_ = new_capacity;
     }
 
-    const size_t head_dim = shape[2];
-    kv_comp_storage_->narrow({{0, old_blocks, append_blocks}})->copy_from(
-        new_blocks->view({append_blocks, head_dim}));
-    kv_comp = kv_comp_storage_->narrow({{0, 0, new_block_count}})
-                  ->view({1, new_block_count, head_dim});
+    kv_comp_storage_->narrow({{1, old_blocks, append_blocks}})->copy_from(
+        new_blocks);
+    kv_comp = kv_comp_storage_->narrow({{1, 0, new_block_count}});
     kv_comp_blocks = new_block_count;
-    kv_comp_batch = shape[0];
+    kv_comp_batch = batch_size;
 }
 
 } // namespace infinilm::models::deepseek_v4

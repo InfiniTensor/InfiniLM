@@ -126,6 +126,32 @@ bool has_no_visible_compressed_blocks(size_t compress_ratio,
     return true;
 }
 
+std::vector<int64_t> normalize_uniform_packed_positions(
+    const infinicore::Tensor &positions,
+    size_t batch_size,
+    size_t seq_len) {
+    if (batch_size <= 1) {
+        return normalize_positions(positions, seq_len);
+    }
+
+    const auto packed_positions = tensor_to_int64_vector(positions);
+    if (packed_positions.size() != batch_size * seq_len) {
+        throw std::runtime_error(
+            "DeepseekV4Attention: packed positions size does not match batch and sequence length");
+    }
+
+    std::vector<int64_t> shared_positions(
+        packed_positions.begin(), packed_positions.begin() + seq_len);
+    for (size_t batch_idx = 1; batch_idx < batch_size; ++batch_idx) {
+        const auto begin = packed_positions.begin() + batch_idx * seq_len;
+        if (!std::equal(shared_positions.begin(), shared_positions.end(), begin)) {
+            throw std::runtime_error(
+                "DeepseekV4Attention: paged batch requires equal-length requests with identical positions");
+        }
+    }
+    return shared_positions;
+}
+
 } // namespace
 
 DeepseekV4Attention::DeepseekV4Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -260,26 +286,41 @@ infinicore::Tensor DeepseekV4Attention::forward_static_(const infinicore::Tensor
 
 infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor &positions,
                                                        const infinicore::Tensor &hidden_states) const {
-    const auto shape = hidden_states->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    ASSERT_EQ(batch_size, 1);
-    auto hidden_states_mutable = hidden_states;
+    const auto packed_shape = hidden_states->shape();
+    size_t batch_size = packed_shape[0];
+    const auto &input_offsets =
+        infinilm::global_state::get_forward_context().attn_metadata.input_offsets;
+    if (batch_size == 1 && input_offsets && input_offsets.value()->numel() > 2) {
+        batch_size = input_offsets.value()->numel() - 1;
+    }
+    if (batch_size == 0 || packed_shape[1] % batch_size != 0) {
+        throw std::runtime_error(
+            "DeepseekV4Attention: packed token count is not divisible by batch size");
+    }
+    const size_t seq_len = packed_shape[1] / batch_size;
+    auto hidden_states_mutable = hidden_states->view(
+        {batch_size, seq_len, hidden_size_});
     std::vector<int64_t> pos;
     const bool decode_position_fastpath = !disable_decode_position_fastpath() && runtime_state_.seq_len > 0 && seq_len == 1;
     if (decode_position_fastpath) {
         pos = {static_cast<int64_t>(runtime_state_.seq_len)};
     } else {
-        pos = normalize_positions(positions, seq_len);
+        pos = normalize_uniform_packed_positions(positions, batch_size, seq_len);
+    }
+    infinicore::Tensor shared_position_tensor = positions;
+    if (batch_size > 1 && positions->numel() == batch_size * seq_len) {
+        shared_position_tensor = positions->narrow({{0, 0, seq_len}});
     }
 
     auto q_residual = q_norm_->forward(wq_a_->forward(hidden_states_mutable));
 
-    auto q = wq_b_->forward(q_residual)->view({1, seq_len, num_attention_heads_, head_dim_});
+    auto q = wq_b_->forward(q_residual)->view({batch_size, seq_len, num_attention_heads_, head_dim_});
 
     auto q_normed = infinicore::op::unweighted_rms_norm(q->contiguous(), static_cast<float>(rms_norm_eps_)); // shape []
 
-    const infinicore::Tensor rope_positions = disable_device_rope_positions() ? infinicore::Tensor{} : positions;
+    const infinicore::Tensor rope_positions = disable_device_rope_positions()
+                                                  ? infinicore::Tensor{}
+                                                  : shared_position_tensor;
 
     // std::cout << "before rotary_emb_ q_normed:: " << q_normed->info() << std::endl;
     // std::cout << "before rotary_emb_ rope_positions:: " << rope_positions->info() << std::endl;
@@ -312,10 +353,10 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
 
     auto kv = kv_norm_->forward(wkv_->forward(hidden_states_mutable));
 
-    auto key_states = rotary_emb_.forward(kv->view({1, seq_len, num_key_value_heads_, head_dim_}), pos, rope_positions);
+    auto key_states = rotary_emb_.forward(kv->view({batch_size, seq_len, num_key_value_heads_, head_dim_}), pos, rope_positions);
 
     DeepseekV4AttentionStep step;
-    step.raw_positions = positions;
+    step.raw_positions = shared_position_tensor;
     step.positions = pos;
     step.query_len = seq_len;
     const bool is_decode = runtime_state_.seq_len > 0 && seq_len == 1 && !pos.empty() && pos[0] >= static_cast<int64_t>(runtime_state_.seq_len);
@@ -342,10 +383,10 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
         }
     } else {
         runtime_state_.initialize(hidden_states_mutable, q_residual, key_states, step.positions);
-        attn_output = attention_prefill_(positions, q_normed, key_states, hidden_states_mutable, q_residual);
+        attn_output = attention_prefill_(shared_position_tensor, q_normed, key_states, hidden_states_mutable, q_residual);
     }
 
-    return apply_grouped_output_projection_(attn_output);
+    return apply_grouped_output_projection_(attn_output)->view(packed_shape);
 }
 
 infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinicore::Tensor &q_rope,

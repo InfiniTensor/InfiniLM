@@ -470,3 +470,51 @@ paths, so the apparent benchmark improvements are treated as machine variance
 rather than attributed performance gains. The main benefit is a smaller and
 deterministic GPU-only attention implementation. Remaining host position
 metadata and Indexer position transfers are separate performance work.
+
+## Stage 12 - Homogeneous Paged Batch Support
+
+Status: accepted
+
+Goal: restore paged-attention prefill and decode for homogeneous batches after
+the GPU-only prefill cleanup exposed the packed input layout.
+
+Root cause:
+
+- The paged engine packs a logical `[batch, sequence, hidden]` tensor as
+  `[1, batch * sequence, hidden]` and supplies one repeated position segment
+  per request.
+- `DeepseekV4Attention::forward_paged_` treated the packed token dimension as
+  one sequence and required its repeated positions to be globally contiguous.
+  CSA/HCA layers therefore failed during full-model batch prefill with
+  `prefill requires a GPU device and contiguous positions`.
+- The layer0 model did not expose the failure because it did not exercise the
+  same CSA/HCA compressed-attention path.
+
+Changes:
+
+- Recover the logical batch size from `AttentionMetadata::input_offsets`, view
+  the packed hidden states as `[batch, sequence, hidden]`, and repack the
+  projected output before returning to the engine.
+- Validate that the current paged batch is homogeneous: requests must have the
+  same sequence length and identical position segments. Reuse the first device
+  position segment for RoPE and fused attention kernels.
+- Preserve batch dimensions in incremental compressed-KV storage instead of
+  flattening cached blocks through an implicit batch size of one.
+
+Verification:
+
+- InfiniLM Hygon build and install: passed.
+- Full 43-layer model, TP=8, batch=4 warmup at input length 128 plus five decode
+  steps: passed.
+- Full model, TP=8, batch=4, 12 input / 16 output tokens: TTFT 387.70 ms,
+  Decode Avg ITL 107.97 ms, aggregate decode throughput 37.05 tok/s.
+- Full model, TP=8, batch=1 regression, 12 input / 16 output tokens: TTFT
+  157.93 ms, Decode Avg ITL 98.85 ms, decode throughput 10.12 tok/s.
+- Both batch sizes produced the same coherent prefix: `你好！我是DeepSeek，一个由深度公司研发的AI助手，`.
+- `git diff --check` passed, no benchmark process remained, and no core file
+  larger than 100 MB was generated under `/workspace_infini` or `/workspace`.
+
+Assessment: accepted. The previously failing homogeneous batch path now runs
+entirely through the existing GPU CSA/HCA kernels. Variable-length paged
+batches remain explicitly unsupported because the current attention state and
+compressed-decode interfaces use one shared logical position vector.
