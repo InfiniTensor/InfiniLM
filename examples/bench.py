@@ -607,13 +607,13 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------------- #
     #                                Warmup
     # ---------------------------------------------------------------------------- #
-    if cfg.warmup:
+    if True:
         warmup_steps = 1
 
         # warmup cache capacity
         warmup_case = next(iter(cases_dict.values()))
         warmup_batch = warmup_case["batch_size"]
-        warmup_input_len = warmup_case["input_len"]
+        warmup_input_len = 128  #warmup_case["input_len"]
         warmup_decode_len = 5
 
         if enable_paged_attn:
