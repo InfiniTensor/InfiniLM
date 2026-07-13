@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2025, InfiniCore
-"""Phase 0: hcGraph replay smoke for InductorSegment pre_attn L0 @512."""
+"""Phase 1: hcGraph replay smoke for InductorSegment pre_attn L0 @ B4."""
 
 from __future__ import annotations
 
@@ -12,24 +12,29 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-DEBUG_LOG = "/opt/offline/infinilm-metax-20260622/.cursor/debug-9ddc7d.log"
+DEBUG_LOG = "/opt/offline/infinilm-metax-20260622/.cursor/debug-685da7.log"
+_CONTAINER_DEBUG_LOG = "/workspace/.cursor/debug-685da7.log"
 
 
 def _agent_log(location: str, message: str, hypothesis_id: str, data: dict) -> None:
     # #region agent log
     payload = {
-        "sessionId": "9ddc7d",
+        "sessionId": "685da7",
         "location": location,
         "message": message,
         "hypothesisId": hypothesis_id,
         "data": data,
         "timestamp": int(time.time() * 1000),
     }
-    try:
-        with open(DEBUG_LOG, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
-    except OSError:
-        pass
+    line = json.dumps(payload) + "\n"
+    for path in (DEBUG_LOG, _CONTAINER_DEBUG_LOG):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
+        except OSError:
+            pass
+    print(f"[agent_log] {hypothesis_id} {message} {data}", flush=True)
     # #endregion
 
 
@@ -79,7 +84,6 @@ def run_hcgraph_smoke(
     tp_rank: int = 0,
     device_index: int = 0,
 ) -> HcGraphSmokeResult:
-    os.environ["INFINI_PIECEWISE_INDUCTOR_SEGMENT"] = "1"
     os.environ["INFINI_GRAPH_STRICT_REPLAY"] = "1"
 
     import infinicore
@@ -92,9 +96,7 @@ def run_hcgraph_smoke(
     tp_size = max(1, int(tp_size))
     tp_rank = int(tp_rank)
     cuda_dev = f"cuda:{int(device_index)}"
-
     device = infinicore.device("cuda", int(device_index))
-    infinicore.set_device(device)
 
     if compile_segments:
         from infinilm.compile.piecewise_segments import (
@@ -115,17 +117,85 @@ def run_hcgraph_smoke(
             tp_device_ids=list(range(tp_size)),
         )
 
-    from infinicore.compiled_subgraphs import register_piecewise_inductor_packages
-    from infinilm.compile.piecewise_segments import SEGMENT_PRE_ATTN
+    device = infinicore.device("cuda", int(device_index))
+    infinicore.set_device(device)
 
-    registered = register_piecewise_inductor_packages(
-        model_path=model_path,
-        segments=(SEGMENT_PRE_ATTN,),
-        layer_indices=(layer_idx,),
-        buckets=(bucket,),
-        cache_root=cache_root,
-        tp_size=tp_size,
+    from infinilm.compile.piecewise_segments import piecewise_layer_agnostic_enabled
+
+    layer_agnostic = piecewise_layer_agnostic_enabled()
+
+    if layer_agnostic:
+        from infinilm.compile.piecewise_segments import (
+            _extract_pre_attn_weights,
+            load_torch_model_with_cpp_weights,
+        )
+
+        os.environ["INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS"] = "0"
+        try:
+            tp_dev_ids = list(range(tp_size))
+            torch_model = load_torch_model_with_cpp_weights(
+                model_path,
+                torch.device(cuda_dev),
+                tp_size=tp_size,
+                tp_rank=tp_rank,
+                tp_device_ids=tp_dev_ids,
+            )
+            inner = torch_model.inner.model
+            ln_w, q_w, k_w, v_w, qn_w, kn_w, _has_qk = _extract_pre_attn_weights(
+                inner.layers[int(layer_idx)],
+                torch.device(cuda_dev),
+                dtype,
+            )
+            ln_w, q_w, k_w, v_w, qn_w, kn_w = (
+                t.clone() for t in (ln_w, q_w, k_w, v_w, qn_w, kn_w)
+            )
+            del torch_model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            _ic.register_pre_attn_external_weights(
+                int(layer_idx),
+                *[
+                    infinicore.from_torch(t)._underlying
+                    for t in (ln_w, q_w, k_w, v_w, qn_w, kn_w)
+                ],
+            )
+        finally:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    infinicore.set_device(device)
+
+    from infinilm.compile.piecewise_segments import (
+        LAYER_AGNOSTIC_IDX,
+        SEGMENT_PRE_ATTN,
+        piecewise_inductor_package_path,
     )
+
+    os.environ["INFINI_PIECEWISE_INDUCTOR_SEGMENT"] = "1"
+
+    registered = 0
+    if layer_agnostic:
+        package_path = piecewise_inductor_package_path(
+            cache_root=cache_root,
+            model_path=model_path,
+            segment=SEGMENT_PRE_ATTN,
+            layer_idx=LAYER_AGNOSTIC_IDX,
+            bucket=int(bucket),
+            tp_size=tp_size,
+            tp_rank=int(tp_rank),
+            layer_agnostic=True,
+        )
+        if os.path.isfile(package_path):
+            _ic.register_piecewise_inductor_package(
+                SEGMENT_PRE_ATTN,
+                LAYER_AGNOSTIC_IDX,
+                int(bucket),
+                os.path.abspath(package_path),
+                int(tp_rank),
+                True,
+            )
+            registered = 1
+
     _agent_log(
         "inductor_segment_hcgraph_smoke.py",
         "packages_registered",
@@ -157,7 +227,12 @@ def run_hcgraph_smoke(
     residual = infinicore.from_torch(
         torch.randn(1, bucket, shapes["hidden_size"], device=cuda_dev, dtype=dtype)
     )
-    positions = infinicore.from_list(list(range(valid)), dtype=infinicore.int64, device=device)
+    position_offset = 512 if int(valid) < 512 else 0
+    positions = infinicore.from_list(
+        list(range(position_offset, position_offset + valid)),
+        dtype=infinicore.int64,
+        device=device,
+    )
     positions_padded = infinicore.zeros([1, bucket], dtype=infinicore.int64, device=device)
     q_rope = infinicore.empty(
         [1, bucket, shapes["num_heads"], shapes["head_dim"]],
@@ -196,7 +271,25 @@ def run_hcgraph_smoke(
             {"bucket": bucket},
         )
 
+    _agent_log(
+        "inductor_segment_hcgraph_smoke.py",
+        "before_start_graph_recording",
+        "H4",
+        {"device_index": int(device_index)},
+    )
     infinicore.start_graph_recording(device)
+    _agent_log(
+        "inductor_segment_hcgraph_smoke.py",
+        "after_start_graph_recording",
+        "H4",
+        {},
+    )
+    _agent_log(
+        "inductor_segment_hcgraph_smoke.py",
+        "before_inductor_segment_record",
+        "H1",
+        {"bucket": bucket, "layer": layer_idx},
+    )
     _ic.inductor_segment_(
         positions._underlying,
         hidden._underlying,
@@ -208,7 +301,19 @@ def run_hcgraph_smoke(
         int(layer_idx),
         int(bucket),
     )
+    _agent_log(
+        "inductor_segment_hcgraph_smoke.py",
+        "after_inductor_segment_record",
+        "H5",
+        {},
+    )
     graph = infinicore.stop_graph_recording()
+    _agent_log(
+        "inductor_segment_hcgraph_smoke.py",
+        "after_stop_graph_recording",
+        "H5",
+        {"has_device_exec": graph.has_device_exec()},
+    )
 
     has_exec = graph.has_device_exec()
     log_msg = graph.device_graph_log()

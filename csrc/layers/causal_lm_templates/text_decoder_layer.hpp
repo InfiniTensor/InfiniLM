@@ -95,7 +95,10 @@ public:
                     layer_idx_,
                     bucket);
                 // AOTInductor uses the PyTorch stream; sync before InfiniCore collectives (o_proj AR).
-                infinicore::context::syncDevice();
+                // Skip during hcGraph recording — sync would break device-graph capture.
+                if (!infinicore::context::isGraphRecording()) {
+                    infinicore::context::syncDevice();
+                }
                 return;
             }
         }
