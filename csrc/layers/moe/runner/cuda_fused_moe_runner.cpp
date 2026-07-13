@@ -5,10 +5,12 @@
 #include "infinicore/ops/moe_fused_dense.hpp"
 #include "infinicore/ops/moe_w16a16_marlin.hpp"
 #include "infinicore/ops/moe_w8a8_marlin.hpp"
+#include "infinicore/adaptor/lightop_adaptor.hpp"
 
 #include "nlohmann/json.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <limits>
@@ -53,6 +55,28 @@ std::string env_or_default(const char *name, const char *default_value) {
     return (value != nullptr && value[0] != '\0') ? std::string(value) : std::string(default_value);
 }
 
+std::string normalize_hygon_gpu_target(std::string target, bool uppercase) {
+    const auto feature_pos = target.find(':');
+    if (feature_pos != std::string::npos) {
+        target.resize(feature_pos);
+    }
+    std::transform(target.begin(), target.end(), target.begin(), [uppercase](unsigned char ch) {
+        return static_cast<char>(uppercase ? std::toupper(ch) : std::tolower(ch));
+    });
+
+    std::string lowercase = target;
+    std::transform(lowercase.begin(), lowercase.end(), lowercase.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (lowercase.size() <= 3 || lowercase.compare(0, 3, "gfx") != 0 ||
+        !std::all_of(lowercase.begin() + 3, lowercase.end(), [](unsigned char ch) {
+            return std::isalnum(ch) != 0;
+        })) {
+        throw std::runtime_error("Invalid Hygon GPU target for lightop config: " + target);
+    }
+    return target;
+}
+
 constexpr size_t kHygonW8A8MoeSliceTokens = 16384;
 
 enum class HygonMarlinModePolicy {
@@ -65,15 +89,21 @@ HygonMarlinGemmConfig load_lightop_marlin_config(size_t n,
                                                  size_t k,
                                                  size_t m,
                                                  const std::string &file_prefix,
-                                                 const char *device_name_default,
+                                                 const infinicore::adaptor::lightop::DeviceInfo &device_info,
                                                  HygonMarlinModePolicy mode_policy,
+                                                 bool uppercase_device_name,
                                                  bool num_cus_with_cu_prefix) {
     HygonMarlinGemmConfig result;
     const std::string config_dir = env_or_default(
         "INFINILM_LIGHTOP_CONFIG_DIR",
         "/usr/local/lib/python3.10/dist-packages/lightop/configs");
-    const std::string device_name = env_or_default("INFINILM_HYGON_LIGHTOP_DEVICE_NAME", device_name_default);
-    const std::string num_cus = env_or_default("INFINILM_HYGON_LIGHTOP_NUM_CUS", "80");
+    if (device_info.gpu_target.empty() || device_info.compute_units <= 0) {
+        throw std::runtime_error("Unable to query Hygon device properties for lightop config");
+    }
+    const std::string device_name = normalize_hygon_gpu_target(
+        device_info.gpu_target,
+        uppercase_device_name);
+    const std::string num_cus = std::to_string(device_info.compute_units);
     const std::string num_cus_suffix = num_cus_with_cu_prefix ? ("_CU" + num_cus) : ("_" + num_cus);
     const std::string file_name = config_dir + "/" + file_prefix + "_" +
                                   std::to_string(n) + "_" + std::to_string(k) + "_" +
@@ -144,31 +174,35 @@ HygonMarlinGemmConfig load_lightop_marlin_config(size_t n,
 HygonW16A16MarlinRuntimeConfig select_hygon_w16a16_marlin_config(size_t m,
                                                                  size_t hidden_size,
                                                                  size_t intermediate_size_per_partition,
-                                                                 infinicore::DataType hidden_dtype) {
+                                                                 infinicore::DataType hidden_dtype,
+                                                                 size_t device_index) {
     HygonW16A16MarlinRuntimeConfig config;
+    const auto device_info = infinicore::adaptor::lightop::device_info(device_index);
     const auto mode_policy = hidden_dtype == infinicore::DataType::BF16
                                  ? HygonMarlinModePolicy::LegacyAndBf16Mode1000
                                  : HygonMarlinModePolicy::LegacyOnly;
     config.gemm1 = load_lightop_marlin_config(
         intermediate_size_per_partition * 2, hidden_size, m,
-        "MOE_W16A16_CUDA_MARLIN", "gfx936", mode_policy, false);
+        "MOE_W16A16_CUDA_MARLIN", device_info, mode_policy, false, false);
     config.gemm2 = load_lightop_marlin_config(
         hidden_size, intermediate_size_per_partition, m,
-        "MOE_W16A16_CUDA_MARLIN", "gfx936", mode_policy, false);
+        "MOE_W16A16_CUDA_MARLIN", device_info, mode_policy, false, false);
     config.supported = config.gemm1.found && config.gemm2.found;
     return config;
 }
 
 HygonW8A8MarlinRuntimeConfig select_hygon_w8a8_marlin_config(size_t m,
                                                              size_t hidden_size,
-                                                             size_t intermediate_size_per_partition) {
+                                                             size_t intermediate_size_per_partition,
+                                                             size_t device_index) {
     HygonW8A8MarlinRuntimeConfig config;
+    const auto device_info = infinicore::adaptor::lightop::device_info(device_index);
     config.gemm1 = load_lightop_marlin_config(
         intermediate_size_per_partition * 2, hidden_size, m,
-        "MOE_BLOCKINT8_CUDA_MARLIN", "GFX936", HygonMarlinModePolicy::All, true);
+        "MOE_BLOCKINT8_CUDA_MARLIN", device_info, HygonMarlinModePolicy::All, true, true);
     config.gemm2 = load_lightop_marlin_config(
         hidden_size, intermediate_size_per_partition, m,
-        "MOE_BLOCKINT8_CUDA_MARLIN", "GFX936", HygonMarlinModePolicy::All, true);
+        "MOE_BLOCKINT8_CUDA_MARLIN", device_info, HygonMarlinModePolicy::All, true, true);
     config.supported = config.gemm1.found && config.gemm2.found;
     return config;
 }
@@ -238,7 +272,8 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
         if (weights.is_hygon_w16a16_marlin()) {
             marlin_config = select_hygon_w16a16_marlin_config(
                 hidden_shape[0], hidden_size_, intermediate_size_per_partition_,
-                dispatch_output.hidden_states->dtype());
+                dispatch_output.hidden_states->dtype(),
+                dispatch_output.hidden_states->device().getIndex());
             if (!marlin_config.supported) {
                 throw std::runtime_error("No lightop W16A16 Marlin MoE config found for this Hygon shape");
             }
@@ -255,7 +290,8 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
                 };
             }
             w8a8_marlin_config = select_hygon_w8a8_marlin_config(
-                hidden_shape[0], hidden_size_, intermediate_size_per_partition_);
+                hidden_shape[0], hidden_size_, intermediate_size_per_partition_,
+                dispatch_output.hidden_states->device().getIndex());
             if (!w8a8_marlin_config.supported) {
                 throw std::runtime_error("No lightop W8A8 Marlin MoE config found for this Hygon shape");
             }
@@ -591,8 +627,10 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w8a8_marlin_core_sliced(
         dispatch_output.hidden_states->dtype(),
         dispatch_output.hidden_states->device());
     MoeWorkspace slice_workspace;
+    const auto device_index = dispatch_output.hidden_states->device().getIndex();
     const auto full_slice_config = select_hygon_w8a8_marlin_config(
-        kHygonW8A8MoeSliceTokens, hidden_size_, intermediate_size_per_partition_);
+        kHygonW8A8MoeSliceTokens, hidden_size_, intermediate_size_per_partition_,
+        device_index);
     if (!full_slice_config.supported) {
         throw std::runtime_error("No lightop W8A8 Marlin MoE config found for full Hygon slice");
     }
@@ -602,7 +640,8 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w8a8_marlin_core_sliced(
         const auto slice_config = slice_tokens == kHygonW8A8MoeSliceTokens
                                     ? full_slice_config
                                     : select_hygon_w8a8_marlin_config(
-                                          slice_tokens, hidden_size_, intermediate_size_per_partition_);
+                                          slice_tokens, hidden_size_, intermediate_size_per_partition_,
+                                          device_index);
         if (!slice_config.supported) {
             throw std::runtime_error("No lightop W8A8 Marlin MoE config found for sliced Hygon shape");
         }
