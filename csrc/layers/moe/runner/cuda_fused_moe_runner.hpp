@@ -43,6 +43,11 @@ private:
         MoeWorkspace &workspace,
         const HygonW16A16MarlinRuntimeConfig &config) const;
 
+    CudaFusedMoeRunnerOutput run_hygon_w16a16_marlin_core_sliced(
+        const DispatchOutput &dispatch_output,
+        const MoeWeights &weights,
+        MoeWorkspace &workspace) const;
+
     CudaFusedMoeRunnerOutput run_hygon_w8a8_marlin_core(
         const CudaFusedMoeRunnerInput &runner_input,
         const MoeWeights &weights,

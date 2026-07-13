@@ -77,6 +77,7 @@ std::string normalize_hygon_gpu_target(std::string target, bool uppercase) {
     return target;
 }
 
+constexpr size_t kHygonW16A16MoeSliceTokens = 16384;
 constexpr size_t kHygonW8A8MoeSliceTokens = 16384;
 
 enum class HygonMarlinModePolicy {
@@ -270,6 +271,16 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
             throw std::runtime_error("Hygon Marlin MoE runner requires hidden states [M, K]");
         }
         if (weights.is_hygon_w16a16_marlin()) {
+            if (hidden_shape[0] > kHygonW16A16MoeSliceTokens) {
+                auto runner_output = run_hygon_w16a16_marlin_core_sliced(
+                    dispatch_output, weights, workspace);
+                return CombineInput{
+                    CombineInputFormat::Standard,
+                    runner_output.hidden_states,
+                    dispatch_output.topk_output,
+                    MoeRoutingMetadata{},
+                };
+            }
             marlin_config = select_hygon_w16a16_marlin_config(
                 hidden_shape[0], hidden_size_, intermediate_size_per_partition_,
                 dispatch_output.hidden_states->dtype(),
@@ -456,6 +467,10 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w16a16_marlin_core(
         {num_local_experts_, intermediate_size_per_partition_ / 16, hidden_size_ * 16});
     const size_t top_k = runner_input.topk_output.topk_ids->shape()[1];
     const size_t num_tokens = runner_input.hidden_states->shape()[0];
+    if (num_tokens > kHygonW16A16MoeSliceTokens) {
+        throw std::runtime_error(
+            "Hygon W16A16 Marlin MoE core requires inputs above 16384 tokens to be sliced");
+    }
     const size_t cache13_required = num_tokens * top_k * std::max(intermediate_size_per_partition_ * 2, hidden_size_);
     const size_t cache2_required = num_tokens * top_k * intermediate_size_per_partition_;
 
@@ -501,6 +516,88 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w16a16_marlin_core(
         config.gemm1.delta,
         config.gemm2.mode,
         config.gemm2.delta);
+
+    return CudaFusedMoeRunnerOutput{
+        workspace.fused_moe_output,
+    };
+}
+
+CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_hygon_w16a16_marlin_core_sliced(
+    const DispatchOutput &dispatch_output,
+    const MoeWeights &weights,
+    MoeWorkspace &workspace) const {
+    const auto &hidden_shape = dispatch_output.hidden_states->shape();
+    if (hidden_shape.size() != 2) {
+        throw std::runtime_error("Hygon W16A16 sliced MoE runner requires hidden states [M, K]");
+    }
+    const size_t num_tokens = hidden_shape[0];
+    if (infinicore::context::isGraphRecording()) {
+        throw std::runtime_error("Hygon W16A16 sliced MoE runner cannot allocate/copy slice outputs during graph capture");
+    }
+
+    ensure_tensor(
+        workspace.fused_moe_output,
+        dispatch_output.hidden_states->shape(),
+        dispatch_output.hidden_states->dtype(),
+        dispatch_output.hidden_states->device());
+    MoeWorkspace slice_workspace;
+    const auto activation_dtype = dispatch_output.hidden_states->dtype();
+    const auto device_index = dispatch_output.hidden_states->device().getIndex();
+    const auto full_slice_config = select_hygon_w16a16_marlin_config(
+        kHygonW16A16MoeSliceTokens,
+        hidden_size_,
+        intermediate_size_per_partition_,
+        activation_dtype,
+        device_index);
+    if (!full_slice_config.supported) {
+        throw std::runtime_error("No lightop W16A16 Marlin MoE config found for full Hygon slice");
+    }
+
+    size_t offset = 0;
+    while (offset < num_tokens) {
+        const size_t slice_tokens = std::min(kHygonW16A16MoeSliceTokens, num_tokens - offset);
+        const auto slice_config = slice_tokens == kHygonW16A16MoeSliceTokens
+                                      ? full_slice_config
+                                      : select_hygon_w16a16_marlin_config(
+                                            slice_tokens,
+                                            hidden_size_,
+                                            intermediate_size_per_partition_,
+                                            activation_dtype,
+                                            device_index);
+        if (!slice_config.supported) {
+            throw std::runtime_error("No lightop W16A16 Marlin MoE config found for sliced Hygon shape");
+        }
+
+        const auto hidden_slice = dispatch_output.hidden_states->narrow({{0, offset, slice_tokens}});
+        const TopKOutput topk_slice{
+            dispatch_output.topk_output.topk_weights->narrow({{0, offset, slice_tokens}}),
+            dispatch_output.topk_output.topk_ids->narrow({{0, offset, slice_tokens}}),
+            dispatch_output.topk_output.router_logits
+                ? dispatch_output.topk_output.router_logits->narrow({{0, offset, slice_tokens}})
+                : infinicore::Tensor(),
+        };
+        const DispatchOutput dispatch_slice{
+            DispatchOutputFormat::Standard,
+            hidden_slice,
+            infinicore::Tensor(),
+            topk_slice,
+            infinicore::Tensor(),
+        };
+        auto slice_input = prepare_runner_input(
+            dispatch_slice,
+            slice_workspace,
+            slice_config.gemm1.block_size_m);
+        auto slice_output = run_hygon_w16a16_marlin_core(
+            slice_input,
+            weights,
+            slice_workspace,
+            slice_config);
+        workspace.fused_moe_output
+            ->narrow({{0, offset, slice_tokens}})
+            ->copy_from(slice_output.hidden_states);
+
+        offset += slice_tokens;
+    }
 
     return CudaFusedMoeRunnerOutput{
         workspace.fused_moe_output,
