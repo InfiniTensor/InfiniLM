@@ -45,6 +45,105 @@ DeepseekV4Indexer::DeepseekV4Indexer(std::shared_ptr<infinilm::config::ModelConf
     INFINICORE_NN_MODULE_INIT(compressor, model_config, compress_ratio_, index_head_dim_, device);
 }
 
+void DeepseekV4Indexer::reset_runtime_state() const {
+    compressed_cache_.reset();
+    compressed_cache_storage_.reset();
+    compressed_cache_batch_ = 0;
+    compressed_cache_blocks_ = 0;
+    compressed_cache_capacity_ = 0;
+}
+
+void DeepseekV4Indexer::set_compressed_cache(
+    const infinicore::Tensor &compressed,
+    size_t batch_size,
+    size_t num_blocks) const {
+    compressed_cache_ = compressed;
+    compressed_cache_storage_.reset();
+    compressed_cache_batch_ = batch_size;
+    compressed_cache_blocks_ = num_blocks;
+    compressed_cache_capacity_ = num_blocks;
+}
+
+void DeepseekV4Indexer::append_compressed_cache(
+    const infinicore::Tensor &new_blocks) const {
+    const auto shape = new_blocks->shape();
+    const size_t batch_size = shape[0];
+    const size_t append_blocks = shape[1];
+    if (append_blocks == 0) {
+        return;
+    }
+
+    const size_t old_blocks = compressed_cache_blocks_;
+    const size_t new_block_count = old_blocks + append_blocks;
+    if (!compressed_cache_storage_
+        || compressed_cache_capacity_ < new_block_count
+        || compressed_cache_batch_ != batch_size) {
+        size_t new_capacity = std::max(new_block_count, old_blocks + static_cast<size_t>(16));
+        new_capacity = std::max(new_capacity, compressed_cache_capacity_ * 2);
+        std::vector<size_t> storage_shape{batch_size, new_capacity, shape[2]};
+        auto next_storage = infinicore::Tensor::empty(
+            storage_shape, new_blocks->dtype(), new_blocks->device());
+        if (compressed_cache_ && old_blocks > 0
+            && compressed_cache_batch_ == batch_size) {
+            next_storage->narrow({{1, 0, old_blocks}})->copy_from(compressed_cache_);
+        }
+        compressed_cache_storage_ = next_storage;
+        compressed_cache_capacity_ = new_capacity;
+    }
+
+    compressed_cache_storage_->narrow({{1, old_blocks, append_blocks}})
+        ->copy_from(new_blocks);
+    compressed_cache_ = compressed_cache_storage_->narrow(
+        {{1, 0, new_block_count}});
+    compressed_cache_batch_ = batch_size;
+    compressed_cache_blocks_ = new_block_count;
+}
+
+infinicore::Tensor DeepseekV4Indexer::get_or_update_compressed_cache(
+    const infinicore::Tensor &hidden_states,
+    size_t batch_size,
+    size_t expected_blocks,
+    size_t query_len) const {
+    if (compressed_cache_
+        && compressed_cache_batch_ == batch_size
+        && compressed_cache_blocks_ == expected_blocks) {
+        return compressed_cache_;
+    }
+
+    if (query_len == 1
+        && compressed_cache_
+        && compressed_cache_batch_ == batch_size
+        && expected_blocks == compressed_cache_blocks_ + 1
+        && hidden_states->shape()[1] >= 2 * compress_ratio_) {
+        const size_t recent_len = 2 * compress_ratio_;
+        const size_t total_len = hidden_states->shape()[1];
+        auto recent_hidden = hidden_states->narrow(
+            {{1, total_len - recent_len, recent_len}})->contiguous();
+        size_t recent_batch = 0;
+        size_t recent_blocks = 0;
+        auto recent_compressed = compressor_->forward_tensor(
+            recent_hidden, recent_batch, recent_blocks);
+        if (recent_batch == batch_size && recent_blocks > 0) {
+            auto newest_block = recent_compressed->narrow(
+                {{1, recent_blocks - 1, 1}})->contiguous();
+            append_compressed_cache(newest_block);
+            if (compressed_cache_blocks_ == expected_blocks) {
+                return compressed_cache_;
+            }
+        }
+    }
+
+    size_t compressed_batch = 0;
+    size_t compressed_blocks = 0;
+    auto compressed = compressor_->forward_tensor(
+        hidden_states, compressed_batch, compressed_blocks);
+    if (compressed_batch != batch_size || compressed_blocks != expected_blocks) {
+        throw std::runtime_error("DeepseekV4Indexer: compressed cache shape mismatch");
+    }
+    set_compressed_cache(compressed, compressed_batch, compressed_blocks);
+    return compressed_cache_;
+}
+
 infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &hidden_states,
                                                      const infinicore::Tensor &q_residual,
                                                      const std::vector<int64_t> &positions,
@@ -85,12 +184,9 @@ infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &h
         return infinicore::Tensor();
     }
 
-    size_t comp_batch = 0;
-    size_t num_blocks = 0;
-    auto compressed = compressor_->forward_tensor(hidden_states, comp_batch, num_blocks);
-    if (comp_batch != batch_size) {
-        throw std::runtime_error("DeepseekV4Indexer: compressed batch mismatch");
-    }
+    const size_t num_blocks = cheap_num_blocks;
+    auto compressed = get_or_update_compressed_cache(
+        hidden_states, batch_size, num_blocks, query_len);
     top_k = std::min(index_topk_, num_blocks);
     if (num_blocks == 0 || top_k == 0) {
         top_k = 0;

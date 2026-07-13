@@ -484,7 +484,7 @@ class TestModel:
             return
 
         input_ids_infini = infinicore.from_list(input_ids_list, dtype=infinicore.int64)
-        print("input_ids_infini: ", input_ids_infini)
+        print("input_ids_infini: ", input_ids_infini.shape)
 
         t1 = time.time()
         print("=================== start generate ====================")

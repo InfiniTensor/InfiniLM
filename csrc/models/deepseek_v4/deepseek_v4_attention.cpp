@@ -288,8 +288,7 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
                                                        const infinicore::Tensor &hidden_states) const {
     const auto packed_shape = hidden_states->shape();
     size_t batch_size = packed_shape[0];
-    const auto &input_offsets =
-        infinilm::global_state::get_forward_context().attn_metadata.input_offsets;
+    const auto &input_offsets = infinilm::global_state::get_forward_context().attn_metadata.input_offsets;
     if (batch_size == 1 && input_offsets && input_offsets.value()->numel() > 2) {
         batch_size = input_offsets.value()->numel() - 1;
     }
@@ -319,8 +318,8 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
     auto q_normed = infinicore::op::unweighted_rms_norm(q->contiguous(), static_cast<float>(rms_norm_eps_)); // shape []
 
     const infinicore::Tensor rope_positions = disable_device_rope_positions()
-                                                  ? infinicore::Tensor{}
-                                                  : shared_position_tensor;
+                                                ? infinicore::Tensor{}
+                                                : shared_position_tensor;
 
     // std::cout << "before rotary_emb_ q_normed:: " << q_normed->info() << std::endl;
     // std::cout << "before rotary_emb_ rope_positions:: " << rope_positions->info() << std::endl;

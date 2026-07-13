@@ -518,3 +518,70 @@ Assessment: accepted. The previously failing homogeneous batch path now runs
 entirely through the existing GPU CSA/HCA kernels. Variable-length paged
 batches remain explicitly unsupported because the current attention state and
 compressed-decode interfaces use one shared logical position vector.
+
+## Stage 13 - C4 Indexer Long-Context Optimization
+
+Status: accepted; the 7168-output full-model run remains limited by GPU memory
+on the current machine
+
+Goal: remove the severe C4 Indexer performance cliff after the compressed
+sequence exceeds `index_topk=512`, then measure batch 4 / input 1024 / output
+7168.
+
+Root cause:
+
+- The original Indexer kernel launched only `batch * query_len` GPU blocks. For
+  every one of the 512 TopK selections it rescanned all compressed blocks and
+  recomputed all 64-head, 128-dimensional dot products.
+- `DeepseekV4Indexer::forward_tensor` also recompressed the complete hidden
+  history on every decode step after the full-coverage shortcut ended.
+- On layer0-4, the first sparse step at 513 compressed blocks took about
+  1062 ms, versus an 18.18 ms normal decode step. Eight-device utilization was
+  approximately 5%.
+
+Changes:
+
+- Split the InfiniCore Indexer into a parallel score kernel and a TopK selection
+  kernel. Scores are computed once over `(batch, query, compressed_block)`;
+  selected scores are invalidated in workspace instead of rescoring or scanning
+  an `already_selected` list.
+- Added an incremental C4 compressed-key cache to `DeepseekV4Indexer`. The first
+  sparse call creates the full cache; later calls reuse it and compress only the
+  most recent eight tokens when one new C4 block becomes available.
+- Attached the cache to the recursive module runtime-reset lifecycle so it is
+  cleared between requests and benchmark cases.
+
+Verification:
+
+- InfiniCore Hygon build and install: passed.
+- InfiniLM Hygon build and install: passed.
+- `git diff --check`: passed in both repositories.
+- Layer0-4, TP=8, batch=4, input 1024, output 1024 before the sparse boundary:
+  TTFT 1267.87 ms, Decode Avg ITL 18.18 ms, 220.07 tok/s.
+- Layer0-4, output 1029, first sparse step: total generation improved from
+  20997.01 ms before the new kernel to 20133.98 ms after it. The estimated
+  sparse-step cost fell from about 1062 ms to about 199 ms.
+- Layer0-4, output 1100 with incremental cache active: TTFT 1266.17 ms,
+  Decode Avg ITL 18.61 ms, 214.89 tok/s.
+- Layer0-4 target case, output 7168: completed in 176797.58 ms. TTFT was
+  1264.25 ms, Decode Avg ITL 24.49 ms, and throughput was 163.32 tok/s. The
+  pre-change run had not completed after more than 20 minutes.
+- Full 43-layer model, TP=8, batch=4, input 1024, output 3073: completed and
+  produced coherent Chinese output. TTFT was 13283.94 ms, Decode Avg ITL was
+  193.24 ms, throughput was 20.70 tok/s, and generation took 606915.06 ms.
+- On this machine, output 3073 is the maximum safe value for this batch/input
+  configuration. It leaves the attention history at capacity 4096. The output
+  7168 run failed at approximately the same 605-second point when the next
+  token required history capacity to grow from 4096 to 8192; HYGON:0 reported
+  a device allocation failure after memory reached 97%.
+- A direct boundary test with output 3074 reproduced the allocation failure on
+  HYGON:0 after 10 minutes 17 seconds. This is the first output length whose
+  final decode step requires logical history 4097 and therefore confirms 3073
+  as the measured maximum on this machine, rather than only an inferred limit.
+- No benchmark process or core file larger than 100 MB remained after testing.
+
+Assessment: accepted. The algorithmic Indexer cliff is removed: layer0-4 now
+completes the requested 7168-output case in under three minutes. Completing the
+same case on the current full-model machine requires bounded hidden-state
+storage or more GPU memory. On a larger-memory machine, rerun the saved full
+case directly and record TTFT, Decode Avg ITL, throughput, and peak memory.

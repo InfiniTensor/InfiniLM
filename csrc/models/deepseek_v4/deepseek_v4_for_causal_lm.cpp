@@ -25,6 +25,13 @@ infinilm::InfinilmModel::Output DeepseekV4ForCausalLM::forward(const infinilm::I
     auto input_ids = input.input_ids.value();
     auto positions = input.position_ids.value();
     auto hidden_states = model_->forward(input_ids, positions);
+
+    // const auto &hidden_shape = hidden_states->shape();
+    // if (hidden_shape.size() >= 2 && hidden_shape[0] * hidden_shape[1] > 4*2560) {
+    //     // Release cached prefill temporaries so lm_head can allocate full logits for large batches.
+    //     infinicore::context::trimMemory();
+    // }
+
     auto logits = head_->forward(hidden_states);
     return {logits};
 }
