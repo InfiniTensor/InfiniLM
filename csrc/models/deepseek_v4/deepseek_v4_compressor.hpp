@@ -8,7 +8,6 @@
 
 #include <cstddef>
 #include <memory>
-#include <vector>
 
 namespace infinilm::models::deepseek_v4 {
 
@@ -19,11 +18,7 @@ public:
                          size_t head_dim,
                          const infinicore::Device &device);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
     infinicore::Tensor forward_tensor(const infinicore::Tensor &hidden_states,
-                                      size_t &batch_size,
-                                      size_t &num_blocks) const;
-    std::vector<float> forward_values(const infinicore::Tensor &hidden_states,
                                       size_t &batch_size,
                                       size_t &num_blocks) const;
     void process_weights_after_loading() override;
@@ -32,8 +27,6 @@ public:
     size_t coff() const { return coff_; }
 
 private:
-    void ensure_host_caches() const;
-
     INFINICORE_NN_PARAMETER(ape);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wkv);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wgate);
@@ -44,10 +37,6 @@ private:
     size_t coff_{1};
     double rms_norm_eps_{0.0};
     bool ape_converted_{false};
-    mutable bool ape_host_cached_{false};
-    mutable bool norm_weight_host_cached_{false};
-    mutable std::vector<float> ape_host_;
-    mutable std::vector<float> norm_weight_host_;
 };
 
 } // namespace infinilm::models::deepseek_v4

@@ -48,9 +48,7 @@ infinicore::Tensor DeepseekV4DecoderLayer::build_hc_fn_mat_right_(const infinico
         {mix_hc, flat_dim},
         compute_dtype_,
         fn->device());
-    return fn_for_matmul->permute({1, 0})
-        ->contiguous()
-        ->view({static_cast<size_t>(1), flat_dim, mix_hc});
+    return fn_for_matmul->permute({1, 0})->contiguous()->view({static_cast<size_t>(1), flat_dim, mix_hc});
 }
 
 void DeepseekV4DecoderLayer::process_weights_after_loading() {

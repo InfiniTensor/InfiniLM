@@ -4,7 +4,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -13,10 +12,6 @@ namespace infinilm::models::deepseek_v4 {
 
 std::vector<float> tensor_to_float_vector(const infinicore::Tensor &tensor);
 std::vector<int64_t> tensor_to_int64_vector(const infinicore::Tensor &tensor);
-bool debug_trace_enabled();
-bool debug_trace_layer_enabled(size_t layer_idx);
-void debug_trace_tensor(const std::string &name, const infinicore::Tensor &tensor);
-void debug_trace_layer_tensor(const std::string &name, size_t layer_idx, const infinicore::Tensor &tensor);
 infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
                                           const infinicore::Shape &shape,
                                           infinicore::DataType dtype,
@@ -25,8 +20,6 @@ infinicore::Tensor int64_vector_to_tensor(const std::vector<int64_t> &values,
                                           const infinicore::Shape &shape,
                                           const infinicore::Device &device);
 
-infinicore::Tensor position_ids_for_rope(const infinicore::Tensor &positions, size_t seq_len);
-std::vector<int64_t> position_ids_as_vector(const infinicore::Tensor &pos_ids);
 std::vector<int64_t> normalize_positions(const infinicore::Tensor &positions, size_t seq_len);
 
 struct DeepseekV4RopeParams {

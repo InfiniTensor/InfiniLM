@@ -16,7 +16,6 @@
 #include <functional>
 #include <limits>
 #include <numeric>
-#include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <string>
 
@@ -95,71 +94,6 @@ std::vector<int64_t> tensor_to_int64_vector(const infinicore::Tensor &tensor) {
     return out;
 }
 
-bool debug_trace_enabled() {
-    static const bool value = [] {
-        const char *raw = std::getenv("DEEPSEEK_V4_DEBUG_TRACE");
-        return raw != nullptr && raw[0] != '\0' && std::string(raw) != "0";
-    }();
-    return value;
-}
-
-bool debug_trace_layer_enabled(size_t layer_idx) {
-    if (!debug_trace_enabled()) {
-        return false;
-    }
-    static const long long enabled_layer = [] {
-        const char *raw = std::getenv("DEEPSEEK_V4_DEBUG_LAYER");
-        if (raw == nullptr || raw[0] == '\0') {
-            return -1LL;
-        }
-        try {
-            return std::stoll(raw);
-        } catch (...) {
-            return -2LL;
-        }
-    }();
-    return enabled_layer == -1LL || enabled_layer == static_cast<long long>(layer_idx);
-}
-
-void debug_trace_layer_tensor(const std::string &name, size_t layer_idx, const infinicore::Tensor &tensor) {
-    if (!debug_trace_layer_enabled(layer_idx)) {
-        return;
-    }
-    debug_trace_tensor(name + ".layer" + std::to_string(layer_idx), tensor);
-}
-
-void debug_trace_tensor(const std::string &name, const infinicore::Tensor &tensor) {
-    if (!debug_trace_enabled()) {
-        return;
-    }
-    const auto values = tensor_to_float_vector(tensor);
-    if (values.empty()) {
-        spdlog::info("DSV4_TRACE {} shape=[] mean=0 rms=0 max_abs=0 first=0 last=0", name);
-        return;
-    }
-    double sum = 0.0;
-    double sum_sq = 0.0;
-    float max_abs = 0.0f;
-    for (float value : values) {
-        sum += value;
-        sum_sq += static_cast<double>(value) * value;
-        max_abs = std::max(max_abs, std::abs(value));
-    }
-    std::string shape = "[";
-    const auto &dims = tensor->shape();
-    for (size_t i = 0; i < dims.size(); ++i) {
-        if (i > 0) {
-            shape += ",";
-        }
-        shape += std::to_string(dims[i]);
-    }
-    shape += "]";
-    spdlog::info("DSV4_TRACE {} shape={} mean={:.9g} rms={:.9g} max_abs={:.9g} first={:.9g} last={:.9g}",
-                 name, shape, sum / static_cast<double>(values.size()),
-                 std::sqrt(sum_sq / static_cast<double>(values.size())),
-                 max_abs, values.front(), values.back());
-}
-
 infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
                                           const infinicore::Shape &shape,
                                           infinicore::DataType dtype,
@@ -177,27 +111,6 @@ infinicore::Tensor float_vector_to_tensor(const std::vector<float> &values,
         infinicore::context::syncStream();
     }
     return out;
-}
-
-infinicore::Tensor position_ids_for_rope(const infinicore::Tensor &positions, size_t seq_len) {
-    const auto shape = positions->shape();
-    if (shape.size() == 2) {
-        if (shape[0] != 1 || shape[1] != seq_len) {
-            throw std::runtime_error("DeepseekV4: expected position_ids shape [1,seq_len]");
-        }
-        return positions->narrow({{0, 0, 1}})->view({seq_len});
-    }
-    if (shape.size() == 1) {
-        if (shape[0] != seq_len) {
-            throw std::runtime_error("DeepseekV4: position_ids length mismatch");
-        }
-        return positions->is_contiguous() ? positions : positions->contiguous();
-    }
-    throw std::runtime_error("DeepseekV4: unexpected position_ids rank");
-}
-
-std::vector<int64_t> position_ids_as_vector(const infinicore::Tensor &pos_ids) {
-    return tensor_to_int64_vector(pos_ids);
 }
 
 std::vector<int64_t> normalize_positions(const infinicore::Tensor &positions, size_t seq_len) {

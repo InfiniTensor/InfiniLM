@@ -6,10 +6,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <stdexcept>
 
 namespace infinilm::models::deepseek_v4 {
 namespace {
+
+bool disable_inplace_partial_rope() {
+    static const bool value = std::getenv("DSV4_DISABLE_INPLACE_PARTIAL_ROPE") != nullptr;
+    return value;
+}
 
 std::shared_ptr<infinicore::nn::RopeScalingConfig>
 make_compress_yarn_scaling(const nlohmann::json &config_json,
@@ -200,13 +206,14 @@ const std::shared_ptr<infinicore::nn::RoPE> &DeepseekV4RoPE::active_gpu_rope_() 
     return main_rope_;
 }
 
-infinicore::Tensor DeepseekV4RoPE::forward_cpu_(const infinicore::Tensor &x,
-                                                const std::vector<int64_t> &positions) const {
-    return apply_rotary_pos_emb(x, positions, params_);
-}
+// infinicore::Tensor DeepseekV4RoPE::forward_cpu_(const infinicore::Tensor &x,
+//                                                 const std::vector<int64_t> &positions) const {
+//     return apply_rotary_pos_emb(x, positions, params_);
+// }
 
 infinicore::Tensor DeepseekV4RoPE::forward_gpu_(const infinicore::Tensor &x,
-                                                const std::vector<int64_t> &positions) const {
+                                                const std::vector<int64_t> &positions,
+                                                const infinicore::Tensor &device_positions) const {
     const auto shape = x->shape();
     if (shape.size() != 4) {
         throw std::runtime_error("DeepseekV4RoPE: forward expects [B,S,H,D]");
@@ -225,7 +232,29 @@ infinicore::Tensor DeepseekV4RoPE::forward_gpu_(const infinicore::Tensor &x,
     }
 
     const size_t pass_dim = head_dim - rope_dim;
-    auto pos_tensor = int64_vector_to_tensor(positions, {seq_len}, x->device());
+    infinicore::Tensor pos_tensor;
+    if (device_positions
+        && device_positions->device() == x->device()
+        && (device_positions->dtype() == infinicore::DataType::I64
+            || device_positions->dtype() == infinicore::DataType::I32)
+        && device_positions->numel() == seq_len) {
+        pos_tensor = device_positions->is_contiguous()
+                       ? device_positions
+                       : device_positions->contiguous();
+        pos_tensor = pos_tensor->view({seq_len});
+    } else {
+        // pos_tensor = int64_vector_to_tensor(positions, {seq_len}, x->device());
+        throw std::runtime_error("DeepseekV4RoPE: forward requires device_positions tensor for GPU forward");
+    }
+
+    // std::cout << " DeepseekV4RoPE::forward_gpu_  " << pass_dim << "  " << rope_dim << std::endl; //  448  64
+
+    if (!disable_inplace_partial_rope()) {
+        auto rope_slice = x->narrow({{3, pass_dim, rope_dim}});
+        active_gpu_rope_()->forward(rope_slice, pos_tensor, true);
+        return x;
+    }
+
     auto nope = x->narrow({{3, 0, pass_dim}});
     auto rope_slice = x->narrow({{3, pass_dim, rope_dim}})->contiguous();
     auto rotated = active_gpu_rope_()->forward(rope_slice, pos_tensor, true);
@@ -234,36 +263,17 @@ infinicore::Tensor DeepseekV4RoPE::forward_gpu_(const infinicore::Tensor &x,
 
 infinicore::Tensor DeepseekV4RoPE::forward(const infinicore::Tensor &x,
                                            const std::vector<int64_t> &positions) const {
-    if (use_gpu_forward_()) {
-        return forward_gpu_(x, positions);
-    }
-    return forward_cpu_(x, positions);
+    return forward(x, positions, {});
 }
 
-void DeepseekV4RoPE::forward_blocks(std::vector<float> &kv_comp,
-                                    size_t batch_size,
-                                    size_t nb,
-                                    size_t head_dim,
-                                    size_t seq_len,
-                                    const std::vector<int64_t> &positions) const {
-    if (compress_ratio_ == 0 || nb == 0) {
-        return;
-    }
-    for (size_t b = 0; b < batch_size; ++b) {
-        for (size_t block = 0; block < nb; ++block) {
-            const size_t block_token = std::min(block * compress_ratio_, seq_len > 0 ? seq_len - 1 : 0);
-            const int64_t block_pos = (positions[block_token] / static_cast<int64_t>(compress_ratio_))
-                                    * static_cast<int64_t>(compress_ratio_);
-            const size_t kv_offset = (b * nb + block) * head_dim;
-            apply_rope_at_offset(kv_comp, kv_offset, block_pos, params_, false);
-        }
-    }
-}
-
-void DeepseekV4RoPE::inverse_at_offset(std::vector<float> &values,
-                                       size_t offset,
-                                       int64_t position) const {
-    apply_rope_at_offset(values, offset, position, params_, true);
+infinicore::Tensor DeepseekV4RoPE::forward(const infinicore::Tensor &x,
+                                           const std::vector<int64_t> &positions,
+                                           const infinicore::Tensor &device_positions) const {
+    // if (use_gpu_forward_()) {
+    //     return forward_gpu_(x, positions, device_positions);
+    // }
+    // return forward_cpu_(x, positions);
+    return forward_gpu_(x, positions, device_positions);
 }
 
 } // namespace infinilm::models::deepseek_v4

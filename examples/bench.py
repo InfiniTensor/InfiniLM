@@ -440,6 +440,7 @@ class TestModel:
         input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
         input_ids_list = [input_ids] * batch_size
 
+
         # ---------------------------------------------------------------------------- #
         #                        自回归生成
         # ---------------------------------------------------------------------------- #
@@ -483,6 +484,7 @@ class TestModel:
             return
 
         input_ids_infini = infinicore.from_list(input_ids_list, dtype=infinicore.int64)
+        print("input_ids_infini: ", input_ids_infini)
 
         t1 = time.time()
         print("=================== start generate ====================")
