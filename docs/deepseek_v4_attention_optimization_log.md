@@ -765,3 +765,94 @@ Verification:
 Assessment: accepted. The retained changes are small, preserve the attention
 formula, and directly remove two context-dependent decode costs. The rejected
 score-kernel experiment is documented but is not present in the final source.
+
+## Stage 17 - Stride-Aware Compressed Cache
+
+Status: accepted; removes the growing compressed-cache materialization from
+the decode path
+
+Goal: let the Indexer and compressed decode kernels consume capacity-backed
+cache views directly when the logical batch stride is padded.
+
+Root cause:
+
+- The compressed history uses geometric capacity growth. Its logical view is
+  packed in the block and head dimensions but can have a larger physical batch
+  stride than a freshly allocated tensor.
+- Both the Indexer and compressed attention required a fully contiguous tensor.
+  At batch size greater than one, calling `contiguous()` therefore copied the
+  complete visible compressed history on every decode step.
+
+Changes:
+
+- Extend both InfiniCore operator descriptors with the physical compressed
+  batch stride while retaining the packed last-two-dimension requirement.
+- Address compressed blocks as `batch * batch_stride + block * head_dim` in the
+  HYGON kernels.
+- Pass the capacity-backed compressed cache view directly from InfiniLM and
+  remove the two growing `contiguous()` calls.
+
+Verification:
+
+- InfiniCore and InfiniLM HYGON builds: passed.
+- Layer0-4 target case, TP=8, batch=4, input 1024, output 7168: TTFT 992.55 ms,
+  Decode Avg ITL 19.53 ms, throughput 204.80 tok/s, total generation
+  140970.89 ms. Against Stage 16, Avg ITL fell by 2.88% and throughput rose by
+  2.96%.
+
+Assessment: accepted. The operator still requires packed block/head storage,
+but no longer confuses a padded batch stride with an invalid layout. This
+removes a context-sized device copy without changing attention arithmetic.
+
+## Stage 18 - Pre-Rotated Compressed KV Cache
+
+Status: accepted; the full target case improves decode throughput by another
+12.78% over Stage 16 when combined with Stage 17
+
+Goal: remove repeated inverse-position rotation of every visible compressed KV
+block from each decode step.
+
+Root cause:
+
+- Compressed decode rotated each selected compressed value inside the attention
+  kernel using its block position. The same historical blocks were rotated
+  again for every generated token.
+- The compressed cache is immutable after a block is appended, so the rotation
+  belongs at cache creation time rather than at cache consumption time.
+
+Changes:
+
+- Rotate compressed blocks once with the existing InfiniCore RoPE operator
+  before initial cache installation, and rotate only the newest block before an
+  incremental append.
+- Keep direct/rebuild paths correct by rotating all rebuilt blocks before use.
+- Store the pre-rotated values in the compressed cache and have the compressed
+  decode kernel read them directly. The query-side inverse RoPE remains in the
+  decode kernel because it changes with the current query position.
+
+Verification:
+
+- InfiniCore HYGON build and install: passed.
+- InfiniLM HYGON build and install: passed.
+- Layer0-4 target case, TP=8, batch=4, input 1024, output 7168: completed in
+  127551.00 ms. TTFT was 924.29 ms, Decode Avg ITL was 17.67 ms, and
+  throughput was 226.40 tok/s. Against the Stage 17 stride-only result, Avg
+  ITL fell by 9.52% and throughput rose by 10.55%.
+- Full model short regression, TP=8, batch=1, input 12, output 16: coherent
+  output remained `你好！我是DeepSeek，一个由深度公司研发的AI助手，`.
+- Full target case, TP=8, batch=4, input 1024, output 7168: completed in
+  1106043.52 ms. TTFT was 9015.34 ms, Decode Avg ITL was 153.07 ms, and
+  throughput was 26.13 tok/s. Against Stage 16, TTFT fell by 6.43%, Avg ITL
+  fell by 11.34%, throughput rose by 12.78%, and total generation time fell by
+  11.31%.
+- Relative to Stage 15, Avg ITL is 23.89% lower and decode throughput is 31.37%
+  higher. Relative to the Stage 14 first successful full run, Avg ITL is 30.88%
+  lower and throughput is 44.68% higher.
+- The full run completed all 7168 output tokens without OOM, launch errors, or
+  cache-shape failures and produced coherent Chinese output before the expected
+  long no-EOS repetition.
+
+Assessment: accepted. Pre-rotation turns a context-length-dependent trigonometric
+cost into one-time work per appended compressed block. Together with stride-aware
+cache access, this directly reduces the long-context ITL growth targeted by the
+two medium-difficulty changes.

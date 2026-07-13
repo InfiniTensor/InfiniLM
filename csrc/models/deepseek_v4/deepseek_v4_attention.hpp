@@ -58,6 +58,12 @@ private:
                                                  size_t query_start,
                                                  const infinicore::Tensor &raw_positions) const;
 
+    infinicore::Tensor rotate_compressed_blocks_(
+        const infinicore::Tensor &blocks,
+        const std::vector<int64_t> &positions,
+        size_t total_len,
+        size_t first_block) const;
+
     void reset_runtime_state() const override {
         runtime_state_.reset();
     }

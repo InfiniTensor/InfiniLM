@@ -238,7 +238,7 @@ infinicore::Tensor DeepseekV4Indexer::forward_tensor(const infinicore::Tensor &h
     return infinicore::op::deepseek_v4_indexer(
         q_proj->contiguous(),
         weights->contiguous(),
-        compressed->contiguous(),
+        compressed,
         positions_tensor,
         top_k,
         positions_query_start,

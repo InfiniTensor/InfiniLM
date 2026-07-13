@@ -395,6 +395,53 @@ infinicore::Tensor DeepseekV4Attention::forward_paged_(const infinicore::Tensor 
     return apply_grouped_output_projection_(attn_output)->view(packed_shape);
 }
 
+infinicore::Tensor DeepseekV4Attention::rotate_compressed_blocks_(
+    const infinicore::Tensor &blocks,
+    const std::vector<int64_t> &positions,
+    size_t total_len,
+    size_t first_block) const {
+    if (!blocks || blocks->shape().size() != 3 || blocks->shape()[1] == 0) {
+        return blocks;
+    }
+    const auto shape = blocks->shape();
+    const size_t block_count = shape[1];
+    const size_t compress_ratio = rotary_emb_.compress_ratio();
+    if (compress_ratio == 0 || positions.size() < total_len
+        || first_block + block_count > total_len / compress_ratio) {
+        throw std::runtime_error(
+            "DeepseekV4Attention: compressed block rotation range is invalid");
+    }
+
+    std::vector<int64_t> block_positions(block_count);
+    for (size_t local_block = 0; local_block < block_count; ++local_block) {
+        const size_t block = first_block + local_block;
+        const size_t token = std::min(block * compress_ratio, total_len - 1);
+        block_positions[local_block]
+            = (positions[token] / static_cast<int64_t>(compress_ratio))
+            * static_cast<int64_t>(compress_ratio);
+    }
+
+    infinicore::Tensor device_positions;
+    const bool standard_positions = !positions.empty()
+                                 && positions.front() == 0
+                                 && positions.back()
+                                        == static_cast<int64_t>(total_len - 1);
+    if (standard_positions && block_position_table_
+        && block_position_table_->numel() >= first_block + block_count) {
+        device_positions = block_position_table_->narrow(
+            {{0, first_block, block_count}});
+    } else {
+        device_positions = int64_vector_to_tensor(
+            block_positions, {block_count}, blocks->device());
+    }
+
+    rotary_emb_.forward(
+        blocks->view({shape[0], block_count, 1, shape[2]}),
+        block_positions,
+        device_positions);
+    return blocks;
+}
+
 infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinicore::Tensor &q_rope,
                                                                   const infinicore::Tensor &key_states,
                                                                   const infinicore::Tensor &hidden_states,
@@ -455,6 +502,8 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
                 auto newest_block = recent_compressed->narrow(
                                                          {{1, recent_blocks - 1, 1}})
                                         ->contiguous();
+                newest_block = rotate_compressed_blocks_(
+                    newest_block, positions, total_len, expected_nb - 1);
                 runtime_state_.append_compressed_kv(newest_block);
                 kv_comp_tensor = runtime_state_.kv_comp;
                 comp_batch = runtime_state_.kv_comp_batch;
@@ -467,6 +516,8 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
                     "DeepseekV4Attention: compressed KV cache cannot be rebuilt from bounded hidden history");
             }
             kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
+            kv_comp_tensor = rotate_compressed_blocks_(
+                kv_comp_tensor, positions, total_len, 0);
             runtime_state_.set_compressed_kv(kv_comp_tensor, comp_batch, nb);
         }
     } else {
@@ -475,6 +526,8 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
                 "DeepseekV4Attention: compressed KV cache is unavailable for bounded hidden history");
         }
         kv_comp_tensor = compressor_->forward_tensor(hidden_states, comp_batch, nb);
+        kv_comp_tensor = rotate_compressed_blocks_(
+            kv_comp_tensor, positions, total_len, 0);
         if (!disable_compressed_kv_cache()) {
             runtime_state_.set_compressed_kv(kv_comp_tensor, comp_batch, nb);
         }
@@ -570,7 +623,7 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
     auto out = infinicore::op::deepseek_v4_compressed_decode(
         q_rope->contiguous(),
         window_key_states,
-        kv_comp_tensor->contiguous(),
+        kv_comp_tensor,
         attn_sink_->contiguous(),
         query_positions_tensor,
         block_positions_tensor,
