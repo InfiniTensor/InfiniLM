@@ -22,6 +22,8 @@
 namespace infinilm::models::deepseek_v4 {
 namespace {
 
+constexpr size_t kCompressedDecodeMaxActiveKeys = 8192;
+
 bool disable_compressed_empty_fastpath() {
     static const bool value = std::getenv("DSV4_DISABLE_COMPRESSED_EMPTY_FASTPATH") != nullptr;
     return value;
@@ -550,14 +552,6 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
         throw std::runtime_error("DeepseekV4Attention: compressed KV is unavailable");
     }
     const size_t compressed_key_count = index_top_k > 0 ? index_top_k : nb;
-    const size_t active_key_count = compressed_key_count
-                                  + (sliding_window_ == 0
-                                         ? total_len
-                                         : std::min(total_len, sliding_window_));
-    if (active_key_count > 4096) {
-        throw std::runtime_error("DeepseekV4Attention: compressed attention key count exceeds the GPU kernel limit");
-    }
-
     size_t kv_start = 0;
     size_t kv_len = total_len;
     if (sliding_window_ > 0) {
@@ -576,6 +570,11 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
             }
             kv_len = total_len - kv_start;
         }
+    }
+    const size_t active_key_count = compressed_key_count + kv_len;
+    if (active_key_count > kCompressedDecodeMaxActiveKeys) {
+        throw std::runtime_error(
+            "DeepseekV4Attention: compressed attention key count exceeds the GPU kernel limit");
     }
 
     const auto &rope_params = rotary_emb_.params();

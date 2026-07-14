@@ -79,6 +79,37 @@ infinicore::Tensor DeepseekV4DecoderLayer::hc_post(const infinicore::Tensor &new
     return mhc_post_gpu(new_x, residual, post, comb);
 }
 
+// std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
+// DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
+//                                 const infinicore::Tensor &positions,
+//                                 const infinicore::Tensor &input_ids,
+//                                 const infinicore::Tensor &post_mix,
+//                                 const infinicore::Tensor &res_mix,
+//                                 const infinicore::Tensor & /*residual*/) const {
+//     const bool use_attn = true;
+//     const bool use_mlp = true;
+
+//     auto x = hidden_states;
+
+//     if (use_attn) {
+//         auto [attn_input, attn_post, attn_comb] = hc_pre(hidden_states, hc_attn_fn_mat_right_, hc_attn_scale_, hc_attn_base_);
+//         attn_input = attn_norm_->forward(attn_input);
+
+//         auto attn_output = attn_->forward(positions, attn_input);
+//         x = hc_post(attn_output, hidden_states, attn_post, attn_comb);
+//     }
+
+//     if (use_mlp) {
+//         auto [ffn_input, ffn_post, ffn_comb] = hc_pre(x, hc_ffn_fn_mat_right_, hc_ffn_scale_, hc_ffn_base_);
+//         ffn_input = ffn_norm_->forward(ffn_input);
+
+//         auto ffn_output = ffn_->forward(ffn_input, input_ids);
+//         x = hc_post(ffn_output, x, ffn_post, ffn_comb);
+//     }
+
+//     return {x, x, post_mix, res_mix};
+// }
+
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 DeepseekV4DecoderLayer::forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &positions,

@@ -856,3 +856,43 @@ Assessment: accepted. Pre-rotation turns a context-length-dependent trigonometri
 cost into one-time work per appended compressed block. Together with stride-aware
 cache access, this directly reduces the long-context ITL growth targeted by the
 two medium-difficulty changes.
+
+## Stage 19 - 4K Prefill Active-Key Capacity
+
+Status: accepted for batch sizes that fit device memory
+
+Goal: allow compressed attention prefill at input length 4096. The previous
+descriptor rejected `index_top_k=512` plus `key_len=4096` because its fixed
+active-key limit was 4096, and the unchecked status surfaced as a segmentation
+fault.
+
+Changes:
+
+- Raise the InfiniCore compressed-decode active-key limit from 4096 to 8192.
+  The 4K target uses 4608 logits and about 19 KiB of dynamic shared memory,
+  including the reduction scratch area.
+- Move the InfiniLM limit check after `kv_len` is determined and validate
+  `compressed_key_count + kv_len`. The old check used the nominal 128-token
+  sliding window even though contiguous prefill passes the complete key range.
+
+Verification:
+
+- InfiniCore and InfiniLM HYGON builds and installs: passed.
+- Batch 1, input 4096, output 64: completed. TTFT was 4760.18 ms, Decode Avg
+  ITL was 16.48 ms, and throughput was 60.70 tok/s.
+- Batch 8, input 4096, output 64: completed. TTFT was 35916.44 ms, Decode Avg
+  ITL was 22.57 ms, and throughput was 354.43 tok/s.
+- Batch 8, input 4096, output 4096: completed all output tokens in 129472.83 ms.
+  TTFT was 35922.07 ms, Decode Avg ITL was 22.85 ms, and throughput was
+  350.18 tok/s. Against the output-64 run, Avg ITL increased by 1.24% and
+  throughput decreased by 1.20%, so decode degradation from the growing
+  context is small in this layer0-4 test.
+- Batch 16, input 4096 still exceeds the current 64-GiB-per-device prefill
+  memory budget and fails at `cudaMalloc`. Per user direction, prefill
+  microbatching/chunking for batch 16 is deferred.
+- Core dumps were disabled during the diagnostic runs and no large core file
+  remains.
+
+Assessment: accepted. The invalid 4K active-key rejection is fixed and the
+requested 4K-to-4K shape is validated at batch 8. Batch 16 now reaches the real
+memory limit instead of failing at the descriptor boundary.
