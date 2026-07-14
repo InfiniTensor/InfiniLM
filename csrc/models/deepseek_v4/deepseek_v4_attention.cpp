@@ -554,7 +554,7 @@ infinicore::Tensor DeepseekV4Attention::compressed_attention_gpu_(const infinico
                                   + (sliding_window_ == 0
                                          ? total_len
                                          : std::min(total_len, sliding_window_));
-    if (active_key_count > 4096) {
+    if (active_key_count > 8192) {
         throw std::runtime_error("DeepseekV4Attention: compressed attention key count exceeds the GPU kernel limit");
     }
 
