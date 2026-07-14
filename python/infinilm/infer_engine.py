@@ -628,18 +628,37 @@ class InferEngine(_infinilm.InferEngine):
                 time_measurements.append((end_time - start_time))
 
         if _measure_and_log_time:
-            print(
-                f"\n\n\n Generation completed in {round(sum(time_measurements) * 1000, 2)} ms"
+            prefill_time_s = time_measurements[0]
+            decode_time_s = (
+                sum(time_measurements[1:]) if len(time_measurements) > 1 else 0.0
             )
-            print(
-                f" Batchsize={initial_batch_size}  Per_Batch_Input_Len={initial_seqlen}  Per_Batch_New_Tokens={len(time_measurements)}\n"
+            total_time_s = sum(time_measurements)
+
+            prefill_time_ms = round(prefill_time_s * 1000, 2)
+            decode_time_ms = round(decode_time_s * 1000, 2)
+            total_time_ms = round(total_time_s * 1000, 2)
+            decode_avg_itl_ms = (
+                round(decode_time_s * 1000 / (len(time_measurements) - 1), 2)
+                if len(time_measurements) > 1
+                else 0.0
             )
+
             print(
-                f" Prefill TTFT: {round(time_measurements[0] * 1000, 2)} ms  Throughput: {round((initial_batch_size * initial_seqlen) / time_measurements[0], 2)} tok/s\n",
+                f"\n\n\n Batchsize={initial_batch_size}  Per_Batch_Input_Len={initial_seqlen}  Per_Batch_New_Tokens={len(time_measurements)}\n"
+            )
+            print("========== Bench Metrics ==========")
+            print(f" Prefill TTFT: {prefill_time_ms} ms")
+            print(f" Decode Avg ITL: {decode_avg_itl_ms} ms")
+            print(f" prefill耗时: {prefill_time_ms} ms")
+            print(f" decode耗时: {decode_time_ms} ms")
+            print(f" prefill+decode总耗时: {total_time_ms} ms")
+            print("===================================")
+            print(
+                f" Prefill Throughput: {round((initial_batch_size * initial_seqlen) / prefill_time_s, 2)} tok/s\n",
             )
             if len(time_measurements) > 1:
                 print(
-                    f" Decode  Avg ITL: {round(sum(time_measurements[1:]) * 1000 / (len(time_measurements) - 1), 2)} ms   Throughput: {round((initial_batch_size * (len(time_measurements) - 1)) / sum(time_measurements[1:]), 2)} tok/s\n",
+                    f" Decode Throughput: {round((initial_batch_size * (len(time_measurements) - 1)) / decode_time_s, 2)} tok/s\n",
                 )
 
         return output_ids
