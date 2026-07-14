@@ -1,5 +1,5 @@
 #include "deepseek_v4_for_causal_lm.hpp"
-
+#include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
 #include "deepseek_v4_utils.hpp"
 
@@ -33,12 +33,24 @@ infinilm::InfinilmModel::Output DeepseekV4ForCausalLM::forward(const infinilm::I
     // }
 
     auto logits = head_->forward(hidden_states);
+
+    if (is_prefill_ == false) {
+        is_prefill_ = true;
+
+        auto &forward_context = infinilm::global_state::get_forward_context();
+        auto &attn_metadata = forward_context.attn_metadata;
+        size_t seq_len = hidden_states->shape()[1];
+        bool is_prefill = (seq_len != attn_metadata.total_sequence_lengths.value()->shape()[0]);
+        if (is_prefill) {
+            infinicore::context::trimMemory();
+        }
+    }
     return {logits};
 }
 
 void DeepseekV4ForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
     cached_input_ids_.clear();
-    InfinilmModel::reset_cache(cache_config);
+    // InfinilmModel::reset_cache(cache_config);
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v4_model_config(

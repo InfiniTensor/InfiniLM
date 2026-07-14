@@ -21,6 +21,7 @@ private:
     INFINICORE_NN_MODULE(DeepseekV4Model, model);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, head);
 
+    mutable bool is_prefill_{false};
     mutable std::vector<int64_t> cached_input_ids_;
 };
 
