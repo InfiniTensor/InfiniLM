@@ -20,6 +20,8 @@ public:
 protected:
     INFINICORE_NN_PARAMETER(w13_weight);
     INFINICORE_NN_PARAMETER(w2_weight);
+    INFINICORE_NN_PARAMETER(w13_weight_scale);
+    INFINICORE_NN_PARAMETER(w2_weight_scale);
 
     size_t num_experts_{0};
     size_t hidden_size_{0};

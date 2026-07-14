@@ -67,6 +67,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v4_model_config(
     if (!config_json.contains("quantization_config") && config_json.contains("compression_config")) {
         config_json["quantization_config"] = config_json["compression_config"];
     }
+    if (!config_json.contains("num_experts") && config_json.contains("n_routed_experts")) {
+        config_json["num_experts"] = config_json["n_routed_experts"];
+    }
     if (!config_json.contains("num_key_value_heads")) {
         config_json["num_key_value_heads"] = 1;
     }

@@ -43,7 +43,9 @@ def is_moe_model(model_path: str) -> bool:
     with open(config_path, "r") as f:
         config = json.load(f)
     model_type = str(config.get("model_type", "")).lower()
-    return "moe" in model_type or "num_experts" in config
+    return (
+        "moe" in model_type or "num_experts" in config or "n_routed_experts" in config
+    )
 
 
 def configure_moe_ep_backend(

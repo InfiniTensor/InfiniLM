@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../layers/moe/common/topk_output.hpp"
+#include "../../layers/moe/fused_moe.hpp"
 #include "deepseek_v4_mlp.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
@@ -72,33 +74,19 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                const infinicore::Tensor &top_k_index,
                                const infinicore::Tensor &top_k_weights) const;
-    void process_weights_after_loading() override;
 
 private:
-    void refresh_expert_weight_views_();
-    bool has_w8a8_weights_() const;
-    infinicore::Tensor build_w8a8_ptr_tables_(const infinicore::Device &device) const;
-
-    infinicore::Tensor forward_cpu_routed_(const infinicore::Tensor &hidden_states,
-                                           const infinicore::Tensor &top_k_index,
-                                           const infinicore::Tensor &top_k_weights) const;
-    INFINICORE_NN_MODULE_VEC(DeepseekV4MLP, experts);
-    std::vector<infinicore::Tensor> gate_weights_;
-    std::vector<infinicore::Tensor> up_weights_;
-    std::vector<infinicore::Tensor> down_weights_;
-    std::vector<infinicore::Tensor> gate_weight_scales_;
-    std::vector<infinicore::Tensor> up_weight_scales_;
-    std::vector<infinicore::Tensor> down_weight_scales_;
-    mutable infinicore::Tensor expert_ptr_tables_;
+    INFINICORE_NN_PARAMETER(w13_weight);
+    INFINICORE_NN_PARAMETER(w2_weight);
+    INFINICORE_NN_PARAMETER(w13_weight_scale);
+    INFINICORE_NN_PARAMETER(w2_weight_scale);
+    INFINICORE_NN_MODULE(infinilm::layers::moe::FusedMoE, fused_moe);
 
     size_t hidden_size_{0};
-    size_t moe_intermediate_size_{0};
-    size_t local_moe_intermediate_size_{0};
     size_t num_experts_{0};
     size_t num_experts_per_tok_{0};
-    size_t tp_size_{1};
-    bool use_fused_moe_{false};
-    infinicclComm_t communicator_{nullptr};
+    size_t intermediate_size_per_partition_{0};
+    infinilm::layers::moe::MoeWeights moe_weights_;
 };
 
 class DeepseekV4MoE : public infinicore::nn::Module {

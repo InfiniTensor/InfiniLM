@@ -53,6 +53,8 @@ struct CombineInput {
 struct MoeWeights {
     infinicore::Tensor packed_w13;
     infinicore::Tensor packed_w2;
+    infinicore::Tensor packed_w13_scale;
+    infinicore::Tensor packed_w2_scale;
 
     bool empty() const {
         return !packed_w13 && !packed_w2;
@@ -60,6 +62,10 @@ struct MoeWeights {
 
     bool has_packed_dense_weights() const {
         return packed_w13 && packed_w2;
+    }
+
+    bool has_packed_w8a8_weights() const {
+        return packed_w13 && packed_w2 && packed_w13_scale && packed_w2_scale;
     }
 };
 
@@ -79,6 +85,7 @@ struct MoeWorkspace {
     infinicore::Tensor problem_sizes2;
     infinicore::Tensor input_permutation;
     infinicore::Tensor output_permutation;
+    infinicore::Tensor mapped_topk_ids;
 
     size_t sorted_token_ids_capacity = 0;
     size_t expert_ids_capacity = 0;

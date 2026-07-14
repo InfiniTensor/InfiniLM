@@ -20,6 +20,20 @@ from tqdm import tqdm
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
 
+def _needs_hygon_exit_workaround():
+    if os.getenv("INFINILM_DISABLE_HYGON_EXIT_WORKAROUND") == "1":
+        return False
+    ld_library_path = os.getenv("LD_LIBRARY_PATH", "")
+    return "hyhal" in ld_library_path or "/opt/dtk" in ld_library_path
+
+
+def _exit_after_hygon_bench():
+    if _needs_hygon_exit_workaround():
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
+
+
 DATA_TYPE_BYTES = {
     "bfloat16": 2,
     "float16": 2,
@@ -209,7 +223,7 @@ def _dtype_name(dtype) -> str:
     name = str(dtype)
     for prefix in ("infinicore.", "DataType."):
         if name.startswith(prefix):
-            name = name[len(prefix):]
+            name = name[len(prefix) :]
             break
     return DATA_TYPE_NAME_MAP.get(name, name)
 
@@ -391,7 +405,6 @@ class TestModel:
         # TODO: 添加一个函数，将model中的所有模块的权重的信息保存到文件中。
         # save_model_weight_info(model, os.path.join("outputs", "model_weight_info.json"))
 
-
         # ---------------------------------------------------------------------------- #
         #                        创建 tokenizer
         # ---------------------------------------------------------------------------- #
@@ -426,7 +439,9 @@ class TestModel:
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
 
-        self.input_ids_list = [[ 201,   0, 128803,  30594,    303,   2788,    642,  34543,   6657, 36005,    320, 128804]]
+        self.input_ids_list = [
+            [201, 0, 128803, 30594, 303, 2788, 642, 34543, 6657, 36005, 320, 128804]
+        ]
 
     def run(
         self,
@@ -439,7 +454,6 @@ class TestModel:
     ):
         input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
         input_ids_list = [input_ids] * batch_size
-
 
         # ---------------------------------------------------------------------------- #
         #                        自回归生成
@@ -613,7 +627,7 @@ if __name__ == "__main__":
         # warmup cache capacity
         warmup_case = next(iter(cases_dict.values()))
         warmup_batch = warmup_case["batch_size"]
-        warmup_input_len = 128  #warmup_case["input_len"]
+        warmup_input_len = 128  # warmup_case["input_len"]
         warmup_decode_len = 5
 
         if enable_paged_attn:
@@ -691,3 +705,5 @@ if __name__ == "__main__":
             top_p=cfg.top_p,
             temperature=cfg.temperature,
         )
+
+    _exit_after_hygon_bench()

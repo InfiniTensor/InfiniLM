@@ -1,13 +1,16 @@
 #include "cuda_fused_moe_runner.hpp"
 
 #include "infinicore/context/context.hpp"
+#include "infinicore/ops/deepseek_moe_w8a8i8.hpp"
 #include "infinicore/ops/moe_align.hpp"
 #include "infinicore/ops/moe_fused_dense.hpp"
+#include "infinicore/ops/take.hpp"
 
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace infinilm::layers::moe {
 
@@ -63,12 +66,36 @@ void check_packed_weight_tensor(const infinicore::Tensor &tensor,
         throw std::runtime_error("MoE fused dense core requires packed weights on the hidden_states device");
     }
     if (tensor->dtype() != dtype) {
-        throw std::runtime_error("MoE fused dense core requires packed weights to have the same dtype as hidden_states");
+        throw std::runtime_error("MoE fused dense core tensor " + name + " dtype mismatch");
     }
     if (tensor->shape() != shape) {
         throw std::runtime_error(
             "MoE fused dense core packed weight shape mismatch for " + name + ": expected " + shape_to_string(shape) + ", got " + shape_to_string(tensor->shape()));
     }
+}
+
+std::vector<infinicore::Tensor> split_w13_expert_tensors(const infinicore::Tensor &packed_w13,
+                                                         size_t num_local_experts,
+                                                         size_t intermediate_size,
+                                                         bool up_part) {
+    std::vector<infinicore::Tensor> tensors;
+    tensors.reserve(num_local_experts);
+    const size_t start = up_part ? intermediate_size : 0;
+    for (size_t expert = 0; expert < num_local_experts; ++expert) {
+        tensors.push_back(
+            packed_w13->narrow({{0, expert, 1}, {1, start, intermediate_size}})->squeeze(0));
+    }
+    return tensors;
+}
+
+std::vector<infinicore::Tensor> split_w2_expert_tensors(const infinicore::Tensor &packed_w2,
+                                                        size_t num_local_experts) {
+    std::vector<infinicore::Tensor> tensors;
+    tensors.reserve(num_local_experts);
+    for (size_t expert = 0; expert < num_local_experts; ++expert) {
+        tensors.push_back(packed_w2->narrow({{0, expert, 1}})->squeeze(0));
+    }
+    return tensors;
 }
 
 } // namespace
@@ -131,6 +158,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
             {1}, infinicore::DataType::I32, device);
     }
 
+    auto topk_output = dispatch_output.topk_output;
     if (dispatch_output.expert_map) {
         infinicore::op::moe_align_with_expert_map_(
             workspace.sorted_token_ids,
@@ -141,6 +169,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
             num_local_experts_,
             block_size,
             true);
+        topk_output.topk_ids = infinicore::op::take(dispatch_output.expert_map, topk_ids);
     } else {
         infinicore::op::moe_align_(
             workspace.sorted_token_ids,
@@ -153,7 +182,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
     }
     return CudaFusedMoeRunnerInput{
         dispatch_output.hidden_states,
-        dispatch_output.topk_output,
+        topk_output,
         MoeRoutingMetadata{
             workspace.sorted_token_ids,
             workspace.expert_ids,
@@ -168,6 +197,67 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(const CudaFusedMoeRu
     if (!weights.has_packed_dense_weights()) {
         throw std::runtime_error("MoE fused dense runner requires load-time packed w13/w2 weights");
     }
+    ensure_tensor(
+        workspace.fused_moe_output,
+        runner_input.hidden_states->shape(),
+        runner_input.hidden_states->dtype(),
+        runner_input.hidden_states->device());
+    workspace.fused_moe_output_tokens_capacity = runner_input.hidden_states->shape()[0];
+
+    if (weights.packed_w13->dtype() == infinicore::DataType::I8 || weights.packed_w2->dtype() == infinicore::DataType::I8) {
+        if (!weights.has_packed_w8a8_weights()) {
+            throw std::runtime_error("MoE W8A8 fused runner requires packed w13/w2 weights and weight scales");
+        }
+        check_packed_weight_tensor(
+            weights.packed_w13,
+            "w13",
+            runner_input.hidden_states->device(),
+            infinicore::DataType::I8,
+            {num_local_experts_, intermediate_size_per_partition_ * 2, hidden_size_});
+        check_packed_weight_tensor(
+            weights.packed_w2,
+            "w2",
+            runner_input.hidden_states->device(),
+            infinicore::DataType::I8,
+            {num_local_experts_, hidden_size_, intermediate_size_per_partition_});
+        check_packed_weight_tensor(
+            weights.packed_w13_scale,
+            "w13_scale",
+            runner_input.hidden_states->device(),
+            infinicore::DataType::F32,
+            {num_local_experts_, intermediate_size_per_partition_ * 2, 1});
+        check_packed_weight_tensor(
+            weights.packed_w2_scale,
+            "w2_scale",
+            runner_input.hidden_states->device(),
+            infinicore::DataType::F32,
+            {num_local_experts_, hidden_size_, 1});
+
+        auto gate_weights = split_w13_expert_tensors(weights.packed_w13, num_local_experts_, intermediate_size_per_partition_, false);
+        auto up_weights = split_w13_expert_tensors(weights.packed_w13, num_local_experts_, intermediate_size_per_partition_, true);
+        auto down_weights = split_w2_expert_tensors(weights.packed_w2, num_local_experts_);
+        auto gate_scales = split_w13_expert_tensors(weights.packed_w13_scale, num_local_experts_, intermediate_size_per_partition_, false);
+        auto up_scales = split_w13_expert_tensors(weights.packed_w13_scale, num_local_experts_, intermediate_size_per_partition_, true);
+        auto down_scales = split_w2_expert_tensors(weights.packed_w2_scale, num_local_experts_);
+
+        infinicore::op::deepseek_moe_w8a8i8_(
+            workspace.fused_moe_output,
+            runner_input.hidden_states,
+            runner_input.topk_output.topk_ids,
+            runner_input.topk_output.topk_weights,
+            gate_weights,
+            up_weights,
+            down_weights,
+            gate_scales,
+            up_scales,
+            down_scales,
+            intermediate_size_per_partition_,
+            num_local_experts_);
+        return CudaFusedMoeRunnerOutput{
+            workspace.fused_moe_output,
+        };
+    }
+
     check_packed_weight_tensor(
         weights.packed_w13,
         "w13",
@@ -180,12 +270,6 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(const CudaFusedMoeRu
         runner_input.hidden_states->device(),
         runner_input.hidden_states->dtype(),
         {num_local_experts_, hidden_size_, intermediate_size_per_partition_});
-    ensure_tensor(
-        workspace.fused_moe_output,
-        runner_input.hidden_states->shape(),
-        runner_input.hidden_states->dtype(),
-        runner_input.hidden_states->device());
-    workspace.fused_moe_output_tokens_capacity = runner_input.hidden_states->shape()[0];
     infinicore::op::moe_fused_dense_(
         workspace.fused_moe_output,
         runner_input.hidden_states,
