@@ -68,6 +68,9 @@ class DeepseekV4Experts : public infinicore::nn::Module {
 public:
     DeepseekV4Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                       const infinicore::Device &device);
+    DeepseekV4Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                      size_t layer_idx,
+                      const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                const infinicore::Tensor &top_k_index,
@@ -75,14 +78,20 @@ public:
     void process_weights_after_loading() override;
 
 private:
+    void init_packed_w8a8_experts_(const infinicore::Device &device,
+                                   int tp_rank,
+                                   int tp_size);
+    void register_packed_expert_aliases_(int tp_rank, int tp_size);
     void refresh_expert_weight_views_();
     bool has_w8a8_weights_() const;
     infinicore::Tensor build_w8a8_ptr_tables_(const infinicore::Device &device) const;
 
-    infinicore::Tensor forward_cpu_routed_(const infinicore::Tensor &hidden_states,
-                                           const infinicore::Tensor &top_k_index,
-                                           const infinicore::Tensor &top_k_weights) const;
-    INFINICORE_NN_MODULE_VEC(DeepseekV4MLP, experts);
+    INFINICORE_NN_PARAMETER(gate_weight_packed);
+    INFINICORE_NN_PARAMETER(up_weight_packed);
+    INFINICORE_NN_PARAMETER(down_weight_packed);
+    INFINICORE_NN_PARAMETER(gate_weight_scale_packed);
+    INFINICORE_NN_PARAMETER(up_weight_scale_packed);
+    INFINICORE_NN_PARAMETER(down_weight_scale_packed);
     std::vector<infinicore::Tensor> gate_weights_;
     std::vector<infinicore::Tensor> up_weights_;
     std::vector<infinicore::Tensor> down_weights_;
@@ -91,13 +100,13 @@ private:
     std::vector<infinicore::Tensor> down_weight_scales_;
     mutable infinicore::Tensor expert_ptr_tables_;
 
+    size_t layer_idx_{0};
     size_t hidden_size_{0};
     size_t moe_intermediate_size_{0};
     size_t local_moe_intermediate_size_{0};
     size_t num_experts_{0};
     size_t num_experts_per_tok_{0};
     size_t tp_size_{1};
-    bool use_fused_moe_{false};
     infinicclComm_t communicator_{nullptr};
 };
 

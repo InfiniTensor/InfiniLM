@@ -2,6 +2,7 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "deepseek_v4_linear.hpp"
 #include "deepseek_v4_profile.hpp"
 #include "deepseek_v4_utils.hpp"
 #include "infinicore/context/context.hpp"
@@ -41,11 +42,6 @@ bool env_flag(const char *name) {
 
 bool disable_fused_hash_topk_env() {
     static const bool value = env_flag("DSV4_DISABLE_FUSED_HASH_TOPK");
-    return value;
-}
-
-bool require_fused_moe_env() {
-    static const bool value = env_flag("DSV4_REQUIRE_FUSED_MOE");
     return value;
 }
 
@@ -148,31 +144,86 @@ DeepseekV4HashTopK::forward(const infinicore::Tensor &hidden_states,
 
 DeepseekV4Experts::DeepseekV4Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      const infinicore::Device &device)
-    : hidden_size_(model_config->get<size_t>("hidden_size")),
+    : DeepseekV4Experts(std::move(model_config), 0, device) {
+}
+
+DeepseekV4Experts::DeepseekV4Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                     size_t layer_idx,
+                                     const infinicore::Device &device)
+    : layer_idx_(layer_idx),
+      hidden_size_(model_config->get<size_t>("hidden_size")),
       moe_intermediate_size_(model_config->get<size_t>("moe_intermediate_size")),
       num_experts_(model_config->get<size_t>("n_routed_experts")),
       num_experts_per_tok_(model_config->get<size_t>("num_experts_per_tok")) {
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     tp_size_ = static_cast<size_t>(rank_info.tp_size);
     communicator_ = rank_info.comm;
-    const auto &config_json = model_config->get_config_json();
-    use_fused_moe_ = !(config_json.contains("swiglu_limit") && !config_json.at("swiglu_limit").is_null());
-    if (const char *force_fused = std::getenv("DSV4_FORCE_FUSED_MOE"); force_fused != nullptr && std::string(force_fused) == "1") {
-        use_fused_moe_ = true;
+    if (!use_deepseek_v4_w8a8_linear(model_config)) {
+        throw std::runtime_error(std::string{});
     }
-
-    experts_.reserve(num_experts_);
-    gate_weights_.reserve(num_experts_);
-    up_weights_.reserve(num_experts_);
-    down_weights_.reserve(num_experts_);
-    gate_weight_scales_.reserve(num_experts_);
-    up_weight_scales_.reserve(num_experts_);
-    down_weight_scales_.reserve(num_experts_);
-    for (size_t i = 0; i < num_experts_; ++i) {
-        auto expert = this->register_module<DeepseekV4MLP>(std::to_string(i), model_config, moe_intermediate_size_, device);
-        experts_.push_back(std::move(expert));
-    }
+    init_packed_w8a8_experts_(device, rank_info.tp_rank, rank_info.tp_size);
     refresh_expert_weight_views_();
+}
+
+void DeepseekV4Experts::init_packed_w8a8_experts_(const infinicore::Device &device,
+                                                  int tp_rank,
+                                                  int tp_size) {
+    if (tp_size <= 0 || moe_intermediate_size_ % static_cast<size_t>(tp_size) != 0) {
+        throw std::runtime_error("DeepseekV4Experts: moe_intermediate_size must be divisible by tp_size for packed experts");
+    }
+    local_moe_intermediate_size_ = moe_intermediate_size_ / static_cast<size_t>(tp_size);
+
+    gate_weight_packed_ = infinicore::nn::Parameter(
+        {num_experts_, local_moe_intermediate_size_, hidden_size_},
+        infinicore::DataType::I8,
+        device);
+    up_weight_packed_ = infinicore::nn::Parameter(
+        {num_experts_, local_moe_intermediate_size_, hidden_size_},
+        infinicore::DataType::I8,
+        device);
+    down_weight_packed_ = infinicore::nn::Parameter(
+        {num_experts_, hidden_size_, local_moe_intermediate_size_},
+        infinicore::DataType::I8,
+        device);
+    gate_weight_scale_packed_ = infinicore::nn::Parameter(
+        {num_experts_, local_moe_intermediate_size_, 1},
+        infinicore::DataType::F32,
+        device);
+    up_weight_scale_packed_ = infinicore::nn::Parameter(
+        {num_experts_, local_moe_intermediate_size_, 1},
+        infinicore::DataType::F32,
+        device);
+    down_weight_scale_packed_ = infinicore::nn::Parameter(
+        {num_experts_, hidden_size_, 1},
+        infinicore::DataType::F32,
+        device);
+
+    register_packed_expert_aliases_(tp_rank, tp_size);
+}
+
+void DeepseekV4Experts::register_packed_expert_aliases_(int tp_rank, int tp_size) {
+    for (size_t i = 0; i < num_experts_; ++i) {
+        const std::string prefix = std::to_string(i) + ".";
+        auto gate_weight = gate_weight_packed_->narrow({{0, i, 1}})->squeeze(0);
+        auto up_weight = up_weight_packed_->narrow({{0, i, 1}})->squeeze(0);
+        auto down_weight = down_weight_packed_->narrow({{0, i, 1}})->squeeze(0);
+        auto gate_scale = gate_weight_scale_packed_->narrow({{0, i, 1}})->squeeze(0);
+        auto up_scale = up_weight_scale_packed_->narrow({{0, i, 1}})->squeeze(0);
+        auto down_scale = down_weight_scale_packed_->narrow({{0, i, 1}})->squeeze(0);
+
+        this->register_parameter(prefix + "w1.weight",
+                                 infinicore::nn::Parameter(gate_weight, 0, tp_rank, tp_size));
+        this->register_parameter(prefix + "w1.weight_scale",
+                                 infinicore::nn::Parameter(gate_scale, 0, tp_rank, tp_size));
+        this->register_parameter(prefix + "w2.weight",
+                                 infinicore::nn::Parameter(down_weight, 1, tp_rank, tp_size));
+        this->register_parameter(prefix + "w2.weight_scale",
+                                 infinicore::nn::Parameter(down_scale, 0, 0, 1));
+        this->register_parameter(prefix + "w3.weight",
+                                 infinicore::nn::Parameter(up_weight, 0, tp_rank, tp_size));
+        this->register_parameter(prefix + "w3.weight_scale",
+                                 infinicore::nn::Parameter(up_scale, 0, tp_rank, tp_size));
+    }
 }
 
 void DeepseekV4Experts::refresh_expert_weight_views_() {
@@ -190,13 +241,13 @@ void DeepseekV4Experts::refresh_expert_weight_views_() {
     up_weight_scales_.reserve(num_experts_);
     down_weight_scales_.reserve(num_experts_);
 
-    for (const auto &expert : experts_) {
-        gate_weights_.push_back(expert->gate_weight());
-        up_weights_.push_back(expert->up_weight());
-        down_weights_.push_back(expert->down_weight());
-        gate_weight_scales_.push_back(expert->gate_weight_scale());
-        up_weight_scales_.push_back(expert->up_weight_scale());
-        down_weight_scales_.push_back(expert->down_weight_scale());
+    for (size_t i = 0; i < num_experts_; ++i) {
+        gate_weights_.push_back(gate_weight_packed_->narrow({{0, i, 1}})->squeeze(0));
+        up_weights_.push_back(up_weight_packed_->narrow({{0, i, 1}})->squeeze(0));
+        down_weights_.push_back(down_weight_packed_->narrow({{0, i, 1}})->squeeze(0));
+        gate_weight_scales_.push_back(gate_weight_scale_packed_->narrow({{0, i, 1}})->squeeze(0));
+        up_weight_scales_.push_back(up_weight_scale_packed_->narrow({{0, i, 1}})->squeeze(0));
+        down_weight_scales_.push_back(down_weight_scale_packed_->narrow({{0, i, 1}})->squeeze(0));
     }
     local_moe_intermediate_size_ = gate_weights_.empty() ? moe_intermediate_size_ : gate_weights_.front()->shape()[0];
 }
@@ -246,97 +297,22 @@ infinicore::Tensor DeepseekV4Experts::build_w8a8_ptr_tables_(const infinicore::D
 infinicore::Tensor DeepseekV4Experts::forward(const infinicore::Tensor &hidden_states,
                                               const infinicore::Tensor &top_k_index,
                                               const infinicore::Tensor &top_k_weights) const {
-    if (hidden_states->ndim() != 2 || hidden_states->shape()[1] != hidden_size_) {
-        throw std::runtime_error("DeepseekV4Experts: expected hidden_states shape [N,D]");
+    ASSERT(hidden_states->ndim() == 2 && hidden_states->shape()[1] == hidden_size_);
+    ASSERT(has_w8a8_weights_());
+    ASSERT(supports_fused_deepseek_moe(hidden_states->device().getType()));
+    ASSERT(top_k_index->dtype() == infinicore::DataType::I32);
+    ASSERT(top_k_weights->dtype() == infinicore::DataType::F32);
+    ASSERT(hidden_states->dtype() == infinicore::DataType::BF16 || hidden_states->dtype() == infinicore::DataType::F16);
+
+    if (!expert_ptr_tables_.empty()) {
+        return infinicore::op::deepseek_moe_w8a8i8_with_ptr_tables(hidden_states, top_k_index, top_k_weights,
+                                                                   expert_ptr_tables_,
+                                                                   local_moe_intermediate_size_, num_experts_);
     }
-    const bool dense_weights = !gate_weights_.empty() && gate_weights_.front()->dtype() == hidden_states->dtype()
-                            && up_weights_.front()->dtype() == hidden_states->dtype()
-                            && down_weights_.front()->dtype() == hidden_states->dtype();
-    const bool w8a8_weights = has_w8a8_weights_();
-
-    const bool fused_device_dtype_ready = supports_fused_deepseek_moe(hidden_states->device().getType())
-                                       && top_k_index->dtype() == infinicore::DataType::I32
-                                       && top_k_weights->dtype() == infinicore::DataType::F32
-                                       && (hidden_states->dtype() == infinicore::DataType::BF16
-                                           || hidden_states->dtype() == infinicore::DataType::F16);
-    const bool fused_common_ready = use_fused_moe_ && fused_device_dtype_ready;
-    const bool require_fused_moe = require_fused_moe_env();
-
-    if (fused_device_dtype_ready && w8a8_weights) {
-        try {
-            if (std::getenv("DSV4_DISABLE_LAYER_PTR_TABLES") != nullptr) {
-                return infinicore::op::deepseek_moe_w8a8i8(hidden_states, top_k_index, top_k_weights,
-                                                           gate_weights_, up_weights_, down_weights_,
-                                                           gate_weight_scales_, up_weight_scales_, down_weight_scales_,
-                                                           local_moe_intermediate_size_, num_experts_);
-            }
-            if (expert_ptr_tables_.empty()) {
-                throw std::runtime_error("DeepseekV4Experts: call process_weights_after_loading() before using layer ptr tables");
-            }
-            return infinicore::op::deepseek_moe_w8a8i8_with_ptr_tables(hidden_states, top_k_index, top_k_weights,
-                                                                       expert_ptr_tables_,
-                                                                       local_moe_intermediate_size_, num_experts_);
-        } catch (const std::exception &e) {
-            if (require_fused_moe) {
-                throw;
-            }
-            spdlog::warn("DeepseekV4Experts: deepseek_moe_w8a8i8 unavailable on {}, falling back to routed experts: {}", static_cast<int>(hidden_states->device().getType()), e.what());
-        }
-    }
-
-    if (fused_common_ready && dense_weights) {
-        try {
-            return infinicore::op::deepseek_moe(hidden_states, top_k_index, top_k_weights,
-                                                gate_weights_, up_weights_, down_weights_,
-                                                local_moe_intermediate_size_, num_experts_);
-        } catch (const std::exception &e) {
-            if (require_fused_moe) {
-                throw;
-            }
-            spdlog::warn("DeepseekV4Experts: deepseek_moe unavailable on {}, falling back to routed experts: {}", static_cast<int>(hidden_states->device().getType()), e.what());
-        }
-    }
-
-    if (require_fused_moe) {
-        throw std::runtime_error("DeepseekV4Experts: DSV4_REQUIRE_FUSED_MOE=1 but no fused MoE path matched");
-    }
-    return forward_cpu_routed_(hidden_states, top_k_index, top_k_weights);
-}
-
-infinicore::Tensor DeepseekV4Experts::forward_cpu_routed_(const infinicore::Tensor &hidden_states,
-                                                          const infinicore::Tensor &top_k_index,
-                                                          const infinicore::Tensor &top_k_weights) const {
-    const size_t ntoken = hidden_states->shape()[0];
-    auto top_k_weights_host = top_k_weights->to(infinicore::Device::Type::CPU);
-    auto top_k_index_host = top_k_index->to(infinicore::Device::Type::CPU);
-    if (hidden_states->device().getType() != infinicore::Device::Type::CPU) {
-        infinicore::context::syncStream();
-    }
-    auto *top_k_index_ptr = reinterpret_cast<int32_t *>(top_k_index_host->data());
-    auto *top_k_weights_ptr = reinterpret_cast<float *>(top_k_weights_host->data());
-
-    auto final_hidden_states = infinicore::Tensor::empty(hidden_states->shape(), hidden_states->dtype(), hidden_states->device());
-    for (size_t token = 0; token < ntoken; ++token) {
-        auto hidden_i = hidden_states->narrow({{0, token, 1}});
-        const size_t route_offset = token * num_experts_per_tok_;
-
-        infinicore::Tensor final_hidden_states_i;
-        for (size_t k = 0; k < num_experts_per_tok_; ++k) {
-            const int index = top_k_index_ptr[route_offset + k];
-            const float score = top_k_weights_ptr[route_offset + k];
-            ASSERT(index >= 0 && static_cast<size_t>(index) < num_experts_);
-            experts_[index]->set_alpha(score);
-            auto expert_out = experts_[index]->forward_without_allreduce(hidden_i);
-            experts_[index]->set_alpha(1.0f);
-            if (k == 0) {
-                final_hidden_states_i = expert_out;
-            } else {
-                infinicore::op::add_(final_hidden_states_i, final_hidden_states_i, expert_out);
-            }
-        }
-        final_hidden_states->narrow({{0, token, 1}})->copy_from(final_hidden_states_i);
-    }
-    return final_hidden_states;
+    return infinicore::op::deepseek_moe_w8a8i8(hidden_states, top_k_index, top_k_weights,
+                                               gate_weights_, up_weights_, down_weights_,
+                                               gate_weight_scales_, up_weight_scales_, down_weight_scales_,
+                                               local_moe_intermediate_size_, num_experts_);
 }
 
 DeepseekV4MoE::DeepseekV4MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -361,7 +337,7 @@ DeepseekV4MoE::DeepseekV4MoE(std::shared_ptr<infinilm::config::ModelConfig> mode
     } else {
         topk_ = this->register_module<DeepseekV4TopK>("gate", model_config, layer_idx, device);
     }
-    INFINICORE_NN_MODULE_INIT(experts, model_config, device);
+    INFINICORE_NN_MODULE_INIT(experts, model_config, layer_idx_, device);
     has_shared_experts_ = num_shared_experts > 0;
     if (num_shared_experts > 0) {
         INFINICORE_NN_MODULE_INIT(shared_experts, model_config, moe_intermediate_size * num_shared_experts, device);
