@@ -64,6 +64,27 @@ def _is_internal_moe_packed_weight(key: str) -> bool:
     )
 
 
+def _is_glm_base_inference_unused_weight(key: str, config: dict) -> bool:
+    """Weights intentionally outside the base 78-layer forward.
+
+    Layers at num_hidden_layers and above belong to the optional MTP
+    predictor. The DSA indexer is not consulted by the current full-attention
+    path; for sequences no longer than index_topk, full attention is exact.
+    Keep this allowlist GLM-specific so other model loaders remain strict.
+    """
+    if config.get("model_type") != "glm_moe_dsa":
+        return False
+    if ".self_attn.indexer." in key:
+        return True
+    prefix = "model.layers."
+    if key.startswith(prefix):
+        rest = key[len(prefix) :]
+        layer = rest.split(".", 1)[0]
+        if layer.isdigit() and int(layer) >= int(config.get("num_hidden_layers", 0)):
+            return True
+    return False
+
+
 def check_parameters(model_keys: list, already_loaded_keys: list):
     model_keys = set(model_keys)
     already_loaded_keys = set(already_loaded_keys)
@@ -229,6 +250,13 @@ def load_model_state_dict_by_file(
             # Apply model-specific weight remapping
             if remapper is not None:
                 model_param = remapper(model_param, config=model.hf_config)
+
+            if model_type == "glm_moe_dsa":
+                model_param = {
+                    key: value
+                    for key, value in model_param.items()
+                    if not _is_glm_base_inference_unused_weight(key, model.hf_config)
+                }
 
             already_loaded_keys.extend(model_param.keys())
 

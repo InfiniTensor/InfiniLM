@@ -38,10 +38,12 @@ public:
 
     void process_weights_after_loading() override {
         gate_up_proj_->process_weights_after_loading();
+        down_proj_->process_weights_after_loading();
     }
 
     void reset_runtime_state() const override {
         gate_up_proj_->reset_runtime_state();
+        down_proj_->reset_runtime_state();
     }
 
     // Module information

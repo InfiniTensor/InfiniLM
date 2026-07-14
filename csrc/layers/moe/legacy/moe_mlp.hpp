@@ -18,7 +18,15 @@ public:
     infinicore::Tensor gate_weight() const { return gate_proj_->weight(); }
     infinicore::Tensor up_weight() const { return up_proj_->weight(); }
     infinicore::Tensor down_weight() const { return down_proj_->weight(); }
+    infinicore::Tensor gate_weight_scale() const { return gate_proj_->weight_scale(); }
+    infinicore::Tensor up_weight_scale() const { return up_proj_->weight_scale(); }
+    infinicore::Tensor down_weight_scale() const { return down_proj_->weight_scale(); }
     void set_alpha(float alpha) { down_proj_->set_alpha(alpha); }
+    void release_parameters() {
+        gate_proj_->release_parameters();
+        up_proj_->release_parameters();
+        down_proj_->release_parameters();
+    }
 
 protected:
     std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> gate_proj_;

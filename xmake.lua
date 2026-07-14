@@ -35,6 +35,7 @@ target_end()
 
 target("_infinilm")
     add_packages("pybind11")
+    add_defines("_GLIBCXX_USE_CXX11_ABI=0")
     set_default(false)
     add_rules("python.module", {soabi = true})
     set_languages("cxx17")
