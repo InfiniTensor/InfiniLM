@@ -8,34 +8,8 @@ import argparse
 import json
 import os
 import sys
-import time
 from dataclasses import asdict, dataclass
 from typing import Optional
-
-DEBUG_LOG = "/opt/offline/infinilm-metax-20260622/.cursor/debug-685da7.log"
-_CONTAINER_DEBUG_LOG = "/workspace/.cursor/debug-685da7.log"
-
-
-def _agent_log(location: str, message: str, hypothesis_id: str, data: dict) -> None:
-    # #region agent log
-    payload = {
-        "sessionId": "685da7",
-        "location": location,
-        "message": message,
-        "hypothesisId": hypothesis_id,
-        "data": data,
-        "timestamp": int(time.time() * 1000),
-    }
-    line = json.dumps(payload) + "\n"
-    for path in (DEBUG_LOG, _CONTAINER_DEBUG_LOG):
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(line)
-        except OSError:
-            pass
-    print(f"[agent_log] {hypothesis_id} {message} {data}", flush=True)
-    # #endregion
 
 
 @dataclass
@@ -85,6 +59,7 @@ def run_hcgraph_smoke(
     device_index: int = 0,
 ) -> HcGraphSmokeResult:
     os.environ["INFINI_GRAPH_STRICT_REPLAY"] = "1"
+    os.environ["INFINI_PIECEWISE_VALID_LEN"] = str(int(valid_len) if valid_len is not None else bucket)
 
     import infinicore
     import torch
@@ -152,6 +127,8 @@ def run_hcgraph_smoke(
             del torch_model
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+                torch.cuda.set_device(int(device_index))
+            infinicore.set_device(device)
             _ic.register_pre_attn_external_weights(
                 int(layer_idx),
                 *[
@@ -196,18 +173,6 @@ def run_hcgraph_smoke(
             )
             registered = 1
 
-    _agent_log(
-        "inductor_segment_hcgraph_smoke.py",
-        "packages_registered",
-        "H4",
-        {
-            "registered": registered,
-            "bucket": bucket,
-            "layer": layer_idx,
-            "tp_size": tp_size,
-            "tp_rank": tp_rank,
-        },
-    )
     if registered == 0:
         return HcGraphSmokeResult(
             passed=False,
@@ -221,33 +186,47 @@ def run_hcgraph_smoke(
             error="no AOT package registered",
         )
 
+    ic_dtype = (
+        infinicore.bfloat16 if dtype == torch.bfloat16 else infinicore.float16
+    )
+    gen = torch.Generator(device=cuda_dev)
+    gen.manual_seed(42 + int(layer_idx) + int(bucket))
     hidden = infinicore.from_torch(
-        torch.randn(1, bucket, shapes["hidden_size"], device=cuda_dev, dtype=dtype)
+        torch.randn(
+            1, bucket, shapes["hidden_size"], device=cuda_dev, dtype=dtype, generator=gen
+        )
     )
     residual = infinicore.from_torch(
-        torch.randn(1, bucket, shapes["hidden_size"], device=cuda_dev, dtype=dtype)
+        torch.randn(
+            1, bucket, shapes["hidden_size"], device=cuda_dev, dtype=dtype, generator=gen
+        )
     )
     position_offset = 512 if int(valid) < 512 else 0
-    positions = infinicore.from_list(
-        list(range(position_offset, position_offset + valid)),
-        dtype=infinicore.int64,
-        device=device,
+    positions = infinicore.from_torch(
+        torch.arange(
+            position_offset, position_offset + valid, device=cuda_dev, dtype=torch.int64
+        )
     )
-    positions_padded = infinicore.zeros([1, bucket], dtype=infinicore.int64, device=device)
-    q_rope = infinicore.empty(
-        [1, bucket, shapes["num_heads"], shapes["head_dim"]],
-        dtype=infinicore.bfloat16 if dtype == torch.bfloat16 else infinicore.float16,
-        device=device,
+    positions_padded = infinicore.from_torch(
+        torch.zeros(1, bucket, device=cuda_dev, dtype=torch.int64)
     )
-    k_rope = infinicore.empty(
-        [1, bucket, shapes["num_kv_heads"], shapes["head_dim"]],
-        dtype=infinicore.bfloat16 if dtype == torch.bfloat16 else infinicore.float16,
-        device=device,
+    q_rope = infinicore.from_torch(
+        torch.zeros(
+            1, bucket, shapes["num_heads"], shapes["head_dim"],
+            device=cuda_dev, dtype=dtype,
+        )
     )
-    v_rope = infinicore.empty(
-        [1, bucket, shapes["num_kv_heads"], shapes["head_dim"]],
-        dtype=infinicore.bfloat16 if dtype == torch.bfloat16 else infinicore.float16,
-        device=device,
+    k_rope = infinicore.from_torch(
+        torch.zeros(
+            1, bucket, shapes["num_kv_heads"], shapes["head_dim"],
+            device=cuda_dev, dtype=dtype,
+        )
+    )
+    v_rope = infinicore.from_torch(
+        torch.zeros(
+            1, bucket, shapes["num_kv_heads"], shapes["head_dim"],
+            device=cuda_dev, dtype=dtype,
+        )
     )
 
     if hasattr(_ic, "set_piecewise_inductor_lookup_tp_rank"):
@@ -264,32 +243,8 @@ def run_hcgraph_smoke(
             int(valid),
         )
         infinicore.sync_stream()
-        _agent_log(
-            "inductor_segment_hcgraph_smoke.py",
-            "warmup_done",
-            "H4",
-            {"bucket": bucket},
-        )
 
-    _agent_log(
-        "inductor_segment_hcgraph_smoke.py",
-        "before_start_graph_recording",
-        "H4",
-        {"device_index": int(device_index)},
-    )
     infinicore.start_graph_recording(device)
-    _agent_log(
-        "inductor_segment_hcgraph_smoke.py",
-        "after_start_graph_recording",
-        "H4",
-        {},
-    )
-    _agent_log(
-        "inductor_segment_hcgraph_smoke.py",
-        "before_inductor_segment_record",
-        "H1",
-        {"bucket": bucket, "layer": layer_idx},
-    )
     _ic.inductor_segment_(
         positions._underlying,
         hidden._underlying,
@@ -301,28 +256,10 @@ def run_hcgraph_smoke(
         int(layer_idx),
         int(bucket),
     )
-    _agent_log(
-        "inductor_segment_hcgraph_smoke.py",
-        "after_inductor_segment_record",
-        "H5",
-        {},
-    )
     graph = infinicore.stop_graph_recording()
-    _agent_log(
-        "inductor_segment_hcgraph_smoke.py",
-        "after_stop_graph_recording",
-        "H5",
-        {"has_device_exec": graph.has_device_exec()},
-    )
 
     has_exec = graph.has_device_exec()
     log_msg = graph.device_graph_log()
-    _agent_log(
-        "inductor_segment_hcgraph_smoke.py",
-        "graph_captured",
-        "H5",
-        {"has_device_exec": has_exec, "log_len": len(log_msg)},
-    )
 
     graph.run()
     replay1_device = graph.last_replay_used_device()
@@ -337,20 +274,6 @@ def run_hcgraph_smoke(
         and replay2_device
         and fallback2 == 0
         and device_ok >= 2
-    )
-    _agent_log(
-        "inductor_segment_hcgraph_smoke.py",
-        "gate_result",
-        "H1",
-        {
-            "passed": passed,
-            "has_device_exec": has_exec,
-            "last_replay_used_device": replay2_device,
-            "replay_device_ok": device_ok,
-            "replay_op_list_fallback": fallback2,
-            "replay1_device": replay1_device,
-            "fallback1": fallback1,
-        },
     )
 
     return HcGraphSmokeResult(
@@ -408,12 +331,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             replay_op_list_fallback=0,
             registered_packages=0,
             error=str(exc),
-        )
-        _agent_log(
-            "inductor_segment_hcgraph_smoke.py",
-            "exception",
-            "H1",
-            {"error": str(exc)},
         )
 
     status = "PASS" if result.passed else "FAIL"
