@@ -10,14 +10,16 @@ Classification (for PR review):
   C++ code defaults (no env): decode pre-barrier on, piecewise post-AR barrier trim
     (opt-out: INFINI_DECODE_SKIP_PRE_BARRIER, INFINI_PIECEWISE_KEEP_BARRIERS).
   C++ production env (``infinilm_production_env.sh``): ``INFINI_DECODE_LIGHT_SYNC``,
-    ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` — not read in this module.
+    ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` — also read here for Inductor bootstrap /
+    pad ladders so Python matches C++ ``PiecewisePrefillCompiler``.
   DEBUG — diagnostics / smoke baselines only:
     ``prefill_cg_debug_ptrs_enabled``, ``prefill_cg_baseline_none``,
     ``return_logits_enabled``, ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``).
 
-Bucket ladders and CUDAGraph capture sizes are derived from ``INFINI_COMPILE_MAX_SEQ``
-via ``vllm_unified_power_ladder`` (compile) and ``default_cudagraph_capture_buckets``
-(CG capture excludes the 8448 overflow tail). KV-outside-graph, valid-seq scoping,
+When ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` is set, Inductor bootstrap and
+``compile_buckets`` use that list only (no auto power-of-two through 8192).
+Otherwise ladders fall back to ``vllm_unified_power_ladder`` /
+``default_cudagraph_capture_buckets``. KV-outside-graph, valid-seq scoping,
 and vLLM garbage-tail staging are hardcoded in the compile path when CG is enabled.
 """
 
@@ -288,8 +290,30 @@ def min_cudagraph_piecewise_bucket(capture_sizes: Optional[object]) -> int:
     return floor
 
 
+def native_cg_capture_buckets_from_env() -> Optional[Tuple[int, ...]]:
+    """Parse ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` (same CSV as C++ capture list).
+
+    When set, InfiniLM must not invent extra vLLM power-ladder buckets (e.g. B8192)
+    for Inductor bootstrap / compile-on-miss — that list is the authoritative set.
+    """
+    raw = os.environ.get("INFINI_NATIVE_CG_CAPTURE_BUCKETS")
+    if raw is None or not str(raw).strip():
+        return None
+    buckets: List[int] = []
+    for token in str(raw).split(","):
+        token = token.strip()
+        if token:
+            buckets.append(int(token))
+    if not buckets:
+        return None
+    return tuple(sorted(set(buckets)))
+
+
 def compile_buckets(max_seq_len: int) -> Tuple[int, ...]:
     """Runtime Inductor padding buckets (must match init warmup when unset)."""
+    override = native_cg_capture_buckets_from_env()
+    if override is not None:
+        return override
     return vllm_unified_power_ladder(max_seq_len)
 
 
@@ -341,7 +365,14 @@ def graph_replay_bucket_for_seq_len(
 
 
 def native_piecewise_capture_buckets(max_seq_len: int) -> Tuple[int, ...]:
-    """Native C++ capture ladder: power buckets through 8192 (8448 pad is eager-only)."""
+    """Native capture / Inductor bootstrap buckets.
+
+    Prefer ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` when set (parity with C++).
+    Otherwise: optional vLLM sub-512 merge, else power buckets through 8192.
+    """
+    override = native_cg_capture_buckets_from_env()
+    if override is not None:
+        return override
     if vllm_capture_ladder_enabled():
         return native_piecewise_capture_buckets_vllm(max_seq_len, prefill_chunk_size(default=512))
     return default_cudagraph_capture_buckets(max_seq_len)
