@@ -17,6 +17,10 @@ public:
     size_t moe_intermediate_size() const { return moe_intermediate_size_; }
     void set_alpha(float alpha) { down_proj_->set_alpha(alpha); }
 
+    infinicore::Tensor gate_weight() const { return gate_proj_->weight(); }
+    infinicore::Tensor up_weight() const { return up_proj_->weight(); }
+    infinicore::Tensor down_weight() const { return down_proj_->weight(); }
+
 protected:
     std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> gate_proj_;
     std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> up_proj_;

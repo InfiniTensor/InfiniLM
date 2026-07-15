@@ -18,7 +18,8 @@ from .env import piecewise_inductor_cache_root
 
 SEGMENT_PRE_ATTN = "pre_attn"
 SEGMENT_POST_ATTN_CG = "post_attn_cg"
-PIECEWISE_SEGMENT_IDS: Tuple[str, ...] = (SEGMENT_PRE_ATTN, SEGMENT_POST_ATTN_CG)
+SEGMENT_MOE = "moe"
+PIECEWISE_SEGMENT_IDS: Tuple[str, ...] = (SEGMENT_PRE_ATTN, SEGMENT_POST_ATTN_CG, SEGMENT_MOE)
 
 # Sentinel for layer-agnostic AOT packages (one graph per bucket×tp_rank).
 LAYER_AGNOSTIC_IDX = -1

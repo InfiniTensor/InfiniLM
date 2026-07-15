@@ -237,7 +237,6 @@ def load_model_state_dict_by_file(
             if not _skip_main_thread_device_sync(model):
                 infinicore.sync_device()
             gc.collect()  # Help reduce peak host memory and fragmentation across shards.
-        model.process_weights_after_loading()
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
@@ -270,6 +269,9 @@ def load_model_state_dict_by_file(
             infinicore.sync_device()
     else:
         raise KeyError("Weight file not found.")
+
+    # RankWorker PREPROCESS registers piecewise MoE / pre_attn weight resolvers.
+    model.process_weights_after_loading()
 
     # Handle tied weights: if lm_head.weight is missing, share embed_tokens.weight
     # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
@@ -348,6 +350,9 @@ def load_model_state_dict_by_tensor(
             already_loaded_keys.append("lm_head.weight")
 
     check_parameters(model_keys, already_loaded_keys)
+
+    # RankWorker PREPROCESS registers piecewise MoE / pre_attn weight resolvers.
+    model.process_weights_after_loading()
 
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
@@ -587,9 +592,19 @@ def _remap_baichuan(state_dict, config=None):
     return state_dict
 
 
+def _remap_minicpm5_moe(state_dict, config=None):
+    """Map HF `mlp.gate.e_score_correction_bias` → InfiniLM `mlp.e_score_correction_bias`."""
+    _ = config
+    out = {}
+    for key, value in state_dict.items():
+        out[key.replace(".mlp.gate.e_score_correction_bias", ".mlp.e_score_correction_bias")] = value
+    return out
+
+
 # Model type → remap function mapping
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
     "baichuan": _remap_baichuan,
+    "minicpm5_moe": _remap_minicpm5_moe,
 }

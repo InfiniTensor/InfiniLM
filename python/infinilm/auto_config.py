@@ -23,13 +23,20 @@ class AutoConfig:
                 f"`model_type` is not specified in the config file `{config_path}`."
             )
 
-        if config_dict["model_type"] == "llama":
-            return LlamaConfig(**config_dict)
-        elif (
-            config_dict["model_type"] == "qwen2" or config_dict["model_type"] == "qwen3"
+        mt = config_dict["model_type"]
+        if mt in (
+            "llama",
+            "qwen2",
+            "qwen3",
+            "minicpm",
+            "fm9g",
+            "fm9g7b",
+            "qwen3_next",
+            "minicpm_sala",
+            "qwen3_vl",
+            "qwen3_moe",
+            "minicpm5_moe",
         ):
             return LlamaConfig(**config_dict)
-        elif config_dict["model_type"] == ["minicpm", "fm9g", "fm9g7b"]:
-            return LlamaConfig(**config_dict)
 
-        raise ValueError(f"Unsupported model type `{config_dict['model_type']}`.")
+        raise ValueError(f"Unsupported model type `{mt}`.")

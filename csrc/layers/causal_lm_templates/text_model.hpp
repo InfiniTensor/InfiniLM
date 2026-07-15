@@ -107,6 +107,12 @@ public:
         return layers_.at(layer_idx)->pre_attn_external_weights();
     }
 
+    /// MiniCPM5 MoE layers only; body instantiates when called (not for dense/Qwen).
+    infinicore::op::inductor_segment_impl::MoeExternalWeightTensors
+    moe_external_weights(size_t layer_idx) const {
+        return layers_.at(layer_idx)->moe_external_weights();
+    }
+
     void piecewise_embed(const infinilm::InfinilmModel::Input &input,
                          infinicore::Tensor &hidden_states) const {
         auto &piecewise = infinilm::global_state::get_forward_context().piecewise;

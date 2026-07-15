@@ -41,6 +41,7 @@ from .env import (
 from .runner import TorchCompileRunner
 from .piecewise_segments import (
     PIECEWISE_SEGMENT_IDS,
+    SEGMENT_MOE,
     SEGMENT_POST_ATTN_CG,
     SEGMENT_PRE_ATTN,
     PiecewisePreAttnSegment,
@@ -54,6 +55,10 @@ from .piecewise_segments import (
     aot_compile_piecewise_segment,
     aot_compile_piecewise_segments_batch,
     torch_compile_piecewise_segment,
+)
+from .piecewise_moe_segment import (
+    PiecewiseMoeSegmentFunctional,
+    aot_compile_minicpm5_moe_segment,
 )
 from .weights import bind_cpp_weights_to_torch
 
@@ -80,9 +85,12 @@ __all__ = [
     "piecewise_inductor_require_aot",
     "piecewise_inductor_segment_enabled",
     "PIECEWISE_SEGMENT_IDS",
+    "PiecewiseMoeSegmentFunctional",
     "PiecewisePreAttnSegment",
+    "SEGMENT_MOE",
     "SEGMENT_POST_ATTN_CG",
     "SEGMENT_PRE_ATTN",
+    "aot_compile_minicpm5_moe_segment",
     "build_piecewise_segment",
     "load_torch_model_with_cpp_weights",
     "make_segment_example_inputs",

@@ -130,6 +130,30 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
     }
 }
 
+QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
+                                     size_t q_dim, size_t k_dim, size_t v_dim,
+                                     size_t num_q_head, size_t num_k_head, size_t num_v_head,
+                                     const std::string &q_name, const std::string &k_name, const std::string &v_name,
+                                     RegisterParamFn register_fn,
+                                     std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                                     bool q_bias, bool k_bias, bool v_bias,
+                                     const infinicore::DataType &dtype,
+                                     const infinicore::Device &device,
+                                     engine::distributed::RankInfo rank_info)
+    : QKVParallelLinear(hidden_size, q_dim, k_dim, v_dim, num_q_head, num_k_head, num_v_head,
+                        q_bias, k_bias, v_bias, quantization, dtype, device, rank_info) {
+    register_fn_ = register_fn;
+    split_infos_ = {
+        {q_name, 0, q_out_size_, 0},
+        {k_name, q_out_size_, k_out_size_, num_k_head_},
+        {v_name, q_out_size_ + k_out_size_, v_out_size_, num_v_head_},
+    };
+    auto params = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
+    for (auto &sp : params) {
+        register_fn_(sp.full_name, std::move(sp.param));
+    }
+}
+
 void QKVParallelLinear::process_weights_after_loading() {
     // #region agent log
     static thread_local bool qkv_pw_logged = false;

@@ -8,6 +8,7 @@
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
 #include "../models/qwen3/qwen3_for_causal_lm.hpp"
+#include "../models/minicpm5_moe/minicpm5_moe_for_causal_lm.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/inductor_segment.hpp"
 #include "infinicore/ops.hpp"
@@ -52,18 +53,80 @@ void ensure_inductor_tp_rank_resolver() {
     });
 }
 
-void register_piecewise_pre_attn_weight_resolver(infinilm::InfinilmModel *model) {
+std::string piecewise_model_type(
+    const std::shared_ptr<infinilm::config::ModelConfig> &model_config = nullptr) {
+    if (model_config) {
+        return model_config->get_or<std::string>("model_type", "");
+    }
+    try {
+        return infinilm::global_state::get_infinilm_config().model_config->get_or<std::string>(
+            "model_type", "");
+    } catch (...) {
+        return "";
+    }
+}
+
+void register_piecewise_pre_attn_weight_resolver(
+    infinilm::InfinilmModel *model,
+    const std::shared_ptr<infinilm::config::ModelConfig> &model_config) {
     if (!infinilm::global_state::piecewise_inductor_segment_enabled() || model == nullptr) {
         return;
     }
-    auto *qwen = dynamic_cast<infinilm::models::qwen3::Qwen3ForCausalLM *>(model);
-    if (qwen == nullptr) {
+    const std::string model_type = piecewise_model_type(model_config);
+    // Factory selects the concrete CausalLM from model_type. Prefer static_cast for
+    // template aliases (dynamic_cast on PiecewiseTextCausalLM<> is RTTI-fragile).
+    if (model_type == "minicpm5_moe") {
+        auto *minicpm =
+            static_cast<infinilm::models::minicpm5_moe::MiniCPM5MoeForCausalLM *>(model);
+        infinicore::op::inductor_segment_impl::set_pre_attn_weight_resolver(
+            [minicpm](size_t layer_idx) {
+                return minicpm->model().pre_attn_external_weights(layer_idx);
+            });
+        spdlog::warn("piecewise: registered pre_attn weight resolver (minicpm5_moe)");
         return;
     }
-    infinicore::op::inductor_segment_impl::set_pre_attn_weight_resolver(
-        [qwen](size_t layer_idx) {
-            return qwen->model().pre_attn_external_weights(layer_idx);
+    auto *qwen = dynamic_cast<infinilm::models::qwen3::Qwen3ForCausalLM *>(model);
+    if (qwen != nullptr) {
+        infinicore::op::inductor_segment_impl::set_pre_attn_weight_resolver(
+            [qwen](size_t layer_idx) {
+                return qwen->model().pre_attn_external_weights(layer_idx);
+            });
+        spdlog::warn("piecewise: registered pre_attn weight resolver (qwen3)");
+        return;
+    }
+}
+
+void register_piecewise_moe_weight_resolver(
+    infinilm::InfinilmModel *model,
+    const std::shared_ptr<infinilm::config::ModelConfig> &model_config) {
+    if (model == nullptr) {
+        return;
+    }
+    const std::string model_type = piecewise_model_type(model_config);
+    const bool segment_on = infinilm::global_state::piecewise_inductor_segment_enabled();
+    if (!segment_on) {
+        if (model_type == "minicpm5_moe") {
+            throw std::runtime_error(
+                "piecewise: model_type=minicpm5_moe requires INFINI_PIECEWISE_INDUCTOR_SEGMENT "
+                "to register MoE weight resolver (Track B)");
+        }
+        return;
+    }
+    if (model_type != "minicpm5_moe") {
+        return;
+    }
+    // Factory guarantees MiniCPM5MoeForCausalLM when model_type matches; avoid dynamic_cast.
+    auto *minicpm =
+        static_cast<infinilm::models::minicpm5_moe::MiniCPM5MoeForCausalLM *>(model);
+    infinicore::op::inductor_segment_impl::set_moe_weight_resolver(
+        [minicpm](size_t layer_idx) {
+            return minicpm->model().moe_external_weights(layer_idx);
         });
+    if (!infinicore::op::inductor_segment_impl::has_moe_weight_resolver()) {
+        throw std::runtime_error(
+            "piecewise: set_moe_weight_resolver did not stick (has_moe_weight_resolver=false)");
+    }
+    spdlog::warn("piecewise: registered MoE weight resolver (minicpm5_moe)");
 }
 
 /// Keep pre-graph RankBarrier on decode replay (default on for TP rank sync).
@@ -502,7 +565,8 @@ void RankWorker::thread_loop() {
                 // Handle preprocess command
                 try {
                     model_->process_weights_after_loading();
-                    register_piecewise_pre_attn_weight_resolver(model_.get());
+                    register_piecewise_pre_attn_weight_resolver(model_.get(), model_config_);
+                    register_piecewise_moe_weight_resolver(model_.get(), model_config_);
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -522,6 +586,11 @@ void RankWorker::thread_loop() {
                 cv_.notify_all();
             } else if (local_cmd == Command::RUN) {
                 try {
+                    // Re-bind MoE resolver if PREPROCESS was skipped or cleared.
+                    if (!infinicore::op::inductor_segment_impl::has_moe_weight_resolver()
+                        && piecewise_model_type(model_config_) == "minicpm5_moe") {
+                        register_piecewise_moe_weight_resolver(model_.get(), model_config_);
+                    }
                     // TP ranks can begin processing RUN ms apart (thread scheduling);
                     // sync before any compiler/graph work so collectives stay aligned.
                     if (rank_info_.tp_size > 1) {
