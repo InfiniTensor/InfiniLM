@@ -23,6 +23,7 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBa
 void PagedCompiler::compile() {
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
         size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
+        size_t block_size = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->block_size();
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
         compiled_map_decode_.clear();
         block_tables_holder_ = infinicore::Tensor::empty(
@@ -60,6 +61,7 @@ void PagedCompiler::compile() {
                 input.cu_seqlens,
                 input.block_tables,
                 input.slot_mapping,
+                static_cast<int64_t>(nblocks * block_size),
             };
             return input;
         };

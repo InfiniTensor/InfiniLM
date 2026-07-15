@@ -1,4 +1,6 @@
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from infinilm.config.kv_transfer import KVTransferConfig
@@ -62,9 +64,28 @@ class EngineConfig:
     def __post_init__(self) -> None:
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
-
         if self.weight_load_mode not in {"async", "sync"}:
             raise ValueError("weight_load_mode must be either 'async' or 'sync'")
+
+        config_path = Path(self.model_path) / "config.json"
+        try:
+            with config_path.open("r", encoding="utf-8") as config_file:
+                model_config = json.load(config_file)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Unable to read model config: {config_path}") from exc
+        text_config = model_config.get("text_config", model_config)
+        model_type = text_config.get("model_type", model_config.get("model_type"))
+
+        # DeepSeek V2 exposes only the verified MLA path. Keep use_mla as a
+        # compatibility input, but derive the effective capability from the model.
+        self.use_mla = self.use_mla or model_type == "deepseek_v2"
+        if model_type == "deepseek_v2":
+            if self.cache_type != "paged":
+                raise ValueError(
+                    "DeepSeek V2 MLA requires paged cache; pass --enable-paged-attn"
+                )
+            self.block_size = 16
+            self.attn_backend = "flash-attn"
 
         if (
             self.kv_transfer_config is not None

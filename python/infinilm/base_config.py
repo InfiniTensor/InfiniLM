@@ -226,7 +226,7 @@ class BaseConfig:
         self.parser.add_argument(
             "--use-mla",
             action="store_true",
-            help="use DeepSeek V2 MLA attention when supported",
+            help="deprecated compatibility flag; MLA models are detected automatically",
         )
         self.parser.add_argument(
             "--enable-paged-attn",
