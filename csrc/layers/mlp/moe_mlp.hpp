@@ -21,6 +21,12 @@ public:
     infinicore::Tensor up_weight() const { return up_proj_->weight(); }
     infinicore::Tensor down_weight() const { return down_proj_->weight(); }
 
+    /// Free gate/up/down Parameter storage after MoE external pack copies them.
+    void release_weight_storage();
+
+    /// Free gate/up only (shared-expert down stays live in the pack).
+    void release_gate_up_weight_storage();
+
 protected:
     std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> gate_proj_;
     std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> up_proj_;

@@ -55,6 +55,9 @@ public:
     // Allow subclasses to access the raw parameters map
     const infinicore::nn::Parameter &get_parameter_ref(const std::string &name) const;
 
+    /// Drop parameter storage after weights have been copied elsewhere (e.g. MoE pack).
+    void release_weight_storage();
+
 protected:
     infinicore::Tensor compute_linear(infinicore::Tensor &input) const;
 

@@ -129,6 +129,30 @@ void register_piecewise_moe_weight_resolver(
     spdlog::warn("piecewise: registered MoE weight resolver (minicpm5_moe)");
 }
 
+/// Pack+trim all MoE layers at PREPROCESS so first B512 request does not double-hold VRAM.
+void eager_pack_minicpm5_moe_weights(
+    infinilm::InfinilmModel *model,
+    const std::shared_ptr<infinilm::config::ModelConfig> &model_config) {
+    if (model == nullptr || piecewise_model_type(model_config) != "minicpm5_moe") {
+        return;
+    }
+    if (!infinilm::global_state::piecewise_inductor_segment_enabled()) {
+        return;
+    }
+    auto *minicpm =
+        static_cast<infinilm::models::minicpm5_moe::MiniCPM5MoeForCausalLM *>(model);
+    const size_t num_layers = minicpm->model().num_layers();
+    const size_t first_k_dense =
+        model_config->get_or<size_t>("first_k_dense_replace", 0);
+    size_t packed = 0;
+    for (size_t i = first_k_dense; i < num_layers; ++i) {
+        (void)minicpm->model().moe_external_weights(i);
+        ++packed;
+    }
+    spdlog::warn("piecewise: packed+trimmed {} MoE layers (first_k_dense_replace={})",
+                 packed, first_k_dense);
+}
+
 /// Keep pre-graph RankBarrier on decode replay (default on for TP rank sync).
 /// Opt out for perf bisect: INFINI_DECODE_SKIP_PRE_BARRIER=1
 bool decode_skip_pre_barrier() {
@@ -567,6 +591,7 @@ void RankWorker::thread_loop() {
                     model_->process_weights_after_loading();
                     register_piecewise_pre_attn_weight_resolver(model_.get(), model_config_);
                     register_piecewise_moe_weight_resolver(model_.get(), model_config_);
+                    eager_pack_minicpm5_moe_weights(model_.get(), model_config_);
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

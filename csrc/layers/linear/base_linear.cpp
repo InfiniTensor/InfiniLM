@@ -75,6 +75,13 @@ void BaseLinear::process_weights_after_loading() {
     quantization_ = std::move(new_quant);
 }
 
+void BaseLinear::release_weight_storage() {
+    for (auto &[name, param] : parameters_) {
+        (void)name;
+        param = infinicore::nn::Parameter();
+    }
+}
+
 // Backward compatible accessors
 
 infinicore::Tensor BaseLinear::weight() const {

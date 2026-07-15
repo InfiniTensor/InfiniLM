@@ -36,4 +36,15 @@ infinicore::Tensor MoeMLP::forward(const infinicore::Tensor &hidden_states) cons
     auto output = down_proj_->forward(intermediate);
     return output;
 }
+
+void MoeMLP::release_weight_storage() {
+    gate_proj_->release_weight_storage();
+    up_proj_->release_weight_storage();
+    down_proj_->release_weight_storage();
+}
+
+void MoeMLP::release_gate_up_weight_storage() {
+    gate_proj_->release_weight_storage();
+    up_proj_->release_weight_storage();
+}
 } // namespace infinilm::layers::moe_mlp

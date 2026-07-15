@@ -3,6 +3,7 @@
 #include "../../global_state/global_state.hpp"
 #include "../../global_state/piecewise_inductor_flags.hpp"
 #include "minicpm5_moe_router_cpu_detail.hpp"
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/inductor_segment.hpp"
 
@@ -123,6 +124,18 @@ MiniCPM5MoeSparseMoeBlock::moe_external_weights() const {
         shared_experts_->down_weight(),
     };
     packed_weights_cache_ = packed;
+
+    // Drop per-expert gate/up/down storage — pack holds the live [E,…] copies.
+    // Shared gate/up packed into shared_gu; down + router gate_/bias stay live.
+    for (size_t e = 0; e < n_experts; ++e) {
+        experts_[e]->release_weight_storage();
+    }
+    shared_experts_->release_gate_up_weight_storage();
+
+    // Return idle IC pool pages to the driver so PyTorch AOTI can allocate scratch.
+    infinicore::context::syncDevice();
+    infinicore::context::trimDeviceMemory();
+
     return packed;
 }
 
