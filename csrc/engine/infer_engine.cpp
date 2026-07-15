@@ -33,6 +33,64 @@ InferEngine::InferEngine(
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
+
+    const auto &dist_config = communication_group_.get_dist_config();
+    const size_t pp_size = dist_config.pp_device_ids.size();
+    if (pp_size > 1) {
+        if (dist_config.tp_device_ids.size() != 1) {
+            throw std::invalid_argument("Pipeline parallel MVP requires tensor parallel size == 1");
+        }
+        if (device_type != infinicore::Device::Type::NVIDIA) {
+            throw std::invalid_argument(
+                "Pipeline parallel MVP currently supports NVIDIA devices only");
+        }
+        if (dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get()) == nullptr) {
+            throw std::invalid_argument(
+                "Pipeline parallel MVP requires paged KV cache");
+        }
+        if (attention_backend != backends::AttentionBackend::PAGED_ATTN) {
+            throw std::invalid_argument(
+                "Pipeline parallel MVP requires paged-attn attention backend");
+        }
+        if (use_mla) {
+            throw std::invalid_argument(
+                "Pipeline parallel MVP does not support MLA");
+        }
+        if (enable_graph_compiling) {
+            throw std::invalid_argument("Pipeline parallel MVP does not support graph compiling");
+        }
+        if (dist_config.moe_ep_backend != "disabled" || dist_config.moe_ep_size != 1) {
+            throw std::invalid_argument("Pipeline parallel MVP does not support expert parallelism");
+        }
+
+        const std::string model_type = this->model_config_->get<std::string>("model_type");
+        static const std::unordered_set<std::string> supported_pp_models = {
+            "llama", "qwen2", "qwen3"};
+        if (supported_pp_models.count(model_type) == 0) {
+            throw std::invalid_argument("Pipeline parallel MVP only supports llama, qwen2, and qwen3 model types");
+        }
+        const size_t num_hidden_layers = this->model_config_->get<size_t>("num_hidden_layers");
+        if (num_hidden_layers < pp_size) {
+            throw std::invalid_argument("Pipeline parallel size must not exceed the number of model layers");
+        }
+
+        pipeline_transport_ = std::make_unique<PeerCopyTransport>();
+        spdlog::info(
+            "Pipeline activation transport: gpu-peer-copy (synchronous MVP)");
+    }
+
+    const size_t tp_size = dist_config.tp_device_ids.size();
+    const auto &model_json = this->model_config_->get_config_json();
+    if (tp_size > 1 && model_json.contains("num_attention_heads")) {
+        const size_t num_attention_heads =
+            this->model_config_->get<size_t>("num_attention_heads");
+        if (num_attention_heads % tp_size != 0) {
+            throw std::invalid_argument(
+                "num_attention_heads (" + std::to_string(num_attention_heads)
+                + ") must be divisible by tensor parallel size ("
+                + std::to_string(tp_size) + ")");
+        }
+    }
     auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(
         attention_backend,
         this->model_config_,
@@ -78,6 +136,19 @@ void InferEngine::load_param(const std::string &name, const infinicore::Tensor &
 }
 
 void InferEngine::load_params(const std::unordered_map<std::string, infinicore::Tensor> &params, bool strict) {
+    const bool pipeline_parallel =
+        communication_group_.get_dist_config().pp_device_ids.size() > 1;
+    if (pipeline_parallel && strict) {
+        const auto keys = state_dict_keys();
+        const std::unordered_set<std::string> known_keys(keys.begin(), keys.end());
+        for (const auto &[name, _] : params) {
+            if (known_keys.count(name) == 0) {
+                throw std::runtime_error(
+                    "Parameter '" + name + "' not found in pipeline model.");
+            }
+        }
+    }
+
     if (workers_.size() <= 1 || weight_load_mode_ == "sync") {
         for (auto &worker : workers_) {
             worker->load_params(params, strict);
@@ -181,7 +252,9 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(image_grid_thw),
         image_req_ids,
         visual_token_ranges,
-        to_device(target_hidden_states)};
+        to_device(target_hidden_states),
+        to_device(pp_hidden_states),
+        to_device(pp_residual)};
 
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,
@@ -204,16 +277,61 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
-    // Trigger each worker to run inference
-    for (auto &worker : workers_) {
-        worker->run(input);
-    }
-    // Wait for all workers
-    for (auto &worker : workers_) {
-        worker->wait();
+    const size_t pp_size = communication_group_.get_dist_config().pp_device_ids.size();
+    if (pp_size == 1) {
+        // Preserve the existing TP path: every rank executes the same input concurrently.
+        for (auto &worker : workers_) {
+            worker->run(input);
+        }
+        for (auto &worker : workers_) {
+            worker->wait();
+        }
+        return workers_[0]->get_output();
     }
 
-    return workers_[0]->get_output();
+    Input stage_input = input;
+    Output stage_output;
+    for (size_t stage = 0; stage < workers_.size(); ++stage) {
+        auto &worker = workers_[stage];
+        worker->run(stage_input);
+        worker->wait();
+        stage_output = worker->get_output();
+
+        if (stage + 1 < workers_.size()) {
+            if (!stage_output.hidden_states || !stage_output.residual) {
+                throw std::runtime_error("Pipeline stage did not return hidden states and residual");
+            }
+
+            if (pipeline_transport_ == nullptr) {
+                throw std::logic_error("Pipeline transport is not initialized");
+            }
+            const auto source_device = communication_group_
+                                           .get_rank_info(static_cast<int>(stage))
+                                           .device;
+            if (stage_output.hidden_states->device() != source_device
+                || stage_output.residual->device() != source_device) {
+                throw std::runtime_error(
+                    "Pipeline stage returned activations on the wrong device");
+            }
+            auto activation = pipeline_transport_->transfer(
+                {stage_output.hidden_states, stage_output.residual},
+                communication_group_.get_rank_info(static_cast<int>(stage + 1)).device);
+
+            // Keep only metadata needed by all stages and drop first-stage-only inputs.
+            stage_input.input_ids.reset();
+            stage_input.pixel_values.reset();
+            stage_input.image_bound.reset();
+            stage_input.tgt_sizes.reset();
+            stage_input.image_grid_thw.reset();
+            stage_input.image_req_ids.reset();
+            stage_input.visual_token_ranges.reset();
+            stage_input.target_hidden_states.reset();
+            stage_input.pp_hidden_states = std::move(activation.hidden_states);
+            stage_input.pp_residual = std::move(activation.residual);
+        }
+    }
+
+    return stage_output;
 }
 
 void InferEngine::compile() {
@@ -243,10 +361,25 @@ const distributed::DistConfig &InferEngine::get_dist_config() const {
     return communication_group_.get_dist_config();
 }
 
+PipelineTransportStats InferEngine::get_pipeline_transport_stats() const {
+    if (pipeline_transport_ == nullptr) {
+        return {};
+    }
+    return pipeline_transport_->stats();
+}
+
 //------------------------------------------------------
 // reset_cache (overloaded with CacheConfig)
 //------------------------------------------------------
 void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
+    const bool pipeline_parallel =
+        communication_group_.get_dist_config().pp_device_ids.size() > 1;
+    if (pipeline_parallel
+        && dynamic_cast<const cache::PagedKVCacheConfig *>(new_config) == nullptr) {
+        throw std::invalid_argument(
+            "Pipeline parallel MVP requires paged KV cache");
+    }
+
     for (auto &worker : workers_) {
         worker->reset_cache(new_config);
     }

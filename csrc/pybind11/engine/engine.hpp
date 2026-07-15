@@ -13,10 +13,15 @@ inline void bind_dist_config(py::module &m) {
         .def(py::init<>(), "Default constructor, empty device list")
         .def(py::init<int>(), py::arg("tp_size"),
              "Constructor with tensor parallel size, auto-assigns device IDs 0..tp_size-1")
+        .def(py::init<int, int>(), py::arg("tp_size"), py::arg("pp_size"),
+             "Constructor with tensor and pipeline parallel sizes, auto-assigning "
+             "pipeline devices 0..pp_size-1")
         .def(py::init<const std::vector<int> &>(), py::arg("tp_device_ids"),
              "Constructor with explicit device IDs")
         .def_readwrite("tp_device_ids", &DistConfig::tp_device_ids,
                        "List of device IDs used in tensor parallelism")
+        .def_readwrite("pp_device_ids", &DistConfig::pp_device_ids,
+                       "List of device IDs used as pipeline stages")
         .def_readwrite("moe_ep_backend", &DistConfig::moe_ep_backend,
                        "MoE expert-parallel backend")
         .def_readwrite("moe_ep_size", &DistConfig::moe_ep_size,
@@ -127,6 +132,15 @@ inline void bind_infer_engine(py::module &m) {
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
+        .def("get_pipeline_transport_stats", [](const InferEngine &self) {
+            const auto stats = self.get_pipeline_transport_stats();
+            py::dict result;
+            result["name"] = stats.name;
+            result["transfers"] = stats.transfers;
+            result["tensors"] = stats.tensors;
+            result["bytes"] = stats.bytes;
+            return result;
+        })
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
 
     py::class_<InferEngine::Input>(infer_engine, "Input")
@@ -246,7 +260,8 @@ inline void bind_infer_engine(py::module &m) {
     py::class_<InferEngine::Output>(infer_engine, "Output")
         .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Sampled token IDs")
         .def_readwrite("logits", &InferEngine::Output::logits, "Raw logits tensor")
-        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor");
+        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor")
+        .def_readwrite("residual", &InferEngine::Output::residual, "Pipeline residual tensor");
 }
 
 } // namespace infinilm::engine

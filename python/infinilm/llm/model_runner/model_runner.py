@@ -70,7 +70,8 @@ class ModelRunner:
             model_path=config.model_path,
             device=self.device,
             distributed_config=DistConfig(
-                config.tensor_parallel_size,
+                tp_size=config.tensor_parallel_size,
+                pp_size=config.pipeline_parallel_size,
                 moe_ep_backend=config.moe_ep_backend,
                 moe_ep_size=config.moe_ep_size,
             ),

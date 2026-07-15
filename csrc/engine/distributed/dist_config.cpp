@@ -1,13 +1,31 @@
 #include "dist_config.hpp"
+#include <stdexcept>
 
 namespace infinilm::engine::distributed {
 DistConfig::DistConfig()
     : tp_device_ids{0} {}
 
 DistConfig::DistConfig(int tp_size)
-    : tp_device_ids(tp_size, 0) {
+    : tp_device_ids(tp_size > 0 ? static_cast<size_t>(tp_size) : 0, 0) {
+    if (tp_size < 1) {
+        throw std::invalid_argument("tensor parallel size must be >= 1");
+    }
     for (int i = 0; i < tp_size; ++i) {
         tp_device_ids[i] = i;
+    }
+}
+
+DistConfig::DistConfig(int tp_size, int pp_size)
+    : tp_device_ids(tp_size > 0 ? static_cast<size_t>(tp_size) : 0, 0),
+      pp_device_ids(pp_size > 0 ? static_cast<size_t>(pp_size) : 0, 0) {
+    if (tp_size < 1 || pp_size < 1) {
+        throw std::invalid_argument("tensor and pipeline parallel sizes must be >= 1");
+    }
+    for (int i = 0; i < tp_size; ++i) {
+        tp_device_ids[i] = i;
+    }
+    for (int i = 0; i < pp_size; ++i) {
+        pp_device_ids[i] = i;
     }
 }
 
@@ -19,6 +37,13 @@ DistConfig::operator std::string() const {
     for (size_t i = 0; i < tp_device_ids.size(); ++i) {
         repr += std::to_string(tp_device_ids[i]);
         if (i != tp_device_ids.size() - 1) {
+            repr += ", ";
+        }
+    }
+    repr += "], pp_device_ids=[";
+    for (size_t i = 0; i < pp_device_ids.size(); ++i) {
+        repr += std::to_string(pp_device_ids[i]);
+        if (i != pp_device_ids.size() - 1) {
             repr += ", ";
         }
     }

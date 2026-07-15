@@ -291,6 +291,9 @@ void RankWorker::thread_loop() {
                 model_config_,
                 rank_info_.device,
                 pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            for (const auto &key : model_->state_dict_keys()) {
+                local_state_dict_keys_.insert(key);
+            }
             if (enable_graph_compiling_) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }
@@ -347,7 +350,9 @@ void RankWorker::thread_loop() {
             // Execute job outside the lock
             if (local_cmd == Command::LOAD) {
                 try {
-                    model_->load_parameter(local_param_name, local_param);
+                    if (rank_info_.pp_size == 1 || local_state_dict_keys_.count(local_param_name) != 0) {
+                        model_->load_parameter(local_param_name, local_param);
+                    }
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -368,7 +373,18 @@ void RankWorker::thread_loop() {
 
             } else if (local_cmd == Command::LOAD_BATCH) {
                 try {
-                    model_->load_parameters_no_sync(local_params, local_params_strict);
+                    if (rank_info_.pp_size > 1) {
+                        std::unordered_map<std::string, infinicore::Tensor> local_stage_params;
+                        local_stage_params.reserve(local_params.size());
+                        for (const auto &[name, param] : local_params) {
+                            if (local_state_dict_keys_.count(name) != 0) {
+                                local_stage_params.emplace(name, param);
+                            }
+                        }
+                        model_->load_parameters_no_sync(local_stage_params, local_params_strict);
+                    } else {
+                        model_->load_parameters_no_sync(local_params, local_params_strict);
+                    }
                     infinicore::context::syncStream();
                 } catch (const std::exception &e) {
                     {
@@ -417,6 +433,7 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
+                        infinicore::Tensor residual;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr) {
@@ -432,10 +449,23 @@ void RankWorker::thread_loop() {
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
+                            residual = model_output.residual;
                         }
 
-                        // Random sampling (rank 0 only)
-                        if (rank_info_.tp_rank == 0) {
+                        Output out{infinicore::Tensor{}, logits, hidden_states, residual};
+                        if (!rank_info_.is_last_pipeline_stage()) {
+                            if (!hidden_states || !residual) {
+                                throw std::runtime_error("Non-last pipeline stage did not produce hidden states and residual");
+                            }
+                            // Publish GPU-resident activations only after all source work
+                            // has completed. The engine then owns the cross-stage transfer.
+                            infinicore::context::syncStream();
+                            out.hidden_states = std::move(hidden_states);
+                            out.residual = std::move(residual);
+                        }
+
+                        // Only TP rank zero on the final pipeline stage samples tokens.
+                        if (rank_info_.is_last_pipeline_stage() && rank_info_.tp_rank == 0) {
                             auto temperature{local_args.temperature};
                             auto top_p{local_args.top_p};
                             auto top_k{local_args.top_k};
@@ -465,14 +495,11 @@ void RankWorker::thread_loop() {
                             }
 
                             output_ids = output_ids->to(infinicore::Device::cpu());
-
                             infinicore::context::syncStream();
-
-                            auto out{Output{output_ids, logits, hidden_states}};
-
-                            output_ = std::move(out);
+                            out.output_ids = std::move(output_ids);
                         }
 
+                        output_ = std::move(out);
                         job_done_ = true;
                     }
                     cv_.notify_all();

@@ -14,19 +14,30 @@ namespace infinilm::engine::distributed {
 struct RankInfo {
     // Device Type and ID assigned to this rank
     infinicore::Device device;
+    int global_rank;
+    int world_size;
     // Tensor parallelism size
     int tp_size;
     // Tensor parallelism rank number of this rank
     int tp_rank;
+    // Pipeline parallelism size and stage rank.
+    int pp_size;
+    int pp_rank;
     // Communicator handle
     infinicclComm_t comm;
 
     RankInfo(infinicore::Device _device = infinicore::context::getDevice())
-        : tp_size(1), tp_rank(0), device(_device), comm(nullptr){};
+        : device(_device), global_rank(0), world_size(1), tp_size(1), tp_rank(0), pp_size(1), pp_rank(0), comm(nullptr){};
+
+    bool is_first_pipeline_stage() const { return pp_rank == 0; }
+    bool is_last_pipeline_stage() const { return pp_rank + 1 == pp_size; }
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "RankInfo: device=" << device.toString() << ", tp_size=" << tp_size << ", tp_rank=" << tp_rank;
+        ss << "RankInfo: device=" << device.toString()
+           << ", global_rank=" << global_rank << ", world_size=" << world_size
+           << ", tp_size=" << tp_size << ", tp_rank=" << tp_rank
+           << ", pp_size=" << pp_size << ", pp_rank=" << pp_rank;
         return ss.str();
     }
 };

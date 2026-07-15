@@ -55,6 +55,10 @@ public:
         std::optional<std::vector<size_t>> visual_token_ranges;
         /// Target model hidden states consumed by draft/MTP models.
         std::optional<infinicore::Tensor> target_hidden_states;
+        /// Hidden states received from the previous pipeline stage.
+        std::optional<infinicore::Tensor> pp_hidden_states;
+        /// Fused residual stream received from the previous pipeline stage.
+        std::optional<infinicore::Tensor> pp_residual;
     };
 
     struct Output {
@@ -62,6 +66,8 @@ public:
         infinicore::Tensor logits;
         /// Optional final hidden states, used by MTP/Eagle draft models.
         infinicore::Tensor hidden_states;
+        /// Residual stream passed between pipeline stages.
+        infinicore::Tensor residual;
     };
 
     virtual ~InfinilmModel() = default;

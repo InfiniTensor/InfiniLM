@@ -5,6 +5,7 @@
 #include "../models/infinilm_model.hpp"
 #include "distributed/distributed.hpp"
 #include "infinicore/tensor.hpp"
+#include "pipeline_transport.hpp"
 #include "rank_barrier.hpp"
 #include "rank_worker.hpp"
 
@@ -64,6 +65,8 @@ public:
     // Get current KV configuration
     const cache::CacheConfig *get_cache_config() const { return cache_config_.get(); }
 
+    PipelineTransportStats get_pipeline_transport_stats() const;
+
 protected:
     std::vector<std::unique_ptr<RankWorker>> workers_;
     std::unique_ptr<RankBarrier> barrier_;
@@ -71,6 +74,7 @@ protected:
     std::unique_ptr<cache::CacheConfig> cache_config_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
     backends::AttentionBackend attention_backend_ = backends::AttentionBackend::Default;
+    std::unique_ptr<PipelineTransport> pipeline_transport_;
     std::string weight_load_mode_ = "async";
     bool weights_finalized_ = false;
     bool use_mla_{false};

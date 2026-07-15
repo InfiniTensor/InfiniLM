@@ -117,6 +117,7 @@ class InferenceServer:
         weight_load_mode: str = "async",
         ignore_eos: bool = False,
         kv_transfer_config: Optional[KVTransferConfig] = None,
+        pipeline_parallel_size: int = 1,
     ):
         """Initialize inference server.
 
@@ -125,6 +126,7 @@ class InferenceServer:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            pipeline_parallel_size: Number of pipeline stages.
             moe_ep_backend: MoE expert-parallel backend.
             moe_ep_size: MoE expert-parallel size.
             cache_type: Cache type ('paged' or 'static').
@@ -151,6 +153,7 @@ class InferenceServer:
         self.device = device
         self.dtype = dtype
         self.tensor_parallel_size = tensor_parallel_size
+        self.pipeline_parallel_size = pipeline_parallel_size
         self.moe_ep_backend = moe_ep_backend
         self.moe_ep_size = moe_ep_size
         self.cache_type = cache_type
@@ -190,6 +193,7 @@ class InferenceServer:
                 device=self.device,
                 dtype=self.dtype,
                 tensor_parallel_size=self.tensor_parallel_size,
+                pipeline_parallel_size=self.pipeline_parallel_size,
                 moe_ep_backend=self.moe_ep_backend,
                 moe_ep_size=self.moe_ep_size,
                 cache_type=self.cache_type,
@@ -605,6 +609,7 @@ def main():
         device=device,
         dtype=cfg.dtype,
         tensor_parallel_size=cfg.tp,
+        pipeline_parallel_size=cfg.pp,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
         cache_type="paged" if cfg.enable_paged_attn else "static",

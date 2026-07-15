@@ -333,6 +333,7 @@ class LLM:
         weight_load_mode: str = "async",
         skip_load: bool = False,
         skip_legacy_moe: bool = False,
+        pipeline_parallel_size: int = 1,
     ):
         """Initialize LLM.
 
@@ -341,6 +342,7 @@ class LLM:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            pipeline_parallel_size: Number of pipeline stages.
             cache_type: Cache type ('paged' or 'static').
             max_batch_size: Maximum batch size (only for paged cache).
             max_tokens: Default maximum tokens to generate.
@@ -362,6 +364,7 @@ class LLM:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
             moe_ep_backend=moe_ep_backend,
             moe_ep_size=moe_ep_size,
             cache_type=cache_type,
@@ -540,6 +543,7 @@ class AsyncLLMEngine:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         skip_legacy_moe: bool = False,
+        pipeline_parallel_size: int = 1,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -548,6 +552,7 @@ class AsyncLLMEngine:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            pipeline_parallel_size: Number of pipeline stages.
             cache_type: Cache type ('paged' or 'static').
             max_batch_size: Maximum batch size (only for paged cache).
             max_tokens: Default maximum tokens to generate.
@@ -572,6 +577,7 @@ class AsyncLLMEngine:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
             moe_ep_backend=moe_ep_backend,
             moe_ep_size=moe_ep_size,
             cache_type=cache_type,

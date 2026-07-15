@@ -34,17 +34,17 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
     size_t max_position_embeddings = text_config->get<size_t>("max_position_embeddings");
     const auto &dtype = model_config_->get_kv_cache_dtype();
     const size_t num_hidden_layers = text_config->get<size_t>("num_hidden_layers");
+    const auto layer_range = global_state::get_pipeline_layer_range(num_hidden_layers);
 
-    std::vector<infinicore::Tensor> kv_cache_vec;
+    std::vector<infinicore::Tensor> kv_cache_vec(num_hidden_layers);
     switch (attention_backend) {
     case backends::AttentionBackend::STATIC_ATTN: {
         auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
         if (nullptr == static_kv_cache_config) {
             throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid static kv cache config type");
         }
-        kv_cache_vec.reserve(num_hidden_layers);
 
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+        for (size_t layer_idx = layer_range.start; layer_idx < layer_range.end; ++layer_idx) {
             auto kv_cache = cache::StaticKVCache::create_layer_kv_cache(
                 head_dim,
                 head_dim,
@@ -53,7 +53,7 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
                 max_position_embeddings,
                 dtype,
                 *static_kv_cache_config);
-            kv_cache_vec.push_back(kv_cache);
+            kv_cache_vec[layer_idx] = std::move(kv_cache);
         }
         break;
     }
@@ -66,9 +66,8 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
             throw std::runtime_error(
                 "infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid paged kv cache config type");
         }
-        kv_cache_vec.reserve(num_hidden_layers);
 
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+        for (size_t layer_idx = layer_range.start; layer_idx < layer_range.end; ++layer_idx) {
             auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
                 head_dim,
                 head_dim,
@@ -76,7 +75,7 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
                 num_key_value_heads,
                 dtype,
                 *paged_kv_cache_config);
-            kv_cache_vec.push_back(kv_cache);
+            kv_cache_vec[layer_idx] = std::move(kv_cache);
         }
         infinicore::context::syncStream();
         break;

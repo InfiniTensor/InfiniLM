@@ -16,6 +16,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace infinilm::engine {
@@ -79,6 +80,11 @@ public:
 
         float top_p{1};
 
+        // Internal pipeline activation inputs. They are populated by InferEngine.
+        std::optional<infinicore::Tensor> pp_hidden_states;
+
+        std::optional<infinicore::Tensor> pp_residual;
+
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
 
@@ -86,6 +92,7 @@ public:
         infinicore::Tensor output_ids;
         infinicore::Tensor logits;
         infinicore::Tensor hidden_states;
+        infinicore::Tensor residual;
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -144,6 +151,7 @@ private:
     engine::distributed::RankInfo rank_info_;
     ForwardContext forward_context_;
     std::shared_ptr<InfinilmModel> model_;
+    std::unordered_set<std::string> local_state_dict_keys_;
     std::shared_ptr<cache::Cache> cache_;
 
     // Backends

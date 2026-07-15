@@ -15,6 +15,7 @@ class EngineConfig:
         device: Device type string ('cpu', 'cuda', 'mlu', etc.).
         dtype: Data type string ('float16', 'bfloat16', 'float32').
         tensor_parallel_size: Number of devices for tensor parallelism.
+        pipeline_parallel_size: Number of pipeline stages.
         moe_ep_backend: MoE expert-parallel backend.
         moe_ep_size: MoE expert-parallel size.
         cache_type: Cache type ('paged' or 'static').
@@ -58,8 +59,15 @@ class EngineConfig:
     skip_load: bool = False
     skip_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
+    pipeline_parallel_size: int = 1
 
     def __post_init__(self) -> None:
+        if self.tensor_parallel_size < 1:
+            raise ValueError("tensor_parallel_size must be >= 1")
+
+        if self.pipeline_parallel_size < 1:
+            raise ValueError("pipeline_parallel_size must be >= 1")
+
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
 
@@ -72,3 +80,35 @@ class EngineConfig:
             and self.cache_type != "paged"
         ):
             raise ValueError("kv_transfer_config requires cache_type='paged'")
+
+        if self.pipeline_parallel_size > 1:
+            if self.tensor_parallel_size != 1:
+                raise ValueError(
+                    "Pipeline parallel MVP requires tensor_parallel_size == 1; "
+                    f"got tp={self.tensor_parallel_size}, "
+                    f"pp={self.pipeline_parallel_size}"
+                )
+            if self.enable_graph:
+                raise ValueError(
+                    "Pipeline parallel MVP does not support graph compiling"
+                )
+            if self.draft_model_path is not None:
+                raise ValueError(
+                    "Pipeline parallel MVP does not support speculative decoding"
+                )
+            if self.kv_transfer_config is not None:
+                raise ValueError(
+                    "Pipeline parallel MVP does not support KV transfer connectors"
+                )
+            if self.moe_ep_backend != "disabled" or self.moe_ep_size != 1:
+                raise ValueError(
+                    "Pipeline parallel MVP does not support expert parallelism"
+                )
+            if self.cache_type != "paged":
+                raise ValueError(
+                    "Pipeline parallel MVP currently requires cache_type='paged'"
+                )
+            if self.use_mla:
+                raise ValueError(
+                    "Pipeline parallel MVP does not support MLA"
+                )

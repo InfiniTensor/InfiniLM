@@ -189,6 +189,7 @@ class TestModel:
         num_draft_tokens=4,
         infini_device=infinicore.device("cpu", 0),
         tp=1,
+        pp=1,
         skip_load=False,
         cache_config=None,
         enable_graph=False,
@@ -204,12 +205,18 @@ class TestModel:
         self.model_path = model_path
         self.device_str = infini_device.type
         self.tp = tp
+        self.pp = pp
         self.cache_config = cache_config
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
+
+        if pp > 1 and draft_model_path is not None:
+            raise ValueError(
+                "Pipeline parallel MVP does not support speculative decoding"
+            )
 
         if draft_model_path is not None:
             self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
@@ -230,7 +237,8 @@ class TestModel:
             model_path,
             device=infini_device,
             distributed_config=DistConfig(
-                tp,
+                tp_size=tp,
+                pp_size=pp,
                 moe_ep_backend=moe_ep_backend,
                 moe_ep_size=moe_ep_size,
             ),
@@ -275,6 +283,7 @@ class TestModel:
         self.model_path = model_path
         self.device_str = infini_device.type
         self.tp = tp
+        self.pp = pp
         self.cache_config = cache_config
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
@@ -305,6 +314,7 @@ class TestModel:
                 num_draft_tokens=self.num_draft_tokens,
                 device=self.device_str,
                 tensor_parallel_size=self.tp,
+                pipeline_parallel_size=self.pp,
                 cache_type="paged" if self.cache_config is not None else "static",
                 max_batch_size=batch_size,
                 max_tokens=output_len,
@@ -379,6 +389,7 @@ if __name__ == "__main__":
     infini_device = infinicore.device(device_str, 0)
 
     tp = cfg.tp
+    pp = cfg.pp
     dp = cfg.dp
     moe_ep_backend, ep = configure_moe_ep_backend(
         tp, dp, cfg.ep, cfg.moe_ep_backend, model_path
@@ -393,6 +404,43 @@ if __name__ == "__main__":
     enable_paged_attn = cfg.enable_paged_attn
     enable_graph = cfg.enable_graph
     attn_backend = cfg.attn
+
+    if pp < 1:
+        raise ValueError("--pp must be greater than 0")
+    if pp > 1:
+        if tp != 1:
+            raise ValueError(
+                "Pipeline parallel MVP requires --tp 1; "
+                f"got --tp {tp}, --pp {pp}"
+            )
+        if dp != 1:
+            raise ValueError("Pipeline parallel MVP requires --dp 1")
+        if enable_graph:
+            raise ValueError(
+                "Pipeline parallel MVP does not support --enable-graph"
+            )
+        if cfg.draft_model is not None:
+            raise ValueError(
+                "Pipeline parallel MVP does not support --draft-model"
+            )
+        if cfg.kv_transfer_config is not None:
+            raise ValueError(
+                "Pipeline parallel MVP does not support --kv-transfer-config"
+            )
+        if moe_ep_backend != "disabled" or ep != 1:
+            raise ValueError(
+                "Pipeline parallel MVP does not support expert parallelism"
+            )
+        if not enable_paged_attn:
+            raise ValueError(
+                "Pipeline parallel MVP requires --enable-paged-attn"
+            )
+        if cfg.use_mla:
+            raise ValueError("Pipeline parallel MVP does not support --use-mla")
+        print("Pipeline parallel MVP enabled:")
+        print("  mode=single-node-sequential")
+        print("  activation_transport=gpu-peer-copy")
+        print(f"  tp_size={tp}, pp_size={pp}, world_size={pp}")
 
     if isinstance(batch_size, int):
         batch_size = [batch_size]
@@ -434,6 +482,7 @@ if __name__ == "__main__":
         num_draft_tokens=cfg.num_draft_tokens,
         infini_device=infini_device,
         tp=tp,
+        pp=pp,
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,
