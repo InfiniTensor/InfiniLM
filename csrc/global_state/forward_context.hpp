@@ -21,6 +21,8 @@ struct AttentionMetadata {
     size_t max_query_length{0};
     /// Maximum total sequence length in the current batch.
     size_t max_sequence_length{0};
+    /// Maximum total sequence length in the current request batch.
+    std::optional<int64_t> max_context_len;
 
     AttentionMetadata() = default;
 
@@ -31,14 +33,16 @@ struct AttentionMetadata {
                       std::optional<infinicore::Tensor> block_tables,
                       std::optional<infinicore::Tensor> slot_mapping,
                       size_t max_query_length = 0,
-                      size_t max_sequence_length = 0) : past_sequence_lengths(past_sequence_lengths),
+                      size_t max_sequence_length = 0,
+                      std::optional<int64_t> max_context_len = std::nullopt) : past_sequence_lengths(past_sequence_lengths),
                                                         total_sequence_lengths(total_sequence_lengths),
                                                         input_offsets(input_offsets),
                                                         cu_seqlens(cu_seqlens),
                                                         block_tables(block_tables),
                                                         slot_mapping(slot_mapping),
                                                         max_query_length(max_query_length),
-                                                        max_sequence_length(max_sequence_length) {}
+                                                        max_sequence_length(max_sequence_length),
+                                                        max_context_len(max_context_len) {}
 
     AttentionMetadata(const infinilm::InfinilmModel::Input &input) : AttentionMetadata(input.past_sequence_lengths,
                                                                                        input.total_sequence_lengths,

@@ -239,7 +239,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         input.block_tables,
         input.slot_mapping,
         max_query_length,
-        max_sequence_length};
+        max_sequence_length,
+        max_context_len};
 
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,
