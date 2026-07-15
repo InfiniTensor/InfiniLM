@@ -2,132 +2,125 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
-#include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
+#include "infinicore/ops/moe_argsort_bincount.hpp"
+#include "infinicore/ops/moe_expand_input.hpp"
+#include "infinicore/ops/moe_silu_and_mul_quant.hpp"
+#include "infinicore/ops/moe_sum_vllm.hpp"
+#include "infinicore/ops/w16a16_group_gemm.hpp"
 
-#include "spdlog/spdlog.h"
 #include <stdexcept>
 
 namespace infinilm::models::deepseek_v2 {
-namespace {
-
-bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
-    switch (device_type) {
-    case infinicore::Device::Type::NVIDIA:
-    case infinicore::Device::Type::ALI:
-    case infinicore::Device::Type::HYGON:
-    case infinicore::Device::Type::ILUVATAR:
-    case infinicore::Device::Type::METAX:
-    case infinicore::Device::Type::MOORE:
-        return true;
-    default:
-        return false;
-    }
-}
-
-} // namespace
-
-DeepseekV2TopKRouter::DeepseekV2TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                           const infinicore::Device &device) {
-    const auto &dtype{model_config->get_dtype()};
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    num_experts_ = model_config->get<size_t>("num_experts");
-    num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
-    norm_topk_prob_ = model_config->get<bool>("norm_topk_prob");
-
-    ASSERT((num_experts_ > 0) && (num_experts_per_tok_ > 0) && (num_experts_per_tok_ <= num_experts_));
-    INFINICORE_NN_PARAMETER_INIT(weight, ({num_experts_, hidden_size}, dtype, device));
-}
-
-std::tuple<infinicore::Tensor, infinicore::Tensor>
-DeepseekV2TopKRouter::forward(const infinicore::Tensor &hidden_states) const {
-    ASSERT(hidden_states->ndim() == 2);
-    const size_t ntoken = hidden_states->shape()[0];
-    auto router_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
-    auto router_scores = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::F32, hidden_states->device());
-    auto router_indices = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::I32, hidden_states->device());
-    infinicore::op::topksoftmax(router_scores, router_indices, router_logits, num_experts_per_tok_, norm_topk_prob_);
-    return {router_scores, router_indices};
-}
 
 DeepseekV2Experts::DeepseekV2Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      const infinicore::Device &device) {
+    const auto &dtype = model_config->get_dtype();
+    if (dtype != infinicore::DataType::F16 && dtype != infinicore::DataType::BF16) {
+        throw std::runtime_error("DeepseekV2Experts requires fp16 or bfloat16 weights");
+    }
+    if (model_config->get_or<std::string>("hidden_act", "silu") != "silu") {
+        throw std::runtime_error("DeepseekV2Experts supports only SiLU activation");
+    }
+
     hidden_size_ = model_config->get<size_t>("hidden_size");
-    moe_intermediate_size_ = model_config->get<size_t>("moe_intermediate_size");
     num_experts_ = model_config->get<size_t>("num_experts");
     num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
-    ASSERT((num_experts_ > 0) && (num_experts_per_tok_ > 0) && (num_experts_per_tok_ <= num_experts_));
+    const size_t moe_intermediate_size = model_config->get<size_t>("moe_intermediate_size");
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     tp_size_ = static_cast<size_t>(rank_info.tp_size);
     communicator_ = rank_info.comm;
-
-    experts_.reserve(num_experts_);
-    gate_weights_.reserve(num_experts_);
-    up_weights_.reserve(num_experts_);
-    down_weights_.reserve(num_experts_);
-    for (size_t i = 0; i < num_experts_; ++i) {
-        auto expert = this->register_module<DeepseekV2ExpertMLP>(std::to_string(i), model_config, device);
-        gate_weights_.push_back(expert->gate_weight());
-        up_weights_.push_back(expert->up_weight());
-        down_weights_.push_back(expert->down_weight());
-        experts_.push_back(std::move(expert));
+    if (moe_intermediate_size % tp_size_ != 0) {
+        throw std::runtime_error("DeepseekV2Experts: moe_intermediate_size must be divisible by tp_size");
     }
-    local_moe_intermediate_size_ = gate_weights_.empty() ? moe_intermediate_size_ : gate_weights_.front()->shape()[0];
-}
+    local_moe_intermediate_size_ = moe_intermediate_size / tp_size_;
 
-infinicore::Tensor DeepseekV2Experts::forward_cpu_routed_(const infinicore::Tensor &hidden_states,
-                                                          const infinicore::Tensor &top_k_index,
-                                                          const infinicore::Tensor &top_k_weights) const {
-    auto top_k_weights_cpu = top_k_weights->to(infinicore::Device::Type::CPU);
-    auto top_k_index_cpu = top_k_index->to(infinicore::Device::Type::CPU);
-    auto *top_k_index_ptr = reinterpret_cast<int *>(top_k_index_cpu->data());
-    auto *top_k_weights_ptr = reinterpret_cast<float *>(top_k_weights_cpu->data());
+    w1_ = infinicore::Tensor::empty(
+        {num_experts_, local_moe_intermediate_size_ * 2, hidden_size_}, dtype, device);
+    w2_ = infinicore::Tensor::empty(
+        {num_experts_, hidden_size_, local_moe_intermediate_size_}, dtype, device);
 
-    const size_t ntoken = hidden_states->shape()[0];
-    auto final_hidden_states = infinicore::Tensor::empty(hidden_states->shape(), hidden_states->dtype(), hidden_states->device());
-    for (size_t itok = 0; itok < ntoken; ++itok) {
-        auto hidden_states_i = hidden_states->narrow({{0, itok, 1}});
-        const size_t route_row = itok * num_experts_per_tok_;
-
-        infinicore::Tensor final_hidden_states_i;
-        for (size_t k = 0; k < num_experts_per_tok_; ++k) {
-            const int index = top_k_index_ptr[route_row + k];
-            const float score = top_k_weights_ptr[route_row + k];
-            ASSERT(index >= 0 && static_cast<size_t>(index) < num_experts_);
-            experts_[index]->set_alpha(score);
-            auto expert_out = experts_[index]->forward(hidden_states_i);
-            if (k == 0) {
-                final_hidden_states_i = expert_out;
-            } else {
-                infinicore::op::add_(final_hidden_states_i, final_hidden_states_i, expert_out);
-            }
-        }
-        final_hidden_states->narrow({{0, itok, 1}})->copy_from(final_hidden_states_i);
+    for (size_t expert_id = 0; expert_id < num_experts_; ++expert_id) {
+        const auto prefix = std::to_string(expert_id);
+        auto gate_weight = w1_->narrow({{0, expert_id, 1}, {1, 0, local_moe_intermediate_size_}})
+                               ->view({local_moe_intermediate_size_, hidden_size_});
+        auto up_weight = w1_->narrow({{0, expert_id, 1}, {1, local_moe_intermediate_size_, local_moe_intermediate_size_}})
+                             ->view({local_moe_intermediate_size_, hidden_size_});
+        auto down_weight = w2_->narrow({{0, expert_id, 1}})
+                               ->view({hidden_size_, local_moe_intermediate_size_});
+        register_parameter(prefix + ".gate_proj.weight",
+                           infinicore::nn::Parameter(gate_weight, 0, rank_info.tp_rank, rank_info.tp_size));
+        register_parameter(prefix + ".up_proj.weight",
+                           infinicore::nn::Parameter(up_weight, 0, rank_info.tp_rank, rank_info.tp_size));
+        register_parameter(prefix + ".down_proj.weight",
+                           infinicore::nn::Parameter(down_weight, 1, rank_info.tp_rank, rank_info.tp_size));
     }
-    return final_hidden_states;
 }
 
 infinicore::Tensor DeepseekV2Experts::forward(const infinicore::Tensor &hidden_states,
                                               const infinicore::Tensor &top_k_index,
-                                              const infinicore::Tensor &top_k_weights) const {
+                                              const infinicore::Tensor &top_k_weights,
+                                              std::optional<infinicore::Tensor> shared_output) const {
     ASSERT(hidden_states->ndim() == 2);
-    if (supports_fused_deepseek_moe(hidden_states->device().getType())
-        && (hidden_states->dtype() == infinicore::DataType::BF16
-            || hidden_states->dtype() == infinicore::DataType::F16)) {
-        try {
-            auto output = infinicore::op::deepseek_moe(hidden_states, top_k_index, top_k_weights,
-                                                       gate_weights_, up_weights_, down_weights_,
-                                                       local_moe_intermediate_size_, num_experts_);
-            if (tp_size_ > 1 && communicator_ != nullptr) {
-                infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
-            }
-            return output;
-        } catch (const std::exception &e) {
-            spdlog::warn("DeepseekV2Experts: deepseek_moe unavailable on {}, falling back to CPU-routed experts: {}",
-                         static_cast<int>(hidden_states->device().getType()), e.what());
-        }
+    const size_t num_tokens = hidden_states->size(0);
+    const size_t expanded_tokens = num_tokens * num_experts_per_tok_;
+    const auto &attn_metadata = infinilm::global_state::get_forward_context().attn_metadata;
+    const bool is_decode = attn_metadata.total_sequence_lengths.has_value()
+                        && num_tokens == attn_metadata.total_sequence_lengths.value()->size(0);
+
+    auto tokens_per_experts_gpu = infinicore::Tensor::empty(
+        {num_experts_}, infinicore::DataType::I32, hidden_states->device());
+    auto sorted_indices = infinicore::Tensor::empty(
+        {expanded_tokens}, infinicore::DataType::I32, hidden_states->device());
+    auto inv_pos = infinicore::Tensor::empty(
+        {expanded_tokens}, infinicore::DataType::I32, hidden_states->device());
+    infinicore::op::moe_argsort_bincount_with_inv_pos_(
+        tokens_per_experts_gpu, sorted_indices, inv_pos, top_k_index, num_experts_);
+    auto tokens_per_experts = is_decode
+                                ? tokens_per_experts_gpu
+                                : tokens_per_experts_gpu->to(infinicore::Device::Type::CPU);
+
+    auto expanded_input = infinicore::Tensor::empty(
+        {expanded_tokens, hidden_size_}, hidden_states->dtype(), hidden_states->device());
+    infinicore::op::moe_expand_input_with_inv_pos_(
+        expanded_input, std::nullopt, hidden_states, inv_pos, num_experts_per_tok_, 128, 0);
+
+    auto gate_up = infinicore::Tensor::empty(
+        {expanded_tokens, local_moe_intermediate_size_ * 2}, hidden_states->dtype(), hidden_states->device());
+    infinicore::op::w16a16_group_gemm_(gate_up,
+                                       expanded_input,
+                                       w1_,
+                                       tokens_per_experts,
+                                       std::nullopt,
+                                       std::nullopt,
+                                       true,
+                                       is_decode);
+
+    auto activated = infinicore::Tensor::empty(
+        {expanded_tokens, local_moe_intermediate_size_}, hidden_states->dtype(), hidden_states->device());
+    infinicore::op::moe_silu_and_mul_quant_(activated, std::nullopt, gate_up, 0);
+
+    auto expert_output = infinicore::Tensor::empty(
+        {expanded_tokens, hidden_size_}, hidden_states->dtype(), hidden_states->device());
+    infinicore::op::w16a16_group_gemm_(expert_output,
+                                       activated,
+                                       w2_,
+                                       tokens_per_experts,
+                                       sorted_indices,
+                                       std::nullopt,
+                                       true,
+                                       is_decode);
+
+    auto output = infinicore::Tensor::empty(
+        {num_tokens, hidden_size_}, hidden_states->dtype(), hidden_states->device());
+    infinicore::op::moe_sum_vllm_(output,
+                                  expert_output->view({num_tokens, num_experts_per_tok_, hidden_size_}),
+                                  top_k_weights,
+                                  shared_output);
+    if (tp_size_ > 1 && communicator_ != nullptr) {
+        infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
     }
-    return forward_cpu_routed_(hidden_states, top_k_index, top_k_weights);
+    return output;
 }
 
 DeepseekV2MoE::DeepseekV2MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -140,6 +133,7 @@ DeepseekV2MoE::DeepseekV2MoE(std::shared_ptr<infinilm::config::ModelConfig> mode
     if (has_shared_experts_) {
         auto shared_config_json = model_config->get_config_json();
         shared_config_json["intermediate_size"] = model_config->get<size_t>("moe_intermediate_size") * n_shared_experts;
+        shared_config_json["reduce_results"] = false;
         auto shared_config = std::make_shared<infinilm::config::ModelConfig>(shared_config_json);
         INFINICORE_NN_MODULE_INIT(shared_experts, shared_config, device);
     }
@@ -148,15 +142,14 @@ DeepseekV2MoE::DeepseekV2MoE(std::shared_ptr<infinilm::config::ModelConfig> mode
 infinicore::Tensor DeepseekV2MoE::forward(const infinicore::Tensor &hidden_states) const {
     ASSERT(hidden_states->ndim() == 3);
     const auto shape = hidden_states->shape();
-    auto hidden_states_reshaped = hidden_states->view({shape[0] * shape[1], shape[2]});
+    auto flat_hidden_states = hidden_states->view({shape[0] * shape[1], shape[2]});
+    auto [routing_weights, selected_experts] = gate_->forward(flat_hidden_states);
 
-    auto [routing_weights, selected_experts] = gate_->forward(hidden_states_reshaped);
-    auto final_hidden_states = experts_->forward(hidden_states_reshaped, selected_experts, routing_weights)->view(shape);
+    std::optional<infinicore::Tensor> shared_output;
     if (has_shared_experts_) {
-        auto shared_out = shared_experts_->forward(hidden_states);
-        final_hidden_states = infinicore::op::add(final_hidden_states, shared_out);
+        shared_output = shared_experts_->forward(hidden_states)->view({shape[0] * shape[1], shape[2]});
     }
-    return final_hidden_states;
+    return experts_->forward(flat_hidden_states, selected_experts, routing_weights, shared_output)->view(shape);
 }
 
 } // namespace infinilm::models::deepseek_v2

@@ -45,6 +45,7 @@ void PagedCompiler::compile() {
         size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
         auto &forward_context = infinilm::global_state::get_forward_context();
         const bool has_mamba_state = has_mamba_cache(forward_context);
+        size_t block_size = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->block_size();
 
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
         compiled_map_decode_.clear();
@@ -102,6 +103,7 @@ void PagedCompiler::compile() {
                 input.cu_seqlens,
                 input.block_tables,
                 input.slot_mapping,
+                static_cast<int64_t>(nblocks * block_size),
             };
             // Hybrid linear-attention layers read cache indices from the same
             // thread-local context. These tensors remain alive in CompiledResult
