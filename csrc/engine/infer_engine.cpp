@@ -4,8 +4,49 @@
 #include <future>
 #include <stdexcept>
 #include <unordered_set>
+#include <utility>
 
 namespace infinilm::engine {
+namespace {
+
+void materialize_output_ids_on_host(
+    std::vector<RankWorker::Output> &outputs) {
+    if (outputs.empty()) {
+        return;
+    }
+    for (const auto &output : outputs) {
+        if (!output.output_ids) {
+            throw std::runtime_error(
+                "Final pipeline stage did not produce sampled token IDs");
+        }
+    }
+
+    const auto output_device = outputs.front().output_ids->device();
+    for (const auto &output : outputs) {
+        if (output.output_ids->device() != output_device) {
+            throw std::runtime_error(
+                "Micro-batch outputs were produced on different devices");
+        }
+    }
+
+    const auto previous_device = infinicore::context::getDevice();
+    try {
+        infinicore::context::setDevice(output_device);
+        infinicore::context::syncStream();
+        for (auto &output : outputs) {
+            output.output_ids = output.output_ids->to(infinicore::Device::cpu());
+        }
+        infinicore::context::setDevice(previous_device);
+    } catch (...) {
+        try {
+            infinicore::context::setDevice(previous_device);
+        } catch (...) {
+        }
+        throw;
+    }
+}
+
+} // namespace
 
 //------------------------------------------------------
 // Constructor
@@ -76,7 +117,7 @@ InferEngine::InferEngine(
 
         pipeline_transport_ = std::make_unique<PeerCopyTransport>();
         spdlog::info(
-            "Pipeline activation transport: gpu-peer-copy (synchronous MVP)");
+            "Pipeline activation transport: gpu-peer-copy (CUDA-event async MVP)");
     }
 
     const size_t tp_size = dist_config.tp_device_ids.size();
@@ -276,62 +317,132 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     return input;
 }
 
-InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
+InferEngine::Output InferEngine::forward(const Input &input) {
+    auto outputs = forward_many({input});
+    return std::move(outputs.front());
+}
+
+std::vector<InferEngine::Output>
+InferEngine::forward_many(const std::vector<Input> &inputs) {
+    if (inputs.empty()) {
+        return {};
+    }
+
     const size_t pp_size = communication_group_.get_dist_config().pp_device_ids.size();
     if (pp_size == 1) {
-        // Preserve the existing TP path: every rank executes the same input concurrently.
-        for (auto &worker : workers_) {
-            worker->run(input);
+        std::vector<Output> outputs;
+        outputs.reserve(inputs.size());
+        for (const auto &input : inputs) {
+            // Preserve the existing TP path: every rank executes the same input concurrently.
+            for (auto &worker : workers_) {
+                worker->run(input);
+            }
+            for (auto &worker : workers_) {
+                worker->wait();
+            }
+            outputs.push_back(workers_[0]->get_output());
         }
-        for (auto &worker : workers_) {
-            worker->wait();
-        }
-        return workers_[0]->get_output();
+        materialize_output_ids_on_host(outputs);
+        return outputs;
     }
 
-    Input stage_input = input;
-    Output stage_output;
-    for (size_t stage = 0; stage < workers_.size(); ++stage) {
-        auto &worker = workers_[stage];
-        worker->run(stage_input);
-        worker->wait();
-        stage_output = worker->get_output();
-
-        if (stage + 1 < workers_.size()) {
-            if (!stage_output.hidden_states || !stage_output.residual) {
-                throw std::runtime_error("Pipeline stage did not return hidden states and residual");
-            }
-
-            if (pipeline_transport_ == nullptr) {
-                throw std::logic_error("Pipeline transport is not initialized");
-            }
-            const auto source_device = communication_group_
-                                           .get_rank_info(static_cast<int>(stage))
-                                           .device;
-            if (stage_output.hidden_states->device() != source_device
-                || stage_output.residual->device() != source_device) {
-                throw std::runtime_error(
-                    "Pipeline stage returned activations on the wrong device");
-            }
-            auto activation = pipeline_transport_->transfer(
-                {stage_output.hidden_states, stage_output.residual},
-                communication_group_.get_rank_info(static_cast<int>(stage + 1)).device);
-
-            // Keep only metadata needed by all stages and drop first-stage-only inputs.
-            stage_input.input_ids.reset();
-            stage_input.pixel_values.reset();
-            stage_input.image_bound.reset();
-            stage_input.tgt_sizes.reset();
-            stage_input.image_grid_thw.reset();
-            stage_input.image_req_ids.reset();
-            stage_input.visual_token_ranges.reset();
-            stage_input.target_hidden_states.reset();
-            stage_input.pp_hidden_states = std::move(activation.hidden_states);
-            stage_input.pp_residual = std::move(activation.residual);
-        }
+    if (pipeline_transport_ == nullptr) {
+        throw std::logic_error("Pipeline transport is not initialized");
     }
 
-    return stage_output;
+    const size_t stage_count = workers_.size();
+    const size_t micro_batch_count = inputs.size();
+    if (communication_group_.get_dist_config().pp_device_ids.size() != stage_count) {
+        throw std::logic_error("Pipeline device mapping is incomplete");
+    }
+
+    struct Task {
+        size_t stage;
+        size_t micro_batch;
+    };
+
+    std::vector<Input> stage_inputs(inputs);
+    std::vector<Output> outputs(micro_batch_count);
+    std::vector<PipelineTransfer> transfers;
+    transfers.reserve(micro_batch_count * (stage_count - 1));
+
+    try {
+        for (size_t diagonal = 0;
+             diagonal < micro_batch_count + stage_count - 1;
+             ++diagonal) {
+            std::vector<Task> tasks;
+            tasks.reserve(stage_count);
+
+            for (size_t stage = 0; stage < stage_count; ++stage) {
+                if (diagonal < stage) {
+                    continue;
+                }
+                const size_t micro_batch = diagonal - stage;
+                if (micro_batch >= micro_batch_count) {
+                    continue;
+                }
+                workers_[stage]->run(stage_inputs[micro_batch]);
+                tasks.push_back({stage, micro_batch});
+            }
+
+            for (const auto &task : tasks) {
+                workers_[task.stage]->wait();
+            }
+
+            for (const auto &task : tasks) {
+                auto stage_output = workers_[task.stage]->get_output();
+                if (task.stage + 1 == stage_count) {
+                    outputs[task.micro_batch] = std::move(stage_output);
+                    continue;
+                }
+                if (!stage_output.hidden_states || !stage_output.residual) {
+                    throw std::runtime_error(
+                        "Pipeline stage did not return hidden states and residual");
+                }
+
+                const auto source_device = communication_group_
+                                               .get_rank_info(static_cast<int>(task.stage))
+                                               .device;
+                if (stage_output.hidden_states->device() != source_device
+                    || stage_output.residual->device() != source_device) {
+                    throw std::runtime_error(
+                        "Pipeline stage returned activations on the wrong device");
+                }
+
+                auto transfer = pipeline_transport_->transfer_async(
+                    {stage_output.hidden_states, stage_output.residual},
+                    communication_group_
+                        .get_rank_info(static_cast<int>(task.stage + 1))
+                        .device);
+                const auto &activation = transfer.activation();
+                auto &next_input = stage_inputs[task.micro_batch];
+                next_input.input_ids.reset();
+                next_input.pixel_values.reset();
+                next_input.image_bound.reset();
+                next_input.tgt_sizes.reset();
+                next_input.image_grid_thw.reset();
+                next_input.image_req_ids.reset();
+                next_input.visual_token_ranges.reset();
+                next_input.target_hidden_states.reset();
+                next_input.pp_hidden_states = activation.hidden_states;
+                next_input.pp_residual = activation.residual;
+                transfers.push_back(std::move(transfer));
+            }
+        }
+    } catch (...) {
+        for (const auto &transfer : transfers) {
+            try {
+                transfer.wait();
+            } catch (...) {
+            }
+        }
+        throw;
+    }
+
+    // The final-stage stream is transitively ordered after every activation
+    // transfer. Tickets remain alive until all sampled IDs are materialized.
+    materialize_output_ids_on_host(outputs);
+    return outputs;
 }
 
 void InferEngine::compile() {

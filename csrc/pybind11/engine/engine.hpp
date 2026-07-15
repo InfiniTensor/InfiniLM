@@ -127,6 +127,13 @@ inline void bind_infer_engine(py::module &m) {
             },
             "Run inference on all ranks with arbitrary arguments")
         .def(
+            "forward_many", [](InferEngine &self, const std::vector<InferEngine::Input> &inputs) {
+                py::gil_scoped_release release;
+                return self.forward_many(inputs);
+            },
+            py::arg("inputs"),
+            "Run independent micro-batches through a pipeline wavefront")
+        .def(
             "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {

@@ -396,6 +396,24 @@ class InferEngine(_infinilm.InferEngine):
             handle_oom_and_exit(e)
             raise
 
+    def forward_microbatches(self, model_inputs):
+        """Run request-level micro-batches through PP and preserve their order."""
+        if not model_inputs:
+            return []
+
+        try:
+            inputs = [
+                self._build_input(**model_input)
+                for model_input in model_inputs
+            ]
+            return [
+                infinicore.Tensor(output.output_ids)
+                for output in super().forward_many(inputs)
+            ]
+        except BaseException as e:
+            handle_oom_and_exit(e)
+            raise
+
     def forward_raw(
         self,
         input_ids,

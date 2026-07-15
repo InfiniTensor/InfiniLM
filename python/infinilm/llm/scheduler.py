@@ -101,6 +101,10 @@ class Scheduler:
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
 
+        # Keep homogeneous prefill/decode batches, but alternate phases when
+        # both queues have work so neither side can starve.
+        self._prefer_prefill = True
+
     def add_request(self, request: InferenceRequest):
         if request is not None:
             request.status = RequestStatus.WAITING
@@ -131,9 +135,21 @@ class Scheduler:
         is_prefill = False
         current_num_batched_tokens = 0
         current_prefill_extra_blocks = 0
+        has_waiting = not self.waiting_queue.sync_q.empty()
+        has_remote_decode_ready = any(
+            request_id in self.finished_receiving_kv_req_ids
+            or request_id in self.failed_receiving_kv_req_ids
+            for request_id in self.remote_kv_requests
+        )
+        has_decode_work = (
+            not self.running_queue.sync_q.empty() or has_remote_decode_ready
+        )
+        schedule_prefill = has_waiting and (
+            not has_decode_work or self._prefer_prefill
+        )
 
         # Process Waiting queue (prefill phase)
-        while (
+        while schedule_prefill and (
             len(scheduled_requests) < self.max_batch_size
             and current_num_batched_tokens < self.max_num_batched_tokens
         ):
@@ -294,6 +310,7 @@ class Scheduler:
         # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
             is_prefill = True
+            self._prefer_prefill = False
             scheduler_output = SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,
@@ -357,6 +374,7 @@ class Scheduler:
         # Return decode batch if any running requests were scheduled
         if scheduled_requests:
             is_prefill = False
+            self._prefer_prefill = True
             scheduler_output = SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,

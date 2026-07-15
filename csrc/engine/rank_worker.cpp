@@ -457,9 +457,8 @@ void RankWorker::thread_loop() {
                             if (!hidden_states || !residual) {
                                 throw std::runtime_error("Non-last pipeline stage did not produce hidden states and residual");
                             }
-                            // Publish GPU-resident activations only after all source work
-                            // has completed. The engine then owns the cross-stage transfer.
-                            infinicore::context::syncStream();
+                            // The engine records a source-ready event after this RUN
+                            // returns; no host stream synchronization is required here.
                             out.hidden_states = std::move(hidden_states);
                             out.residual = std::move(residual);
                         }
@@ -494,8 +493,6 @@ void RankWorker::thread_loop() {
                                     out, score, random_val, top_p, top_k, temperature);
                             }
 
-                            output_ids = output_ids->to(infinicore::Device::cpu());
-                            infinicore::context::syncStream();
                             out.output_ids = std::move(output_ids);
                         }
 

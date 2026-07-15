@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generator
@@ -13,6 +14,7 @@ from infinilm.kv_connector import (
     KVConnectorRole,
 )
 from infinilm.llm.model_runner.speculative_runner import SpeculativeRunner
+from infinilm.llm.scheduler import SchedulerOutput
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.processors import AutoInfinilmProcessor
 
@@ -41,11 +43,80 @@ class ModelRunnerOutput:
     kv_connector_output: KVConnectorOutput | None = None
 
 
+def _sampling_key(request):
+    params = request.sampling_params
+    return (params.temperature, params.top_p, params.top_k)
+
+
+def uniform_sampling_params(scheduler_output):
+    """Return batch sampling parameters when every request agrees."""
+    if not isinstance(scheduler_output, SchedulerOutput):
+        return None
+    requests = scheduler_output.scheduled_requests
+    if not requests:
+        return None
+    first_key = _sampling_key(requests[0])
+    if all(_sampling_key(request) == first_key for request in requests[1:]):
+        return requests[0].sampling_params
+    return None
+
+
+def split_pipeline_microbatches(
+    scheduler_output: SchedulerOutput, max_requests: int
+) -> list[SchedulerOutput]:
+    """Split at request boundaries while keeping sampling semantics uniform."""
+    if max_requests < 1:
+        raise ValueError("pipeline micro-batch size must be >= 1")
+
+    outputs = []
+    current = []
+    current_key = None
+
+    def append_current():
+        if not current:
+            return
+        output = SchedulerOutput(
+            scheduled_requests=list(current),
+            is_prefill=scheduler_output.is_prefill,
+            speculative_cache_ops=scheduler_output.speculative_cache_ops,
+        )
+        output.kv_connector_metadata = scheduler_output.kv_connector_metadata
+        outputs.append(output)
+
+    for request in scheduler_output.scheduled_requests:
+        request_key = _sampling_key(request)
+        if current and (
+            len(current) >= max_requests or request_key != current_key
+        ):
+            append_current()
+            current.clear()
+        if not current:
+            current_key = request_key
+        current.append(request)
+
+    append_current()
+    return outputs
+
+
 class ModelRunner:
     def __init__(self, config: EngineConfig):
         self.config = config
         self.kv_transfer_config = config.kv_transfer_config
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
+
+        self.pipeline_micro_batch_size = 1
+        if config.pipeline_parallel_size > 1:
+            try:
+                self.pipeline_micro_batch_size = int(
+                    os.getenv("INFINILM_PP_MICRO_BATCH_SIZE", "1")
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    "INFINILM_PP_MICRO_BATCH_SIZE must be an integer"
+                ) from exc
+            if self.pipeline_micro_batch_size < 1:
+                raise ValueError("INFINILM_PP_MICRO_BATCH_SIZE must be >= 1")
+            logger.info("PP request micro-batch size: %s", self.pipeline_micro_batch_size)
 
         self._init_device()
 
@@ -121,7 +192,7 @@ class ModelRunner:
             kv_caches = {}
             for rank_idx, kv_cache_vec in enumerate(kv_cache_list):
                 for layer_idx, layer_kv_cache in enumerate(kv_cache_vec):
-                    # print(layer_kv.shape)  # shape：[2, 8, 8, 256, 128]
+                    # print(layer_kv.shape)  # shape锛歔2, 8, 8, 256, 128]
                     key_name = (
                         f"rank.{rank_idx}.model.layers.{layer_idx}.self_attn.attn"
                     )
@@ -187,12 +258,47 @@ class ModelRunner:
         )
 
     def _model_forward(self, scheduler_output):
-        # Build model inputs
+        if self.config.pipeline_parallel_size > 1:
+            microbatches = split_pipeline_microbatches(
+                scheduler_output, self.pipeline_micro_batch_size
+            )
+            model_inputs = []
+            for microbatch in microbatches:
+                sampling = microbatch.scheduled_requests[0].sampling_params
+                model_inputs.append(
+                    self.processor.build_model_inputs(
+                        microbatch,
+                        sampling.temperature,
+                        sampling.top_p,
+                        sampling.top_k,
+                    )
+                )
+
+            outputs = self.model_engine.forward_microbatches(model_inputs)
+            if len(outputs) != len(microbatches):
+                raise RuntimeError(
+                    "PP forward returned an unexpected number of micro-batches: "
+                    f"expected {len(microbatches)}, got {len(outputs)}"
+                )
+            sampled_tokens = []
+            for output, microbatch in zip(outputs, microbatches):
+                microbatch_tokens = output.to_numpy().tolist()
+                if len(microbatch_tokens) != microbatch.num_requests:
+                    raise RuntimeError(
+                        "PP forward returned an unexpected token count: "
+                        f"expected {microbatch.num_requests}, "
+                        f"got {len(microbatch_tokens)}"
+                    )
+                sampled_tokens.extend(microbatch_tokens)
+            return sampled_tokens
+
+        # Preserve the established non-PP execution and connector semantics.
+        sampling = uniform_sampling_params(scheduler_output)
         model_input = self.processor.build_model_inputs(
             scheduler_output,
-            self.config.temperature,
-            self.config.top_p,
-            self.config.top_k,
+            sampling.temperature if sampling else self.config.temperature,
+            sampling.top_p if sampling else self.config.top_p,
+            sampling.top_k if sampling else self.config.top_k,
         )
 
         if self.speculative_runner is not None:

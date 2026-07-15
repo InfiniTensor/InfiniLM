@@ -52,6 +52,10 @@ public:
     // Run a single forward pass on all workers and return sampled token IDs.
     Output forward(const Input &input);
 
+    // Run independent request-level micro-batches through the pipeline using
+    // a diagonal wavefront schedule. Results preserve input order.
+    std::vector<Output> forward_many(const std::vector<Input> &inputs);
+
     void compile();
 
     void reset_cache(const cache::CacheConfig *new_config);

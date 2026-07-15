@@ -218,7 +218,7 @@ class TestModel:
                 "Pipeline parallel MVP does not support speculative decoding"
             )
 
-        if draft_model_path is not None:
+        if draft_model_path is not None or pp > 1:
             self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
             self.tokenizer = self.processor.get_tokenizer()
             input_content = self.processor.apply_chat_template(
@@ -306,7 +306,7 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        自回归生成
         # ---------------------------------------------------------------------------- #
-        if self.draft_model_path is not None:
+        if self.draft_model_path is not None or self.pp > 1:
             prompt_text = self.tokenizer.decode(input_ids, skip_special_tokens=False)
             llm = LLM(
                 model_path=self.model_path,
@@ -331,7 +331,13 @@ class TestModel:
             print("=================== start generate ====================")
             outputs = llm.generate(
                 prompts=[prompt_text] * batch_size,
-                sampling_params=SamplingParams(max_tokens=output_len, ignore_eos=True),
+                sampling_params=SamplingParams(
+                    max_tokens=output_len,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    ignore_eos=True,
+                ),
                 use_tqdm=False,
             )
             t2 = time.time()
@@ -438,8 +444,8 @@ if __name__ == "__main__":
         if cfg.use_mla:
             raise ValueError("Pipeline parallel MVP does not support --use-mla")
         print("Pipeline parallel MVP enabled:")
-        print("  mode=single-node-sequential")
-        print("  activation_transport=gpu-peer-copy")
+        print("  mode=single-process-microbatch-wavefront")
+        print("  activation_transport=gpu-peer-copy-async-event")
         print(f"  tp_size={tp}, pp_size={pp}, world_size={pp}")
 
     if isinstance(batch_size, int):
