@@ -3,8 +3,10 @@
 """Minimal FusedMoE microbench for hcTracer (no vLLM, no serve).
 
 Modes:
-  launcher  — fused_moe_routed only for M in {1,16}, TOP_K=16
-  aoti_b16  — aoti_load_package(moe_B16/segment.pt2) with hidden [1,16,H]
+  launcher    — fused_moe_routed only for M in {1,16}, TOP_K=16
+  align_only  — moe_align_block_size x2 (stage1+stage2 block sizes), no Triton
+  aoti_b16    — aoti_load_package(moe_B16/segment.pt2) with hidden [1,16,H]
+  cpp_pad_m1  — C++ inductor_moe_ path: hidden [1,1,H] → pad to B16 (decode pad tax)
 
 Env (required; wrapper sets defaults):
   INFINI_MOE_CONFIGS, INFINI_MOE_TRITON_CACHE / TRITON_CACHE_DIR,
@@ -106,6 +108,7 @@ def _run_launcher(args) -> int:
     from infinilm.kernels.fused_moe_runtime import fused_moe_routed, launcher_hash
 
     _refuse_vllm()
+    os.environ["INFINI_MOE_PROFILE_PHASES"] = "1"
     device = torch.device("cuda", 0)
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
     M = int(args.M)
@@ -124,6 +127,44 @@ def _run_launcher(args) -> int:
 
     _run_timed(
         f"launcher_m{M}",
+        once,
+        warmup=args.warmup,
+        iters=args.iters,
+        device=device,
+    )
+    return 0
+
+
+def _run_align_only(args) -> int:
+    from infinilm.kernels.fused_moe_runtime import (
+        get_moe_config_for_m,
+        launcher_hash,
+        moe_align_block_size,
+    )
+
+    _refuse_vllm()
+    device = __import__("torch").device("cuda", 0)
+    M = int(args.M)
+    if M not in (1, 16):
+        raise ValueError(f"align_only mode expects M in {{1,16}}, got {M}")
+
+    print(f"[profile-moe] mode=align_only M={M} TOP_K={TOP_K} H={H} E={E} N={N}")
+    print(f"[profile-moe] launcher_hash={launcher_hash()}")
+
+    import torch
+
+    topk_ids = torch.randint(0, E, (M, TOP_K), device=device, dtype=torch.int32)
+    cfg1 = get_moe_config_for_m(M, E=E, N=N, H=H, stage="stage1")
+    cfg2 = get_moe_config_for_m(M, E=E, N=N, H=H, stage="stage2")
+
+    def once():
+        print("=== PHASE align1 ===", flush=True)
+        moe_align_block_size(topk_ids, int(cfg1["BLOCK_SIZE_M"]), E)
+        print("=== PHASE align2 ===", flush=True)
+        moe_align_block_size(topk_ids, int(cfg2["BLOCK_SIZE_M"]), E)
+
+    _run_timed(
+        f"align_only_m{M}",
         once,
         warmup=args.warmup,
         iters=args.iters,
@@ -153,7 +194,6 @@ def _run_aoti_b16(args) -> int:
         f"TOP_K={TOP_K} (segment routing)"
     )
 
-    # Ensure opaque op registration before load/run.
     from infinilm.torch_llama.moe_ops import register_fused_moe_routed_op
 
     register_fused_moe_routed_op()
@@ -182,14 +222,93 @@ def _run_aoti_b16(args) -> int:
     return 0
 
 
+def _run_cpp_pad_m1(args) -> int:
+    """Decode-like pad tax: seq=1 through C++ inductor_moe_ → moe_B16."""
+    import infinicore
+    import torch
+    from infinicore.lib import _infinicore as _ic
+    from infinilm.compile.piecewise_moe_segment import make_moe_example_inputs
+    from infinilm.compile.piecewise_segments import LAYER_AGNOSTIC_IDX, SEGMENT_MOE
+    from infinilm.kernels.fused_moe_runtime import launcher_hash
+    from infinilm.torch_llama.moe_ops import register_fused_moe_routed_op
+
+    _refuse_vllm()
+    register_fused_moe_routed_op()
+
+    # Decode valid_len=1 (resolver / env); package stays B16.
+    os.environ["INFINI_PIECEWISE_VALID_LEN"] = "1"
+    os.environ["INFINI_PIECEWISE_INDUCTOR_SEGMENT"] = "1"
+
+    device = torch.device("cuda", 0)
+    dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
+    pkg = Path(args.segment_pt2).resolve()
+    if not pkg.is_file():
+        raise FileNotFoundError(f"moe_B16 segment.pt2 missing: {pkg}")
+
+    print(f"[profile-moe] mode=cpp_pad_m1 package={pkg}")
+    print(f"[profile-moe] launcher_hash={launcher_hash()}")
+    print(
+        f"[profile-moe] shapes hidden=[1,1,{H}] pad→B16 valid_seq_len=1 TOP_K={TOP_K}",
+        flush=True,
+    )
+
+    ic_dev = infinicore.device("cuda", 0)
+    infinicore.set_device(ic_dev)
+
+    _ic.register_piecewise_inductor_package(
+        SEGMENT_MOE,
+        LAYER_AGNOSTIC_IDX,
+        16,
+        str(pkg),
+        0,
+        True,
+    )
+    if hasattr(_ic, "set_piecewise_inductor_lookup_tp_rank"):
+        _ic.set_piecewise_inductor_lookup_tp_rank(0)
+
+    examples = make_moe_example_inputs(
+        bucket=16,
+        hidden_size=H,
+        moe_intermediate_size=N,
+        n_routed_experts=E,
+        device=device,
+        dtype=dtype,
+    )
+    _h, gate_w, bias, w_gu, w_d, shared_gu, shared_d = examples
+    _ic.register_moe_external_weights(
+        0,
+        *[
+            infinicore.from_torch(t.contiguous())._underlying
+            for t in (gate_w, bias, w_gu, w_d, shared_gu, shared_d)
+        ],
+    )
+
+    hidden_t = torch.randn(1, 1, H, device=device, dtype=dtype)
+    out_t = torch.empty(1, 1, H, device=device, dtype=dtype)
+    hidden = infinicore.from_torch(hidden_t)
+    out = infinicore.from_torch(out_t)
+
+    def once():
+        _ic.inductor_moe_(hidden._underlying, out._underlying, 0, 16)
+
+    _run_timed(
+        "cpp_pad_m1",
+        once,
+        warmup=args.warmup,
+        iters=args.iters,
+        device=device,
+    )
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--mode",
         required=True,
-        choices=("launcher", "aoti_b16"),
+        choices=("launcher", "align_only", "aoti_b16", "cpp_pad_m1"),
     )
-    ap.add_argument("--M", type=int, default=1, help="launcher token count (1 or 16)")
+    ap.add_argument("--M", type=int, default=1, help="launcher/align_only token count (1 or 16)")
     ap.add_argument("--dtype", default="bfloat16", choices=("bfloat16", "float16"))
     ap.add_argument("--warmup", type=int, default=DEFAULT_WARMUP)
     ap.add_argument("--iters", type=int, default=DEFAULT_ITERS)
@@ -224,6 +343,12 @@ def main() -> int:
 
         if args.mode == "launcher":
             rc = _run_launcher(args)
+        elif args.mode == "align_only":
+            rc = _run_align_only(args)
+        elif args.mode == "cpp_pad_m1":
+            if not args.segment_pt2:
+                raise RuntimeError("--segment-pt2 required for cpp_pad_m1 (or set via wrapper)")
+            rc = _run_cpp_pad_m1(args)
         else:
             if not args.segment_pt2:
                 raise RuntimeError("--segment-pt2 required for aoti_b16 (or set via wrapper)")
@@ -234,7 +359,7 @@ def main() -> int:
             f"[profile-moe] cache_files before={before} after={after}",
             flush=True,
         )
-        if after > before:
+        if after > before and args.mode != "align_only":
             raise RuntimeError(
                 f"Triton cache grew during JIT-off profile ({before} → {after}); "
                 "cubins incomplete for this shape/TOP_K"

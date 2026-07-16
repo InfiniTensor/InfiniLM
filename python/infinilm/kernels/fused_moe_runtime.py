@@ -286,57 +286,74 @@ def _fused_moe_kernel(
     tl.store(c_ptrs, accumulator, mask=c_mask)
 
 
+def _phase_marker(name: str) -> None:
+    if os.environ.get("INFINI_MOE_PROFILE_PHASES", "").strip() in ("1", "true", "yes"):
+        print(f"=== PHASE {name} ===", flush=True)
+
+
 def moe_align_block_size(
     topk_ids: torch.Tensor,
     block_size: int,
     num_experts: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Pure-torch align (no vLLM ``_custom_ops``)."""
+    """Vectorized align (no vLLM ``_custom_ops``, no per-expert Python loop)."""
     device = topk_ids.device
     flat = topk_ids.reshape(-1).to(torch.int64)
     numel = int(flat.numel())
     max_num_tokens_padded = numel + num_experts * (block_size - 1)
 
+    if numel == 0:
+        sorted_ids = torch.full(
+            (max_num_tokens_padded,), 0, dtype=torch.int32, device=device
+        )
+        n_m_blocks = 1
+        expert_ids_out = torch.full((n_m_blocks,), -1, dtype=torch.int32, device=device)
+        num_tokens_post_pad = torch.tensor([0], dtype=torch.int32, device=device)
+        return sorted_ids, expert_ids_out, num_tokens_post_pad
+
     order = torch.argsort(flat, stable=True)
     sorted_experts = flat[order]
+    idx = torch.arange(numel, device=device, dtype=torch.int64)
 
-    pieces: list[torch.Tensor] = []
-    expert_blocks: list[int] = []
-    for e in range(num_experts):
-        toks = order[sorted_experts == e].to(torch.int32)
-        c = int(toks.numel())
-        pad_e = (block_size - c % block_size) % block_size
-        if pad_e:
-            toks = torch.cat(
-                [
-                    toks,
-                    torch.full((pad_e,), numel, dtype=torch.int32, device=device),
-                ],
-                dim=0,
-            )
-        pieces.append(toks)
-        expert_blocks.extend([e] * (toks.numel() // block_size))
+    counts = torch.bincount(sorted_experts, minlength=num_experts)
+    padded_counts = counts + (block_size - counts % block_size) % block_size
+    n_post = int(padded_counts.sum().item())
 
-    sorted_ids_full = (
-        torch.cat(pieces, dim=0)
-        if pieces
-        else torch.empty(0, dtype=torch.int32, device=device)
-    )
-    n_post = int(sorted_ids_full.numel())
-    sorted_ids = torch.empty(
-        (max_num_tokens_padded,), dtype=torch.int32, device=device
-    )
-    sorted_ids[:n_post].copy_(sorted_ids_full)
-    if n_post < max_num_tokens_padded:
-        sorted_ids[n_post:].fill_(numel)
+    padded_offsets = torch.zeros(num_experts + 1, dtype=torch.int64, device=device)
+    padded_offsets[1:] = padded_counts.cumsum(0)
+
+    first_pos = torch.full((num_experts,), numel, dtype=torch.int64, device=device)
+    first_pos.scatter_reduce_(0, sorted_experts, idx, reduce="amin", include_self=True)
+
+    within_expert = idx - first_pos[sorted_experts]
+    out_pos = padded_offsets[sorted_experts] + within_expert
+
+    sorted_ids = torch.full((max_num_tokens_padded,), numel, dtype=torch.int32, device=device)
+    sorted_ids.scatter_(0, out_pos, order.to(torch.int32))
+
+    pad_needed = (padded_counts - counts).to(torch.int64)
+    total_pad = int(pad_needed.sum().item())
+    if total_pad > 0:
+        pad_cum = pad_needed.cumsum(0)
+        pad_global = torch.arange(total_pad, device=device, dtype=torch.int64)
+        pad_expert = torch.arange(num_experts, device=device, dtype=torch.int64).repeat_interleave(
+            pad_needed
+        )
+        pad_cum_start = torch.zeros(num_experts, dtype=torch.int64, device=device)
+        pad_cum_start[1:] = pad_cum[:-1]
+        pad_within = pad_global - pad_cum_start.repeat_interleave(pad_needed)
+        pad_starts = padded_offsets[:-1] + counts
+        pad_positions = pad_starts[pad_expert] + pad_within
+        sorted_ids[pad_positions] = numel
 
     n_m_blocks = max((n_post + block_size - 1) // block_size, 1)
-    expert_ids_out = torch.full(
-        (n_m_blocks,), -1, dtype=torch.int32, device=device
+    block_counts = (padded_counts // block_size).to(torch.int64)
+    expert_ids_full = torch.arange(num_experts, device=device, dtype=torch.int32).repeat_interleave(
+        block_counts
     )
-    if expert_blocks:
-        exp = torch.tensor(expert_blocks, dtype=torch.int32, device=device)
-        expert_ids_out[: exp.numel()].copy_(exp)
+    expert_ids_out = torch.full((n_m_blocks,), -1, dtype=torch.int32, device=device)
+    if expert_ids_full.numel() > 0:
+        expert_ids_out[: expert_ids_full.numel()] = expert_ids_full
 
     num_tokens_post_pad = torch.tensor([n_post], dtype=torch.int32, device=device)
     return sorted_ids, expert_ids_out, num_tokens_post_pad
@@ -487,10 +504,12 @@ def fused_moe_routed(
     )
     out = torch.empty_like(x)
 
+    _phase_marker("align1")
     sorted_token_ids, expert_ids, num_tokens_post_padded = moe_align_block_size(
         topk_ids, int(cfg1["BLOCK_SIZE_M"]), E
     )
 
+    _phase_marker("kernel1")
     _invoke_kernel(
         x,
         w_gate_up,
@@ -505,13 +524,15 @@ def fused_moe_routed(
         compute_type,
     )
 
-    # silu_and_mul
+    _phase_marker("silu")
     gate, up = intermediate_cache1.view(-1, N2).chunk(2, dim=-1)
     intermediate_cache2.copy_(F.silu(gate) * up)
 
+    _phase_marker("align2")
     sorted_token_ids2, expert_ids2, num_tokens_post_padded2 = moe_align_block_size(
         topk_ids, int(cfg2["BLOCK_SIZE_M"]), E
     )
+    _phase_marker("kernel2")
     _invoke_kernel(
         intermediate_cache2,
         w_down,
@@ -526,5 +547,6 @@ def fused_moe_routed(
         compute_type,
     )
 
+    _phase_marker("moe_sum")
     moe_sum(intermediate_cache3, out)
     return out

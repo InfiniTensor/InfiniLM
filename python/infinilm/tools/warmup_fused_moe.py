@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 DEFAULT_BUCKETS = (16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
-H, E, N, TOP_K = 2048, 160, 512, 8
+H, E, N, TOP_K = 2048, 160, 512, 16
 
 
 def _parse_buckets(raw: str) -> list[int]:

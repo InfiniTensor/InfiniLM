@@ -10,7 +10,7 @@ namespace infinilm::models::minicpm5_moe {
 using MiniCPM5MoeMLP = infinilm::layers::MoeMLP;
 
 /**
- * Sparse MoE: Track B uses eager AOTI (`inductor_moe_`) when packages are registered.
+ * Sparse MoE: Track B uses AOTI (`inductor_moe_` / InductorMoe); hcGraph recording enabled for P4 spike.
  * CPU router path remains as an unused private helper (fallback disabled this phase).
  */
 class MiniCPM5MoeSparseMoeBlock : public infinicore::nn::Module {

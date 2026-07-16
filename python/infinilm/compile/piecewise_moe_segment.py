@@ -148,10 +148,13 @@ class PiecewiseMoeSegmentFunctional(nn.Module):
         shared_gate_up: torch.Tensor,
         shared_down: torch.Tensor,
     ) -> torch.Tensor:
-        # hidden: [1, B, H] (bucket-padded)
+        # hidden: [1, B, H] (bucket-padded). When export bakes valid < bucket
+        # (decode-oriented), router + fused_moe_routed run on the valid prefix only.
+        # Full-bucket export (valid == bucket, the deploy default) is unchanged.
         batch, bucket, hidden = hidden_states.shape
         valid = min(self.valid_seq_len, bucket)
-        x = hidden_states.reshape(batch * bucket, hidden)
+        hs = hidden_states if valid >= bucket else hidden_states.narrow(1, 0, valid)
+        x = hs.reshape(batch * valid, hidden)
         logits = F.linear(x.to(dtype=torch.float32), gate_weight.to(dtype=torch.float32))
         topk_w, topk_ids = grouped_sigmoid_topk(
             logits,
@@ -166,10 +169,11 @@ class PiecewiseMoeSegmentFunctional(nn.Module):
             x, topk_w, topk_ids, w_gate_up, w_down
         )
         shared = _silu_mlp(x, shared_gate_up, shared_down)
-        out = (routed + shared).view(batch, bucket, hidden)
+        out = (routed + shared).view(batch, valid, hidden)
         if valid < bucket:
-            out = out.clone()
-            out[:, valid:, :] = 0
+            out_full = hidden_states.new_zeros(batch, bucket, hidden)
+            out_full[:, :valid, :] = out
+            return out_full
         return out
 
 

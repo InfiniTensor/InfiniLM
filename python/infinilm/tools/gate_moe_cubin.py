@@ -77,22 +77,23 @@ def main() -> int:
             os.environ["INFINI_MOE_ALLOW_JIT"] = "0"
 
             before = n_files
-            H, E, N, K = 2048, 160, 512, 8
+            H, E, N, K = 2048, 160, 512, 16
             device = torch.device("cuda", 0)
             dtype = torch.bfloat16
-            M = buckets[0] if buckets else 16
-            x = torch.randn(M, H, device=device, dtype=dtype)
-            topk_ids = torch.randint(0, E, (M, K), device=device, dtype=torch.int32)
-            topk_w = torch.softmax(
-                torch.randn(M, K, device=device, dtype=torch.float32), dim=-1
-            ).to(dtype)
-            w_gu = torch.randn(E, 2 * N, H, device=device, dtype=dtype).contiguous()
-            w_d = torch.randn(E, H, N, device=device, dtype=dtype).contiguous()
-            with torch.no_grad():
-                fused_moe_routed(x, topk_w, topk_ids, w_gu, w_d)
-            torch.cuda.synchronize()
+            dry_ms = [1, 16]
+            for M in dry_ms:
+                x = torch.randn(M, H, device=device, dtype=dtype)
+                topk_ids = torch.randint(0, E, (M, K), device=device, dtype=torch.int32)
+                topk_w = torch.softmax(
+                    torch.randn(M, K, device=device, dtype=torch.float32), dim=-1
+                ).to(dtype)
+                w_gu = torch.randn(E, 2 * N, H, device=device, dtype=dtype).contiguous()
+                w_d = torch.randn(E, H, N, device=device, dtype=dtype).contiguous()
+                with torch.no_grad():
+                    fused_moe_routed(x, topk_w, topk_ids, w_gu, w_d)
+                torch.cuda.synchronize()
             after = _count_cache_entries(triton_cache)
-            details["dry_run_M"] = M
+            details["dry_run_M"] = dry_ms
             details["cache_files_before"] = before
             details["cache_files_after"] = after
             if after > before:
