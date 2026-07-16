@@ -58,7 +58,29 @@ Existing branch names may use the legacy format `issue/###`, followed by a suffi
 
 # Development Guide
 
-Refer to [ReadMe](README.md) and [Adapt New Models](MODELS.md)
+Refer to [ReadMe](README.md) and [Adapt New Models](MODELS.md).
+
+Run the migrated stack-builder unit tests with:
+
+```shell
+python -m unittest test/scripts/test_build_infini_stack.py -v
+```
+
+Check the Core-backed build commands without creating build output:
+
+```shell
+python scripts/build_infini_stack.py --infinicore-root ../InfiniCore --dry-run --jobs 1 --cuda-arch sm_80
+```
+
+Run the static migration contracts with:
+
+```shell
+python -m unittest discover -s test/static -p "test_*.py" -v
+```
+
+Native stack changes must be validated in the owning component repository
+first. After validation, update the corresponding submodule pin in InfiniCore
+before validating InfiniLM.
 
 ## Troubleshooting
 
