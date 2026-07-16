@@ -23,7 +23,7 @@ CudaFusedMoeRunner::CudaFusedMoeRunner(size_t num_local_experts,
 namespace {
 
 bool same_device(const infinicore::Tensor &tensor, const infinicore::Device &device) {
-    return tensor && tensor->device().getType() == device.getType() && tensor->device().getIndex() == device.getIndex();
+    return tensor && tensor->device().type() == device.type() && tensor->device().index() == device.index();
 }
 
 void ensure_tensor(infinicore::Tensor &tensor,
@@ -59,7 +59,7 @@ void check_packed_weight_tensor(const infinicore::Tensor &tensor,
     if (!tensor) {
         throw std::runtime_error("MoE fused dense core requires " + name);
     }
-    if (tensor->device().getType() != device.getType() || tensor->device().getIndex() != device.getIndex()) {
+    if (tensor->device().type() != device.type() || tensor->device().index() != device.index()) {
         throw std::runtime_error("MoE fused dense core requires packed weights on the hidden_states device");
     }
     if (tensor->dtype() != dtype) {
@@ -112,7 +112,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
             throw std::runtime_error("MoE sorted_token_ids workspace was not initialized before graph capture");
         }
         workspace.sorted_token_ids = infinicore::Tensor::empty(
-            {sorted_token_ids_capacity}, infinicore::DataType::I32, device);
+            {sorted_token_ids_capacity}, infinicore::DataType::kInt32, device);
         workspace.sorted_token_ids_capacity = sorted_token_ids_capacity;
     }
     if (!workspace.expert_ids || workspace.expert_ids_capacity < max_num_blocks) {
@@ -120,7 +120,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
             throw std::runtime_error("MoE expert_ids workspace was not initialized before graph capture");
         }
         workspace.expert_ids = infinicore::Tensor::empty(
-            {max_num_blocks}, infinicore::DataType::I32, device);
+            {max_num_blocks}, infinicore::DataType::kInt32, device);
         workspace.expert_ids_capacity = max_num_blocks;
     }
     if (!workspace.num_tokens_post_padded) {
@@ -128,7 +128,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
             throw std::runtime_error("MoE num_tokens_post_padded workspace was not initialized before graph capture");
         }
         workspace.num_tokens_post_padded = infinicore::Tensor::empty(
-            {1}, infinicore::DataType::I32, device);
+            {1}, infinicore::DataType::kInt32, device);
     }
 
     if (dispatch_output.expert_map) {

@@ -44,14 +44,16 @@ inline AttentionBackend parse_attention_backend(const std::string &backend) {
         return AttentionBackend::PAGED_ATTN;
     }
     if (backend == "flash-attn") {
-        return AttentionBackend::FLASH_ATTN;
+        throw std::invalid_argument(
+            "`flash-attn` is unsupported until its kernels are available in InfiniOps.");
     }
     if (backend == "flashinfer") {
-        return AttentionBackend::FLASHINFER;
+        throw std::invalid_argument(
+            "`flashinfer` is unsupported until its kernels are available in InfiniOps.");
     }
 
     throw std::invalid_argument(
-        "Invalid attention_backend: " + backend + ". Valid options are: static-attn, paged-attn, flash-attn, flashinfer");
+        "Invalid attention_backend: " + backend + ". Valid options are: static-attn, paged-attn");
 }
 
 } // namespace infinilm::backends
