@@ -174,7 +174,7 @@ void MambaForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
     cache_vec.reserve(num_layers * 2);
     for (size_t i = 0; i < num_layers; ++i) {
         cache_vec.push_back(infinicore::Tensor::zeros({max_batch_size, intermediate, conv_kernel - 1}, dtype, device));
-        cache_vec.push_back(infinicore::Tensor::zeros({max_batch_size, intermediate, state_size}, infinicore::DataType::F32, device));
+        cache_vec.push_back(infinicore::Tensor::zeros({max_batch_size, intermediate, state_size}, infinicore::DataType::kFloat32, device));
     }
 }
 

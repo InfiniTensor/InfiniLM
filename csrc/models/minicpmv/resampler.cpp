@@ -30,18 +30,18 @@ void compute_2d_sincos_pos_embed(float *out, size_t embed_dim, size_t h, size_t 
 }
 
 void write_pos_embed(void *dst, infinicore::DataType dtype, const float *src, size_t n) {
-    if (dtype == infinicore::DataType::F32) {
+    if (dtype == infinicore::DataType::kFloat32) {
         std::memcpy(dst, src, n * sizeof(float));
         return;
     }
-    if (dtype == infinicore::DataType::F16) {
+    if (dtype == infinicore::DataType::kFloat16) {
         auto *out = reinterpret_cast<uint16_t *>(dst);
         for (size_t i = 0; i < n; ++i) {
             out[i] = f32_to_f16(src[i]);
         }
         return;
     }
-    if (dtype == infinicore::DataType::BF16) {
+    if (dtype == infinicore::DataType::kBFloat16) {
         auto *out = reinterpret_cast<uint16_t *>(dst);
         for (size_t i = 0; i < n; ++i) {
             out[i] = f32_to_bf16(src[i]);
@@ -174,7 +174,7 @@ infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
     kv = ln_kv_->forward(kv);
 
     // Build positional embeddings on CPU
-    auto tgt_cpu = tgt_sizes->to(infinicore::Device::cpu());
+    auto tgt_cpu = tgt_sizes->to(infinicore::Device{infinicore::Device::Type::kCpu});
     int64_t *tgt_sizes_ptr = (int64_t *)(tgt_cpu->data());
 
     auto pos_embeddings = infinicore::Tensor::zeros(kv->shape(), kv->dtype(), kv->device());

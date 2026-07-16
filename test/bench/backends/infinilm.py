@@ -30,15 +30,20 @@ class InfiniLMBenchmark(BaseBenchmark):
             "metax": "cuda",
             "moore": "musa",
             "iluvatar": "cuda",
-            "kunlun": "cuda",
             "hygon": "cuda",
-            "ali": "cuda",
             "cuda": "cuda",
             "mlu": "mlu",
             "musa": "musa",
             "npu": "npu",
         }
-        device_name = device_map.get(device_type_str.lower(), "cpu")
+        try:
+            device_name = device_map[device_type_str.lower()]
+        except KeyError:
+            supported = ", ".join(sorted(device_map))
+            raise ValueError(
+                f"unsupported device platform {device_type_str!r}; "
+                f"expected one of: {supported}"
+            ) from None
 
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             self.config_dict = json.load(f)

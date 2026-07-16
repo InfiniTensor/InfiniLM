@@ -145,9 +145,9 @@ void init_kv_cache_quant_params(std::function<void(const std::string &, infinico
     case infinilm::quantization::KVQuantAlgo::NONE:
         break;
     case infinilm::quantization::KVQuantAlgo::INT8:
-        kv_cache_k_scale = infinicore::nn::Parameter({1}, infinicore::DataType::F32, device, 0, 0, 1);
+        kv_cache_k_scale = infinicore::nn::Parameter({1}, infinicore::DataType::kFloat32, device, 0, 0, 1);
         register_fn("kv_cache_k_scale", kv_cache_k_scale);
-        kv_cache_v_scale = infinicore::nn::Parameter({1}, infinicore::DataType::F32, device, 0, 0, 1);
+        kv_cache_v_scale = infinicore::nn::Parameter({1}, infinicore::DataType::kFloat32, device, 0, 0, 1);
         register_fn("kv_cache_v_scale", kv_cache_v_scale);
         break;
     default:

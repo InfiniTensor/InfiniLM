@@ -41,7 +41,7 @@ infinicore::Tensor BaseEPDispatcher::expert_map(const infinicore::Device &device
     if (config_.ep_size == 1) {
         return infinicore::Tensor();
     }
-    if (expert_map_ && expert_map_->device().getType() == device.getType() && expert_map_->device().getIndex() == device.getIndex()) {
+    if (expert_map_ && expert_map_->device().type() == device.type() && expert_map_->device().index() == device.index()) {
         return expert_map_;
     }
 
@@ -59,9 +59,9 @@ infinicore::Tensor BaseEPDispatcher::expert_map(const infinicore::Device &device
     auto cpu = infinicore::Tensor::from_blob(
         map.data(),
         {num_experts_},
-        infinicore::DataType::I32,
-        infinicore::Device(infinicore::Device::Type::CPU, 0));
-    expert_map_ = infinicore::Tensor::empty({num_experts_}, infinicore::DataType::I32, device);
+        infinicore::DataType::kInt32,
+        infinicore::Device(infinicore::Device::Type::kCpu, 0));
+    expert_map_ = infinicore::Tensor::empty({num_experts_}, infinicore::DataType::kInt32, device);
     expert_map_->copy_from(cpu);
     return expert_map_;
 }

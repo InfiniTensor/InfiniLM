@@ -33,7 +33,7 @@ std::string make_cache_key(size_t head_dim,
         << "_theta_" << std::setprecision(17) << rope_theta
         << "_algo_" << static_cast<int>(algo)
         << "_dtype_" << static_cast<int>(dtype)
-        << "_dev" << device.toString();
+        << "_dev" << device.ToString();
 
     if (mrope_section.has_value()) {
         oss << "_mrope";

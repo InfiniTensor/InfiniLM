@@ -58,7 +58,7 @@ TopKRouter::TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_conf
         ({num_experts_, model_config->get<size_t>("hidden_size")}, model_config->get_dtype(), device));
 
     if (use_correction_bias_) {
-        INFINICORE_NN_PARAMETER_INIT(e_score_correction_bias, ({num_experts_}, infinicore::DataType::F32, device));
+        INFINICORE_NN_PARAMETER_INIT(e_score_correction_bias, ({num_experts_}, infinicore::DataType::kFloat32, device));
     }
 
     if (router_backend_ == TopKRouterBackend::FusedGate) {
@@ -83,8 +83,8 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> TopKRouter::forward(const inf
     size_t ntoken = hidden_states->shape()[0];
     auto router_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
 
-    auto router_scores = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::F32, hidden_states->device());
-    auto router_indices = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::I32, hidden_states->device());
+    auto router_scores = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::kFloat32, hidden_states->device());
+    auto router_indices = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::kInt32, hidden_states->device());
 
     const infinicore::Tensor correction_bias = use_correction_bias_ ? static_cast<infinicore::Tensor>(e_score_correction_bias_) : infinicore::Tensor();
 

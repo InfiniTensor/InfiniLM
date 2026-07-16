@@ -1,5 +1,5 @@
-import os
 import logging
+import os
 from typing import Iterator
 
 logger = logging.getLogger(__name__)
@@ -42,9 +42,8 @@ def is_oom_exception(e: BaseException) -> bool:
     # Common patterns observed for allocator failures.
     # Keep this allowlist small to avoid hard-exiting on unrelated errors.
     patterns = (
-        # MetaX / infinirt allocator
+        # MetaX allocator
         "hcmalloc",
-        "infinirtmalloc",
         "out of memory",
         # CUDA / driver / runtime alloc failures
         "cuda out of memory",

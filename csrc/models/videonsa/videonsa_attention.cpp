@@ -32,7 +32,7 @@ constexpr size_t kNsaBlockSize = 64;
 constexpr int kNsaSelectBlocks = 4;
 
 infinicore::Tensor scalar_tensor(float value, const infinicore::Device &device) {
-    auto cpu = infinicore::Tensor::from_blob(&value, {1}, infinicore::DataType::F32, infinicore::Device::cpu());
+    auto cpu = infinicore::Tensor::from_blob(&value, {1}, infinicore::DataType::kFloat32, infinicore::Device{infinicore::Device::Type::kCpu});
     return cpu->to(device);
 }
 
@@ -59,38 +59,38 @@ std::pair<infinicore::Tensor, infinicore::Tensor> build_mrope_cache(size_t max_s
         }
     }
 
-    const auto cpu = infinicore::Device::cpu();
+    const auto cpu = infinicore::Device{infinicore::Device::Type::kCpu};
     auto sin_cache = infinicore::Tensor::empty({max_seq_len, cache_dim}, dtype, device);
     auto cos_cache = infinicore::Tensor::empty({max_seq_len, cache_dim}, dtype, device);
-    if (dtype == infinicore::DataType::F32) {
-        auto sin_cpu = infinicore::Tensor::from_blob(sin_data.data(), {max_seq_len, cache_dim}, infinicore::DataType::F32, cpu);
-        auto cos_cpu = infinicore::Tensor::from_blob(cos_data.data(), {max_seq_len, cache_dim}, infinicore::DataType::F32, cpu);
+    if (dtype == infinicore::DataType::kFloat32) {
+        auto sin_cpu = infinicore::Tensor::from_blob(sin_data.data(), {max_seq_len, cache_dim}, infinicore::DataType::kFloat32, cpu);
+        auto cos_cpu = infinicore::Tensor::from_blob(cos_data.data(), {max_seq_len, cache_dim}, infinicore::DataType::kFloat32, cpu);
         sin_cache->copy_from(sin_cpu);
         cos_cache->copy_from(cos_cpu);
         return {sin_cache, cos_cache};
     }
-    if (dtype == infinicore::DataType::BF16) {
+    if (dtype == infinicore::DataType::kBFloat16) {
         std::vector<uint16_t> sin_bf16(numel);
         std::vector<uint16_t> cos_bf16(numel);
         for (size_t i = 0; i < numel; ++i) {
             sin_bf16[i] = f32_to_bf16(sin_data[i]);
             cos_bf16[i] = f32_to_bf16(cos_data[i]);
         }
-        auto sin_cpu = infinicore::Tensor::from_blob(sin_bf16.data(), {max_seq_len, cache_dim}, infinicore::DataType::BF16, cpu);
-        auto cos_cpu = infinicore::Tensor::from_blob(cos_bf16.data(), {max_seq_len, cache_dim}, infinicore::DataType::BF16, cpu);
+        auto sin_cpu = infinicore::Tensor::from_blob(sin_bf16.data(), {max_seq_len, cache_dim}, infinicore::DataType::kBFloat16, cpu);
+        auto cos_cpu = infinicore::Tensor::from_blob(cos_bf16.data(), {max_seq_len, cache_dim}, infinicore::DataType::kBFloat16, cpu);
         sin_cache->copy_from(sin_cpu);
         cos_cache->copy_from(cos_cpu);
         return {sin_cache, cos_cache};
     }
-    if (dtype == infinicore::DataType::F16) {
+    if (dtype == infinicore::DataType::kFloat16) {
         std::vector<uint16_t> sin_f16(numel);
         std::vector<uint16_t> cos_f16(numel);
         for (size_t i = 0; i < numel; ++i) {
             sin_f16[i] = f32_to_f16(sin_data[i]);
             cos_f16[i] = f32_to_f16(cos_data[i]);
         }
-        auto sin_cpu = infinicore::Tensor::from_blob(sin_f16.data(), {max_seq_len, cache_dim}, infinicore::DataType::F16, cpu);
-        auto cos_cpu = infinicore::Tensor::from_blob(cos_f16.data(), {max_seq_len, cache_dim}, infinicore::DataType::F16, cpu);
+        auto sin_cpu = infinicore::Tensor::from_blob(sin_f16.data(), {max_seq_len, cache_dim}, infinicore::DataType::kFloat16, cpu);
+        auto cos_cpu = infinicore::Tensor::from_blob(cos_f16.data(), {max_seq_len, cache_dim}, infinicore::DataType::kFloat16, cpu);
         sin_cache->copy_from(sin_cpu);
         cos_cache->copy_from(cos_cpu);
         return {sin_cache, cos_cache};
@@ -187,7 +187,7 @@ infinicore::Tensor expand_head_gate(const infinicore::Tensor &gate, size_t head_
             expand_indices[row * head_dim + d] = static_cast<int64_t>(row);
         }
     }
-    auto indices = infinicore::Tensor::empty({seq_len, num_heads, head_dim}, infinicore::DataType::I64, gate->device());
+    auto indices = infinicore::Tensor::empty({seq_len, num_heads, head_dim}, infinicore::DataType::kInt64, gate->device());
     infinicore::context::memcpyH2D(indices->data(), expand_indices.data(), expand_indices.size() * sizeof(int64_t), false);
     return infinicore::op::take(flat_gate, indices);
 }
@@ -312,7 +312,7 @@ infinicore::Tensor VideoNSAAttention::forward(const infinicore::Tensor &position
         auto &kv_cache = forward_context.kv_cache_vec[layer_idx_];
         auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
         auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
-        const size_t cache_pos = reinterpret_cast<int32_t *>(attn_metadata.past_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
+        const size_t cache_pos = reinterpret_cast<int32_t *>(attn_metadata.past_sequence_lengths.value()->to(infinicore::Device{infinicore::Device::Type::kCpu})->data())[0];
         const size_t total_seq_len = cache_pos + seq_len;
         k_cache_layer->narrow({{2, cache_pos, seq_len}})->copy_from(k_static->permute({0, 2, 1, 3}));
         v_cache_layer->narrow({{2, cache_pos, seq_len}})->copy_from(v_static->permute({0, 2, 1, 3}));

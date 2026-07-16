@@ -1,7 +1,6 @@
 #include "static_batching_compiler.hpp"
 #include "../../cache/cache.hpp"
 #include "../../global_state/global_state.hpp"
-#include "../../utils.hpp"
 
 namespace infinilm::engine {
 StaticBatchingCompiler::StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
@@ -12,10 +11,10 @@ void StaticBatchingCompiler::compile() {
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())) {
         size_t b = dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())->max_batch_size();
         InfinilmModel::Input input;
-        input.input_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::I64, infinicore::context::getDevice());
-        input.position_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::I64, infinicore::context::getDevice());
-        input.past_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
-        input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+        input.input_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::kInt64, infinicore::context::getDevice());
+        input.position_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::kInt64, infinicore::context::getDevice());
+        input.past_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::kInt64, infinicore::context::getDevice());
+        input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::kInt64, infinicore::context::getDevice());
         set_zeros(input.input_ids.value());
         set_zeros(input.position_ids.value());
         set_zeros(input.past_sequence_lengths.value());
@@ -36,9 +35,9 @@ void StaticBatchingCompiler::compile() {
         (void)model_->forward(input);
         infinicore::context::syncStream();
 
-        infinicore::context::startGraphRecording();
+        GraphRecordingGuard recording;
         auto output = model_->forward(input);
-        auto graph = infinicore::context::stopGraphRecording();
+        auto graph = recording.finish();
         barrier_->wait();
 
         auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});

@@ -12,7 +12,7 @@ infinicore::Tensor BaseQuantization::forward_allreduce(
     float alpha) const {
     auto output = forward(params, input, has_bias, alpha);
     infinicore::op::distributed::allreduce_(
-        output, output, INFINICCL_SUM, communicator);
+        output, output, infinicclSum, communicator);
     return output;
 }
 

@@ -3,7 +3,7 @@
 #include "infinicore/tensor.hpp"
 #include "nlohmann/json.hpp"
 #include "quantization_scheme.hpp"
-#include <infiniccl.h>
+#include <infiniccl/infiniccl.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -91,9 +91,8 @@ public:
         int tp_rank, int tp_size, int tp_num_heads) const
         = 0;
 
-    // Post-loading weight processing (e.g., GPTQ->GPTQ_QY conversion).
-    // Returns a replacement quantization object if the scheme changed (e.g. GPTQ -> GPTQ_QY),
-    // or nullptr if no replacement is needed.
+    // Post-loading weight processing. Returns a replacement quantization object if the scheme
+    // changed, or nullptr if no replacement is needed.
     virtual std::shared_ptr<BaseQuantization> process_weights_after_loading(
         ParamsMap &params,
         const infinicore::Device &device,
@@ -105,10 +104,7 @@ public:
     }
 
     // Reset transient buffers whose contents affect the next kernel launch.
-    // Marlin currently uses a zero-initialized lock/workspace region; stale
-    // lock values from warmup, graph capture, or a previous graph replay can
-    // make the next launch wait forever. Quantization schemes without such
-    // runtime state can keep the default no-op implementation.
+    // Quantization schemes without runtime state keep the default no-op.
     virtual void reset_runtime_state() const {}
 
     template <typename T>

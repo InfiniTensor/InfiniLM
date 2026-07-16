@@ -42,7 +42,7 @@ MiniCPMVModel::MiniCPMVModel(std::shared_ptr<infinilm::config::ModelConfig> mode
 void MiniCPMVModel::replace_embeddings(infinicore::Tensor inputs_embeds,
                                        const infinicore::Tensor &vision_hidden,
                                        const infinicore::Tensor &image_bound) const {
-    auto bounds_cpu = image_bound->to(infinicore::Device::cpu());
+    auto bounds_cpu = image_bound->to(infinicore::Device{infinicore::Device::Type::kCpu});
     auto batch_size = inputs_embeds->size(0);
 
     ASSERT_EQ(batch_size, 1);
@@ -79,7 +79,7 @@ InfinilmModel::Output MiniCPMVModel::forward(const InfinilmModel::Input &input) 
 
         // inputs_embeds concat tokens from all requests, while images are processed per request
         // slice inputs_embeds using request offsets to get the embedding of each request
-        infinicore::Tensor input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device::cpu());
+        infinicore::Tensor input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device{infinicore::Device::Type::kCpu});
         int32_t *offsets = (int32_t *)(input_offsets_cpu->data());
         for (size_t i : global_state::get_forward_context().mm_metadata.image_req_ids.value()) {
             auto pixel_values = input.pixel_values.value().at(i);
