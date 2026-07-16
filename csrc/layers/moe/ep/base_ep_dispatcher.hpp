@@ -3,7 +3,7 @@
 #include "../dispatcher/base_dispatcher.hpp"
 #include "ep_config.hpp"
 
-#include <infiniccl.h>
+#include <infiniccl/infiniccl.h>
 #include <vector>
 
 namespace infinilm::layers::moe {

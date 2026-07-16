@@ -3,7 +3,7 @@
 #include "../quantization/quantization.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/ops.hpp"
-#include <infiniccl.h>
+#include <infiniccl/infiniccl.h>
 #include <optional>
 
 namespace infinilm::nn {
@@ -15,7 +15,7 @@ public:
     BaseLinear(size_t in_features, size_t out_features,
                std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = std::make_shared<infinilm::quantization::NoneQuantization>(nullptr),
                bool bias = true,
-               const infinicore::DataType &dtype = infinicore::DataType::F32,
+               const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                const infinicore::Device &device = infinicore::Device(),
                int split_dim = -1, int tp_rank = 0, int tp_size = 1,
                int tp_num_heads = -1);

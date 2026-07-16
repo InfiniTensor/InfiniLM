@@ -15,13 +15,13 @@ std::vector<ParamDescriptor> CompressedTensors::get_param_layout(
     bool bias) const {
 
     std::vector<ParamDescriptor> descs;
-    descs.push_back({"weight", {out_features, in_features}, infinicore::DataType::I8, split_dim, tp_rank, tp_size});
+    descs.push_back({"weight", {out_features, in_features}, infinicore::DataType::kInt8, split_dim, tp_rank, tp_size});
     // weight_scale is per-output-channel [out_features, 1]; always split on
     // dim0 (output dimension) for ColumnParallel, and don't split for RowParallel.
     int scale_split_dim = (split_dim == 0) ? 0 : -1;
     int scale_tp_size = (split_dim == 0) ? tp_size : 1;
     int scale_tp_rank = (split_dim == 0) ? tp_rank : 0;
-    descs.push_back({"weight_scale", {out_features, 1}, infinicore::DataType::F32, scale_split_dim, scale_tp_rank, scale_tp_size});
+    descs.push_back({"weight_scale", {out_features, 1}, infinicore::DataType::kFloat32, scale_split_dim, scale_tp_rank, scale_tp_size});
     if (bias) {
         descs.push_back({"bias", {out_features}, dtype, -1, 0, 1});
     }
