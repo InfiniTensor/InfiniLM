@@ -3,6 +3,7 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 """
 
 import logging
+import os
 import queue
 from typing import List, Optional
 
@@ -82,6 +83,20 @@ class Scheduler:
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
         self.max_batch_size = max_batch_size
+        self.long_context_threshold = int(
+            os.getenv("INFINILM_LONG_CONTEXT_THRESHOLD", "4096")
+        )
+        self.long_context_max_batch = int(
+            os.getenv("INFINILM_LONG_CONTEXT_MAX_BATCH", "1")
+        )
+        self.long_context_use_total_len = (
+            os.getenv("INFINILM_LONG_CONTEXT_USE_TOTAL_LEN", "0") == "1"
+        )
+        self.decode_first_when_running = (
+            os.getenv("INFINILM_DECODE_FIRST_WHEN_RUNNING", "0") == "1"
+        )
+        self.prefill_batch_cap = int(os.getenv("INFINILM_PREFILL_BATCH_CAP", "0"))
+        self.decode_batch_cap = int(os.getenv("INFINILM_DECODE_BATCH_CAP", "0"))
 
         self.finished_receiving_kv_req_ids: set[str] = set()
         self.failed_receiving_kv_req_ids: set[str] = set()
@@ -124,6 +139,48 @@ class Scheduler:
             > self.max_num_batched_tokens
         )
 
+    def _phase_batch_limit(self, cap: int) -> int:
+        if cap <= 0:
+            return self.max_batch_size
+        return min(self.max_batch_size, cap)
+
+    def _is_long_context_request(self, req: InferenceRequest) -> bool:
+        if self.long_context_max_batch <= 0:
+            return False
+        prompt_len = req.get_prompt_length()
+        if prompt_len >= self.long_context_threshold:
+            return True
+        if not self.long_context_use_total_len:
+            return False
+        max_tokens = req.sampling_params.max_tokens or 0
+        try:
+            total_len = req.get_total_length()
+        except Exception:
+            total_len = prompt_len + max_tokens
+        return (
+            total_len >= self.long_context_threshold
+            or prompt_len + max_tokens >= self.long_context_threshold
+        )
+
+    def _exceeds_long_context_batch(
+        self, req: InferenceRequest, scheduled_requests: List[InferenceRequest]
+    ) -> bool:
+        if self.long_context_max_batch <= 0 or not scheduled_requests:
+            return False
+
+        long_in_batch = sum(
+            1
+            for scheduled_req in scheduled_requests
+            if self._is_long_context_request(scheduled_req)
+        )
+        req_is_long = self._is_long_context_request(req)
+
+        if long_in_batch == 0:
+            return (
+                req_is_long and len(scheduled_requests) >= self.long_context_max_batch
+            )
+        return long_in_batch >= self.long_context_max_batch
+
     def schedule(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute."""
         deferred_requests = []
@@ -131,10 +188,12 @@ class Scheduler:
         is_prefill = False
         current_num_batched_tokens = 0
         current_prefill_extra_blocks = 0
+        prefill_batch_limit = self._phase_batch_limit(self.prefill_batch_cap)
+        decode_batch_limit = self._phase_batch_limit(self.decode_batch_cap)
 
         # Process Waiting queue (prefill phase)
         while (
-            len(scheduled_requests) < self.max_batch_size
+            len(scheduled_requests) < prefill_batch_limit
             and current_num_batched_tokens < self.max_num_batched_tokens
         ):
             try:
@@ -145,6 +204,18 @@ class Scheduler:
             if req.is_finished():
                 self.complete_requests([req])
                 continue
+
+            if (
+                self.decode_first_when_running
+                and self._is_long_context_request(req)
+                and self.running_queue.sync_q.qsize() > 0
+            ):
+                deferred_requests.append(req)
+                break
+
+            if self._exceeds_long_context_batch(req, scheduled_requests):
+                deferred_requests.append(req)
+                break
 
             req_tokens = req.get_input_tokens()
 
@@ -305,7 +376,7 @@ class Scheduler:
             return scheduler_output
 
         # Process Running queue (decode phase)
-        while len(scheduled_requests) < self.max_batch_size:
+        while len(scheduled_requests) < decode_batch_limit:
             try:
                 req = self.running_queue.sync_q.get_nowait()
             except queue.Empty:
@@ -314,6 +385,10 @@ class Scheduler:
             if req.is_finished():
                 self.complete_requests([req])
                 continue
+
+            if self._exceeds_long_context_batch(req, scheduled_requests):
+                self.running_queue.sync_q.put(req)
+                break
 
             # Decode phase: allocate slot for newly generated token
             try:
@@ -344,7 +419,7 @@ class Scheduler:
                     req.status = RequestStatus.WAITING
                     self.waiting_queue.sync_q.put(req)
                 elif req_id in self.finished_receiving_kv_req_ids:
-                    if len(scheduled_requests) < self.max_batch_size:
+                    if len(scheduled_requests) < decode_batch_limit:
                         logger.info(
                             f"Request {req_id[:8]}... finished receiving KV, scheduling for decode."
                         )
