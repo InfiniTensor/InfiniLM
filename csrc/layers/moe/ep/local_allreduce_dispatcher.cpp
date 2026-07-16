@@ -14,7 +14,7 @@ void LocalAllReduceDispatcher::allreduce_(infinicore::Tensor tensor) const {
     if (!tensor) {
         return;
     }
-    infinicore::op::distributed::allreduce_(tensor, tensor, INFINICCL_SUM, communicator_);
+    infinicore::op::distributed::allreduce_(tensor, tensor, infinicclSum, communicator_);
 }
 
 DispatchOutput LocalAllReduceDispatcher::dispatch(
