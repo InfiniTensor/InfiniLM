@@ -16,8 +16,11 @@ from .env import (
     vllm_unified_power_ladder,
 )
 
-# Flash-attn custom op kept outside Inductor (enforced via splitting_flash_boundary at load).
-DEFAULT_SPLITTING_OPS: List[str] = ["infinilm.prefill_flash_attention"]
+# Flash-attn + FusedMoE kept outside Inductor (opaque custom ops at AOT export / load).
+DEFAULT_SPLITTING_OPS: List[str] = [
+    "infinilm.prefill_flash_attention",
+    "infinilm.fused_moe_routed",
+]
 
 
 def default_compile_size_ladder(max_seq_len: int = 8192) -> List[int]:

@@ -34,16 +34,6 @@ def _moe_aot_gc_enabled() -> bool:
     return raw not in ("0", "false", "off", "no")
 
 
-def _moe_aot_token_chunk() -> int:
-    """Token chunk for routed-expert scratch reuse (INFINI_MOE_AOT_TOKEN_CHUNK, default 64)."""
-    raw = os.environ.get("INFINI_MOE_AOT_TOKEN_CHUNK", "64").strip()
-    try:
-        chunk = int(raw)
-    except ValueError:
-        chunk = 64
-    return max(1, chunk)
-
-
 def _release_cuda_compile_state() -> None:
     """Drop compile-time peak: GC + empty_cache (mirrors pre_attn cleanup)."""
     if not _moe_aot_gc_enabled():
@@ -117,49 +107,6 @@ def _silu_mlp(x: torch.Tensor, w_gate_up: torch.Tensor, w_down: torch.Tensor) ->
     return F.linear(F.silu(gate) * up, w_down)
 
 
-def _routed_experts(
-    x: torch.Tensor,
-    topk_weights: torch.Tensor,
-    topk_ids: torch.Tensor,
-    w_gate_up: torch.Tensor,
-    w_down: torch.Tensor,
-) -> torch.Tensor:
-    """Sparse expert MLP via chunked index_select + bmm (exportable).
-
-    x: [T, H]; topk_*: [T, K]; w_gate_up [E, 2I, H]; w_down [E, H, I].
-
-    Processes tokens in chunks (``INFINI_MOE_AOT_TOKEN_CHUNK``, default 64).
-    Each ``k`` / chunk step threads a true data dependency through the running
-    accumulator so AOTInductor cannot horizontally fuse independent
-    ``index_select`` destinations into concurrent ~chunk×2I×H buffers (that
-    pattern OOMs even when eager ``out=`` scratch reuse looks fine).
-    """
-    t_tokens, _hidden = x.shape
-    top_k = int(topk_ids.shape[1])
-    chunk = _moe_aot_token_chunk()
-    pieces: list[torch.Tensor] = []
-    # Scalar carry serializes chunk iterations in the exported graph.
-    carry = x.new_zeros(())
-    for t0 in range(0, t_tokens, chunk):
-        t1 = min(t0 + chunk, t_tokens)
-        x_c = x[t0:t1] + carry
-        acc = torch.zeros_like(x_c)
-        for k in range(top_k):
-            idx = topk_ids[t0:t1, k]
-            # Tie this k to ``acc`` so gathers cannot be scheduled in parallel.
-            x_c_k = x_c + acc * 0
-            w_gu = w_gate_up.index_select(0, idx)
-            w_d = w_down.index_select(0, idx)
-            gu = torch.bmm(w_gu, x_c_k.unsqueeze(-1)).squeeze(-1)
-            gate, up = gu.chunk(2, dim=-1)
-            h = F.silu(gate) * up
-            y = torch.bmm(w_d, h.unsqueeze(-1)).squeeze(-1)
-            acc = acc + y * topk_weights[t0:t1, k].unsqueeze(-1).to(dtype=x.dtype)
-        pieces.append(acc)
-        carry = acc.sum() * 0
-    return torch.cat(pieces, dim=0) if len(pieces) > 1 else pieces[0]
-
-
 class PiecewiseMoeSegmentFunctional(nn.Module):
     """Layer-agnostic MoE: hidden + external packed weights → MoE output."""
 
@@ -215,7 +162,9 @@ class PiecewiseMoeSegmentFunctional(nn.Module):
             norm_topk_prob=self.norm_topk_prob,
             routed_scaling_factor=self.routed_scaling_factor,
         )
-        routed = _routed_experts(x, topk_w, topk_ids, w_gate_up, w_down)
+        routed = torch.ops.infinilm.fused_moe_routed(
+            x, topk_w, topk_ids, w_gate_up, w_down
+        )
         shared = _silu_mlp(x, shared_gate_up, shared_down)
         out = (routed + shared).view(batch, bucket, hidden)
         if valid < bucket:
@@ -357,13 +306,27 @@ def aot_compile_minicpm5_moe_segment(
     require_aot: bool = True,
     dtype: torch.dtype = torch.bfloat16,
 ) -> dict:
-    """Offline AOTInductor package for MiniCPM5 MoE (does not load TorchLlama)."""
+    """Offline AOTInductor package for MiniCPM5 MoE (does not load TorchLlama).
+
+    Requires ``require_aot=True`` (legacy eager / non-AOT MoE packaging removed).
+    Routed experts are exported as opaque ``infinilm.fused_moe_routed``.
+    """
+    if not require_aot:
+        raise ValueError(
+            "aot_compile_minicpm5_moe_segment requires require_aot=True "
+            "(no legacy index_select MoE path)"
+        )
+
+    from infinilm.torch_llama.moe_ops import register_fused_moe_routed_op
+
     from .aot_hpcc_patch import (
         build_aot_inductor_configs,
         hpcc_aot_compile_profile,
         is_hpcc_aot_environment,
         patch_wrapper_sources,
     )
+
+    register_fused_moe_routed_op()
 
     cfg = _load_hf_config(model_path)
     hp = moe_routing_hparams(cfg)

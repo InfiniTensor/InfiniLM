@@ -1,16 +1,8 @@
-from .models import AutoLlamaModel
-from . import distributed
-from . import cache
-from . import llm
-from . import base_config
+"""InfiniLM public package (lazy exports so tools/submodules stay light)."""
 
-from .llm import (
-    LLM,
-    AsyncLLMEngine,
-    SamplingParams,
-    RequestOutput,
-    TokenOutput,
-)
+from __future__ import annotations
+
+from typing import Any
 
 __all__ = [
     "AutoLlamaModel",
@@ -18,10 +10,31 @@ __all__ = [
     "cache",
     "llm",
     "base_config",
-    # LLM classes
     "LLM",
     "AsyncLLMEngine",
     "SamplingParams",
     "RequestOutput",
     "TokenOutput",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "AutoLlamaModel":
+        from .models import AutoLlamaModel
+
+        return AutoLlamaModel
+    if name in ("distributed", "cache", "llm", "base_config"):
+        import importlib
+
+        return importlib.import_module(f".{name}", __name__)
+    if name in (
+        "LLM",
+        "AsyncLLMEngine",
+        "SamplingParams",
+        "RequestOutput",
+        "TokenOutput",
+    ):
+        from . import llm as _llm
+
+        return getattr(_llm, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

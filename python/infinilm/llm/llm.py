@@ -19,6 +19,9 @@ from dataclasses import dataclass
 
 import infinicore
 
+# Side-effect: patches infinicore.Tensor.to_numpy (required by LLMEngine.step).
+from infinilm.generation import utils as _generation_utils  # noqa: F401
+
 from infinilm.llm.request import (
     InferenceRequest,
     RequestOutput,
