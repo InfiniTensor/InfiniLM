@@ -8,8 +8,9 @@ The lower-level runtime, operator, and collective APIs are provided by
 [InfiniCCL](https://github.com/InfiniTensor/InfiniCCL), respectively.
 
 [InfiniCore](https://github.com/InfiniTensor/InfiniCore) pins those three
-projects and provides an integration build. It no longer provides a separate
-runtime API or Python package.
+projects as submodules. InfiniLM no longer consumes runtime or Python-package
+artifacts built by that separate repository; it builds and packages its own
+`infinicore` Python module.
 
 ## Build
 
@@ -20,12 +21,16 @@ git clone --recurse-submodules https://github.com/InfiniTensor/InfiniCore.git
 git clone --recurse-submodules https://github.com/InfiniTensor/InfiniLM.git
 ```
 
-Build the NVIDIA dependency stack from InfiniCore. The default operator set is
-the set required by InfiniLM:
+From InfiniLM, build the NVIDIA dependency stack pinned by the InfiniCore
+checkout. The default operator set is the set required by InfiniLM:
 
 ```shell
-cd InfiniCore
-python3 scripts/build_integration.py --cuda-arch sm_80 --jobs 16 --test
+cd InfiniLM
+python3 scripts/build_infini_stack.py \
+  --infinicore-root ../InfiniCore \
+  --cuda-arch sm_80 \
+  --jobs 16 \
+  --test
 export INFINI_ROOT="$PWD/build/integration/nvidia/prefix"
 export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"
 ```
@@ -33,17 +38,14 @@ export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"
 Then build and install InfiniLM:
 
 ```shell
-cd ../InfiniLM
 python3 -m pip install . --no-build-isolation
 ```
 
-The native build currently recognizes `cpu`, `nvidia`, `cambricon`, `ascend`,
-`metax`, `moore`, `iluvatar`, and `hygon` platforms. The migration in this
-branch is validated on NVIDIA first.
+Automated migration coverage is limited to NVIDIA, dense non-quantized Qwen3,
+and the default static attention implementation. Other platforms and
+configurations remain gated for later validation.
 
-The modern operator closure currently supports `qwen3`. Other registered model
-types are rejected before worker startup until their required InfiniOps adapters
-are available.
+The modern operator closure currently supports `qwen3` within that boundary.
 
 ## Inference
 
