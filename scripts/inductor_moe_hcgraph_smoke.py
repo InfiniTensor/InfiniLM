@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2025, InfiniCore
-"""CG-1 / CG-2 / P4 MoE hcGraph smokes (GPU2 only; never GPU3).
+"""CG-1 / CG-2 / Triton-capture MoE hcGraph smokes (GPU2 only; never GPU3).
 
 Modes
 -----
@@ -15,6 +15,10 @@ Modes
 * ``capture_safe`` (CG-2): ``INFINI_MOE_CAPTURE_SAFE=1`` — MoE enters device
   capture with aten index_select+bmm under stream capture; Triton on eager.
   Gate: ``has_device_exec=true``, ``replay_op_list_fallback=0``.
+
+* ``triton_capture``: ``INFINI_MOE_TRITON_CAPTURE=1`` — MoE enters device capture
+  with Triton ``fused_moe_routed`` (no aten). Gate: ``has_device_exec=true``,
+  path tag ``triton``, bf16 parity vs eager Triton max abs < 1e-2.
 """
 
 from __future__ import annotations
@@ -49,6 +53,15 @@ class MoeHcGraphSpikeResult:
     note: str = ""
     error: Optional[str] = None
     illegal_ops_catalog: str = ""
+    path_tag: str = ""
+    parity_max_abs: float = -1.0
+    # Phase 3 capture MM
+    used_torch_mempool: bool = False
+    capture_arena_bytes: int = 0
+    capture_arena_blocks: int = 0
+    capture_arena_retained_torch: int = 0
+    peak_device_memory_bytes: int = 0
+    torch_stream_matches_ic: bool = True
 
 
 def _timed_ms(fn, *, warmup: int, iters: int, sync) -> float:
@@ -68,6 +81,7 @@ def _setup_moe_env(
     moe_triton_cache: str,
     valid_len: int,
     capture_safe: bool = False,
+    triton_capture: bool = False,
     strict_replay: Optional[str] = None,
 ) -> None:
     if strict_replay is not None:
@@ -79,11 +93,17 @@ def _setup_moe_env(
     os.environ["INFINI_PIECEWISE_VALID_LEN"] = str(int(valid_len))
     os.environ["INFINI_PIECEWISE_INDUCTOR_SEGMENT"] = "1"
     os.environ["INFINI_MOE_ALLOW_JIT"] = "0"
-    if capture_safe:
-        os.environ["INFINI_MOE_CAPTURE_SAFE"] = "1"
-    else:
-        # Ensure host-break modes are not polluted by a leftover flag.
+    if triton_capture:
+        os.environ["INFINI_MOE_TRITON_CAPTURE"] = "1"
+        # Triton-capture must not fall through to aten CAPTURE_SAFE body.
         os.environ.pop("INFINI_MOE_CAPTURE_SAFE", None)
+    else:
+        os.environ.pop("INFINI_MOE_TRITON_CAPTURE", None)
+        if capture_safe:
+            os.environ["INFINI_MOE_CAPTURE_SAFE"] = "1"
+        else:
+            # Ensure host-break modes are not polluted by a leftover flag.
+            os.environ.pop("INFINI_MOE_CAPTURE_SAFE", None)
     if moe_configs:
         os.environ["INFINI_MOE_CONFIGS"] = moe_configs
     if moe_triton_cache:
@@ -245,7 +265,7 @@ def run_full_moe_spike(
     log_msg = graph.device_graph_log() or ""
     note = (
         "MoE is host-break: no device capture of Triton; "
-        "use --mode capture_safe for CG-2 aten body"
+        "use --mode capture_safe for CG-2 aten body, or --mode triton_capture"
     )
 
     def replay_once():
@@ -456,6 +476,248 @@ def run_capture_safe_spike(
         note=note,
         error=err,
         illegal_ops_catalog=illegal,
+        path_tag="aten",
+    )
+
+
+def run_triton_capture_spike(
+    *,
+    segment_pt2: str,
+    bucket: int,
+    layer_idx: int,
+    valid_len: int,
+    warmup: int,
+    iters: int,
+    device_index: int,
+    moe_configs: str = "",
+    moe_triton_cache: str = "",
+) -> MoeHcGraphSpikeResult:
+    """Triton fused_moe_routed under MetaX stream capture (no aten body)."""
+    _setup_moe_env(
+        moe_configs=moe_configs,
+        moe_triton_cache=moe_triton_cache,
+        valid_len=valid_len,
+        triton_capture=True,
+        strict_replay="1",
+    )
+    illegal = (
+        "Triton fused_moe_routed under hcStreamBeginCapture failed historically "
+        "via AOTI (UNKNOWN_SCALAR). This mode uses eager-decode MoE "
+        "(router+Triton+shared, no moe_B* AOTI) with device-side align."
+    )
+    try:
+        infinicore, torch, _ic, device, cuda_dev, dtype = _register_moe_package(
+            segment_pt2=segment_pt2,
+            bucket=bucket,
+            layer_idx=layer_idx,
+            device_index=device_index,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="triton_capture",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=False,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=0.0,
+            replay_ms_per_iter=0.0,
+            error=str(exc),
+            illegal_ops_catalog=illegal,
+            path_tag="triton",
+        )
+
+    seq = min(int(valid_len) if valid_len > 0 else 1, bucket)
+    # Fixed seed for parity (eager vs replay).
+    torch.manual_seed(42)
+    torch.cuda.reset_peak_memory_stats(device_index)
+    hidden_t = torch.randn(1, seq, H, device=cuda_dev, dtype=dtype)
+    out_t = torch.empty(1, seq, H, device=cuda_dev, dtype=dtype)
+    hidden = infinicore.from_torch(hidden_t)
+    out = infinicore.from_torch(out_t)
+
+    def sync():
+        torch.cuda.synchronize(device_index)
+        infinicore.sync_stream()
+
+    def eager_once():
+        _ic.inductor_moe_(
+            hidden._underlying,
+            out._underlying,
+            int(layer_idx),
+            int(bucket),
+        )
+
+    for _ in range(max(warmup, 3)):
+        eager_once()
+    sync()
+    eager_ms = _timed_ms(eager_once, warmup=2, iters=iters, sync=sync)
+
+    # Reference output from eager Triton (TRITON_CAPTURE does not change eager path).
+    eager_once()
+    sync()
+    eager_ref = out_t.detach().float().clone()
+
+    # Stream align is enforced in C++ via CUDAStreamGuard during capture.
+    stream_match = True
+
+    try:
+        infinicore.start_graph_recording(device)
+        _ic.inductor_moe_(
+            hidden._underlying,
+            out._underlying,
+            int(layer_idx),
+            int(bucket),
+        )
+        graph = infinicore.stop_graph_recording()
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="triton_capture",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=False,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=eager_ms,
+            replay_ms_per_iter=0.0,
+            error=f"triton_capture record/instantiate failed: {exc}",
+            illegal_ops_catalog=illegal,
+            note="expected: Triton MoE under capture yields has_device_exec",
+            path_tag="triton",
+            used_torch_mempool=bool(
+                getattr(_ic, "capture_used_torch_mempool", lambda: False)()
+            ),
+        )
+
+    has_exec = bool(graph.has_device_exec())
+    log_msg = graph.device_graph_log() or ""
+    arena_bytes = int(graph.capture_arena_bytes())
+    arena_blocks = int(graph.capture_arena_blocks())
+    arena_torch = int(graph.capture_arena_retained_torch())
+    used_mempool = bool(getattr(_ic, "capture_used_torch_mempool", lambda: True)())
+    peak_bytes = int(torch.cuda.max_memory_allocated(device_index))
+    # Soft VRAM gate for single-layer smoke (full 30-seg serve needs ~40 GiB free).
+    vram_gate_bytes = int(os.environ.get("INFINI_CAPTURE_VRAM_GATE_BYTES", str(2 << 30)))
+    note = (
+        "INFINI_MOE_TRITON_CAPTURE=1 — Triton fused_moe_routed under stream "
+        f"capture; IC CaptureArena bytes={arena_bytes} blocks={arena_blocks} "
+        f"retained_torch={arena_torch}; peak_alloc={peak_bytes}"
+    )
+
+    def replay_once():
+        graph.run()
+
+    try:
+        for _ in range(2):
+            graph.run()
+            sync()
+        replay_ms = _timed_ms(replay_once, warmup=2, iters=iters, sync=sync)
+        replay_device = bool(graph.last_replay_used_device())
+        fallback = int(graph.replay_op_list_fallback())
+        device_ok = int(graph.replay_device_ok())
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="triton_capture",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=has_exec,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=eager_ms,
+            replay_ms_per_iter=0.0,
+            device_graph_log=log_msg,
+            note=note,
+            error=f"triton_capture replay failed: {exc}",
+            illegal_ops_catalog=illegal,
+            path_tag="triton",
+            used_torch_mempool=used_mempool,
+            capture_arena_bytes=arena_bytes,
+            capture_arena_blocks=arena_blocks,
+            capture_arena_retained_torch=arena_torch,
+            peak_device_memory_bytes=peak_bytes,
+            torch_stream_matches_ic=stream_match,
+        )
+
+    # Parity: replay vs eager Triton on same inputs.
+    out_t.zero_()
+    graph.run()
+    sync()
+    parity_max = float((out_t.float() - eager_ref).abs().max().item())
+    parity_ok = parity_max < 1e-2
+    vram_ok = peak_bytes <= vram_gate_bytes
+    arena_ok = arena_bytes > 0 or arena_torch > 0
+
+    passed = (
+        has_exec
+        and fallback == 0
+        and replay_device
+        and parity_ok
+        and (not used_mempool)
+        and arena_ok
+        and vram_ok
+        and os.environ.get("INFINI_MOE_TRITON_CAPTURE") == "1"
+        and not os.environ.get("INFINI_MOE_CAPTURE_SAFE")
+    )
+    err = None
+    if not has_exec:
+        err = "triton_capture gate failed: need has_device_exec=true"
+    elif fallback != 0:
+        err = f"triton_capture gate failed: replay_op_list_fallback={fallback} (want 0)"
+    elif not replay_device:
+        err = "triton_capture gate failed: last_replay_used_device=false"
+    elif not parity_ok:
+        err = f"triton_capture parity failed: max_abs={parity_max} (>= 1e-2)"
+    elif used_mempool:
+        err = "triton_capture MM gate failed: torch MemPool still in use"
+    elif not arena_ok:
+        err = "triton_capture MM gate failed: CaptureArena empty (no IC/retain)"
+    elif not vram_ok:
+        err = (
+            f"triton_capture VRAM gate failed: peak={peak_bytes} > "
+            f"gate={vram_gate_bytes}"
+        )
+    elif os.environ.get("INFINI_MOE_CAPTURE_SAFE"):
+        err = "triton_capture path polluted: INFINI_MOE_CAPTURE_SAFE set (want Triton-only)"
+
+    if passed and eager_ms > 0 and replay_ms >= eager_ms:
+        note += (
+            f"; soft: replay_ms ({replay_ms:.3f}) not ≪ eager ({eager_ms:.3f}) "
+            "— still PASS on has_device_exec+parity"
+        )
+
+    return MoeHcGraphSpikeResult(
+        passed=passed,
+        mode="triton_capture",
+        bucket=bucket,
+        layer_idx=layer_idx,
+        valid_len=valid_len,
+        has_device_exec=has_exec,
+        last_replay_used_device=replay_device,
+        replay_device_ok=device_ok,
+        replay_op_list_fallback=fallback,
+        eager_ms_per_iter=eager_ms,
+        replay_ms_per_iter=replay_ms,
+        device_graph_log=log_msg,
+        note=note,
+        error=err,
+        illegal_ops_catalog=illegal,
+        path_tag="triton",
+        parity_max_abs=parity_max,
+        used_torch_mempool=used_mempool,
+        capture_arena_bytes=arena_bytes,
+        capture_arena_blocks=arena_blocks,
+        capture_arena_retained_torch=arena_torch,
+        peak_device_memory_bytes=peak_bytes,
+        torch_stream_matches_ic=stream_match,
     )
 
 
@@ -638,10 +900,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--mode",
-        choices=("full_moe", "piecewise", "capture_safe"),
+        choices=("full_moe", "piecewise", "capture_safe", "triton_capture"),
         default="piecewise",
         help="full_moe: host-break; piecewise: stub+eager MoE; "
-        "capture_safe: CG-2 aten MoE-in-graph (default: piecewise)",
+        "capture_safe: CG-2 aten MoE-in-graph; "
+        "triton_capture: Triton MoE-in-graph (default: piecewise)",
     )
     parser.add_argument(
         "--segment-pt2",
@@ -675,6 +938,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "piecewise": run_piecewise_spike,
         "full_moe": run_full_moe_spike,
         "capture_safe": run_capture_safe_spike,
+        "triton_capture": run_triton_capture_spike,
     }
     runner = runners[args.mode]
     try:
@@ -712,7 +976,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         f"has_device_exec={result.has_device_exec} "
         f"last_replay_used_device={result.last_replay_used_device} "
         f"replay_device_ok={result.replay_device_ok} "
-        f"replay_op_list_fallback={result.replay_op_list_fallback}",
+        f"replay_op_list_fallback={result.replay_op_list_fallback} "
+        f"path_tag={result.path_tag or '-'} "
+        f"parity_max_abs={result.parity_max_abs}",
         flush=True,
     )
     print(

@@ -408,15 +408,30 @@ void PiecewiseDecodeCompiler::capture_batch_(size_t batch) {
     compiled_[batch] = std::move(graphs);
 
     const auto &stored = compiled_[batch];
+    const bool triton_capture = []() {
+        const char *v = std::getenv("INFINI_MOE_TRITON_CAPTURE");
+        return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+    }();
     const bool capture_safe = []() {
         const char *v = std::getenv("INFINI_MOE_CAPTURE_SAFE");
         return v != nullptr && v[0] != '\0' && std::string(v) != "0";
     }();
-    const char *mode_name = capture_safe ? "span_fuse_capture_safe" : "span_fuse_moe_hostbreak";
+    const char *mode_name = "span_fuse_moe_hostbreak";
+    if (triton_capture) {
+        mode_name = "span_fuse_triton_capture";
+    } else if (capture_safe) {
+        mode_name = "span_fuse_capture_safe";
+    }
     if (stored.fuse_layers == 1) {
         mode_name = "legacy_split";
     } else if (stored.fuse_layers == 2) {
-        mode_name = capture_safe ? "post_only_capture_safe" : "post_only_cg";
+        if (triton_capture) {
+            mode_name = "post_only_triton_capture";
+        } else if (capture_safe) {
+            mode_name = "post_only_capture_safe";
+        } else {
+            mode_name = "post_only_cg";
+        }
     }
     spdlog::info(
         "native piecewise decode CG: captured batch={} layers={} fuse_layers={} "

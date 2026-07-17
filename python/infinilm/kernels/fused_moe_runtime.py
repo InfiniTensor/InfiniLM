@@ -370,6 +370,12 @@ def _moe_capture_safe_enabled() -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+def _moe_triton_capture_enabled() -> bool:
+    """INFINI_MOE_TRITON_CAPTURE=1: Triton fused_moe_routed under stream capture."""
+    raw = os.environ.get("INFINI_MOE_TRITON_CAPTURE", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def _under_device_stream_capture() -> bool:
     try:
         from infinicore.lib import _infinicore as _ic
@@ -377,6 +383,33 @@ def _under_device_stream_capture() -> bool:
         return bool(_ic.is_device_stream_capturing())
     except Exception:  # noqa: BLE001
         return False
+
+
+def _empty_capture(numel: int, *, dtype, device) -> torch.Tensor:
+    """IC-backed empty under CaptureArena; else torch.empty."""
+    if _under_device_stream_capture():
+        from infinicore.lib import _infinicore as _ic
+
+        proto = torch.empty(0, dtype=dtype, device=device)
+        return _ic.capture_empty_like(proto, [int(numel)])
+    return torch.empty(int(numel), dtype=dtype, device=device)
+
+
+def _retain_capture(*tensors) -> None:
+    """Retain residual torch-allocator temps on the active CaptureArena."""
+    if not _under_device_stream_capture():
+        return
+    try:
+        from infinicore.lib import _infinicore as _ic
+
+        retain = getattr(_ic, "capture_retain", None)
+        if retain is None:
+            return
+        for t in tensors:
+            if isinstance(t, torch.Tensor):
+                retain(t)
+    except Exception:  # noqa: BLE001
+        return
 
 
 def _routed_experts_aten(
@@ -466,6 +499,87 @@ def _moe_align_block_size_host(
     return sorted_ids, expert_ids_out, num_tokens_post_pad
 
 
+def _moe_align_block_size_capture(
+    topk_ids: torch.Tensor,
+    block_size: int,
+    num_experts: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Device align under hcStream capture — arena temps, no ``torch.bincount``.
+
+    Full-model piecewise capture segfaulted in MetaX ``bincount`` (smoke-only
+    MoE capture was fine). Use ``scatter_add_`` + CaptureArena empties instead.
+    """
+    device = topk_ids.device
+    numel = int(topk_ids.numel())
+    max_num_tokens_padded = numel + num_experts * (block_size - 1)
+    n_m_blocks = max(numel, 1)
+
+    if numel == 0:
+        sorted_ids = _empty_capture(max(max_num_tokens_padded, 0), dtype=torch.int32, device=device)
+        sorted_ids.zero_()
+        expert_ids_out = _empty_capture(n_m_blocks, dtype=torch.int32, device=device)
+        expert_ids_out.fill_(-1)
+        num_tokens_post_pad = _empty_capture(1, dtype=torch.int32, device=device)
+        num_tokens_post_pad.zero_()
+        return sorted_ids, expert_ids_out, num_tokens_post_pad
+
+    flat = topk_ids.reshape(-1).to(torch.int64)
+    order = torch.argsort(flat, stable=True)
+    sorted_experts = flat[order]
+    idx = torch.arange(numel, device=device, dtype=torch.int64)
+
+    counts = _empty_capture(num_experts, dtype=torch.int64, device=device)
+    counts.zero_()
+    ones = _empty_capture(numel, dtype=torch.int64, device=device)
+    ones.fill_(1)
+    counts.scatter_add_(0, sorted_experts, ones)
+
+    rem = counts % block_size
+    pad = (block_size - rem) % block_size
+    padded_counts = counts + pad
+    num_tokens_post_pad = padded_counts.sum().to(dtype=torch.int32).reshape(1)
+
+    padded_offsets = _empty_capture(num_experts + 1, dtype=torch.int64, device=device)
+    padded_offsets.zero_()
+    padded_offsets[1:] = padded_counts.cumsum(0)
+
+    first_pos = _empty_capture(num_experts, dtype=torch.int64, device=device)
+    first_pos.fill_(numel)
+    first_pos.scatter_reduce_(0, sorted_experts, idx, reduce="amin", include_self=True)
+
+    within_expert = idx - first_pos[sorted_experts]
+    out_pos = padded_offsets[sorted_experts] + within_expert
+
+    sorted_ids = _empty_capture(max_num_tokens_padded, dtype=torch.int32, device=device)
+    sorted_ids.fill_(numel)
+    sorted_ids.scatter_(0, out_pos, order.to(torch.int32))
+
+    expert_ids_out = _empty_capture(n_m_blocks, dtype=torch.int32, device=device)
+    expert_ids_out.fill_(-1)
+    block_idx = out_pos // block_size
+    expert_ids_out.scatter_(0, block_idx, sorted_experts.to(torch.int32))
+
+    _retain_capture(
+        order,
+        sorted_experts,
+        idx,
+        ones,
+        counts,
+        padded_counts,
+        rem,
+        pad,
+        num_tokens_post_pad,
+        padded_offsets,
+        first_pos,
+        within_expert,
+        out_pos,
+        sorted_ids,
+        expert_ids_out,
+        block_idx,
+    )
+    return sorted_ids, expert_ids_out, num_tokens_post_pad
+
+
 def moe_align_block_size(
     topk_ids: torch.Tensor,
     block_size: int,
@@ -480,6 +594,12 @@ def moe_align_block_size(
     """
     device = topk_ids.device
     numel = int(topk_ids.numel())
+    # Under hcStream capture: arena-backed path (no host D2H, no bincount).
+    if _under_device_stream_capture():
+        _HOST_SPLIT.begin("align_capture")
+        out = _moe_align_block_size_capture(topk_ids, block_size, num_experts)
+        _HOST_SPLIT.end("align_capture")
+        return out
     # Decode-sized (e.g. M=1,TOP_K=16 → 16 ids): host path wins on MetaX.
     # Keep larger prefill-like aligns on-device (avoid big D2H).
     if numel > 0 and numel <= 64 and topk_ids.is_cuda:
@@ -658,6 +778,21 @@ class _RoutedWorkspace:
         need13 = num_tokens * top_k * max(N2, H)
         need2 = num_tokens * top_k * N
         need_out = num_tokens * H
+        # Under hcStream capture: always allocate IC-backed temps (do not reuse
+        # torch.empty caches from pre-capture warmup — those are not arena-owned).
+        if _under_device_stream_capture():
+            cache13 = _empty_capture(need13, dtype=dtype, device=device)
+            cache2 = _empty_capture(need2, dtype=dtype, device=device)
+            out_buf = _empty_capture(need_out, dtype=dtype, device=device)
+            intermediate_cache1 = cache13[: num_tokens * top_k * N2].view(
+                num_tokens, top_k, N2
+            )
+            intermediate_cache3 = cache13[: num_tokens * top_k * H].view(
+                num_tokens, top_k, H
+            )
+            intermediate_cache2 = cache2[:need2].view(num_tokens * top_k, N)
+            out = out_buf[:need_out].view(num_tokens, H)
+            return intermediate_cache1, intermediate_cache2, intermediate_cache3, out
         if (
             self.cache13 is None
             or self.device != device
@@ -699,9 +834,10 @@ def fused_moe_routed(
 
     x: [T, H]; topk_*: [T, K]; w_gate_up [E, 2I, H]; w_down [E, H, I].
 
-    When ``INFINI_MOE_CAPTURE_SAFE=1`` and the stream is under
-    ``hcStreamBeginCapture``, uses aten index_select+bmm (capture-safe).
-    Otherwise uses Triton cubins (eager / host-break path).
+    Capture modes (under ``hcStreamBeginCapture``):
+    - ``INFINI_MOE_TRITON_CAPTURE=1``: Triton cubins (preferred; device align).
+    - ``INFINI_MOE_CAPTURE_SAFE=1`` (and no Triton-capture): aten index_select+bmm.
+    Otherwise: Triton cubins (eager / host-break path).
     """
     assert_no_vllm()
     if not x.is_cuda:
@@ -711,7 +847,12 @@ def fused_moe_routed(
     assert w_gate_up.dim() == 3 and w_down.dim() == 3
     assert x.size(1) == w_gate_up.size(2) == w_down.size(1)
 
-    if _moe_capture_safe_enabled() and _under_device_stream_capture():
+    # Aten body only when CAPTURE_SAFE and not Triton-capture (Triton wins).
+    if (
+        _under_device_stream_capture()
+        and _moe_capture_safe_enabled()
+        and not _moe_triton_capture_enabled()
+    ):
         return _routed_experts_aten(x, topk_w, topk_ids, w_gate_up, w_down)
 
     num_tokens = x.size(0)
@@ -753,6 +894,7 @@ def fused_moe_routed(
         topk_ids, int(cfg1["BLOCK_SIZE_M"]), E
     )
     _HOST_SPLIT.end("opaque_align1_wall")
+    _retain_capture(sorted_token_ids, expert_ids, num_tokens_post_padded)
 
     _phase_marker("kernel1")
     _HOST_SPLIT.begin("opaque_kernel1")
@@ -774,7 +916,9 @@ def fused_moe_routed(
     _phase_marker("silu")
     _HOST_SPLIT.begin("opaque_silu")
     gate, up = intermediate_cache1.view(-1, N2).chunk(2, dim=-1)
-    intermediate_cache2.copy_(F.silu(gate) * up)
+    silu_prod = F.silu(gate) * up
+    _retain_capture(silu_prod)
+    intermediate_cache2.copy_(silu_prod)
     _HOST_SPLIT.end("opaque_silu")
 
     _phase_marker("align2")
@@ -788,6 +932,7 @@ def fused_moe_routed(
         sorted_token_ids2, expert_ids2, num_tokens_post_padded2 = moe_align_block_size(
             topk_ids, int(cfg2["BLOCK_SIZE_M"]), E
         )
+        _retain_capture(sorted_token_ids2, expert_ids2, num_tokens_post_padded2)
     _HOST_SPLIT.end("opaque_align2_wall")
     _phase_marker("kernel2")
     _HOST_SPLIT.begin("opaque_kernel2")
@@ -810,5 +955,5 @@ def fused_moe_routed(
     _HOST_SPLIT.begin("opaque_moe_sum")
     moe_sum(intermediate_cache3, out)
     _HOST_SPLIT.end("opaque_moe_sum")
-    # Workspace ``out`` is overwritten on the next call; serve/C++ copies immediately.
+    # Workspace ``out`` is IC-arena-owned under capture; eager path reuses cache.
     return out

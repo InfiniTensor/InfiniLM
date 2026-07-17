@@ -165,16 +165,21 @@ void MiniCPM5MoeDecoderLayer::piecewise_post_attn_decode_cg(
     self_attn_->forward_post_attn_piecewise_cg_into(hidden_states, staging);
     post_attention_layernorm_->forward_inplace(hidden_states, residual);
     // Dense FFN is MetaX capture-safe. MoE: default stays outside (Triton host-break);
-    // with INFINI_MOE_CAPTURE_SAFE=1, fold MoE into the device segment (aten under capture).
+    // with INFINI_MOE_TRITON_CAPTURE=1 or INFINI_MOE_CAPTURE_SAFE=1, fold MoE into
+    // the device segment (Triton or aten under capture respectively).
     if (dense_mlp_) {
         auto mlp_out = dense_mlp_->forward(hidden_states);
         hidden_states->copy_from(mlp_out);
     } else if (moe_mlp_) {
-        static const bool capture_safe = []() {
+        static const bool fold_moe = []() {
+            const char *triton = std::getenv("INFINI_MOE_TRITON_CAPTURE");
+            if (triton != nullptr && triton[0] != '\0' && std::string(triton) != "0") {
+                return true;
+            }
             const char *v = std::getenv("INFINI_MOE_CAPTURE_SAFE");
             return v != nullptr && v[0] != '\0' && std::string(v) != "0";
         }();
-        if (capture_safe) {
+        if (fold_moe) {
             auto mlp_out = moe_mlp_->forward(hidden_states);
             hidden_states->copy_from(mlp_out);
         }
@@ -191,11 +196,15 @@ void MiniCPM5MoeDecoderLayer::piecewise_eager_moe(
         return;
     }
     // When MoE was folded into post_attn device segment, skip the eager call.
-    static const bool capture_safe = []() {
+    static const bool fold_moe = []() {
+        const char *triton = std::getenv("INFINI_MOE_TRITON_CAPTURE");
+        if (triton != nullptr && triton[0] != '\0' && std::string(triton) != "0") {
+            return true;
+        }
         const char *v = std::getenv("INFINI_MOE_CAPTURE_SAFE");
         return v != nullptr && v[0] != '\0' && std::string(v) != "0";
     }();
-    if (capture_safe) {
+    if (fold_moe) {
         return;
     }
     const bool profile = global_state::decode_phase_profile::recording();
