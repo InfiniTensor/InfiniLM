@@ -2,6 +2,7 @@
 
 #include "../global_state/ar_profile.hpp"
 #include "../global_state/hang_trace.hpp"
+#include "../global_state/decode_phase_profile.hpp"
 #include "../global_state/global_state.hpp"
 #include "../global_state/piecewise_inductor_flags.hpp"
 #include "../utils/agent_debug.hpp"
@@ -865,7 +866,27 @@ void RankWorker::thread_loop() {
                                     "g3-repro");
                             }
                             // #endregion
-                            logits = model_->forward(model_args).logits;
+                            const bool decode_prof =
+                                !is_prefill && global_state::decode_phase_profile::enabled();
+                            if (decode_prof) {
+                                global_state::decode_phase_profile::reset();
+                                global_state::decode_phase_profile::decode_step_active() = true;
+                            }
+                            const double t_fwd0 =
+                                decode_prof ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
+                            try {
+                                logits = model_->forward(model_args).logits;
+                            } catch (...) {
+                                if (decode_prof) {
+                                    global_state::decode_phase_profile::decode_step_active() = false;
+                                }
+                                throw;
+                            }
+                            if (decode_prof) {
+                                global_state::decode_phase_profile::counters().eager_forward_ms +=
+                                    global_state::decode_phase_profile::monotonic_ms() - t_fwd0;
+                                global_state::decode_phase_profile::decode_step_active() = false;
+                            }
                             // #region agent log
                             if (rank_info_.tp_rank == 0) {
                                 auto &ctx = global_state::get_forward_context();
@@ -925,6 +946,11 @@ void RankWorker::thread_loop() {
                                 }
                             }
 
+                            const bool decode_prof =
+                                !is_prefill && global_state::decode_phase_profile::enabled();
+                            const double t_sample0 =
+                                decode_prof ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
+
                             if (skip_sampling || sample_rows.empty()) {
                                 auto output_ids{infinicore::Tensor::empty(
                                     {sample_rows.size()}, infinicore::DataType::I64, rank_info_.device)};
@@ -967,9 +993,27 @@ void RankWorker::thread_loop() {
 
                             output_ = std::move(out);
                             }
+                            if (decode_prof) {
+                                global_state::decode_phase_profile::counters().sample_ms +=
+                                    global_state::decode_phase_profile::monotonic_ms() - t_sample0;
+                            }
                         }
 
-                        infinicore::context::syncStream();
+                        {
+                            const bool decode_prof =
+                                !is_prefill && global_state::decode_phase_profile::enabled();
+                            const double t_sync0 =
+                                decode_prof ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
+                            infinicore::context::syncStream();
+                            if (decode_prof) {
+                                global_state::decode_phase_profile::counters().sync_ms +=
+                                    global_state::decode_phase_profile::monotonic_ms() - t_sync0;
+                                const auto n_req = local_args.input_offsets.has_value()
+                                                       ? local_args.input_offsets.value()->size(0) - 1
+                                                       : 1;
+                                global_state::decode_phase_profile::log_step_if_due(n_req);
+                            }
+                        }
                         job_done_ = true;
                     }
                     cv_.notify_all();

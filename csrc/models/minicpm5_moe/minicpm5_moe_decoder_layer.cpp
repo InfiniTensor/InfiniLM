@@ -1,5 +1,7 @@
 #include "minicpm5_moe_decoder_layer.hpp"
 
+#include "../../global_state/decode_phase_profile.hpp"
+
 namespace infinilm::models::minicpm5_moe {
 
 MiniCPM5MoeDecoderLayer::MiniCPM5MoeDecoderLayer(
@@ -49,24 +51,67 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> MiniCPM5MoeDecoderLayer::forw
     const infinicore::Tensor &positions,
     infinicore::Tensor &hidden_states,
     infinicore::Tensor &residual) {
+    const bool profile = global_state::decode_phase_profile::recording();
+    const double t_layer0 = profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
+
     input_layernorm_->forward_inplace(hidden_states, residual);
+    const double t_attn0 = profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
     hidden_states = self_attn_->forward(positions, hidden_states);
+    const double attn_ms =
+        profile ? (global_state::decode_phase_profile::monotonic_ms() - t_attn0) : 0.0;
+    if (profile) {
+        global_state::decode_phase_profile::counters().attn_ms += attn_ms;
+    }
     post_attention_layernorm_->forward_inplace(hidden_states, residual);
+    const double t_mlp0 = profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
     hidden_states = mlp_forward(hidden_states);
+    if (profile) {
+        const double mlp_ms = global_state::decode_phase_profile::monotonic_ms() - t_mlp0;
+        if (dense_mlp_) {
+            global_state::decode_phase_profile::counters().dense_mlp_ms += mlp_ms;
+        } else {
+            global_state::decode_phase_profile::counters().moe_ms += mlp_ms;
+        }
+        const double layer_ms = global_state::decode_phase_profile::monotonic_ms() - t_layer0;
+        global_state::decode_phase_profile::counters().other_layer_ms += layer_ms - attn_ms - mlp_ms;
+    }
     return std::make_tuple(hidden_states, residual);
 }
 
 infinicore::Tensor MiniCPM5MoeDecoderLayer::forward(const infinicore::Tensor &positions,
                                                     infinicore::Tensor &hidden_states) {
+    const bool profile = global_state::decode_phase_profile::recording();
+    const double t_layer0 = profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
+
     auto residual = hidden_states;
     hidden_states = input_layernorm_->forward(hidden_states);
+    const double t_attn0 = profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
     hidden_states = self_attn_->forward(positions, hidden_states);
+    const double attn_ms =
+        profile ? (global_state::decode_phase_profile::monotonic_ms() - t_attn0) : 0.0;
+    if (profile) {
+        global_state::decode_phase_profile::counters().attn_ms += attn_ms;
+    }
     hidden_states = infinicore::op::add(residual, hidden_states);
 
     residual = hidden_states;
     hidden_states = post_attention_layernorm_->forward(hidden_states);
+    const double t_mlp0 = profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
     hidden_states = mlp_forward(hidden_states);
+    const double mlp_ms =
+        profile ? (global_state::decode_phase_profile::monotonic_ms() - t_mlp0) : 0.0;
+    if (profile) {
+        if (dense_mlp_) {
+            global_state::decode_phase_profile::counters().dense_mlp_ms += mlp_ms;
+        } else {
+            global_state::decode_phase_profile::counters().moe_ms += mlp_ms;
+        }
+    }
     hidden_states = infinicore::op::add(residual, hidden_states);
+    if (profile) {
+        const double layer_ms = global_state::decode_phase_profile::monotonic_ms() - t_layer0;
+        global_state::decode_phase_profile::counters().other_layer_ms += layer_ms - attn_ms - mlp_ms;
+    }
     return hidden_states;
 }
 

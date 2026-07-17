@@ -7,6 +7,9 @@
 #include "../../layers/attention/attention.hpp"
 #include "minicpm5_moe_router_cpu_detail.hpp"
 
+#include "infinicore/ops/mul.hpp"
+#include "infinicore/ops/sigmoid.hpp"
+
 #include <stdexcept>
 
 namespace infinilm::models::minicpm5_moe {
@@ -15,21 +18,26 @@ namespace {
 
 infinicore::Tensor apply_gate_sigmoid_mul(const infinicore::Tensor &attn_output,
                                           const infinicore::Tensor &gate_score) {
-    // Device sigmoid op not exported on this InfiniCore build — host-side apply for skeleton.
+    // Device sigmoid×mul (MetaX via InfiniCore). CPU path kept as last-resort fallback.
     auto gate_view = gate_score;
     if (attn_output->shape().size() == 3 && gate_score->shape().size() == 2 && attn_output->shape()[0] == 1) {
         gate_view = gate_score->view({1, gate_score->shape()[0], gate_score->shape()[1]});
     }
-    auto a_cpu = attn_output->to(infinicore::Device::cpu())->contiguous();
-    auto g_cpu = gate_view->to(infinicore::Device::cpu())->contiguous();
-    const size_t n = a_cpu->numel();
-    auto out_cpu = infinicore::Tensor::empty(a_cpu->shape(), a_cpu->dtype(), infinicore::Device::cpu());
-    for (size_t i = 0; i < n; ++i) {
-        float a = router_cpu_detail::scalar_to_f32(a_cpu, i);
-        float g = router_cpu_detail::sigmoid_f32(router_cpu_detail::scalar_to_f32(g_cpu, i));
-        router_cpu_detail::write_f32_as_element(out_cpu, i, a * g);
+    try {
+        auto gate_sig = infinicore::op::sigmoid(gate_view->contiguous());
+        return infinicore::op::mul(attn_output->contiguous(), gate_sig);
+    } catch (const std::exception &) {
+        auto a_cpu = attn_output->to(infinicore::Device::cpu())->contiguous();
+        auto g_cpu = gate_view->to(infinicore::Device::cpu())->contiguous();
+        const size_t n = a_cpu->numel();
+        auto out_cpu = infinicore::Tensor::empty(a_cpu->shape(), a_cpu->dtype(), infinicore::Device::cpu());
+        for (size_t i = 0; i < n; ++i) {
+            float a = router_cpu_detail::scalar_to_f32(a_cpu, i);
+            float g = router_cpu_detail::sigmoid_f32(router_cpu_detail::scalar_to_f32(g_cpu, i));
+            router_cpu_detail::write_f32_as_element(out_cpu, i, a * g);
+        }
+        return out_cpu->to(attn_output->device());
     }
-    return out_cpu->to(attn_output->device());
 }
 
 } // namespace
