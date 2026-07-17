@@ -119,6 +119,21 @@ void InfinilmModel::native_piecewise_post_attn_cg_layer(size_t,
     throw std::runtime_error("InfinilmModel: native_piecewise_post_attn_cg_layer not supported");
 }
 
+void InfinilmModel::native_piecewise_post_attn_decode_cg_layer(size_t,
+                                                               const Input &,
+                                                               infinicore::Tensor &,
+                                                               infinicore::Tensor &) const {
+    throw std::runtime_error(
+        "InfinilmModel: native_piecewise_post_attn_decode_cg_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_eager_moe_layer(size_t,
+                                                     const Input &,
+                                                     infinicore::Tensor &,
+                                                     infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_eager_moe_layer not supported");
+}
+
 void InfinilmModel::native_piecewise_post_attn_graph_layer(size_t,
                                                            const Input &,
                                                            infinicore::Tensor &,

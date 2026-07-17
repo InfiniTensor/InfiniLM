@@ -127,6 +127,17 @@ public:
         hidden_states->copy_from(mlp_out);
     }
 
+    /// Decode-piecewise: dense MLP models capture the full post segment (no MoE break).
+    void piecewise_post_attn_decode_cg(infinicore::Tensor &hidden_states,
+                                       infinicore::Tensor &residual,
+                                       global_state::PiecewiseLayerStaging &staging) const {
+        piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_eager_moe(infinicore::Tensor &,
+                             infinicore::Tensor &,
+                             global_state::PiecewiseLayerStaging &) const {}
+
     void piecewise_post_attn_graph(infinicore::Tensor &hidden_states,
                                    infinicore::Tensor &residual,
                                    global_state::PiecewiseLayerStaging &staging) const {

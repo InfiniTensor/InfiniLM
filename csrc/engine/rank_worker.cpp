@@ -749,6 +749,33 @@ void RankWorker::thread_loop() {
                                         skip_sampling,
                                         monotonic_ms() - t_pw0);
                                 }
+                            } else if (!is_prefill && general_compiler != nullptr
+                                       && general_compiler->native_piecewise_decode_enabled()) {
+                                const bool profile = rank_worker_profile_enabled();
+                                const double t_pw0 = profile ? monotonic_ms() : 0.0;
+                                global_state::hang_trace::ScopedBracket pw_bracket(
+                                    "native_piecewise_decode", rank_info_.tp_rank);
+                                if (auto pw_logits =
+                                        general_compiler->run_native_piecewise_decode(model_input)) {
+                                    logits = *pw_logits;
+                                    piecewise_ran = true;
+                                    if (auto *gc = dynamic_cast<GeneralCompiler *>(compiler_.get())) {
+                                        gc->record_graph_hit(/*is_prefill=*/false);
+                                    }
+                                }
+                                if (profile) {
+                                    const auto stats = general_compiler->graph_stats();
+                                    spdlog::info(
+                                        "rank_worker_profile: RUN native_piecewise_decode "
+                                        "piecewise_ran={} wall_ms={:.3f} decode_hits={} "
+                                        "decode_misses={} device_segs={} segment_replays={}",
+                                        piecewise_ran,
+                                        monotonic_ms() - t_pw0,
+                                        stats.piecewise_decode_hits,
+                                        stats.piecewise_decode_misses,
+                                        stats.piecewise_decode_device_segments,
+                                        stats.piecewise_segment_replays);
+                                }
                             }
                             if (!logits && !piecewise_ran) {
                                 auto [graph, output] = compiler_->get_compiled(model_input);

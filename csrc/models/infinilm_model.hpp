@@ -84,6 +84,16 @@ public:
                                                      const Input &input,
                                                      infinicore::Tensor &hidden_states,
                                                      infinicore::Tensor &residual) const;
+    /// Decode-piecewise: capturable post (o_proj / norm / dense gemm); MoE excluded.
+    virtual void native_piecewise_post_attn_decode_cg_layer(size_t layer_idx,
+                                                            const Input &input,
+                                                            infinicore::Tensor &hidden_states,
+                                                            infinicore::Tensor &residual) const;
+    /// Eager MoE between Graph::run() segments (no-op when layer has no MoE).
+    virtual void native_piecewise_eager_moe_layer(size_t layer_idx,
+                                                  const Input &input,
+                                                  infinicore::Tensor &hidden_states,
+                                                  infinicore::Tensor &residual) const;
     virtual void native_piecewise_post_attn_graph_layer(size_t layer_idx,
                                                         const Input &input,
                                                         infinicore::Tensor &hidden_states,

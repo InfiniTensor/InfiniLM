@@ -10,6 +10,8 @@ public:
 
     void wait(const char *label = nullptr, int tp_rank = -1);
 
+    size_t num_ranks() const { return thread_count_; }
+
 private:
     const size_t thread_count_;
     size_t arrived_;

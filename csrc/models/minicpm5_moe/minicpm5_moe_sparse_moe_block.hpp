@@ -10,7 +10,9 @@ namespace infinilm::models::minicpm5_moe {
 using MiniCPM5MoeMLP = infinilm::layers::MoeMLP;
 
 /**
- * Sparse MoE: Track B uses AOTI (`inductor_moe_` / InductorMoe); hcGraph recording enabled for P4 spike.
+ * Sparse MoE: Track B uses AOTI (`inductor_moe_` / InductorMoe).
+ * CG-1: MoE is an hcGraph **host break** (eager Triton between device segments).
+ * Full MoE-in-device capture is Phase 2.
  * CPU router path remains as an unused private helper (fallback disabled this phase).
  */
 class MiniCPM5MoeSparseMoeBlock : public infinicore::nn::Module {

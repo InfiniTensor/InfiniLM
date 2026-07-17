@@ -2,6 +2,9 @@
 
 #include "../../global_state/decode_phase_profile.hpp"
 
+#include <cstdlib>
+#include <string>
+
 namespace infinilm::models::minicpm5_moe {
 
 MiniCPM5MoeDecoderLayer::MiniCPM5MoeDecoderLayer(
@@ -153,6 +156,56 @@ void MiniCPM5MoeDecoderLayer::piecewise_post_attn_cg(
     post_attention_layernorm_->forward_inplace(hidden_states, residual);
     auto mlp_out = mlp_forward(hidden_states);
     hidden_states->copy_from(mlp_out);
+}
+
+void MiniCPM5MoeDecoderLayer::piecewise_post_attn_decode_cg(
+    infinicore::Tensor &hidden_states,
+    infinicore::Tensor &residual,
+    global_state::PiecewiseLayerStaging &staging) const {
+    self_attn_->forward_post_attn_piecewise_cg_into(hidden_states, staging);
+    post_attention_layernorm_->forward_inplace(hidden_states, residual);
+    // Dense FFN is MetaX capture-safe. MoE: default stays outside (Triton host-break);
+    // with INFINI_MOE_CAPTURE_SAFE=1, fold MoE into the device segment (aten under capture).
+    if (dense_mlp_) {
+        auto mlp_out = dense_mlp_->forward(hidden_states);
+        hidden_states->copy_from(mlp_out);
+    } else if (moe_mlp_) {
+        static const bool capture_safe = []() {
+            const char *v = std::getenv("INFINI_MOE_CAPTURE_SAFE");
+            return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+        }();
+        if (capture_safe) {
+            auto mlp_out = moe_mlp_->forward(hidden_states);
+            hidden_states->copy_from(mlp_out);
+        }
+    }
+}
+
+void MiniCPM5MoeDecoderLayer::piecewise_eager_moe(
+    infinicore::Tensor &hidden_states,
+    infinicore::Tensor &residual,
+    global_state::PiecewiseLayerStaging &staging) const {
+    (void)residual;
+    (void)staging;
+    if (!moe_mlp_) {
+        return;
+    }
+    // When MoE was folded into post_attn device segment, skip the eager call.
+    static const bool capture_safe = []() {
+        const char *v = std::getenv("INFINI_MOE_CAPTURE_SAFE");
+        return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+    }();
+    if (capture_safe) {
+        return;
+    }
+    const bool profile = global_state::decode_phase_profile::recording();
+    const double t0 = profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
+    auto mlp_out = moe_mlp_->forward(hidden_states);
+    hidden_states->copy_from(mlp_out);
+    if (profile) {
+        global_state::decode_phase_profile::counters().moe_ms +=
+            global_state::decode_phase_profile::monotonic_ms() - t0;
+    }
 }
 
 void MiniCPM5MoeDecoderLayer::piecewise_post_attn_graph(

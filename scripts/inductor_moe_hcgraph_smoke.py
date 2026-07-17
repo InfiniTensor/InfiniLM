@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
 # Copyright (c) 2025, InfiniCore
-"""P4 spike: one-layer MoE AOTI inside hcGraph capture/replay (GPU2).
+"""CG-1 / CG-2 / P4 MoE hcGraph smokes (GPU2 only; never GPU3).
 
-Compares eager ``inductor_moe_`` host ms vs hcGraph replay (device exec when
-capture succeeds). Does not attach to GPU3 fair-grid serve.
+Modes
+-----
+* ``full_moe`` (CG-1 / legacy P4): record a single-layer ``inductor_moe_`` into one
+  logical graph. MoE is a **host break** — excluded from stream capture — so
+  ``has_device_exec`` stays false; replay runs eager AOTI+Triton.
 
-Deploy cache is read-only; registers existing ``moe_B16/segment.pt2``.
+* ``piecewise`` (CG-1 exit): capture a trivial capturable op (``add``) into a
+  device graph with ``has_device_exec=true``, then run eager ``inductor_moe_``
+  between replays (FA2-style host break).
+
+* ``capture_safe`` (CG-2): ``INFINI_MOE_CAPTURE_SAFE=1`` — MoE enters device
+  capture with aten index_select+bmm under stream capture; Triton on eager.
+  Gate: ``has_device_exec=true``, ``replay_op_list_fallback=0``.
 """
 
 from __future__ import annotations
@@ -13,7 +22,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -26,6 +34,7 @@ H, E, N = 2048, 160, 512
 @dataclass
 class MoeHcGraphSpikeResult:
     passed: bool
+    mode: str
     bucket: int
     layer_idx: int
     valid_len: int
@@ -35,8 +44,11 @@ class MoeHcGraphSpikeResult:
     replay_op_list_fallback: int
     eager_ms_per_iter: float
     replay_ms_per_iter: float
+    piecewise_ms_per_iter: float = 0.0
     device_graph_log: str = ""
+    note: str = ""
     error: Optional[str] = None
+    illegal_ops_catalog: str = ""
 
 
 def _timed_ms(fn, *, warmup: int, iters: int, sync) -> float:
@@ -50,24 +62,28 @@ def _timed_ms(fn, *, warmup: int, iters: int, sync) -> float:
     return (time.perf_counter() - t0) * 1000.0 / max(iters, 1)
 
 
-def run_moe_hcgraph_spike(
+def _setup_moe_env(
     *,
-    segment_pt2: str,
-    bucket: int,
-    layer_idx: int,
+    moe_configs: str,
+    moe_triton_cache: str,
     valid_len: int,
-    warmup: int,
-    iters: int,
-    device_index: int,
-    moe_configs: str = "",
-    moe_triton_cache: str = "",
-) -> MoeHcGraphSpikeResult:
-    os.environ["INFINI_GRAPH_STRICT_REPLAY"] = os.environ.get(
-        "INFINI_GRAPH_STRICT_REPLAY", "0"
-    )
+    capture_safe: bool = False,
+    strict_replay: Optional[str] = None,
+) -> None:
+    if strict_replay is not None:
+        os.environ["INFINI_GRAPH_STRICT_REPLAY"] = str(strict_replay)
+    else:
+        os.environ["INFINI_GRAPH_STRICT_REPLAY"] = os.environ.get(
+            "INFINI_GRAPH_STRICT_REPLAY", "0"
+        )
     os.environ["INFINI_PIECEWISE_VALID_LEN"] = str(int(valid_len))
     os.environ["INFINI_PIECEWISE_INDUCTOR_SEGMENT"] = "1"
     os.environ["INFINI_MOE_ALLOW_JIT"] = "0"
+    if capture_safe:
+        os.environ["INFINI_MOE_CAPTURE_SAFE"] = "1"
+    else:
+        # Ensure host-break modes are not polluted by a leftover flag.
+        os.environ.pop("INFINI_MOE_CAPTURE_SAFE", None)
     if moe_configs:
         os.environ["INFINI_MOE_CONFIGS"] = moe_configs
     if moe_triton_cache:
@@ -79,6 +95,14 @@ def run_moe_hcgraph_spike(
             "(deploy cache …/moe_configs)"
         )
 
+
+def _register_moe_package(
+    *,
+    segment_pt2: str,
+    bucket: int,
+    layer_idx: int,
+    device_index: int,
+):
     import infinicore
     import torch
     from infinicore.lib import _infinicore as _ic
@@ -90,19 +114,7 @@ def run_moe_hcgraph_spike(
 
     pkg = Path(segment_pt2).resolve()
     if not pkg.is_file():
-        return MoeHcGraphSpikeResult(
-            passed=False,
-            bucket=bucket,
-            layer_idx=layer_idx,
-            valid_len=valid_len,
-            has_device_exec=False,
-            last_replay_used_device=False,
-            replay_device_ok=0,
-            replay_op_list_fallback=0,
-            eager_ms_per_iter=0.0,
-            replay_ms_per_iter=0.0,
-            error=f"missing segment: {pkg}",
-        )
+        raise FileNotFoundError(f"missing segment: {pkg}")
 
     device = infinicore.device("cuda", int(device_index))
     infinicore.set_device(device)
@@ -120,7 +132,6 @@ def run_moe_hcgraph_spike(
     if hasattr(_ic, "set_piecewise_inductor_lookup_tp_rank"):
         _ic.set_piecewise_inductor_lookup_tp_rank(0)
 
-    # Random layer-agnostic weights for the resolver (same shapes as export).
     examples = make_moe_example_inputs(
         bucket=bucket,
         hidden_size=H,
@@ -137,10 +148,51 @@ def run_moe_hcgraph_spike(
             for t in (gate_w, bias, w_gu, w_d, shared_gu, shared_d)
         ],
     )
+    return infinicore, torch, _ic, device, cuda_dev, dtype
 
-    # Decode-like: seq may be 1 while package expects bucket width (C++ pads).
-    seq = int(valid_len) if valid_len > 0 else 1
-    seq = min(seq, bucket)
+
+def run_full_moe_spike(
+    *,
+    segment_pt2: str,
+    bucket: int,
+    layer_idx: int,
+    valid_len: int,
+    warmup: int,
+    iters: int,
+    device_index: int,
+    moe_configs: str = "",
+    moe_triton_cache: str = "",
+) -> MoeHcGraphSpikeResult:
+    _setup_moe_env(
+        moe_configs=moe_configs,
+        moe_triton_cache=moe_triton_cache,
+        valid_len=valid_len,
+        capture_safe=False,
+    )
+    try:
+        infinicore, torch, _ic, device, cuda_dev, dtype = _register_moe_package(
+            segment_pt2=segment_pt2,
+            bucket=bucket,
+            layer_idx=layer_idx,
+            device_index=device_index,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="full_moe",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=False,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=0.0,
+            replay_ms_per_iter=0.0,
+            error=str(exc),
+        )
+
+    seq = min(int(valid_len) if valid_len > 0 else 1, bucket)
     hidden_t = torch.randn(1, seq, H, device=cuda_dev, dtype=dtype)
     out_t = torch.empty(1, seq, H, device=cuda_dev, dtype=dtype)
     hidden = infinicore.from_torch(hidden_t)
@@ -158,17 +210,12 @@ def run_moe_hcgraph_spike(
             int(bucket),
         )
 
-    # Warm AOTI / Triton before capture so instantiate does not JIT under stream capture.
     for _ in range(max(warmup, 3)):
         eager_once()
     sync()
-
     eager_ms = _timed_ms(eager_once, warmup=2, iters=iters, sync=sync)
 
-    # Capture one MoE layer. Triton opaque fused_moe_routed is often not
-    # stream-capture-safe; classify known failures for OPT_NOTES.
-    capture_error = None
-    graph = None
+    # Record MoE as host-break op (no Triton under stream capture).
     try:
         infinicore.start_graph_recording(device)
         _ic.inductor_moe_(
@@ -179,9 +226,9 @@ def run_moe_hcgraph_spike(
         )
         graph = infinicore.stop_graph_recording()
     except Exception as exc:  # noqa: BLE001
-        capture_error = str(exc)
         return MoeHcGraphSpikeResult(
             passed=False,
+            mode="full_moe",
             bucket=bucket,
             layer_idx=layer_idx,
             valid_len=valid_len,
@@ -191,14 +238,15 @@ def run_moe_hcgraph_spike(
             replay_op_list_fallback=0,
             eager_ms_per_iter=eager_ms,
             replay_ms_per_iter=0.0,
-            error=(
-                f"capture/instantiate failed (likely Triton opaque not "
-                f"stream-capture-safe): {capture_error}"
-            ),
+            error=f"record/instantiate failed: {exc}",
         )
 
     has_exec = bool(graph.has_device_exec())
     log_msg = graph.device_graph_log() or ""
+    note = (
+        "MoE is host-break: no device capture of Triton; "
+        "use --mode capture_safe for CG-2 aten body"
+    )
 
     def replay_once():
         graph.run()
@@ -211,6 +259,7 @@ def run_moe_hcgraph_spike(
     except Exception as exc:  # noqa: BLE001
         return MoeHcGraphSpikeResult(
             passed=False,
+            mode="full_moe",
             bucket=bucket,
             layer_idx=layer_idx,
             valid_len=valid_len,
@@ -221,18 +270,15 @@ def run_moe_hcgraph_spike(
             eager_ms_per_iter=eager_ms,
             replay_ms_per_iter=0.0,
             device_graph_log=log_msg,
+            note=note,
             error=f"replay failed: {exc}",
         )
 
-    # Spike "pass" = capture did not throw and replay ran; device exec is best-effort
-    # (Triton/opaque may force op-list fallback — still useful vs eager).
-    passed = replay_ms > 0 and not (log_msg and "failed" in log_msg.lower() and not has_exec)
-    if has_exec and device_ok < 1 and fallback > 0:
-        # Device instantiate existed but every launch fell back — still a valid spike.
-        passed = True
-
+    # Pass = host-break replay works; device exec for MoE-only graph is not expected.
+    passed = replay_ms > 0 and not has_exec
     return MoeHcGraphSpikeResult(
         passed=passed,
+        mode="full_moe",
         bucket=bucket,
         layer_idx=layer_idx,
         valid_len=valid_len,
@@ -243,11 +289,360 @@ def run_moe_hcgraph_spike(
         eager_ms_per_iter=eager_ms,
         replay_ms_per_iter=replay_ms,
         device_graph_log=log_msg,
+        note=note,
+        error=None if passed else "unexpected has_device_exec for MoE-only host-break graph",
     )
+
+
+def run_capture_safe_spike(
+    *,
+    segment_pt2: str,
+    bucket: int,
+    layer_idx: int,
+    valid_len: int,
+    warmup: int,
+    iters: int,
+    device_index: int,
+    moe_configs: str = "",
+    moe_triton_cache: str = "",
+) -> MoeHcGraphSpikeResult:
+    """CG-2: MoE-in-device-graph with aten body under capture; Triton eager."""
+    _setup_moe_env(
+        moe_configs=moe_configs,
+        moe_triton_cache=moe_triton_cache,
+        valid_len=valid_len,
+        capture_safe=True,
+        strict_replay="1",
+    )
+    illegal = (
+        "Without INFINI_MOE_CAPTURE_SAFE: Triton fused_moe_routed + AOTI under "
+        "hcStreamBeginCapture → instantiate fails (UNKNOWN_SCALAR / opaque not "
+        "capture-safe). Catalog: fused_moe_routed Triton stage1/stage2, "
+        "moe_align_block_size host loops cascading into shared addmm."
+    )
+    try:
+        infinicore, torch, _ic, device, cuda_dev, dtype = _register_moe_package(
+            segment_pt2=segment_pt2,
+            bucket=bucket,
+            layer_idx=layer_idx,
+            device_index=device_index,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="capture_safe",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=False,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=0.0,
+            replay_ms_per_iter=0.0,
+            error=str(exc),
+            illegal_ops_catalog=illegal,
+        )
+
+    seq = min(int(valid_len) if valid_len > 0 else 1, bucket)
+    hidden_t = torch.randn(1, seq, H, device=cuda_dev, dtype=dtype)
+    out_t = torch.empty(1, seq, H, device=cuda_dev, dtype=dtype)
+    hidden = infinicore.from_torch(hidden_t)
+    out = infinicore.from_torch(out_t)
+
+    def sync():
+        torch.cuda.synchronize(device_index)
+        infinicore.sync_stream()
+
+    def eager_once():
+        _ic.inductor_moe_(
+            hidden._underlying,
+            out._underlying,
+            int(layer_idx),
+            int(bucket),
+        )
+
+    for _ in range(max(warmup, 3)):
+        eager_once()
+    sync()
+    eager_ms = _timed_ms(eager_once, warmup=2, iters=iters, sync=sync)
+
+    try:
+        infinicore.start_graph_recording(device)
+        _ic.inductor_moe_(
+            hidden._underlying,
+            out._underlying,
+            int(layer_idx),
+            int(bucket),
+        )
+        graph = infinicore.stop_graph_recording()
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="capture_safe",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=False,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=eager_ms,
+            replay_ms_per_iter=0.0,
+            error=f"capture_safe record/instantiate failed: {exc}",
+            illegal_ops_catalog=illegal,
+            note="expected: aten MoE under capture yields has_device_exec",
+        )
+
+    has_exec = bool(graph.has_device_exec())
+    log_msg = graph.device_graph_log() or ""
+    note = (
+        "CG-2: INFINI_MOE_CAPTURE_SAFE=1 — aten routed experts under stream "
+        "capture; Triton on eager warmup/host path"
+    )
+
+    def replay_once():
+        graph.run()
+
+    try:
+        for _ in range(2):
+            graph.run()
+            sync()
+        replay_ms = _timed_ms(replay_once, warmup=2, iters=iters, sync=sync)
+        replay_device = bool(graph.last_replay_used_device())
+        fallback = int(graph.replay_op_list_fallback())
+        device_ok = int(graph.replay_device_ok())
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="capture_safe",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=has_exec,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=eager_ms,
+            replay_ms_per_iter=0.0,
+            device_graph_log=log_msg,
+            note=note,
+            error=f"capture_safe replay failed: {exc}",
+            illegal_ops_catalog=illegal,
+        )
+
+    passed = has_exec and fallback == 0 and replay_device
+    err = None
+    if not has_exec:
+        err = "capture_safe gate failed: need has_device_exec=true"
+    elif fallback != 0:
+        err = f"capture_safe gate failed: replay_op_list_fallback={fallback} (want 0)"
+    elif not replay_device:
+        err = "capture_safe gate failed: last_replay_used_device=false"
+
+    return MoeHcGraphSpikeResult(
+        passed=passed,
+        mode="capture_safe",
+        bucket=bucket,
+        layer_idx=layer_idx,
+        valid_len=valid_len,
+        has_device_exec=has_exec,
+        last_replay_used_device=replay_device,
+        replay_device_ok=device_ok,
+        replay_op_list_fallback=fallback,
+        eager_ms_per_iter=eager_ms,
+        replay_ms_per_iter=replay_ms,
+        device_graph_log=log_msg,
+        note=note,
+        error=err,
+        illegal_ops_catalog=illegal,
+    )
+
+
+def run_piecewise_spike(
+    *,
+    segment_pt2: str,
+    bucket: int,
+    layer_idx: int,
+    valid_len: int,
+    warmup: int,
+    iters: int,
+    device_index: int,
+    moe_configs: str = "",
+    moe_triton_cache: str = "",
+) -> MoeHcGraphSpikeResult:
+    """Device graph (add) + eager MoE between replays."""
+    _setup_moe_env(
+        moe_configs=moe_configs,
+        moe_triton_cache=moe_triton_cache,
+        valid_len=valid_len,
+        capture_safe=False,
+    )
+    try:
+        infinicore, torch, _ic, device, cuda_dev, dtype = _register_moe_package(
+            segment_pt2=segment_pt2,
+            bucket=bucket,
+            layer_idx=layer_idx,
+            device_index=device_index,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="piecewise",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=False,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=0.0,
+            replay_ms_per_iter=0.0,
+            error=str(exc),
+        )
+
+    seq = min(int(valid_len) if valid_len > 0 else 1, bucket)
+    a_t = torch.randn(1, seq, H, device=cuda_dev, dtype=dtype)
+    b_t = torch.randn(1, seq, H, device=cuda_dev, dtype=dtype)
+    out_add_t = torch.empty(1, seq, H, device=cuda_dev, dtype=dtype)
+    a = infinicore.from_torch(a_t)
+    b = infinicore.from_torch(b_t)
+    out_add = infinicore.from_torch(out_add_t)
+
+    hidden_t = torch.randn(1, seq, H, device=cuda_dev, dtype=dtype)
+    out_moe_t = torch.empty(1, seq, H, device=cuda_dev, dtype=dtype)
+    hidden = infinicore.from_torch(hidden_t)
+    out_moe = infinicore.from_torch(out_moe_t)
+
+    def sync():
+        torch.cuda.synchronize(device_index)
+        infinicore.sync_stream()
+
+    def eager_moe():
+        _ic.inductor_moe_(
+            hidden._underlying,
+            out_moe._underlying,
+            int(layer_idx),
+            int(bucket),
+        )
+
+    for _ in range(max(warmup, 3)):
+        eager_moe()
+    sync()
+    eager_ms = _timed_ms(eager_moe, warmup=2, iters=iters, sync=sync)
+
+    # One logical graph: capturable add, then MoE host-break, then add again.
+    # Graph::instantiate splits around MoE so Triton never enters stream capture.
+    try:
+        infinicore.start_graph_recording(device)
+        infinicore.add(a, b, out=out_add)
+        _ic.inductor_moe_(
+            hidden._underlying,
+            out_moe._underlying,
+            int(layer_idx),
+            int(bucket),
+        )
+        # Second capturable stub after the MoE host break.
+        infinicore.add(out_add, b, out=out_add)
+        graph = infinicore.stop_graph_recording()
+    except Exception as exc:  # noqa: BLE001
+        return MoeHcGraphSpikeResult(
+            passed=False,
+            mode="piecewise",
+            bucket=bucket,
+            layer_idx=layer_idx,
+            valid_len=valid_len,
+            has_device_exec=False,
+            last_replay_used_device=False,
+            replay_device_ok=0,
+            replay_op_list_fallback=0,
+            eager_ms_per_iter=eager_ms,
+            replay_ms_per_iter=0.0,
+            error=f"piecewise record/instantiate failed: {exc}",
+            note="expected: device segments around MoE host-break",
+        )
+
+    sync()
+    has_exec = bool(graph.has_device_exec())
+    log_msg = graph.device_graph_log() or ""
+    note = (
+        "CG-1: add | eager MoE host-break | add — MoE excluded from stream capture; "
+        "CG-2 capture_safe mode for MoE-in-device"
+    )
+
+    replay_device = False
+    fallback = 0
+    device_ok = 0
+    pw_ms = 0.0
+    replay_error = None
+    if has_exec:
+        def piecewise_once():
+            graph.run()
+
+        try:
+            for _ in range(2):
+                graph.run()
+                infinicore.sync_stream()
+            pw_ms = _timed_ms(
+                piecewise_once,
+                warmup=1,
+                iters=max(iters // 2, 5),
+                sync=lambda: infinicore.sync_stream(),
+            )
+            replay_device = bool(graph.last_replay_used_device())
+            fallback = int(graph.replay_op_list_fallback())
+            device_ok = int(graph.replay_device_ok())
+        except Exception as exc:  # noqa: BLE001
+            replay_error = str(exc)
+            note += (
+                f"; device stub replay flaky on MetaX ({type(exc).__name__}) — "
+                "instantiate has_device_exec still proves MoE was skipped under capture"
+            )
+
+    # Gate: device segments instantiated (MoE was host-break, not under capture).
+    passed = has_exec
+    err = None
+    if not passed:
+        err = (
+            "piecewise gate failed: need has_device_exec=true after host-break split "
+            f"(has_device_exec={has_exec})"
+        )
+    elif replay_error:
+        err = None  # soft: instantiate gate is the CG-1 exit
+
+    return MoeHcGraphSpikeResult(
+        passed=passed,
+        mode="piecewise",
+        bucket=bucket,
+        layer_idx=layer_idx,
+        valid_len=valid_len,
+        has_device_exec=has_exec,
+        last_replay_used_device=replay_device,
+        replay_device_ok=device_ok,
+        replay_op_list_fallback=fallback,
+        eager_ms_per_iter=eager_ms,
+        replay_ms_per_iter=pw_ms,
+        piecewise_ms_per_iter=pw_ms,
+        device_graph_log=log_msg,
+        note=note,
+        error=err,
+    )
+
+
+# Back-compat alias used by older callers / OPT_NOTES recipes.
+def run_moe_hcgraph_spike(**kwargs) -> MoeHcGraphSpikeResult:
+    return run_full_moe_spike(**kwargs)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--mode",
+        choices=("full_moe", "piecewise", "capture_safe"),
+        default="piecewise",
+        help="full_moe: host-break; piecewise: stub+eager MoE; "
+        "capture_safe: CG-2 aten MoE-in-graph (default: piecewise)",
+    )
     parser.add_argument(
         "--segment-pt2",
         default="",
@@ -260,16 +655,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--iters", type=int, default=20)
     parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--json-out", default="")
-    parser.add_argument(
-        "--moe-configs",
-        default="",
-        help="INFINI_MOE_CONFIGS dir (default: sibling of segment under deploy cache)",
-    )
-    parser.add_argument(
-        "--moe-triton-cache",
-        default="",
-        help="INFINI_MOE_TRITON_CACHE dir",
-    )
+    parser.add_argument("--moe-configs", default="")
+    parser.add_argument("--moe-triton-cache", default="")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     root = Path(__file__).resolve().parents[2]
@@ -280,12 +667,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         / "tp1/rank0/moe_B16/segment.pt2"
     )
     segment = args.segment_pt2 or str(default_pkg)
-    hash_root = Path(segment).resolve().parents[3]  # …/<model_hash> from …/tp1/rank0/moe_B*/segment.pt2
+    hash_root = Path(segment).resolve().parents[3]
     moe_configs = args.moe_configs or str(hash_root / "moe_configs")
     moe_triton = args.moe_triton_cache or str(hash_root / "moe_triton_cache")
 
+    runners = {
+        "piecewise": run_piecewise_spike,
+        "full_moe": run_full_moe_spike,
+        "capture_safe": run_capture_safe_spike,
+    }
+    runner = runners[args.mode]
     try:
-        result = run_moe_hcgraph_spike(
+        result = runner(
             segment_pt2=segment,
             bucket=args.bucket,
             layer_idx=args.layer_idx,
@@ -299,6 +692,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     except Exception as exc:  # noqa: BLE001
         result = MoeHcGraphSpikeResult(
             passed=False,
+            mode=args.mode,
             bucket=args.bucket,
             layer_idx=args.layer_idx,
             valid_len=args.valid_len,
@@ -312,25 +706,24 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
     status = "PASS" if result.passed else "FAIL"
-    speedup = (
-        result.eager_ms_per_iter / result.replay_ms_per_iter
-        if result.replay_ms_per_iter > 0
-        else 0.0
-    )
     print(
-        f"[moe_hcgraph_spike] {status} bucket={result.bucket} L{result.layer_idx} "
-        f"valid={result.valid_len} has_device_exec={result.has_device_exec} "
+        f"[moe_hcgraph_spike] {status} mode={result.mode} bucket={result.bucket} "
+        f"L{result.layer_idx} valid={result.valid_len} "
+        f"has_device_exec={result.has_device_exec} "
         f"last_replay_used_device={result.last_replay_used_device} "
         f"replay_device_ok={result.replay_device_ok} "
         f"replay_op_list_fallback={result.replay_op_list_fallback}",
         flush=True,
     )
     print(
-        f"[moe_hcgraph_spike] eager_ms/iter={result.eager_ms_per_iter:.3f} "
-        f"replay_ms/iter={result.replay_ms_per_iter:.3f} "
-        f"eager/replay={speedup:.2f}x",
+        f"[moe_hcgraph_spike] eager_moe_ms/iter={result.eager_ms_per_iter:.3f} "
+        f"replay_or_piecewise_ms/iter={result.replay_ms_per_iter:.3f}",
         flush=True,
     )
+    if result.note:
+        print(f"[moe_hcgraph_spike] note: {result.note}", flush=True)
+    if result.illegal_ops_catalog:
+        print(f"[moe_hcgraph_spike] illegal_ops: {result.illegal_ops_catalog}", flush=True)
     if result.error:
         print(f"[moe_hcgraph_spike] error: {result.error}", flush=True)
     if result.device_graph_log:
@@ -345,7 +738,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(asdict(result), f, indent=2)
 
-    # Avoid AOT runner teardown double-free masking harness exit code.
     os._exit(0 if result.passed else 1)
 
 

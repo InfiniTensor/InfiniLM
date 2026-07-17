@@ -16,6 +16,9 @@ public:
         size_t piecewise_segment_replays{0};
         size_t piecewise_prefill_hits{0};
         size_t piecewise_prefill_misses{0};
+        size_t piecewise_decode_hits{0};
+        size_t piecewise_decode_misses{0};
+        size_t piecewise_decode_device_segments{0};
     };
 
     PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier);

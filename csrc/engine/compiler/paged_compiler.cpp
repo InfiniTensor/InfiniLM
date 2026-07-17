@@ -30,6 +30,11 @@ void PagedCompiler::compile() {
                 "paged decode CG: skip capture (tp_size={} > 1; decode graphs are eager-only under TP; "
                 "set INFINI_DECODE_CG_TP=1 to opt in)",
                 rank_info.tp_size);
+        } else if (skip_monolithic_decode_graph()) {
+            spdlog::info(
+                "paged decode CG: skip monolithic capture (INFINI_DECODE_GRAPH_ONLY / "
+                "INFINI_SKIP_MONOLITHIC_DECODE_CG); MoE+FA host-break ready — use "
+                "PiecewiseDecodeCompiler when INFINI_DECODE_PIECEWISE is on");
         } else {
             if (rank_info.tp_size > 1) {
                 spdlog::info(

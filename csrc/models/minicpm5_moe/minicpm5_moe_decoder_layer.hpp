@@ -73,6 +73,16 @@ public:
                                 infinicore::Tensor &residual,
                                 global_state::PiecewiseLayerStaging &staging) const;
 
+    /// Decode-piecewise CG segment: o_proj + post-norm (+ dense MLP). MoE stays eager.
+    void piecewise_post_attn_decode_cg(infinicore::Tensor &hidden_states,
+                                       infinicore::Tensor &residual,
+                                       global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Eager MoE between Graph::run segments (no-op on dense MLP layers).
+    void piecewise_eager_moe(infinicore::Tensor &hidden_states,
+                             infinicore::Tensor &residual,
+                             global_state::PiecewiseLayerStaging &staging) const;
+
     void piecewise_post_attn_graph(infinicore::Tensor &hidden_states,
                                    infinicore::Tensor &residual,
                                    global_state::PiecewiseLayerStaging &staging) const;

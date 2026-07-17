@@ -291,6 +291,49 @@ def _phase_marker(name: str) -> None:
         print(f"=== PHASE {name} ===", flush=True)
 
 
+def _moe_capture_safe_enabled() -> bool:
+    """INFINI_MOE_CAPTURE_SAFE=1: aten MoE under stream capture; Triton eager."""
+    raw = os.environ.get("INFINI_MOE_CAPTURE_SAFE", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _under_device_stream_capture() -> bool:
+    try:
+        from infinicore.lib import _infinicore as _ic
+
+        return bool(_ic.is_device_stream_capturing())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _routed_experts_aten(
+    x: torch.Tensor,
+    topk_weights: torch.Tensor,
+    topk_ids: torch.Tensor,
+    w_gate_up: torch.Tensor,
+    w_down: torch.Tensor,
+) -> torch.Tensor:
+    """Capture-safe routed experts via index_select + bmm (no Triton).
+
+    Same shapes as ``fused_moe_routed``. Used only under ``hcStreamBeginCapture``
+    when ``INFINI_MOE_CAPTURE_SAFE=1``; eager serve keeps the Triton path.
+    """
+    t_tokens, _hidden = x.shape
+    del t_tokens, _hidden
+    top_k = int(topk_ids.shape[1])
+    acc = torch.zeros_like(x)
+    for k in range(top_k):
+        idx = topk_ids[:, k]
+        w_gu = w_gate_up.index_select(0, idx)
+        w_d = w_down.index_select(0, idx)
+        gu = torch.bmm(w_gu, x.unsqueeze(-1)).squeeze(-1)
+        gate, up = gu.chunk(2, dim=-1)
+        h = F.silu(gate) * up
+        y = torch.bmm(w_d, h.unsqueeze(-1)).squeeze(-1)
+        acc = acc + y * topk_weights[:, k].unsqueeze(-1).to(dtype=x.dtype)
+    return acc
+
+
 def moe_align_block_size(
     topk_ids: torch.Tensor,
     block_size: int,
@@ -466,6 +509,10 @@ def fused_moe_routed(
     """Unquantized bf16/fp16 routed experts (Tier-2 entrypoint).
 
     x: [T, H]; topk_*: [T, K]; w_gate_up [E, 2I, H]; w_down [E, H, I].
+
+    When ``INFINI_MOE_CAPTURE_SAFE=1`` and the stream is under
+    ``hcStreamBeginCapture``, uses aten index_select+bmm (capture-safe).
+    Otherwise uses Triton cubins (eager / host-break path).
     """
     assert_no_vllm()
     if not x.is_cuda:
@@ -474,6 +521,9 @@ def fused_moe_routed(
     assert topk_w.shape == topk_ids.shape
     assert w_gate_up.dim() == 3 and w_down.dim() == 3
     assert x.size(1) == w_gate_up.size(2) == w_down.size(1)
+
+    if _moe_capture_safe_enabled() and _under_device_stream_capture():
+        return _routed_experts_aten(x, topk_w, topk_ids, w_gate_up, w_down)
 
     num_tokens = x.size(0)
     E, N2, H = w_gate_up.shape
